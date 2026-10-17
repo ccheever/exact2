@@ -56,10 +56,18 @@ style Safe
   padding-right="env(-exact-safe-area-corners-inset-right)"
   padding-bottom="env(-exact-safe-area-corners-inset-bottom)"
   padding-left="env(-exact-safe-area-corners-inset-left)"
+// A header as the agent and the web paint it, clear of the corners; on iOS
+// it is UIKit's navigation bar
+style Head
+  padding-top="calc(env(-exact-safe-area-corners-inset-top) + 8px)"
+  padding-right="calc(env(-exact-safe-area-corners-inset-right) + 16px)"
+  padding-bottom=8
+  padding-left="calc(env(-exact-safe-area-corners-inset-left) + 16px)"
+// A heading a screen draws itself, as large as UIKit's large title on the
+// Duo's panels (28 points bold at the default text size)
 style Title
-  font-size=28
+  font="-exact-title1"
   font-weight=700
-  letter-spacing=-0.4
   padding-left=16
   padding-right=16
   padding-top=12
@@ -125,86 +133,91 @@ component DuoLab
         for t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
             for entry in t.stack key=entry.id
-              // Every screen draws its own header (the note's Back too), so it
-              // says it has no navigation bar (LLP 1115.000 D5.2); the tab bar
-              // is the platform's.
-              column navigationKey=`${entry.id}` navigationBar="none" class=Screen testId=`screen-${entry.name}`
-                if entry.name == "fold"
-                  // Two segments across: the list on the first, the detail on the
-                  // second, each inset on its own side by the safe area kept clear
-                  // of the panel's corners (LLP 1123 D10); two down
-                  // (the Duo's inner panel upright): the list on the upper, the
-                  // detail on the lower. The band belongs to neither (LLP 1078 D1,
-                  // D3); one segment stacks the panes.
-                  if twoAcross
-                    column testId="pane-list" width="env(viewport-segment-width 0 0)" height="100%" box-sizing="border-box" padding-top="env(-exact-safe-area-corners-inset-top)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" padding-left="env(-exact-safe-area-corners-inset-left)"
-                      Facts(viewport=viewport)
-                      ItemList(items=items, selected=selected, choose=choose)
-                    column testId="pane-detail" position="absolute" top=0 left="env(viewport-segment-left 1 0)" width="env(viewport-segment-width 1 0)" height="100%" box-sizing="border-box" padding-top="env(-exact-safe-area-corners-inset-top)" padding-right="env(-exact-safe-area-corners-inset-right)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" background-color="-exact-secondary-background"
-                      Detail(items=items, selected=selected)
-                  else
-                    if twoDown
-                      column testId="pane-list" width="100%" height="env(viewport-segment-height 0 0)" box-sizing="border-box" padding-top="env(-exact-safe-area-corners-inset-top)" padding-right="env(-exact-safe-area-corners-inset-right)" padding-left="env(-exact-safe-area-corners-inset-left)"
+              // Reflow and Images scroll the whole width under a header that is
+              // UIKit's navigation bar, whose large title UIKit takes away as the
+              // scroller immediately following the header moves. Fold, Combinations
+              // and the note screen draw their own headers, which move with their
+              // panes when the device folds (LLP 1115.000 D5.2).
+              if entry.name == "images"
+                column navigationKey=`${entry.id}` navigationScroll="image-list" class=Screen testId="screen-images"
+                  header class=Head
+                    text "Images" role="heading" aria-level=1 testId="images-title"
+                    text `${rows.length} rows over four pictures; fold mid-scroll.`
+                  list id="image-list" appearance="none" virtualized=true estimated-item-height=236 flex=1 min-height=0 width="100%" box-sizing="border-box" padding-left="env(-exact-safe-area-corners-inset-left)" padding-right="env(-exact-safe-area-corners-inset-right)" overflow-x="hidden" testId="image-list"
+                    for row in rows key=row.id
+                      column width="100%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=12 testId=`image-row-${row.id}`
+                        image row.asset aria-label=row.caption width="100%" height=190 border-radius=12 object-fit="cover" background-color="-exact-secondary-background"
+                        text row.caption font-size=13 padding-top=6 color="-exact-secondary-label"
+              if entry.name == "reflow"
+                column navigationKey=`${entry.id}` navigationScroll="reflow-scroll" class=Screen testId="screen-reflow"
+                  header class=Head
+                    text "Reflow" role="heading" aria-level=1 testId="reflow-title"
+                  scroll id="reflow-scroll" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-left="env(-exact-safe-area-corners-inset-left)" padding-right="env(-exact-safe-area-corners-inset-right)" testId="reflow-scroll"
+                    column width="100%" box-sizing="border-box" padding=16 gap=16
+                      text doc.body markup="markdown" testId="document" width="100%" font-size=17 line-height="26px"
+                      text "Feed" font-size=22 font-weight=700 testId="feed-title"
+                      for post in feed key=post.id
+                        row gap=10 class=Card testId=`feed-${post.id}`
+                          text post.who font-size=14 font-weight=600 flex-shrink=0 width=72
+                          text post.body font-size=14 flex=1 min-width=0
+              if entry.name != "images" and entry.name != "reflow"
+                column navigationKey=`${entry.id}` navigationBar="none" class=Screen testId=`screen-${entry.name}`
+                  if entry.name == "fold"
+                    // Two segments across: the list on the first, the detail on the
+                    // second, each inset on its own side by the safe area kept clear
+                    // of the panel's corners (LLP 1123 D10); two down
+                    // (the Duo's inner panel upright): the list on the upper, the
+                    // detail on the lower. The band belongs to neither (LLP 1078 D1,
+                    // D3); one segment stacks the panes.
+                    if twoAcross
+                      column testId="pane-list" width="env(viewport-segment-width 0 0)" height="100%" box-sizing="border-box" padding-top="env(-exact-safe-area-corners-inset-top)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" padding-left="env(-exact-safe-area-corners-inset-left)"
                         Facts(viewport=viewport)
                         ItemList(items=items, selected=selected, choose=choose)
-                      column testId="pane-detail" position="absolute" left=0 top="env(viewport-segment-top 0 1)" width="100%" height="env(viewport-segment-height 0 1)" box-sizing="border-box" padding-right="env(-exact-safe-area-corners-inset-right)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" padding-left="env(-exact-safe-area-corners-inset-left)" background-color="-exact-secondary-background"
+                      column testId="pane-detail" position="absolute" top=0 left="env(viewport-segment-left 1 0)" width="env(viewport-segment-width 1 0)" height="100%" box-sizing="border-box" padding-top="env(-exact-safe-area-corners-inset-top)" padding-right="env(-exact-safe-area-corners-inset-right)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" background-color="-exact-secondary-background"
                         Detail(items=items, selected=selected)
                     else
-                      column testId="pane-list" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-top="env(-exact-safe-area-corners-inset-top)" padding-right="env(-exact-safe-area-corners-inset-right)" padding-left="env(-exact-safe-area-corners-inset-left)"
-                        Facts(viewport=viewport)
-                        ItemList(items=items, selected=selected, choose=choose)
-                      column testId="pane-detail" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-right="env(-exact-safe-area-corners-inset-right)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" padding-left="env(-exact-safe-area-corners-inset-left)" background-color="-exact-secondary-background"
-                        Detail(items=items, selected=selected)
-                if entry.name == "images"
-                  column flex=1 min-height=0 width="100%" class=Safe
-                    text "Images" class=Title testId="images-title"
-                    text `${rows.length} rows over four pictures; fold mid-scroll.` class=Note
-                    list appearance="none" virtualized=true estimated-item-height=236 flex=1 min-height=0 width="100%" overflow-x="hidden" testId="image-list"
-                      for row in rows key=row.id
-                        column width="100%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=12 testId=`image-row-${row.id}`
-                          image row.asset aria-label=row.caption width="100%" height=190 border-radius=12 object-fit="cover" background-color="-exact-secondary-background"
-                          text row.caption font-size=13 padding-top=6 color="-exact-secondary-label"
-                if entry.name == "reflow"
-                  column flex=1 min-height=0 width="100%" class=Safe
-                    text "Reflow" class=Title testId="reflow-title"
-                    scroll flex=1 min-height=0 width="100%" testId="reflow-scroll"
-                      column width="100%" box-sizing="border-box" padding=16 gap=16
-                        text doc.body markup="markdown" testId="document" width="100%" font-size=17 line-height="26px"
-                        text "Feed" font-size=22 font-weight=700 testId="feed-title"
-                        for post in feed key=post.id
-                          row gap=10 class=Card testId=`feed-${post.id}`
-                            text post.who font-size=14 font-weight=600 flex-shrink=0 width=72
-                            text post.body font-size=14 flex=1 min-width=0
-                // Folded like a book (two segments across), Combinations and the note
-                // screen, one pane each, take the trailing segment, off the hinge: the
-                // default docs/recipes/foldables.md chooses, as Apple's talk moves an
-                // alert there, under the outer display as the device closes. Segment 0
-                // instead keeps them on the leading side, where UIKit's sheets go on iOS 27.1.
-                if entry.name == "combos"
-                  column flex=1 min-height=0 margin-left=(twoAcross ? "env(viewport-segment-left 1 0)" : "0px") width=(twoAcross ? "env(viewport-segment-width 1 0)" : "100%") class=Safe padding-left=(twoAcross ? "0px" : "env(-exact-safe-area-corners-inset-left)")
-                    text "Combinations" class=Title testId="combos-title"
-                    text "Push a screen, open its sheet, raise the keyboard, then fold." class=Note
-                    column padding=16 gap=12
-                      button press=openNote testId="open-note" padding=14 border-radius=10 background-color="AccentColor"
-                        text "Push the note screen" font-size=16 font-weight=600 color="AccentColorText"
-                      text `Draft so far: ${title == "" and draft == "" ? "(nothing)" : title + " / " + draft}` testId="draft-echo" font-size=14 color="-exact-secondary-label"
-                if entry.name == "note"
-                  column flex=1 min-height=0 margin-left=(twoAcross ? "env(viewport-segment-left 1 0)" : "0px") width=(twoAcross ? "env(viewport-segment-width 1 0)" : "100%") class=Safe padding-left=(twoAcross ? "0px" : "env(-exact-safe-area-corners-inset-left)")
-                    row align-items="center" gap=12 padding-left=16 padding-right=16 padding-top=12
-                      button press=back testId="note-back" padding=8 border-radius=8 background-color="-exact-tertiary-fill"
-                        text "Back" font-size=14 font-weight=600 color="AccentColor"
-                      text "Note" font-size=20 font-weight=700 testId="note-title"
-                    text "A pushed route. The sheet below holds a textarea; its keyboard shortens the viewport (resizes-content)." class=Note padding-top=8
-                  column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=(twoAcross ? "env(viewport-segment-left 1 0)" : "0px") right=0 height=sheetPx max-height="calc(100% - 72px)" box-sizing="border-box" padding=16 padding-right="calc(env(-exact-safe-area-corners-inset-right) + 16px)" padding-bottom="calc(env(-exact-safe-area-corners-inset-bottom) + 16px)" padding-left=(twoAcross ? "16px" : "calc(env(-exact-safe-area-corners-inset-left) + 16px)") gap=12 background-color="-exact-secondary-background" border-top-left-radius=20 border-top-right-radius=20 transition="height -exact-spring(300, 30, 1)"
-                    column heightDragFor="note-sheet" heightrelease=snapSheet touch-action="none" testId="sheet-handle" aria-label="Resize the note sheet" gap=3
-                      text "Note" font-size=18 font-weight=600
-                      text "Drag to resize" font-size=11 color="-exact-secondary-label"
-                    row gap=12 align-items="center"
-                      button press=dismiss testId="note-dismiss" padding=10 border-radius=8 background-color="-exact-tertiary-fill"
-                        text "Dismiss the keyboard" font-size=14 font-weight=600
-                      text (noteFocused ? "editing" : "idle") testId="note-state" font-size=13 color="-exact-secondary-label"
-                    input appearance="none" value=title input=writeTitle focus=focusIn blur=focusOut placeholder="Title" testId="note-title-input" aria-label="Title" width="100%" box-sizing="border-box" padding=10 border-width=1 border-style="solid" border-color="-exact-separator" border-radius=10 font-size=16
-                    textarea appearance="none" value=draft input=write focus=focusIn blur=focusOut placeholder="Write, then fold" testId="note-textarea" aria-label="Note" width="100%" min-height=96 box-sizing="border-box" padding=12 border-width=1 border-style="solid" border-color="-exact-separator" border-radius=10 font-size=16 line-height="22px"
+                      if twoDown
+                        column testId="pane-list" width="100%" height="env(viewport-segment-height 0 0)" box-sizing="border-box" padding-top="env(-exact-safe-area-corners-inset-top)" padding-right="env(-exact-safe-area-corners-inset-right)" padding-left="env(-exact-safe-area-corners-inset-left)"
+                          Facts(viewport=viewport)
+                          ItemList(items=items, selected=selected, choose=choose)
+                        column testId="pane-detail" position="absolute" left=0 top="env(viewport-segment-top 0 1)" width="100%" height="env(viewport-segment-height 0 1)" box-sizing="border-box" padding-right="env(-exact-safe-area-corners-inset-right)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" padding-left="env(-exact-safe-area-corners-inset-left)" background-color="-exact-secondary-background"
+                          Detail(items=items, selected=selected)
+                      else
+                        column testId="pane-list" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-top="env(-exact-safe-area-corners-inset-top)" padding-right="env(-exact-safe-area-corners-inset-right)" padding-left="env(-exact-safe-area-corners-inset-left)"
+                          Facts(viewport=viewport)
+                          ItemList(items=items, selected=selected, choose=choose)
+                        column testId="pane-detail" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-right="env(-exact-safe-area-corners-inset-right)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" padding-left="env(-exact-safe-area-corners-inset-left)" background-color="-exact-secondary-background"
+                          Detail(items=items, selected=selected)
+                  // Folded like a book (two segments across), Combinations and the note
+                  // screen, one pane each, take the trailing segment, off the hinge: the
+                  // default docs/recipes/foldables.md chooses, as Apple's talk moves an
+                  // alert there, under the outer display as the device closes. Segment 0
+                  // instead keeps them on the leading side, where UIKit's sheets go on iOS 27.1.
+                  if entry.name == "combos"
+                    column flex=1 min-height=0 margin-left=(twoAcross ? "env(viewport-segment-left 1 0)" : "0px") width=(twoAcross ? "env(viewport-segment-width 1 0)" : "100%") class=Safe padding-left=(twoAcross ? "0px" : "env(-exact-safe-area-corners-inset-left)")
+                      text "Combinations" class=Title testId="combos-title"
+                      text "Push a screen, open its sheet, raise the keyboard, then fold." class=Note
+                      column padding=16 gap=12
+                        button press=openNote testId="open-note" padding=14 border-radius=10 background-color="AccentColor"
+                          text "Push the note screen" font-size=16 font-weight=600 color="AccentColorText"
+                        text `Draft so far: ${title == "" and draft == "" ? "(nothing)" : title + " / " + draft}` testId="draft-echo" font-size=14 color="-exact-secondary-label"
+                  if entry.name == "note"
+                    column flex=1 min-height=0 margin-left=(twoAcross ? "env(viewport-segment-left 1 0)" : "0px") width=(twoAcross ? "env(viewport-segment-width 1 0)" : "100%") class=Safe padding-left=(twoAcross ? "0px" : "env(-exact-safe-area-corners-inset-left)")
+                      row align-items="center" gap=12 padding-left=16 padding-right=16 padding-top=12
+                        button press=back testId="note-back" padding=8 border-radius=8 background-color="-exact-tertiary-fill"
+                          text "Back" font-size=14 font-weight=600 color="AccentColor"
+                        text "Note" font-size=20 font-weight=700 testId="note-title"
+                      text "A pushed route. The sheet below holds a textarea; its keyboard shortens the viewport (resizes-content)." class=Note padding-top=8
+                    column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=(twoAcross ? "env(viewport-segment-left 1 0)" : "0px") right=0 height=sheetPx max-height="calc(100% - 72px)" box-sizing="border-box" padding=16 padding-right="calc(env(-exact-safe-area-corners-inset-right) + 16px)" padding-bottom="calc(env(-exact-safe-area-corners-inset-bottom) + 16px)" padding-left=(twoAcross ? "16px" : "calc(env(-exact-safe-area-corners-inset-left) + 16px)") gap=12 background-color="-exact-secondary-background" border-top-left-radius=20 border-top-right-radius=20 transition="height -exact-spring(300, 30, 1)"
+                      column heightDragFor="note-sheet" heightrelease=snapSheet touch-action="none" testId="sheet-handle" aria-label="Resize the note sheet" gap=3
+                        text "Note" font-size=18 font-weight=600
+                        text "Drag to resize" font-size=11 color="-exact-secondary-label"
+                      row gap=12 align-items="center"
+                        button press=dismiss testId="note-dismiss" padding=10 border-radius=8 background-color="-exact-tertiary-fill"
+                          text "Dismiss the keyboard" font-size=14 font-weight=600
+                        text (noteFocused ? "editing" : "idle") testId="note-state" font-size=13 color="-exact-secondary-label"
+                      input appearance="none" value=title input=writeTitle focus=focusIn blur=focusOut placeholder="Title" testId="note-title-input" aria-label="Title" width="100%" box-sizing="border-box" padding=10 border-width=1 border-style="solid" border-color="-exact-separator" border-radius=10 font-size=16
+                      textarea appearance="none" value=draft input=write focus=focusIn blur=focusOut placeholder="Write, then fold" testId="note-textarea" aria-label="Note" width="100%" min-height=96 box-sizing="border-box" padding=12 border-width=1 border-style="solid" border-color="-exact-separator" border-radius=10 font-size=16 line-height="22px"
       row role="tablist" testId="tab-bar"
         button role="tab" aria-controls="panel-fold" aria-selected=(nav.tab == "fold") press=selectTab("fold") testId="tab-fold" flex=1
           image "symbol:book"
@@ -225,7 +238,7 @@ component Facts
     viewport: Viewport
   view
     column padding-left=16 padding-right=16 padding-top=12 gap=2
-      text "Fold" font-size=28 font-weight=700 letter-spacing=-0.4 testId="fold-title"
+      text "Fold" class=Title padding=0 testId="fold-title"
       row gap=8 align-items="baseline"
         text "device-posture" class=Note padding=0
         text viewport.devicePosture class=Fact testId="fact-posture"
