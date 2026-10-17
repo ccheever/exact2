@@ -136,7 +136,10 @@ pub fn refusal(name: &str) -> Option<String> {
         "sort" | "sortBy" | "toSorted" | "reverse" | "toReversed" => format!(
             "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`): order the list in the data source and name the order where the view reads it (`resource tasks = loadTasksByDueDate()`)"
         ),
-        "reduce" | "reduceRight" | "findLast" | "flatMap" | "flat" | "forEach" => format!(
+        "reduce" | "reduceRight" => format!(
+            "`{name}` is refused (LLP 1017.003): a total is `sum(xs)`, or `sum(xs.map(x => …))` over a field; compute any other fold in the data source and hand the view the result"
+        ),
+        "findLast" | "flatMap" | "flat" | "forEach" => format!(
             "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`); compute it in the data source and hand the view the result, as the crypto port keeps `lo` and `hi` beside its series"
         ),
         // @ref LLP 1088 D7.4 — the web's string and list spellings an agent
@@ -146,7 +149,7 @@ pub fn refusal(name: &str) -> Option<String> {
         ),
         // @ref LLP 1116.016 D5 — each edit means what the refused form did, or says what differs.
         "localeCompare" => "Contract has no locale order (it would differ by device): `a < b` compares by UTF-16 code unit, as TypeScript's `<` does; an order for people to read is the data source's".into(),
-        "floor" | "ceil" | "round" => format!(
+        "floor" | "ceil" | "round" | "sin" | "cos" => format!(
             "write `{name}(n)`: `Math.{name}(n)`, written as a function"
         ),
         "String" => "write `x.toString()`, or a template, `` `${x}` ``".into(),

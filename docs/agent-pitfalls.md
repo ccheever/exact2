@@ -503,6 +503,10 @@ screen, 2026-10-16.)
   left to the platform floats inset with the display's corners. Fix:
   `sheetAllowedDetents: [0.45]` is `navigationDetent="45%"`, `[1.0]` is `"large"`; and
   `sheetCornerRadius: 40` is `border-radius=40` on the route.
+- **A sheet's content measures 0.96 of its authored size.** Not a bug: on iOS 26 a sheet
+  resting below `large` floats, and UIKit draws its whole content scaled (402 pt laid out,
+  386 drawn), the original's too. `layout` and `compare` say so (`route 3 is a sheet the
+  platform draws at 0.96 …`); leave it, and never `scale` to undo it.
 - **Slider rows are shorter than the original's.** Cause: React Native's `height: 28` on
   an `@expo/ui` slider did not bound the SwiftUI slider it hosts, which took about 32
   points; `height=28` on a ported `input type="range"` is 28. Fix: write the height the
@@ -532,11 +536,23 @@ screen, 2026-10-16.)
   `accent-color` is the window's tint, which alerts take), and `color` on a header's
   buttons. (`hintTextColor` on `Stack.SearchBar` is Android's only; react-native-screens'
   iOS search bar ignores it.)
+- **A glyph sits at the left of its round button.** euxy's clear and dice glyphs and its
+  BPM − and + sat 10 points left of centre in buttons with `align-items="center"
+  justify-content="center"`. Cause: every React Native `View` is a flex container; a
+  `button` is `inline-block` and a `view` is `block`, as on the web, so those two do
+  nothing there (a button centres its content vertically on its own, as browsers do).
+  Fix: `display="flex"` on the button or view.
+- **A control sits at the top of its row.** euxy's Metronome segments, in a 52-point row
+  with `align-items="center"`. Cause: the original's `Segmented` carried `alignSelf:
+  'flex-start'`, and it centred only because the original wrapped it in a plain `View`,
+  which the port dropped as noise. Fix: keep the wrapper (`view`), or drop the
+  `align-self`.
 - **A sheet's form stops 34 points short of the original's at its end.** Cause: React
   Native's `ScrollView` defaults `contentInsetAdjustmentBehavior` to `never`, so its last
   row scrolls under the home indicator. Exact sets a route's last scroller, and a dialog
   sheet's outer one, to UIKit's `always`, so it rests above the indicator as a hand-built
-  table view in a sheet does (LLP 1116 D2). That is the platform's: keep it.
+  table view in a sheet does (LLP 1116 D2). That is the platform's: keep it. (euxy's UIKit
+  port matched the original only by setting `.never` on that scroll view by hand.)
 
 ## Actions
 
@@ -1089,8 +1105,9 @@ screen, 2026-10-16.)
   the app's files are there.** Cause: without `--storage <name>` every
   `storage.fs` call in the data module throws "storage is unavailable in agent
   mode…", and a module that catches a missing config file falls back silently,
-  as it would on a fresh install (the drive notes a refused write, `note: a data
-  source's write was refused`, once: in the input's reply, else at its end).
+  as it would on a fresh install (the drive says so once, after the first op that
+  met a refusal, a screenshot too: `note: this drive names no --storage, so the
+  app's storage was refused …`).
   The installed app's own files are not the drive's: a named scratch store lives
   apart (on iOS under `Library/Caches/exact/<app id>/agent/<name>/data`). Fix:
   `--storage <name>`, and copy the files the drive needs (a config, a saved
@@ -1415,8 +1432,11 @@ screen, 2026-10-16.)
 The first valid target keeps ownership until it has no valid binding (LLP 1071).
 Several handles may name that target, but another target cannot take over while
 it remains valid. In a gallery, mount the handle for the current page; do not
-leave a binding on every page or list row. Keep `transformDragFor` literal on the
-JS target: computed target strings are not resolved. The runtime journal names
+leave a binding on every page or list row. The JS target resolves `transformDragFor`,
+`heightDragFor` and `reorderFor` after each commit against current ancestor IDs.
+Each binding must name exactly one strict ancestor; self, siblings and duplicate
+matching ancestors do not qualify. Changing the binding or ancestor ID cancels a
+drag whose target is no longer valid. The runtime journal names
 each passed-over target view and the owner once, then reports it again only after
 its valid bindings disappear and return. Read it with
 `bun scripts/agent.mjs web logs` (or the native host).

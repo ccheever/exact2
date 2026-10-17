@@ -202,10 +202,9 @@ fn apple_symbol(node: &NodeRef<'_>) -> Option<String> {
         .props
         .str(PropId::ImageSource)?
         .strip_prefix("symbol:")?;
-    Some(match role.strip_prefix("sf/") {
-        Some(name) => name.to_owned(),
-        None => crate::generated::symbol(role)?.0.to_owned(),
-    })
+    // An icon token's SF Symbol too (LLP 1121 D10).
+    let name = crate::apple_symbol_name(role);
+    (!name.is_empty() || role.starts_with("sf/")).then(|| name.to_owned())
 }
 
 /// A text node's text, its white space collapsed as its `white-space` has

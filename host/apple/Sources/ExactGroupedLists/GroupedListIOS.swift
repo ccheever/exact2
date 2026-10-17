@@ -312,7 +312,9 @@ final class GroupedListHost: GroupedLists {
         #else
         let part = control == nil ? "cell" : control is UISwitch ? "switch" : "detail"
         #endif
-        return ["row": Int(row), "part": part]
+        var found: [String: Any] = ["row": Int(row), "part": part]
+        if control != nil, let target = cell.target { found["target"] = Int(target) }
+        return found
     }
 
     /// The agent's `tap` on a row UIKit draws: the cell's own selection, as a
@@ -804,6 +806,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     private func configure(_ cell: GroupedCell, _ id: UInt32) {
         cell.row = id
+        cell.target = rows[id]?.target
         guard let row = rows[id] else { return }
         interact(cell, id)
         // A card-less section's rows sit on the list's background; a
@@ -1178,6 +1181,8 @@ extension UICollectionViewListCell {
 /// A list cell; a custom row's is as tall as its carried views.
 final class GroupedCell: UICollectionViewListCell {
     var row: UInt32?
+    /// The node of its row's switch or detail button.
+    var target: UInt32?
     var height: CGFloat?
     #if os(iOS)
     /// A touch its row leaves to no control goes to the row's one field: the

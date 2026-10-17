@@ -1533,7 +1533,8 @@ lower to existing side rows, including `inset`, `dotted` and `dashed` under
 §1's border semantics and raster deviation; other line styles are diagnosed.
 The one-to-four-value box shorthands (`padding`, `margin`, `inset`,
 `border-width`, `border-style`, `border-color`, `scroll-padding`,
-`scroll-margin`, `border-radius`) lower a literal, or each literal arm of a
+`scroll-margin`, `border-radius`), and the two-value `gap` (row, column),
+`overflow` and `overscroll-behavior` (x, y), lower a literal, or each literal arm of a
 choice, to its side rows, split at CSS white space (space, tab, LF, CR, FF)
 outside parentheses as CSS expands the shorthand
 (`exact_kernel::style::sides`); a literal `/` radius is refused by name. A

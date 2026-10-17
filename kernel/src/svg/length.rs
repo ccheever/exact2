@@ -19,6 +19,18 @@ impl Length {
     /// Zero user units.
     pub const ZERO: Length = Length::Units(0.0);
 
+    /// Absolute unit spellings and their scales in user units. The empty
+    /// spelling is unitless; percentages are parsed separately.
+    pub const ABSOLUTE_UNITS: &'static [(&'static str, f32)] = &[
+        ("", 1.0),
+        ("px", 1.0),
+        ("in", 96.0),
+        ("cm", 96.0 / 2.54),
+        ("mm", 96.0 / 25.4),
+        ("pt", 96.0 / 72.0),
+        ("pc", 16.0),
+    ];
+
     /// A number with an optional unit: none or `px` (user units), `in`,
     /// `cm`, `mm`, `pt`, `pc`, or `%`. `None` for anything else (`em`,
     /// `ex`, the viewport units are refused until a consumer needs them).
@@ -33,15 +45,9 @@ impl Length {
         // An exponent's `e` is part of the number; a unit starting with `e`
         // (`em`, `ex`) is not admitted, so `e` is only ever an exponent.
         let (n, unit) = t.split_at(split);
-        let scale = match unit.to_ascii_lowercase().as_str() {
-            "" | "px" => 1.0,
-            "in" => 96.0,
-            "cm" => 96.0 / 2.54,
-            "mm" => 96.0 / 25.4,
-            "pt" => 96.0 / 72.0,
-            "pc" => 16.0,
-            _ => return None,
-        };
+        let (_, scale) = Self::ABSOLUTE_UNITS
+            .iter()
+            .find(|(name, _)| unit.eq_ignore_ascii_case(name))?;
         number(n).map(|v| Length::Units(v * scale))
     }
 

@@ -1031,21 +1031,21 @@ export function mh(e, f) {
   onEnd(() => motion(m => m.gone(id)));
   effect(() => { const v = f(); motion(m => m.height(id, v)); });
 }
-/** `heightrelease`: motion-glue's height drag on the handle, holding `t`. */
-export function onHeight(e, f, t) { e.$heightrelease = f; motion(m => m.heightDrag(e, t)); }
+/** `heightrelease`: motion-glue's height drag on the handle's named ancestor. */
+export function onHeight(e, f) { e.$heightrelease = f; onEnd(() => motion(m => m.gone(viewId(e)))); motion(m => m.heightDrag(e)); }
 /** `transformgeometry`: the pair's geometry, the page's observation. */
 export function onTGeom(e, f) { e.$tgeom = f; }
 /** `transformrelease`: motion-glue's transform drag on the handle, holding
- * target `t`'s translate and scale inside its clip `c` (LLP 1057.001 §4). */
-export function onTRelease(e, f, t, c) { e.$trelease = f; motion(m => m.transformDrag(e, t, c)); }
-/** A `reorderFor` grip on list `l` (the strict ancestor it names), and a
+ * its named ancestor's translate and scale inside its parent clip (LLP 1057.001 §4). */
+export function onTRelease(e, f) { e.$trelease = f; onEnd(() => motion(m => m.gone(viewId(e)))); motion(m => m.transformDrag(e)); }
+/** A `reorderFor` grip on the strict ancestor it names, and a
  * virtualized list's `reorderdrop`: Arrange, motion-glue's reorder drag
  * over the list's preview (list.js) and the motion piece (arrange.js). The
  * grip names its view (`data-view`): the list's browser half pins the row
  * a contact on it holds by that name (collection-glue.js `liveView`). */
-export function onReorder(e, l) {
+export function onReorder(e) {
   const id = viewId(e);
-  e.$reorderList = l; e.dataset.view = id;
+  e.dataset.view = id;
   onEnd(() => motion(m => m.gone(id)));
   motion(m => m.reorderHandle(e));
 }

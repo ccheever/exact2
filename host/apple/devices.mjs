@@ -6,7 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { homedir, networkInterfaces, tmpdir } from 'node:os';
 import { createServer as createTCPServer } from 'node:net';
 import { resolve } from 'node:path';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
@@ -28,39 +28,112 @@ export function useXcode() {
 }
 const read = (cmd, args, opts = {}) => { useXcode(); return spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts }); };
 
-/** A window capture the app drew (`path`, in `r`'s scale) with what other processes draw on the display put in from
- *  the simulator's own screenshot: the software keyboard, from its top (`r.keyboard.windowTop`) down (round 9: "blank
- *  keyboard region"), and the status bar, its top `r.statusBar` points (the euxy port, FRICTION 5: a window capture
- *  then compares with a `simctl io` reference, as the device shows it — `xcrun simctl status_bar <udid> override
- *  --time 9:41` sets what it shows). Only those rows are taken, so the picture stays the app's; what could not be
- *  done is said in `note`, and the picture is left as it was. Returns `r`. */
-export function withDisplay(r, path, udid) {
+/** A window capture the app drew (`path`, in `r`'s scale), its pixels then the simulator's own screenshot's, as a
+ *  device screenshot has them: `drawHierarchy` draws Liquid Glass and the other backdrop materials only roughly (a tab
+ *  bar's glass left the rows under it legible, an alert's the list behind it: the euxy port's judged captures), and the
+ *  software keyboard (round 9: "blank keyboard region") and the status bar are other processes' pixels. The rows of the
+ *  status bar, its top `appTop` points, stay the app's when the caller did not ask for it (`r.statusBar` unset; with it
+ *  set, `xcrun simctl status_bar <udid> override --time 9:41` sets what it shows).
+ *
+ *  Nothing of the display is read unless the app said it was in front (`r.front`: active, its scene in front, its
+ *  window key), and nothing is taken unless `probe`, the app asked again after the reads, answers that it still is, at
+ *  the same epoch, incarnation and clock. The display is read three times, the last `gap` ms after the second, so a
+ *  caret's blink cannot fall in all three. The whole display is taken when the three agree below the status bar,
+ *  UIKit's motion had settled (no `r.moving`), and at the points the app named (`r.opaque`: drawn by the app itself,
+ *  no glass, keyboard or status bar there) the display shows what the app drew, so no notification banner or other
+ *  overlay lies over it. Otherwise, as for a capture the agent marked (`r.unshown`, struck-through header nodes) or
+ *  asked to keep (`own`), the picture stays the app's, with only the status bar's rows and the keyboard's band, from its
+ *  top (`r.keyboard.windowTop`) down, taken where all three reads agree on them. The caller holds the simulator's
+ *  display (`simulatorDisplay`), so no other drive's launch comes in between. `r.pixels` says which (`display` or
+ *  `app`, `r.pixelsWhy` why); what could not be done is said in `note`. Returns `r`. */
+export async function withDisplay(r, path, udid, appTop = 0, { own = false, probe = null, gap = 400 } = {}) {
   const top = r.keyboard?.windowTop, bar = r.statusBar, scale = r.scale, keyboard = top != null;
-  const fail = (why) => {
+  const approximate = (why) => `the picture is the app's own drawing, not the display's (${why}): glass and other backdrop materials in it are approximate`;
+  const say = (note) => { r.note = r.note ? `${r.note}; ${note}` : note; };
+  // The app's picture as it was: none of the display in it.
+  const keep = (why) => {
     if (bar > 0) r.statusBar = false;
-    r.note = r.keyboard?.visible ? `the software keyboard is up: it is not in the capture (${why}), and the app above it may be shortened (state shows keyboard.top)` : `the status bar is not in the capture (${why})`;
+    r.pixels = 'app'; r.pixelsWhy = why;
+    if (r.keyboard?.visible) r.note = `the software keyboard is up: it is not in the capture (${why}), and the app above it may be shortened (state shows keyboard.top)`;
+    else if (bar > 0) r.note = `the status bar is not in the capture (${why})`;
+    else if (!own) say(approximate(why));
     return r;
   };
-  if (keyboard ? !(top >= 0) : r.keyboard?.visible && !(bar > 0)) return fail('no keyboard top');
-  if (!(scale > 0)) return fail('no scale');
+  if (!(scale > 0)) return keep('no scale');
+  const front = (said) => said === true ? null : typeof said === 'string' ? said : 'the app did not say it was in front';
+  const away = front(r.front);
+  if (away) return keep(away);
+  let why = own ? 'asked for the app\'s own drawing' : r.unshown?.length > 0 ? 'header nodes are struck through in it'
+    : r.moving ? 'UIKit\'s motion had not settled' : null;
+  if (why && !(bar > 0) && !keyboard) return keep(why);
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-kb-'));
   try {
-    const shot = resolve(dir, 'display.png');
-    const taken = read('xcrun', ['simctl', 'io', udid, 'screenshot', '--type=png', shot], { timeout: 20000 });
-    if (taken.status !== 0 || !existsSync(shot)) return fail(`simctl io screenshot: ${(taken.stderr || '').trim().split('\n').pop() || 'failed'}`);
-    const app = decodePng(readFileSync(path)), display = decodePng(readFileSync(shot));
-    if (app.width !== display.width || app.height !== display.height) return fail(`the display is ${display.width}x${display.height}, the capture ${app.width}x${app.height}`);
+    const capture = (name) => {
+      const shot = resolve(dir, name);
+      const taken = read('xcrun', ['simctl', 'io', udid, 'screenshot', '--type=png', shot], { timeout: 20000 });
+      if (taken.status !== 0 || !existsSync(shot)) throw new Error(`simctl io screenshot: ${(taken.stderr || '').trim().split('\n').pop() || 'failed'}`);
+      return decodePng(readFileSync(shot));
+    };
+    const display = capture('display.png'), app = decodePng(readFileSync(path));
+    if (app.width !== display.width || app.height !== display.height) return keep(`the display is ${display.width}x${display.height}, the capture ${app.width}x${app.height}`);
+    const again = capture('again.png');
+    await new Promise((done) => setTimeout(done, gap));
+    const last = capture('last.png');
+    const after = probe ? await probe() : { front: 'the app was not asked again' };
+    const gone = front(after.front) ?? (['epoch', 'incarnation', 'clock'].some((k) => after[k] !== r[k]) ? 'the app changed while the display was read' : null);
+    if (gone) return keep(gone);
     const row = (points) => Math.max(0, Math.min(app.height, Math.round(points * scale))) * app.width * 4;
-    if (bar > 0) { app.data.set(display.data.subarray(0, row(bar)), 0); r.statusBar = true; }
-    if (keyboard) app.data.set(display.data.subarray(row(top)), row(top));
+    const agree = (from, to) => [again, last].every((d) => Buffer.compare(display.data.subarray(from, to), d.data.subarray(from, to)) === 0);
+    const from = row(bar > 0 ? 0 : appTop);
+    if (!why && !agree(row(bar > 0 ? bar : appTop))) why = 'the display changed while it was read';
+    if (!why) why = covered(r.opaque, app, display, scale);
+    if (!why) app.data.set(display.data.subarray(from), from);
+    if (why && bar > 0 && agree(0, row(bar))) app.data.set(display.data.subarray(0, row(bar)), 0);
+    else if (why && bar > 0) r.statusBar = false;
+    const band = keyboard && (!why || agree(row(top)));
+    if (why && band) app.data.set(display.data.subarray(row(top)), row(top));
+    if (bar > 0 && r.statusBar !== false) r.statusBar = true;
     writeFileSync(path, encodePng(app));
-    if (keyboard) {
+    r.pixels = why ? 'app' : 'display';
+    if (why) r.pixelsWhy = why;
+    if (band || (!why && r.keyboard?.visible)) {
       r.keyboard.captured = true;
-      r.note = 'the software keyboard is up and in the capture from keyboard.top down, as the simulator draws it; the app above it is shortened';
-    }
+      r.note = `the software keyboard is up and in the capture${why ? ' from keyboard.top down' : ''}, as the simulator draws it; the app above it is shortened`;
+    } else if (r.keyboard?.visible) r.note = `the software keyboard is up: it is not in the capture (${why}), and the app above it may be shortened (state shows keyboard.top)`;
+    if (why && !own) say(approximate(why));
     return r;
-  } catch (e) { return fail(String(e.message ?? e).split('\n')[0]); }
+  } catch (e) { return keep(String(e.message ?? e).split('\n')[0]); }
   finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+/** Why the display is not the app's at the points the app drew itself (`points`, window points), or null: around a
+ *  point whose 5x5 pixels the app drew in one colour (no edge of text or shape) the display's must be within 2 levels of
+ *  it, as they are exactly where nothing lies over the app (measured on the euxy port, light and dark). A notification
+ *  banner's frosted material, 3 or 4 levels off a light page, changes such points; more than 1% of them, or 3, refuse. */
+function covered(points, app, display, scale) {
+  if (!Array.isArray(points) || points.length === 0) return 'the app named no points to check the display against';
+  const at = (png, x, y) => (y * png.width + x) * 4;
+  let checked = 0, differing = 0;
+  for (const [px, py] of points) {
+    const x = Math.round(px * scale), y = Math.round(py * scale);
+    if (x < 2 || y < 2 || x >= app.width - 2 || y >= app.height - 2) continue;
+    const c = at(app, x, y);
+    let flat = true;
+    for (let dy = -2; dy <= 2 && flat; dy++) for (let dx = -2; dx <= 2 && flat; dx++) {
+      const o = at(app, x + dx, y + dy);
+      for (let k = 0; k < 3; k++) if (app.data[o + k] !== app.data[c + k]) flat = false;
+    }
+    if (!flat) continue;
+    checked++;
+    let differs = false;
+    for (let dy = -2; dy <= 2 && !differs; dy++) for (let dx = -2; dx <= 2 && !differs; dx++) {
+      const o = at(display, x + dx, y + dy);
+      for (let k = 0; k < 3; k++) if (Math.abs(display.data[o + k] - app.data[c + k]) > 2) differs = true;
+    }
+    if (differs) differing++;
+  }
+  if (checked === 0) return 'none of the points the app named is a plain colour to check the display against';
+  return differing > Math.max(2, checked / 100) ? `the display differs from the app's drawing at ${differing} of ${checked} plain points (a notification banner or another overlay)` : null;
 }
 
 /** Every available simulator: { udid, name, runtime, state, type } — `type`
@@ -74,7 +147,9 @@ export function simulators() {
 
 /** The simulator to use — `pick` (a udid or a name; EXACT_SIM by default), else the one booted iPhone, else the iPhone Pro on the newest iOS — booted and waited for. When several are booted, the one `app` (a bundle id) is installed on, said on stderr; refused when that is none or several, naming how to choose: `hint`, the caller's own way. With `tv`, the same choice among Apple TVs on tvOS. An iPhone is one by its device type, not its name: a simulator renamed `work-phone` is still one. */
 const saidSimulator = new Set(); // a verify opens a dozen sessions: the choice is said once
-export function simulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EXACT_SIM=<udid|name>', app } = {}) {
+export function simulator(pick = process.env.EXACT_SIM, options = {}) { return bootSimulator(chooseSimulator(pick, options)); }
+/** `simulator`'s choice, booting nothing: what a drive locks before it launches (agent.mjs `resolveDevice`). */
+export function chooseSimulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EXACT_SIM=<udid|name>', app } = {}) {
   const all = simulators();
   const version = (d) => Number(/(?:iOS|tvOS)-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
   const kind = (d) => d.type || d.name.replaceAll(' ', '-');
@@ -98,13 +173,17 @@ export function simulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EX
   }
   dev ??= booted[0] ?? iphones.find((d) => /^iPhone-\d+-Pro$/.test(kind(d))) ?? iphones[0];
   if (!dev) throw new Error(`no ${tv ? 'Apple TV' : 'iPhone'} simulator on ${tv ? 'tvOS' : 'iOS'}; add one in Xcode, or name any simulator by udid or name with EXACT_SIM (or --sim)`);
+  return dev;
+}
+/** `dev` booted and waited for; `bootedHere` when this call booted it, not when another process had just done so. */
+function bootSimulator(dev) {
   // Booted is a boot finished (Booting is its own state): only another waits, which costs a booted one 0.2–0.5 s.
   if (dev.state === 'Booted') return dev;
   const b = read('xcrun', ['simctl', 'boot', dev.udid]);
   if (b.status !== 0 && !/current state: Booted/.test(b.stderr)) throw new Error('simctl boot: ' + b.stderr);
   const s = read('xcrun', ['simctl', 'bootstatus', dev.udid, '-b']);
   if (s.status !== 0) throw new Error('simctl bootstatus: ' + s.stderr);
-  return dev;
+  return b.status === 0 ? { ...dev, bootedHere: true } : dev;
 }
 
 /** Bring Simulator.app up showing `dev`, so a person watching sees what is
@@ -135,6 +214,48 @@ export function installedAlready(udid, id, bundle, executable) {
   } catch { return false; }
 }
 
+/** A simulator's software keyboard for a drive: shown for a focused field, as a person's iPhone shows it. Once a Device
+ *  Hub has attached the Mac's keyboard, the device keeps `com.apple.keyboard.preferences` `AutomaticMinimizationEnabled
+ *  = 1` and minimizes its software keyboard behind it (LLP 1078, "The pushed route's keyboard, found"). Read and
+ *  changed through the device's own `defaults` (`simctl spawn`), which cfprefsd answers before it writes the plist.
+ *  On a simulator this drive booted (`owned`) the key is cleared and `restore()` puts it back; on any other it is
+ *  left as it is and `note` says the keyboard may be hidden. Before clearing it the drive writes a record under
+ *  `records`, removed only once the key is back: a drive that was killed, or whose write failed, leaves it, and the
+ *  next drive on that simulator puts the key back first, unless the drive that wrote it is still running. */
+export function softwareKeyboard(udid, { owned = false, records = resolve(homedir(), '.cache/exact/simulator-keyboard') } = {}) {
+  const defaults = (...args) => read('xcrun', ['simctl', 'spawn', udid, 'defaults', ...args, 'com.apple.keyboard.preferences', 'AutomaticMinimizationEnabled', ...(args[0] === 'write' ? ['-bool', 'true'] : [])], { timeout: 20000 });
+  const record = resolve(records, `${udid}.json`);
+  const putBack = () => { if (defaults('write').status !== 0) return false; rmSync(record, { force: true }); return true; };
+  let left = null;
+  try { left = JSON.parse(readFileSync(record, 'utf8')); } catch {}
+  if (left && !(Number.isInteger(left.pid) && left.pid !== process.pid && pidAlive(left.pid))) putBack();
+  const r = defaults('read');
+  if (r.status !== 0 || !/^\s*1\s*$/.test(r.stdout ?? '')) return { cleared: false, note: null, restore() {} };
+  if (!owned) return { cleared: false, restore() {}, note: `this simulator minimizes its software keyboard (AutomaticMinimizationEnabled = 1, kept since the Mac's keyboard was attached), so a focused field shows none in a screenshot, unlike an iPhone; a simulator the drive boots has it cleared for the drive, or clear it here: xcrun simctl spawn ${udid} defaults delete com.apple.keyboard.preferences AutomaticMinimizationEnabled` };
+  mkdirSync(records, { recursive: true });
+  writeFileSync(record, JSON.stringify({ pid: process.pid, value: 1 }));
+  if (defaults('delete').status !== 0) { rmSync(record, { force: true }); return { cleared: false, note: 'the simulator\'s software keyboard is minimized and could not be shown (simctl spawn defaults delete failed)', restore() {} }; }
+  let restored = false;
+  return { cleared: true, note: null, restore() { if (!restored) restored = putBack(); } };
+}
+const saidKeyboard = new Set(); // the hidden keyboard's note, once a process: a smoke or verify opens many sessions
+/** `open()`'s carrier with the software keyboard shown for a focused field on a simulator this drive booted
+ *  (`softwareKeyboard`), its setting put back when the drive closes, fails to open, or the driver exits (a killed
+ *  drive's, by the next drive on that simulator); on any other simulator, the note that the keyboard may be hidden. */
+export async function withSoftwareKeyboard(dev, open) {
+  const keyboard = softwareKeyboard(dev.udid, { owned: !!dev.bootedHere });
+  if (keyboard.note && !saidKeyboard.has(dev.udid)) { saidKeyboard.add(dev.udid); console.error(`note: ${keyboard.note}`); }
+  const restore = () => keyboard.restore();
+  process.once('exit', restore);
+  const done = () => { restore(); process.off('exit', restore); };
+  let carrier;
+  try { carrier = await open(); } catch (e) { done(); throw e; }
+  if (!keyboard.cleared) { done(); return carrier; }
+  const close = carrier.close.bind(carrier);
+  carrier.close = async (...args) => { try { return await close(...args); } finally { done(); } };
+  return carrier;
+}
+const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 /** Crash reports macOS wrote since `since` (ms) for an executable named
  *  `name`, newest first — a simulator app crashes as a Mac process, reported
  *  here. The name is all the file names carry, and every simulator's copy of

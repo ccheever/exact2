@@ -314,6 +314,77 @@ fn callback_runs_are_bounded_per_evaluation_and_the_trap_is_named() {
     }
 }
 
+/// `sum` (the euxy port's sheet height over its lanes) is
+/// `xs.reduce((a, x) => a + x, 0)`: left to right from +0, a list step an
+/// item on the evaluation's budget. `sin` and `cos` are `Math`'s (its ring of
+/// LEDs), through the pinned `libm`.
+#[test]
+fn sum_totals_a_list_on_the_budget_and_sin_and_cos_are_maths() {
+    let src = r#"shape Lane
+  rows: number
+component A
+  resource xs = xs() as shape number[]
+  state lanes = [Lane(rows=2), Lane(rows=3)]
+  view
+    column
+      text sum([1, 2, 3]).toString() testId="lit"
+      text sum([1].filter(x => x > 5)).toString() testId="empty"
+      text sum(lanes.map(l => l.rows * 44 + 8)).toString() testId="field"
+      text sum([0.1, 0.2, 0.3]).toString() testId="order"
+      text sum([-0]).toString() testId="zero"
+      text sum(xs).toString() testId="big"
+      text `${sin(0)} ${cos(0)} ${round(sin(3.141592653589793 / 2) * 1000)} ${round(cos(3.141592653589793) * 1000)} ${sin(1)} ${cos(1)}` testId="trig"
+"#;
+    struct Xs(usize);
+    impl DataSource for Xs {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(numbers(&vec![1.0; self.0]))
+        }
+    }
+    let plan = contract::compile(src).unwrap();
+    let r = Runner::boot(
+        contract::bake(plan.clone(), Xs(65_536)).unwrap(),
+        Xs(65_536),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let text = |id: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .props
+            .iter()
+            .find_map(|(p, v)| match v {
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    assert_eq!(text("lit"), "6");
+    assert_eq!(text("empty"), "0");
+    assert_eq!(text("field"), "236");
+    // ((0 + 0.1) + 0.2) + 0.3, as `reduce` adds; not `Math.sumPrecise`'s 0.6.
+    assert_eq!(text("order"), "0.6000000000000001");
+    assert_eq!(text("zero"), "0");
+    assert_eq!(text("big"), "65536");
+    // `Math.sin(1)` and `Math.cos(1)` as JavaScriptCore and V8 print them.
+    assert_eq!(
+        text("trig"),
+        "0 1 1000 -1000 0.8414709848078965 0.5403023058681398"
+    );
+    // One more item than the bound is refused whole, as `map` is.
+    let error = contract::bake(plan, Xs(65_537)).unwrap_err();
+    assert!(format!("{error:?}").contains("IterationLimit"), "{error:?}");
+    // `sum` takes numbers only.
+    let e = contract::compile(
+        "component A\n  state xs = [\"a\"]\n  view\n    text sum(xs).toString()\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "type-argument", "{e}");
+}
+
 /// A callback's parameters are binders: a prop passed in that mentions the
 /// same name is not captured by them; a `fn` that reaches itself through a
 /// callback is recursive; a call repeated inside a callback is bound inside

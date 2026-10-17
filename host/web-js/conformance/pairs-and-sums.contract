@@ -1,0 +1,25 @@
+// Synthetic conformance plan (2026-10-17, the euxy port): `gap`,
+// `overflow` and `overscroll-behavior` written with two values, literal and
+// as a choice of literals, split into their rows as CSS does; and `sum`,
+// `sin` and `cos`, whose values the wasm runner (libm) and the JS target
+// (Math) print the same here. A tap swaps each choice and adds a lane.
+component PairsAndSums
+  state wide = false
+  state lanes = [2, 3]
+  action flip
+    wide = not wide
+    lanes = lanes.concat([1])
+  view
+    main testId="root" width="100%" height="100%" background-color="#ffffff"
+      button press=flip testId="flip" width=80 height=30 background-color="#7c4dff"
+        text "flip" color="#ffffff"
+      row testId="grid" flex-wrap="wrap" width=200 gap=(wide ? "4px 24px" : "12px 2px") background-color="#eeeeee"
+        for n in [1, 2, 3, 4, 5] key=n
+          box testId=`cell-${n}` width=40 height=20 background-color="#2a9d8f"
+      column testId="clip" width=120 height=40 overflow="hidden auto" overscroll-behavior="contain none" background-color="#e9c46a"
+        box width=200 height=80 background-color="#e63946"
+      column testId="sheet" width=160 height=(sum(lanes.map(r => r * 10 + 4))) background-color="#264653"
+      text `${sum(lanes)} ${sin(lanes.length)} ${cos(lanes.length)}` testId="maths"
+      row testId="ring" position="relative" width=80 height=80
+        for i in [0, 1, 2, 3, 4, 5, 6, 7] key=i
+          box position="absolute" width=6 height=6 left=(37 + 30 * cos(i * 0.7853981633974483)) top=(37 + 30 * sin(i * 0.7853981633974483)) background-color="#f4a261"

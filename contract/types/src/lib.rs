@@ -166,6 +166,9 @@ impl Ty {
                 self,
                 Ty::Number | Ty::String | Ty::Enum(_) | Ty::Bool | Ty::List(_)
             ),
+            "list<number>" => {
+                matches!(self, Ty::List(t) if matches!(**t, Ty::Number | Ty::Unknown))
+            }
             _ => *self == Self::from_roster(spec) && *self != Ty::Unknown,
         }
     }
@@ -178,6 +181,7 @@ impl Ty {
             "Router" | "Entry" | "Geometry" => Ty::Record(spec.into()),
             "list<Entry>" => Ty::List(Box::new(Ty::Record("Entry".into()))),
             "list<string>" => Ty::List(Box::new(Ty::String)),
+            "list<number>" => Ty::List(Box::new(Ty::Number)),
             "option<string>" => Ty::Option(Box::new(Ty::String)),
             "option<number>" => Ty::Option(Box::new(Ty::Number)),
             _ => Ty::Unknown,

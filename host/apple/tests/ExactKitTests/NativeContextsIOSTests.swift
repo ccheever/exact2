@@ -131,15 +131,57 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(pressed, [5])
     }
 
-    private func tablist(_ faces: [UInt32: ButtonFace], labels: [Int: String] = [:]) -> Presenter {
-        var ops = view(1, ["accessibilityRole": "tablist"])
+    private func tablist(_ faces: [UInt32: ButtonFace], labels: [Int: String] = [:], role: String = "tablist") -> Presenter {
+        var ops = view(1, ["accessibilityRole": role])
         for (i, id) in [2, 3, 4].enumerated() {
-            var props = ["accessibilityRole": "tab"]
-            if i == 0 { props["accessibilitySelected"] = "true" }
+            var props = ["accessibilityRole": role == "radiogroup" ? "radio" : "tab"]
+            if i == 0 { props[role == "radiogroup" ? "accessibilityChecked" : "accessibilitySelected"] = "true" }
             if let label = labels[id] { props["accessibilityLabel"] = label }
             ops += native(id, props, x: Double(i) * 100, w: 100)
         }
         return presenter(ops + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]], faces: faces)
+    }
+
+    /// A written `appearance="none"` keeps a radio group's authored keys, as it
+    /// keeps a tablist's: the author's design, not `UISegmentedControl`, with
+    /// WAI-ARIA's radio group keys: one Tab stop (the checked radio), and the
+    /// arrows focus and press the next or previous radio, wrapping.
+    func testAWrittenAppearanceNoneKeepsAnAuthoredRadioGroup() throws {
+        let p = tablist([2: face("Day"), 3: face("Week"), 4: face("Month")], role: "radiogroup")
+        XCTAssertNotNil(p.segments.control(of: 1), "a radio group is a segmented control")
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["appearance": "none", "written": ["appearance"]]]]))
+        XCTAssertNil(p.segments.control(of: 1))
+        XCTAssertFalse(try XCTUnwrap(p.views[2]).isHidden, "its authored radios show")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.press(3)
+        XCTAssertEqual(pressed, [3])
+        let (day, week, month) = (try XCTUnwrap(p.views[2]), try XCTUnwrap(p.views[3]), try XCTUnwrap(p.views[4]))
+        XCTAssertEqual([day, week, month].map(\.ariaRadioTabStop), [true, false, false], "the checked radio is the one stop")
+        pressed = []
+        XCTAssertTrue(p.controls.radioKey(day, "ArrowRight", held: ""))
+        XCTAssertTrue(p.controls.radioKey(day, "ArrowLeft", held: ""))
+        XCTAssertFalse(p.controls.radioKey(day, "a", held: ""))
+        XCTAssertEqual(pressed, [3, 4], "the next radio, then the previous one wrapping")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityChecked": "false"]], ["op": "props", "id": 3, "set": ["accessibilityChecked": "true"]]]))
+        XCTAssertEqual([day, week, month].map(\.ariaRadioTabStop), [false, true, false])
+        // Right-to-left swaps Left and Right; a hidden radio is no target and no stop.
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["appearance": "none", "written": ["appearance"], "direction": "rtl"]]]))
+        pressed = []
+        XCTAssertTrue(p.controls.radioKey(week, "ArrowRight", held: ""))
+        XCTAssertTrue(p.controls.radioKey(week, "ArrowLeft", held: ""))
+        XCTAssertTrue(p.controls.radioKey(week, "ArrowDown", held: ""))
+        XCTAssertEqual(pressed, [2, 4, 4])
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["appearance": "none", "written": ["appearance"]]],
+                           ["op": "style", "id": 4, "style": ["visibility": "hidden"]]]))
+        pressed = []
+        XCTAssertTrue(p.controls.radioKey(week, "ArrowDown", held: ""))
+        XCTAssertEqual(pressed, [2], "the hidden radio is passed over")
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["accessibilityChecked": "false"]], ["op": "props", "id": 4, "set": ["accessibilityChecked": "true"]]]))
+        XCTAssertEqual([day, week, month].map(\.ariaRadioTabStop), [true, false, false], "a hidden checked radio is not the stop")
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["appearance": "auto", "written": ["appearance"]]]]))
+        XCTAssertNil(day.ariaRadioGroup, "a projected group's keys are the segmented control's")
+        XCTAssertNotNil(p.segments.control(of: 1))
     }
 
     /// Opacity only paints (CSS); `visibility: hidden` and `inert` take input away.

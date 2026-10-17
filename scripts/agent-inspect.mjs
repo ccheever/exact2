@@ -195,6 +195,10 @@ export function identifyInspectedNode(reply, target) {
  *           percentiles, then one line per late frame; `virtual clock: no frame was presented`
  *   others  the JSON on one line
  */
+/** A `layout` reply's presentations the platform draws scaled (iOS's floating sheet), a line each: its boxes are the
+ * authored frames times the factor, which no style asked for and none should undo. */
+export const scaledLines = (layout) => (layout?.scaled ?? []).map((p) =>
+  `route ${p.route || '?'} is a ${p.presentation} the platform draws at ${p.scale} of its laid-out size: its boxes are the authored frames × ${p.scale}, not the app's doing`);
 export function render(op, r) {
   if (op === 'ax' || (op === 'tree' && r.ax)) return renderAx(r); // LLP 1080.002 D9
   const q = JSON.stringify;
@@ -232,6 +236,7 @@ export function render(op, r) {
       // The status bar's style Exact asks for (LLP 1105 D7, iOS), when it is not the default.
       const bar = r.statusBar && r.statusBar.style !== 'default' ? ` · status bar ${r.statusBar.style} (#${r.statusBar.source})` : '';
       const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env}${fold}${bar} · clock ${r.clock} ms`].concat((r.nodes ?? []).map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''}${n.bare_reason ? ` · bare: \`${n.bare_reason}\`` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`}`));
+      lines.splice(1, 0, ...scaledLines(r));
       if (r.node) lines.push(...renderNode(r.node));
       return lines.join('\n');
     }

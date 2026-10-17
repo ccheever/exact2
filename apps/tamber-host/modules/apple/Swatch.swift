@@ -1,9 +1,11 @@
 // The Tamber binding's sample module (LLP 1121 D12, stage 5): `exact-swatch`
 // fills itself with the design's `swatch.fill` through `ExactTamber`, and
-// says each colour it applies as a `message` (`swatch #rrggbbaa`), so a drive
-// reads what it follows: a mode, a pin above it, the root font size (Dynamic
-// Type), a live edit. It asks once it is in a window, where its place is
-// known, and again when its observation fires or its appearance changes.
+// since stage 6 G sets a label in `type.label` inset by `swatch.inset`, and
+// says each colour, inset and font it applies as a `message` (`swatch
+// #rrggbbaa inset 16 font 17 <face>`), so a drive reads what it follows: a
+// mode, a pin above it, the root font size (Dynamic Type), Bold Text, a
+// live edit. It asks once it is in a window, where its place is known, and
+// again when its observation fires or its appearance changes.
 import Foundation
 #if os(macOS)
 import AppKit
@@ -32,9 +34,27 @@ final class SwatchView: ExactNativeView {
     var said: ((String) -> Void)?
     private var observation: ExactTamberObservation?
     private var applied = false
+    #if os(macOS)
+    private let label = NSTextField(labelWithString: "Aa")
+    #else
+    private let label = UILabel()
+    #endif
 
     func apply() {
-        let fill = ExactTamber(self).color(ExactTamberToken("swatch.fill"))
+        let tamber = ExactTamber(self)
+        let fill = tamber.color(ExactTamberToken("swatch.fill"))
+        let inset = tamber.length(ExactTamberToken("swatch.inset"), fallback: 0)
+        #if os(macOS)
+        let font = tamber.font(ExactTamberToken("type.label"), fallback: .systemFont(ofSize: 9))
+        if label.superview == nil { addSubview(label) }
+        label.font = font
+        label.frame = NSRect(x: inset, y: inset, width: max(0, bounds.width - 2 * inset), height: font.pointSize * 1.4)
+        #else
+        let font = tamber.font(ExactTamberToken("type.label"), fallback: .systemFont(ofSize: 9))
+        if label.superview == nil { label.text = "Aa"; addSubview(label) }
+        label.font = font
+        label.frame = CGRect(x: inset, y: inset, width: max(0, bounds.width - 2 * inset), height: font.lineHeight)
+        #endif
         #if os(macOS)
         wantsLayer = true
         var cg: CGColor?
@@ -51,7 +71,20 @@ final class SwatchView: ExactNativeView {
         #endif
         applied = true
         // Said each time it applies: a moved input that keeps the colour shows too.
-        said?("#" + parts.map { String(format: "%02x", Int(($0 * 255).rounded())) }.joined())
+        let hex = "#" + parts.map { String(format: "%02x", Int(($0 * 255).rounded())) }.joined()
+        #if os(macOS)
+        let weight = NSFontManager.shared.weight(of: font)
+        #else
+        let weight = Int(((font.fontDescriptor.object(forKey: .traits) as? [UIFontDescriptor.TraitKey: Any])?[.weight] as? CGFloat ?? 0) * 1000)
+        #endif
+        // A system stack's design (`ui-monospace`) is the module library's to keep.
+        let code = tamber.font(ExactTamberToken("type.code"), fallback: .systemFont(ofSize: 9))
+        #if os(macOS)
+        let fixed = code.isFixedPitch
+        #else
+        let fixed = code.fontDescriptor.symbolicTraits.contains(.traitMonoSpace)
+        #endif
+        said?("\(hex) inset \(Int(inset.rounded())) font \(Int(font.pointSize.rounded())) \(font.fontName) w\(weight) code \(fixed ? "fixed" : "proportional")")
     }
 
     private func start() {

@@ -10,9 +10,10 @@ import dev.exact.canvas.ExactTamber
 
 /**
  * The Tamber binding's sample on Android (LLP 1121 D12, stage 5): the `swatch` hatch hosts a view in its node's box
- * that fills itself with the design's `swatch.fill` through `ExactTamber(view).color(…)`, and draws again when its
- * observation says the place's inputs moved (a `setMode`, the pin above it, the scheme). Each colour it draws is
- * logged under `ExactTamber` with its node, which the stage 5 gate reads beside a screen capture.
+ * that fills itself with the design's `swatch.fill` through `ExactTamber(view).color(…)`, inset by `swatch.inset`
+ * (`length(…)`, stage 6 G), and draws again when its observation says the place's inputs moved (a `setMode`, the
+ * pin above it, the scheme, the person's text size). Each colour and inset it draws is logged under `ExactTamber`
+ * with its node, which the gate reads beside a screen capture.
  */
 class Hatches : ExactHatches() {
     override fun element(element: ExactElement) {
@@ -28,13 +29,20 @@ class Hatches : ExactHatches() {
             tamber.observe { invalidate() }
         }
 
+        private val paint = android.graphics.Paint()
+        private var saidInset: Float? = null
+
         override fun onDraw(canvas: Canvas) {
             val fill = tamber.color("swatch.fill")
-            canvas.drawColor(fill)
+            // Points to px: the inset is in dp, as the canvas host lays out.
+            val inset = tamber.length("swatch.inset") * resources.displayMetrics.density
+            paint.color = fill
+            canvas.drawRect(inset, inset, width - inset, height - inset, paint)
             drawn++
-            if (fill != said) {
+            if (fill != said || inset != saidInset) {
                 said = fill
-                Log.i(TAG, "swatch #$node ${String.format("#%08x", fill)} ×$drawn")
+                saidInset = inset
+                Log.i(TAG, "swatch #$node ${String.format("#%08x", fill)} inset ${inset.toInt()}px ×$drawn")
             }
         }
     }

@@ -1,2 +1,3 @@
-3:1: tamber-stage: icon tokens (D10) arrive in stage 9
 6:1: tamber-stage: component params (D15) arrive in stage 7
+10:1: tamber-block: `icons` stands alone on its line
+13:1: tamber-block: a second `icons` block: a design has one of each

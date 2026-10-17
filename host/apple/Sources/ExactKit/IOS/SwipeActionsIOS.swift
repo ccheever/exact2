@@ -213,6 +213,16 @@ package final class SwipeActionsHost {
         }
         return nil
     }
+    #if EXACT_INSPECT
+    /// The action a button UIKit draws for a row stands for: inspect mode
+    /// selects it (InspectIOS.swift).
+    func action(for button: UIButton) -> UInt32? {
+        for row in rows.values {
+            for action in row.leading + row.trailing where row.actionView(action.id) === button { return action.id }
+        }
+        return nil
+    }
+    #endif
     /// The agent's tap on an action no swipe has revealed (an authored
     /// test's `tap delete-…`, splitter rough 12): the action UIKit would
     /// offer, performed as VoiceOver performs a cell's swipe action, with

@@ -144,7 +144,7 @@ export async function retest({version,registry='https://registry.npmjs.org/',rev
       const text=refreshClaims(read(name).replaceAll(previous,version),version,date);
       changes.set(join(root,name),text);
     }
-    for(const name of ['AGENTS.md','README.md','docs/reference.md','docs/start-here.md'])
+    for(const name of ['AGENTS.md','README.md','docs/reference.md','docs/recipes/snapback-tests.md'])
       changes.set(join(root,name),read(name).replaceAll(previous,version).replaceAll(oldRevision,revision));
     const tested=Object.fromEntries(testedFiles.map(name=>[name,changes.get(join(root,name)) ?? read(name)]));
     const receipt={format:1,version,revision,registry:registryUrl.href,date,examples:results,

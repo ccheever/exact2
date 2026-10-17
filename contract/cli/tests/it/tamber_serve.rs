@@ -957,3 +957,23 @@ fn export_gives_the_dtcg_text_and_keeps_its_baseline_for_import() {
         planned["ok"]["counted"]["mapped"]
     );
 }
+
+/// LLP 1121 D10 (stage 6 F): an icon's sources in the IR and from
+/// `resolve`, the same in every tuple.
+#[test]
+fn describe_and_resolve_read_an_icon() {
+    let design = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  ink = #000000\n\nicons\n  icon.reply = icon(sf \"bubble.left\", material \"chat_bubble\", svg \"icons/reply.svg\")\n";
+    let dir = app("icon", design);
+    let mut s = Serve::start(&dir, &[]);
+    let (describe, _) = s.ask(json!({"method": "describe"}));
+    assert_eq!(
+        describe["ok"]["ir"]["icons"][0]["sf"], "bubble.left",
+        "{describe}"
+    );
+    let (resolve, _) = s.ask(json!({"method": "resolve", "token": "icon.reply"}));
+    let tuples = resolve["ok"]["tuples"].as_array().unwrap();
+    assert_eq!(tuples.len(), 2, "{resolve}");
+    assert_eq!(tuples[1]["kind"], "icon");
+    assert_eq!(tuples[1]["svg"], "icons/reply.svg");
+    assert_eq!(tuples[1]["modes"], json!({"density": "compact"}));
+}

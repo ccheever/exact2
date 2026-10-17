@@ -8,12 +8,19 @@
 // the module's `tamber` entry (at 216): every place asks whether what it
 // read moved (the inputs fold in the tint), and each that moved asks again
 // for its names, redraws its view and tells its observers.
+import CoreText
 #if os(macOS)
 import AppKit
 public typealias ExactTamberColor = NSColor
+public typealias ExactTamberFont = NSFont
+typealias ExactTamberDesign = NSFontDescriptor.SystemDesign
+typealias ExactTamberFontAttribute = NSFontDescriptor.AttributeName
 #else
 import UIKit
 public typealias ExactTamberColor = UIColor
+public typealias ExactTamberFont = UIFont
+typealias ExactTamberDesign = UIFontDescriptor.SystemDesign
+typealias ExactTamberFontAttribute = UIFontDescriptor.AttributeName
 #endif
 
 /// A design token by its name (`contract tamber gen swift` writes each as a
@@ -79,9 +86,53 @@ public struct ExactTamber {
         #endif
     }
 
+    /// `token`'s length here in points (stage 6 G); `fallback` where the
+    /// plan lacks it or before the host can answer. Main thread; a value:
+    /// read it again in `observe`.
+    public func length(_ token: ExactTamberToken, fallback: CGFloat = 0) -> CGFloat {
+        (finder.place?.measure("lengths", token.name) as? Double).map { CGFloat($0) } ?? fallback
+    }
+
+    /// `token`'s number here; `fallback` where the plan lacks it.
+    public func number(_ token: ExactTamberToken, fallback: Double = 0) -> Double {
+        finder.place?.measure("numbers", token.name) as? Double ?? fallback
+    }
+
+    /// `token`'s font here, as the host draws it: the person's text size
+    /// and Bold Text in, the face the host resolves; `fallback` where the
+    /// plan lacks it. Main thread; `observe` hears the text size and Bold
+    /// Text move.
+    public func font(_ token: ExactTamberToken, fallback: ExactTamberFont) -> ExactTamberFont {
+        guard let f = finder.place?.measure("fonts", token.name) as? [String: Any],
+              let size = f["size"] as? Double, let name = f["name"] as? String else { return fallback }
+        let css = f["weight"] as? Double ?? 400
+        if f["system"] as? Bool != true, let named = ExactTamberFont(name: name, size: CGFloat(size)) {
+            // A variable file has one name: its weight is an axis.
+            let axis: [NSNumber: NSNumber] = [NSNumber(value: 0x77676874): NSNumber(value: css)]
+            let key = ExactTamberFontAttribute(rawValue: kCTFontVariationAttribute as String)
+            return ExactTamberFont(descriptor: named.fontDescriptor.addingAttributes([key: axis]), size: CGFloat(size)) ?? named
+        }
+        // The system font, which no name opens: at the weight, in the
+        // stack's design, italic where said.
+        let weights: [(Double, ExactTamberFont.Weight)] = [(100, .ultraLight), (200, .thin), (300, .light), (400, .regular), (500, .medium), (600, .semibold), (700, .bold), (800, .heavy), (900, .black)]
+        let weight = weights.min { abs($0.0 - css) < abs($1.0 - css) }?.1 ?? .regular
+        var system = ExactTamberFont.systemFont(ofSize: CGFloat(size), weight: weight)
+        let designs: [String: ExactTamberDesign] = ["serif": .serif, "monospaced": .monospaced, "rounded": .rounded]
+        if let design = (f["design"] as? String).flatMap({ designs[$0] }),
+           let designed = system.fontDescriptor.withDesign(design) {
+            system = ExactTamberFont(descriptor: designed, size: CGFloat(size)) ?? system
+        }
+        guard f["italic"] as? Bool == true else { return system }
+        #if os(macOS)
+        return ExactTamberFont(descriptor: system.fontDescriptor.withSymbolicTraits(.italic), size: CGFloat(size)) ?? system
+        #else
+        return system.fontDescriptor.withSymbolicTraits(.traitItalic).map { ExactTamberFont(descriptor: $0, size: CGFloat(size)) } ?? system
+        #endif
+    }
+
     /// `body` after each batch that moved what this place's tokens read (a
-    /// mode, a pin above, a live edit, the scheme, the root font size); stop
-    /// it with the observation's `stop()`. Main thread.
+    /// mode, a pin above, a live edit, the scheme, the root font size, Bold
+    /// Text); stop it with the observation's `stop()`. Main thread.
     public func observe(_ body: @escaping () -> Void) -> ExactTamberObservation {
         let observation = ExactTamberObservation(body)
         _ = finder.place?.sides(nil)
@@ -157,9 +208,23 @@ final class TamberPlace {
         return true
     }
 
+    /// `name`'s value of `kind` (`lengths`, `numbers`, `fonts`), asked of the
+    /// host now (stage 6 G); `nil` where the plan lacks it. Main thread.
+    func measure(_ kind: String, _ name: String) -> Any? {
+        guard Thread.isMainThread, let json = request(["names": [String](), kind: [name]]) else { return nil }
+        return (json[kind] as? [String: Any])?[name].flatMap { $0 is NSNull ? nil : $0 }
+    }
+
     private func ask(_ names: [String]) -> (inputs: String, colors: [String: [[Double]]?])? {
+        guard let json = request(["names": names]), let inputs = json["inputs"] as? String else { return nil }
+        let colors = (json["colors"] as? [String: Any] ?? [:]).mapValues { $0 as? [[Double]] }
+        return (inputs, colors)
+    }
+
+    /// The host's answer to `body` over the hatches' host table.
+    private func request(_ body: [String: Any]) -> [String: Any]? {
         guard let view, let hatches = module?.hatches, let tamber = hatches.tamberFn,
-              let request = try? JSONSerialization.data(withJSONObject: ["names": names]) else { return nil }
+              let request = try? JSONSerialization.data(withJSONObject: body) else { return nil }
         let raw = Unmanaged.passUnretained(view).toOpaque()
         let needed = request.withUnsafeBytes { r in
             tamber(hatches.host, raw, r.bindMemory(to: UInt8.self).baseAddress, UInt32(request.count), nil, 0)
@@ -171,10 +236,8 @@ final class TamberPlace {
                 tamber(hatches.host, raw, r.bindMemory(to: UInt8.self).baseAddress, UInt32(request.count), o.baseAddress, needed)
             }
         }
-        guard written == needed, let json = try? JSONSerialization.jsonObject(with: Data(out)) as? [String: Any],
-              let inputs = json["inputs"] as? String else { return nil }
-        let colors = (json["colors"] as? [String: Any] ?? [:]).mapValues { $0 as? [[Double]] }
-        return (inputs, colors)
+        guard written == needed else { return nil }
+        return try? JSONSerialization.jsonObject(with: Data(out)) as? [String: Any]
     }
 }
 

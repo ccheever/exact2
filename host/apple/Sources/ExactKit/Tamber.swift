@@ -19,9 +19,11 @@ import CExact
 #if os(macOS)
 public typealias ExactTamberView = NSView
 public typealias ExactTamberColor = NSColor
+public typealias ExactTamberFont = NSFont
 #else
 public typealias ExactTamberView = UIView
 public typealias ExactTamberColor = UIColor
+public typealias ExactTamberFont = UIFont
 #endif
 
 /// A design token by its name (`contract tamber gen swift` writes each as a
@@ -82,6 +84,32 @@ public struct ExactTamber {
             #endif
         }
         #endif
+    }
+
+    /// `token`'s length here in points (a `rem` by the person's text size,
+    /// a text style at it); `fallback` where the plan lacks it (stage 6 G).
+    /// A value: read it again in `observe`.
+    public func length(_ token: ExactTamberToken, fallback: CGFloat = 0) -> CGFloat {
+        place.measure(.lengths, token.name)?.number.map { CGFloat($0) } ?? fallback
+    }
+
+    /// `token`'s number here; `fallback` where the plan lacks it.
+    public func number(_ token: ExactTamberToken, fallback: Double = 0) -> Double {
+        place.measure(.numbers, token.name)?.number ?? fallback
+    }
+
+    /// `token`'s font here, as the session draws it: its size at the
+    /// person's text size (Dynamic Type), its weight (a text style's own
+    /// where the token writes none) stepped by Bold Text on a system family,
+    /// its style and the plan's family; `fallback` where the plan lacks it.
+    /// A value: `observe` hears the text size and Bold Text move.
+    public func font(_ token: ExactTamberToken, fallback: ExactTamberFont) -> ExactTamberFont {
+        guard case .object(let f)? = place.measure(.fonts, token.name), let size = f["size"]?.number,
+              let (session, _) = place.found else { return fallback }
+        let weight = Int(f["weight"]?.number ?? 400)
+        let family = Int(f["family"]?.number ?? 0)
+        let italic = f["italic"] == .bool(true)
+        return session.text.font(size: CGFloat(size), weight: weight, family: family, italic: italic)
     }
 
     /// `body` whenever what this place's tokens read moves (after the batch
@@ -161,9 +189,24 @@ public struct ExactTamber {
             if let known, let value = known.colors[name] { return (value, known.tints) }
             guard Thread.isMainThread else { return nil }
             let asked = Array(Set((known?.colors.keys).map(Array.init) ?? []).union([name]))
-            guard let answer = Tambers.ask(session, view: node, names: asked) else { return nil }
+            guard let answer = Tambers.ask(session, view: node, names: asked, measures: known?.measures ?? [:]) else { return nil }
             tambers.keep(node, answer)
             return (answer.colors[name] ?? nil, answer.tints)
+        }
+
+        /// `name`'s value of `kind` here (a length's points, a number, a
+        /// font's parts), asked once per inputs on the main thread; `nil`
+        /// for a name the plan lacks, or nothing to answer yet.
+        func measure(_ kind: Tambers.Measure, _ name: String) -> BatchValue? {
+            guard Thread.isMainThread, let (session, node) = found else { return nil }
+            let tambers = Tambers.of(session)
+            let known = tambers.answer(node)
+            if let value = known?.measures[kind]?[name] { return value }
+            var measures = known?.measures ?? [:]
+            measures[kind, default: [:]][name] = .some(nil)
+            guard let answer = Tambers.ask(session, view: node, names: Array((known?.colors.keys).map(Array.init) ?? []), measures: measures) else { return nil }
+            tambers.keep(node, answer)
+            return answer.measures[kind]?[name] ?? nil
         }
     }
 }
@@ -196,7 +239,12 @@ final class Tambers {
         var inputs: String
         var tints: [PlatformColor?]
         var colors: [String: BatchValue?]
+        /// The lengths, numbers and fonts asked of it (stage 6 G), by kind.
+        var measures: [Measure: [String: BatchValue?]] = [:]
     }
+
+    /// A kind besides colour a binding asks, by the answer's key.
+    enum Measure: String, CaseIterable { case lengths, numbers, fonts }
     private var answers: [UInt32: Answer] = [:]
     static let lock = NSLock()
     nonisolated(unsafe) private static var bySession: [ObjectIdentifier: (session: Weak<ExactSession>, tambers: Tambers)] = [:]
@@ -221,11 +269,12 @@ final class Tambers {
 
     /// The binding core's answer for `view` (0: the root) in `session`,
     /// with the tint a row naming it resolves by there. Main thread.
-    static func ask(_ session: ExactSession, view: UInt32, names: [String]) -> Answer? {
-        guard let answer = session.runtime.tamber(view: view, names: names) else { return nil }
+    static func ask(_ session: ExactSession, view: UInt32, names: [String], measures: [Measure: [String: BatchValue?]] = [:]) -> Answer? {
+        let asked = measures.mapValues { Array($0.keys) }
+        guard let answer = session.runtime.tamber(view: view, names: names, measures: asked) else { return nil }
         let tints = sides(of: ExactTamber.tint(view == 0 ? nil : session.presenter.views[view], session: session))
         let said = tints.map { $0.map { ExactTamber.extended($0).map { String($0) }.joined(separator: ",") } ?? "" }.joined(separator: " ")
-        return Answer(inputs: answer.inputs + " tint " + said, tints: tints, colors: answer.colors)
+        return Answer(inputs: answer.inputs + " tint " + said, tints: tints, colors: answer.colors, measures: answer.measures)
     }
 
     /// `tint` resolved for each of the eight sides a view draws in (bit 0
@@ -283,7 +332,7 @@ final class Tambers {
                 guard let now = ask(session, view: view, names: []) else { tambers.keep(view, nil); continue }
                 guard now.inputs != known.inputs else { continue }
                 moved.insert(view)
-                tambers.keep(view, known.colors.isEmpty ? now : ask(session, view: view, names: Array(known.colors.keys)) ?? now)
+                tambers.keep(view, known.colors.isEmpty && known.measures.isEmpty ? now : ask(session, view: view, names: Array(known.colors.keys), measures: known.measures) ?? now)
             }
         }
         places.removeAll { $0.value?.view == nil }
@@ -329,25 +378,31 @@ extension Runtime {
     /// The binding core's answer for `view` (0: the root) and `names`: what
     /// its inputs are, and each name's colour as a row crosses it (`nil` for
     /// a name the plan lacks); `nil` before boot or for a view that is gone.
-    func tamber(view: UInt32, names: [String]) -> (inputs: String, colors: [String: BatchValue?])? {
-        let quoted = names.map { String(decoding: (try? JSONEncoder().encode($0)) ?? Data("\"\"".utf8), as: UTF8.self) }
-        let request = "{\"view\":\(view),\"names\":[" + quoted.joined(separator: ",") + "]}"
-        return on(busy: nil) { () -> (inputs: String, colors: [String: BatchValue?])? in
+    func tamber(view: UInt32, names: [String], measures: [Tambers.Measure: [String]] = [:]) -> (inputs: String, colors: [String: BatchValue?], measures: [Tambers.Measure: [String: BatchValue?]])? {
+        let list = { (names: [String]) in names.map { String(decoding: (try? JSONEncoder().encode($0)) ?? Data("\"\"".utf8), as: UTF8.self) }.joined(separator: ",") }
+        var request = "{\"view\":\(view),\"names\":[" + list(names) + "]"
+        for (kind, names) in measures { request += ",\"\(kind.rawValue)\":[" + list(names) + "]" }
+        request += "}"
+        return on(busy: nil) { () -> (inputs: String, colors: [String: BatchValue?], measures: [Tambers.Measure: [String: BatchValue?]])? in
             let len = exact_tamber(rt, write(request))
             let bytes = UnsafeBufferPointer(start: exact_out(rt), count: Int(len))
             var reader = BatchReader(bytes: bytes)
             var inputs: String?
             var colors: [String: BatchValue?] = [:]
+            var answered: [Tambers.Measure: [String: BatchValue?]] = [:]
             do {
                 try reader.object { r, key in
                     switch key {
                     case "inputs": inputs = try r.string()
                     case "colors": try r.object { r, name in let v = try r.value(); colors[name] = v == .null ? nil : v }
+                    case let k where Tambers.Measure(rawValue: k) != nil:
+                        let kind = Tambers.Measure(rawValue: k)!
+                        try r.object { r, name in let v = try r.value(); answered[kind, default: [:]][name] = v == .null ? nil : v }
                     default: _ = try r.value()
                     }
                 }
             } catch { return nil }
-            return inputs.map { ($0, colors) }
+            return inputs.map { ($0, colors, answered) }
         }
     }
 }

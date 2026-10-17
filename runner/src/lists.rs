@@ -44,6 +44,13 @@ pub fn index_of(xs: &[Value], x: &Value) -> Option<usize> {
     })
 }
 
+/// `sum(xs)`: `xs.reduce((a, x) => a + x, 0)`, IEEE addition left to right
+/// from +0; `None` when an item is not a number.
+pub fn sum(xs: &[Value]) -> Option<f64> {
+    xs.iter()
+        .try_fold(0.0, |total, x| Some(total + x.as_number()?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

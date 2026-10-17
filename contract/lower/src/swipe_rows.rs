@@ -347,26 +347,78 @@ enum At {
     Other,
 }
 
+/// Where the walk stands within a row a `for` repeats.
+#[derive(Clone, Copy)]
+struct Walk {
+    at: At,
+    /// A `for` stands between the list or section and here, with only `if`
+    /// and `match` between: an element here is a repeated row.
+    repeated: bool,
+    /// Inside a repeated row that says no `delete=`, outside anything that
+    /// holds its own actions (a dialog, a popover, a menu, a swipe's scroll).
+    advise: bool,
+}
+
 /// `lower-delete-row`: a `delete=` on an element that is no list row, which
 /// lowering drops. Read as the expansion reads rows: a grouped list's
 /// section rows, a cell list's children, through `if`, `for` and `match`.
+///
+/// @ref LLP 1116.021 D5 — `lower-row-delete-button`: a `button
+/// destructive=true` inside the row a `for` repeats, which says no
+/// `delete=`. Advice, keyed on structure alone: `destructive` can mean
+/// revoke, cancel or reset, so it asks rather than tells. A detail screen's
+/// section is no repeated row, and an action in a row's dialog, popover,
+/// menu or swipe is that surface's. Round 19's census found it on no row
+/// but a per-row delete across the repo's contracts and the docs' blocks.
 pub(crate) fn unplaced(view: &[Node]) -> Vec<LowerError> {
-    fn walk(nodes: &[Node], at: At, out: &mut Vec<LowerError>) {
+    fn walk(nodes: &[Node], w: Walk, out: &mut Vec<LowerError>) {
         for node in nodes {
             match node {
                 Node::Element {
                     tag,
                     attrs,
                     children,
+                    span,
                     ..
                 } => {
+                    let at = w.at;
                     let label = at == At::Section && (tag == "header" || tag == "footer");
                     let row = matches!(at, At::Row) || (at == At::Section && !label);
-                    if let Some(a) = attrs.iter().find(|a| a.name == "delete").filter(|_| !row) {
+                    let delete = attrs.iter().find(|a| a.name == "delete");
+                    if let Some(a) = delete.filter(|_| !row) {
                         out.push(LowerError {
                             id: "lower-delete-row",
                             message: "`delete=` is a list row's swipe to delete, and this element is no row of a `list`, so it does nothing here: put it on a row of a grouped list's `section`, or on a row of a `list` whose rows go down the page (docs/recipes/list-rows.md)".into(),
                             span: a.span,
+                        });
+                    }
+                    let literal = |name: &str, value: &str| {
+                        attrs
+                            .iter()
+                            .rev()
+                            .find(|a| a.name == name)
+                            .is_some_and(|a| matches!(&a.value, Expr::Str(v, _) if v == value))
+                    };
+                    let holds_actions = tag == "dialog"
+                        || attrs
+                            .iter()
+                            .any(|a| a.name == "popover" || a.name == "swipeTrailing")
+                        || literal("role", "menu");
+                    let advise = if row {
+                        w.repeated && delete.is_none() && !holds_actions
+                    } else {
+                        w.advise && !holds_actions
+                    };
+                    let destructive = attrs
+                        .iter()
+                        .rev()
+                        .find(|a| a.name == "destructive")
+                        .is_some_and(|a| matches!(a.value, Expr::Bool(true, _)));
+                    if w.advise && !row && tag == "button" && destructive {
+                        out.push(LowerError {
+                            id: "lower-row-delete-button",
+                            message: "if this button deletes the row, write `delete=<its press>` on the row and iOS offers it as a swipe (docs/recipes/list-rows.md)".into(),
+                            span: *span,
                         });
                     }
                     let inside = match (tag.as_str(), at) {
@@ -378,26 +430,47 @@ pub(crate) fn unplaced(view: &[Node]) -> Vec<LowerError> {
                         ("section", At::Sections) => At::Section,
                         _ => At::Other,
                     };
-                    walk(children, inside, out);
+                    let w = Walk {
+                        at: inside,
+                        repeated: false,
+                        advise,
+                    };
+                    walk(children, w, out);
                 }
                 Node::When {
                     then, otherwise, ..
                 } => {
-                    walk(then, at, out);
-                    walk(otherwise, at, out);
+                    walk(then, w, out);
+                    walk(otherwise, w, out);
                 }
-                Node::Each { body, .. } => walk(body, at, out),
+                Node::Each { body, .. } => {
+                    let repeated = w.repeated || matches!(w.at, At::Row | At::Section);
+                    walk(body, Walk { repeated, ..w }, out)
+                }
                 Node::Match { some, none, .. } => {
-                    walk(&some.1, at, out);
-                    walk(none, at, out);
+                    walk(&some.1, w, out);
+                    walk(none, w, out);
                 }
-                Node::Use { children, .. } => walk(children, At::Other, out),
+                Node::Use { children, .. } => walk(
+                    children,
+                    Walk {
+                        at: At::Other,
+                        repeated: false,
+                        advise: false,
+                    },
+                    out,
+                ),
                 Node::Children { .. } => {}
             }
         }
     }
     let mut out = Vec::new();
-    walk(view, At::Other, &mut out);
+    let top = Walk {
+        at: At::Other,
+        repeated: false,
+        advise: false,
+    };
+    walk(view, top, &mut out);
     out
 }
 

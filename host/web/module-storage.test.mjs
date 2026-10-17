@@ -22,7 +22,7 @@ test('a parked answer is asked again after another answer delivers its storage',
   try {
     for (const name of ['module-glue.js', 'storage.js', 'grant-admission.js', 'faults.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
     writeFileSync(resolve(dir, 'storage-environment.js'), `export const directories = Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' });
-export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store'; export const agentRefusalSaid = () => true; export const agentSeed = () => null;
+export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store'; export const agentSeed = () => null;
 export const agentStream = () => null; export const keyStore = () => ({}); export const now = () => 0;`);
     // Each read lands when the test says, in the order issued.
     writeFileSync(resolve(dir, 'storage-fs.js'), `export const createFileSystem = () => ({
@@ -89,7 +89,7 @@ async function workerRealm(script) {
   try {
     for (const name of ['module-glue.js', 'module-worker.js', 'storage.js', 'grant-admission.js', 'faults.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
     writeFileSync(resolve(dir, 'storage-environment.js'), `export const directories = Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' });
-export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store'; export const agentRefusalSaid = () => true; export const agentSeed = () => null;
+export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store'; export const agentSeed = () => null;
 export const agentStream = () => null; export const keyStore = () => ({}); export const now = () => 0;`);
     writeFileSync(resolve(dir, 'storage-fs.js'), `export const createFileSystem = () => ({ readFile: async path => new TextEncoder().encode(path), dispose() {} });`);
     const prelude = readFileSync(resolve(ROOT, 'js/src/prelude.js'), 'utf8');

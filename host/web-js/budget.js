@@ -84,7 +84,7 @@ export function K(a, pc) {
 }
 
 // ---------------------------------------------------------------- lists (LLP 1088 §9.1)
-// `concat`, `split`, and `slice`, `includes` and `indexOf` over a list, on the caller's budget as `join` is: each takes
+// `concat`, `split`, `sum`, and `slice`, `includes` and `indexOf` over a list, on the caller's budget as `join` is: each takes
 // the caller's `$s` and traps where the sum passes the bound, before it builds (`vm.rs`, `list_call`), leaving its own
 // steps in `ST`, which the caller adds to its `$s` (code.rs); a list it builds is `K`'s. Over text, `slice`, `includes`
 // and `indexOf` take no step.
@@ -124,6 +124,13 @@ export function x_indexOf(v, x, s, pc) {
   }
   step(s, v.length, pc);
   return -1;
+}
+/** `sum(xs)`: `xs.reduce((a, x) => a + x, 0)`, a step an item, taken before it adds. */
+export function x_sum(l, s, pc) {
+  step(s, l.length, pc);
+  let total = 0;
+  for (const x of l) total += x;
+  return total;
 }
 /** `split(t, sep)`: a step a piece; an empty `sep` splits into code units, each made well formed (LLP 1088 D2), and
  * steps before it splits, as the runner counts first. */

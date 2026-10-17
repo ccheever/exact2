@@ -58,6 +58,8 @@ on macOS and Linux.
   `type` and `family` kinds and `resolve`'s type and family tuples. A transaction that changes the
   longhands a type token writes, or a type token's or family token's family, is `rebuild`; one that
   changes only a type token's style, weight, size or line height is `live`.
+  Stage 6 F added under the same version: the IR's `icons` and `resolve`'s icon tuples. A
+  transaction or `propose` that changes an icon is `rebuild`; an operation does not write one.
 
 ## Where it runs
 
@@ -178,9 +180,12 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
   - the tokens, each with its `kind` (`color`, `length` or `number`, *1.5*: written, or inferred from
     its value; `box-shadow` or `text-shadow`, *1.8*, always written; `duration` or `easing`, *1.9*, written or inferred; `type` or `family`, *1.9*, written or inferred), its folded `values` per tuple, `entries`, the `dials` it depends on and its
     `fallback` (a length's or number's is its default tuple's value, twice);
-  - `exports`.
+  - `exports`;
+  - `icons` (*1.9*), when the design has any: each `{name, sf, material, svg}`, its sources as
+    written, null where unwritten (D10).
 
-  The IR has no `when` lines. A token's source lines come from `explain`.
+  The IR has no `when` lines. A token's source lines come from `explain`; an icon is read through
+  `describe` and `resolve` only.
 - `files`;
 - `meta`: `{dials: {name: [[key, value], …]}, tokens: {…}}`, the `key=value` metadata words as
   written (`control`, `step`, `label`, `help`, `options`, `group`, `priority`, `pair`, …). It is
@@ -217,6 +222,8 @@ tuple:
 - **A type** (*1.9*) is `{modes, value, kind: "type", style, weight, size, leading, family}`: each
   longhand as the token writes it, null for one it leaves unsaid (`size` always written). **A
   family** is `{modes, value, kind: "family", family}`, the stack as CSS writes it.
+- **An icon** (*1.9*) is `{modes, kind: "icon", sf, material, svg}`, the same in every tuple, a
+  source unwritten null.
 - **A shadow** (*1.8*) is `{modes, value, kind: "box-shadow" | "text-shadow", shadows}`: each shadow
   `{inset, lengths, color}`, its lengths in px (offset x, offset y, then blur and spread when
   written) and its colour's folded CSS (null for a text shadow's `currentcolor`).
@@ -548,8 +555,9 @@ Module 2025.10, as `bun exact.mjs tamber export dtcg <app>` writes it, from the 
   what it wrote there, the newest 16, in a directory whose own `.gitignore` (`*`) keeps them out of
   every commit. A link in a baseline's place is replaced, never written through.
 - **The document.** One modifier, `mode`, whose contexts are the full tuples (every app-axis tuple,
-  then `light` and `dark`, named `axis=value, …, light`), each a complete set of the colour tokens,
-  checked to read back as the colour a host renders before it is written. The header is the root
+  then `light` and `dark`, named `axis=value, …, light`), each a complete set of the design's
+  tokens (every kind since stage 6 G, under *1.9*), a colour checked to read back as the colour a
+  host renders before it is written. The header is the root
   `$extensions["exact"]` of the one token document of a set `exact`, first in `resolutionOrder`
   (the resolver's own root takes no `$extensions`): `export` (`"tamber-dtcg/1"`), `design`,
   `digest`, `conversions`, `axes`, `contexts` (each context's `modes` and `scheme`) and `dials`.
@@ -559,6 +567,23 @@ Module 2025.10, as `bun exact.mjs tamber export dtcg <app>` writes it, from the 
   plain colour; `role` or `platform`, for a value at that role's or platform colour's fallback;
   `overrides`, for a role override, exported as a token named for the role's row (`AccentColor`);
   `lossy`, the CSS of a colour past Oklab's range (an HDR one), clipped.
+- **Every other kind** (stage 6 G) takes its DTCG type, one value in light and dark:
+  - a length `dimension`, px or `rem`; an `em`, a text style or the hairline as px at the default
+    root size (16), `lossy` its source;
+  - a number `number`;
+  - a family `fontFamily`, its members unquoted;
+  - a type `typography`, every property written: what the token leaves unsaid (the text style's
+    weight and leading, the family) as the web's default, named in `unsaid`; a style in
+    `fontStyle`; a line height that is no number in `leading`; a text style's size `lossy`;
+  - a shadow `shadow`, a text shadow marked `kind: "text-shadow"`, `currentcolor` as black marked
+    `currentcolor`;
+  - a duration `duration` in ms;
+  - an easing `cubicBezier`, a keyword as its curve, a `steps()`, `linear()` or spring as
+    `linear`'s, `lossy` its source.
+
+  An icon is no token of the export. Re-imported, a changed value proposes the line that wins
+  where every tuple it wins in moved to it, else a `when` naming the tuple's axes. An unchanged
+  part keeps its source: a type's text style where its size did not move.
 - **A design that does not check** is refused as a read is.
 - **Importing it back** (`import` with `kind: "dtcg"` and the export as its one source). The file is
   read as the export when it has the header, or the export's shape (a set `exact`, then the one
@@ -745,7 +770,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
     `setRootFontSize` included (at most once a turn).
   - `unsupported`: a command or batch it can't apply, by name (`what`), with the pin frame's
     `revision` when it is one (*1.3*, optional).
-  - `selected` (*1.3*, LLP 1122 D5; the wasm web page sends it in inspect mode):
+  - `selected` (*1.3*, LLP 1122 D5; the wasm web page and the iOS and Mac hosts send it in inspect mode):
     `{selected, inspect?, click?, plan, design, revision}`, the number of the `inspect` command it
     was made under (*1.6*; one since replaced is refused), a click's token (*1.7*, 1 to 64
     characters: a selection a press made, re-sent when it is reported again), the digests and pin
@@ -770,10 +795,22 @@ The tool drives no input into an app; a command changes only what `prefer` would
     new generation, or said gone). In inspect mode the page shows a banner with a close control
     (and leaves on Escape), takes every input itself (pointer, mouse, touch, wheel, keys,
     gestures; guest frames take no pointer input) so nothing reaches the app, outlines the node
-    under the pointer and selects the one a press is released on. A build that registers again
+    under the pointer and selects the one a press is released on. The iOS and Mac hosts (T2c,
+    development builds only: Swift's `EXACT_INSPECT`, which a production bake has not) do the
+    same. On iOS the window takes every touch and press but those on the banner's close, and a
+    touch begun in inspect mode stays taken to its end; on entry editing ends (the keyboard goes),
+    gestures and controls under way are cancelled, and a status-bar tap scrolls nothing. On the
+    Mac an event monitor takes every mouse, wheel and key event in the app's windows but the
+    banner's close; Escape leaves. A tap or click selects the nearest view, up from the window's
+    own hit view, that stands for a plan node, a walk that stops at a system bar or the title bar
+    (a plan node the bar hosts, its title, a bar or toolbar item, a tab, is selected; UIKit's and
+    AppKit's own parts, Back, a window button, the bar, select nothing, and the banner says so);
+    a finger down (the pointer over a view, on the Mac) highlights what it would select. tvOS,
+    the Linux host and a development JS page (until the JS target names the capability) answer
+    `inspect` unsupported. A build that registers again
     is told inspect mode as the server holds it. A build that can says
-    `inspect` among its `capabilities` (the wasm web page now; the JS target and natives later).
-    Development pages only.
+    `inspect` among its `capabilities` (the wasm web page, and the iOS and Mac hosts; the JS
+    target later). Development builds only.
   - `outline` (*1.3*) `{sites, plan, click?}`: the sites of plan `plan` (its digest) to outline while
     inspect mode is on, every copy of a node; an empty list clears the outlines, and so does
     `{clear: true}`. Each build is sent its own plan's sites, from that plan's map (*1.9*: by the

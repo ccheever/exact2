@@ -17,6 +17,8 @@ pub struct Design {
     pub tokens: Vec<Token>,
     /// The `exports` block, when there is one (D7's retention).
     pub exports: Option<Vec<At<String>>>,
+    /// Icon tokens, the `icons` block's (D10).
+    pub icons: Vec<Token>,
 }
 
 /// Something with the place it was written.
@@ -155,7 +157,7 @@ pub fn parse(src: &str) -> Result<Design, Vec<Diagnostic>> {
             continue;
         }
         let word = head.text.split(' ').next().unwrap_or("");
-        if ["axes", "dials", "theme", "exports"].contains(&word) {
+        if ["axes", "dials", "theme", "icons", "exports"].contains(&word) {
             if head.text != word {
                 errors.push(Diagnostic::new(
                     "tamber-block",
@@ -205,12 +207,7 @@ pub fn parse(src: &str) -> Result<Design, Vec<Diagnostic>> {
                 });
                 design.exports = Some(names);
             }
-            "icons" => errors.push(Diagnostic::new(
-                "tamber-stage",
-                "icon tokens (D10) arrive in stage 9",
-                head.line,
-                head.col,
-            )),
+            "icons" => tokens(body, &mut design.icons, &mut errors),
             "component" => errors.push(Diagnostic::new(
                 "tamber-stage",
                 "component params (D15) arrive in stage 7",

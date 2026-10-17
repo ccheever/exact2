@@ -9,6 +9,20 @@ impl Kernel {
         self.arena.system_stacks = system;
     }
 
+    /// Whether Bold Text weights stack `family` now (LLP 1115.000 D12.3):
+    /// the setting on, as the last commit applied it, and the stack the
+    /// system's. A binding reading a font outside the plan (LLP 1121 D12)
+    /// steps its weight by it.
+    pub fn bold_text_weights(&self, family: u16) -> bool {
+        self.arena.bold_text && self.arena.system_family(family)
+    }
+
+    /// The pixels one device pixel is on this display (what the hairline
+    /// resolves to).
+    pub fn device_pixel(&self) -> f32 {
+        crate::style::relative::device_pixel(self.arena.display_scale.unwrap_or(1.0))
+    }
+
     /// How many stacks [`Self::set_system_stacks`] has said: a runner says
     /// a runtime stack's too once it interns one.
     pub fn system_stack_count(&self) -> usize {

@@ -41,6 +41,9 @@ let capabilities: [(name: String, target: String, define: String)] = [
 // above already uses — so a normal build is unchanged and a test build is
 // quick. `bun host/apple/build.mjs --test` sets it.
 let testing = ProcessInfo.processInfo.environment["EXACT_TESTS"] == "1"
+// Inspect mode (LLP 1122 T2c, Inspect.swift) is a development build's: a
+// production one (`EXACT_UPDATE_TRUST=production`) compiles none of it.
+let devTools: [SwiftSetting] = ProcessInfo.processInfo.environment["EXACT_UPDATE_TRUST"] == "production" ? [] : [.define("EXACT_INSPECT")]
 
 let core: [Target] = [
     .systemLibrary(name: "CExact", path: "Sources/CExact"),
@@ -48,6 +51,7 @@ let core: [Target] = [
         name: "ExactKit",
         dependencies: ["CExact"],
         path: "Sources/ExactKit",
+        swiftSettings: devTools,
         linkerSettings: [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName), .linkedLibrary("c++")]
     ),
     .target(name: "ExactUpdates", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactUpdates"),
@@ -83,7 +87,7 @@ let tests: [Target] = [
     // tests over stand-in players; the arm itself is build.mjs's dylib.
     .target(name: "ExactNowPlaying", path: "videoarm", exclude: ["VideoArm.swift"], sources: ["NowPlaying.swift"]),
     .testTarget(name: "ExactKitTests", dependencies: ["ExactKit", "ExactGroupedLists", "ExactMarkdown", "ExactSurfaces", "ExactDrag", "ExactMediaPicker", "ExactAuthSession", "ExactSoundRender", "ExactNowPlaying"], path: "Tests/ExactKitTests",
-                resources: [.copy("ColorFixtures")]),
+                resources: [.copy("ColorFixtures")], swiftSettings: devTools),
 ]
 
 let package = Package(

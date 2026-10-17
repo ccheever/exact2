@@ -170,40 +170,52 @@ pub fn design_exports(contract: &std::path::Path) -> Option<Vec<String>> {
     Some(design.exports?.into_iter().map(|e| e.value).collect())
 }
 
-/// @ref LLP 1121 D12 — the design's colour tokens as a string-literal
-/// union, so a data module returning a token's name is checked
-/// (`ColorToken`): those its `exports` lists, else every one the plan keeps;
-/// none without a design. A synthetic token (an expression
-/// a row writes) is no name a module returns.
+/// @ref LLP 1121 D12 — the design's tokens as a string-literal union per
+/// kind, so a data module returning a token's name is checked
+/// (`ColorToken`, and since stage 6 G `LengthToken`, `NumberToken`,
+/// `TypeToken`, `FamilyToken`, `BoxShadowToken`, `TextShadowToken`): those
+/// its `exports` lists, else every one the plan keeps; none without a
+/// design. A synthetic token (an expression a row writes) is no name a
+/// module returns.
 fn tokens(plan: &Plan, exports: Option<&[String]>, out: &mut String) {
-    let mut names: Vec<&str> = Vec::new();
-    // Colour tokens: the other kinds' unions are stage 6's commit G.
-    for row in plan.theme.iter().filter(|r| r.kind == 0) {
-        let role = Some(plan.str(row.role)).filter(|r| !r.is_empty());
-        // A role override by the role's spelling, as a row writes it and the
-        // generators name it (`CanvasText`, `-exact-secondary-label`).
-        let name = role.unwrap_or(plan.str(row.name));
-        let exported = exports.is_none_or(|lines| {
-            lines
-                .iter()
-                .any(|line| exact_tamber::exports_names(line, name, role))
-        });
-        if exported && !name.contains('(') && !names.contains(&name) {
-            names.push(name);
+    const KINDS: [(u8, &str, &str); 7] = [
+        (0, "ColorToken", "A colour token"),
+        (1, "LengthToken", "A length token"),
+        (2, "NumberToken", "A number token"),
+        (3, "BoxShadowToken", "A `box-shadow` token"),
+        (4, "TextShadowToken", "A `text-shadow` token"),
+        (5, "TypeToken", "A type token"),
+        (6, "FamilyToken", "A family token"),
+    ];
+    for (kind, union, what) in KINDS {
+        let mut names: Vec<&str> = Vec::new();
+        for row in plan.theme.iter().filter(|r| r.kind == kind) {
+            let role = Some(plan.str(row.role)).filter(|r| !r.is_empty());
+            // A role override by the role's spelling, as a row writes it and
+            // the generators name it (`CanvasText`, `-exact-secondary-label`).
+            let name = role.unwrap_or(plan.str(row.name));
+            let exported = exports.is_none_or(|lines| {
+                lines
+                    .iter()
+                    .any(|line| exact_tamber::exports_names(line, name, role))
+            });
+            if exported && !name.contains('(') && !names.contains(&name) {
+                names.push(name);
+            }
         }
+        if names.is_empty() {
+            continue;
+        }
+        let quoted: Vec<String> = names
+            .iter()
+            .map(|n| serde_json::to_string(n).expect("a string is JSON"))
+            .collect();
+        let _ = writeln!(
+            out,
+            "/** {what} of the app's design, by its name (LLP 1121 D12). */\nexport type {union} = {};",
+            quoted.join(" | ")
+        );
     }
-    if names.is_empty() {
-        return;
-    }
-    let quoted: Vec<String> = names
-        .iter()
-        .map(|n| serde_json::to_string(n).expect("a string is JSON"))
-        .collect();
-    let _ = writeln!(
-        out,
-        "/** A colour token of the app's design, by its name (LLP 1121 D12). */\nexport type ColorToken = {};",
-        quoted.join(" | ")
-    );
 }
 
 /// The file's top (LLP 1116.006 D7): what `app.ts` writes, one line each, so a builder reads

@@ -7,6 +7,8 @@ import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'nod
 import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
 import { filesystemLock } from './filesystem.mjs';
+import { chooseSimulator, phone } from '../host/apple/devices.mjs';
+import { androidDevice } from './agent-android.mjs';
 import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -165,6 +167,41 @@ export function netFlags(environment = process.env) {
 export function netOptions(environment = process.env) {
   if (!environment.EXACT_NET_PROXY) return { launch: {}, context: {} };
   return { launch: { proxy: { server: `http://${environment.EXACT_NET_PROXY}`, bypass: '127.0.0.1,localhost' } }, context: { ignoreHTTPSErrors: true } };
+}
+
+/** The device a native drive will open, resolved as its launch resolves it, and pinned so the launch opens that one: a
+ * simulator's UDID (`EXACT_SIM`), a phone's (`flags.phone`), an Android device's serial (`ANDROID_SERIAL`), else
+ * this machine. The store lock's key (`exclusiveNativeStore`). */
+export function resolveDevice(host, flags, appId) {
+  if ((host === 'ios' || host === 'host-ios') && flags.device) { const ph = phone(flags.phone); flags.phone = ph.udid; return `phone ${ph.udid}`; }
+  if (host === 'ios' || host === 'host-ios') {
+    const sim = chooseSimulator(undefined, { app: host === 'host-ios' ? `${appId}.host` : appId, hint: '--sim <udid|name> (or EXACT_SIM)' });
+    process.env.EXACT_SIM = sim.udid;
+    return `simulator ${sim.udid}`;
+  }
+  if (host === 'android') { const serial = androidDevice(process.env); process.env.ANDROID_SERIAL = serial; return `android ${serial}`; }
+  return 'this machine';
+}
+/** One drive at a time of a native named store (`--storage`), from before the launch to the close: a reset empties
+ * the store at the app's boot, which would delete what another drive of it is using. Keyed by the host, the device as
+ * the drive names it (`device`: a simulator, a phone, an Android device, or this machine), the app's id and the store,
+ * so a second drive is refused while the first is open. The OS releases the lock if the driver dies. */
+export async function exclusiveNativeStore({ host, device, appId, storage }, launch, root = resolve(homedir(), '.cache/exact/agent-store-locks')) {
+  const part = (s) => String(s).replace(/[^\w.-]/g, '_');
+  mkdirSync(root, { recursive: true });
+  let release, acquired;
+  const ready = new Promise((done) => { acquired = done; });
+  const lifetime = new Promise((done) => { release = done; });
+  const holding = filesystemLock(root, `${[host, device, appId, storage].map(part).join('/')}/.lock`, async () => { acquired(); await lifetime; });
+  try { await Promise.race([ready, holding]); }
+  catch (error) { throw new Error(`--storage ${storage}: another drive of this store is open on ${device} (${error.message}); close it, or name another store`); }
+  const unlock = async () => { release(); await holding; };
+  try {
+    const carrier = await launch(), close = carrier.close.bind(carrier);
+    let closed;
+    carrier.close = () => closed ??= (async () => { try { await close(); } finally { await unlock(); } })();
+    return carrier;
+  } catch (error) { await unlock(); throw error; }
 }
 
 /** Own a named Chrome profile before resetting it, including when two drives
@@ -449,11 +486,12 @@ export function warnStale(what, built, changed, command) {
 }
 export const unchecked = (what, variable) => console.error(`${what} build freshness unchecked: ${variable} names the binary`);
 
-/** Every input Cargo's dep-info beside a binary names ([] without one). */
-export function depInfoInputs(bin, info = `${bin}.d`) {
+/** Every input Cargo's dep-info beside a binary names ([] without one), as absolute paths. Under Cargo's
+ * `build.dep-info-basedir` it writes them relative; `base` is what they are relative to, the workspace Cargo ran in. */
+export function depInfoInputs(bin, info = `${bin}.d`, base = process.cwd()) {
   if (!existsSync(info)) return [];
   const line = readFileSync(info, 'utf8').split('\n')[0];
-  return line.slice(line.indexOf(': ') + 2).split(/(?<!\\) /).filter(Boolean).map(p => p.replace(/\\ /g, ' '));
+  return line.slice(line.indexOf(': ') + 2).split(/(?<!\\) /).filter(Boolean).map(p => resolve(base, p.replace(/\\ /g, ' ')));
 }
 
 // A build script's output (`…/build/<pkg>/out/…`) is rewritten whenever another
@@ -467,7 +505,7 @@ const GENERATED = /\/build\/[^/]+\/out\//;
 // is not a change. A file that is gone is: it was read when the build ran.
 const DIRECTORY_WATCH = /\/[^./]+$/;
 /** Dep-info's inputs modified after `since`, or gone, generated outputs and never-present watched directories aside. */
-export function depInfoNewer(since, bin, info) {
+export function depInfoNewer(since, bin, info, base) {
   const skips = new Map();
   // What no build reads: a build's output, installed packages (their declarations are inputs of their own) and a
   // hidden tree; within an app, also what its other freshness checks pass over (`notBuildInput`, and the names
@@ -483,7 +521,7 @@ export function depInfoNewer(since, bin, info) {
     }
     return skips.get(app);
   };
-  return [...new Set(depInfoInputs(bin, info).filter(p => !GENERATED.test(p)).flatMap(p => {
+  return [...new Set(depInfoInputs(bin, info, base).filter(p => !GENERATED.test(p)).flatMap(p => {
     let stat;
     try { stat = statSync(p); } catch { return DIRECTORY_WATCH.test(p) ? [] : [shown(p)]; }
     if (!stat.isDirectory()) return stat.mtimeMs > since ? [shown(p)] : [];
@@ -689,6 +727,7 @@ export function notBuildInput(dir, keep = []) {
   };
 }
 
+const fileDigest = path => { try { return createHash('sha256').update(readFileSync(path)).digest('hex'); } catch { return null; } };
 /** An Apple build's receipt: its Rust and Swift inputs by digest, then by mtime the app's own files the receipt leaves out on purpose (the root build script's watches: the contract, app.json, data, shaders, assets — what the baked plan and bundle are made from). */
 export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hashed`: this drive compared its inputs' bytes already
   if (!existsSync(receipt)) return [];
@@ -714,8 +753,14 @@ export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hash
   // It names every source the bake captured (its rerun-if-changed): of the app's own, those the
   // walk above skips are no input here either (a backend app.ts never imports); one gone still counts.
   const skipped = path => { const at = resolve(ROOT, path); return at.startsWith(app.dir + '/') && existsSync(at) && skip(at); };
-  const tools = info ? depInfoNewer(since, null, info).filter(path => !skipped(path)) : [];
-  return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own, ...tools])];
+  // A product the build wrote and then read (the GPU dylib it signs beside Cargo's, whose digest the bake binds) is
+  // newer than the build's start by construction. The receipt records its bytes, which are what the bundle captured
+  // (captureAppleProduct): those decide, not its time. Every other input keeps the build's start as its bound.
+  const products = new Map((build?.products ?? []).map(p => [resolve(p.path), p.sha256]));
+  const inputs = info ? depInfoInputs(null, info, app.workspace) : [];
+  const replaced = inputs.filter(path => products.has(path) && fileDigest(path) !== products.get(path)).map(shown);
+  const tools = info ? depInfoNewer(since, null, info, app.workspace).filter(path => !skipped(path) && !products.has(resolve(ROOT, path))) : [];
+  return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own, ...tools, ...replaced])];
 }
 
 /** A web `dist/`: app and shared runtime sources newer than its build marker.
@@ -927,6 +972,22 @@ export async function backLayer(req, { evaluate, escape, frame }) {
 
 /** Escape pressed through CDP, down and up, as a keyboard's (`backLayer`). */
 export const cdpEscape = (call) => async () => { for (const type of ['rawKeyDown', 'keyUp']) await call('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 }); };
+
+/** One simulator's display, across every drive and checkout: a capture that reads it (`withDisplay`) holds it, and so
+ *  does a launch, which brings its app to the front over another drive's. Runs `fn` holding it. */
+export async function simulatorDisplay(udid, fn, { directory = resolve(tmpdir(), 'exact-ios-drives'), timeout = 60000 } = {}) {
+  const path = createHash('sha256').update(JSON.stringify(['display', udid])).digest('hex') + '/.lock';
+  const started = Date.now();
+  for (;;) {
+    let entered = false;
+    try { return await filesystemLock(directory, path, () => { entered = true; return fn(); }); }
+    catch (error) {
+      if (entered || !error.message.includes('stream is locked by another publisher')) throw error;
+      if (Date.now() - started >= timeout) throw new Error(`simulator ${udid}'s display busy: another drive still held it after ${timeout / 1000}s`);
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+}
 
 /** The simulator has one running process per bundle id, across every checkout.
  * Hold an OS lock through launch and close; a crashed driver releases it through

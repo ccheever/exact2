@@ -193,7 +193,7 @@ package final class Presenter {
         // tvOS has no keyboard layout guide.
         return nil
         #else
-        guard hasKeyboardEditor || keyboardInset > 0 else { return nil }
+        guard hasKeyboardEditor || keyboardInset > 0 || menus.promptEditing /* UIKit's field, in a prompt */ else { return nil }
         let guide = container.keyboardLayoutGuide.layoutFrame
         return guide.height > container.safeAreaInsets.bottom + 1 ? guide.minY : nil
         #endif
@@ -485,8 +485,8 @@ package final class Presenter {
     private static func tabbable(_ v: NodeView) -> Bool {
         if v.formDisabled || v.inert || v.cssVisibilityHidden || v.bounds.width == 0 || v.bounds.height == 0 { return false }
         if let index = v.explicitTabIndex, index < 0 { return false }
-        // A radio group is one stop (x2apps survey #2).
-        return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder && (!v.isRadio || v.radioTabStop)
+        // A radio group is one stop (x2apps survey #2), an authored one too.
+        return v.ariaRadioGroup != nil ? v.ariaRadioTabStop : v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder && (!v.isRadio || v.radioTabStop)
     }
 
     lazy var popoverEvents = PopoverEvents(self)

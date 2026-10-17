@@ -1043,9 +1043,9 @@ impl NodeInst {
             match binding.kind {
                 BindingKind::Prop => match bridge::prop_value(binding.id, &value) {
                     Ok((prop, pv)) => u.ops.push(Op::SetProp {
+                        value: bridge::icon_source(plan, prop, pv),
                         id: self.view,
                         prop,
-                        value: pv,
                     }),
                     Err(
                         e @ (bridge::BridgeError::PropKind { prop, .. }

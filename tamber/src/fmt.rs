@@ -66,7 +66,7 @@ pub fn format(src: &str) -> Result<String, Vec<Diagnostic>> {
             (0, _) => l.text.clone(),
             (1, "axes") => axis(l),
             (1, "dials") => dial(l),
-            (1, "theme") => token(l),
+            (1, "theme" | "icons") => token(l),
             (2, "theme") => when(l),
             _ => l.text.clone(),
         };

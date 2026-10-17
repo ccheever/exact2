@@ -66,6 +66,7 @@ extension Agent {
     /// not return before), so there is nothing to wait for (the iOS host's
     /// `awaitModalTransitions`).
     @discardableResult func awaitModalTransitions(bound: TimeInterval = 2) -> Bool { true }
+    @discardableResult func awaitChosenPress(bound: TimeInterval = 2) -> Bool { true }
 
     /// AppKit's list corrections and element reveals finish on its clock,
     /// including a reveal in the page viewport (LLP 1070.000 §11).
@@ -151,7 +152,7 @@ extension Agent {
                                          "transition": ["interactive": false, "phase": "idle"]]
         if let container = presenter.views.values.filter({ $0.props["navigationBack"] != nil }).min(by: { $0.id < $1.id }) {
             let key = container.props["navigationKey"] ?? ""
-            let routes = presenter.blocks.authored(NavigationTabs.routes(in: container), in: container.container) // one in its sheet too
+            let routes = presenter.navigation.routes(in: container) // one in its sheet too
             let keys = routes.map { $0.props["navigationKey"] ?? "" }
             navigation["route"] = key
             if let range = NavigationRules.stack(routeKeys: keys, selected: key) {

@@ -38,7 +38,11 @@ const CONVERSIONS: &[&str] = &[
     "a colour outside DTCG's spaces or ranges: oklab; one past oklab's lightness (HDR) clipped, with its CSS in `$extensions.exact.lossy`",
     "dials: this header's `dials`, each its source and folded value",
     "icons: not tokens, not exported",
-    "lengths, numbers, `rem`, `em` and text styles: not yet (LLP 1121 stage 6)",
+    "a length: `$type: dimension`, px or `rem`; an `em`, a text style or the hairline as px at the default root size (16), its source in `$extensions.exact.lossy`",
+    "a number: `$type: number`; a family: `$type: fontFamily`, its members unquoted",
+    "a type: `$type: typography`, every property written; what the token leaves unsaid (the text style's weight and leading, the family) as the web's default, named in `$extensions.exact.unsaid`; a style in `fontStyle`, a line height that is no number in `leading`",
+    "a shadow: `$type: shadow`, a text shadow marked `kind: text-shadow`, `currentcolor` as black marked `currentcolor`",
+    "a duration: `$type: duration` in ms; an easing: `$type: cubicBezier`, a keyword as its curve, `steps()`, `linear()` and a spring as `linear`'s, the source in `lossy`",
 ];
 
 /// One context: a full tuple and a side of the scheme.
@@ -137,6 +141,11 @@ fn side(
             Some((pick(pair.clone())?, Some(("platform", name.clone()))))
         }
     }
+}
+
+/// A colour's side as 2025.10's object, for a shadow's colour (stage 6 G).
+pub(crate) fn colour_side(value: &Folded, dark: bool, vocab: &Vocab) -> Option<Value> {
+    side(value, dark, vocab).map(|(h, _)| colour_json(h).0)
 }
 
 /// Within a space's 2025.10 ranges: RGB and XYZ components 0–1, Lab's and
@@ -263,8 +272,42 @@ pub fn dtcg(f: &Folding, vocab: &Vocab) -> Result<String, Vec<Diagnostic>> {
         let mut tree = Map::new();
         let mut count = 0;
         for (checked, t) in f.tokens.iter().zip(&f.design.tokens) {
-            // Lengths and numbers join the export with stage 6's commit G.
+            // Every other kind as its DTCG type (stage 6 G).
             if checked.kind != crate::Kind::Color {
+                let Some(w) = checked
+                    .values
+                    .get(c.tuple)
+                    .and_then(|v| crate::export_kinds::written(v, c.dark, vocab))
+                else {
+                    errors.push(Diagnostic::new(
+                        "tamber-export",
+                        format!(
+                            "`{}` has no value DTCG writes in `{}`",
+                            checked.name, c.name
+                        ),
+                        t.name.line,
+                        t.name.col,
+                    ));
+                    continue;
+                };
+                let mut exact = w.exact;
+                let text = source(f, t, &c.modes, c.dark).trim();
+                if text != checked.values[c.tuple].css() {
+                    exact.insert("source".into(), json!(text));
+                }
+                let mut token = Map::new();
+                token.insert("$type".into(), json!(w.ty));
+                token.insert("$value".into(), w.value);
+                if !exact.is_empty() {
+                    token.insert("$extensions".into(), json!({ "exact": exact }));
+                }
+                insert(
+                    &mut tree,
+                    &checked.name,
+                    group(&checked.name),
+                    Value::Object(token),
+                );
+                count += 1;
                 continue;
             }
             let Some(folded) = checked.values.get(c.tuple).and_then(crate::Value::color) else {
@@ -593,7 +636,10 @@ fn alike(x: &Wide, y: &Wide) -> bool {
 /// Two colour values the same: as written, or as the colours they read as
 /// (a tool that drops `hex`, or prints the components again).
 fn same(a: &Value, b: &Value) -> bool {
-    a == b || matches!((read(a), read(b)), (Some(x), Some(y)) if alike(&x, &y))
+    a == b
+        || matches!((read(a), read(b)), (Some(x), Some(y)) if alike(&x, &y))
+        // Another kind's numbers by their value: a tool's `27` is `27.0`.
+        || crate::export_kinds::alike(a, b)
 }
 
 /// A tuple: every axis and its value.
@@ -831,6 +877,45 @@ pub fn reimport(
             continue;
         };
         let written = decl.name.value.clone();
+        // Every other kind: one value a tuple, whatever the scheme (stage 6 G).
+        if now.kind != crate::Kind::Color {
+            let baseline = |context: &str| {
+                ours.get(context)
+                    .and_then(|all| all.iter().rev().find(|(n, _)| n == name))
+                    .map_or((Value::Null, Value::Null), |(_, t)| {
+                        (t["$value"].clone(), t["$extensions"]["exact"].clone())
+                    })
+            };
+            let incoming = |context: &str| {
+                let t = theirs
+                    .get(context)?
+                    .iter()
+                    .rev()
+                    .find(|(n, _)| n == name)
+                    .map(|(_, t)| t.clone())?;
+                Some((
+                    t["$type"].as_str()?.to_string(),
+                    t["$value"].clone(),
+                    t["$extensions"]["exact"].clone(),
+                ))
+            };
+            match crate::export_kinds::reimport_ops(
+                decl,
+                &written,
+                &tuples,
+                &under,
+                &changed,
+                &incoming,
+                &baseline,
+                &|modes| branch(decl, &under, modes, false),
+                current,
+                vocab,
+            ) {
+                Ok(ops) => accepted.push((name.clone(), ops)),
+                Err((block, why)) => report(&mut unmapped, name, &block, why),
+            }
+            continue;
+        }
         // What a context should be: the file's where it changed, the design's
         // as it is where it did not, as text and as the colour it renders.
         let now_side = |context: &str| -> Option<(String, Option<Wide>)> {

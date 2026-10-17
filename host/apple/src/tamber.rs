@@ -5,12 +5,15 @@ use super::Host;
 use exact_runner::{DataSource, Place};
 
 impl<D: DataSource> Host<D> {
-    /// Answer `{"view": id, "names": [..]}` (`view` 0 or none: the session's
-    /// root): `{"inputs", "colors": {name: colour}}`, each colour as a row
-    /// crosses it (a role the theme replaces as what replaces it, a system
-    /// colour by its name), `null` for a name the plan lacks or a value that
-    /// is no colour; `inputs` moves when anything the answer read does
-    /// (`observe`). A view that is not live is refused.
+    /// Answer `{"view": id, "names": [..], "lengths": [..], "numbers": [..],
+    /// "fonts": [..]}` (`view` 0 or none: the session's root; each list but
+    /// `names` optional): `{"inputs", "colors": {name: colour}, "lengths":
+    /// {name: points}, "numbers": {name: n}, "fonts": {name: {size, weight,
+    /// italic, lineHeight, family}}}`, each colour as a row crosses it (a role
+    /// the theme replaces as what replaces it, a system colour by its name),
+    /// `null` for a name the plan lacks or a value of another kind; `inputs`
+    /// moves when anything the answer read does (`observe`), Bold Text and
+    /// the person's text size included. A view that is not live is refused.
     pub fn tamber_json(&mut self, request: &str) -> String {
         let Ok(request) = serde_json::from_str::<serde_json::Value>(request) else {
             return exact_runner::agent::error("tamber: not a JSON request");
@@ -43,7 +46,11 @@ impl<D: DataSource> Host<D> {
                 None => out.push_str("null"),
             }
         }
-        out.push_str("}}");
+        out.push('}');
+        // Stage 6 G: lengths in points, numbers, and fonts as a host draws
+        // them (the text size and Bold Text read).
+        out.push_str(&tamber.measures_json(&request, place));
+        out.push('}');
         out
     }
 }

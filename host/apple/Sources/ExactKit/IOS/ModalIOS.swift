@@ -282,6 +282,22 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     var topNavigation: UINavigationController? { layers.last?.navigation as? UINavigationController }
     func mounts(_ view: UIView) -> Bool { mountRoots.contains { view.isDescendant(of: $0) } }
     var routes: [(node: NodeView, kind: String)] { layers.map { ($0.route, $0.kind) } }
+    /// Each live presentation UIKit draws at another size than it lays it
+    /// out, and the factor. A page sheet resting below `large` on an iOS 26
+    /// iPhone floats, its whole content scaled (0.96 on a 402-pt screen), so
+    /// its nodes' boxes are their authored frames times this.
+    var drawnScales: [(route: NodeView, kind: String, scale: CGFloat)] {
+        layers.compactMap { layer in
+            guard let view = layer.controller.viewIfLoaded, let window = view.window, view.bounds.width > 0 else { return nil }
+            let scale = view.convert(view.bounds, to: window).width / view.bounds.width
+            #if os(iOS)
+            let kind = layer.controller.modalPresentationStyle == .pageSheet ? "sheet" : layer.kind
+            #else
+            let kind = layer.kind
+            #endif
+            return abs(scale - 1) >= 0.005 ? (layer.route, kind, scale) : nil
+        }
+    }
     /// Each presentation's mount and the route it holds.
     var mounted: [(mount: PresentationMount, route: NodeView)] { layers.map { ($0.controller.mount, $0.route) } }
     #if os(iOS)

@@ -165,6 +165,31 @@ pub(crate) fn write(f: &Folding) -> String {
         Some(e) => strings(e.iter().map(|n| n.value.as_str()), &mut body),
         None => body.push_str("null"),
     }
+    // D10's icons, when it has any: each its sources, null where unwritten.
+    if !f.icons.is_empty() {
+        body.push_str(",\n  \"icons\": [");
+        for (i, icon) in f.icons.iter().enumerate() {
+            body.push_str(if i == 0 {
+                "\n    {\"name\": "
+            } else {
+                ",\n    {\"name\": "
+            });
+            string(&icon.name, &mut body);
+            for (key, source) in [
+                ("sf", &icon.sf),
+                ("material", &icon.material),
+                ("svg", &icon.svg),
+            ] {
+                body.push_str(&format!(", \"{key}\": "));
+                match source {
+                    Some(s) => string(s, &mut body),
+                    None => body.push_str("null"),
+                }
+            }
+            body.push('}');
+        }
+        body.push_str("\n  ]");
+    }
     let mut out = format!(
         "{{\n  \"format\": {FORMAT},\n  \"digest\": \"{}\",\n",
         digest(&body)

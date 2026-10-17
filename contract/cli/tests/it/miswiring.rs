@@ -282,6 +282,6 @@ fn an_image_source_that_is_neither_a_symbol_nor_a_file_is_named_with_its_repair(
         "{got:?}"
     );
     // A role, an Apple name, a file, a URL, a computed source: all drawn.
-    let fine = "component App\n  state s = \"x\"\n  view\n    column\n      image \"symbol:heart\"\n      image \"symbol:sf/heart.fill\"\n      image \"logo.png\"\n      image \"/img/logo\"\n      image \"https://example.com/a\"\n      image s\n";
+    let fine = "component App\n  state s = \"x\"\n  view\n    column\n      image \"symbol:heart\"\n      image \"symbol:sf/heart.text.square\"\n      image \"logo.png\"\n      image \"/img/logo\"\n      image \"https://example.com/a\"\n      image s\n";
     assert_eq!(warned(fine), []);
 }

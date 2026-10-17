@@ -36,6 +36,8 @@ mod fonts;
 mod grouped;
 mod handlers;
 mod headings;
+mod icon_svg;
+mod icons;
 mod identity;
 mod intersect;
 mod keyframes;
@@ -46,6 +48,7 @@ mod metrics;
 pub mod motion;
 mod native;
 mod nodes;
+mod overflow;
 mod routes;
 mod shorthands;
 mod sites;
@@ -317,7 +320,12 @@ fn lower_with_sites(
     // Bound before any style is parsed, the profiles first: an entry may be
     // a profile's colour.
     let _profiles = l.declare_color_profiles(file);
-    let _theme = l.declare_theme(file, root, names_tokens_outside_views(file, root_types));
+    let _theme = l.declare_theme(
+        file,
+        root,
+        names_tokens_outside_views(file, root_types),
+        asset_root,
+    );
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {
@@ -596,6 +604,10 @@ fn lower_with_sites(
         }
     }
     l.bake_texts()?;
+    // @ref LLP 1121 D10 — the icons a computed source may name.
+    for icon in icons::kept() {
+        l.b.icon(&icon.name, &icon.sf, &icon.view_box, &icon.path, &icon.svg);
+    }
     let plan = l.b.finish().map_err(|e| LowerError {
         id: "lower-invalid-plan",
         message: format!("{e:?}"),

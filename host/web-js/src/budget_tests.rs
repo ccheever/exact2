@@ -146,7 +146,7 @@ fn every_check_names_its_instructions_pc() {
 /// a body that calls one is metered, text's included.
 #[test]
 fn the_list_builders_step_on_the_callers_counter_at_their_call() {
-    let (plan, js) = js(&format!("{CARD}component App\n  resource cards = cards(3) as shape Card[]\n  state s = \"ab\"\n  derive both = cards.concat(cards).length\n  derive kept = cards.slice(1).length\n  derive found = cards.map(c => c.label).includes(s)\n  derive text = s.includes(\"a\")\n  derive at = cards.map(c => c.label).indexOf(s)\n  derive pieces = s.split(\"\").length\n  derive textAt = s.indexOf(\"b\")\n  view\n    text `${{both}} ${{kept}} ${{found}} ${{text}} ${{at}} ${{pieces}} ${{textAt}}`\n"));
+    let (plan, js) = js(&format!("{CARD}component App\n  resource cards = cards(3) as shape Card[]\n  state s = \"ab\"\n  derive both = cards.concat(cards).length\n  derive kept = cards.slice(1).length\n  derive found = cards.map(c => c.label).includes(s)\n  derive text = s.includes(\"a\")\n  derive at = cards.map(c => c.label).indexOf(s)\n  derive pieces = s.split(\"\").length\n  derive textAt = s.indexOf(\"b\")\n  derive total = sum(cards.map(c => c.label.length))\n  view\n    text `${{both}} ${{kept}} ${{found}} ${{text}} ${{at}} ${{pieces}} ${{textAt}} ${{total}}`\n"));
     for (i, d) in plan.derives.iter().enumerate() {
         let body = decl(&js, &format!("d_{i}"));
         assert_eq!(body.matches("let $s=0").count(), 1, "{body}");
@@ -160,6 +160,7 @@ fn the_list_builders_step_on_the_callers_counter_at_their_call() {
                     Stdlib::Includes,
                     Stdlib::IndexOf,
                     Stdlib::Split,
+                    Stdlib::Sum,
                 ]
                 .iter()
                 .any(|&f| x.args[0] == f as u64)

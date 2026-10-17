@@ -2864,3 +2864,104 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   a family token's stack, a tuple's leading under a pin, Bold Text on a system and a named family, a
   live value edit, and the refusals); `tamber/tests/it/edit.rs` (live versus rebuild);
   `tamber/tests/it/pair.rs` (`tamber-type-fixed`); the crate's corpus `type`, `refuse-type`.
+
+### Stage 6, commit F1: the icons block (D10; stage 9's, brought forward)
+
+- **The crate** (`tamber/src/icon.rs`) reads an `icons` block's tokens, each
+  `icon(sf "…", material "…", svg "…")`: an `sf` name (lowercase, digits, dots), a `material`
+  name (lowercase, digits, underscores), an `svg` path under the app's `assets/` (no `..`, ending
+  `.svg`), each at most once, an `sf` or an `svg` among them (a `material` name alone draws
+  nothing); commas inside the quotes are a name's, and a path with a `\` or a `:` is refused (it
+  leaves `assets/` on Windows). Its name is dotted (`tamber-icon-name`), so no dial, role or CSS word
+  is spelled as one, and unique among the design's tokens and icons (`tamber-duplicate`); a kind
+  written is `icon`; no `when` (`tamber-icon-axis`); an icon under `theme` is refused, pointing at
+  `icons`, and a value naming an icon says it is one. `exports` may list an icon (D12's bindings
+  name it). `fmt` lays an icon's line out as a token's; `history` reports an icon's change (no
+  operation writes one). What the SVG holds and which shipped target needs which source are the build's (F2).
+- **The IR** carries `icons`, when the design has any, each its sources; `resolve` answers an
+  icon's, the same in every tuple. An operation writes no icon (the design tool edits none yet);
+  an icon's change is retained shape, so `propose` classes it `rebuild`.
+- **The wire** (`tamber/1.9`): the IR's `icons` and `resolve`'s icon tuples.
+
+### Stage 6, commit F2: icons at build (D10)
+
+- **The SVG** (`contract/lower/src/icon_svg.rs`) is read as XML (comments, CDATA and
+  declarations skipped, entities decoded, attributes apart) for its viewBox (its own, or its width
+  and height) and its `<path>`s' `d` outside `defs`, each filled on its own (nonzero), joined by
+  `;`, which no path data holds. Fill and stroke follow SVG's cascade (a `style` declaration over
+  the attribute, inherited from groups). One whose paths fill in more than one colour, or are
+  stroked or unfilled, or with what a filled template would lose (a transform, an even-odd
+  `fill-rule`, an opacity below 1, a clip, a mask, a filter), or with anything but paths and groups
+  (a gradient, an image, text, a `<circle>`, a `<use>`) is no template; a `d` that is not path data
+  is refused.
+- **Per target** (`contract/lower/src/icons.rs`): the targets an app ships are its manifest's
+  (`.shells/app.json` first, as the build reads it, else `app.json`) `host`, `deploy.store` and
+  `deploy.binaries` keys, and its target crates (`android/`, `linux/`, `web/`, theme2's ruling); an app with no manifest is checked for none. The source graph names each
+  icon's SVG, so a watcher rebuilds on its edit. Apple's draw an `sf` (their hosts draw no path yet, so an SVG is no
+  source there: a known limit, narrowing D10's "svg fallback", accepted by theme2; QUEUE "Apple
+  hosts draw icon paths"); any other a template SVG; the web also a file that is no template, as written. Else `tamber-icon-missing: <icon> has no source
+  for <target>`, or `tamber-icon-svg` naming why the file is no one-colour shape and the target.
+- **The source form:** a literal `symbol:icon.reply` is written as
+  `symbol:icon|<sf>|<view_box>|<path>|<svg>`, which hosts read (`exact_kernel::Icon`,
+  `symbol_path`, `apple_symbol_name`), so the plan keeps no icon token for a literal.
+- **The plan's `icons` table** keeps what a computed source may name: every icon when a `symbol:`
+  source is computed, else those a literal named and, in an app that names tokens outside its
+  views, those `exports` keeps. The runner writes a computed `symbol:icon.reply` or
+  `symbol:sf/<name>` (the icon whose `sf` it is) in the same form as it sets the prop.
+- **`symbol:sf/<name>`** that is an icon's `sf` is that icon; else one that is a role's own Apple
+  name is that role, which every host draws (theme2's addition); either is
+  `lower-symbol-alias`, naming what to write. A bare one in an app that ships a target other than
+  Apple's is `lower-symbol-platform`, naming the targets and the icon token to declare.
+- **The break:** stage 6's second, stage 9's brought forward: the plan format digest moves
+  (`icons`, and the `theme.kind` comment for kinds 3 and 4 that D left out), pinned in
+  `plan/tests/format.rs`. Every host needs a new binary; an old one refuses a new plan by the
+  format digest before reading a table (`FormatDigestMismatch`).
+
+### Stage 6, commit F3: hosts draw icons (D10)
+
+- **One reading:** every host reads a symbol through the kernel: `apple_symbol_name` (Apple's SF
+  Symbol, an icon's `sf` included) and `symbol_path` (`SymbolPath`: a role's path, stroked or
+  filled even-odd in 24 units; an icon's paths under its viewBox, each filled nonzero; or `sf/` a
+  role's Apple name, which draws that role).
+- **Linux and Android's reader** (`paint/svg.rs`, `presenter/top/look.rs`) draw the path scaled by
+  its viewBox, a role's stroke kept at its 24-unit width; paths are parsed once by their text.
+- **The web** (`element.rs`, `glue.js`) writes `data-symbol-viewbox` beside the path; an icon whose
+  SVG is no template is the file (`src="assets/…"`), shown as any image is.
+- **The JS target** (`symbols.js`, `src/symbols.rs`) carries the plan's icons in its table (by name
+  and by `sf/`, before the roles), reads the build's own form, and loads every role (with `sf/`
+  keys for their Apple names) for a computed `sf/` it does not hold; a role's entry keeps its two
+  fields, so an app without icons emits what it did.
+- **Apple** reads the SF Symbol as before, through the kernel (`content_region.rs`,
+  `kernel/src/grouped.rs`).
+### Stage 6, commit G: bindings and the DTCG export of every kind
+
+- **The DTCG export** (`tamber/src/export_kinds.rs`) writes every kind as its DTCG type, one value in
+  light and dark: a length a `dimension` (px or `rem`; an `em`, a text style or the hairline as px at
+  the default root size, `lossy` its source); a number; a family a `fontFamily`; a type a
+  `typography` with every property, what it leaves unsaid named (`unsaid`); a shadow; a duration; an
+  easing a `cubicBezier` (a keyword as its curve, a `steps()`, `linear()` or spring `lossy`). Icons
+  stay outside it. Re-import reads each back as the design writes it (numbers by their value, so a
+  tool's reprint changes nothing; the file's own `$extensions` where it kept them; a part the export
+  left unsaid becomes said once edited; a shadow whose colour differs by scheme as one value with
+  `light-dark()` colours), proposing per tuple the line that wins where every tuple it wins in
+  moved, else a `when` of the tuple's axes, and checks each changed tuple folds to the file's value
+  (`0.2s` is `200ms`) and each other keeps the design's (so an edit to one side of an axis under
+  scheme=dark, which no kind but colour varies by, is refused); an edit the design already has
+  proposes nothing. A placeholder the file moved (a type's size, a line height in a unit, a
+  `currentcolor` shadow's colour) is taken as its value. A shadow's colour reference is written
+  back as its folded colour once the shadow is edited. An export and re-import of a design with every kind proposes
+  nothing. The vocabulary carries each named length's px (`Vocab::sizes`).
+- **Bindings.** Rust: `Token<Length>`, `Token<Number>`, `Token<Type>` beside `Token<Color>`
+  (`tamber gen rust`), resolved per place (`Tamber::length`, `number`, `font`: a `Font` of points,
+  weight, style, line height and stack). A type token's weight is its text style's on this platform
+  where it writes none, stepped by Bold Text on a system family (`Kernel::bold_text_weights`).
+  `inputs` moves with Bold Text and the person's text size, so `observe` hears both. Swift:
+  `ExactTamber(view).length(_:)`, `number(_:)`, `font(_:fallback:)` (a `UIFont`/`NSFont` the host's
+  text engine resolves), in the process and in a native module's library (over the same host
+  table's JSON: a bundled face by its name at its weight, a variable file's `wght` set; a system
+  stack, which no name opens, as the system font at the weight in its design, serif, monospaced
+  or rounded). Kotlin: `length` and `number`. TypeScript: a union per
+  kind (`LengthToken`, `NumberToken`, `TypeToken`, `FamilyToken`, the shadows), bounded by
+  `exports`; a motion token has none, as it is written into its rows at build and no module names it
+  (D13). `tamber gen` writes each kind; `tamber.css` writes a text style, an `em` and the
+  hairline as px at the default root size, saying so. Icons' `symbol(.icon…)` follows F.

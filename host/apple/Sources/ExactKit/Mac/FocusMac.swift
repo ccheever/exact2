@@ -16,10 +16,11 @@ extension NodeView {
     package override var acceptsFirstResponder: Bool {
         if formDisabled || inert || isHiddenOrHasHiddenAncestor || cssVisibilityHidden { return false }
         if field != nil || textArea != nil || isNativeButton || nativeValueControl != nil { return false }
-        return props["semanticTag"] == "dialog" || isParagraph || explicitTabIndex != nil || tabbable || isRadio
+        return props["semanticTag"] == "dialog" || isParagraph || explicitTabIndex != nil || tabbable || isRadio || ariaRadioGroup != nil
     }
     var tabbable: Bool {
         if let index = explicitTabIndex { return index >= 0 }
+        if ariaRadioGroup != nil { return ariaRadioTabStop } // an authored radio group is one stop too
         return kind == "button" || isNativeButton || isDateOrSelect || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: Self.focusEvents)
             || reorderKeys || radioTabStop // a grouped grip takes the keys (LLP 1094 D9); a radio group one stop (x2apps survey #2)
     }

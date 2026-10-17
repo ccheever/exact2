@@ -227,10 +227,17 @@ fn call_value(
         // @ref LLP 1017.003 D5 — opcodes with a callback body, never a
         // call; `join` is the VM's, which bounds the string it makes, and so
         // are `concat` and `split` (LLP 1088 §9.1), which build a list.
-        Stdlib::Map | Stdlib::Filter | Stdlib::Join | Stdlib::Concat | Stdlib::Split => {
-            return None
-        }
+        Stdlib::Map
+        | Stdlib::Filter
+        | Stdlib::Join
+        | Stdlib::Concat
+        | Stdlib::Split
+        | Stdlib::Sum => return None,
         Stdlib::Floor => Value::Number(num(0)?.floor()),
+        // `Math.sin` and `Math.cos` through the pinned `libm`, so every
+        // native target computes the same bits (LLP 1003 §7).
+        Stdlib::Sin => Value::Number(exact_motion::math::sin(num(0)?)),
+        Stdlib::Cos => Value::Number(exact_motion::math::cos(num(0)?)),
         // @ref LLP 1102 §3.1, §3.2, §3.4 — `Math.ceil`, `Math.round`, a strict
         // `Number()`, and an age's calendar count.
         Stdlib::Ceil => Value::Number(num(0)?.ceil()),

@@ -379,7 +379,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertNil(host(p).shown(try XCTUnwrap(p.views[4])), "a node no list draws: the ordinary aim")
         // The dispatch log tells one row's switch from another's, and from
         // its cell: the node alone is the list's for all of them.
-        XCTAssertEqual(GroupedListHost.part(s.subviews.first ?? s) as? [String: AnyHashable], ["row": 12, "part": "switch"])
+        XCTAssertEqual(GroupedListHost.part(s.subviews.first ?? s) as? [String: AnyHashable], ["row": 12, "part": "switch", "target": 13]) // (its control's node: inspect mode selects it)
         XCTAssertEqual(GroupedListHost.part(toggle.contentView) as? [String: AnyHashable], ["row": 12, "part": "cell"])
         XCTAssertNil(GroupedListHost.part(l.collection))
         // A switch not shown is refused, never the row in its place.

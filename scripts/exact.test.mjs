@@ -435,6 +435,12 @@ test('exact hatch writes each target\'s stub, wires it in, and declares the word
     hatch(['--window'], () => {});
     assert.ok(readFileSync(resolve(dir, 'modules/apple/Hatches.swift'), 'utf8').includes('        windowHatch(window)\n        // exact:window\n'));
     assert.ok(readFileSync(resolve(dir, 'modules/web/index.js'), 'utf8').includes('export function window(x) { windowHatch.built(x); }'));
+    // The app hatch reads the root's data-* words, which app.json `data` declares: the verb adds the list and names the accessor.
+    const app = [];
+    hatch(['--app'], line => app.push(line));
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).data, []);
+    assert.ok(app.some(line => line.includes('app.data[.booted]')), app.join('\n'));
+    assert.ok(readFileSync(resolve(dir, 'modules/apple/AppHatch.swift'), 'utf8').includes('app.data[.booted]'));
     assert.throws(() => hatch(['Not A Word'], () => {}), /name a word/);
     // A Linux crate gets one hatches file, each word an arm and its functions, and is told what its build.rs owes.
     mkdirSync(resolve(dir, 'linux'));

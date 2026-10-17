@@ -724,6 +724,9 @@ says. Every roster function has a row and an example, and each example written
 | `calendarDiff(from, to, "years" or "months")` | `option<number>`; whole years or months from one `YYYY-MM-DD` date to another, counted as an age is: a period completes when `to`'s month and day reach `from`'s (months compare the day), so a Feb 29 start completes a year on Mar 1 of a common year and a Jan 31 start a month on Mar 1, as Temporal's `PlainDate.until` counts with `largestUnit` `"years"` or `"months"`. When `to` is earlier, the count back, negated; `none` when either is not a real date (LLP 1102 §3.4) | `calendarDiff("1990-05-10", "2026-05-09", "years")` is `some(35)` |
 | `max(a, b)` | Number | `max(3, 7)` is `7` |
 | `min(a, b)` | Number | `min(3, 7)` is `3` |
+| `sin(rad)` | Number; `Math.sin`, CSS's `sin()`. The native runners' `libm` gives the same bits on every target; the web's `Math.sin` may differ in the last bits | `sin(0)` is `0` |
+| `cos(rad)` | Number; `Math.cos`, CSS's `cos()`, computed as `sin` is (a point on a ring is `cx + r * cos(a)`, `cy + r * sin(a)`) | `cos(0)` is `1` |
+| `sum(xs)` | Number; a list of numbers added left to right from 0, as `xs.reduce((a, x) => a + x, 0)` (`sum([])` is `0`), a list step an item; `sum(xs.map(x => …))` totals a field | `sum([1, 2, 3])` is `6` |
 | `text.includes(substring)` | Boolean, case-sensitive literal substring | `"grocery".includes("roc")` is `true` |
 | `xs.includes(item)` | Boolean; `T` a string, number or bool, compared by SameValueZero (`NaN` is found, `-0` is `0`) | `["a", "b"].includes("b")` is `true` |
 | `text.startsWith(prefix)` | Boolean, case-sensitive | `"/settings".startsWith("/")` is `true` |
@@ -792,10 +795,11 @@ the refusals say what to write instead. Neither `indexOf` nor `split` takes
 the web's second argument (a start position, a limit), and `split` takes no
 regular expression.
 
-`concat`, `split`, and `slice`, `includes` and `indexOf` over a list, take
+`concat`, `split`, `sum`, and `slice`, `includes` and `indexOf` over a list, take
 list steps on the evaluation's budget as `map` and `join` do (LLP 1090): one
 for each item `concat`, `slice` or `split` keeps, taken before the list is
-built, and one for each item `includes` or `indexOf` scans up to its match. A
+built, one for each item `sum` adds, and one for each item `includes` or
+`indexOf` scans up to its match. A
 list they build is bounded as any built value is.
 
 Compiler intrinsics and special forms additionally include:
@@ -895,7 +899,9 @@ name, no name for the card (what an app writes, at most 8 KB), `--all` for every
 CSS's one to four values (`padding="12px 40px"`: top and bottom 12, sides 40), and
 `border-radius` its one to four corners (`border-radius="18px 18px 0 0"`: top-left,
 top-right, bottom-right, bottom-left; no `/` elliptical radii), as a literal or a
-literal arm. A computed list (`` padding=`${pad}px 0` ``, a `fn` that returns
+literal arm; `gap` takes its row and column gaps, and `overflow` and
+`overscroll-behavior` their x and y values, the same way (`gap="8px 16px"`,
+`overflow="hidden auto"`). A computed list (`` padding=`${pad}px 0` ``, a `fn` that returns
 `` `${r}px ${r}px 0 0` ``) is refused (`lower-css-shorthand`): write the longhands,
 `` padding-top=`${pad}px` padding-right=0 … ``, each of which may be computed. A
 computed single value (`padding=pad`) is every side's.

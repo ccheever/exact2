@@ -154,3 +154,36 @@ fn a_delete_no_list_row_holds_is_named() {
     // A section's header is no row.
     assert_eq!(warned("list appearance=\"auto\" flex=1\n  section\n    header delete=remove(\"1\")\n      text \"Notes\"\n    row\n      text \"One\"").len(), 1);
 }
+
+/// LLP 1116.021 D5: a destructive button inside the row a `for` repeats,
+/// with no `delete=` on the row, is advice to write one; a detail screen's
+/// section, a row that says `delete=`, and a dialog or menu in the row are
+/// quiet.
+#[test]
+fn a_destructive_button_in_a_repeated_row_asks_for_delete() {
+    let warned = |list: &str| -> Vec<u32> {
+        let (plan, warnings) = contract::compile_warned(&app(list));
+        plan.unwrap_or_else(|e| panic!("{e}"));
+        warnings
+            .into_iter()
+            .filter(|w| w.id == "lower-row-delete-button")
+            .map(|w| w.span.line)
+            .collect()
+    };
+    let row = |section: &str| format!("list appearance=\"auto\" flex=1\n  section\n{section}");
+    // The grouped row and a cell list's row.
+    assert_eq!(
+        warned(&row("    for n in notes key=n.id\n      row\n        text n.title\n        if not n.locked\n          button press=remove(n.id) destructive=true\n            text \"Delete\"")),
+        [21]
+    );
+    assert_eq!(
+        warned("list flex=1\n  for n in notes key=n.id\n    row\n      text n.title\n      button press=remove(n.id) destructive=true aria-label=\"Delete\"\n        image \"symbol:delete\""),
+        [19]
+    );
+    // A row that says `delete=`, and a section that repeats no row.
+    assert!(warned(&row("    for n in notes key=n.id\n      row delete=remove(n.id)\n        text n.title\n        button press=remove(n.id) destructive=true\n          text \"Delete\"")).is_empty());
+    assert!(warned(&row("    row\n      text \"Groceries\"\n    button press=remove(\"1\") destructive=true\n      text \"Delete Note\"")).is_empty());
+    assert!(warned("for n in notes key=n.id\n  list appearance=\"auto\" flex=1\n    section\n      button press=remove(n.id) destructive=true\n        text \"Delete Note\"").is_empty());
+    // A row's dialog and menu hold their own actions.
+    assert!(warned(&row("    for n in notes key=n.id\n      row\n        text n.title\n        dialog id=`ask-${n.id}` role=\"alertdialog\" aria-label=\"Delete?\"\n          button press=remove(n.id) destructive=true\n            text \"Delete\"\n        column popover=\"auto\" id=`menu-${n.id}` role=\"menu\"\n          button press=remove(n.id) destructive=true role=\"menuitem\"\n            text \"Delete\"")).is_empty());
+}

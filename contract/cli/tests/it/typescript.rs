@@ -600,12 +600,12 @@ fn a_data_module_returning_an_unknown_token_fails_tsc() {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
         dir.join("app.tamber"),
-        "tamber t\n\ntheme\n  brand = #c8102e\n  surface.card = #ffffff\n",
+        "tamber t\n\ntheme\n  brand = #c8102e\n  surface.card = #ffffff\n  space.row = 12px\n",
     )
     .unwrap();
     std::fs::write(
         dir.join("app.contract"),
-        "component App\n  view\n    column background-color=\"surface.card\"\n      text \"a\" color=\"brand\"\n",
+        "component App\n  view\n    column background-color=\"surface.card\" padding=\"space.row\"\n      text \"a\" color=\"brand\"\n",
     )
     .unwrap();
     let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
@@ -625,6 +625,15 @@ fn a_data_module_returning_an_unknown_token_fails_tsc() {
     let output = fixture.check(&module("\"surface.nonesuch\""));
     assert!(!output.status.success(), "an unknown token passed tsc");
     assert!(String::from_utf8_lossy(&output.stdout).contains("error TS"));
+    // Stage 6 G: each kind its own union; a colour is no length.
+    let length = |token: &str| {
+        format!("import type {{ LengthToken }} from './app.contract';\nexport const gap = (): LengthToken => {token};\n")
+    };
+    assert!(fixture.check(&length("\"space.row\"")).status.success());
+    assert!(
+        !fixture.check(&length("\"brand\"")).status.success(),
+        "a colour passed as a length"
+    );
 }
 
 #[test]
