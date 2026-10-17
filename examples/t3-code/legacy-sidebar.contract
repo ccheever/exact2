@@ -296,8 +296,12 @@ component LegacyProject
   action within(value: bool)
     inside = value
   // Base UI closes a tooltip on any press of its trigger, a right-click too: the tip goes before the menu can remove it.
+  // Chromium focuses a button on any press, a right one too, so the reference's right-click takes the focus from the
+  // prompt to this header before its menu opens. VoiceOver, told that the menu closed, then reads the header, not a long
+  // draft, and Rename's and Group into's dialogs give the focus back to it (Base UI's Dialog).
   action openMenu
     hoverTipAt(legacyTipOff(), "trigger", false)
+    focus(`legacy-project-toggle-${p.key}`)
     run("legacy-project-menu", p.key, "")
   derive pointed = over or inner
   derive revealed = pointed or inside
@@ -437,9 +441,11 @@ component LegacyThread
   action confirmArchive
     confirming = false
     run("legacy-archive", t.id, "")
-  // As Archive's press: the row's menu can archive or delete it, so its tooltip (the title's) goes first.
+  // As Archive's press: the row's menu can archive or delete it, so its tooltip (the title's) goes first. The right
+  // press focuses the row, as Chromium's does (LegacyProject's `openMenu`).
   action openMenu
     hoverTipAt(legacyTipOff(), "trigger", false)
+    focus(`thread-${t.id}`)
     run("legacy-thread-menu", t.id, "")
   // The row's own ContextMenu menu at its centre (legacy-sidebar-commands `row-key`); prevented, so the
   // host's default (exact2 #314) does not also run `contextmenu`, whose menu opens at the pointer.

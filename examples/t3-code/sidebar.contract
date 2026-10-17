@@ -71,10 +71,13 @@ component Sidebar
     // The list's scroll offset, which a row-action sweep clamps the pointer to.
     scrollY: number
   // The row a right-click named, for its context popover (ThreadMenu, DraftMenu): the row's `contextmenu` runs first.
+  // The right press focuses the thread's row, as Chromium focuses the reference's (a `role="button"` with a tabIndex)
+  // on any press: VoiceOver, told that the menu closed, reads the row, not a long draft in the prompt.
   state menuThread = ""
   state menuDraft = ""
   action threadMenu(id: string)
     menuThread = id
+    focus(`thread-${id}`)
   action draftMenu(id: string)
     menuDraft = id
   view
