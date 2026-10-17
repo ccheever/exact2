@@ -381,8 +381,6 @@ Differences that belong to the app:
   paint as plain text. Every other grammar is loaded at launch, so a fresh window colours
   an embedded language straight away, where the reference does so only after its first use.
 - An ⌥-click on a reply's `#fragment` link opens nothing. Chromium downloads the page instead.
-- The app menu's item reads "Settings…", as macOS names it (the host sets it); the reference's
-  Electron menu reads "Settings...".
 - Split view's empty side stripes every 10 pt, where the reference stripes every 8 px: each row
   of the virtualized list paints its own gradient, and main keeps `background-attachment: local`
   deferred, so a shorter period would break at every row edge.
@@ -400,11 +398,12 @@ could not, the comment at the fix says what happened and why the code is so.
 As of 2026-10-17, after merging main's macOS fixes (exact2 PRs #636 to #640, #646, #647, #651,
 #655, #663, #664, #676, #679 and #681, then #687, hover following the pointer once a context menu
 closes, realinput-1017l failure 3, and #688, Shift-Tab wrapping from a key view loop's first stop
-and a placeholder change keeping a field's focus, failure 2), a session with real keys on the terminal, the
+and a placeholder change keeping a field's focus, failure 2, then #712, a context menu's item chosen
+by typing its name and Return pressing it), a session with real keys on the terminal, the
 real-input and VoiceOver sessions G to K, an agent drive and real-input session on the bundle
-of `94cc6831c`, and others on the bundles of `dd7643a86` and `3d6c75ad2`, each with the fixtures
-below. Each item says what is wrong or missing; the open framework issues that someone using the app
-runs into are in the section above.
+of `94cc6831c`, and others on the bundles of `dd7643a86`, `3d6c75ad2` and `966bb0d79`, each with
+the fixtures below. Each item says what is wrong or missing; the open framework issues that
+someone using the app runs into are in the section above.
 
 **Failures** (2026-10-17, bundle of `dd7643a86` unless a row names another):
 
@@ -413,41 +412,12 @@ runs into are in the section above.
   keyboard focus is on the new thread's empty Message (3 of 3, bundle of `3d6c75ad2`, where the chip
   leads to itself as the citation link does). The chip leaves with the old draft, so the element
   VoiceOver follows the link to is gone. Not measured before `3d6c75ad2`, nor on the reference.
-- 'Archive thread' chosen from a flat sidebar row's native menu by typing its name and Return does
-  nothing (6 of 6; the server received no command); a click on the item opens 'Archive thread "…"?'
-  (4 of 4). Rename and Group into, chosen the same way from a project row, open their dialogs. The
-  cause is the host's: as `MenuHost.track` ends the right press's hold after `popUp`, the pointer
-  sample reads `subtype` from the current event, Return's key-up, which raises; the rest of `track`,
-  the menu's close and the deferred press, never runs (`MouseChainMac.swift` `pointerSample`). The
-  legacy menus are the module's own and never reach it. The fix is on exact2 branch
-  `daehyeon/fix-menu-key-pick-subtype`, not on main yet; with it the confirm opens (3 of 3, with
-  VoiceOver, 2026-10-17).
 
 **Known differences:**
 
-- A menu item that opens a dialog (a legacy project header's Rename and Group into…, a flat row's
-  Archive thread with confirmation on), picked with a long draft focused: VoiceOver names the row
-  and then the dialog's first control, where the reference says less. A right press focuses the row
-  or header whose menu it opens, as Chromium focuses the reference's on any press, so VoiceOver, told
-  that the menu closed, reads the row rather than re-reading the draft, and the dialog gives the
-  focus back to the row on Escape, as the reference's does. With the prompt focused instead, the
-  dialog, which waits for the choice to go through the client, takes the focus about 0.13 s after the
-  menu closes, and VoiceOver reads the draft first (the host's side is
-  [`issues/20261016-native-menu-pick-voiceover-old-focus.md`](../../issues/20261016-native-menu-pick-voiceover-old-focus.md)).
-  The focus then stays on the row, not where a Mac click leaves it (LLP 1115.000 D7.1). A right press
-  on a control inside a flat row (pin, snooze) also focuses the row, and a draft row's menu leaves the
-  focus in the prompt.
-  Measured on the bundle of this change (2026-10-17, VoiceOver): Rename, 3 of 3, "Closing menu
-  shared-notes, expanded, button shared-notes, contents selected, Project title, edit text", then
-  "Rename project, dialog"; Archive by a click (1 of 1) and by Return with the host fix above (3 of
-  3), "Closing menu Background follow-up, background-only, button, Cancel, button", then the dialog's
-  name. The reference's Rename (the Electron oracle, same steps) never re-reads the draft and varies:
-  "Closing menu T3 Code (Nightly), web content" (3 of 4), "Rename project, dialog, with 6 items
-  ref-proj, …, Project title, edit text" (1 of 4), and nothing within 6 s in the day's earlier session
-  (4 of 4). Its Group into… lands on the 'Project grouping rule' combo box, the clone's on Cancel.
-  Archive is not measured on the reference: its isolated home has no keychain, so it cannot save a
-  paired lane ("Desktop secure storage is unavailable"), and its own server has no thread to archive.
-  Where the focus lands after Confirm removes the right-clicked row is not measured with this change.
+- A right press on a flat sidebar draft row leaves the focus in the prompt, and one on a control
+  inside a thread row (pin, snooze) focuses the row. Chromium focuses what was pressed: the draft
+  row, a `role="button"` with a tabIndex (Sidebar.tsx:872-873), or the control.
 
 **Not failures:**
 
@@ -535,6 +505,29 @@ runs into are in the section above.
   J9, J11, J15, J16 and J17 need pre-fix builds or superseded framework test apps. J10 ran on the
   T3 lane instead of PR #676's test app (58 of 58 outside presses closed the popovers), and J19's
   NSPopover path does not exist in the clone.
+
+**Checked with real pointer, keys and VoiceOver, and by agent drive** (2026-10-17, bundle of
+`966bb0d79`, main's #712 in it; `second` seeded, its home as This machine's, a lane copy on an
+isolated home): a right press focuses the row or header whose menu it opens, as Chromium focuses the
+reference's (Sidebar.tsx:1759-1760 and 1924-1925, LegacySidebar.tsx:715-717 and 2373-2381), so
+VoiceOver, told that the menu closed, reads the row and no longer re-reads a long draft in the
+prompt. With that draft focused, a legacy project header's Rename says "Closing menu shared-notes,
+expanded, button shared-notes, contents selected, Project title, edit text", then "Rename project,
+dialog" (3 of 3). Group into… now lands on the 'Project grouping rule' pop-up button, as the
+reference's lands on its combo box: "Closing menu shared-notes, expanded, button Use global default,
+Project grouping rule, pop up button" (1 of 1). The header's menu reads "Group into…" and the app
+and Help menus "Check for Updates…", as the reference's Electron menus draw their "...". Escape
+from either dialog, or from the menu, gives the focus back to the header. On a flat thread row,
+Escape from its menu leaves the focus on the row (3 of 3; in the agent drive the right press ran
+`focus("thread-…")` and the prompt blurred), and Archive thread chosen by typing "Archive" and Return
+opens 'Archive thread "Background follow-up"?' on Cancel, VoiceOver saying "Closing menu Background
+follow-up, background-only, button, Cancel, button", then the dialog's name (3 of 3; it did nothing
+before #712), with Escape back to the row. The reference's Rename (the Electron oracle, same steps)
+never re-reads the draft either and says less: "Closing menu T3 Code (Nightly), web content" (3 of
+4), "Rename project, dialog, with 6 items ref-proj, …, Project title, edit text" (1 of 4), and nothing
+within 6 s in an earlier session (4 of 4). Not measured: Archive on the reference (its isolated home
+has no keychain, so it cannot save a paired lane, and its own server has no thread to archive), and
+where the focus lands after Confirm removes the right-clicked row.
 
 **Checked with real keys, pointer and VoiceOver** (session K, 2026-10-17, bundle of
 `c5574fdca`): everything the previous "Fixed, not checked" list held, but for the rows above.
@@ -704,7 +697,7 @@ server older than the client that streams a scripted self-update.
 
 **Framework issues opened by this app:** open on main is
 [`issues/20261016-native-menu-pick-voiceover-old-focus.md`](../../issues/20261016-native-menu-pick-voiceover-old-focus.md)
-(under "Known differences" above). Closed as the clone's is
+(the clone no longer meets it: a right press focuses the row, checked above). Closed as the clone's is
 [`issues/closed/20261017-macos-voiceover-s-press-moves-its.md`](../../issues/closed/20261017-macos-voiceover-s-press-moves-its.md)
 (the citation link now leads to itself; checked above). Closed with #688 is
 [`issues/closed/20261016-escape-in-recorder-blurs-on-macos.md`](../../issues/closed/20261016-escape-in-recorder-blurs-on-macos.md). The macOS issues opened from 2026-10-13 to 2026-10-16 are closed
@@ -822,6 +815,6 @@ prompt tests run against it always, the live test when `T3_SSH_COMMAND` names it
 `FAKE_SSH_REMOTE_HOME` holds a running server's `.t3/userdata/server-runtime.json`.
 `T3_MENUS_EVIDENCE` set to a directory also renders the quit pill in both appearances, and
 `T3_PERMISSION_HELPER_EVIDENCE` the snapshot test's permission helper panel.
-**Check for Updates...** (under About and in Help) reads the bundle's receipt: a build
+**Check for Updates…** (under About and in Help) reads the bundle's receipt: a build
 without an update store (`deploy.store` is `"0"`) shows the reference's "Automatic
 updates are not available right now." box; a build with one omits both items.
