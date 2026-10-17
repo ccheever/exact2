@@ -29,7 +29,7 @@ final class PopoverRelayIOSTests: XCTestCase {
         super.tearDown()
     }
 
-    private func page(rowKind: String = "view") -> ExactSession {
+    private func page(rowKind: String = "view", rootStyle: [String: Any] = [:]) -> ExactSession {
         let session = ExactApp.shared.makeSession(label: "popover-relay")
         self.session = session
         let p = session.presenter
@@ -42,7 +42,7 @@ final class PopoverRelayIOSTests: XCTestCase {
         p.viewport.frame = window.bounds
         window.rootViewController?.view.addSubview(p.viewport)
         p.apply(wireBatch([
-            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointerup", "dblclick", "contextmenu"]],
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointerup", "dblclick", "contextmenu"], "style": rootStyle],
             ["op": "create", "id": 2, "kind": "view", "props": ["id": "choices", "popover": "auto"]],
             ["op": "create", "id": 3, "kind": rowKind, "props": rowKind == "text" ? ["text": "Plain content"] : [:], "handlers": ["pan"]],
             ["op": "children", "id": 2, "ids": [3]],
@@ -217,6 +217,27 @@ final class PopoverRelayIOSTests: XCTestCase {
         XCTAssertTrue(p.menus.isOpen(popover))
     }
 
+    /// An authored parent that scrolls holds the popover's place in Exact's
+    /// `ScrollView`, which is no step: the press reaches the node, as the agent's does.
+    func testABubbledPressReachesAnAuthoredParentThatScrolls() throws {
+        let session = page(rootStyle: ["overflow_y": "auto"]), p = session.presenter, agent = Agent(session: session)
+        let root = try XCTUnwrap(p.views[1]), popover = try XCTUnwrap(p.views[2]), row = try XCTUnwrap(p.views[3])
+        let scroll = try XCTUnwrap(root.scroll)
+        XCTAssertTrue(p.listenerParent(of: popover) === scroll, "the popover's authored place is in the scroller")
+        root.handlers = ["press"]
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        let touch = SheetTouch(row, at: CGPoint(x: 20, y: 20))
+        row.touchesBegan([touch], with: nil)
+        XCTAssertTrue(root.pressed, "the scroller does not take the bubbled down")
+        XCTAssertTrue(root.pressContact?.bubbled == true)
+        row.touchesEnded([touch], with: nil)
+        XCTAssertEqual(presses, [1])
+        let reply = agent.tap(["id": 3])
+        XCTAssertEqual(reply["pressed"] as? Int, 1, "\(reply)")
+        XCTAssertEqual(presses, [1, 1])
+    }
+
     func testBubbledPressCancelsWhenTheTargetsContainerLeavesTheWindow() throws {
         let session = page(), p = session.presenter, agent = Agent(session: session)
         let root = try XCTUnwrap(p.views[1]), row = try XCTUnwrap(p.views[3])
@@ -272,6 +293,35 @@ final class PopoverRelayIOSTests: XCTestCase {
         let up = try XCTUnwrap(agent.recognizedPan("up", [:]))
         XCTAssertTrue(up["pressed"] is NSNull, "\(up)")
         XCTAssertEqual(presses, [], "the agent stays cancelled too")
+    }
+
+    /// A real touch's contact is cancelled for good when a node on its path
+    /// is disabled or made inert; the agent's captured press ends with it.
+    func testAgentAndTouchStayCancelledWhenAPathNodeIsDisabledOrInertAndRestored() throws {
+        for property in ["disabled", "inert"] {
+            let session = page(), p = session.presenter, agent = Agent(session: session)
+            let root = try XCTUnwrap(p.views[1]), row = try XCTUnwrap(p.views[3])
+            root.handlers = ["press"]; row.handlers = []
+            var presses: [UInt32] = []
+            p.onPress = { presses.append($0) }
+            let down = try XCTUnwrap(agent.recognizedPan("down", ["id": 3]))
+            XCTAssertNil(down["error"], "\(down)")
+            let path = try XCTUnwrap(agent.panContact?.reach?.path)
+            let touch = SheetTouch(row, at: CGPoint(x: 20, y: 20))
+            row.touchesBegan([touch], with: nil)
+            XCTAssertTrue(root.pressed)
+            p.apply(wireBatch([["op": "props", "id": 1, "set": [property: "true"]]]))
+            p.apply(wireBatch([["op": "props", "id": 1, "clear": [property]]]))
+            XCTAssertNil(root.props[property])
+            XCTAssertFalse(root.pressed, property)
+            XCTAssertFalse(path.isLive(in: p), "\(property) and back cannot revive the captured agent path")
+            row.touchesEnded([touch], with: nil)
+            XCTAssertEqual(presses, [], "the real touch stays cancelled (\(property))")
+            let up = try XCTUnwrap(agent.recognizedPan("up", [:]))
+            XCTAssertTrue(up["pressed"] is NSNull, "\(property): \(up)")
+            XCTAssertEqual(presses, [], "the agent stays cancelled too (\(property))")
+            tearDown()
+        }
     }
 
     func testPlacedContentUsesTheSameLandingBoxForTouchAndAgentPresses() throws {

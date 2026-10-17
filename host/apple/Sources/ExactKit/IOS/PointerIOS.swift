@@ -273,11 +273,12 @@ extension NodeView {
     /// UIView forwards to `next`. Only Exact's inserted overflow wrapper is
     /// skipped: UIScrollView otherwise swallows the authored ancestor's down.
     private var pressResponder: UIResponder? {
-        // A lifted root leaves UIKit's presentation for its authored parent.
-        if let presenter, let parent = presenter.listenerParent(of: self), parent !== superview { return parent }
+        // A lifted root leaves UIKit's presentation for its authored parent,
+        // which may be a scroller's `ScrollView` or one of Exact's containers.
+        var responder = next
+        if let presenter, let parent = presenter.listenerParent(of: self), parent !== superview { responder = parent }
         // Exact's own containers (a clip box, a material or glass effect
         // and its content view) are no step: a container swap keeps the route.
-        var responder = next
         while let view = responder as? UIView, view is PlainView || view is UIVisualEffectView
                 || (view.superview as? UIVisualEffectView)?.contentView === view {
             responder = view.next
@@ -320,7 +321,7 @@ extension NodeView {
     }
     func cancelPressContactsInSubtree() {
         func cancel(_ view: UIView) {
-            (view as? NodeView)?.cancelPressContact()
+            if let node = view as? NodeView { node.pressEpoch &+= 1; node.cancelPressContact() }
             for child in view.subviews { cancel(child) }
         }
         cancel(self)
