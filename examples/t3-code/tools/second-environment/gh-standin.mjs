@@ -50,6 +50,8 @@ export function answer(argv, stdin = () => "") {
   const [first, second] = argv;
   if (first === "--version") return ok("gh version 2.81.0 (lane fixture stand-in)\n");
   if (first === "auth" && second === "status") return ok({ hosts: { "github.com": [{ state: "success", active: true, host: "github.com", login: pr.author }] } });
+  // The server passes this to its later gh calls as GH_TOKEN; it only ever reaches this stand-in.
+  if (first === "auth" && second === "token") return ok("lane-fixture-placeholder-token\n");
   if (first === "api" && argv.includes("user")) return ok({ id: 1, login: pr.author });
   if (first === "api" && argv.some((arg) => arg.startsWith(`repos/${pr.owner}/${pr.name}/stacks`))) return ok("[]");
   if (first === "api" && second === "graphql") {
@@ -73,8 +75,11 @@ export function answer(argv, stdin = () => "") {
     return refuse();
   }
   if (first === "pr" && second === "list") {
-    const head = argv[argv.indexOf("--head") + 1];
-    return ok(head === pr.headRefName ? [listItem()] : []);
+    // By head (a thread's branch), or a repository's listing (the Pull Requests page) in a state that holds an open one.
+    const value = (name) => (argv.includes(name) ? argv[argv.indexOf(name) + 1] : undefined);
+    const repo = value("--repo"), head = value("--head"), state = value("--state") ?? "open";
+    const listed = head !== undefined ? head === pr.headRefName : (repo === undefined || repo.replace(/^github\.com\//, "") === `${pr.owner}/${pr.name}`) && ["open", "all"].includes(state);
+    return ok(listed ? [{ ...listItem(), ...counts, author, mergeable: "MERGEABLE", reviewDecision: null, reviewRequests: [], latestReviews: [], labels: [], statusCheckRollup: [] }] : []);
   }
   if (first === "pr" && second === "view" && Number(argv[2]) === pr.number) {
     const json = argv[argv.indexOf("--json") + 1] ?? "";
