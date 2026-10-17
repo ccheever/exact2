@@ -301,6 +301,182 @@ final class DialogSheetIOSTests: XCTestCase {
         XCTAssertFalse(root.pressed)
     }
 
+    func testPointerDownClosingTheSheetRefusesTheLaterTouchDown() throws {
+        let (p, controller, scene) = page()
+        guard scene else { throw missing("scene", "the touch begins during the sheet's dismissal animation") }
+        p.apply(wireBatch([
+            ["op": "create", "id": 9, "kind": "text", "props": ["text": "Plain content"], "handlers": ["pointerdown", "pointerup"]],
+            ["op": "frame", "id": 9, "x": 120, "y": 80, "w": 160, "h": 40],
+            ["op": "children", "id": 2, "ids": [3, 4, 5, 9]],
+        ]))
+        let ancestor = try XCTUnwrap(p.views[1]), dialog = try XCTUnwrap(p.views[2]), content = try XCTUnwrap(p.views[9])
+        ancestor.handlers = ["press", "pointerup"]
+        p.dialogCommand("showModal", "form")
+        _ = try sheet(controller)
+        settle { !p.menus.inTransition }
+        let observer = try XCTUnwrap(content.gestureRecognizers?.compactMap { $0 as? PointerRecognizer }.first)
+        let touch = SheetTouch(content, at: CGPoint(x: 20, y: 20)), event = UIEvent(), mount = dialog.superview
+        var presses: [UInt32] = [], pointers: [String] = []
+        p.onPress = { presses.append($0) }
+        p.onPointer = { id, phase, _ in
+            pointers.append("\(id) \(phase == .down ? "down" : "up")")
+            if phase == .down { p.menus.sheets.close(dialog, animated: true) }
+        }
+        // UIKit delivers the recognizer's down before the hit view's.
+        observer.touchesBegan([touch], with: event)
+        XCTAssertEqual(pointers, ["9 down"])
+        XCTAssertFalse(p.menus.sheets.isOpen(dialog))
+        XCTAssertTrue(p.menus.inTransition)
+        XCTAssertTrue(dialog.superview === mount)
+        content.touchesBegan([touch], with: event)
+        XCTAssertFalse(ancestor.pressed, "a closing sheet cannot arm the page ancestor")
+        XCTAssertTrue(ancestor.pressContact.map(\.cancelled) ?? true, "no live contact reaches the ancestor")
+        observer.touchesEnded([touch], with: event)
+        content.touchesEnded([touch], with: event)
+        XCTAssertEqual(presses, [])
+        XCTAssertFalse(ancestor.pressed)
+        XCTAssertEqual(pointers, ["9 down", "9 up", "1 up"], "pointerup still bubbles while the sheet dismisses")
+    }
+
+    func testPointerDownClosingTheSheetKeepsPressesInsideTheSheet() throws {
+        let (p, controller, scene) = page()
+        guard scene else { throw missing("scene", "the touch lifts during the sheet's dismissal animation") }
+        p.apply(wireBatch([
+            ["op": "create", "id": 9, "kind": "view", "handlers": ["pointerdown", "pointerup"]],
+            ["op": "frame", "id": 9, "x": 120, "y": 80, "w": 160, "h": 40],
+            ["op": "children", "id": 2, "ids": [3, 4, 5, 9]],
+        ]))
+        let dialog = try XCTUnwrap(p.views[2]), content = try XCTUnwrap(p.views[9])
+        let observer = try XCTUnwrap(content.gestureRecognizers?.compactMap { $0 as? PointerRecognizer }.first)
+        for target in [content, dialog] {
+            content.handlers.remove("press"); dialog.handlers.remove("press")
+            target.handlers.insert("press")
+            p.dialogCommand("showModal", "form")
+            _ = try sheet(controller)
+            settle { !p.menus.inTransition }
+            let touch = SheetTouch(content, at: CGPoint(x: 20, y: 20)), event = UIEvent(), mount = dialog.superview
+            var presses: [UInt32] = []
+            p.onPress = { presses.append($0) }
+            p.onPointer = { _, phase, _ in if phase == .down { p.menus.sheets.close(dialog, animated: true) } }
+            XCTAssertTrue(content.activationTarget(at: touch.location(in: nil)) === target)
+            observer.touchesBegan([touch], with: event)
+            XCTAssertFalse(p.menus.sheets.isOpen(dialog))
+            XCTAssertTrue(p.menus.inTransition)
+            XCTAssertTrue(dialog.superview === mount)
+            XCTAssertFalse(p.cancelledPressTouches.contains(touch), "closing a containing sheet does not cross a press boundary")
+            content.touchesBegan([touch], with: event)
+            XCTAssertTrue(target.pressed)
+            observer.touchesEnded([touch], with: event)
+            content.touchesEnded([touch], with: event)
+            XCTAssertEqual(presses, [target.id])
+            XCTAssertFalse(target.pressed)
+            settle { !p.menus.inTransition }
+            observer.reset()
+        }
+    }
+
+    func testNativeButtonFocusClosingTheSheetCancelsItsBubbledPress() throws {
+        let (p, controller, scene) = page()
+        guard scene else { throw missing("scene", "the native action continues during the sheet's dismissal animation") }
+        p.apply(wireBatch(native(9, [:], press: false, y: 80) + [
+            ["op": "children", "id": 2, "ids": [3, 4, 5, 9]],
+        ]))
+        let ancestor = try XCTUnwrap(p.views[1]), dialog = try XCTUnwrap(p.views[2]), button = try XCTUnwrap(p.views[9])
+        ancestor.handlers = ["press"]
+        button.handlers = ["focus"]
+        p.dialogCommand("showModal", "form")
+        _ = try sheet(controller)
+        settle { !p.menus.inTransition }
+        var presses: [UInt32] = [], focuses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        p.onFocus = { id in
+            focuses.append(id)
+            if id == button.id { p.menus.sheets.close(dialog, animated: true) }
+        }
+        let mount = dialog.superview
+        XCTAssertFalse(button.isFirstResponder)
+        XCTAssertTrue(button.activationTarget(at: button.convert(CGPoint(x: 20, y: 20), to: nil)) === ancestor)
+        try XCTUnwrap(p.controls.controls[9]).sendActions(for: .primaryActionTriggered)
+        XCTAssertEqual(focuses, [9])
+        XCTAssertFalse(p.menus.sheets.isOpen(dialog))
+        XCTAssertTrue(p.menus.inTransition)
+        XCTAssertTrue(dialog.superview === mount)
+        XCTAssertEqual(presses, [], "the focus callback ended the presentation that owned this action")
+        XCTAssertFalse(ancestor.pressed)
+    }
+
+    func testNativeButtonFocusMakingTheAncestorUnavailableCancelsItsBubbledPress() throws {
+        let (p, controller, scene) = page()
+        guard scene else { throw missing("scene", "the native button takes focus in the presented sheet") }
+        p.apply(wireBatch(native(9, [:], press: false, y: 80) + native(10, [:], press: false, y: 130) + [
+            ["op": "children", "id": 2, "ids": [3, 9, 10]],
+        ]))
+        let ancestor = try XCTUnwrap(p.views[1]), dialog = try XCTUnwrap(p.views[2])
+        ancestor.handlers = ["press"]
+        p.dialogCommand("showModal", "form")
+        _ = try sheet(controller)
+        settle { !p.menus.inTransition }
+        for (id, property): (UInt32, String) in [(9, "inert"), (10, "disabled")] {
+            p.apply(wireBatch([["op": "props", "id": 1, "set": [:], "clear": ["inert", "disabled"]]]))
+            let button = try XCTUnwrap(p.views[id])
+            button.handlers = ["focus"]
+            var presses: [UInt32] = [], focuses: [UInt32] = []
+            p.onPress = { presses.append($0) }
+            p.onFocus = { focused in
+                focuses.append(focused)
+                if focused == id { p.apply(wireBatch([["op": "props", "id": 1, "set": [property: "true"], "clear": []]])) }
+            }
+            XCTAssertFalse(button.isFirstResponder)
+            XCTAssertTrue(button.activationTarget(at: button.convert(CGPoint(x: 20, y: 20), to: nil)) === ancestor)
+            try XCTUnwrap(p.controls.controls[id]).sendActions(for: .primaryActionTriggered)
+            XCTAssertEqual(focuses, [id])
+            XCTAssertEqual(ancestor.props[property], "true")
+            XCTAssertEqual(presses, [], "focus made the bubbled target \(property)")
+            XCTAssertTrue(p.menus.sheets.isOpen(dialog))
+        }
+    }
+
+    func testNativeButtonFocusRechecksEveryNodeOfTheBubbledPath() throws {
+        let (p, controller, scene) = page()
+        guard scene else { throw missing("scene", "the native button takes focus in the presented sheet") }
+        p.apply(wireBatch(native(9, [:], press: false, y: 80) + [
+            ["op": "create", "id": 30, "kind": "view"],
+            ["op": "frame", "id": 30, "x": 0, "y": 0, "w": 400, "h": 800],
+            ["op": "children", "id": 1, "ids": [8, 7, 20, 30]],
+            ["op": "children", "id": 30, "ids": [2]],
+            ["op": "create", "id": 31, "kind": "view"],
+            ["op": "frame", "id": 31, "x": 0, "y": 0, "w": 300, "h": 180],
+            ["op": "children", "id": 2, "ids": [3, 31]],
+            ["op": "children", "id": 31, "ids": [9]],
+        ]))
+        let ancestor = try XCTUnwrap(p.views[1]), dialog = try XCTUnwrap(p.views[2]), button = try XCTUnwrap(p.views[9])
+        let outside = try XCTUnwrap(p.views[30]), inside = try XCTUnwrap(p.views[31])
+        ancestor.handlers = ["press"]
+        button.handlers = ["focus"]
+        p.dialogCommand("showModal", "form")
+        _ = try sheet(controller)
+        settle { !p.menus.inTransition }
+        for node in [outside, inside, button] {
+            for property in ["disabled", "inert"] {
+                button.resignFirstResponder()
+                var presses: [UInt32] = [], focuses: [UInt32] = []
+                p.onPress = { presses.append($0) }
+                p.onFocus = { focused in
+                    focuses.append(focused)
+                    if focused == button.id { p.apply(wireBatch([["op": "props", "id": node.id, "set": [property: "true"], "clear": []]])) }
+                }
+                XCTAssertFalse(button.isFirstResponder)
+                XCTAssertTrue(button.activationTarget(at: button.convert(CGPoint(x: 20, y: 20), to: nil)) === ancestor)
+                try XCTUnwrap(p.controls.controls[9]).sendActions(for: .primaryActionTriggered)
+                XCTAssertEqual(focuses, [9])
+                XCTAssertEqual(node.props[property], "true")
+                XCTAssertEqual(presses, [], "focus made path node \(node.id) \(property)")
+                XCTAssertTrue(p.menus.sheets.isOpen(dialog))
+                p.apply(wireBatch([["op": "props", "id": node.id, "set": [:], "clear": [property]]]))
+            }
+        }
+    }
+
     func testBubbledInvocationsRequireATargetInsideTheModal() throws {
         final class Links: ExactSessionDelegate {
             var urls: [String] = []
@@ -406,13 +582,19 @@ final class DialogSheetIOSTests: XCTestCase {
             XCTAssertNil(down["error"], "\(down)")
             XCTAssertTrue(agent.panContact?.reach?.action?.node === target)
             let contact = try XCTUnwrap(agent.panContact), reach = try XCTUnwrap(contact.reach)
+            XCTAssertTrue(reach.presentationsOpen)
             let mount = dialog.superview
             p.menus.sheets.close(dialog, animated: true)
+            XCTAssertFalse(reach.presentationsOpen, "the captured presentation has closed even with its views still mounted")
             XCTAssertTrue(p.menus.inTransition)
             XCTAssertTrue(dialog.superview === mount)
             XCTAssertNotNil(source.window)
-            XCTAssertTrue(source.bounds.contains(source.local(agent.windowPoint(contact.at))), "the held point still lands in the dismissing content")
-            XCTAssertTrue(agent.stillPresses(reach.action, from: reach.reached) === target, "the live tree alone would still accept this press")
+            let point = source.convert(CGPoint(x: source.bounds.midX, y: source.bounds.midY), to: nil)
+            XCTAssertTrue(source.bounds.contains(source.local(point)), "lift inside the content's current box, even while it moves")
+            XCTAssertEqual(agent.stillPresses(reach) === target, target === source, "the bubbled path includes the captured opening")
+            let lift = agent.lift(reach, at: point, held: contact.held)
+            XCTAssertTrue(lift["pressed"] is NSNull, "the closed presentation cancels the captured press without a geometry rejection")
+            XCTAssertEqual(presses, [], "a captured own handler is cancelled too")
             let up = try XCTUnwrap(agent.recognizedPan("up", [:]))
             XCTAssertNil(up["pressed"] as? Int)
             XCTAssertEqual(presses, [])

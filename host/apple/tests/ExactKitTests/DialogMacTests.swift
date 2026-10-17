@@ -522,6 +522,38 @@ class DialogMacTests: XCTestCase {
         }
     }
 
+    func testPointerUpMakingAForwardedWrapperUnavailableCancelsThePress() throws {
+        let p = fixture(), wrapper = try XCTUnwrap(p.views[1]), dialog = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "view", "handlers": ["pointerup"]],
+            ["op": "children", "id": 3, "ids": [4, 5, 6]],
+            ["op": "frame", "id": 6, "x": 120, "y": 80, "w": 100, "h": 30],
+            ["op": "create", "id": 8, "kind": "view", "handlers": ["press"]],
+            ["op": "children", "id": 8, "ids": [1]], ["op": "roots", "ids": [8]],
+            ["op": "frame", "id": 8, "x": 0, "y": 0, "w": 500, "h": 400],
+        ]))
+        let source = try XCTUnwrap(p.views[6]), ancestor = try XCTUnwrap(p.views[8])
+        window.makeKeyAndOrderFront(nil)
+        p.dialogs.show(dialog)
+        for property in ["disabled", "inert"] {
+            var presses: [UInt32] = [], ups: [UInt32] = []
+            p.onPress = { presses.append($0) }
+            p.onPointer = { id, phase, _ in
+                if phase == .up {
+                    ups.append(id)
+                    XCTAssertTrue(ancestor.pressed, "the down reached the ancestor through the wrapper")
+                    wrapper.props[property] = "true"
+                }
+            }
+            click(source)
+            XCTAssertEqual(ups, [6], property)
+            XCTAssertEqual(presses, [], property)
+            XCTAssertFalse(ancestor.pressed, property)
+            XCTAssertTrue(p.dialogs.active === dialog)
+            wrapper.props.removeValue(forKey: property)
+        }
+    }
+
     func testBubbledPressCancellationIsFinalUntilANewDown() throws {
         let p = fixture(), ancestor = try XCTUnwrap(p.views[1]), dialog = try XCTUnwrap(p.views[3])
         p.apply(wireBatch([

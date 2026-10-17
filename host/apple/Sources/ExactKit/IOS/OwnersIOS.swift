@@ -5,6 +5,39 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
+/// Every node a press traversed, with the inertness rule from that side of
+/// the first presentation crossing. Held identities survive no pool reuse.
+struct PressPath {
+    private var nodes: [(held: HeldNode, crossed: Bool, moves: UInt64, inWindow: Bool)] = []
+    private var openings: [() -> Bool] = []
+    private let reachedTarget: Bool
+    let bubbled: Bool
+    var presentationsOpen: Bool { openings.allSatisfy { $0() } }
+
+    init(from source: UIView, to target: UIView, presenter: Presenter) {
+        var at: UIView? = source, crossed = false
+        while let view = at {
+            if let node = view as? NodeView { nodes.append((HeldNode(node), crossed, node.pressMoves, node.window != nil)) }
+            if view === target { break }
+            if let open = presenter.menus.pressLifetime(of: view) { openings.append(open) }
+            let parent = presenter.listenerParent(of: view)
+            crossed = crossed || parent !== view.superview
+            at = parent
+        }
+        reachedTarget = at === target
+        bubbled = crossed
+    }
+
+    func isLive(in presenter: Presenter) -> Bool {
+        reachedTarget && presentationsOpen && nodes.allSatisfy { entry in
+            guard let node = entry.held.live(in: presenter) else { return false }
+            // A node in a window when captured must still be in one.
+            return node.superview != nil && (node.window != nil || !entry.inWindow) && node.pressMoves == entry.moves
+                && !node.disabled && !(entry.crossed ? node.authoredInert : node.inert)
+        }
+    }
+}
+
 extension Presenter {
     /// Whether `view` is mounted in this session: in its viewport, or in a
     /// presentation beside it.
@@ -63,6 +96,18 @@ extension Presenter {
             at = up
         }
         return at != nil && crossed ? start : target
+    }
+
+    /// The openings a press crosses before reaching `target`, or through
+    /// the whole listener ancestry when no target is given. Capture before
+    /// callbacks: closing and reopening the same view ends the old press.
+    func pressLifetimes(from start: UIView, to target: UIView? = nil) -> [() -> Bool] {
+        var lifetimes: [() -> Bool] = [], at: UIView? = start
+        while let view = at, view !== target {
+            if let open = menus.pressLifetime(of: view) { lifetimes.append(open) }
+            at = listenerParent(of: view)
+        }
+        return lifetimes
     }
 
     /// The port `view` is mounted in: its presentation's mount, or the

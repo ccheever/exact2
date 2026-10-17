@@ -58,52 +58,68 @@ struct PressCrossing {
     }
 }
 
+/// A node on the captured press path, rechecked after app callbacks.
+struct PressNode {
+    private(set) weak var node: NodeView?
+    private weak var presenter: Presenter?
+    private let id: UInt32
+    private let bubbled: Bool
+    init(_ node: NodeView, bubbled: Bool) { self.node = node; presenter = node.presenter; id = node.id; self.bubbled = bubbled }
+    var isLive: Bool {
+        guard let node else { return false }
+        return presenter?.views[id] === node && node.window != nil && !node.disabled
+            && !(bubbled ? node.authoredInert : node.inert)
+    }
+    func isInside(_ subtree: NSView) -> Bool { node?.isDescendant(of: subtree) == true }
+}
+
+struct PressPath {
+    var nodes: [PressNode] = []
+    var crossings: [PressCrossing] = []
+    var isLive: Bool { crossings.allSatisfy(\.isOpen) && nodes.allSatisfy(\.isLive) }
+    func isInside(_ subtree: NSView) -> Bool { nodes.contains { $0.isInside(subtree) } }
+}
+
 /// Only a down forwarded out of a lifted root owns a bubbled press.
 /// Cancellation keeps its identity until another down replaces it.
 final class BubbledPress {
     let event: NSEvent
     private(set) weak var source: NodeView?
     private(set) weak var target: NodeView?
-    private var crossings: [PressCrossing]
+    private var path: PressPath
     private(set) var cancelled = false
     var box: NodeView? { cancelled || target == nil ? nil : source }
 
-    init(_ event: NSEvent, source: NodeView, crossing: PressCrossing) {
-        self.event = event; self.source = source; crossings = [crossing]
+    init(_ event: NSEvent, source: NodeView, path: PressPath) {
+        self.event = event; self.source = source; self.path = path
     }
     func responder(from node: NodeView, event: NSEvent, presenter: Presenter) -> NSResponder? {
         validate()
         guard !cancelled else { return nil }
-        if let crossing = crossings.first(where: { $0.root === node }) { return crossing.parent }
+        if let crossing = path.crossings.first(where: { $0.root === node }) { return crossing.parent }
         guard let parent = presenter.presentationParent(of: node), parent !== node.superview else { return node.nextResponder }
         guard event.type == .leftMouseDown else { return node.nextResponder }
-        crossings.append(PressCrossing(node, parent: parent, presenter: presenter))
+        path.crossings.append(PressCrossing(node, parent: parent, presenter: presenter))
         return parent
     }
     func reaches(_ node: NodeView) -> Bool {
-        guard let root = crossings.first?.root else { return false }
+        guard let root = path.crossings.first?.root else { return false }
         return node !== root && !node.isDescendant(of: root)
     }
     func validate() {
-        if crossings.contains(where: { !$0.isOpen }) || target.map({ $0.disabled || $0.authoredInert }) == true { cancel() }
+        if !path.isLive { cancel() }
     }
     func cancel(in subtree: NSView? = nil) {
         guard !cancelled else { return }
-        if let subtree, source?.isDescendant(of: subtree) != true,
-           target?.isDescendant(of: subtree) != true,
-           !crossings.contains(where: { $0.root === subtree }) { return }
+        if let subtree, !path.isInside(subtree) { return }
         cancelled = true
-        target?.pressed = false
-        if let target {
-            target.tintPress(false)
-            target.press = PressFeedback()
-            target.applyTransform()
-        }
+        if let target, target.pressed { target.pressed = false }
     }
     func down(on node: NodeView) {
-        validate()
         guard !cancelled, target == nil else { return }
-        guard !node.disabled, !node.authoredInert else { cancel(); return }
+        path.nodes.append(PressNode(node, bubbled: true))
+        validate()
+        guard !cancelled else { return }
         node.presenter?.interacting = node.id
         if node.pressable { target = node; node.pressed = true }
         else { node.presenter?.mouseChain.responder(from: node, event: event)?.mouseDown(with: event) }
@@ -120,9 +136,14 @@ final class BubbledPress {
             node.presenter?.mouseChain.responder(from: node, event: event)?.mouseUp(with: event)
             return
         }
-        guard node.pressed else { return }
+        guard node.pressed, let presenter = node.presenter else { return }
+        guard lands(event) else { node.pressed = false; return }
+        // A field's `change` can invalidate any node or opening on the path.
+        presenter.commitPendingEdit()
+        validate()
+        guard !cancelled else { return }
         node.pressed = false
-        if lands(event) { node.presenter?.press(node.id, held: KeyCodes.held(event.modifierFlags), bubbled: true) }
+        presenter.press(node.id, held: KeyCodes.held(event.modifierFlags), bubbled: true)
     }
 }
 
@@ -132,7 +153,7 @@ final class MouseChain {
     private struct ReceivedDown {
         let event: NSEvent
         weak var source: NodeView?
-        let crossing: PressCrossing?
+        let path: PressPath
     }
     private var received: ReceivedDown?
     private(set) var bubbledPress: BubbledPress?
@@ -149,21 +170,22 @@ final class MouseChain {
         bubbledPress?.cancel()
         bubbledPress = nil
         var at: NSView? = source
-        var crossing: PressCrossing?
+        var path = PressPath()
         while let view = at {
+            if let node = view as? NodeView { path.nodes.append(PressNode(node, bubbled: false)) }
             if let node = view as? NodeView, let presenter,
                let parent = presenter.presentationParent(of: node), parent !== node.superview {
-                crossing = PressCrossing(node, parent: parent, presenter: presenter)
+                path.crossings.append(PressCrossing(node, parent: parent, presenter: presenter))
                 break
             }
             at = view.superview
         }
-        received = ReceivedDown(event: event, source: source, crossing: crossing)
+        received = ReceivedDown(event: event, source: source, path: path)
     }
     func responder(from node: NodeView, event: NSEvent) -> NSResponder? {
         if let contact = bubbledPress, let presenter { return contact.responder(from: node, event: event, presenter: presenter) }
         guard event.type == .leftMouseDown else { return node.nextResponder }
-        let saved = received?.crossing
+        let saved = received?.path.crossings.first
         let crossing: PressCrossing?
         if let saved, saved.root === node { crossing = saved }
         else if let presenter, let parent = presenter.presentationParent(of: node), parent !== node.superview {
@@ -171,7 +193,14 @@ final class MouseChain {
         } else { crossing = nil }
         guard let crossing else { return node.nextResponder }
         if let received, let source = received.source, let presenter {
-            let contact = BubbledPress(event, source: source, crossing: crossing)
+            var path = received.path
+            if saved?.root !== node {
+                // A callback may have opened a presentation along the captured path.
+                guard let end = path.nodes.firstIndex(where: { $0.node === node }) else { return nil }
+                path.nodes = Array(path.nodes[...end])
+                path.crossings = [crossing]
+            }
+            let contact = BubbledPress(event, source: source, path: path)
             bubbledPress = contact
             self.received = nil
             if presenter.views[source.id] !== source || source.removedUnderHold { contact.cancel() }

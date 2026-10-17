@@ -49,6 +49,8 @@ package final class Presenter {
     /// The `.screenChanged` post, replaceable in tests.
     static var postScreenChanged: (Any?) -> Void = { UIAccessibility.post(notification: .screenChanged, argument: $0) }
     let modalViews = NSHashTable<NodeView>.weakObjects()
+    /// Pointerdown closed an opening before UIKit delivered the hit view's down.
+    let cancelledPressTouches = NSHashTable<UITouch>.weakObjects()
     /// The session this presenter shows (LLP 1031 D1).
     weak package var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.

@@ -132,7 +132,6 @@ final class AddressedTapIOSTests: XCTestCase {
             XCTAssertNil(node.activationTarget(at: point(node)), "\(id)")
             XCTAssertNil(node.activate(at: point(node)), "\(id)")
             XCTAssertNil(agent.fingerReach(node, at: point(node)).action, "\(id)")
-            XCTAssertNil(agent.stillPresses(HeldNode(ancestor), from: HeldNode(node)), "\(id)")
             if case .control(let owner)? = agent.pressReach(node, at: point(node), in: win) {
                 XCTAssertTrue(owner === node, "\(id)")
             } else { XCTFail("the addressed walk stops at \(id)") }
@@ -142,6 +141,74 @@ final class AddressedTapIOSTests: XCTestCase {
         XCTAssertTrue(plain.activate(at: point(plain)) === ancestor)
         XCTAssertTrue(button.activationTarget(at: point(button)) === ancestor, "a native button's action presses the nearest handler")
         XCTAssertEqual(presses(), [2])
+    }
+
+    func testACheckboxPaddingPressesItsAncestorAsARealTouchDoes() throws {
+        let (session, agent, presses) = rows(), p = session.presenter
+        p.apply(wireBatch([
+            ["op": "create", "id": 21, "kind": "control", "props": ["type": "checkbox"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [21]],
+            ["op": "frame", "id": 21, "x": 20, "y": 20, "w": 240, "h": 40],
+        ]))
+        p.viewport.layoutIfNeeded()
+        let node = try XCTUnwrap(p.views[21]), ancestor = try XCTUnwrap(p.views[2]), win = try XCTUnwrap(window)
+        let padding = CGPoint(x: 10, y: node.bounds.midY), point = node.convert(padding, to: nil)
+        XCTAssertTrue(win.hitTest(point, with: nil) === node, "the padding lands on the node, outside the centred checkbox's hit area")
+        XCTAssertTrue(node.activationTarget(at: point) === ancestor)
+        XCTAssertTrue(node.activate(at: point) === ancestor)
+        XCTAssertEqual(presses(), [2])
+        let reach = agent.fingerReach(node, at: point)
+        XCTAssertTrue(reach.action?.node === ancestor)
+        XCTAssertTrue(agent.stillPresses(reach) === ancestor)
+        if case .node(let target)? = agent.pressReach(node, at: point, in: win) {
+            XCTAssertTrue(target === ancestor)
+        } else { XCTFail("the addressed tap on padding must reach the ancestor") }
+        XCTAssertEqual(agent.lift(reach, at: point, held: "")["pressed"] as? Int, 2)
+        XCTAssertEqual(presses(), [2])
+        let touch = PaddingTouch(node, at: padding)
+        node.touchesBegan([touch], with: nil)
+        XCTAssertTrue(ancestor.pressed)
+        node.touchesEnded([touch], with: nil)
+        XCTAssertFalse(ancestor.pressed)
+        XCTAssertEqual(presses(), [2], "the real touch and the agent press the same ancestor")
+
+        let centre = node.convert(CGPoint(x: node.bounds.midX, y: node.bounds.midY), to: nil)
+        let control = try XCTUnwrap(p.controls.controls[21])
+        XCTAssertTrue(win.hitTest(centre, with: nil) === control)
+        XCTAssertNil(node.activationTarget(at: centre))
+        XCTAssertNil(node.activate(at: centre))
+        let centreReach = agent.fingerReach(control, at: centre)
+        XCTAssertNil(centreReach.action)
+        if case .control(let owner)? = agent.pressReach(node, at: centre, in: win) {
+            XCTAssertTrue(owner === node)
+        } else { XCTFail("the centre belongs to the native checkbox") }
+        XCTAssertTrue(agent.lift(centreReach, at: centre, held: "")["pressed"] is NSNull)
+        XCTAssertEqual(presses(), [])
+
+        let paddingReply = agent.tap(["id": 21, "at": [10.0, 20.0]])
+        XCTAssertNil(paddingReply["error"], "\(paddingReply)")
+        XCTAssertEqual(paddingReply["pressed"] as? Int, 2)
+        XCTAssertEqual(presses(), [2])
+        XCTAssertNil(paddingReply["native"], "a tap on padding is no host activation of the checkbox")
+        let viewportPoint = p.client(point)
+        let viewportReply = agent.tap(["id": 21, "x": Double(viewportPoint.x), "y": Double(viewportPoint.y)])
+        XCTAssertNil(viewportReply["error"], "\(viewportReply)")
+        XCTAssertEqual(viewportReply["pressed"] as? Int, 2)
+        XCTAssertEqual(presses(), [2])
+        XCTAssertNil(viewportReply["native"], "viewport coordinates on padding must use the same point as native hit testing")
+        for request: [String: Any] in [["id": 21, "at": [120.0, 20.0]], ["id": 21]] {
+            let reply = agent.tap(request)
+            XCTAssertNil(reply["error"], "\(reply)")
+            XCTAssertEqual(reply["native"] as? String, "control", "an explicit centre and a tap without a point are the checkbox's own")
+            XCTAssertEqual(presses(), [])
+        }
+    }
+
+    private final class PaddingTouch: UITouch {
+        let target: UIView, point: CGPoint
+        init(_ target: UIView, at point: CGPoint) { self.target = target; self.point = point; super.init() }
+        override var view: UIView? { target }
+        override func location(in view: UIView?) -> CGPoint { target.convert(point, to: view) }
     }
 
     func testAControlWithItsOwnPressTakesItBeforeConsumingTheTap() throws {
@@ -160,7 +227,7 @@ final class AddressedTapIOSTests: XCTestCase {
             XCTAssertTrue(node.activationTarget(at: point) === node, "\(id)")
             XCTAssertTrue(node.activate(at: point) === node, "\(id)")
             XCTAssertEqual(presses(), [id])
-            XCTAssertTrue(agent.stillPresses(HeldNode(node), from: HeldNode(node)) === node)
+            XCTAssertTrue(agent.stillPresses(FingerReach(reached: HeldNode(node), action: HeldNode(node))) === node)
             if case .node(let target)? = agent.pressReach(node, at: point, in: win) {
                 XCTAssertTrue(target === node)
             } else { XCTFail("the control's own handler takes the tap: \(id)") }

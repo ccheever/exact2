@@ -128,8 +128,11 @@ extension NodeView {
         guard let presenter, !disabled, !inert else { return }
         let target = activationTarget(at: convert(CGPoint(x: bounds.midX, y: bounds.midY), to: nil))
         let bubbled = target.map { presenter.pressBox(of: $0, from: self) !== $0 } ?? false
+        let path = target.map { PressPath(from: self, to: $0, presenter: presenter) }, heldTarget = target.map(HeldNode.init)
+        let lifetimes = bubbled ? [] : presenter.pressLifetimes(from: self, to: target)
         focusForPress(target: target)
-        guard let target, presenter.views[target.id] === target else { return }
+        guard !bubbled || path?.isLive(in: presenter) == true,
+              lifetimes.allSatisfy({ $0() }), let target = heldTarget?.live(in: presenter), target.takesPress(bubbled: bubbled) else { return }
         presenter.press(target.id, bubbled: bubbled)
     }
 }

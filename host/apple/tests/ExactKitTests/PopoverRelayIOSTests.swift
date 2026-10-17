@@ -165,7 +165,7 @@ final class PopoverRelayIOSTests: XCTestCase {
             XCTAssertTrue(target === root)
         } else { XCTFail("the agent's tap must reach the ancestor") }
         let reach = agent.fingerReach(row, at: touch.location(in: nil))
-        XCTAssertTrue(agent.stillPresses(reach.action, from: reach.reached) === root)
+        XCTAssertTrue(agent.stillPresses(reach) === root)
         let down = try XCTUnwrap(agent.recognizedPan("down", ["id": 3]))
         XCTAssertNil(down["error"], "\(down)")
         let up = try XCTUnwrap(agent.recognizedPan("up", [:]))
@@ -179,12 +179,69 @@ final class PopoverRelayIOSTests: XCTestCase {
 
         root.props["inert"] = "true"
         XCTAssertNil(row.activationTarget(at: touch.location(in: nil)))
-        XCTAssertNil(agent.stillPresses(reach.action, from: reach.reached))
+        XCTAssertNil(agent.stillPresses(reach))
         row.touchesBegan([touch], with: nil)
         XCTAssertFalse(root.pressed)
         row.touchesEnded([touch], with: nil)
         XCTAssertEqual(presses, [1, 3, 1])
         XCTAssertTrue(p.menus.isOpen(popover))
+    }
+
+    func testBubbledPressCancelsWhenTheTargetsContainerLeavesTheWindow() throws {
+        let session = page(), p = session.presenter, agent = Agent(session: session)
+        let root = try XCTUnwrap(p.views[1]), row = try XCTUnwrap(p.views[3])
+        root.handlers = ["press"]; row.handlers = []
+        let container = UIView(frame: p.viewport.bounds)
+        let parent = try XCTUnwrap(root.superview)
+        parent.addSubview(container); container.addSubview(root)
+        let touch = SheetTouch(row, at: CGPoint(x: 20, y: 20))
+        let reach = agent.fingerReach(row, at: touch.location(in: nil))
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        row.touchesBegan([touch], with: nil)
+        XCTAssertTrue(root.pressed)
+        container.removeFromSuperview()
+        XCTAssertTrue(root.superview === container, "only the containing view detached")
+        XCTAssertNil(root.window)
+        XCTAssertNotNil(row.window, "the lifted popover stays on screen")
+        XCTAssertFalse(root.pressed, "leaving the window cancels feedback immediately")
+        XCTAssertTrue(root.pressContact?.cancelled == true)
+        XCTAssertFalse(try XCTUnwrap(reach.path).isLive(in: p))
+        row.touchesEnded([touch], with: nil)
+        XCTAssertTrue(agent.lift(reach, at: touch.location(in: nil), held: "")["pressed"] is NSNull)
+        XCTAssertEqual(presses, [])
+    }
+
+    func testAgentAndTouchRejectABubbledPathThatWasDetachedAndReattached() throws {
+        let session = page(), p = session.presenter, agent = Agent(session: session)
+        let root = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[2]), row = try XCTUnwrap(p.views[3])
+        root.handlers = ["press"]; row.handlers = []
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view"],
+            ["op": "children", "id": 4, "ids": [3]], ["op": "children", "id": 2, "ids": [4]],
+            ["op": "frame", "id": 4, "x": 0, "y": 0, "w": 200, "h": 160],
+        ]))
+        let wrapper = try XCTUnwrap(p.views[4]), parent = try XCTUnwrap(wrapper.superview)
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        let down = try XCTUnwrap(agent.recognizedPan("down", ["id": 3]))
+        XCTAssertNil(down["error"], "\(down)")
+        let path = try XCTUnwrap(agent.panContact?.reach?.path)
+        XCTAssertTrue(path.isLive(in: p))
+        let touch = SheetTouch(row, at: CGPoint(x: 20, y: 20))
+        row.touchesBegan([touch], with: nil)
+        XCTAssertTrue(root.pressed)
+        wrapper.removeFromSuperview(); parent.addSubview(wrapper)
+        XCTAssertTrue(wrapper.superview === parent)
+        XCTAssertNotNil(wrapper.window)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        XCTAssertFalse(root.pressed)
+        XCTAssertFalse(path.isLive(in: p), "reattachment cannot revive the captured agent path")
+        row.touchesEnded([touch], with: nil)
+        XCTAssertEqual(presses, [], "the real touch stays cancelled")
+        let up = try XCTUnwrap(agent.recognizedPan("up", [:]))
+        XCTAssertTrue(up["pressed"] is NSNull, "\(up)")
+        XCTAssertEqual(presses, [], "the agent stays cancelled too")
     }
 
     func testPlacedContentUsesTheSameLandingBoxForTouchAndAgentPresses() throws {
@@ -237,6 +294,56 @@ final class PopoverRelayIOSTests: XCTestCase {
         touch.point = row.convert(old, from: nil)
         row.touchesEnded([touch], with: nil)
         XCTAssertEqual(presses, [1, 1], "the old, unplaced box cannot accept the lift")
+    }
+
+    func testPointerDownClosingThePopoverCancelsBeforeTheHitViewBegins() throws {
+        let p = page().presenter
+        let ancestor = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[2]), row = try XCTUnwrap(p.views[3])
+        ancestor.handlers = ["press", "pointerdown"]
+        row.handlers = []
+        let pointer = try observer(pop), touch = SheetTouch(row, at: CGPoint(x: 20, y: 20)), event = UIEvent()
+        var presses: [UInt32] = [], downs: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        p.onPointer = { id, phase, _ in
+            if phase == .down { downs.append(id); p.menus.action("hidePopover", ["choices"]) }
+        }
+        pointer.touchesBegan([touch], with: event)
+        XCTAssertEqual(downs, [1])
+        XCTAssertFalse(p.menus.isOpen(pop))
+        XCTAssertTrue(pop.superview === ancestor)
+        row.touchesBegan([touch], with: event)
+        XCTAssertFalse(p.views.values.contains { $0.pressed }, "the restored tree cannot arm the cancelled touch")
+        pointer.touchesEnded([touch], with: event)
+        row.touchesEnded([touch], with: event)
+        XCTAssertEqual(presses, [])
+        XCTAssertFalse(p.views.values.contains { $0.pressed })
+
+        let fresh = SheetTouch(ancestor, at: CGPoint(x: 10, y: 10))
+        ancestor.touchesBegan([fresh], with: nil)
+        ancestor.touchesEnded([fresh], with: nil)
+        XCTAssertEqual(presses, [1], "cancellation belongs to the old touch alone")
+    }
+
+    func testNativeButtonFocusRemovingItsSourceCancelsTheBubbledPress() throws {
+        let p = page(rowKind: "control").presenter
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["type": "button"], "clear": []]]))
+        let ancestor = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[2]), source = try XCTUnwrap(p.views[3])
+        ancestor.handlers = ["press"]
+        source.handlers = ["focus"]
+        var presses: [UInt32] = [], focuses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        p.onFocus = { id in
+            focuses.append(id)
+            if id == 3 { p.apply(wireBatch([["op": "destroy", "id": 3]])) }
+        }
+        XCTAssertTrue(source.activationTarget(at: source.convert(CGPoint(x: 20, y: 20), to: nil)) === ancestor)
+        try XCTUnwrap(p.controls.controls[3]).sendActions(for: .primaryActionTriggered)
+        XCTAssertEqual(focuses, [3])
+        XCTAssertNil(p.views[3])
+        XCTAssertNil(source.window)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        XCTAssertTrue(p.views[1] === ancestor)
+        XCTAssertEqual(presses, [], "the source removed during focus cannot press its surviving ancestor")
     }
 
     func testCapturedPopoverPressDoesNotSurviveClosingAndReopening() throws {
@@ -319,7 +426,7 @@ final class PopoverRelayIOSTests: XCTestCase {
             if hasHandler {
                 let reach = agent.fingerReach(row, at: touch.location(in: nil))
                 root.handlers = []
-                XCTAssertNil(agent.stillPresses(reach.action, from: reach.reached), "a captured target now offering only a surface control cannot take the bubbled lift")
+                XCTAssertNil(agent.stillPresses(reach), "a captured target now offering only a surface control cannot take the bubbled lift")
             }
         }
         let direct = SheetTouch(root, at: CGPoint(x: 5, y: 5))

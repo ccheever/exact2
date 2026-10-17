@@ -25,6 +25,7 @@ extension MenuHost {
     final class Confirmation {
         weak var source: NodeView?
         let invoked: Bool
+        let bubbled: Bool
         weak var popover: NodeView?
         /// The popover's presentation this owner belongs to.
         let presentation: Int
@@ -42,9 +43,10 @@ extension MenuHost {
         /// The action chosen, pressed on the next turn unless cancelled first.
         var chosen: Int?
         func cancel() { finished = true; chosen = nil }
-        init(source: NodeView, invoked: Bool, popover: NodeView, presentation: Int, actions: [Presented], heading: String?, message: [String]) {
+        init(source: NodeView, invoked: Bool, bubbled: Bool, popover: NodeView, presentation: Int, actions: [Presented], heading: String?, message: [String]) {
             self.source = source; self.popover = popover; self.presentation = presentation; self.actions = actions
             self.invoked = invoked
+            self.bubbled = bubbled
             self.heading = heading; self.message = message
         }
     }
@@ -69,7 +71,7 @@ extension MenuHost {
 
     /// The owner for `pop` opened from `source`, or nil — logged with why —
     /// for a shape the menu cannot present (iOS's refusals, word for word).
-    func confirmation(of pop: NodeView, from source: NodeView) -> Confirmation? {
+    func confirmation(of pop: NodeView, from source: NodeView, bubbled: Bool = false) -> Confirmation? {
         let children = pop.container.subviews.compactMap { $0 as? NodeView }
         let actions = children.filter { $0.isButton && $0.handlers.contains("press") }
         let cancels = children.filter { $0.isButton && !$0.handlers.contains("press") && closes($0, pop) }
@@ -86,7 +88,7 @@ extension MenuHost {
         guard actions.contains(where: { choosable($0, in: pop) }) else { return refuse("every action is disabled") }
         let texts = children.filter { $0.kind == "text" }.map(title(of:)).filter { !$0.isEmpty }
         let label = pop.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 }
-        return Confirmation(source: source, invoked: opens(source, pop), popover: pop, presentation: presentation(of: pop),
+        return Confirmation(source: source, invoked: opens(source, pop), bubbled: bubbled, popover: pop, presentation: presentation(of: pop),
                             actions: actions.map { .init($0, title: title(of: $0), enabled: choosable($0, in: pop)) },
                             heading: texts.isEmpty && actions.count > 1 ? label : nil, message: texts)
     }
@@ -97,7 +99,7 @@ extension MenuHost {
     /// and enablement as presented. A reused row given another provider
     /// ends the menu rather than dispatching under its old title.
     func valid(_ owner: Confirmation) -> Bool {
-        guard let source = owner.source, let pop = owner.popover, invokes(source, pop, requiringTarget: owner.invoked), isConfirmation(pop),
+        guard let source = owner.source, let pop = owner.popover, invokes(source, pop, requiringTarget: owner.invoked, bubbled: owner.bubbled), isConfirmation(pop),
               presentation(of: pop) == owner.presentation else { return false }
         return owner.actions.allSatisfy { presented(owner, $0) }
     }

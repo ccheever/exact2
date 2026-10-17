@@ -146,9 +146,10 @@ extension NodeView {
     /// A paragraph's drag selects its text unless a press takes it: its
     /// own handler (a `<span onClick>`, spreadsheet F12) or an ancestor's.
     var selectsText: Bool { isParagraph && !pressable && !hasPressableAncestor }
-    var hasPressableAncestor: Bool {
+    var hasPressableAncestor: Bool { hasPressableAncestor(crossingPresentations: true) }
+    func hasPressableAncestor(crossingPresentations: Bool) -> Bool {
         var at: NSView = self, crossed = false
-        while let parent = presenter?.presentationParent(of: at) ?? at.superview {
+        while let parent = (crossingPresentations ? presenter?.presentationParent(of: at) : nil) ?? at.superview {
             crossed = crossed || parent !== at.superview
             if let node = parent as? NodeView,
                node.pressable || !crossed && (node.isSurfaceControl || node.isButton) { return true }

@@ -69,11 +69,21 @@ final class PointerRecognizer: UIGestureRecognizer {
         // sends the bubbling down and up for them all.
         path = Self.bubbling(from: node).map(Weak.init)
         presenter = node.presenter
+        let target = first.view.flatMap { NodeView.innermost($0)?.activationTarget(at: first.location(in: nil)) }
+        let pressPath = first.view.flatMap { start -> PressPath? in
+            guard let presenter, let target else { return nil }
+            let path = PressPath(from: start, to: target, presenter: presenter)
+            return path.bubbled ? path : nil
+        }
+        let lifetimes = pressPath == nil && target != nil ? first.view.map { presenter?.pressLifetimes(from: $0, to: target) ?? [] } ?? [] : []
         // A handler may disable a node further up before its turn, or stop
         // this down; the up's path and the hold stay.
         dispatch(path.compactMap(\.node).filter { $0.handlers.contains("pointerdown") }) { n in
             if !n.disabled { n.presenter?.pointer(n.id, .down, sample(first, at: n)) }
         }
+        if let pressPath, let presenter {
+            if !pressPath.isLive(in: presenter) { presenter.cancelledPressTouches.add(first) }
+        } else if !lifetimes.allSatisfy({ $0() }) { presenter?.cancelledPressTouches.add(first) }
     }
     /// One bubbling dispatch to `nodes`, innermost first, each still the
     /// tree's when its turn comes, until a handler calls `stopPropagation()`.
@@ -140,6 +150,7 @@ final class PointerRecognizer: UIGestureRecognizer {
     private func lift(_ touches: Set<UITouch>) {
         guard let held = touch, touches.contains(held) else { return }
         touch = nil
+        presenter?.cancelledPressTouches.remove(held)
         let nodes = path.compactMap(\.node).filter { $0.handlers.contains("pointerup") }
         path = []
         dispatch(nodes) { n in n.presenter?.pointer(n.id, .up, sample(held, lifted: true, at: n)) }
@@ -218,6 +229,7 @@ final class PressContact {
     /// bubbling from it (HTML: inertness keeps a node from being the target,
     /// not its listeners from the bubbling), unless authored inert.
     var bubbled = false
+    var path: PressPath?
     init(_ touch: UITouch, incarnation: UInt64) {
         self.touch = touch; self.incarnation = incarnation
     }
@@ -241,6 +253,7 @@ final class PressContact {
         return downstream.routeActive
     }
     var routesToCanvas: Bool { responderUsesCanvas || responderContact?.routesToCanvas == true }
+    var routesBubbledPress: Bool { bubbled || responderContact?.routesBubbledPress == true }
 }
 
 extension NodeView {
@@ -268,7 +281,9 @@ extension NodeView {
     private func currentPressContact(_ touches: Set<UITouch>) -> PressContact? {
         guard let contact = pressContact, contact.incarnation == incarnation, let held = contact.touch,
               touches.contains(where: { $0 === held }) else { return nil }
-        if disabled || (contact.bubbled ? authoredInert : inert) { cancelPressContact() }
+        if let path = contact.path, let presenter {
+            if !path.isLive(in: presenter) { cancelPressContact() }
+        } else if disabled || (contact.bubbled ? authoredInert : inert) { cancelPressContact() }
         return contact.cancelled ? nil : contact
     }
     /// Retirement, reparenting and disable cancel the old chain while its
@@ -310,12 +325,18 @@ extension NodeView {
     // bubbles. A pan cancels it (the scroll view's `canCancelContentTouches`):
     // scroll always wins.
     package override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if touches.contains(where: { presenter?.cancelledPressTouches.contains($0) == true }) { cancelPressContact(); return }
         if canvasTouches(touches, phase: "down", event: event) { return }
         guard let touch = touches.first else { return }
         cancelPressContact()
         let contact = PressContact(touch, incarnation: incarnation)
         contact.bubbled = touch.view.flatMap { start in presenter.map { $0.pressBox(of: self, from: start) !== self } } ?? false
         pressContact = contact
+        if contact.bubbled, let presenter, let start = touch.view {
+            let path = PressPath(from: start, to: self, presenter: presenter)
+            contact.path = path
+            if !path.isLive(in: presenter) { cancelPressContact(); return }
+        }
         guard !disabled, !(contact.bubbled ? authoredInert : inert) else { cancelPressContact(); return }
         if !contact.bubbled, let target = presenter?.svg.target(id, at: local(touch.location(in: nil))) {
             svgPressed = target; return
@@ -378,6 +399,7 @@ extension NodeView {
             touched.focusForPress(target: ownsPress ? self : nil)
         }
         guard pressContact === contact, incarnation == contact.incarnation else { return }
+        if let path = contact.path, let presenter, !path.isLive(in: presenter) { cancelPressContact(); return }
         // Focus can move the pressed button into a new parent after `inside`
         // was resolved. Its original hit still owns this up while it remains
         // the same enabled node; an earlier move or a retired hit does not.
@@ -430,14 +452,22 @@ extension NodeView {
         handlers.contains("press") || defaultLink != nil || presenter?.menus.closesPresentedContent(self) == true || (!bubbled && isSurfaceControl)
             || isNativeButton && presenter?.invocation(of: self) != nil
     }
-    /// A text field, a text area or a native control other than a button
-    /// takes a touch itself, as UIKit's does, so no ancestor's press hears it
-    /// (LLP 1115); a native button's action still presses the nearest
-    /// handler, its own or an ancestor's.
-    var consumesTap: Bool { field != nil || textArea != nil || kind == "control" && props["type"] != "button" }
     /// Resolve before focus changes: a keyboard resize can move the control.
     func activationTarget(at windowPoint: CGPoint) -> NodeView? {
         guard !inert else { return nil }
+        // A native control takes its own hit area; padding that hits its
+        // NodeView forwards the touch. A native button's action still bubbles.
+        if !takesPress, let hit = window?.hitTest(windowPoint, with: nil), hit.isDescendant(of: self) {
+            var at: UIView? = hit, takesHit = false
+            while let cur = at, !(cur is NodeView) {
+                takesHit = takesHit || cur === field || (cur as? UIControl)?.isEnabled == true && !(cur is NativeButtonIOS)
+                #if os(iOS)
+                takesHit = takesHit || (cur as? UITextView)?.isEditable == true
+                #endif
+                at = cur.superview
+            }
+            if at === self, takesHit { return nil }
+        }
         var v: UIView? = self
         while let cur = v {
             if let n = cur as? NodeView, n.disabled || n.authoredInert { return nil }
@@ -447,7 +477,6 @@ extension NodeView {
                     guard box.bounds.contains((box as? NodeView)?.local(windowPoint) ?? box.convert(windowPoint, from: nil)) else { return nil }
                     return n
                 }
-                if n === self, n.consumesTap { return nil }
             }
             v = presenter?.listenerParent(of: cur) ?? cur.superview
         }
