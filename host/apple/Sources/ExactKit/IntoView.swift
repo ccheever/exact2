@@ -117,11 +117,21 @@ import UIKit
 extension Presenter {
     func scrollElementIntoView(_ args: [Any]) {
         guard let name = args.first as? String,
-              let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }),
-              target.window != nil else {
+              let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else {
             session?.log("scrollIntoView \"\(args.first ?? "")\" refused: no live node with that id")
             return
         }
+        // A presented sheet's views enter the window only when UIKit starts
+        // the presentation, a turn after the batch that made them: on real
+        // timing an answer landing in that turn (euxy's preselected icon)
+        // found no window. It waits for the target's window, as `focus`
+        // does; the latest request wins.
+        guard target.window != nil else {
+            pendingElementScroll = (target, args)
+            session?.log("scrollIntoView \"\(name)\" waits: its target is not in a window yet")
+            return
+        }
+        pendingElementScroll = nil
         let (block, inline) = IntoView.options(args)
         let grouped = groupedLists?.scroller(for: target.id).flatMap { scroll in
             scroll.window === target.window && groupedLists?.projectedRect(for: target, in: scroll) != nil ? scroll : nil
@@ -160,6 +170,19 @@ extension Presenter {
             // UIKit element jumps fall back to instant (LLP 1070.000 §14).
             sv.setContentOffset(to, animated: false)
         }
+    }
+    /// Carry out a `scrollIntoView` that waited for its target's window,
+    /// once the target is there and no batch is applying; a target replaced
+    /// or removed meanwhile cancels it.
+    func flushPendingElementScroll() {
+        guard let pending = pendingElementScroll, !applying else { return }
+        guard views[pending.node.id] === pending.node, pending.node.props["id"] == pending.args.first as? String else {
+            pendingElementScroll = nil
+            session?.log("scrollIntoView \"\(pending.args.first ?? "")\" cancelled: its target was replaced before it was mounted")
+            return
+        }
+        guard pending.node.window != nil else { return }
+        scrollElementIntoView(pending.args)
     }
 }
 #endif

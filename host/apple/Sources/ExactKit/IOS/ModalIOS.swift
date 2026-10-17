@@ -632,6 +632,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     func fit() {
         guard !closing else { return }
         presenter.session?.view?.fit()
+        presenter.flushPendingElementScroll()
         presenter.flushPendingFocus()
     }
 

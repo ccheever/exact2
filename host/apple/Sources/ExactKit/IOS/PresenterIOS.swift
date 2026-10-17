@@ -421,7 +421,7 @@ package final class Presenter {
     /// One native focus intent, bound to the actual editor across controller
     /// transitions. Replacing a node with the same HTML id cannot inherit it.
     private var pendingFocus: (node: NodeView, args: [Any], selectText: Bool, reason: String)?
-    private var deliveringFocus = false
+    private var deliveringFocus = false; var pendingElementScroll: (node: NodeView, args: [Any])? // `scrollIntoView` awaiting its target's window (IntoView.swift)
     var pendingFocusObservation: [String: String]? {
         guard let pending = pendingFocus, let name = pending.args.first as? String else { return nil }
         return ["target": name, "reason": pending.reason]

@@ -290,6 +290,44 @@ final class ElementScrollTests: XCTestCase {
         XCTAssertTrue(completed, "the scroll completes")
         return (first, intermediate, offset())
     }
+    #else
+    /// A sheet's views enter the window a turn after the batch that made
+    /// them, when UIKit starts presenting it (euxy's New Pattern icon strip,
+    /// whose preselected icon an answer landing in that turn named): the
+    /// request waits for the target's window, the latest one wins, and a
+    /// target replaced meanwhile cancels it.
+    func testAScrollAskedBeforeItsTargetIsInAWindowLandsWhenItIs() throws {
+        let p = Presenter()
+        p.viewport.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "style": ["overflow_x": "scroll", "overflow_y": "hidden"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["id": "chip-a"]],
+            ["op": "create", "id": 3, "kind": "view", "props": ["id": "chip-b"]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 60.0],
+            ["op": "frame", "id": 2, "x": 300.0, "y": 0.0, "w": 56.0, "h": 56.0],
+            ["op": "frame", "id": 3, "x": 600.0, "y": 0.0, "w": 56.0, "h": 56.0],
+        ]))
+        let sv = try XCTUnwrap(p.views[1]?.scrollView)
+        sv.contentSize = CGSize(width: 1000, height: 60)
+        p.scrollElementIntoView(["chip-a", "nearest", "start", "instant"])
+        p.scrollElementIntoView(["chip-b", "nearest", "start", "instant"])
+        XCTAssertEqual(sv.contentOffset.x, 0, "nothing to scroll outside a window")
+        let window = UIWindow(frame: p.viewport.frame)
+        defer { withExtendedLifetime(window) {} }
+        window.addSubview(p.viewport)
+        XCTAssertEqual(sv.contentOffset.x, 600, accuracy: 0.5, "the latest request lands as its target enters the window")
+        XCTAssertNil(p.pendingElementScroll)
+
+        p.viewport.removeFromSuperview()
+        sv.setContentOffset(.zero, animated: false)
+        p.scrollElementIntoView(["chip-a", "nearest", "start", "instant"])
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["id": "other"]]]))
+        window.addSubview(p.viewport)
+        XCTAssertEqual(sv.contentOffset.x, 0, "a target that lost its id is not scrolled to")
+        XCTAssertNil(p.pendingElementScroll)
+    }
     #endif
 }
 

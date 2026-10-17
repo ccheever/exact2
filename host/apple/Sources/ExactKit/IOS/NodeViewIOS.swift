@@ -657,7 +657,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         super.didMoveToWindow()
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
-        if window != nil { presenter?.flushPendingFocus() }
+        if window != nil { presenter?.flushPendingElementScroll(); presenter?.flushPendingFocus() }
     }
 
     /// Glass content participates in UIKit's interactive effect. Other
