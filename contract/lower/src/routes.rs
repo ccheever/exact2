@@ -543,35 +543,15 @@ fn still_on_y(tag: &str, attrs: &[Attr]) -> bool {
     if !scrolls && !PLAIN.contains(&tag) {
         return false;
     }
-    let (mut x, mut y) = ("visible", if scrolls { "scroll" } else { "visible" });
-    for a in attrs {
-        let name = a.name.as_str();
-        if matches!(name, "class" | "className" | "style") || name.starts_with("ua:") {
-            return false;
-        }
-        let (to_x, to_y) = match name {
-            "overflow" => (true, true),
-            "overflow-x" | "overflowX" => (true, false),
-            "overflow-y" | "overflowY" => (false, true),
-            _ => continue,
-        };
-        let Expr::Str(v, _) = &a.value else {
-            return false;
-        };
-        let class = |v: &str| match v {
-            "visible" => "visible",
-            "hidden" | "clip" => "hidden",
-            _ => "scroll",
-        };
-        let (vx, vy) = crate::shorthands::overflow_axes(v);
-        if to_x {
-            x = class(vx);
-        }
-        if to_y {
-            y = class(vy);
-        }
+    let doubt = |a: &Attr| {
+        matches!(a.name.as_str(), "class" | "className" | "style") || a.name.starts_with("ua:")
+    };
+    if attrs.iter().any(doubt) {
+        return false;
     }
-    y == "hidden" || (y == "visible" && x == "visible")
+    let y = if scrolls { "scroll" } else { "visible" };
+    crate::shorthands::literal_overflow(attrs, y)
+        .is_some_and(|(_, y)| matches!(y, "visible" | "hidden"))
 }
 
 /// Whether a route's content scroller is a grouped list (`list
@@ -672,18 +652,15 @@ fn scrolls_y(tag: &str, attrs: &[Attr]) -> Option<bool> {
     if !scroller && !PLAIN.contains(&tag) {
         return Some(false);
     }
-    let mut y = if scroller { "scroll" } else { "visible" };
     for a in attrs {
         match a.name.as_str() {
-            "class" | "style" | "overflow-x" | "overflowX" => return None,
+            "class" | "style" => return None,
             "flex-direction" if scroller => return None,
             name if name.starts_with("ua:") => return None,
-            "overflow" | "overflow-y" | "overflowY" => match &a.value {
-                Expr::Str(v, _) => y = crate::shorthands::overflow_axes(v).1,
-                _ => return None,
-            },
             _ => {}
         }
     }
-    Some(!matches!(y, "visible" | "hidden" | "clip"))
+    let y = if scroller { "scroll" } else { "visible" };
+    let (_, y) = crate::shorthands::literal_overflow(attrs, y)?;
+    Some(!matches!(y, "visible" | "hidden"))
 }

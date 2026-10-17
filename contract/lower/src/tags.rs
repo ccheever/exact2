@@ -1160,13 +1160,8 @@ pub(crate) fn host_transform_recipients(
                     let maybe_absolute =
                         absolute || position.is_some_and(|a| !matches!(&a.value, Expr::Str(_, _)));
                     let scrolls = tag(name).is_some_and(|t| t.node_type.scrolls_by_default())
-                        || rows.iter().any(|a| {
-                            matches!(a.name.as_str(), "overflow" | "overflow-y")
-                                && !matches!(&a.value, Expr::Str(v, _) if {
-                                    let y = crate::shorthands::overflow_axes(v).1;
-                                    y != "auto" && y != "scroll"
-                                })
-                        });
+                        || crate::shorthands::literal_overflow(&rows, "visible")
+                            .is_none_or(|(_, y)| !matches!(y, "visible" | "hidden"));
                     let index = boxes.len();
                     boxes.push(BoxSite {
                         key: (*span, *instance),

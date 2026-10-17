@@ -758,6 +758,18 @@ fn a_glass_group_is_a_spacing_and_refused_where_it_cannot_group() {
             "lower-glass-group",
             "inside the scroll",
         ),
+        // CSS Overflow 3 §3.1: a `visible` axis beside `hidden` computes to
+        // `auto`, so y scrolls (the review of the two-value split).
+        (
+            "box glassGroup=4 overflow=\"hidden visible\" height=40",
+            "lower-glass-group",
+            "inside the scroll",
+        ),
+        (
+            "box glassGroup=4 overflow-x=\"hidden\" height=40",
+            "lower-glass-group",
+            "inside the scroll",
+        ),
         (
             "canvas glassGroup=4",
             "lower-glass-group",
@@ -769,7 +781,12 @@ fn a_glass_group_is_a_spacing_and_refused_where_it_cannot_group() {
         assert_eq!(error.id, id, "{source}: {error:?}");
         assert!(error.message.contains(says), "{source}: {error:?}");
     }
-    contract::compile("component App\n  view\n    box glassGroup=0 overflow=\"hidden\"\n").unwrap();
+    for overflow in ["overflow=\"hidden\"", "overflow=\"visible\""] {
+        contract::compile(&format!(
+            "component App\n  view\n    box glassGroup=0 {overflow}\n"
+        ))
+        .unwrap();
+    }
 }
 
 /// LLP 1074 T1: `position` is `static` unless authored, except on a box that

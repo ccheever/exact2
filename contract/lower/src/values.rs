@@ -1282,10 +1282,8 @@ pub(crate) fn check_glass_group(tag: &tags::Tag, attrs: &[Attr]) -> Result<(), L
             m.name
         ));
     }
-    let scrolls = attrs.iter().any(|a| {
-        matches!(a.name.as_str(), "overflow" | "overflow-x" | "overflow-y")
-            && matches!(&a.value, Expr::Str(v, _) if v.split_ascii_whitespace().any(|v| matches!(v, "scroll" | "auto")))
-    });
+    let scrolls = super::shorthands::literal_overflow(attrs, "visible")
+        .is_some_and(|(x, y)| [x, y].iter().any(|v| !matches!(*v, "visible" | "hidden")));
     if tag.node_type.scrolls_by_default() || scrolls {
         return refuse("on an element that scrolls: put the group on a child inside the scroll");
     }
