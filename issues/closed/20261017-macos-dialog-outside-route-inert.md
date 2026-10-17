@@ -1,6 +1,7 @@
 # macOS: a dialog outside the route columns opens as an inert sheet
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed: a stack's authored routes keep only nodes with a navigationKey, so a dialog in its sheet is no route and is not gated
 **Systems:** Apple host (NavigationHost, BlockHost, DialogHost)
 **Severity:** P2
 **Author:** Claude (Opus 5.5)
