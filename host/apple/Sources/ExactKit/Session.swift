@@ -1315,7 +1315,12 @@ public final class ExactSession {
         // §8): queued now, and said in the scheme's own batch, after it.
         if first {
             let early = unreported; unreported.removeAll()
-            for id in early { if let v = presenter.views[id] { noteAppearance(v) } }
+            for id in early {
+                if let v = presenter.views[id] { noteAppearance(v); continue }
+                #if os(iOS) || os(tvOS)
+                if let dark = presenter.flats.appearance(of: id) { noteAppearance(id, dark: dark) }
+                #endif
+            }
         }
         // A subtree with a `color-scheme` of its own keeps its appearance when the session's changes, so no trait
         // callback says it: said here, after the scheme. Its views' appearance is the row's, already settled,
@@ -1344,12 +1349,13 @@ public final class ExactSession {
     private func treeIsIn() { awaitingTree = false; if colorsOwed { colorsOwed = false; reportColors() } } // only the replacement batch, not a reset's cleanup
     /// A view painting motion: when its own appearance is not the one its node's colours resolve by, say so after
     /// the batch (LLP 1062 D4).
-    func noteAppearance(_ view: NodeView) {
-        guard let session = schemeDark else { unreported.insert(view.id); return }
-        let dark = view.drawsDark
-        guard dark != viewDark[view.id] ?? session else { return }
-        viewDark[view.id] = dark == session ? nil : dark
-        pendingViewDark.append((view.id, dark))
+    func noteAppearance(_ view: NodeView) { noteAppearance(view.id, dark: view.drawsDark) }
+    /// A node painting in `dark`: a view, or a flat leaf in its parent's appearance.
+    func noteAppearance(_ id: UInt32, dark: Bool) {
+        guard let session = schemeDark else { unreported.insert(id); return }
+        guard dark != viewDark[id] ?? session else { return }
+        viewDark[id] = dark == session ? nil : dark
+        pendingViewDark.append((id, dark))
     }
     /// Views noted before the session had a scheme.
     private var unreported = Set<UInt32>()

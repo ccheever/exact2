@@ -160,20 +160,34 @@ final class FlatLeaves {
         if dirty.contains(parent) { presenter.afterBatch { [weak self] in self?.flush() } }
     }
     /// Each `light-dark()` leaf under `parent` in the parent view's appearance.
+    /// Paint motion hears every leaf's, as a view says its own (LLP 1062 D4),
+    /// so a transition between pairs eases in the appearance it shows in.
     private func resolveScheme(under parentID: UInt32) {
         guard let ids = order[parentID], let parent = presenter.views[parentID] else { return }
         let dark = parent.drawsDark
         for id in ids {
-            guard let leaf = leaves[id], leaf.paint.followsScheme, leaf.dark != dark else { continue }
+            guard let leaf = leaves[id] else { continue }
+            presenter.session?.noteAppearance(id, dark: dark)
+            guard leaf.paint.followsScheme, leaf.dark != dark else { continue }
             leaf.dark = dark
             paint(leaf)
         }
     }
+    /// The appearance `id` paints in, when it is a leaf under a view.
+    func appearance(of id: UInt32) -> Bool? { leaves[id]?.parent.flatMap { presenter.views[$0] }?.drawsDark }
+    private func mountPromoted() {
+        let mounts = remount
+        remount.removeAll()
+        for id in mounts {
+            if let parent = presenter.views[id], let ids = order[id] { presenter.placeChildren(parent, ids) }
+        }
+    }
 
     private func demote(_ id: UInt32) {
+        // A view's CSS animations are its layer's: one holding any stays a view.
         guard let view = presenter.views[id], view.kind == "view", view.paintRank == 0,
               view.handlers.isEmpty, view.props.isEmpty, view.subviews.isEmpty, !holdsLeaves(id),
-              view.surface == nil, view.boxFilter == nil,
+              view.surface == nil, view.boxFilter == nil, !presenter.svg.animatesBox(id),
               let flat = FlatPaint(view.style) else { return }
         var ancestor = view.superview
         while let v = ancestor, !(v is NodeView) { ancestor = v.superview }
@@ -313,16 +327,15 @@ final class FlatLeaves {
     func flush() {
         // Promotions create views while ops are applied; each affected
         // parent's latest child list is mounted once before drawing runs.
-        let mounts = remount
-        remount.removeAll()
-        for id in mounts {
-            if let parent = presenter.views[id], let ids = order[id] { presenter.placeChildren(parent, ids) }
-        }
+        mountPromoted()
         let candidates = reconsider
         reconsider.removeAll()
         for id in candidates { demote(id) }
         guard !dirty.isEmpty else { return }
+        // A leaf's paint in its parent's appearance can need a view (a dark
+        // fill on corners a layer cannot say): it is mounted before drawing too.
         for parentID in dirty { resolveScheme(under: parentID) }
+        mountPromoted()
         let parents = dirty
         dirty.removeAll()
         CATransaction.begin(); CATransaction.setDisableActions(true)

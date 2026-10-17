@@ -283,6 +283,37 @@ final class FlatLeavesIOSTests: XCTestCase {
         XCTAssertNotNil(FlatPaint(["background_color": [199, 199, 204, 255], "color_scheme": "dark"]), "a fixed fill paints alike in either")
     }
 
+    func testABoxHoldingAnAnimationIsNotMadeALayer() throws {
+        let fill: Any = [[255, 255, 255, 255], [0, 0, 0, 255]]
+        let p = presenter([["op": "create", "id": 1, "kind": "view"]] + bar(2, x: 0, color: fill)
+            + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+               ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 20.0]])
+        p.apply(wireBatch([["op": "animations", "id": 2, "specs": [["id": "fade#0#opacity", "k": "opacity", "s": 0.0, "dl": 0.0,
+            "d": 1.0, "n": 1.0, "t": [0.0, 1.0], "v": [1.0, 0.0], "c": [], "fill": 3.0]]]]))
+        let view = try XCTUnwrap(p.views[2], "an animation makes the leaf a view")
+        XCTAssertFalse(view.layer.animationKeys()?.isEmpty ?? true)
+        // A change that leaves it a plain box would make it a layer again.
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["width": 3.0, "height": 20.0, "background_color": fill,
+            "border_radius_top_left": 1.0, "border_radius_top_right": 1.0, "border_radius_bottom_right": 1.0, "border_radius_bottom_left": 1.0]]]))
+        XCTAssertTrue(p.views[2] === view && !p.flats.isFlat(2), "its animation keeps it the view it is")
+        XCTAssertFalse(view.layer.animationKeys()?.isEmpty ?? true, "still running")
+    }
+
+    func testALeafThatNeedsAViewInItsParentsAppearanceIsMountedInTheSameBatch() throws {
+        let p = presenter([["op": "create", "id": 1, "kind": "view"], ["op": "roots", "ids": [1]],
+                           ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 20.0]])
+        let parent = try XCTUnwrap(p.views[1])
+        parent.overrideUserInterfaceStyle = .dark
+        parent.updateTraitsIfNeeded()
+        // Clear in light, it paints nothing a layer cannot; red in dark, on
+        // corners of two sizes, it needs a view to draw.
+        p.apply(wireBatch([["op": "create", "id": 2, "kind": "view", "style": ["width": 20.0, "height": 20.0,
+            "background_color": [[0, 0, 0, 0], [255, 0, 0, 255]], "border_radius_top_left": 2.0, "border_radius_top_right": 6.0]],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 20.0, "h": 20.0], ["op": "children", "id": 1, "ids": [2]]]))
+        let view = try XCTUnwrap(p.views[2], "promoted in its parent's appearance")
+        XCTAssertTrue(view.superview === parent.container, "and mounted by the batch that made it")
+    }
+
     func testFlatRunOccludesNegativeControlButNotItsGapsOrHigherRanks() throws {
         let p = presenter([["op": "create", "id": 1, "kind": "view", "handlers": ["press"]],
                            ["op": "create", "id": 5, "kind": "view", "handlers": ["press"]],
