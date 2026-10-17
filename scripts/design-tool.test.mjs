@@ -953,6 +953,124 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
   }
 }, 900_000);
 
+/** Stage 6's kinds in the tool on the JS target's dev loop: a theme-fixture
+ * copy whose card reads a length, a shadow, a font-weight number and a
+ * duration token, with an icon. A typed length field's scrub previews on the
+ * frame's build with no reload and no file written, and Keep writes one
+ * line; a motion token says Rebuilds before the gesture and offers no scrub;
+ * a font-weight token rebuilds, since the JS target writes it inline; the
+ * icon is listed. (The wasm loop builds only a workspace app's crate, so a
+ * copy can't run there: the natives' half is the clone's gate.) */
+async function kindsOnTheJsLoop() {
+  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-kinds-'));
+  for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
+  const contract = readFileSync(join(app, 'app.contract'), 'utf8');
+  const card = contract
+    .replace('transition="background-color 400ms" padding=12', 'transition="background-color duration.card" padding="space.card"')
+    .replace('box-shadow="0 2px 8px color-mix(in srgb, border.hairline 60%, transparent)"', 'box-shadow="shadow.card"')
+    .replace('text "A card" color="text.label"', 'text "A card" color="text.label" font-weight="weight.title"');
+  expect(card.match(/space\.card|shadow\.card|weight\.title|duration\.card/g)?.length).toBe(4);
+  writeFileSync(join(app, 'app.contract'), card);
+  writeFileSync(join(app, 'app.tamber'), readFileSync(join(app, 'app.tamber'), 'utf8').replace('  AccentColor = #1d9bf0\n', [
+    '  AccentColor = #1d9bf0',
+    '  space.card = 12px',
+    '  shadow.card: box-shadow = 0px 2px 8px border.hairline, inset 0px 0px 0px 1px border.hairline',
+    '  weight.title = 600',
+    '  duration.card = 400ms',
+    '',
+    'icons',
+    '  icon.star = icon(sf "star", material "star")',
+    '',
+  ].join('\n')));
+  const original = readFileSync(join(app, 'app.tamber'), 'utf8');
+  const listener = (await import('node:http')).createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port;
+  await new Promise(ok => listener.close(ok));
+  const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-kinds-dist-'));
+  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let tool;
+  try {
+    const base = `http://127.0.0.1:${port}`;
+    const devSaid = lines(dev);
+    await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
+    tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
+    const seen = [];
+    const connects = () => devSaid.seen.filter(l => l.startsWith('page connected')).length;
+    // The frame's build and the file, once the frame runs the design the
+    // loop serves (or after 5 s).
+    const look = async () => {
+      const end = Date.now() + 5000;
+      for (;;) {
+        const design = await fetch(`${base}/__dev/design`);
+        const snapshot = design.status === 200 ? await design.json() : null;
+        const builds = (await (await fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': (await (await fetch(`${TOOL_ORIGIN}/__tamber/token`)).json()).token }, body: '{"method":"hello"}' })).json()).ok.builds;
+        const frame = builds.find(b => b.host === 'web-js');
+        if ((frame && (!snapshot || frame.design === snapshot.design)) || Date.now() > end) {
+          seen.push({ connects: connects(), snapshot, frame, file: readFileSync(join(app, 'app.tamber'), 'utf8') });
+          return;
+        }
+        await Bun.sleep(100);
+      }
+    };
+    const wait = Array.from({ length: 2 }, () => ['clock +2000 real', 'clock data']).flat();
+    const drive = spawn(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-kinds-${process.pid}`, '--json',
+      'type name Ada', 'tap save-name', 'clock data', ...wait,
+      // The length, by its amount field: proposed live, then scrubbed.
+      'tap cell-space.card-0-light', 'clock data', 'type part-amount-field 14', 'clock data', 'state', 'tree typed', 'clock +6000 real',
+      'tap scrub-start', 'clock data', 'type part-amount-field 16', 'clock data', 'state', 'tree scrub', 'clock +6000 real',
+      'tap scrub-keep', 'clock data', ...wait, 'state', 'tree undo-bar', 'clock +2000 real',
+      // The motion token: Rebuilds before the gesture, and no scrub.
+      'tap cell-duration.card-0-light', 'clock data', 'type branch-value 300ms', 'type branch-value key Enter', 'clock data', 'state', 'tree branch', 'clock +2000 real',
+      // The font-weight token: inline on the JS target.
+      'tap cell-weight.title-0-light', 'clock data', 'type part-amount-field 700', 'clock data', 'state', 'tree icons', 'clock +2000 real',
+    ], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    let driveSaid = '';
+    drive.stderr.on('data', d => { driveSaid = (driveSaid + d).slice(-4000); });
+    const out = lines(drive);
+    // Looked at each `tree` op: before the scrub, during it, after Keep.
+    for (const n of [1, 2, 3]) {
+      await out.until(() => out.seen.filter(l => l.startsWith('{"nodes"')).length >= n, 600_000).catch(e => { throw new Error(`${e.message}\n${driveSaid}`); });
+      await look();
+    }
+    await new Promise(ok => drive.once('exit', ok));
+    expect(drive.exitCode, driveSaid).toBe(0);
+    const replies = out.seen.filter(l => l.startsWith('{')).map(l => JSON.parse(l));
+    const states = replies.filter(r => r.resources);
+    const trees = replies.filter(r => r.nodes);
+    const [before, during, kept] = seen;
+    expect(states[0].resources.proposal).toMatchObject({ ok: true, active: true, chip: 'live' });
+    expect(trees[0].nodes.some(n => n.props.testId === 'part-amount-field')).toBe(true);
+    expect(states[1].resources.scrub).toMatchObject({ ok: true, live: true, ready: true });
+    // While it previews: the frame runs the scrubbed design, the same build,
+    // no reload, the file untouched.
+    expect(during.frame.id).toBe(before.frame.id);
+    expect(during.connects).toBe(before.connects);
+    expect(during.frame.design).not.toBe(before.frame.design);
+    if (during.snapshot) expect(JSON.stringify(during.snapshot)).toContain('16px');
+    expect(during.file).toBe(original);
+    // Keep: one line, the value previewed; the same build, no reload.
+    const line = '  space.card = 12px';
+    expect(edit(original, kept.file)).toEqual({ at: original.split('\n').indexOf(line), removed: [line], added: ['  space.card = 16px'] });
+    expect([kept.frame.id, kept.connects]).toEqual([before.frame.id, before.connects]);
+    // Motion: said before the gesture, proposed as a rebuild, no scrub.
+    expect(trees[3].nodes.some(n => n.props.testId === 'branch-rebuilds')).toBe(true);
+    expect(states[3].resources.proposal).toMatchObject({ ok: true, chip: 'rebuild' });
+    // A font-weight number: the JS target writes it inline, so it rebuilds.
+    expect(states[4].resources.proposal).toMatchObject({ ok: true, active: true, chip: 'rebuild' });
+    // The icon, read only.
+    expect(trees[4].nodes.some(n => n.props.testId === 'icon-icon.star-sources' && n.props.text === 'sf star · material star')).toBe(true);
+  } finally {
+    if (tool) await stop(tool);
+    await stop(dev);
+    rmSync(app, { recursive: true, force: true });
+    rmSync(dist, { recursive: true, force: true });
+  }
+}
+
+test('stage 6 kinds on the JS loop: a typed length scrubs live and Keep writes one line, motion says Rebuilds first, an inline font-weight token rebuilds, icons listed', () => kindsOnTheJsLoop(), 900_000);
+
 test('T2b: inspect from the tool selects a view in the canvas frame, shows its source and rows, and opens its token on the branch that won', async () => {
   const listener = (await import('node:http')).createServer();
   await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
@@ -1087,7 +1205,7 @@ test('controls from metadata that does not fit, steps, select values, column lab
 });
 
 test('typed fields: every value joins back byte for byte, and a field edits only its part', async () => {
-  const { partsOf, joined } = await import('../apps/design-tool/app.ts');
+  const { partsOf, joined, missing } = await import('../apps/design-tool/app.ts');
   const kinds = new Map([['space.blur', 'length'], ['border.subtle', 'color'], ['type.body', 'type'], ['family.body', 'family']]);
   const isLength = name => kinds.get(name);
   const values = [
@@ -1104,7 +1222,7 @@ test('typed fields: every value joins back byte for byte, and a field edits only
     expect(joined(p.parts, p.tail)).toBe(v);
   }
   // No field where none fits: a function, a named length, an expression, a kind with none.
-  for (const [kind, v] of [['length', 'calc(1px + 2px)'], ['length', '-exact-hairline'], ['number', 'lift'], ['box-shadow', '0 red'], ['box-shadow', '0 1px 2px red blue'], ['text-shadow', 'inset 0 1px red'], ['text-shadow', '1px 1px red, 0 0 blue'], ['type', 'type.body'], ['type', 'normal 16px'], ['type', 'oblique 16px'], ['duration', '200ms'], ['color', '#fff']]) expect(partsOf(kind, v, isLength)).toBeNull();
+  for (const [kind, v] of [['length', 'calc(1px + 2px)'], ['length', '-exact-hairline'], ['number', 'lift'], ['box-shadow', '0 red'], ['box-shadow', '0 1px 2px red blue'], ['text-shadow', 'inset 0 1px red'], ['text-shadow', '1px 1px red, 0 0 blue'], ['type', 'type.body'], ['type', 'normal 16px'], ['type', 'oblique 16px'], ['box-shadow', '0 1px 2px#000'], ['duration', '200ms'], ['color', '#fff']]) expect(partsOf(kind, v, isLength)).toBeNull();
   // Each word read as the server reads it: a signed or exponent length is a
   // length, not the colour; a weight with a fraction is the weight; a weight
   // before `italic` leaves `italic` the size, as typeface.rs refuses it.
@@ -1113,6 +1231,16 @@ test('typed fields: every value joins back byte for byte, and a field edits only
   expect(fields('box-shadow', '0 1e0px 2px INSET red')).toMatchObject({ '0.y': '1e0px', '0.inset': 'INSET', '0.color': 'red' });
   expect(fields('type', '600.0 16px')).toMatchObject({ weight: '600.0', size: '16px', family: '' });
   expect(fields('type', '600 italic 16px')).toMatchObject({ weight: '600', size: 'italic', style: '' });
+  // `normal` as the line height is the line height.
+  expect(fields('type', '16px / normal')).toMatchObject({ size: '16px', leading: 'normal' });
+  // A blur holds its place while a spread is written after it; a unit may
+  // be none (the server judges a bare amount).
+  const set = (kind, v, edits) => { const p = partsOf(kind, v, isLength); return p.parts.map(x => (x.key in edits ? { ...x, text: edits[x.key] } : x)); };
+  expect(missing(set('box-shadow', '0 1px 2px red', { '0.spread': '1px', '0.blur': '' })).map(x => x.label)).toEqual(['blur']);
+  expect(missing(set('box-shadow', '0 1px 2px red', { '0.blur': '' }))).toEqual([]);
+  expect(missing(set('box-shadow', '0 1px 2px 3px red', { '0.spread': '', '0.blur': '' }))).toEqual([]);
+  expect(missing(set('box-shadow', '0 1px 2px 3px red', { '0.y': '' })).map(x => x.label)).toEqual(['y']);
+  expect(missing(set('length', '0', { unit: '' }))).toEqual([]);
   // A text style is a size; a type token's name is its whole value.
   expect(fields('type', '-exact-body')).toMatchObject({ size: '-exact-body' });
   const edit = (kind, v, key, text) => { const p = partsOf(kind, v, isLength); return joined(p.parts.map(x => (x.key === key ? { ...x, text } : x)), p.tail); };

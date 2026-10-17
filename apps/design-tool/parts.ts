@@ -12,6 +12,7 @@ type Part = Result<'loadParts'>['parts'][number];
 // an exponent. With a unit after it, a dimension.
 const NUMBER = '[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?';
 const numeric = new RegExp(`^${NUMBER}[a-zA-Z%]*$`);
+const ITEM = new RegExp(`^(?:${NUMBER}[a-zA-Z%]*|#[0-9a-fA-F]+|-?[a-zA-Z_][\\w.-]*(?:\\(.*\\))?)$`, 's');
 /** A name as Tamber reads a type token's whole value as one (typeface.rs's
  * `is_name`). */
 const isName = (t: string) => t !== '' && !/[\s/,"']/.test(t) && !/^[\d.]/.test(t);
@@ -39,16 +40,23 @@ export function wordsOf(v: string): { gaps: string[]; words: string[] } | null {
 }
 
 const part = (index: number, key: string, label: string, control: string, text: string, more: Partial<Part> = {}): Part =>
-  ({ index, key, label, control, text, pre: '', post: '', optional: false, options: [], ...more });
+  ({ index, key, label, control, text, pre: '', post: '', optional: false, needs: '', after: -1, options: [], ...more });
 const fixed = (text: string) => part(0, '', '', 'fixed', text);
-/** Each part its place in the list, as the contract edits one by it. */
-const numbered = (parts: Part[]) => parts.map((p, i) => ({ ...p, index: i }));
+/** Each part its place in the list, as the contract edits one by it, and
+ * `needs` (a later part's key) as that part's place: an optional part is
+ * required while that one holds something (a blur, while a spread does). */
+const numbered = (parts: Part[]) => parts.map((p, i) => ({ ...p, index: i, after: p.needs === '' ? -1 : parts.findIndex(q => q.key === p.needs) }));
 
 /** The value joined from its parts: a fixed part as written, an optional one
  * left empty dropped with what it brought, every other with its own spacing.
  * (The contract's `partEdit` joins the same way.) */
 export const joined = (parts: Part[], tail: string) =>
   parts.map(p => p.control === 'fixed' ? p.text : p.text === '' && p.optional ? '' : `${p.pre}${p.text}${p.post}`).join('') + tail;
+/** The parts that must hold something and are empty: required, or an
+ * optional one a later part holds the place after (the contract's
+ * `partMissing` reads the same). */
+export const missing = (parts: Part[]) =>
+  parts.filter(p => p.control !== 'fixed' && p.text === '' && (!p.optional || (p.after >= 0 && parts[p.after].text !== '')));
 
 /** A token's value as typed parts, or null where no field fits (an
  * expression, a `calc()`, a named length, a kind with no typed editor): the
@@ -62,7 +70,7 @@ export function partsOf(kind: string, value: string, kindOf: (name: string) => s
       const unit = m[3] ?? '';
       // A bare 0's unit is none; any other amount takes one.
       const units = unit === '' ? ['', 'px', 'rem', 'em'] : ['px', 'rem', 'em'];
-      return { parts: numbered([fixed(m[1]), part(0, 'amount', 'amount', 'number', m[2]), part(0, 'unit', 'unit', 'select', unit, { options: units })]), tail: m[4] };
+      return { parts: numbered([fixed(m[1]), part(0, 'amount', 'amount', 'number', m[2]), part(0, 'unit', 'unit', 'select', unit, { optional: true, options: units })]), tail: m[4] };
     }
     case 'number': {
       const m = new RegExp(`^(\\s*)(${NUMBER})(\\s*)$`).exec(value);
@@ -81,7 +89,9 @@ export function partsOf(kind: string, value: string, kindOf: (name: string) => s
  * `inset` first. */
 function shadowParts(box: boolean, value: string, kindOf: (name: string) => string | undefined): { parts: Part[]; tail: string } | null {
   const w = wordsOf(value);
-  if (!w || w.words.length === 0) return null;
+  // Each word one CSS item (shadow.rs reads `2px#000` as two): a number or
+  // dimension, a hex colour, a name, or a function call.
+  if (!w || w.words.length === 0 || !w.words.every(x => x === ',' || ITEM.test(x))) return null;
   const items: number[][] = [[]];
   w.words.forEach((x, i) => (x === ',' ? items.push([]) : items[items.length - 1].push(i)));
   // A text shadow is one shadow (shadow.rs refuses a list).
@@ -110,10 +120,10 @@ function shadowParts(box: boolean, value: string, kindOf: (name: string) => stri
       }
       if (r === 'length') {
         const n = names[nth++];
-        // Blur and spread may be emptied (spread first: blur with a spread
-        // after it holds its place).
-        const optional = n === 'spread' || (n === 'blur' && lengths < 4);
-        own.push(part(0, `${k}.${n}`, `${of}${n}`, 'text', w.words[i], optional ? { optional } : {}));
+        // Blur and spread may be emptied; blur holds its place while a
+        // spread is written after it.
+        const more = n === 'spread' || n === 'blur' ? { optional: true, ...(n === 'blur' && box ? { needs: `${k}.spread` } : {}) } : {};
+        own.push(part(0, `${k}.${n}`, `${of}${n}`, 'text', w.words[i], more));
       } else {
         own.push(part(0, `${k}.color`, `${of}colour`, 'text', w.words[i], { optional: !box }));
       }
@@ -126,7 +136,7 @@ function shadowParts(box: boolean, value: string, kindOf: (name: string) => stri
     }
     // What the shadow leaves out, offered empty.
     const lastLength = own.map(p => p.key).lastIndexOf(`${k}.${names[lengths - 1]}`);
-    if (lengths === 2) own.splice(lastLength + 1, 0, part(0, `${k}.blur`, `${of}blur`, 'text', '', { optional: true, pre: ' ' }));
+    if (lengths === 2) own.splice(lastLength + 1, 0, part(0, `${k}.blur`, `${of}blur`, 'text', '', { optional: true, pre: ' ', ...(box ? { needs: `${k}.spread` } : {}) }));
     else if (box && lengths === 3) own.splice(lastLength + 1, 0, part(0, `${k}.spread`, `${of}spread`, 'text', '', { optional: true, pre: ' ' }));
     if (colours === 0) {
       // At the shadow's end, before the gap after its last word.
@@ -150,8 +160,7 @@ function typeParts(value: string, kindOf: (name: string) => string | undefined):
   // Another token's name is its value: no fields (a text style is a size).
   if (isName(value.trim()) && kindOf(value.trim()) !== undefined) return null;
   const w = wordsOf(value);
-  // `normal` and `oblique` are refused (typeface.rs): no field says them.
-  if (!w || w.words.length === 0 || w.words.some(x => x === 'normal' || x === 'oblique')) return null;
+  if (!w || w.words.length === 0) return null;
   const parts: Part[] = [fixed(w.gaps[0])];
   let i = 0;
   let style: Part | null = null, weight: Part | null = null;
@@ -159,6 +168,8 @@ function typeParts(value: string, kindOf: (name: string) => string | undefined):
   // (`bold` or a number: the server judges it), each with the gap after it.
   for (; i < 2 && i < w.words.length; i++) {
     const x = w.words[i];
+    // `normal` and `oblique` here are refused (typeface.rs): no field says them.
+    if (x === 'normal' || x === 'oblique') return null;
     if (!style && !weight && x === 'italic') parts.push(style = part(0, 'style', 'style', 'style', x, { optional: true, post: w.gaps[i + 1] }));
     else if (!weight && (x === 'bold' || new RegExp(`^${NUMBER}$`).test(x))) parts.push(weight = part(0, 'weight', 'weight', 'text', x, { optional: true, post: w.gaps[i + 1] }));
     else break;

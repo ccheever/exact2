@@ -358,8 +358,9 @@ design.
   app's build stops before its design). A `live` edit reaches running development builds as a batch, with
   no reload (see [The live table](#the-live-table-llp-1121-stage-4-12)); a `rebuild` one reloads.
   `propose` through the JS target's dev loop is also `rebuild` when the edit moves a token its pages
-  write inline (a `font-weight` number, an SVG attribute's length or number, a type or family
-  token: LLP 1121 stage 6), since such a token has no property to change in place. This holds
+  write inline, which the loop's design read marks (a `font-weight` number, an SVG attribute's
+  length or number: LLP 1121 stage 6). Such a token has no property to change in place, and the
+  class is the serving loop's answer (D13): where builds disagree, `rebuild` wins. This holds
   while the loop's design reader is built; without the reader the session's class stands, and
   the release rebuilds;
 - `synthetic: [{expr, values}]` (*1.2*): each synthetic token whose value the edit changes, its new

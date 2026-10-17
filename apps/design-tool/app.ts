@@ -12,7 +12,7 @@ import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } 
 import { cellText, colourLiteral, panelOf } from './dials';
 export { cellText, colourLiteral, controlOf, folded, panelOf } from './dials';
 import { partsOf } from './parts';
-export { joined, partsOf } from './parts';
+export { joined, missing, partsOf } from './parts';
 
 export const appId = 'com.exact.design-tool';
 // The tool's own local URL: `tamber tool` serves it here, and a grant names

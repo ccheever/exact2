@@ -343,6 +343,10 @@ shape Part
   pre: string
   post: string
   optional: bool
+  // A later part (its key; `after`, its index, -1 for none) while which
+  // holds something this optional one is required: a blur before a spread.
+  needs: string
+  after: number
   options: string[]
 
 shape Typed
@@ -591,14 +595,23 @@ component DesignTool
   derive draftStale = editKind == "set-token" and not scopeOwn and (branch.token != editTarget or branch.when != editWhen)
   // The branch's value as the draft has it, and its typed fields.
   derive shownValue = editKind == "set-token" and editTarget == branch.token and not draftStale ? editValue : branch.value
-  derive branchKey = `${branch.token}␟${branch.column}␟${branch.answer}`
+  // The branch by what it is, not which read: a read that gives the same
+  // value back (after a scrub cancelled, an undo elsewhere) keeps the cut.
+  derive branchKey = `${branch.token}␟${branch.column}␟${branch.when}␟${branch.value}`
   derive partsBase = rawFor == branchKey ? rawBase : branch.value
   resource typed = loadParts(branch.kind, partsBase, design.answer) as shape Typed else empty(ok=false)
   derive partsKey = `${branchKey}␟${typed.of}`
-  derive fieldTexts = partFor == partsKey ? partTexts : typed.parts.map(p => p.text)
-  // Fields that must hold something and are empty: emptied, a later part
-  // would read in its place, so nothing is drafted until they are filled.
-  derive partMissing = typed.parts.filter(p => p.control != "fixed" and not p.optional and fieldTexts.slice(p.index, p.index + 1).join("") == "").map(p => p.label).join(", ")
+  // The fields' texts: the draft's while it is this cell's token edit from
+  // this cut, else the cut's own (another edit replaced it, or none).
+  derive fieldDraft = partFor == partsKey and editKind == "set-token" and editTarget == branch.token
+  derive fieldTexts = fieldDraft ? partTexts : typed.parts.map(p => p.text)
+  // Fields that must hold something and are empty (required, or holding the
+  // place before a later part that is written): emptied, a later part would
+  // read in its place, so nothing is drafted until they are filled.
+  derive partMissing = typed.parts.filter(p => p.control != "fixed" and fieldTexts.slice(p.index, p.index + 1).join("") == "" and (not p.optional or (p.after >= 0 and fieldTexts.slice(p.after, p.after + 1).join("") != ""))).map(p => p.label).join(", ")
+  // A field draft whose cut is not the branch's now (its value moved under
+  // it): stale, as one for another branch is.
+  derive partsStale = editKind == "set-token" and editTarget == branch.token and partFor != "" and partFor != partsKey
 
   // The oldest highlight here fades after 3 s, then the next.
   task fading when lit.names.length > 0 key=`${lit.epoch}-${lit.file}-${lit.seq}`
@@ -740,7 +753,7 @@ component DesignTool
     // written, so the line written changes only there.
     if typed.ok and typed.of == partsBase
       let texts = fieldTexts.map((t, j) => j == i ? v.trim() : t)
-      let missing = typed.parts.filter(p => p.control != "fixed" and not p.optional and texts.slice(p.index, p.index + 1).join("") == "").length > 0
+      let missing = typed.parts.filter(p => p.control != "fixed" and texts.slice(p.index, p.index + 1).join("") == "" and (not p.optional or (p.after >= 0 and texts.slice(p.after, p.after + 1).join("") != ""))).length > 0
       partTexts = texts
       partFor = partsKey
       editKind = "set-token"
@@ -815,7 +828,7 @@ component DesignTool
     send written = cancelScrub(scrubAsk)
   action apply
     // Only the proposal shown, for the edit drafted, is written.
-    if proposal.ok and proposal.active and not pending(proposal) and proposal.key == draftKey and not draftStale and not pending(written) and not scrubShown
+    if proposal.ok and proposal.active and not pending(proposal) and proposal.key == draftKey and not draftStale and not partsStale and not pending(written) and not scrubShown
       send written = writeEdit(file, editKind, editTarget, editWhen, editValue, client, proposal.review)
   action afterWrite
     // The draft written is done with; one drafted since stays.
@@ -1208,7 +1221,7 @@ component DesignTool
                                 for o in p.options key=o
                                   option (o == "" ? "none" : o) value=o
                             else if p.control == "inset"
-                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                              select value=fieldTexts.slice(p.index, p.index + 1).join("").toLowerCase() change=partEdit(p.index) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
                                 option "outside" value=""
                                 option "inset" value="inset"
                             else if p.control == "style"
@@ -1245,7 +1258,7 @@ component DesignTool
                     text "Add"
               if editKind != ""
                 column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="proposal"
-                  if draftStale
+                  if draftStale or partsStale
                     text "The branch this edit was for has changed: choose the cell and type it again." color="-exact-system-orange" testId="draft-stale"
                   if not proposal.ok
                     text proposal.error color="-exact-system-red" white-space="pre-wrap" testId="proposal-error"
@@ -1267,10 +1280,10 @@ component DesignTool
                           text "Cancel scrub"
                   else
                     row gap=8
-                      button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or pending(written)) buttonStyle="filled" testId="apply"
+                      button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or partsStale or pending(written)) buttonStyle="filled" testId="apply"
                         text "Apply"
                       if editKind == "set-dial" or editKind == "set-token"
-                        button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or draftStale or pending(written)) testId="scrub-start"
+                        button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or draftStale or partsStale or pending(written)) testId="scrub-start"
                           text "Scrub live"
                       button press=cancelEdit testId="cancel-edit"
                         text "Cancel"

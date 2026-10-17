@@ -117,6 +117,12 @@ test "typed fields by kind: each edits its part of the value and leaves the rest
   expect state editValue == "16px"
   type "part-unit-field" "rem"
   expect state editValue == "16rem"
+  // Another edit replaces the draft: the fields are the value's again.
+  type "dial-gap-slider" "10"
+  expect state editTarget == "gap"
+  type "part-unit-field" "em"
+  expect state editTarget == "space.edge"
+  expect state editValue == "12em"
   // A shadow list: per shadow, inset, its lengths and its colour (a token's
   // name, which it keeps: no pin), every other shadow as written.
   tap "cell-shadow.ring-0-light"
@@ -131,6 +137,11 @@ test "typed fields by kind: each edits its part of the value and leaves the rest
   type "part-0.spread-field" "1px"
   expect tree has "part-0.spread-field"
   expect state editValue == "0px 1px 2px 1px #00000033, inset 0px 0px 0px 1px surface.inset"
+  // The blur holds its place while a spread is written after it.
+  type "part-0.blur-field" ""
+  expect text "typed-missing" == "Give shadow 1 blur a value: emptied, the part after it would be read in its place."
+  expect state editValue == ""
+  type "part-0.blur-field" "2px"
   type "part-1.inset-field" ""
   expect state editValue == "0px 1px 2px 1px #00000033, 0px 0px 0px 1px surface.inset"
   clock data
@@ -184,6 +195,16 @@ test "a typed field's edit scrubs live, each value previewed, and Keep writes th
   clock data
   expect tree missing "scrub"
   expect text "undo" == "Undo (1)"
+  // A scrub cancelled keeps the draft and its fields: the next field edit
+  // composes from both.
+  type "part-0.blur-field" "5px"
+  clock data
+  tap "scrub-start"
+  clock data
+  tap "scrub-cancel"
+  clock data
+  type "part-0.x-field" "1px"
+  expect state editValue == "1px 1px 5px #00000033, inset 0px 0px 0px 1px surface.inset"
   // The stub's live table off again, as the tests after this one expect.
   request POST "/__stub/live" {"live": false} as ada
 

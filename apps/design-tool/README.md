@@ -85,8 +85,9 @@ whose design the port serves.
 - Kinds that rebuild say so before the gesture. A motion token (duration,
   easing) says "Rebuilds" when it is chosen, and Apply writes it with no
   scrub. On the JS target's dev loop, `propose` answers `rebuild` for a
-  token the page writes inline (a `font-weight` number, an SVG attribute,
-  a type or family token), so the chip says so before a scrub is tried.
+  token the page writes inline (its design read says which: a
+  `font-weight` number, an SVG attribute's), so the chip says so before a
+  scrub is tried.
   Icons are listed read only, with their sources, since no operation
   writes one.
 - Changes lists every write since the tool opened, the tool's own and
