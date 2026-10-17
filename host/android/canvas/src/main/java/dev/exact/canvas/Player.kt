@@ -110,6 +110,8 @@ internal class Player(private val fonts: Map<Int, Font>) {
      */
     /** Op 27 (one blur) or 42 (ordered functions: kind 0 blur, 1 saturation), over what [b] drew from [from] to [at]. */
     private fun backdrop(c: Canvas, b: IntBuffer, from: Int, at: Int) {
+        // No backdrop filter before RenderEffect (Android 12): what is behind shows unfiltered.
+        if (android.os.Build.VERSION.SDK_INT < 31) return
         val ordered = b.get(at) == 42
         val count = if (ordered) b.get(at + 1) else 1
         readRRect(b, if (ordered) at + 2 + 2 * count else at + 2)
@@ -762,7 +764,8 @@ internal class Player(private val fonts: Map<Int, Font>) {
                         for (g in 0 until count) {
                             glyphIds[g] = b.get(at); positions[2 * g] = f(b, at + 1); positions[2 * g + 1] = f(b, at + 2); at += 3
                         }
-                        c.drawGlyphs(glyphIds, 0, positions, 0, count, font, glyphPaint)
+                        if (android.os.Build.VERSION.SDK_INT >= 31) c.drawGlyphs(glyphIds, 0, positions, 0, count, font, glyphPaint)
+                        else LegacyGlyphs.draw(c, glyphIds, positions, count, font, glyphPaint)
                     }
                     i += 6 + 3 * count
                 }

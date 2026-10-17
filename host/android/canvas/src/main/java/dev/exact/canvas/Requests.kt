@@ -167,8 +167,8 @@ internal class Requests(private val activity: ExactActivity) {
             3, 6 -> HapticFeedbackConstants.VIRTUAL_KEY
             4 -> HapticFeedbackConstants.LONG_PRESS
             5 -> HapticFeedbackConstants.TEXT_HANDLE_MOVE
-            7 -> HapticFeedbackConstants.CONFIRM
-            8, 9 -> HapticFeedbackConstants.REJECT
+            7 -> if (Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.CONFIRM else Legacy.haptic(kind)
+            8, 9 -> if (Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.REJECT else Legacy.haptic(kind)
             else -> return
         }
         val played = view?.performHapticFeedback(c)
