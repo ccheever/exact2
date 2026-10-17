@@ -154,9 +154,11 @@ export function memberActionLabel(member: LegacyMember, groupedCount: number): s
   return member.environmentLabel ? `${member.environmentLabel} — ${member.workspaceRoot}` : member.workspaceRoot;
 }
 /**
- * The project header's menu (handleProjectButtonContextMenu): Rename, Group into..., Copy Path,
+ * The project header's menu (handleProjectButtonContextMenu): Rename, Group into…, Copy Path,
  * Project settings, Remove; with several members each targeted row is a submenu of members.
  * Every member's rows act on its own environment, a background one's included (no row is disabled).
+ * The source's "Group into..." is drawn "Group into…": Electron's Mac menus show three dots as an
+ * ellipsis (measured: the reference's Help › "Check for Updates...", DesktopApplicationMenu.ts:261).
  */
 export function legacyProjectMenuItems(members: readonly LegacyMember[]): MenuItem[] {
   const targeted = (action: string, label: string, destructive = false): MenuItem => {
@@ -165,7 +167,7 @@ export function legacyProjectMenuItems(members: readonly LegacyMember[]): MenuIt
     if (members.length === 1) return { ...leaf(members[0]!), label };
     return { id: `${action}:submenu`, label, children: members.map(leaf) };
   };
-  return [targeted('rename', 'Rename'), targeted('grouping', 'Group into...'), targeted('copy-path', 'Copy Path'),
+  return [targeted('rename', 'Rename'), targeted('grouping', 'Group into…'), targeted('copy-path', 'Copy Path'),
     { id: 'project-settings', label: 'Project settings' }, targeted('delete', 'Remove', true)];
 }
 

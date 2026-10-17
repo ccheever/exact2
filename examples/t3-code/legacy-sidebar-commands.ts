@@ -201,7 +201,7 @@ async function threadMenu(client: T3Client, native: Native, storage: Files, id: 
   }
 }
 
-/** handleProjectButtonContextMenu: Rename, Group into..., Copy Path, Project settings, Remove. */
+/** handleProjectButtonContextMenu: Rename, Group into…, Copy Path, Project settings, Remove. */
 async function projectMenu(client: T3Client, native: Native, key: string): Promise<string> {
   const group = groupOf(client, key);
   if (!group) return '';
