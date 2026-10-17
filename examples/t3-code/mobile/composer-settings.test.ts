@@ -1,5 +1,6 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { T3Client } from './shared/client';
+import { MobileDraftClient } from './mobile-draft-recovery';
 import { arr, obj, type Obj } from './shared/domain';
 import { type Native, type Files } from './shared/protocol';
 import { mobileComposerSettings, mobileComposerSettingsAction } from './composer-settings';
@@ -9,8 +10,7 @@ import { draftContext, patchDraftContext } from './shared/composer-controls-bran
 
 const options = [{ id: 'effort', label: 'Reasoning effort', type: 'select', currentValue: 'medium', promptInjectedValues: ['ultrathink'],
   options: [{ id: 'medium', label: 'Medium' }, { id: 'high', label: 'High' }, { id: 'ultracode', label: 'Ultracode' }, { id: 'ultrathink', label: 'Ultrathink' }] }];
-function fixture() {
-  const client = new T3Client();
+function fixture(client: T3Client = new T3Client()) {
   client.environmentId = 'env'; client.projectId = 'p'; client.origin = 'http://example.test'; client.connection = 'connected';
   client.configLive = true; client.shellLive = true; client.threadLive = true; client.shellLoaded = true;
   client.scopes = ['orchestration:operate']; client.providerId = 'provider'; client.modelId = 'a';
@@ -258,4 +258,138 @@ describe('configured models absent from the catalog', () => {
     expect((await settings(f, 'pick', 'provider', 'configured')).message).toContain('another model');
     expect(await settings(f, 'cancel')).toMatchObject({ closed: true }); expect(f.client.modelId).toBe('configured');
   });
+});
+
+
+describe('staged mobile model option memory', () => {
+  const high = [{ id: 'effort', value: 'high' }];
+  function memoryFixture(client?: T3Client) {
+    const f = fixture(client), writes: Obj[] = [];
+    f.client.local.drafts[f.client.draftKey] = 'Keep the draft';
+    const controls = f.client.local.composerControls;
+    controls.stickyProvider = 'provider';
+    controls.stickyByProvider = { provider: { model: 'a', options: [] }, other: { model: 'remote', options: [] } };
+    controls.stickyOptionsByModel = { provider: { a: [{ id: 'keep', value: true }] }, other: { b: [{ id: 'other', value: 'untouched' }] } };
+    const sticky = JSON.stringify({ provider: controls.stickyProvider, choices: controls.stickyByProvider });
+    f.storage.fs.atomicWriteFile = async (_path, bytes) => { writes.push(obj(JSON.parse(new TextDecoder().decode(bytes)))); };
+    return { ...f, writes, sticky };
+  }
+  test('a staged explicit option survives Cancel in independent memory and persisted preferences', async () => {
+    const f = memoryFixture();
+    await settings(f, 'open'); await settings(f, 'pick', 'provider', 'b');
+    await settings(f, 'option', 'effort', 'high'); await settings(f, 'cancel');
+    const controls = f.client.local.composerControls;
+    expect({ model: f.client.modelId, provider: f.client.providerId, draft: f.client.draft,
+      sticky: JSON.stringify({ provider: controls.stickyProvider, choices: controls.stickyByProvider }), native: f.calls,
+      remembered: controls.stickyOptionsByModel.provider?.b,
+      persisted: obj(obj(f.writes.at(-1)?.composerControls).stickyOptionsByModel).provider })
+      .toEqual({ model: 'a', provider: 'provider', draft: 'Keep the draft', sticky: f.sticky, native: [],
+        remembered: high, persisted: { a: [{ id: 'keep', value: true }], b: high } });
+    const restored = new T3Client(), bytes = new TextEncoder().encode(JSON.stringify(f.writes.at(-1)));
+    await restored.load({ fs: { ...f.storage.fs, readFile: async () => bytes.buffer } });
+    expect(restored.local.composerControls.stickyOptionsByModel.provider?.b).toEqual(high);
+  });
+  test('a later Save commits exactly the option remembered before Cancel in one model write', async () => {
+    const f = memoryFixture(); f.client.threadId = 'thread';
+    f.client.local.drafts[f.client.draftKey] = 'Keep the draft';
+    f.client.thread = { sequence: 1, historyCursor: null, hasMore: false, latestLocalTurnOrdinal: null,
+      projection: { thread: { id: 'thread', projectId: 'p', modelSelection: { instanceId: 'provider', model: 'a' } }, runs: [], turnItems: [] } };
+    await settings(f, 'open'); await settings(f, 'pick', 'provider', 'b');
+    await settings(f, 'option', 'effort', 'high'); await settings(f, 'cancel');
+    expect(f.calls).toEqual([]);
+    expect(f.client.local.composerControls.stickyOptionsByModel.other?.b).toEqual([{ id: 'other', value: 'untouched' }]);
+    expect(f.client.local.composerControls.stickyOptionsByModel.provider?.a).toEqual([{ id: 'keep', value: true }]);
+    await settings(f, 'open'); await settings(f, 'pick', 'provider', 'b');
+    expect(await settings(f, 'save')).toMatchObject({ closed: true, message: '' });
+    expect(f.calls.filter(call => call.method === 'orchestration.dispatchCommand').map(call => call.payload))
+      .toEqual([{ type: 'thread.model-selection.set', commandId: expect.any(String), threadId: 'thread',
+        modelSelection: { instanceId: 'provider', model: 'b', options: high } }]);
+    expect(f.client.draft).toBe('Keep the draft');
+  });
+  test('invalid options, permission loss and changed owners do not remember or persist a staged choice', async () => {
+    for (const refusal of ['unknown', 'unoffered', 'injected', 'read-only', 'owner']) {
+      const f = memoryFixture(); await settings(f, 'open'); await settings(f, 'pick', 'provider', 'b');
+      const before = JSON.stringify(f.client.local.composerControls);
+      if (refusal === 'read-only') f.client.scopes = [];
+      if (refusal === 'owner') f.client.generation++;
+      const response = refusal === 'owner' ? await settings(f, 'save') : await settings(f, 'option', refusal === 'unknown' ? 'missing' : 'effort',
+        refusal === 'unoffered' ? 'missing' : refusal === 'injected' ? 'ultrathink' : 'high');
+      expect(response.message).not.toBe('');
+      expect(JSON.stringify(f.client.local.composerControls)).toBe(before);
+      expect(f.writes).toEqual([]); expect(f.calls).toEqual([]);
+      expect(f.client.modelId).toBe('a'); expect(f.client.draft).toBe('Keep the draft');
+    }
+  });
+  for (const [name, client] of [['shared', () => new T3Client()], ['mobile', () => new MobileDraftClient()]] as const) {
+    function heldMemory() {
+      const f = memoryFixture(client()), writes: { document: Obj; resolve(): void; reject(error: Error): void }[] = [];
+      let saved: Obj | undefined;
+      f.storage.fs.atomicWriteFile = (_path, bytes) => new Promise<void>((resolve, reject) => {
+        const document = obj(JSON.parse(new TextDecoder().decode(bytes)));
+        writes.push({ document, resolve() { saved = document; resolve(); }, reject });
+      });
+      return { ...f, heldWrites: writes, saved: () => saved };
+    }
+    test(`${name} local writes leave option acceptance, another edit and Cancel available`, async () => {
+      const f = heldMemory(); await settings(f, 'open'); await settings(f, 'pick', 'provider', 'b');
+      let response: Awaited<ReturnType<typeof settings>> | null = null;
+      const first = settings(f, 'option', 'effort', 'high').then(value => { response = value; return value; });
+      let observed: unknown, second: Awaited<ReturnType<typeof settings>> | null = null;
+      let secondAction: ReturnType<typeof settings> | null = null;
+      try {
+        await new Promise<void>(resolve => setImmediate(resolve));
+        const before = mobileComposerSettings('', '', false, f.client);
+        secondAction = settings(f, 'option', 'effort', 'medium').then(value => { second = value; return value; });
+        await new Promise<void>(resolve => setImmediate(resolve));
+        const cancelled = await settings(f, 'cancel');
+        const controls = f.client.local.composerControls;
+        observed = { response, busy: before.busy, canEdit: before.canEdit, second, cancelled,
+          memory: controls.stickyOptionsByModel.provider?.b, native: f.calls, model: f.client.modelId, draft: f.client.draft,
+          sticky: JSON.stringify({ provider: controls.stickyProvider, choices: controls.stickyByProvider }),
+          issued: f.heldWrites.map(write => obj(obj(obj(write.document.composerControls).stickyOptionsByModel).provider).b) };
+      } finally {
+        for (const write of f.heldWrites) write.resolve();
+        await first; await secondAction;
+      }
+      expect(observed).toEqual({ response: expect.objectContaining({ message: '', closed: false }), busy: false, canEdit: true,
+        second: expect.objectContaining({ message: '', closed: false }), cancelled: expect.objectContaining({ message: '', closed: true }),
+        memory: [{ id: 'effort', value: 'medium' }], native: [], model: 'a', draft: 'Keep the draft', sticky: f.sticky,
+        issued: [high, [{ id: 'effort', value: 'medium' }]] });
+      expect(mobileComposerSettings('', '', false, f.client)).toMatchObject({ pending: false, open: false, busy: false, error: '' });
+      expect(obj(obj(obj(f.saved()?.composerControls).stickyOptionsByModel).provider).b).toEqual([{ id: 'effort', value: 'medium' }]);
+    });
+    test(`${name} failed background persistence keeps editing and Cancel local without an action error`, async () => {
+      const f = heldMemory(), warnings: unknown[][] = [];
+      const warning = spyOn(console, 'warn').mockImplementation((...values: unknown[]) => { warnings.push(values); });
+      await settings(f, 'open'); await settings(f, 'pick', 'provider', 'b');
+      let response: Awaited<ReturnType<typeof settings>> | null = null;
+      const first = settings(f, 'option', 'effort', 'high').then(value => { response = value; return value; });
+      let beforeFailure: unknown, later: unknown, second: Awaited<ReturnType<typeof settings>> | null = null;
+      let secondAction: ReturnType<typeof settings> | null = null;
+      try {
+        await new Promise<void>(resolve => setImmediate(resolve));
+        beforeFailure = response;
+        f.heldWrites[0]!.reject(new Error('Memory save refused'));
+        await first;
+        await new Promise<void>(resolve => setImmediate(resolve));
+        secondAction = settings(f, 'option', 'effort', 'medium').then(value => { second = value; return value; });
+        await new Promise<void>(resolve => setImmediate(resolve));
+        const cancelled = await settings(f, 'cancel');
+        const view = mobileComposerSettings('', '', false, f.client), controls = f.client.local.composerControls;
+        later = { second, cancelled, error: view.error, busy: view.busy, open: view.open, native: f.calls,
+          memory: controls.stickyOptionsByModel.provider?.b, model: f.client.modelId, draft: f.client.draft,
+          sticky: JSON.stringify({ provider: controls.stickyProvider, choices: controls.stickyByProvider }),
+          issued: f.heldWrites.map(write => obj(obj(obj(write.document.composerControls).stickyOptionsByModel).provider).b),
+          warnings: warnings.map(values => values.map(value => value instanceof Error ? value.message : value)) };
+      } finally {
+        for (const write of f.heldWrites) write.resolve();
+        await first; await secondAction; warning.mockRestore();
+      }
+      expect(beforeFailure).toMatchObject({ message: '', closed: false });
+      expect(later).toEqual({ second: expect.objectContaining({ message: '', closed: false }), cancelled: expect.objectContaining({ message: '', closed: true }),
+        error: '', busy: false, open: false, native: [], memory: [{ id: 'effort', value: 'medium' }], model: 'a', draft: 'Keep the draft', sticky: f.sticky,
+        issued: [high, [{ id: 'effort', value: 'medium' }]], warnings: [['Could not save model option memory.', 'Memory save refused']] });
+      expect(obj(obj(obj(f.saved()?.composerControls).stickyOptionsByModel).provider).b).toEqual([{ id: 'effort', value: 'medium' }]);
+    });
+  }
 });

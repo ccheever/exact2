@@ -124,7 +124,7 @@ export function mobileComposerSettings(query = '', filter = '', showLegacy = fal
     runtimeLabel: runtimes.find(row => row.selected)?.label ?? '', error: state.error, environmentId: client.environmentId, threadId: client.threadId };
 }
 
-/** Only UI staging is local. Save is one shared model command carrying all staged options. */
+/** Save applies the staged model; explicit option memory also survives Cancel. */
 export async function mobileComposerSettingsAction(kind: string, id: string, value: string, native: Native | null | undefined, storage: Files,
   client: T3Client = mobileClient): Promise<ComposerActionResult> {
   const state = session(client), result = (message = '', closed = false) => ({ revision: client.revision, message, closed, environmentId: client.environmentId, threadId: client.threadId });
@@ -160,7 +160,12 @@ export async function mobileComposerSettingsAction(kind: string, id: string, val
         throw new ClientError('That option is not offered in the mobile picker.');
     }
     if (kind === 'option' && state.pending) {
-      state.pending = { ...state.pending, options: applyOptionChoice(descriptorRows(client, state), state.pending.options, id, value) }; return result();
+      const options = applyOptionChoice(descriptorRows(client, state), state.pending.options, id, value);
+      state.pending = { ...state.pending, options };
+      const { instanceId, model } = state.pending, memory = client.local.composerControls.stickyOptionsByModel;
+      memory[instanceId] = { ...memory[instanceId], [model]: options.map(option => ({ ...option })) };
+      void client.persist(storage).catch(error => { console.warn('Could not save model option memory.', error); });
+      return result();
     }
     state.busy = true;
     if (kind === 'save') {
