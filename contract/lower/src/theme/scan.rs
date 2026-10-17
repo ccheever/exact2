@@ -110,10 +110,6 @@ impl Said {
         for s in &file.styles {
             attrs(&s.attrs);
         }
-        // A colour keyframe folds its tokens as a row does (`keyframes::tokens`).
-        for frame in file.keyframes.iter().flat_map(|k| &k.frames) {
-            attrs(&frame.attrs);
-        }
         let mut stack: Vec<&Node> = root.view.iter().collect();
         while let Some(node) = stack.pop() {
             match node {
@@ -130,6 +126,21 @@ impl Said {
                 Node::Match { some, none, .. } => stack.extend(some.1.iter().chain(none)),
                 Node::Use { children, .. } => stack.extend(children),
                 Node::Children { .. } => {}
+            }
+        }
+        // A colour keyframe folds its tokens as a row does (`keyframes::tokens`):
+        // its value as the app compiles it, through a palette function's
+        // template (`shade("chip")` to `light-dark(chip, #ffffff)`).
+        for a in file
+            .keyframes
+            .iter()
+            .flat_map(|k| &k.frames)
+            .flat_map(|f| &f.attrs)
+        {
+            if colour_attr(&a.name) {
+                if let Some(text) = crate::keyframes::constant(&a.value, &file.fns) {
+                    literals.push((text, a.span, true));
+                }
             }
         }
         // A computed row may read a `fn`, a state, a derive or what an

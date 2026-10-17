@@ -605,6 +605,13 @@ fn a_colour_keyframe_takes_the_designs_tokens() {
         Some([255, 255, 255, 255])
     );
     assert_eq!(get(&from.values, Property::Color), Some([0, 0, 0, 255]));
+    // A palette function's template over a token folds too, as compiled.
+    let shaded = "theme\n  chip=\"#ff0000\"\nfn shade(c: string): string = `light-dark(${c}, #ffffff)`\nkeyframes k\n  from color=shade(\"chip\")\ncomponent App\n  view\n    text \"a\" testId=\"a\" animation=\"k 1s\"\n";
+    let r = booted(shaded);
+    let (_, row) = animation(&r, "a");
+    let from = &row.0[0].keyframes.0[0];
+    assert_eq!(get(&from.values, Property::Color), Some([255, 0, 0, 255]));
+    assert_eq!(get(&from.dark, Property::Color), Some([255, 255, 255, 255]));
     let dir = std::env::temp_dir().join(format!("keyframe-token-axis-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
