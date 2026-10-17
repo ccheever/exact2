@@ -154,11 +154,14 @@ pub(crate) fn literals(e: &Expr) -> Vec<&str> {
 /// edit away and where the roles are listed (LLP 1116.021 D3: the hundred roles repeated in every
 /// refusal cost a builder 1.3 KB each time); `e` is already written with roles (see [`roles`]).
 pub(crate) fn check(e: &Expr, span: Span) -> Result<(), LowerError> {
-    // A template of literals is checked as the literal it folds to.
-    if let Expr::Template(parts, at) = e {
-        if let Some(text) = constant(parts) {
-            return check(&Expr::Str(text, *at), span);
+    // A template of literals is checked as the literal it folds to, in
+    // either arm of a choice too.
+    match e {
+        Expr::Template(parts, at) if constant(parts).is_some() => {
+            return check(&Expr::Str(constant(parts).unwrap_or_default(), *at), span);
         }
+        Expr::Ternary(_, a, b, _) => return check(a, span).and_then(|()| check(b, span)),
+        _ => {}
     }
     for source in literals(e) {
         let Some(role) = source.strip_prefix("symbol:") else {
