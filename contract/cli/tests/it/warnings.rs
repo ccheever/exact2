@@ -327,6 +327,9 @@ fn a_launch_relative_time_sent_to_a_source_is_named_with_its_repair() {
         "`${start}`",
         "(other > 0 ? start : 0)",
         "max(start, 5)",
+        // Less a constant, a time is still a time.
+        "start - 1000",
+        "performanceNow() - 2 * 1000",
     ] {
         assert_eq!(
             warned(&stopwatch("", send)),
@@ -363,6 +366,10 @@ fn the_wall_clock_time_and_a_duration_are_not_named() {
         "other",
         "`${start}`.length",
         "(start > 5).toString()",
+        // A musical position from an anchor the app holds (euxy's beat):
+        // the time since the anchor, scaled and offset.
+        "other + (performanceNow() - other) * 120 / 60000",
+        "max(0, other + (performanceNow() - time.epochAtZero) * 2)",
     ] {
         assert_eq!(warned(&stopwatch("", send)), [], "{send}");
     }

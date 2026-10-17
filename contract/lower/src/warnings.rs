@@ -673,7 +673,11 @@ impl Clock<'_> {
             }
             Expr::Binary(op, a, b, _) => match op {
                 BinOp::Add if self.epoch(a, locals) || self.epoch(b, locals) => false,
-                BinOp::Sub if m(a) && m(b) => false,
+                // A reading less another value the app holds (a mark, a
+                // state, a source's field, a parameter) is a duration: an
+                // anchor the compiler cannot see is taken to be on the same
+                // clock. Less a constant, it is still a time.
+                BinOp::Sub if m(a) && !constant(b) => false,
                 BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => m(a) || m(b),
                 _ => false,
             },
@@ -708,6 +712,16 @@ impl Clock<'_> {
             }
             Expr::Arrow { body, .. } => m(body),
         }
+    }
+}
+
+/// Whether `e` is made of literal numbers alone: what a time less it stays a time.
+fn constant(e: &Expr) -> bool {
+    match e {
+        Expr::Number(..) => true,
+        Expr::Binary(_, a, b, _) => constant(a) && constant(b),
+        Expr::Unary(_, inner, _) | Expr::Typed(inner, _, _) => constant(inner),
+        _ => false,
     }
 }
 
@@ -804,8 +818,8 @@ fn sent(
 /// persisted state (LLP 1116 D6, D5).
 /// `performanceNow()` counts from 0 at each launch, so a start mark a
 /// source keeps reads as a time before the next launch began (stopwatch:
-/// laps of `0-5:0-41`). A duration, one reading less another, is kept as
-/// it is.
+/// laps of `0-5:0-41`). A duration, a reading less another value the app
+/// holds, is kept as it is.
 fn performance_now(root: &contract_syntax::Component, fns: &[FnDecl], out: &mut Vec<LowerError>) {
     let mut clock = Clock {
         fns,
