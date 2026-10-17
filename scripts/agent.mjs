@@ -46,9 +46,9 @@ import { jsonLines, hangup } from './agent-wire.mjs';
 export { jsonLines, hangup };
 export { MalformedOperation, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
-import { crashReports, crashWatch, developmentLaunchEnvironment, installedAlready, phone, phoneBridge, showSimulator, simulator, softwareKeyboard, withDisplay } from '../host/apple/devices.mjs';
+import { crashReports, crashWatch, developmentLaunchEnvironment, installedAlready, phone, phoneBridge, showSimulator, chooseSimulator, simulator, softwareKeyboard, withDisplay } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
-import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy } from './agent-android.mjs';
+import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy, androidDevice } from './agent-android.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // A completed operation must release its deadline too, so an otherwise closed
@@ -1373,6 +1373,19 @@ export { runTests, textOf } from './agent-test.mjs';
 export { browserDiagnosticNoise };
 // Exported for game/proof.test.mjs, which drives the real CLI with a fake
 // session (`injected.open`) and no app server (`injected.driveServer`).
+/** The device a native drive will open, resolved as its launch resolves it, and pinned so the launch opens that one: a
+ * simulator's UDID (`EXACT_SIM`), a phone's (`flags.phone`), an Android device's serial (`ANDROID_SERIAL`), else
+ * this machine. The store lock's key (`exclusiveNativeStore`). */
+function resolveDevice(host, flags, appId) {
+  if ((host === 'ios' || host === 'host-ios') && flags.device) { const ph = phone(flags.phone); flags.phone = ph.udid; return `phone ${ph.udid}`; }
+  if (host === 'ios' || host === 'host-ios') {
+    const sim = chooseSimulator(undefined, { app: host === 'host-ios' ? `${appId}.host` : appId, hint: '--sim <udid|name> (or EXACT_SIM)' });
+    process.env.EXACT_SIM = sim.udid;
+    return `simulator ${sim.udid}`;
+  }
+  if (host === 'android') { const serial = androidDevice(process.env); process.env.ANDROID_SERIAL = serial; return `android ${serial}`; }
+  return 'this machine';
+}
 export async function main(argv, injected = {}) {
   const { flags, rest } = parseFlags(argv);
   guardFlags(flags.test ? 'test' : 'agent', rest, { parsed: true }); // --help, or a flag parseFlags left (never an op)
@@ -1404,10 +1417,11 @@ export async function main(argv, injected = {}) {
   const fresh = flags.storage !== undefined && (host === 'web' ? !flags.keepStorage : flags.resetStorage);
   const launch = () => (injected.open ?? open)({ host, browser, env: fresh ? {EXACT_AGENT_STORAGE_FRESH: '1'} : undefined, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, chrome: flags.chrome, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch, scale: flags.scale, port: flags.port });
   // A native named store is one drive's at a time, on its device: another drive's reset would empty it under this one.
-  const device = host === 'ios' ? (flags.device ? `phone ${flags.phone ?? 'default'}` : `simulator ${process.env.EXACT_SIM ?? 'default'}`)
-    : host === 'android' ? `android ${flags.phone ?? process.env.ANDROID_SERIAL ?? 'default'}` : 'this machine';
-  const s = host !== 'web' && flags.storage !== undefined
-    ? await (injected.exclusiveNativeStore ?? exclusiveNativeStore)({ host, device, appId: resolveApp(flags.app).id, storage: flags.storage }, launch)
+  // The device is resolved first, and the drive launches that one, so a default and its name are one lock.
+  const locking = host !== 'web' && flags.storage !== undefined, appId = locking ? resolveApp(flags.app).id : null;
+  const device = locking ? (injected.resolveDevice ?? resolveDevice)(host, flags, appId) : null;
+  const s = locking
+    ? await (injected.exclusiveNativeStore ?? exclusiveNativeStore)({ host: host === 'mac' ? 'macos' : host, device, appId, storage: flags.storage }, launch)
     : await launch();
   let at = 0;
   // One op line; `perf … during "<op>" …` drives its own through here.

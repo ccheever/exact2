@@ -5,7 +5,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, ut
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
-import { crashReports, crashSummary, crashWatch, withDisplay, phoneBridge, softwareKeyboard } from './devices.mjs';
+import { chooseSimulator, crashReports, crashSummary, crashWatch, simulator, withDisplay, phoneBridge, softwareKeyboard } from './devices.mjs';
 import { spawn } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { once } from 'node:events';
@@ -57,6 +57,29 @@ async function withFakeSimctl(displays, body) {
   }
 }
 const reads = (dir) => { try { return Number(readFileSync(resolve(dir, 'n'), 'utf8')); } catch { return 0; } };
+
+test('a simulator is chosen without booting it, and is the drive\'s own only when this call booted it', () => {
+  // A fake `xcrun simctl`: one shut-down iPhone; `boot` succeeds, or fails as when another process booted it first.
+  const bin = mkdtempSync(resolve(tmpdir(), 'devices-sim-bin-'));
+  const saved = { PATH: process.env.PATH, DEVELOPER_DIR: process.env.DEVELOPER_DIR, SIM_BOOT: process.env.SIM_BOOT }, calls = resolve(bin, 'calls');
+  const list = JSON.stringify({ devices: { 'com.apple.CoreSimulator.SimRuntime.iOS-27-0': [{ udid: 'U1', name: 'iPhone 17 Pro', state: 'Shutdown', deviceTypeIdentifier: 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro' }] } });
+  try {
+    writeFileSync(resolve(bin, 'list.json'), list);
+    writeFileSync(resolve(bin, 'xcrun'), `#!/bin/sh\necho "$2" >> '${calls}'\ncase "$2" in\n  list) cat '${resolve(bin, 'list.json')}' ;;\n  boot) [ "$SIM_BOOT" = raced ] && { echo 'Unable to boot device in current state: Booted' >&2; exit 149; } ;;\nesac\nexit 0\n`);
+    chmodSync(resolve(bin, 'xcrun'), 0o755);
+    process.env.PATH = `${bin}:${saved.PATH}`;
+    process.env.DEVELOPER_DIR ??= '/Applications/Xcode.app/Contents/Developer';
+    expect(chooseSimulator(undefined).udid).toBe('U1');
+    expect(readFileSync(calls, 'utf8').trim().split('\n')).toEqual(['list']);
+    process.env.SIM_BOOT = 'ok';
+    expect(simulator(undefined).bootedHere).toBe(true);
+    process.env.SIM_BOOT = 'raced';
+    expect(simulator(undefined).bootedHere).toBeUndefined();
+  } finally {
+    for (const k of ['PATH', 'DEVELOPER_DIR', 'SIM_BOOT']) if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+    rmSync(bin, { recursive: true, force: true });
+  }
+});
 
 test('a drive shows the software keyboard on a simulator it booted and puts the setting back; on another it only says so', () => {
   // A fake `xcrun simctl spawn <udid> defaults <verb> …` over one state file: the key's value, absent when deleted.

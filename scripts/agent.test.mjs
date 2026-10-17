@@ -292,13 +292,18 @@ test('a native named store is kept unless the drive resets it, under its lock; a
   console.log = () => {}; console.error = () => {};
   try {
     for (const [host, flags, fresh, locked] of [['ios', [], false, true], ['ios', ['--reset-storage'], true, true], ['android', ['--reset-storage'], true, true],
-      ['macos', [], false, true], ['linux', ['--reset-storage'], true, true], ['web', [], true, false], ['web', ['--keep-storage'], false, false]]) {
+      ['macos', [], false, true], ['mac', [], false, true], ['linux', ['--reset-storage'], true, true], ['web', [], true, false], ['web', ['--keep-storage'], false, false]]) {
       let env = 'unopened', lock = null;
       const fakeOpen = async (o) => { env = o.env; return { state: async () => ({}), close: async () => {} }; };
-      const exclusiveNativeStore = async (key, launch) => { lock = key; return launch(); };
-      assert.equal(await main([host, '--storage', 's1', ...flags, 'state'], { open: fakeOpen, driveServer: async () => null, exclusiveNativeStore }), 0);
+      const order = [];
+      const exclusiveNativeStore = async (key, launch) => { lock = key; order.push('lock'); return launch(); };
+      // The device is resolved before the lock, and the lock is keyed by what it resolved to, not by how the drive named it.
+      const resolveDevice = (h) => { order.push('resolve'); return `the one ${h} device`; };
+      const opening = async (o) => { order.push('open'); return fakeOpen(o); };
+      assert.equal(await main([host, '--storage', 's1', ...flags, 'state'], { open: opening, driveServer: async () => null, exclusiveNativeStore, resolveDevice }), 0);
       assert.equal(env?.EXACT_AGENT_STORAGE_FRESH === '1', fresh, `${host} ${flags.join(' ')}`);
       assert.equal(lock?.storage === 's1', locked, `${host} lock`);
+      if (locked) { assert.equal(lock.device, `the one ${host} device`); assert.deepEqual(order, ['resolve', 'lock', 'open']); }
     }
   } finally { [console.log, console.error] = quiet; }
 });

@@ -147,7 +147,9 @@ export function simulators() {
 
 /** The simulator to use — `pick` (a udid or a name; EXACT_SIM by default), else the one booted iPhone, else the iPhone Pro on the newest iOS — booted and waited for. When several are booted, the one `app` (a bundle id) is installed on, said on stderr; refused when that is none or several, naming how to choose: `hint`, the caller's own way. With `tv`, the same choice among Apple TVs on tvOS. An iPhone is one by its device type, not its name: a simulator renamed `work-phone` is still one. */
 const saidSimulator = new Set(); // a verify opens a dozen sessions: the choice is said once
-export function simulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EXACT_SIM=<udid|name>', app } = {}) {
+export function simulator(pick = process.env.EXACT_SIM, options = {}) { return bootSimulator(chooseSimulator(pick, options)); }
+/** `simulator`'s choice, booting nothing: what a drive locks before it launches (agent.mjs `resolveDevice`). */
+export function chooseSimulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EXACT_SIM=<udid|name>', app } = {}) {
   const all = simulators();
   const version = (d) => Number(/(?:iOS|tvOS)-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
   const kind = (d) => d.type || d.name.replaceAll(' ', '-');
@@ -171,13 +173,17 @@ export function simulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EX
   }
   dev ??= booted[0] ?? iphones.find((d) => /^iPhone-\d+-Pro$/.test(kind(d))) ?? iphones[0];
   if (!dev) throw new Error(`no ${tv ? 'Apple TV' : 'iPhone'} simulator on ${tv ? 'tvOS' : 'iOS'}; add one in Xcode, or name any simulator by udid or name with EXACT_SIM (or --sim)`);
+  return dev;
+}
+/** `dev` booted and waited for; `bootedHere` when this call booted it, not when another process had just done so. */
+function bootSimulator(dev) {
   // Booted is a boot finished (Booting is its own state): only another waits, which costs a booted one 0.2–0.5 s.
   if (dev.state === 'Booted') return dev;
   const b = read('xcrun', ['simctl', 'boot', dev.udid]);
   if (b.status !== 0 && !/current state: Booted/.test(b.stderr)) throw new Error('simctl boot: ' + b.stderr);
   const s = read('xcrun', ['simctl', 'bootstatus', dev.udid, '-b']);
   if (s.status !== 0) throw new Error('simctl bootstatus: ' + s.stderr);
-  return { ...dev, bootedHere: true };
+  return b.status === 0 ? { ...dev, bootedHere: true } : dev;
 }
 
 /** Bring Simulator.app up showing `dev`, so a person watching sees what is
