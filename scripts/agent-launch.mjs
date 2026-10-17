@@ -714,7 +714,12 @@ export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hash
   // It names every source the bake captured (its rerun-if-changed): of the app's own, those the
   // walk above skips are no input here either (a backend app.ts never imports); one gone still counts.
   const skipped = path => { const at = resolve(ROOT, path); return at.startsWith(app.dir + '/') && existsSync(at) && skip(at); };
-  const tools = info ? depInfoNewer(since, null, info).filter(path => !skipped(path)) : [];
+  // A product of this build that the bake then read (the GPU dylib signed beside Cargo's, whose digest it binds) is
+  // newer than the build's start; it changed only when written after the compile that read it ended (which wrote the
+  // dep-info) or after the receipt (a later build that stopped short of the bundle). One gone still counts.
+  const profile = info && dirname(info), compiled = info && Math.min(statSync(info).mtimeMs, statSync(receipt).mtimeMs);
+  const product = path => { const at = resolve(ROOT, path); return at.startsWith(profile + '/') && (statSync(at, { throwIfNoEntry: false })?.mtimeMs ?? Infinity) <= compiled; };
+  const tools = info ? depInfoNewer(since, null, info).filter(path => !skipped(path) && !product(path)) : [];
   return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own, ...tools])];
 }
 

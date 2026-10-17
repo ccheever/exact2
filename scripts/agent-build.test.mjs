@@ -156,6 +156,43 @@ test('a source edited while the build ran is stale; a build claimed meanwhile is
   }
 });
 
+// The Apple build signs a copy of the GPU dylib and the app's bake reads it, so the archive's dep-info names a file the
+// build itself wrote after it started: every build that re-signed it refused the next drive.
+test('a product the build wrote and then read is fresh; one rewritten after its compile or its receipt, or gone, is stale', () => {
+  const previous = process.env.EXACT_APP_DIR, macBin = process.env.EXACT_MAC_BIN, targetDir = process.env.CARGO_TARGET_DIR;
+  const { dir, write } = scratchApp('gpu-log');
+  try {
+    process.env.EXACT_APP_DIR = dir;
+    delete process.env.EXACT_MAC_BIN; delete process.env.CARGO_TARGET_DIR;
+    const app = resolveApp('gpu-log');
+    const at = seconds => new Date(Date.now() + seconds * 1000), stamp = (file, seconds) => utimesSync(file, at(seconds), at(seconds));
+    for (const file of ['app.contract', 'app.json', 'exact.mjs', 'apple/Cargo.toml', 'web/Cargo.toml']) stamp(resolve(dir, file), -60);
+    const bundle = appleArtifacts(app, { destination: 'ios-simulator' }).bundle, receipt = resolve(bundle, 'receipt.json');
+    mkdirSync(bundle, { recursive: true });
+    // Built from t-20 s to t+10 s: the dylib signed at t-10 s, the archive compiled by t+5 s.
+    writeFileSync(receipt, JSON.stringify({ target: 'aarch64-apple-ios-sim', started: at(-20).toISOString() }));
+    stamp(receipt, 10);
+    const profile = resolve(app.target, 'aarch64-apple-ios-sim', 'host-dev'), dylib = resolve(profile, 'signed/libgpu_log_gpu.dylib'), info = resolve(profile, 'libgpu_log_apple.d');
+    write(dylib.slice(dir.length + 1), 'signed');
+    writeFileSync(info, `${profile}/libgpu_log_apple.a: ${resolve(dir, 'app.contract')} ${dylib}\n`);
+    stamp(dylib, -10); stamp(info, 5);
+    assert.deepEqual(nativeBuild('ios', app).changed, []);
+    stamp(dylib, 7); // re-signed after the compile that read it
+    assert.deepEqual(nativeBuild('ios', app).changed.map(p => resolve(p)), [dylib]);
+    stamp(info, 30); stamp(dylib, 20); // a later build compiled again and stopped short of the bundle
+    assert.deepEqual(nativeBuild('ios', app).changed.map(p => resolve(p)), [dylib]);
+    rmSync(dylib);
+    assert.deepEqual(nativeBuild('ios', app).changed.map(p => resolve(p)), [dylib]);
+    stamp(info, 5); stamp(resolve(dir, 'app.contract'), -5); // a source edited while the build ran is still stale
+    assert.deepEqual(nativeBuild('ios', app).changed.map(p => resolve(p)).sort(), [resolve(dir, 'app.contract'), dylib].sort());
+  } finally {
+    if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
+    if (macBin === undefined) delete process.env.EXACT_MAC_BIN; else process.env.EXACT_MAC_BIN = macBin;
+    if (targetDir !== undefined) process.env.CARGO_TARGET_DIR = targetDir;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('a build already running ends before the check: the drive neither races it nor is refused as busy', async () => {
   const previous = process.env.EXACT_APP_DIR;
   const { dir } = scratchApp('busy-log');
