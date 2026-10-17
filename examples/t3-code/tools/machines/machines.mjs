@@ -6,16 +6,39 @@
 // nothing under two). Both environments hold "shared-notes" (one Git origin), so the composer's
 // Run on menu offers both machines for it. README.md has the recipe.
 //
-//   bun machines.mjs up                 starts and seeds the second and third environments
+//   bun machines.mjs up [--older]       starts and seeds the second and third environments; --older puts
+//                                       the older-server stand-in in front of third (pairings go through it)
 //   bun machines.mjs drive [--storage S] [--json] -- <op> …
 //                                       a drive with This machine and both paired, opened at
 //                                       Settings › Connections, then the ops
 //   bun machines.mjs down               stops both servers
-import { readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { openSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { drive } from "../second-environment/env.mjs";
-import { fixturePaths, seed, startServer, stopServer } from "../second-environment/lib.mjs";
+import { checkPort, envDir, fixturePaths, routeFile, routeOf, seed, startServer, stopServer } from "../second-environment/lib.mjs";
 
 export const MACHINES = ["second", "third"];
+/** The environment `up --older` fronts with the older-server stand-in, its version, and the stand-in's port (the server's + 40). */
+export const OLDER = { name: "third", version: "0.0.46-nightly.20261001.1", portOffset: 40 };
+
+/** Starts the older-server stand-in in front of a running environment (detached, recorded in its route.json); returns { pid, port }. */
+export async function startOlder(paths, server, { name = OLDER.name, version = OLDER.version } = {}) {
+  const running = routeOf(paths, name);
+  if (running) return running;
+  const port = checkPort(server.port + OLDER.portOffset);
+  const log = openSync(join(envDir(paths, name), "older-server.log"), "a");
+  const child = spawn(process.execPath, [join(import.meta.dir, "older-server.mjs"), String(port), String(server.port), "--version", version], { stdio: ["ignore", log, log], detached: true });
+  child.unref();
+  const entry = { pid: child.pid, port, upstream: server.port };
+  writeFileSync(routeFile(paths, name), JSON.stringify(entry));
+  for (let i = 0; i < 50; i++) {
+    try { if ((await (await fetch(`http://127.0.0.1:${port}/.well-known/t3/environment`)).json()).serverVersion === version) return entry; } catch {}
+    await Bun.sleep(100);
+  }
+  throw new Error(`the older-server stand-in did not answer on ${port} (see ${join(envDir(paths, name), "older-server.log")})`);
+}
+
 /** From the threads view to Settings › Connections, data landed. */
 export const OPEN_CONNECTIONS = ["tap connection-settings", "clock settle", "tap settings-connections", "clock data", "clock settle"];
 
@@ -28,6 +51,10 @@ if (import.meta.main) {
         const started = await startServer(paths, name);
         await seed(paths, name);
         console.log(`${name}: pid ${started.pid} port ${started.port} label ${JSON.stringify(started.label)}`);
+        if (name === OLDER.name && process.argv.includes("--older")) {
+          const older = await startOlder(paths, started);
+          console.log(`${name}: older-server stand-in pid ${older.pid} port ${older.port}, reporting ${OLDER.version}`);
+        }
       }
     } else if (command === "down") {
       for (const name of MACHINES) { const stopped = await stopServer(paths, name); console.log(`${name}: ${stopped ? `stopped pid ${stopped.pid}` : "not running"}`); }
@@ -35,6 +62,6 @@ if (import.meta.main) {
       const argv = process.argv.slice(3), split = argv.indexOf("--");
       const options = split >= 0 ? argv.slice(0, split) : argv, ops = split >= 0 ? argv.slice(split + 1) : [];
       process.exitCode = drive(["--local", "--pair", MACHINES.join(","), ...options, "--", ...OPEN_CONNECTIONS, ...ops]);
-    } else { console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 15).join("\n")); process.exitCode = command ? 2 : 0; }
+    } else { console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 16).join("\n")); process.exitCode = command ? 2 : 0; }
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
