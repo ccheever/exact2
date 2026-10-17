@@ -59,6 +59,15 @@ export function install(t3home, { methods = "agent", authDelayMs = 0, logout = t
   return paths;
 }
 
+/** Rewrites an installed executable from agent.mjs when they differ, keeping its mode and state; returns whether it did. */
+export function refresh(t3home) {
+  const { executable } = installPaths(t3home);
+  const wanted = `#!${process.execPath}\n${readFileSync(join(import.meta.dir, "agent.mjs"), "utf8")}`;
+  if (!existsSync(executable) || readFileSync(executable, "utf8") === wanted) return false;
+  writeFileSync(executable, wanted);
+  return true;
+}
+
 export function status(t3home) {
   const paths = installPaths(t3home);
   const read = (file) => (existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null);
