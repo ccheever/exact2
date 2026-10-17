@@ -287,6 +287,8 @@ component App
           button "Log a glass" press=go testId="first"
       column testId="bare"
         EmptyState(symbol="symbol:calendar", title="Bare", message="No action.")
+      column testId="space" height=600
+        EmptyState(symbol="symbol:calendar", title="Centred", message="In the space it is given.")
       column testId="rows"
         RowText(title="Monday", detail="Oct 5", value=some("1,800 ml"))
         RowText(title="Tuesday", detail="", value=none)
@@ -388,6 +390,15 @@ component App
         Some("heading")
     );
     assert_eq!(count("bare", NodeType::Pressable), 0);
+    // LLP 1116.020 D5: it fills the space it is given and centres in it, as
+    // UIKit's content-unavailable view does in place of a list.
+    let space = under(k, at(k, "space"));
+    let title = find("space", "Centred").frame;
+    assert!(
+        (space[1].frame.height - 600.0).abs() < 0.5 && title.y > 150.0,
+        "{:?} {title:?}",
+        space[1].frame
+    );
     // A row's detail and trailing value show only when given.
     find("rows", "Oct 5");
     find("rows", "1,800 ml");
@@ -396,6 +407,30 @@ component App
         4,
         "Monday, Oct 5, 1,800 ml, Tuesday"
     );
+}
+
+/// LLP 1116.020 D5: an `EmptyState` in a list is one of its rows; the
+/// warning names it at the call, and one in place of the list is quiet.
+#[test]
+fn an_empty_state_inside_a_list_is_named() {
+    let dir = Dir::new("empty-in-list");
+    let app = |body: &str| {
+        format!("use EmptyState from \"exact:content\"\ncomponent App\n  state items = [\"a\"]\n  view\n    column\n{body}")
+    };
+    let warned = |src: &str| {
+        let path = dir.write("app.contract", src);
+        let (result, warnings) = contract::compile_path_all_warned(&path, false);
+        assert!(result.is_ok(), "{src}");
+        warnings
+            .into_iter()
+            .filter(|w| w.id == "lower-empty-state-in-list")
+            .map(|w| w.span.line)
+            .collect::<Vec<_>>()
+    };
+    let inside = app("      list appearance=\"auto\" listStyle=\"inset-grouped\"\n        section\n          if items.length == 0\n            EmptyState(symbol=\"symbol:star\", title=\"None\", message=\"Add one.\")\n          for i in items key=i\n            row\n              text i\n");
+    assert_eq!(warned(&inside), [9]);
+    let instead = app("      if items.length == 0\n        EmptyState(symbol=\"symbol:star\", title=\"None\", message=\"Add one.\")\n      else\n        list appearance=\"auto\" listStyle=\"inset-grouped\"\n          section\n            for i in items key=i\n              row\n                text i\n");
+    assert_eq!(warned(&instead), Vec::<u32>::new());
 }
 
 /// LLP 1116.001 D2: `RingProgress` is a ring around its value, one

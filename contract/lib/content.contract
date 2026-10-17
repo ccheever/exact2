@@ -123,7 +123,9 @@ component DoneMark
         text caption font="-exact-caption1" color="-exact-secondary-label" white-space="nowrap" aria-hidden=true
 
 // What a screen with nothing to show says: a symbol, a title, a line saying
-// what to do. An action is the author's `button`, indented under the use.
+// what to do. An action is the author's `button`, indented under the use. It
+// centres in the space it is given (a route's column below its header: in
+// place of the list, not a row of it), as UIKit's content-unavailable view does.
 // Call: EmptyState(symbol="symbol:sparkles", title="No habits yet", message="Add one to start a streak.")
 component EmptyState
   props
@@ -132,7 +134,7 @@ component EmptyState
     message: string
   slot
   view
-    column align-items="center" gap=8 padding="48px 24px" text-align="center" min-width=0
+    column flex=1 justify-content="center" align-items="center" gap=8 padding="48px 24px" text-align="center" min-width=0
       image symbol width=48 height=48 object-fit="contain" margin-bottom=8 aria-hidden=true
         -exact-tint-color="-exact-secondary-label"
       text title role="heading" aria-level=2

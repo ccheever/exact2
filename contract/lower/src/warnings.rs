@@ -140,6 +140,8 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     out.extend(rows::row_lookup(checked));
     // @ref LLP 1116.011 D2.1 — a RoundButton label of more than a word.
     out.extend(parts::round_button_label(checked));
+    // @ref LLP 1116.020 D5 — an empty state drawn as a list's row.
+    out.extend(parts::empty_state_in_list(checked));
     performance_now(root, &checked.file.fns, &mut out);
     // @ref LLP 1027.005 D6 — an identifying argument of the launch's own.
     launch::launch_identity(root, &checked.file.fns, &mut out);
