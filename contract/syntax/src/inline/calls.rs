@@ -583,7 +583,15 @@ impl Cx<'_> {
             .zip(args)
             .map(|(p, arg)| Stmt::Let {
                 name: renamed(&p.name),
-                expr: arg.clone(),
+                // A `none` or `[]` is typed by the parameter's declaration,
+                // as a use's argument is by its prop's, so the callee's
+                // reads of it are not reads of `?`.
+                expr: match &p.ty {
+                    Some(ty) if super::untyped_leaf(arg) => {
+                        Expr::Typed(Box::new(arg.clone()), ty.clone(), arg.span())
+                    }
+                    _ => arg.clone(),
+                },
                 span,
             })
             .collect();
