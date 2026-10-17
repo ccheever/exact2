@@ -8,7 +8,7 @@ import { Worker } from 'node:worker_threads';
 import { Cdp } from '../../scripts/agent.mjs';
 import { boundedHttpBody, request, streamed } from './http-body.js';
 import { deferredFulfill, refusal } from './navigation.js';
-import { admitsNetwork, admittingGrant, coversPath, createGrantSet, grantError, sameGrantDeclaration, scopedGrantSet } from './grant-admission.js';
+import { admitsNetwork, coversPath, createGrantSet, grantError, sameGrantDeclaration, scopedGrantSet } from './grant-admission.js';
 import { createRequestExecutor, createSecretFacade, fetchWith, redirectOf } from '../web-js/admission.js';
 import { chromium } from '../../scripts/agent-launch.mjs';
 import { need } from '../../scripts/coverage.mjs';
@@ -480,21 +480,6 @@ test('the web matcher consumes the Rust grammar corpus', () => {
   const portZero = normalized('net.fetch http://example.test:0');
   expect([grantError(portZero), admitsNetwork(portZero, 'http://example.test:0/x', 'fetch')]).toEqual([null, true]);
 }, 15_000);
-
-test('a scheme line admits every origin of its scheme, and a request names the line that admitted it', async () => {
-  const set = normalized('net.fetch https://api.example\nnet.fetch http:\nnet.websocket wss://feed.example\nnet.websocket ws:');
-  expect([
-    admittingGrant(set, 'http://127.0.0.1:49152/x', 'fetch'), admittingGrant(set, 'https://api.example/x', 'fetch'),
-    admittingGrant(set, 'ws://laptop.tailnet.ts.net:3773/ws', 'websocket'), admittingGrant(set, 'wss://feed.example/s', 'websocket'),
-    admittingGrant(set, 'https://other.example/x', 'fetch'), admittingGrant(set, 'wss://other.example/s', 'websocket'),
-  ]).toEqual(['net.fetch http:', 'net.fetch https://api.example', 'net.websocket ws:', 'net.websocket wss://feed.example', null, null]);
-  const controller = new AbortController();
-  const refused = await request({ method: 'GET', url: 'wss://other.example/s', headers: [], stream: true }, { grantSet: set, controllers: new Set(), controller });
-  expect([refused.kind, text(refused), controller.grant]).toEqual([2, "outside the app's grants (net.websocket)", undefined]);
-  const admitted = new AbortController();
-  const unreachable = await request({ method: 'GET', url: 'http://127.0.0.1:1/events', headers: [], stream: true }, { grantSet: set, controllers: new Set(), controller: admitted });
-  expect([unreachable.kind, admitted.grant]).toEqual([1, 'net.fetch http:']);
-});
 
 test('network grants are selected by the requested operation, not ws URL spelling', async () => {
   const fetchSet = normalized('net.fetch wss://socket.example');

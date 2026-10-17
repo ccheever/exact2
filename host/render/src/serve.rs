@@ -1456,12 +1456,9 @@ fn csp(grants: &str, dist: &Path) -> String {
         if let Some(target) = words.next() {
             // An origin is scheme://host[:port]: the target up to its path.
             // A scheme-wide line (`ws:`) is already a CSP scheme source.
-            let scheme = (target.strip_suffix(':'))
-                .map(str::to_ascii_lowercase)
-                .filter(|s| matches!(s.as_str(), "http" | "https" | "ws" | "wss"));
-            let origin = match scheme {
-                Some(scheme) => Some(format!("{scheme}:")),
-                None => target.split_once("://").map(|(scheme, rest)| {
+            let origin = match target.strip_suffix(':').map(str::to_ascii_lowercase) {
+                Some(s) if matches!(&*s, "http" | "https" | "ws" | "wss") => Some(s + ":"),
+                _ => target.split_once("://").map(|(scheme, rest)| {
                     format!("{scheme}://{}", rest.split('/').next().unwrap_or(""))
                 }),
             };
