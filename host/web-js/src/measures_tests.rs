@@ -326,3 +326,17 @@ fn a_varying_shadow_is_a_property_and_a_bound_row_maps_its_name() {
     let dev = crate::emit::emit(&plan, false, true).unwrap();
     assert!(dev.css.contains("text-shadow:var(--x-glow)"), "{}", dev.css);
 }
+
+/// Review round 1 (D): a bound text shadow naming a token says it read one,
+/// so a mode boundary writes the channel again (`$th`).
+#[test]
+fn a_bound_text_shadow_token_marks_its_read() {
+    let design = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  glow: text-shadow = 0 0 2px light-dark(#000000, #ffffff)\n";
+    let plan = plan(
+        "text-shadow-read",
+        design,
+        "component App\n  state on = false\n  view\n    text \"a\" text-shadow=(on ? \"glow\" : \"none\")\n",
+    );
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    assert!(out.js.contains("const $tt=(M=>v=>typeof v===\"string\"&&Object.hasOwn(M,v.trim())?((globalThis.exact??={}).$th=1,M[v.trim()])"), "{}", out.js);
+}

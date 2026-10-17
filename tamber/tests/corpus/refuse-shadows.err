@@ -8,3 +8,5 @@
 15:29: tamber-kind: one colour, and lengths in px (unitless zero)
 16:3: tamber-under-kind: only a colour may vary by an axis `under scheme=dark`: the kernel picks a length's slice without knowing the scheme
 18:31: tamber-kind: a blur radius is never negative
+19:22: tamber-kind: `10000000000000000000000000000000000000000px` is past the lengths a shadow holds
+20:26: tamber-kind: `1`: a shadow's length says px (unitless only zero)

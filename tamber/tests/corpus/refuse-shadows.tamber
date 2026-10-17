@@ -16,3 +16,5 @@ theme
   under: box-shadow = 0 1px #000
     when dark-style=dim: 0 2px #000
   negative.blur: box-shadow = 0 1px -2px #000
+  huge: box-shadow = 0 1e40px #000
+  unitless: box-shadow = 0 1 2px #000

@@ -337,10 +337,13 @@ pub fn sites(
             }
             // A row of the token's kind reads it (LLP 1121 D3): a colour
             // only a row that takes one (`text-align: center` names none),
-            // a length or number only a row that takes no colour.
-            let Some(row) =
-                exact_kernel::StyleId::from_bit(b.id as u32).filter(|r| colours(*r) == (kind == 0))
-            else {
+            // another kind the rows the kernel admits it in (a shadow its own).
+            let Some(row) = exact_kernel::StyleId::from_bit(b.id as u32).filter(|r| {
+                match exact_kernel::style::theme::Kind::of(kind) {
+                    Some(exact_kernel::style::theme::Kind::Color) | None => colours(*r),
+                    Some(k) => exact_kernel::style::theme::admits(k, *r),
+                }
+            }) else {
                 continue;
             };
             let rd = reads(plan, plan.code(b.expr));

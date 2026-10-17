@@ -146,3 +146,22 @@ fn a_colour_inside_a_shadow_follows_its_own_live_edit() {
         "{changed:?}"
     );
 }
+
+/// Review round 1: `uses` finds a shadow token's rows (its own row kind).
+#[test]
+fn uses_finds_a_shadow_tokens_rows() {
+    let path = app(
+        "uses",
+        &[
+            ("app.tamber", DESIGN),
+            ("app.contract", "component App\n  view\n    column box-shadow=\"shadow.card\"\n      text \"a\" text-shadow=\"glow\"\n"),
+        ],
+    );
+    let (plan, map) = contract::compile_path_mapped(&path).unwrap();
+    let map: serde_json::Value = serde_json::from_str(&map.json(&plan.encode())).unwrap();
+    for (token, row) in [("shadow.card", "box_shadow"), ("glow", "text_shadow")] {
+        let sites = contract::tamber_uses::sites(&plan, &map, token, &Default::default(), &[]);
+        assert_eq!(sites.len(), 1, "{token}: {sites:?}");
+        assert_eq!(sites[0]["row"], row, "{sites:?}");
+    }
+}

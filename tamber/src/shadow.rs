@@ -205,8 +205,19 @@ fn one(items: &[Item], text: bool, names: &mut dyn Names) -> Result<Shadow, Fold
 /// An item as a shadow's length in px, `None` when it is no length (a
 /// colour, by elimination).
 fn length(item: &Item, names: &mut dyn Names) -> Result<Option<f64>, FoldError> {
+    // The kernel holds a length as an f32: one past it is no length.
+    let fits = |n: f64| -> Result<Option<f64>, FoldError> {
+        if n.abs() <= f64::from(f32::MAX) {
+            Ok(Some(n))
+        } else {
+            fail(
+                "tamber-kind",
+                format!("`{}px` is past the lengths a shadow holds", num(n)),
+            )
+        }
+    };
     Ok(match item {
-        Item::Dim(n, unit) if unit == "px" => Some(*n),
+        Item::Dim(n, unit) if unit == "px" => return fits(*n),
         Item::Dim(_, unit) if unit == "rem" || unit == "em" => {
             return fail("tamber-kind", format!("a shadow's length: {RELATIVE}"))
         }
@@ -217,8 +228,17 @@ fn length(item: &Item, names: &mut dyn Names) -> Result<Option<f64>, FoldError> 
             )
         }
         Item::Number(n) if *n == 0.0 => Some(0.0),
+        Item::Number(n) => {
+            return fail(
+                "tamber-kind",
+                format!(
+                    "`{}`: a shadow's length says px (unitless only zero)",
+                    num(*n)
+                ),
+            )
+        }
         Item::Ident(name) => match names.named(name)? {
-            Named::Length(Length::Px(n)) => Some(n),
+            Named::Length(Length::Px(n)) => return fits(n),
             Named::Length(_) => {
                 return fail("tamber-kind", format!("`{name}` in a shadow: {RELATIVE}"))
             }

@@ -206,9 +206,16 @@ pub fn map(
             Some(format!("{}:{value}", serde_json::to_string(name).unwrap()))
         })
         .collect();
+    // A text shadow is a colour channel a mode boundary writes again: a row
+    // that read a token says so, as the colour map's does (`$th`, modes.js).
+    let read = if id == StyleId::TextShadow && crate::modes::active(plan) {
+        "((globalThis.exact??={}).$th=1,M[v.trim()])"
+    } else {
+        "M[v.trim()]"
+    };
     (!pairs.is_empty()).then(|| {
         format!(
-            "(M=>v=>typeof v===\"string\"&&Object.hasOwn(M,v.trim())?M[v.trim()]:v)({{{}}})",
+            "(M=>v=>typeof v===\"string\"&&Object.hasOwn(M,v.trim())?{read}:v)({{{}}})",
             pairs.join(",")
         )
     })
