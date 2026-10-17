@@ -6,6 +6,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { contractComponent, value, type Env } from './contract-action-fixture';
+import { settingsNavigation } from './settings-search';
 
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
 const lines = (text: string, needle: string) => text.split('\n').filter(candidate => candidate.includes(needle));
@@ -67,6 +68,24 @@ describe('a Settings page owns its scroller', () => {
     expect(scope().settingsPageScrollTop).toBe(0);
     run('settingsPageForget');
     expect(state.settingsScrollPage).toBe('');
+  });
+
+  test('a jump to a legacy row opens Legacy features first, by Return as by a press on the result', () => {
+    const window = contractComponent('app-settings.contract', 'SettingsWindow');
+    const results = (query: string) => settingsNavigation(query, { connected: true, autoSettle: true, scopeKind: 'environment' });
+    for (const [via, args] of [['Enter', ['Enter']], ['press', []]] as const) {
+      const state: Env = { settingsEscapeHeld: false, settingsLegacyOpen: false, modelAdding: '' };
+      const nav = results('legacy');
+      expect(nav.firstId.startsWith('search-result-legacy-')).toBe(true);
+      const scope: Env = { settingsQuery: 'legacy', settingsNavigation: nav, coreSearchKeyRoot: () => {}, corePickRoot: () => {} };
+      if (via === 'Enter') window.call('coreSearchKey', state, scope, [...args]);
+      else window.call('corePick', state, scope, [nav.firstRoute, nav.firstTarget, '', nav.firstId]);
+      expect(state.settingsLegacyOpen).toBe(true);
+    }
+    // Another result leaves the section as it was.
+    const state: Env = { settingsEscapeHeld: false, settingsLegacyOpen: false, modelAdding: '' };
+    window.call('coreSearchKey', state, { settingsQuery: 'time format', settingsNavigation: results('time format'), coreSearchKeyRoot: () => {} }, ['Enter']);
+    expect(state.settingsLegacyOpen).toBe(false);
   });
 
   test('the jump runs once its page is ready, not only on the one-second poll', async () => {

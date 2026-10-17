@@ -229,7 +229,7 @@ component SettingsWindow
   action coreSearchKey(k: string)
     if k == "Escape"
       settingsEscapeHeld = settingsQuery != ""
-    if k == "Enter" and settingsNavigation.firstRoute != "" and settingsNavigation.firstId.startsWith("legacy-")
+    if k == "Enter" and settingsNavigation.firstRoute != "" and settingsNavigation.firstId.startsWith("search-result-legacy-")
       settingsLegacyOpen = true
     coreSearchKeyRoot(k)
   action coreNavigate(route: string)
