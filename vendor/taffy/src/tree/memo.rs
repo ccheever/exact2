@@ -308,10 +308,17 @@ pub(crate) struct Recorder {
     count: u32,
     /// The overflow each box last gave a final layout with, by index.
     overflows: Vec<Option<Rect<f32>>>,
-    /// The calls the trace holds an answer or a result for.
-    asked: Vec<(u32, LayoutInput)>,
+    /// The calls the trace holds an answer or a result for, each with the
+    /// position of its box's call before it (`NONE`: its first).
+    asked: Vec<(LayoutInput, u32)>,
+    /// EXACT PATCH 37: each box's last call in `asked`, by index, so that a
+    /// lookup reads that box's calls alone.
+    last_asked: Vec<u32>,
     /// Something was read that the trace cannot hold: it is not kept.
     pub(crate) poisoned: bool,
+    /// Recorded calls `repeats` has compared with the one asked.
+    #[cfg(test)]
+    compared: core::cell::Cell<usize>,
 }
 
 /// Node ids are slot keys: their bits are spread, not hashed.
@@ -335,7 +342,17 @@ impl Recorder {
     pub(crate) fn new(root: super::NodeId) -> Self {
         let mut index = std::collections::HashMap::default();
         index.insert(root, (0, false));
-        Recorder { events: Vec::with_capacity(256), index, count: 1, overflows: Vec::new(), asked: Vec::new(), poisoned: false }
+        Recorder {
+            events: Vec::with_capacity(256),
+            index,
+            count: 1,
+            overflows: Vec::new(),
+            asked: Vec::new(),
+            last_asked: Vec::new(),
+            poisoned: false,
+            #[cfg(test)]
+            compared: core::cell::Cell::new(0),
+        }
     }
 
     /// The index of a box the trace has read, if it has.
@@ -369,12 +386,26 @@ impl Recorder {
     /// Whether the trace already holds what `node` gives under `input`: a
     /// cache then answers the same again, and a replay need not ask twice.
     pub(crate) fn repeats(&self, node: u32, input: &LayoutInput) -> bool {
-        self.asked.iter().any(|(n, i)| *n == node && i == input)
+        let mut at = self.last_asked.get(node as usize).copied().unwrap_or(NONE);
+        while at != NONE {
+            let (asked, before) = &self.asked[at as usize];
+            #[cfg(test)]
+            self.compared.set(self.compared.get() + 1);
+            if asked == input {
+                return true;
+            }
+            at = *before;
+        }
+        false
     }
 
     /// Note a final layout's overflow, as a box answered or was computed.
     pub(crate) fn answered(&mut self, node: u32, input: &LayoutInput, output: &LayoutOutput) {
-        self.asked.push((node, *input));
+        if self.last_asked.len() <= node as usize {
+            self.last_asked.resize(node as usize + 1, NONE);
+        }
+        let before = core::mem::replace(&mut self.last_asked[node as usize], self.asked.len() as u32);
+        self.asked.push((*input, before));
         if input.run_mode == super::RunMode::PerformLayout {
             if self.overflows.len() <= node as usize {
                 self.overflows.resize(node as usize + 1, None);
@@ -432,5 +463,43 @@ mod tests {
         memo.insert(trace(GIVE_UP + 2, 100));
         memo.insert(trace(GIVE_UP + 3, 100));
         assert_eq!(memo.steps.len(), 300);
+    }
+
+    /// The `k`th question a parent asks a box: the same for every box.
+    fn question(k: u32) -> LayoutInput {
+        LayoutInput {
+            run_mode: crate::tree::RunMode::ComputeSize,
+            known_dimensions: Size { width: Some(k as f32), height: None },
+            ..LayoutInput::HIDDEN
+        }
+    }
+
+    #[test]
+    fn a_recorded_call_is_looked_up_among_its_own_boxs_calls() {
+        // A grid of many items asks each three questions (min-content,
+        // max-content, final), then asks them all again. As in
+        // `recorded_child_layout`, an answer the trace does not yet hold is
+        // recorded.
+        const BOXES: u32 = 2_000;
+        let mut rec = Recorder::new(crate::NodeId::from(0u64));
+        let mut recorded = 0;
+        for _ in 0..2 {
+            for node in 1..=BOXES {
+                for k in 0..3 {
+                    if !rec.repeats(node, &question(k)) {
+                        rec.answered(node, &question(k), &LayoutOutput::HIDDEN);
+                        recorded += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(recorded, 3 * BOXES, "each box's three answers, once each");
+        assert!(rec.repeats(BOXES, &question(2)));
+        assert!(!rec.repeats(BOXES, &question(3)), "a question it was not asked");
+        assert!(!rec.repeats(BOXES + 1, &question(0)), "another box's question");
+        // A lookup compares the asked box's calls alone, at most three: work
+        // linear in the boxes, not quadratic.
+        let lookups = 2 * 3 * BOXES as usize + 3;
+        assert!(rec.compared.get() <= 3 * lookups, "{} comparisons for {lookups} lookups", rec.compared.get());
     }
 }
