@@ -226,3 +226,96 @@ fn a_state_its_node_never_meets_is_linted() {
     assert_eq!(dead.len(), 1, "{warnings:?}");
     assert_eq!(dead[0].span.line, 13, "at its row: {dead:?}");
 }
+
+/// Review round 1: a state that leaves a row unwritten in some arm keeps
+/// the base's; a link keeps its colour, an `hr` its separator, unless the
+/// state holds; a `:checked` row is no disabled look.
+#[test]
+fn a_state_keeps_the_base_it_does_not_write() {
+    let src = "style A\n  background-color = \"#111111\"\n  :disabled\n    background-color = \"#0000ff\"\n\nstyle B\n  background-color = \"#222222\"\n\ncomponent App\n  state pick = true\n  state busy = false\n  action swap\n    pick = !pick\n  action hold\n    busy = !busy\n  view\n    column\n      column press=swap testId=\"swap\"\n        text \"swap\"\n      column press=hold testId=\"hold\"\n        text \"hold\"\n      column class=(pick ? A : B) disabled=busy testId=\"c\"\n        text \"c\"\n      text testId=\"p\"\n        text \"link\" href=\"https://example.com\" disabled=busy testId=\"link\"\n          :disabled\n            color = \"#808080\"\n";
+    let mut r = booted(src);
+    press(&mut r, "hold");
+    assert_eq!(colour(&r, "c", StyleId::BackgroundColor), "#0000ff");
+    press(&mut r, "swap");
+    assert_eq!(
+        colour(&r, "c", StyleId::BackgroundColor),
+        "#222222",
+        "B's base, B writing no :disabled row"
+    );
+    assert_eq!(colour(&r, "link", StyleId::TextColor), "#808080");
+    press(&mut r, "hold");
+    assert_ne!(colour(&r, "link", StyleId::TextColor), "#808080");
+    let enabled = colour(&r, "link", StyleId::TextColor);
+    let plain = booted("component App\n  view\n    text testId=\"p\"\n      text \"link\" href=\"https://example.com\" testId=\"link\"\n");
+    assert_eq!(
+        enabled,
+        colour(&plain, "link", StyleId::TextColor),
+        "the link's own colour while enabled"
+    );
+    // `:checked` opacity alone: no disabled look.
+    let checked = contract::compile("component App\n  state on = false\n  action go\n    on = !on\n  view\n    column press=go disabled=on aria-pressed=on\n      :checked\n        opacity = 0.5\n      text \"c\"\n").unwrap();
+    let styled = checked.nodes.iter().any(|n| {
+        n.bindings.iter().any(|b| {
+            let b = checked.binding(b);
+            b.kind == exact_plan::BindingKind::Prop
+                && b.id == exact_kernel::PropId::DisabledStyled as u16
+        })
+    });
+    assert!(!styled);
+}
+
+#[test]
+fn round_one_refusals_and_typing() {
+    // A grouped list's row is a cell.
+    assert_eq!(
+        refused("component App\n  view\n    list appearance=\"auto\"\n      section\n        button press=go\n          :active\n            opacity = 0.5\n          text \"r\"\n  state n = 0\n  action go\n    n = n + 1\n"),
+        "lower-state-target"
+    );
+    // A component's element as a list's row and elsewhere: refused only as the row.
+    let card = "component Card\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column press=go\n      :hover\n        background-color = \"#0000ff\"\n      text \"x\"\n";
+    assert_eq!(
+        refused(&format!(
+            "component App\n  view\n    column\n      Card()\n\n{card}"
+        )),
+        "compiled"
+    );
+    // As a list's row first, then elsewhere: the row is refused, the other is not
+    // judged as one (the refusal names the row, at its instance).
+    assert_eq!(refused(&format!("component App\n  view\n    column\n      Card()\n      list flex=1\n        Card()\n\n{card}")), "lower-state-target");
+    // A computed list in a state's border-color, as on the node.
+    assert_ne!(refused("component App\n  state c = \"#ff0000\"\n  state busy = false\n  view\n    column disabled=busy\n      :disabled\n        border-color=`${c} ${c}`\n      text \"b\"\n"), "compiled");
+    // A row typed as the node's own rows are: `none` an arm.
+    assert_eq!(refused("component App\n  state on = false\n  state busy = false\n  view\n    column disabled=busy\n      :disabled\n        opacity=(on ? 0.5 : none)\n      text \"b\"\n"), "compiled");
+    // A child in a state.
+    assert_eq!(
+        refused("component App\n  view\n    column\n      :hover\n        text \"x\"\n"),
+        "syntax-state"
+    );
+    // fmt keeps a continuation after a state block on its own line.
+    let src = "component App\n  state busy = false\n  view\n    column press=go disabled=busy background-color=\"#ff0000\" padding-top=10 padding-bottom=10 padding-left=12 padding-right=12\n      :disabled\n        opacity=0.5\n      testId=\"b\"\n      text \"b\"\n  action go\n    busy = !busy\n";
+    let once = contract_syntax::fmt::format(src).unwrap();
+    assert_eq!(contract_syntax::fmt::format(&once).unwrap(), once);
+}
+
+/// Review round 1 (Astra): a state row that computes a token's name keeps
+/// every colour token, as the node's own computed row does (D7).
+#[test]
+fn a_computed_state_row_keeps_the_tokens_it_may_name() {
+    let dir = std::env::temp_dir().join(format!("exact2-state-retained-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  brand-on = #0a7aff\n  brand-off = #888888\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("app.contract"), "component App\n  state suffix = \"on\"\n  state busy = false\n  view\n    column disabled=busy\n      :disabled\n        background-color=`brand-${suffix}`\n      text \"b\"\n").unwrap();
+    let plan =
+        contract::compile_path(&dir.join("app.contract")).unwrap_or_else(|e| panic!("{e:?}"));
+    let names: Vec<&str> = plan.theme.iter().map(|t| plan.str(t.name)).collect();
+    assert!(
+        names.contains(&"brand-on") && names.contains(&"brand-off"),
+        "{names:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

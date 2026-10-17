@@ -177,7 +177,7 @@ pub(crate) struct Lowerer<'a> {
     pub(crate) element_children: bool,
     /// The direct children of the list being lowered whose rows are cells
     /// (LLP 1115.000 D16): a state part on one is `lower-state-target`.
-    pub(crate) cell_rows: Vec<Span>,
+    pub(crate) cell_rows: Vec<(Span, u32)>,
     /// Whether the enclosing element contains its exclusions (LLP 1043.000).
     parent_positioned: bool,
     parent_bounded_column: bool,

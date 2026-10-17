@@ -374,8 +374,17 @@ impl<'a> Layout<'a> {
                         // A part's declarations (`::placeholder` and its
                         // block) and a state part's (`:disabled`) are not on
                         // the element's head.
+                        // A continuation after such a block keeps its own
+                        // line: the head ends at the block.
+                        let block = attrs
+                            .iter()
+                            .filter(|a| a.name.starts_with(':'))
+                            .map(|a| a.span.line)
+                            .min();
                         let (parts, head): (Vec<Attr>, Vec<Attr>) =
-                            attrs.iter().cloned().partition(|a| a.name.starts_with(':'));
+                            attrs.iter().cloned().partition(|a| {
+                                a.name.starts_with(':') || block.is_some_and(|b| a.span.line >= b)
+                            });
                         self.attributes.extend(parts.iter().map(|a| a.span));
                         self.header(*span, &head, false, last_positional);
                     }

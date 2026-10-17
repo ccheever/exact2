@@ -839,7 +839,7 @@ fn a_plan_without_compiled_values_keeps_every_other_data_range() {
 #[test]
 fn the_format_digest_is_pinned() {
     assert_eq!(
-        FORMAT_DIGEST, 0xa7c5_22bf_ce54_c657,
+        FORMAT_DIGEST, 0x37d8_94cf_b482_a257,
         "the plan format digest moved: if intended, name the break and the hosts that move"
     );
 }

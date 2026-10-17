@@ -3074,11 +3074,19 @@ the node before its children.
 
 ```contract
 style PostButton
-  background-color = "accent.fill"
+  background-color = "#1083fe"
   :active
-    background-color = "accent.fill-pressed"
+    background-color = "#0b5fbd"
   :disabled
-    background-color = "accent.fill-faded"
+    background-color = "#9cc8fb"
+
+component App
+  state busy = false
+  view
+    column class=PostButton press=post disabled=busy
+      text "Post"
+  action post
+    busy = true
 ```
 
 `:disabled` and `:checked` (`checked`, or `aria-checked`, `aria-selected` or

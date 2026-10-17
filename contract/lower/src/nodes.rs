@@ -171,6 +171,41 @@ impl Lowerer<'_> {
         if cells {
             crate::states::rows_of(children, &mut self.cell_rows);
         }
+        // A grouped list's rows are its sections' group's (LLP 1084 D3:
+        // `grouped::sections` puts them in a `column` under each section).
+        if grouped.is_some() {
+            let mut sections = Vec::new();
+            fn elements<'n>(nodes: &'n [Node], out: &mut Vec<&'n Node>) {
+                for n in nodes {
+                    match n {
+                        Node::When {
+                            then, otherwise, ..
+                        } => {
+                            elements(then, out);
+                            elements(otherwise, out);
+                        }
+                        Node::Each { body, .. } => elements(body, out),
+                        Node::Match { some, none, .. } => {
+                            elements(&some.1, out);
+                            elements(none, out);
+                        }
+                        other => out.push(other),
+                    }
+                }
+            }
+            elements(children, &mut sections);
+            for section in sections {
+                if let Node::Element { children, .. } = section {
+                    for group in children {
+                        if let Node::Element { tag, children, .. } = group {
+                            if tag == "column" {
+                                crate::states::rows_of(children, &mut self.cell_rows);
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // @ref LLP 1116.020 D1 — a cell's `delete=`, its swipe.
         let swiped = cells.then(|| swipe_rows::cells(children)).flatten();
         // A row list is a flex item of its column like any carousel;
@@ -259,12 +294,29 @@ impl Lowerer<'_> {
         // @ref LLP 1121 D8 — the state parts, folded or recorded.
         let target = if control.is_some() || t.node_type == NodeType::Control {
             Some("a native control")
-        } else if self.cell_rows.contains(span) {
+        } else if self.cell_rows.contains(&(*span, *instance)) {
             Some("a list's row, whose press is the cell's highlight")
         } else {
             None
         };
-        let states = self.fold_states(expanded, target, scope, locals)?;
+        // What the node takes unwritten, a state's base where its author
+        // writes none: its tag's fixed rows (an `hr`'s separator colour),
+        // then a link's colour, which is pushed after them.
+        let mut implied: Vec<(&str, Expr)> = t
+            .fixed_styles
+            .iter()
+            .filter_map(|(id, v)| {
+                Some((
+                    crate::states::row_name(*id)?,
+                    Expr::Str(v.to_string(), *span),
+                ))
+            })
+            .collect();
+        implied.extend(
+            self.link_colour(tag, parent_tag, expanded, children)
+                .map(|e| ("color", e)),
+        );
+        let states = self.fold_states(expanded, target, &implied, class_len, scope, locals)?;
         let expanded = states.as_ref().map_or(expanded, |s| s.attrs.as_slice());
         let mut bindings: Vec<BindingsRow> = Vec::new();
         let mut handlers: Vec<(EventKind, exact_plan::ActionsId, Vec<Code>)> = Vec::new();
@@ -280,7 +332,10 @@ impl Lowerer<'_> {
             bindings.push(prop_row(exact_kernel::PropId::ListRows, rows, IMPLIED));
         }
         // @ref LLP 1115.000 D6 — the author's own disabled look: no default dim.
-        if disabled_look::styled(expanded) || states.as_ref().is_some_and(|s| s.disabled_look) {
+        let styled = states
+            .as_ref()
+            .map_or_else(|| disabled_look::styled(expanded), |s| s.disabled_look);
+        if styled {
             let styled = self.b.constant(&Value::Bool(true));
             bindings.push(prop_row(
                 exact_kernel::PropId::DisabledStyled,
@@ -415,10 +470,23 @@ impl Lowerer<'_> {
                 self.errors.push(native::name_the_fix(n, e));
             }
             if let Some(origins) = &mut origins {
-                let origin = if index < sheet.len() {
-                    Origin::Tag
-                } else if index < class_len {
+                // A folded state part's (LLP 1121 D8): its class's where
+                // the class wrote every state row in it.
+                let (class_len, folded) = match &states {
+                    Some(s) => (
+                        s.class_len,
+                        (index >= s.base_len).then(|| s.by_class[index - s.base_len]),
+                    ),
+                    None => (class_len, None),
+                };
+                let class = class_label.is_some();
+                let origin = if class
+                    && (folded == Some(true)
+                        || folded.is_none() && index >= sheet.len() && index < class_len)
+                {
                     Origin::Class(class_label.clone().expect("class attribute"))
+                } else if folded.is_none() && index < sheet.len() {
+                    Origin::Tag
                 } else {
                     Origin::Own
                 };

@@ -52,8 +52,15 @@ pub(crate) struct Folded {
     /// Each host-known state's rows by longhand, the class's then the
     /// node's, in the order written: `(state, rows)`.
     pub looks: Vec<(String, Vec<Attr>)>,
-    /// A `:disabled` part was written: the author's own disabled look.
+    /// The author's own disabled look: a `:disabled` part, or what the
+    /// heuristic reads in the base (never a fold's own rows).
     pub disabled_look: bool,
+    /// How many of `attrs` are the sheet's and class's base rows.
+    pub class_len: usize,
+    /// How many of `attrs` are base rows; each after is a fold's, and
+    /// `by_class` says whether its class wrote it.
+    pub base_len: usize,
+    pub by_class: Vec<bool>,
 }
 
 /// Whether a row `name` (as written) is one a state of `host` kind takes,
@@ -71,7 +78,7 @@ fn admitted(name: &str, host: bool) -> bool {
 }
 
 /// `row`'s value split into its longhands: a `border-color` its four
-/// sides', anything else itself.
+/// sides' (a computed list refused, as on the node), anything else itself.
 fn longhands(row: &Attr) -> Result<Vec<(String, Expr)>, LowerError> {
     if row.name != "border-color" {
         return Ok(vec![(row.name.clone(), row.value.clone())]);
@@ -124,9 +131,73 @@ fn base_of(base: &[Attr], l: &str) -> Result<Option<Expr>, LowerError> {
     Ok(out)
 }
 
+/// `value` with each arm that is no value (`none`, a conditional class's
+/// side without the row) taken by `under`: a state that does not write a
+/// row in some arm leaves the base's.
+fn over(value: Expr, under: &Expr) -> Expr {
+    match value {
+        Expr::None(_) => under.clone(),
+        Expr::Ternary(c, a, b, span) => Expr::Ternary(
+            c,
+            Box::new(over(*a, under)),
+            Box::new(over(*b, under)),
+            span,
+        ),
+        other => other,
+    }
+}
+
+/// The CSS name of a row a state takes, for a tag's fixed row.
+pub(crate) fn row_name(id: exact_kernel::StyleId) -> Option<&'static str> {
+    use exact_kernel::StyleId::*;
+    Some(match id {
+        TextColor => "color",
+        BackgroundColor => "background-color",
+        Opacity => "opacity",
+        BoxShadow => "box-shadow",
+        TintColor => "-exact-tint-color",
+        PressScale => "-exact-press-scale",
+        BorderColorTop => SIDES[0],
+        BorderColorRight => SIDES[1],
+        BorderColorBottom => SIDES[2],
+        BorderColorLeft => SIDES[3],
+        _ => return None,
+    })
+}
+
+/// `condition ? value : under`, a state's row over its base, written as a
+/// node's row may be: an arm of `value` that is no value is `under`'s, and
+/// where `under` is none too that arm folds into the condition
+/// (`busy && on ? 0.5 : none`), since a choice nested in a choice with no
+/// value is no row's type.
+fn choose(condition: Expr, value: Expr, under: Expr, span: Span) -> Expr {
+    let unset = |e: &Expr| matches!(e, Expr::None(_));
+    if unset(&under) {
+        if let Expr::Ternary(c, a, b, _) = &value {
+            let both = |c2: Expr| {
+                Expr::Binary(BinOp::And, Box::new(condition.clone()), Box::new(c2), span)
+            };
+            if unset(b) {
+                return choose(both((**c).clone()), (**a).clone(), under, span);
+            }
+            if unset(a) {
+                let not = Expr::Unary(contract_syntax::UnOp::Not, c.clone(), span);
+                return choose(both(not), (**b).clone(), under, span);
+            }
+        }
+    }
+    Expr::Ternary(
+        Box::new(condition),
+        Box::new(over(value, &under)),
+        Box::new(under),
+        span,
+    )
+}
+
 /// The elements a list's `children` make its rows, through its `for`,
-/// `if` and `match` regions, each by its span.
-pub(crate) fn rows_of(children: &[Node], out: &mut Vec<Span>) {
+/// `if` and `match` regions, each by its span and instance (one
+/// component's element is many instances, a row in one place only).
+pub(crate) fn rows_of(children: &[Node], out: &mut Vec<(Span, u32)>) {
     for child in children {
         match child {
             Node::When {
@@ -140,35 +211,42 @@ pub(crate) fn rows_of(children: &[Node], out: &mut Vec<Span>) {
                 rows_of(&some.1, out);
                 rows_of(none, out);
             }
-            other => out.push(other.span()),
+            Node::Element { span, instance, .. } => out.push((*span, *instance)),
+            other => out.push((other.span(), 0)),
         }
     }
 }
 
 impl Lowerer<'_> {
     /// Fold `expanded`'s state parts; `None` when it has none. `target` is
-    /// why the node takes none (a native control, a list's row).
+    /// why the node takes none (a native control, a list's row); `implied`
+    /// the rows the node takes when its author writes none (a link's text
+    /// colour), a base a state's row falls back to; `class_len` how many of
+    /// `expanded` are its sheet's and class's.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn fold_states(
         &mut self,
         expanded: &[Attr],
         target: Option<&str>,
+        implied: &[(&str, Expr)],
+        class_len: usize,
         scope: &Scope,
         locals: u16,
     ) -> Result<Option<Folded>, LowerError> {
-        let parts: Vec<(&str, Attr)> = expanded
+        // Each part's row, and whether its class (or sheet) wrote it.
+        let parts: Vec<(&str, Attr, bool)> = expanded
             .iter()
-            .filter_map(|a| {
+            .enumerate()
+            .filter_map(|(i, a)| {
                 let (state, row) = state_of(&a.name)?;
-                Some((
-                    state,
-                    Attr {
-                        name: row.to_string(),
-                        ..a.clone()
-                    },
-                ))
+                let row = Attr {
+                    name: row.to_string(),
+                    ..a.clone()
+                };
+                Some((state, row, i < class_len))
             })
             .collect();
-        let Some((_, first)) = parts.first() else {
+        let Some((_, first, _)) = parts.first() else {
             return Ok(None);
         };
         if let Some(why) = target {
@@ -183,8 +261,12 @@ impl Lowerer<'_> {
             .filter(|a| state_of(&a.name).is_none())
             .cloned()
             .collect();
-        for (state, row) in &parts {
+        for (state, row, _) in &parts {
             let host = !matches!(*state, "disabled" | "checked");
+            if row.name == "border-color" {
+                let fns = &self.fns;
+                values::computed_list(&row.name, &row.value, &|f| fns.get(f).map(|(_, b)| *b))?;
+            }
             if !admitted(&row.name, host) {
                 let rows = if host {
                     &HOST_ROWS[..]
@@ -246,9 +328,11 @@ impl Lowerer<'_> {
                 None => v,
             });
         }
-        let mut folded: Vec<(String, Expr, Span, bool)> = Vec::new();
+        // Each folded longhand: its value, where, written, and whether its
+        // class wrote every state row in it.
+        let mut folded: Vec<(String, Expr, Span, bool, bool)> = Vec::new();
         let mut looks: Vec<(String, Vec<Attr>)> = Vec::new();
-        for (state, row) in &parts {
+        for (state, row, _) in &parts {
             if !matches!(*state, "disabled" | "checked") {
                 let rows = match looks.iter_mut().find(|(s, _)| s == state) {
                     Some((_, rows)) => rows,
@@ -275,34 +359,57 @@ impl Lowerer<'_> {
                 _ => checked.clone(),
             };
             let Some(condition) = condition else { continue };
-            for (_, row) in parts.iter().filter(|(s, _)| *s == state) {
+            for (_, row, class) in parts.iter().filter(|(s, ..)| *s == state) {
                 for (l, v) in longhands(row)? {
-                    let under = match folded.iter().rposition(|(n, ..)| *n == l) {
-                        Some(i) => folded.remove(i).1,
-                        None => base_of(&base, &l)?.unwrap_or(Expr::None(row.span)),
+                    let (under, by_class) = match folded.iter().rposition(|(n, ..)| *n == l) {
+                        Some(i) => {
+                            let f = folded.remove(i);
+                            (f.1, f.4 && *class)
+                        }
+                        // The base's, else what the node takes unwritten (a
+                        // link's colour), else no row.
+                        None => {
+                            let base = base_of(&base, &l)?
+                                .or_else(|| {
+                                    implied
+                                        .iter()
+                                        .rfind(|(n, _)| *n == l)
+                                        .map(|(_, e)| e.clone())
+                                })
+                                .unwrap_or(Expr::None(row.span));
+                            (base, *class)
+                        }
                     };
-                    let value = Expr::Ternary(
-                        Box::new(condition.clone()),
-                        Box::new(v),
-                        Box::new(under),
-                        row.span,
-                    );
-                    folded.push((l, value, row.span, row.written));
+                    let value = choose(condition.clone(), v, under, row.span);
+                    folded.push((l, value, row.span, row.written, by_class));
                 }
             }
         }
-        let disabled_look = parts.iter().any(|(s, _)| *s == "disabled");
+        let disabled_look = parts.iter().any(|(s, ..)| *s == "disabled");
+        let base_styled = disabled_look::styled(&base);
+        let class_len = expanded[..class_len.min(expanded.len())]
+            .iter()
+            .filter(|a| state_of(&a.name).is_none())
+            .count();
         let mut attrs = base;
-        attrs.extend(folded.into_iter().map(|(name, value, span, written)| Attr {
-            name,
-            value,
-            span,
-            written,
-        }));
+        let base_len = attrs.len();
+        let mut by_class = Vec::new();
+        for (name, value, span, written, class) in folded {
+            attrs.push(Attr {
+                name,
+                value,
+                span,
+                written,
+            });
+            by_class.push(class);
+        }
         Ok(Some(Folded {
             attrs,
             looks,
-            disabled_look,
+            disabled_look: disabled_look || base_styled,
+            class_len,
+            base_len,
+            by_class,
         }))
     }
 }

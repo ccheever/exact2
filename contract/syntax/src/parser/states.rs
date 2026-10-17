@@ -68,7 +68,8 @@ impl Parser {
         let within = format!("{owner} {state}");
         let mut declared = Vec::new();
         self.block(|p| {
-            if p.at_state() || p.at_part() {
+            // A child or another block in a state: rows only (`name=value`).
+            if p.at_state() || p.at_part() || matches!(p.peek_kind(), TokenKind::Ident(_)) && !p.at_continuation() {
                 return p.err(
                     "syntax-state",
                     format!("a block in `{state}`: a state part holds rows only, never another state or part (LLP 1121 D8)"),
