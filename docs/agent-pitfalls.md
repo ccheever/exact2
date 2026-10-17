@@ -503,6 +503,10 @@ screen, 2026-10-16.)
   left to the platform floats inset with the display's corners. Fix:
   `sheetAllowedDetents: [0.45]` is `navigationDetent="45%"`, `[1.0]` is `"large"`; and
   `sheetCornerRadius: 40` is `border-radius=40` on the route.
+- **A sheet's content measures 0.96 of its authored size.** Not a bug: on iOS 26 a sheet
+  resting below `large` floats, and UIKit draws its whole content scaled (402 pt laid out,
+  386 drawn), the original's too. `layout` and `compare` say so (`route 3 is a sheet the
+  platform draws at 0.96 …`); leave it, and never `scale` to undo it.
 - **Slider rows are shorter than the original's.** Cause: React Native's `height: 28` on
   an `@expo/ui` slider did not bound the SwiftUI slider it hosts, which took about 32
   points; `height=28` on a ported `input type="range"` is 28. Fix: write the height the

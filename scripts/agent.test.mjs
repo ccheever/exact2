@@ -320,6 +320,15 @@ test('compare on a capture: nodes where the window has them, its safe area not s
     const shot = { screenshot: resolve(dir, 'shot.png'), w: 120, h: 200, scale: 2, window: true, statusBar: false, safeArea: { top: 10, bottom: 12 }, note: 'the status bar is not in the capture (simctl io screenshot: failed)' };
     const r = await compareOp(ios({ viewport: { x: 0, y: 0, w: 60, h: 200 }, window: { x: 678, y: 0, w: 60, h: 200 } }), resolve(dir, 'ref.png'), async () => ({ ...shot }));
     assert.match(r.text, /under card \[10,40 60×30\]/);
+    assert.doesNotMatch(r.text, /draws at/);
+    // A floating sheet the platform draws scaled is said, in compare's report and in `layout`'s.
+    const floating = { ...ios({ viewport: { x: 0, y: 0, w: 60, h: 200 }, window: { x: 678, y: 0, w: 60, h: 200 } }) };
+    const plain = floating.layout;
+    floating.layout = async () => ({ ...(await plain()), scaled: [{ route: '3', presentation: 'sheet', scale: 0.96 }] });
+    const said = /route 3 is a sheet the platform draws at 0\.96 of its laid-out size: its boxes are the authored frames × 0\.96/;
+    assert.match((await compareOp(floating, resolve(dir, 'ref.png'), async () => ({ ...shot }))).text, said);
+    const { render } = await import('./agent-inspect.mjs');
+    assert.match(render('layout', { viewport: { w: 402, h: 874 }, clock: 0, nodes: [], scaled: [{ route: '3', presentation: 'sheet', scale: 0.96 }] }), said);
     assert.match(r.text, /the top 10 \(status bar\) and the bottom 12 \(home indicator\) not scored/);
     assert.match(r.text, /capture: the status bar is not in the capture \(simctl io screenshot: failed\)/);
     assert.doesNotMatch(r.text, /\[40,192/);

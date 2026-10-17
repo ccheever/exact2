@@ -11,6 +11,7 @@ import { MalformedOperation } from './agent-keys.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { decodePng, encodePng, shrink } from './png.mjs';
+import { scaledLines } from './agent-inspect.mjs';
 
 const INK = 40; // a channel difference (of 255) beyond the other image's neighbourhood that makes a cell differ
 const EDGE = 12; // the least channel difference across a box's edge
@@ -382,6 +383,8 @@ export async function compareOp(s, referencePath, take) {
   writeFileSync(diff, encodePng(diffImage(A, B, result)));
   let text = report(result, nodes, { reference: referencePath, diff, unit: s.host === 'web' ? 'px' : 'pt', boxes: boxDiffs(A, B, result, nodes) });
   if (notes.length) text += '\n' + notes.map((n) => `  capture: ${n}`).join('\n');
+  // A floating sheet's content is drawn scaled by the platform, the reference's too: a box measured smaller is that.
+  for (const line of scaledLines(layout)) text += `\n  note: ${line}`;
   const { mask, ...kept } = result;
   return { ...shot, compare: { ...kept, reference: referencePath }, diff, text };
 }
