@@ -588,7 +588,8 @@ const guestValue = (target) => "value" in target ? (target.type === "password" &
 // takes) — Playwright's actionability scroll, the web's own `scrollIntoView`. A scroll event reaches the app as a
 // person's scroll would. `scrolled` is where the middle moved from and to;
 // a middle already in view moves nothing.
-export function reveal(el, id) {
+// The default matches the wasm tap preflight; the JS agent supplies its modal-aware check.
+export function reveal(el, id, inert = el => el.closest("[inert]")) {
   if (!el?.isConnected) return { error: `no view ${id}` };
   const middle = () => { const b = viewBox(el); return [b.left + b.width / 2, b.top + b.height / 2]; };
   const [x, y] = middle();
@@ -597,7 +598,7 @@ export function reveal(el, id) {
     const cs = getComputedStyle(a), b = a.getBoundingClientRect();
     if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
   }
-  if (seen || el.closest("[inert]") || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // nor what its tap refuses (hidden or inert): a refusal leaves the page as it was
+  if (seen || inert(el) || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // nor what its tap refuses (hidden or inert): a refusal leaves the page as it was
   (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
   return { revealed: id, scrolled: true, from: [x, y], to: middle() };
 }

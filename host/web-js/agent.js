@@ -311,7 +311,7 @@ export function install(exact) {
       // A control's value is set, not typed (LLP 1069.001 D9; navigation.js), as the web host's glue.js sets it.
       // A location typed into the navigation root is its `navigate` (LLP 1038 D11), as glue.js delivers it.
       case 'type': { const el = views.get(req.id); if (el?.hasAttribute('navigationBack') && req.key == null) return navigateRoot(req.text ?? '') ? { typed: req.id, delivery: 'recognized', handled: true } : { handled: true, error: 'the navigation root has no `navigate` handler' }; return typedControl(el) && req.key == null ? typeControl(el, req) : el instanceof HTMLIFrameElement ? guestType(el, req) : {}; }
-      case 'reveal': return { ...reveal(views.get(req.id), req.id), ...tags() }; // before a tap or a type
+      case 'reveal': return { ...reveal(views.get(req.id), req.id, inertAncestor), ...tags() }; // before a tap or a type
       case 'logs': { const j = exact.journal, from = Math.max(req.since ?? 0, j.start); return { lines: j.slice(from - j.start), from, next: j.start + j.length }; }
       // `perf <target>` (LLP 1079 D2): the plan sites under a view, with their work (perf.js).
       case 'perf': {
