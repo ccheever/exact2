@@ -1239,10 +1239,18 @@ fn determine_flex_base_size(
                 } else {
                     known_for_probe(tree)
                 };
+                // EXACT PATCH 38: ContentSize ignores the item's preferred
+                // width, but percentage padding still needs the container's
+                // inline size (CSS Flexbox §4.2).
+                let parent = if replaced_ratio.is_some() {
+                    Size { width: constants.node_inner_size.width, ..child_parent_size }
+                } else {
+                    child_parent_size
+                };
                 tree.measure_child_size(
                     child.node,
                     known,
-                    child_parent_size,
+                    parent,
                     child_available_space,
                     SizingMode::ContentSize,
                     dir.main_axis(),

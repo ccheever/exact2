@@ -165,11 +165,7 @@ where
                 // EXACT PATCH 37: the table scales the box the ratio relates.
                 // Natural ratios always relate content sizes, even with
                 // border-box sizing; padding and border do not scale.
-                replaced_constraints(
-                    (measured_size + content_box_inset.sum_axes() - ratio.inset).map(|v| f32_max(v, 0.0)),
-                    raw_min_size.maybe_sub(ratio.inset).maybe_max(Size::ZERO),
-                    raw_max_size.maybe_sub(ratio.inset).maybe_max(Size::ZERO),
-                ) + ratio.inset
+                replaced_constraints(measured_size + content_box_inset.sum_axes(), raw_min_size, raw_max_size, ratio)
             } else {
                 let derived = ratio.height(clamped_size.width);
                 let height = if floor_height {
@@ -219,12 +215,20 @@ where
 }
 
 // EXACT PATCH (LLP 1011 §1): CSS 2.1 §10.4, the min/max constraint table for
-// replaced elements with an intrinsic ratio. `w`/`h` are the tentative size.
-fn replaced_constraints(size: Size<f32>, min: Size<Option<f32>>, max: Size<Option<f32>>) -> Size<f32> {
-    let (w, h) = (size.width, size.height);
+// replaced elements with an intrinsic ratio. Inputs are border-box sizes;
+// `w`/`h` are the tentative dimensions of the box the ratio relates.
+fn replaced_constraints(size: Size<f32>, min: Size<Option<f32>>, max: Size<Option<f32>>, ratio: Ratio) -> Size<f32> {
+    let inner = (size - ratio.inset).map(|v| f32_max(v, 0.0));
+    let (w, h) = (inner.width, inner.height);
     if w <= 0.0 || h <= 0.0 {
-        return Size { width: w, height: h }.maybe_clamp(min, max);
+        // EXACT PATCH 38: an unsized ratio box still transfers minima.
+        // Each transferred minimum is capped by the destination's maximum;
+        // its own minimum wins last (CSS Sizing 4 §4.4).
+        let (_, transferred_min, _) = ratio.resolve(Size::NONE, min, max, false);
+        return size.maybe_max(transferred_min.maybe_min(max)).maybe_clamp(min, max);
     }
+    let min = min.maybe_sub(ratio.inset).maybe_max(Size::ZERO);
+    let max = max.maybe_sub(ratio.inset).maybe_max(Size::ZERO);
     let min_w = min.width.unwrap_or(0.0);
     let min_h = min.height.unwrap_or(0.0);
     let max_w = max.width.unwrap_or(f32::INFINITY).max(min_w);
@@ -252,5 +256,5 @@ fn replaced_constraints(size: Size<f32>, min: Size<Option<f32>>, max: Size<Optio
         (_, _, true, _) => (f32_max(max_h * w / h, min_w), max_h),
         (_, _, _, true) => (f32_min(min_h * w / h, max_w), min_h),
     };
-    Size { width: rw, height: rh }
+    Size { width: rw, height: rh } + ratio.inset
 }

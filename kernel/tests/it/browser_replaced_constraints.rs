@@ -253,3 +253,159 @@ fn check<const N: usize>(cases: &[(&str, &str, [Frames; N])], tags: &[(&str, Nod
         failures.len()
     );
 }
+
+// Chrome 151.0.7922.34, 2026-10-17: percentage padding resolves against
+// the 400px container even when the item's content minimum is measured.
+#[test]
+fn independent_content_minima_keep_percentage_padding() {
+    let cases: &[(&str, &str, [Frames; 1])] = &[
+        (
+            "direct",
+            "width:300px;padding:10%;box-sizing:content-box",
+            [&[
+                [0.0, 0.0, 400.0, 230.0],
+                [0.0, 0.0, 380.0, 230.0],
+                [380.0, 0.0, 380.0, 230.0],
+            ]],
+        ),
+        (
+            "direct",
+            "width:300px;padding:10%;box-sizing:border-box",
+            [&[
+                [0.0, 0.0, 400.0, 190.0],
+                [0.0, 0.0, 300.0, 190.0],
+                [300.0, 0.0, 300.0, 190.0],
+            ]],
+        ),
+        (
+            "direct",
+            "width:100%;padding:10%;box-sizing:content-box",
+            [&[
+                [0.0, 0.0, 400.0, 230.0],
+                [0.0, 0.0, 380.0, 230.0],
+                [380.0, 0.0, 380.0, 230.0],
+            ]],
+        ),
+        (
+            "direct",
+            "height:100px;padding:10%;box-sizing:content-box",
+            [&[
+                [0.0, 0.0, 400.0, 180.0],
+                [0.0, 0.0, 280.0, 180.0],
+                [280.0, 0.0, 280.0, 180.0],
+            ]],
+        ),
+        (
+            "direct",
+            "padding:10%;box-sizing:content-box",
+            [&[
+                [0.0, 0.0, 400.0, 230.0],
+                [0.0, 0.0, 380.0, 230.0],
+                [380.0, 0.0, 380.0, 230.0],
+            ]],
+        ),
+        (
+            "column",
+            "height:100%;padding:10%;box-sizing:content-box",
+            [&[
+                [0.0, 0.0, 400.0, 200.0],
+                [0.0, 0.0, 380.0, 230.0],
+                [0.0, 230.0, 380.0, 230.0],
+            ]],
+        ),
+    ];
+    check(
+        cases,
+        &[("canvas", NodeType::Canvas, 0), ("img", NodeType::Image, 0)],
+    );
+}
+
+// Chrome 151.0.7922.34, 2026-10-17: the shrink-to-fit absolute wrapper
+// and its block leaf. SVGs have viewBox="0 0 100 100" and no natural size.
+#[test]
+fn zero_content_minima_transfer_through_the_ratio() {
+    use exact_kernel::{Offer, Op, PropId};
+    let cases: &[(NodeType, &str, Frames)] = &[
+        (
+            NodeType::Svg,
+            "min-height:20px;padding:10px;box-sizing:content-box",
+            &[
+                [0.0, 0.0, 40.0, 40.0],
+                [0.0, 0.0, 40.0, 40.0],
+            ],
+        ),
+        (
+            NodeType::Svg,
+            "min-width:20px;padding:10px;box-sizing:content-box",
+            &[
+                [0.0, 0.0, 40.0, 40.0],
+                [0.0, 0.0, 40.0, 40.0],
+            ],
+        ),
+        (
+            NodeType::Video,
+            "min-height:20px;padding:10px;box-sizing:content-box;aspect-ratio:2/1",
+            &[
+                [0.0, 0.0, 60.0, 40.0],
+                [0.0, 0.0, 60.0, 40.0],
+            ],
+        ),
+        (
+            NodeType::Svg,
+            "min-height:40px;padding:10px;box-sizing:border-box",
+            &[
+                [0.0, 0.0, 40.0, 40.0],
+                [0.0, 0.0, 40.0, 40.0],
+            ],
+        ),
+        (
+            NodeType::Svg,
+            "min-height:20px;padding:10px;box-sizing:content-box;max-width:10px",
+            &[
+                [0.0, 0.0, 30.0, 40.0],
+                [0.0, 0.0, 30.0, 40.0],
+            ],
+        ),
+        (
+            NodeType::Svg,
+            "min-height:20px;padding:10px;border-width:2px;border-style:solid;box-sizing:content-box",
+            &[
+                [0.0, 0.0, 44.0, 44.0],
+                [0.0, 0.0, 44.0, 44.0],
+            ],
+        ),
+        (
+            NodeType::Svg,
+            "min-height:20px;padding:10px;box-sizing:content-box;aspect-ratio:2/1",
+            &[
+                [0.0, 0.0, 60.0, 40.0],
+                [0.0, 0.0, 60.0, 40.0],
+            ],
+        ),
+    ];
+    let mut failures = Vec::new();
+    for &(kind, item, frames) in cases {
+        let mut k = lay_out_held("abs", item, kind, false);
+        if kind == NodeType::Svg {
+            k.apply(
+                0,
+                3,
+                &[Op::SetProp {
+                    id: 3,
+                    prop: PropId::ViewBox,
+                    value: "0 0 100 100".into(),
+                }],
+            )
+            .unwrap();
+            k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
+        }
+        let want: Vec<_> = (2..).zip(frames.iter().copied()).collect();
+        failures.extend(mismatches(&format!("{kind:?} {item}"), &k, &want));
+    }
+    assert!(
+        failures.is_empty(),
+        "{}\n{} failures",
+        failures.join("\n"),
+        failures.len()
+    );
+}

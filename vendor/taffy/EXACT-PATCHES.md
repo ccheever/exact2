@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36 and 37 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37 and 38 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1129,6 +1129,26 @@ flex items, row and column axes, automatic and zero minima, cross-axis constrain
 padding under both box-sizing modes, and authored ratios. The existing
 `browser_replaced` cases retain definite stretching; `browser_replaced::minimum`
 retains patch 36's descendant contributions.
+
+## Patch 38: retain padding and transferred minima in replaced content probes
+
+A replaced flex item's content-size probe retains the container's inline size
+for percentage padding ([CSS Flexbox §4.2](https://www.w3.org/TR/css-flexbox-1/#item-margins)).
+ContentSize still ignores the preferred width. The automatic minimum includes
+the resolved padding as well as the natural content width.
+
+When the tentative ratio box has a zero dimension, the leaf constraint table
+uses the explicit ratio to transfer minima. A transferred minimum is capped by
+the destination's maximum, then its own minimum wins
+([CSS Sizing 4 §4.4](https://www.w3.org/TR/css-sizing-4/#aspect-ratio-size-transfers)).
+The inset is retained, so an unsized SVG's shrink-to-fit ancestor includes the
+width required by its minimum height and padding.
+
+**Held by** `browser_replaced::constraints::independent_content_minima_keep_percentage_padding`
+and `zero_content_minima_transfer_through_the_ratio`: literal Chrome 151.0.7922.34
+frames for canvas, loaded images, unsized SVG and metadata-free video. Cases cover
+both box-sizing modes, row and column axes, authored ratios, borders and a maximum
+that caps a transferred minimum.
 
 ## Cargo workspace boundary
 
