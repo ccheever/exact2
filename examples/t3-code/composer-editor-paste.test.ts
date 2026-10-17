@@ -57,6 +57,22 @@ describe('a paste with files on the pasteboard (onComposerPaste)', () => {
     expect(ops(native, 'composerPasteTake')).toHaveLength(1);
   });
 
+  test('Paste as Text attaches the files too, and its image gets no chip even beside prose (skipImageInlineChip)', async () => {
+    const { client, native } = await opened();
+    client.local.drafts[client.draftKey] = 'look at this';
+    native.pasted = [
+      { kind: 'file', id: uuid(1), name: 'notes.md', mimeType: 'text/markdown', sizeBytes: 8, asText: true },
+      { kind: 'image', id: uuid(2), name: 'image.png', sizeBytes: 120, asText: true },
+    ];
+    await composerEditorView(client, native);
+    expect(ops(native, 'editorInsert').map(call => call.text)).toEqual([`[notes.md](t3-context://v1/file/file_${uuid(1)})`]);
+    expect((client.local.snapshotDrafts[client.draftKey] ?? []).map(image => str(image.name))).toEqual(['image.png']);
+    // ⌘V of the same image beside prose gives it its chip.
+    native.pasted = [{ kind: 'image', id: uuid(3), name: 'image.png', sizeBytes: 120 }];
+    await composerEditorView(client, native);
+    expect(ops(native, 'editorInsert').map(call => call.text).at(-1)).toContain(uuid(3));
+  });
+
   test('what cannot be attached is named, as addComposerAttachments reports it', async () => {
     const { client, native } = await opened();
     native.pasted = [{ kind: 'unsupported-image', name: 'diagram.svg', sizeBytes: 40 }];
