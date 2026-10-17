@@ -71,12 +71,12 @@ component Sidebar
     // The list's scroll offset, which a row-action sweep clamps the pointer to.
     scrollY: number
   // The row a right-click named, for its context popover (ThreadMenu, DraftMenu): the row's `contextmenu` runs first.
-  // The right press focuses the thread's row, as Chromium focuses the reference's (a `role="button"` with a tabIndex)
-  // on any press: VoiceOver, told that the menu closed, reads the row, not a long draft in the prompt.
   state menuThread = ""
   state menuDraft = ""
   action threadMenu(id: string)
     menuThread = id
+    // Chromium focuses the reference's row on a right press (Sidebar.tsx:1759-1760, 1924-1925). Writing it is the
+    // author's choice, and LLP 1115.000 D7 keeps a focus an action set over D7.1's default.
     focus(`thread-${id}`)
   action draftMenu(id: string)
     menuDraft = id
