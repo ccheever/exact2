@@ -14,6 +14,7 @@ mod color_fn;
 mod css;
 mod edit;
 pub mod export;
+mod export_kinds;
 mod fmt;
 mod fold;
 pub mod history;
@@ -103,6 +104,9 @@ pub struct Vocab {
     /// style, `-exact-body` or its WebKit alias; `-exact-hairline`); matched
     /// without case, as CSS matches keywords.
     pub named_lengths: Vec<String>,
+    /// Each named length's px at the default root size (16), as text: what
+    /// the DTCG export writes a text style or the hairline as.
+    pub sizes: Vec<(String, String)>,
 }
 
 impl Vocab {

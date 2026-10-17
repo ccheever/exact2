@@ -724,3 +724,103 @@ fn round_four_edges() {
     assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
     exact_tamber::apply_all(src, &import.ops, &vocab()).unwrap();
 }
+
+/// Stage 6 G: every kind is exported as its DTCG type (a length as a
+/// dimension, a text style as px at the default root size marked lossy, a
+/// type as typography with what it leaves unsaid named), re-imported
+/// unedited it proposes nothing, and a changed length or type proposes one
+/// line for the tuples it changed.
+#[test]
+fn every_kind_exports_as_its_type_and_round_trips() {
+    const KINDS: &str = "tamber kinds\n\naxes\n  density = regular | compact\n\ntheme\n  ink = #111111\n  space.row = 12px\n    when density=compact: 8px\n  size.title = -exact-title1\n  size.rem = 1.25rem\n  opacity.faded: number = 0.5\n  family.text = \"Inter\", system-ui\n  type.body = -exact-body/1.35 \"Inter\"\n  type.bold = italic 700 18px/22px Georgia, serif\n  shadow.card: box-shadow = 0 1px 2px #00000033\n  glow: text-shadow = 0 0 2px currentcolor\n  duration.fast = 150ms\n  easing.out = ease-out\n  easing.curve = cubic-bezier(0.2, 0, 0, 1)\n";
+    let (text, doc) = exported(KINDS);
+    let light = tokens(&doc, "density=regular, light");
+    let get = |name: &str| {
+        light
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, t)| t.clone())
+            .unwrap()
+    };
+    assert_eq!(get("space.row")["$type"], "dimension");
+    assert_eq!(
+        get("space.row")["$value"],
+        serde_json::json!({"value": 12.0, "unit": "px"})
+    );
+    assert_eq!(get("size.rem")["$value"]["unit"], "rem");
+    assert_eq!(get("size.title")["$value"]["unit"], "px");
+    assert_eq!(
+        get("size.title")["$extensions"]["exact"]["lossy"],
+        "-exact-title1"
+    );
+    assert_eq!(get("opacity.faded")["$type"], "number");
+    assert_eq!(
+        get("family.text")["$value"],
+        serde_json::json!(["Inter", "system-ui"])
+    );
+    let body = get("type.body");
+    assert_eq!(body["$type"], "typography");
+    assert_eq!(body["$value"]["lineHeight"], 1.35);
+    assert_eq!(
+        body["$extensions"]["exact"]["unsaid"],
+        serde_json::json!(["fontWeight"])
+    );
+    assert_eq!(get("shadow.card")["$type"], "shadow");
+    assert_eq!(get("glow")["$extensions"]["exact"]["kind"], "text-shadow");
+    assert_eq!(
+        get("duration.fast")["$value"],
+        serde_json::json!({"value": 150.0, "unit": "ms"})
+    );
+    assert_eq!(
+        get("easing.out")["$value"],
+        serde_json::json!([0.0, 0.0, 0.58, 1.0])
+    );
+    let import = reimport(&text, std::slice::from_ref(&text), KINDS, &vocab()).unwrap();
+    assert!(import.ops.is_empty(), "{:?}", import.ops);
+    assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
+    // A length changed in the compact tuple only, both its sides.
+    let mut doc = doc;
+    for c in ["density=compact, light", "density=compact, dark"] {
+        let tree = &mut doc["modifiers"]["mode"]["contexts"][c][0];
+        tree["space"]["row"]["$value"] = serde_json::json!({"value": 6, "unit": "px"});
+        tree["type"]["body"]["$value"]["lineHeight"] = serde_json::json!(1.5);
+    }
+    let names: Vec<String> = doc["modifiers"]["mode"]["contexts"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    assert!(
+        names.iter().any(|n| n == "density=compact, light"),
+        "{names:?}"
+    );
+    let import = reimport(
+        &doc.to_string(),
+        std::slice::from_ref(&text),
+        KINDS,
+        &vocab(),
+    )
+    .unwrap();
+    assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
+    let set: Vec<(String, Vec<(String, String)>, String)> = import
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            Op::SetToken {
+                name, when, value, ..
+            } => Some((name.clone(), when.clone(), value.clone())),
+            _ => None,
+        })
+        .collect();
+    let compact = vec![("density".to_string(), "compact".to_string())];
+    assert!(
+        set.contains(&("space.row".into(), compact.clone(), "6px".into())),
+        "{set:?}"
+    );
+    // The style kept, its size unchanged; a family's identifiers bare.
+    assert!(
+        set.contains(&("type.body".into(), compact, "-exact-body/1.5 Inter".into())),
+        "{set:?}"
+    );
+}

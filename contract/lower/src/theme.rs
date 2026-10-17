@@ -106,6 +106,18 @@ pub fn vocab() -> tamber::Vocab {
             exact_kernel::TEXT_STYLES.iter().map(|s| (s.name, s.alias)),
             exact_kernel::NAMED_LENGTHS.iter().copied(),
         ),
+        sizes: tamber::Vocab::named_lengths(
+            exact_kernel::TEXT_STYLES.iter().map(|s| (s.name, s.alias)),
+            exact_kernel::NAMED_LENGTHS.iter().copied(),
+        )
+        .into_iter()
+        .filter_map(|name| {
+            use exact_kernel::style::relative::{parse, MEDIUM};
+            let (unit, n) = parse(&name)?;
+            let px = f64::from(unit.basis(MEDIUM, MEDIUM, 1.0) * n);
+            Some((name, exact_num::Shortest(px).to_string()))
+        })
+        .collect(),
     }
 }
 

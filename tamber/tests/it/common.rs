@@ -37,8 +37,18 @@ pub fn vocab() -> Vocab {
             .iter()
             .map(|l| l.as_str().unwrap()),
     );
+    let sizes = named_lengths
+        .iter()
+        .filter_map(|name| {
+            use exact_kernel::style::relative::{parse, MEDIUM};
+            let (unit, n) = parse(name)?;
+            let px = f64::from(unit.basis(MEDIUM, MEDIUM, 1.0) * n);
+            Some((name.clone(), px.to_string()))
+        })
+        .collect();
     Vocab {
         roles,
         named_lengths,
+        sizes,
     }
 }

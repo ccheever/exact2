@@ -555,8 +555,9 @@ Module 2025.10, as `bun exact.mjs tamber export dtcg <app>` writes it, from the 
   what it wrote there, the newest 16, in a directory whose own `.gitignore` (`*`) keeps them out of
   every commit. A link in a baseline's place is replaced, never written through.
 - **The document.** One modifier, `mode`, whose contexts are the full tuples (every app-axis tuple,
-  then `light` and `dark`, named `axis=value, …, light`), each a complete set of the colour tokens,
-  checked to read back as the colour a host renders before it is written. The header is the root
+  then `light` and `dark`, named `axis=value, …, light`), each a complete set of the design's
+  tokens (every kind since stage 6 G, under *1.9*), a colour checked to read back as the colour a
+  host renders before it is written. The header is the root
   `$extensions["exact"]` of the one token document of a set `exact`, first in `resolutionOrder`
   (the resolver's own root takes no `$extensions`): `export` (`"tamber-dtcg/1"`), `design`,
   `digest`, `conversions`, `axes`, `contexts` (each context's `modes` and `scheme`) and `dials`.
@@ -566,6 +567,23 @@ Module 2025.10, as `bun exact.mjs tamber export dtcg <app>` writes it, from the 
   plain colour; `role` or `platform`, for a value at that role's or platform colour's fallback;
   `overrides`, for a role override, exported as a token named for the role's row (`AccentColor`);
   `lossy`, the CSS of a colour past Oklab's range (an HDR one), clipped.
+- **Every other kind** (stage 6 G) takes its DTCG type, one value in light and dark:
+  - a length `dimension`, px or `rem`; an `em`, a text style or the hairline as px at the default
+    root size (16), `lossy` its source;
+  - a number `number`;
+  - a family `fontFamily`, its members unquoted;
+  - a type `typography`, every property written: what the token leaves unsaid (the text style's
+    weight and leading, the family) as the web's default, named in `unsaid`; a style in
+    `fontStyle`; a line height that is no number in `leading`; a text style's size `lossy`;
+  - a shadow `shadow`, a text shadow marked `kind: "text-shadow"`, `currentcolor` as black marked
+    `currentcolor`;
+  - a duration `duration` in ms;
+  - an easing `cubicBezier`, a keyword as its curve, a `steps()`, `linear()` or spring as
+    `linear`'s, `lossy` its source.
+
+  An icon is no token of the export. Re-imported, a changed value proposes the line that wins
+  where every tuple it wins in moved to it, else a `when` naming the tuple's axes. An unchanged
+  part keeps its source: a type's text style where its size did not move.
 - **A design that does not check** is refused as a read is.
 - **Importing it back** (`import` with `kind: "dtcg"` and the export as its one source). The file is
   read as the export when it has the header, or the export's shape (a set `exact`, then the one
