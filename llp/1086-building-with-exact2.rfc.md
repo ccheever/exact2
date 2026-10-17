@@ -604,17 +604,6 @@ it). A native host empties the store's whole tree at its first boot: the
 `app:/` data, cache and temporary roots, the data module's SQLite files, kept
 state and secrets (`host/apple/src/picker.rs`, `host/linux/src/picker.rs`).
 
-**A drive without `--storage` (2026-10-17):** it gets a throwaway store, so
-an app's first screen under the agent is its first launch, not a refused
-storage source that looks like an app bug (the euxy port's first drive). LLP
-1018 and 1027 refuse storage in agent mode so that a drive never reads or
-writes the app's real files; a throwaway store is apart from them too. It is
-the drive's own: the temporary Chrome profile on the web; on macOS and Linux
-`_drive.r<pid>-<tag>.t0` under the store base, removed after the drive (one a
-killed drive left goes at the next); on a simulator, a phone or Android one
-`_drive` tree, emptied at each launch. `open()` from a script, the sample
-host's two sessions and authored tests are as they were.
-
 
 **EX7 visibility (2026-10-14):** before opening any test browser, `test web` prints
 `fresh: reseeding before each of N tests`, counting the compiled tests that actually

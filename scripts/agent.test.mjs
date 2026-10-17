@@ -298,14 +298,6 @@ test('a named store starts empty on every host unless the drive keeps it', async
       assert.equal(await main([host, '--storage', 's1', ...flags, 'state'], { open: fakeOpen, driveServer: async () => null }), 0);
       assert.equal(env?.EXACT_AGENT_STORAGE_FRESH === '1', fresh, `${host} ${flags.join(' ')}`);
     }
-    // None named: a throwaway store, empty, the drive's own; the sample host's two sessions get none.
-    for (const [host, store] of [['ios', /^_drive$/], ['web', /^_drive$/], ['linux', /^_drive\.r\d+-[0-9a-z]+\.t0$/], ['host-ios', undefined]]) {
-      let opened;
-      const fakeOpen = async (o) => { opened = o; return { state: async () => ({}), close: async () => {} }; };
-      assert.equal(await main([host, 'state'], { open: fakeOpen, driveServer: async () => null }), 0);
-      if (store) { assert.match(opened.storage, store, host); assert.equal(opened.throwaway, true); assert.equal(opened.env?.EXACT_AGENT_STORAGE_FRESH, '1'); }
-      else assert.equal(opened.storage, undefined, host);
-    }
   } finally { [console.log, console.error] = quiet; }
 });
 

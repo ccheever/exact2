@@ -170,7 +170,7 @@ export function netOptions(environment = process.env) {
 /** Own a named Chrome profile before resetting it, including when two drives
  * choose different page ports. The OS releases the lock if the driver dies. */
 export async function exclusiveWebStore(options, launch) {
-  if (options.storage === undefined || options.throwaway || options.browser !== 'chrome' || options.reuse) return launch();
+  if (options.storage === undefined || options.browser !== 'chrome' || options.reuse) return launch();
   const app = resolveApp(options.app), store = driveStore(app, options.storage, options.env);
   mkdirSync(store.base, {recursive: true});
   let release, acquired;

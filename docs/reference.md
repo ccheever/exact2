@@ -631,10 +631,9 @@ one of its own, removed after it. A data module's `secret.keep` rides that same
 store: files under the named tree on Apple and Linux, `localStorage` in the named
 web profile. Apple native modules receive the same named data, cache and temporary
 roots across launches. A fresh drive clears them; the picker's temporary documents
-alone are cleared on each launch. A CLI drive with no `--storage` has a throwaway store of its own (`_drive`),
-empty at launch and gone after it. A drive opened from a script (`open()`) that names
-none refuses app storage (`storage is unavailable in agent mode unless the drive names
-a scratch store (--storage <name>)`) and keeps no secrets. The driver's `state.storage` says
+alone are cleared on each launch. A drive with no `--storage` refuses app storage (`storage is unavailable
+in agent mode unless the drive names a scratch store (--storage <name>)`) and keeps
+no secrets. The driver's `state.storage` says
 which (`{available: false, code: 'agent', message}` or `{available: true,
 store}`), and the journal says `storage refused (agent): …` the first time
 a write is refused (a refused read finds what an empty store would: nothing), which
@@ -1464,9 +1463,9 @@ JSON result or the host's message. The operations:
 
 Grant what it touches: `sqlite.open app:/data/x.db`, `fs.read app:/data`,
 `fs.write app:/data`. Storage is asynchronous and starts after first pixel. It
-is absent at build, so `query` answers a placeholder, and in a script's drive
-(`open()`) that names no scratch store: there `response` is an error, and the source
-answers as if nothing were kept. `--storage <name> --keep-storage` gives a drive a store kept
+is absent at build, so `query` answers a placeholder, and in a scripted drive
+that names no scratch store: there `response` is an error, and the source
+answers as if nothing were kept. `--storage <name>` gives a drive a store kept
 between drives; an authored test gets an empty one, and its `reload` restarts
 on it. A game's data crate takes these crates from the SDK
 (`exact-data.workspace = true`, `serde_json.workspace = true`).

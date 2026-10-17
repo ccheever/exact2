@@ -161,8 +161,7 @@ nothing): the window asks its `beforeunload` first, and the reply says
 `--storage <name>` gives a drive a named scratch store, emptied when the drive
 starts unless it is given `--keep-storage`, on macOS, iOS, Linux and web Chrome (a browser profile served on one port per
 name; a Firefox or WebKit drive starts fresh each time, so a name there lasts
-for the drive, including its `reload`). Without it a CLI drive has an empty
-store of its own, gone after it; a drive a script opens (`open()`) without one has no
+for the drive, including its `reload`). Without it a drive has no
 app storage: an `app:/` file or SQLite request is refused (`storage is unavailable
 in agent mode unless the drive names a scratch store (--storage <name>)`), so an
 app that keeps its data there does nothing on a write; a chosen document (`doc:/`)
