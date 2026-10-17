@@ -137,6 +137,27 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertNotNil(tint.resolvedColor(with: tabs.tabBar.traitCollection).cgColor)
     }
 
+    /// A tablist whose accent is the app's tint (`AccentColor`) leaves the
+    /// bar to inherit it. Behind an alert UIKit dims an inherited tint once;
+    /// a bar tint read from a view's dimmed tint was dimmed again, and the
+    /// selected tab went grey where a hand-built app's stays dark.
+    func testABarOnTheAppTintDimsOnceBehindAnAlert() throws {
+        let session = try fixture("tint-inherited")
+        let p = session.presenter, list = try node(session, "tabs")
+        let tabs = try XCTUnwrap(p.navigation.tabController)
+        p.apply(wireBatch([["op": "style", "id": Int(list.id), "style": ["accent_color": ["sys": "@tint"], "written": ["accent_color"]]]]))
+        // Inherited, the bar's tint is whatever its container's is, and
+        // UIKit dims it once with the container's.
+        tabs.view.tintColor = .systemRed
+        let traits = tabs.tabBar.traitCollection
+        XCTAssertEqual(tabs.tabBar.tintColor.resolvedColor(with: traits), UIColor.systemRed.resolvedColor(with: traits))
+        // An authored colour is the bar's own again.
+        p.apply(wireBatch([["op": "style", "id": Int(list.id), "style": ["accent_color": [0x38, 0x38, 0xf5, 255], "written": ["accent_color"]]]]))
+        var rgb: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        tabs.tabBar.tintColor.resolvedColor(with: traits).getRed(&rgb.0, green: &rgb.1, blue: &rgb.2, alpha: &rgb.3)
+        XCTAssertEqual([rgb.0, rgb.1, rgb.2].map { Int(($0 * 255).rounded()) }, [0x38, 0x38, 0xf5])
+    }
+
     func testAppearanceToggleCoversSettleWithoutRepeatedDelivery() throws {
         let session = try fixture("authored-tabs-settle")
         let p = session.presenter, view = try XCTUnwrap(session.view)

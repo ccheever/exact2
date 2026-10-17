@@ -269,6 +269,16 @@ extension NavigationHost {
         var view: UIView? = list
         while let at = view, (at as? NodeView)?.channels("accent_color", dark: false) == nil { view = at.superview }
         let source = view as? NodeView
+        // An accent that is the app's tint (`AccentColor`) is left for the
+        // bar to inherit, as a hand-built app leaves its bar's. Read from a
+        // view, the tint behind an alert or a menu is already dimmed
+        // (`tintAdjustmentMode`), and the bar would dim it a second time.
+        if case .object(let o)? = source?.style["accent_color"], o["sys"]?.string == "@tint" {
+            guard tabTint != [] else { return }
+            tabTint = []
+            bar.tintColor = nil
+            return
+        }
         let wanted = [source?.channels("accent_color", dark: false), source?.channels("accent_color", dark: true)]
         guard wanted != tabTint else { return }
         tabTint = wanted
