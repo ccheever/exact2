@@ -628,6 +628,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             node.paragraphOwner.invalidateText()
             node.paragraphOwner.setNeedsDisplay()
             node.applyStyle(node.style)
+            node.presenter?.flats.appearanceChanged(node.id)
             // Its paint motion resolves in its own appearance (LLP 1062 D4),
             // a `color-scheme` above it included (LLP 1034 §8).
             node.presenter?.session?.noteAppearance(node)

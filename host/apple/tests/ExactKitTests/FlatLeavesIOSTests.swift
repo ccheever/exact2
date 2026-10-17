@@ -51,7 +51,7 @@ final class FlatLeavesIOSTests: XCTestCase {
     }
     /// A bar as the host sends one: its rows, and which of them its author
     /// wrote (LLP 1115.000 D2), which a leaf does not paint.
-    private func bar(_ id: Int, x: Double, color: [Int] = [0, 122, 255, 255]) -> [[String: Any]] {
+    private func bar(_ id: Int, x: Double, color: Any = [0, 122, 255, 255]) -> [[String: Any]] {
         [["op": "create", "id": id, "kind": "view",
           "style": ["width": 3.0, "height": 20.0, "background_color": color,
                     "border_radius_top_left": 1.5, "border_radius_top_right": 1.5,
@@ -262,6 +262,25 @@ final class FlatLeavesIOSTests: XCTestCase {
         XCTAssertNil(FlatPaint(["position_type": "relative"]))
         XCTAssertNil(FlatPaint(["position_type": "absolute"]))
         XCTAssertNotNil(FlatPaint(["position_type": "static"]))
+    }
+
+    func testALightDarkLeafPaintsInItsParentsAppearance() throws {
+        let light = [199, 199, 204, 255], dark = [72, 72, 74, 255]
+        let p = presenter([["op": "create", "id": 1, "kind": "view"]]
+            + bar(2, x: 0, color: [light, dark]) + bar(3, x: 5, color: [light, dark])
+            + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+               ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 20.0]])
+        XCTAssertTrue(p.flats.isFlat(2) && p.flats.isFlat(3))
+        let parent = try XCTUnwrap(p.views[1])
+        func fills() -> [CGColor?] { parent.layer.sublayers?.map(\.backgroundColor) ?? [] }
+        func color(_ c: [Int]) -> CGColor { UIColor(red: CGFloat(c[0]) / 255, green: CGFloat(c[1]) / 255, blue: CGFloat(c[2]) / 255, alpha: 1).cgColor }
+        XCTAssertFalse(parent.layer.sublayers?.contains { $0 is CAShapeLayer } ?? true, "each its own layer, as its view's")
+        XCTAssertEqual(fills(), [color(light), color(light)])
+        parent.overrideUserInterfaceStyle = .dark
+        parent.updateTraitsIfNeeded()
+        XCTAssertEqual(fills(), [color(dark), color(dark)], "the parent's appearance changed: they repaint")
+        XCTAssertNil(FlatPaint(["background_color": [[199, 199, 204, 255], [72, 72, 74, 255]], "color_scheme": "dark"]), "its own scheme needs a view")
+        XCTAssertNotNil(FlatPaint(["background_color": [199, 199, 204, 255], "color_scheme": "dark"]), "a fixed fill paints alike in either")
     }
 
     func testFlatRunOccludesNegativeControlButNotItsGapsOrHigherRanks() throws {

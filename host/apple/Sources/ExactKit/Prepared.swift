@@ -36,16 +36,25 @@ final class PreparedAnimation {
 /// A flat leaf's paint (LLP 1068 §6.1), read once from its style: nil when
 /// the style paints something a bare layer cannot.
 struct FlatPaint: Equatable {
-    /// The fill's RGBA bytes, and the colour made from them.
-    let rgba: [Double]?
-    let fill: CGColor?
+    /// The fill's RGBA bytes in the light and the dark appearance (the same
+    /// unless the fill is a `light-dark()` pair), and the colours made from them.
+    let light: [Double]?
+    let dark: [Double]?
+    private let lightFill: CGColor?
+    private let darkFill: CGColor?
     /// Top-left, top-right, bottom-right, bottom-left, each at least 0.
     let radii: [CGFloat]
     let hidden: Bool
 
     static let space = CGColorSpace(name: CGColorSpace.extendedSRGB)!
 
-    static func == (a: FlatPaint, b: FlatPaint) -> Bool { a.rgba == b.rgba && a.radii == b.radii && a.hidden == b.hidden }
+    static func == (a: FlatPaint, b: FlatPaint) -> Bool { a.light == b.light && a.dark == b.dark && a.radii == b.radii && a.hidden == b.hidden }
+
+    /// A `light-dark()` pair: it resolves in the appearance of the view the
+    /// leaf is drawn in, as the pair on a view resolves in the view's.
+    var followsScheme: Bool { light != dark }
+    func rgba(dark: Bool) -> [Double]? { dark ? self.dark : light }
+    func fill(dark: Bool) -> CGColor? { dark ? darkFill : lightFill }
 
     /// Layout rows (the kernel's) and rows a childless, textless box never
     /// paints: they do not stop a leaf being flat.
@@ -77,9 +86,10 @@ struct FlatPaint: Equatable {
             case "position_type":
                 guard value.string == "static" else { return nil }
             case "background_color":
-                // A fixed colour only: a `light-dark()` pair follows the
-                // owning view's appearance, which a layer has not.
-                guard let c = value.numbers, c.count == 4 else { return nil }
+                // A fixed colour or a `light-dark()` pair of them. A platform
+                // colour also follows contrast and elevation, and a colour in
+                // its own space needs a view's layer.
+                guard value.numbers?.count == 4 || (value.array != nil && value.isSchemeColor) else { return nil }
             case "border_width", "border_width_top", "border_width_right", "border_width_bottom", "border_width_left":
                 guard value.number == 0 else { return nil }
             case "border_color_top", "border_color_right", "border_color_bottom", "border_color_left":
@@ -90,11 +100,18 @@ struct FlatPaint: Equatable {
                 return nil
             }
         }
-        let c = style["background_color"]?.numbers
-        rgba = c
+        let value = style["background_color"]
+        light = value?.channels(dark: false)
+        dark = value?.channels(dark: true)
+        // Its own `color-scheme` would resolve the pair apart from its parent.
+        if light != dark, ["light", "dark"].contains(style["color_scheme"]?.string ?? "") { return nil }
         // UIKit's colours are extended sRGB; a view's fill is one.
-        fill = c.flatMap { CGColor(colorSpace: FlatPaint.space, components: [$0[0] / 255, $0[1] / 255, $0[2] / 255, $0[3] / 255]) }
-            .flatMap { $0.alpha > 0 ? $0 : nil }
+        func color(_ c: [Double]?) -> CGColor? {
+            c.flatMap { CGColor(colorSpace: FlatPaint.space, components: [$0[0] / 255, $0[1] / 255, $0[2] / 255, $0[3] / 255]) }
+                .flatMap { $0.alpha > 0 ? $0 : nil }
+        }
+        lightFill = color(light)
+        darkFill = light == dark ? lightFill : color(dark)
         radii = [style["border_radius_top_left"], style["border_radius_top_right"],
                  style["border_radius_bottom_right"], style["border_radius_bottom_left"]]
             .map { CGFloat(max(0, $0?.number ?? 0)) }

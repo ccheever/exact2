@@ -37,6 +37,8 @@ final class FlatLeaf {
     var opacity: Float = 1
     /// The node whose children op placed it.
     var parent: UInt32?
+    /// The appearance its paint resolved in: its parent view's.
+    var dark = false
     init(id: UInt32, style: NodeStyle, paint: FlatPaint) {
         self.id = id; self.style = style; self.paint = paint
         layer.delegate = FlatAction.shared
@@ -150,6 +152,24 @@ final class FlatLeaves {
     }
     func styleChanged(_ id: UInt32) { reconsider.insert(id) }
 
+    /// `parent`'s appearance changed (its trait-change registration): its
+    /// `light-dark()` leaves repaint in the new one.
+    func appearanceChanged(_ parent: UInt32) {
+        guard order[parent] != nil else { return }
+        resolveScheme(under: parent)
+        if dirty.contains(parent) { presenter.afterBatch { [weak self] in self?.flush() } }
+    }
+    /// Each `light-dark()` leaf under `parent` in the parent view's appearance.
+    private func resolveScheme(under parentID: UInt32) {
+        guard let ids = order[parentID], let parent = presenter.views[parentID] else { return }
+        let dark = parent.drawsDark
+        for id in ids {
+            guard let leaf = leaves[id], leaf.paint.followsScheme, leaf.dark != dark else { continue }
+            leaf.dark = dark
+            paint(leaf)
+        }
+    }
+
     private func demote(_ id: UInt32) {
         guard let view = presenter.views[id], view.kind == "view", view.paintRank == 0,
               view.handlers.isEmpty, view.props.isEmpty, view.subviews.isEmpty, !holdsLeaves(id),
@@ -222,7 +242,7 @@ final class FlatLeaves {
     private func paint(_ leaf: FlatLeaf) {
         let s = leaf.paint
         let bounds = CGRect(origin: .zero, size: leaf.frame.size)
-        let fill = s.fill
+        let fill = s.fill(dark: leaf.dark)
         let r = s.radii
         let sums = [r[0] + r[1], r[3] + r[2], r[0] + r[3], r[1] + r[2]]
         let edges = [bounds.width, bounds.width, bounds.height, bounds.height]
@@ -272,11 +292,14 @@ final class FlatLeaves {
 
     /// Every leaf is rank zero; promotion removes other ranks before runs
     /// form. What a run shares: one fill, one radius on all four corners (or none),
-    /// shown whole. A leaf that is not alike stands alone.
+    /// shown whole. A leaf that is not alike stands alone, and so does a
+    /// `light-dark()` leaf: its layer paints the pixels its view did, where a
+    /// run's path antialiases the edges a layer leaves sharp at fractional
+    /// pixel positions (a 5×5 LED glyph's cells went soft).
     private struct RunKey: Equatable { let rgba: [Double]; let radius: CGFloat }
     private func runKey(_ leaf: FlatLeaf) -> RunKey? {
         let s = leaf.paint
-        guard leaf.opacity == 1, !s.hidden, let c = s.rgba, c.count == 4, c[3] > 0 else { return nil }
+        guard leaf.opacity == 1, !s.hidden, !s.followsScheme, let c = s.light, c.count == 4, c[3] > 0 else { return nil }
         let r = s.radii
         guard r.allSatisfy({ $0 == r[0] }) else { return nil }
         return RunKey(rgba: c, radius: r[0])
@@ -299,6 +322,7 @@ final class FlatLeaves {
         reconsider.removeAll()
         for id in candidates { demote(id) }
         guard !dirty.isEmpty else { return }
+        for parentID in dirty { resolveScheme(under: parentID) }
         let parents = dirty
         dirty.removeAll()
         CATransaction.begin(); CATransaction.setDisableActions(true)
