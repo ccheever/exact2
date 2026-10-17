@@ -5,7 +5,7 @@
 // @ref llp/1109.006-review-and-files.decision.md#mobile-presentation
 import type { DiffFileModel } from './shared/diff';
 type Hunk = DiffFileModel['hunks'][number];
-export type ReviewPatchFile = DiffFileModel & { id: string };
+export type ReviewPatchFile = DiffFileModel & { id: string; pureRename: boolean };
 const gitNames = /^diff --git ("a\/(?:[^"\\]|\\.)*"|a\/.+?) ("b\/(?:[^"\\]|\\.)*"|b\/.+?)$/;
 const hunkRange = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 const filename = /^(---|\+\+\+)\s+([^\t\r\n]+)/;
@@ -62,7 +62,7 @@ function unifiedParts(text: string): string[] {
   parts.push(part); return parts;
 }
 function fileOf(blob: string, git: boolean, id: string): ReviewPatchFile {
-  const file: ReviewPatchFile = { id, path: '', previous: '', status: 'modified', additions: 0, deletions: 0, binary: false, hunks: [] };
+  const file: ReviewPatchFile = { id, path: '', previous: '', status: 'modified', additions: 0, deletions: 0, binary: false, hunks: [], pureRename: false };
   const parts = splitPrefix(blob, '@@ '), headers = linesOf(parts[0]);
   for (const raw of headers) {
     const line = raw.trimEnd(), names = line.startsWith('diff --git') ? line.match(gitNames) : null;
@@ -74,9 +74,9 @@ function fileOf(blob: string, git: boolean, id: string): ReviewPatchFile {
       continue;
     }
     if (git) {
-      if (line.startsWith('new file mode')) file.status = 'added';
-      else if (line.startsWith('deleted file mode')) file.status = 'deleted';
-      else if (line.startsWith('similarity index')) file.status = 'renamed';
+      if (line.startsWith('new file mode')) { file.status = 'added'; file.pureRename = false; }
+      else if (line.startsWith('deleted file mode')) { file.status = 'deleted'; file.pureRename = false; }
+      else if (line.startsWith('similarity index')) { file.status = 'renamed'; file.pureRename = line.startsWith('similarity index 100%'); }
       else if (line.startsWith('rename from ') || line.startsWith('copy from ')) file.previous = decodeName(line.slice(line.startsWith('rename') ? 12 : 10));
       else if (line.startsWith('rename to ') || line.startsWith('copy to ')) file.path = decodeName(line.slice(line.startsWith('rename') ? 10 : 8));
       else if (line.startsWith('Binary files ') || line === 'GIT binary patch') file.binary = true;
@@ -111,7 +111,7 @@ function fileOf(blob: string, git: boolean, id: string): ReviewPatchFile {
     }
     file.hunks.push(hunk);
   }
-  if (!git && file.previous && file.previous !== file.path) file.status = 'renamed';
+  if (!git && file.previous && file.previous !== file.path) { file.status = 'renamed'; file.pureRename = file.hunks.length === 0; }
   if (!file.path) file.path = file.previous;
   return file;
 }

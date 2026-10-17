@@ -4,7 +4,7 @@ import { obj, type Obj } from './shared/domain';
 import type { Native, Files } from './shared/protocol';
 import { messageContext } from './shared/composer-editor';
 import { mobileReviewRead, mobileReviewAction, mobileReviewSnapshot } from './review-data';
-import { reviewPatch, reviewSuppression, reviewFileRows } from './review-model';
+import { reviewPatch, reviewFileRows } from './review-model';
 
 const patch = (path = 'src/a.ts') => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1,2 +1,2 @@\n const before = 1;\n-old\n+new\n`;
 function fixture() {
@@ -99,11 +99,75 @@ describe('mobile review source rules and real shared RPC ownership', () => {
     f.client.threadId = 'other'; await expect(act(f, 'save', '', 'Wrong thread', 0, view.owner)).rejects.toMatchObject({ kind: 'superseded' });
     expect(f.client.draft).toBe('');
   });
-  test('large/non-text suppression and raw/truncated fallback use pinned boundaries', () => {
-    const file = reviewPatch(patch()).files[0]!;
-    expect(reviewSuppression(file)).toBe(''); expect(reviewSuppression({ ...file, path: 'image.png' })).toBe('non-text');
-    file.hunks[0]!.lines = Array.from({ length: 401 }, (_, n) => ({ kind: 'addition', text: 'x', old: 0, next: n + 1 }));
-    expect(reviewSuppression(file)).toBe('large');
+  test.each([
+    { name: '401-line TypeScript body', path: 'many.ts', lines: Array.from({ length: 401 }, (_, n) => `const value${n} = ${n};`) },
+    { name: 'long TypeScript line', path: 'long.ts', lines: ['x'.repeat(24_010)] },
+    { name: 'PNG text body', path: 'image.png', lines: ['plain text'] },
+    { name: 'ICNS text body', path: 'icon.icns', lines: ['plain text'] },
+    { name: 'uppercase AAC text body', path: 'sound.AAC', lines: ['plain text'] },
+  ])('native Review renders $name without a preview gate', async ({ path, lines }) => {
+    const f = fixture(), diff = `diff --git a/${path} b/${path}\nnew file mode 100644\n--- /dev/null\n+++ b/${path}\n@@ -0,0 +1,${lines.length} @@\n${lines.map(line => '+' + line).join('\n')}\n`;
+    f.hook(request => request.method === 'review.getDiffPreview' ? { ok: true, generation: 3,
+      value: { cwd: '/repo', sources: [{ kind: 'branch-range', diff }] } } : undefined);
+    const view = await read(f), rendered = view.rows.filter(row => row.kind === 'line');
+    expect(rendered.map(row => row.text)).toEqual(lines);
+    expect(rendered.map(row => [row.oldNumber, row.newNumber])).toEqual(lines.map((_, n) => ['', String(n + 1)]));
+    expect(view.rows.filter(row => row.kind === 'hunk')).toHaveLength(1);
+    expect(view.rows.filter(row => row.kind === 'notice' || row.kind === 'suppressed')).toEqual([]);
+    expect(view.rows.some(row => row.action === 'reveal')).toBe(false);
+    expect(f.calls.map(request => request.op === 'http' ? request.path : request.method)).toEqual(['/api/auth/session', 'review.getDiffPreview']);
+    expect(f.client.draft).toBe('');
+    const id = view.files[0]!.id;
+    expect((await act(f, 'toggle', id)).data.rows.map(row => row.kind)).toEqual(['file']);
+    expect((await act(f, 'toggle', id)).data.rows.filter(row => row.kind === 'line').map(row => row.text)).toEqual(lines);
+  });
+  test.each([
+    { name: 'binary PNG', diff: 'diff --git a/image.png b/image.png\nBinary files a/image.png and b/image.png differ\n', notice: 'Unsupported format. Diff contents are not available.', hunks: 0 },
+    { name: 'binary ICNS', diff: 'diff --git a/icon.icns b/icon.icns\nGIT binary patch\n', notice: 'Unsupported format. Diff contents are not available.', hunks: 0 },
+    { name: 'binary uppercase AAC', diff: 'diff --git a/sound.AAC b/sound.AAC\nGIT binary patch\n', notice: 'Unsupported format. Diff contents are not available.', hunks: 0 },
+    { name: 'unknown binary extension', diff: 'diff --git a/data.dat b/data.dat\nGIT binary patch\n', notice: '', hunks: 0 },
+    { name: '100% rename', diff: 'diff --git a/old.txt b/new.txt\nsimilarity index 100%\nrename from old.txt\nrename to new.txt\n', notice: 'This file was renamed without modifications.', hunks: 0 },
+    { name: '99% rename without an available body', diff: 'diff --git a/old.txt b/new.txt\nsimilarity index 99%\nrename from old.txt\nrename to new.txt\n', notice: '', hunks: 0 },
+    { name: 'unified rename fallback', diff: '--- old.txt\n+++ new.txt\n', notice: 'This file was renamed without modifications.', hunks: 0 },
+    { name: 'new empty text file', diff: 'diff --git a/empty.txt b/empty.txt\nnew file mode 100644\n', notice: '', hunks: 0 },
+    { name: 'deleted empty text file', diff: 'diff --git a/empty.txt b/empty.txt\ndeleted file mode 100644\n', notice: '', hunks: 0 },
+    { name: 'mode-only text file', diff: 'diff --git a/mode.txt b/mode.txt\nold mode 100644\nnew mode 100755\n', notice: '', hunks: 0 },
+    { name: 'new-file type overrides similarity', diff: 'diff --git a/old.txt b/new.txt\nsimilarity index 100%\nnew file mode 100644\n', notice: '', hunks: 0 },
+    { name: 'non-text rename priority', diff: 'diff --git a/old.png b/new.png\nsimilarity index 100%\nrename from old.png\nrename to new.png\n', notice: 'Unsupported format. Diff contents are not available.', hunks: 0 },
+    { name: 'empty hunk is still a parsed row', diff: 'diff --git a/image.png b/image.png\n--- a/image.png\n+++ b/image.png\n@@ -0,0 +0,0 @@\n', notice: '', hunks: 1 },
+  ])('native Review no-row notice for $name', async ({ diff, notice, hunks }) => {
+    const f = fixture();
+    f.hook(request => request.method === 'review.getDiffPreview' ? { ok: true, generation: 3,
+      value: { cwd: '/repo', sources: [{ kind: 'branch-range', diff }] } } : undefined);
+    const view = await read(f);
+    expect(view.files).toHaveLength(1);
+    expect(view.rows.filter(row => row.kind === 'line')).toEqual([]);
+    expect(view.rows.filter(row => row.kind === 'hunk')).toHaveLength(hunks);
+    expect(view.rows.filter(row => row.kind === 'notice').map(row => [row.title, row.detail, row.action])).toEqual(notice ? [['', notice, '']] : []);
+    expect(view.rows.filter(row => row.kind === 'suppressed')).toEqual([]);
+  });
+  test.each(['truncated', 'error'])('lazy %s notices take priority over no-row format notices', async outcome => {
+    const f = fixture(), path = 'image.png'; let release!: (value: unknown) => void, entered!: () => void;
+    const gate = new Promise(resolve => { release = resolve; }), started = new Promise<void>(resolve => { entered = resolve; });
+    const source = (diff: string, truncated: boolean) => ({ cwd: '/repo', sources: [{ kind: 'branch-range', diffHash: 'lazy', truncated,
+      files: [{ path, previousPath: null, additions: 0, deletions: 0 }], diff }] });
+    f.hook(request => {
+      if (request.method !== 'review.getDiffPreview') return;
+      if (obj(obj(request.payload).file).path) { entered(); return gate; }
+      return { ok: true, generation: 3, value: source('', true) };
+    });
+    const reading = read(f); await started; const pending = mobileReviewSnapshot(false, f.client);
+    release(outcome === 'error' ? { ok: false, generation: 3, error: { kind: 'io', message: 'Read failed' } }
+      : { ok: true, generation: 3, value: source(`diff --git a/${path} b/${path}\nGIT binary patch\n`, true) });
+    const settled = await reading;
+    expect(pending.rows.filter(row => row.kind === 'notice').map(row => [row.detail, row.action])).toEqual([['Loading diff…', '']]);
+    expect(pending.rows.filter(row => row.kind === 'line' || row.kind === 'suppressed')).toEqual([]);
+    expect(settled.rows.filter(row => row.kind === 'notice').map(row => [row.detail, row.action])).toEqual(outcome === 'error'
+      ? [['Could not load diff. Select the file to retry.', 'retry']]
+      : [['File preview exceeds the size limit. Counts include all changes.', '']]);
+    expect(settled.rows.filter(row => row.kind === 'line' || row.kind === 'suppressed')).toEqual([]);
+  });
+  test('raw and truncated fallback retain their pinned explanations', () => {
     expect(reviewPatch('unexpected\n[truncated]').notice).toContain('server size cap');
     expect(reviewPatch('unexpected').rawReason).toBe('Unsupported diff format. Showing raw patch.');
   });
