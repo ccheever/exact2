@@ -263,6 +263,8 @@ function replaceNodes(element, nodes) {
   for (const node of nodes) element.append(node); // no argument-stack bound on rich text
 }
 
+const forwardedKeys = new WeakSet();
+
 function paintContent(span, fragment, state, lineHeight) {
   const children = [];
   // Binary search avoids scanning all inline runs for every fragment.
@@ -278,11 +280,23 @@ function paintContent(span, fragment, state, lineHeight) {
       // Original listeners remain valid by kernel view identity while detached.
       // Forward authored events only; a plain <a> keeps its native default.
       for (const event of new Set(original.exactFlowEvents ?? [])) clone.addEventListener(event, e => {
-        e.stopPropagation();
+        const keyboard = e.type === 'keydown' || e.type === 'keyup';
+        if (keyboard) {
+          // The copy bubbles through the detached authored chain; outer clones must not send it again.
+          if (forwardedKeys.has(e)) return;
+          forwardedKeys.add(e);
+        } else e.stopPropagation();
         const forwarded = new e.constructor(e.type, e);
+        if (keyboard) for (const method of ['stopPropagation', 'stopImmediatePropagation']) {
+          // Chrome clears cancelBubble after dispatch, so carry native stops while they happen.
+          forwarded[method] = () => { e[method](); Event.prototype[method].call(forwarded); };
+        }
         forwarded.exactStopped = e.exactStopped; forwarded.$stopped = e.$stopped;
         if (e.defaultPrevented) forwarded.preventDefault();
         if (!original.dispatchEvent(forwarded)) e.preventDefault();
+        if (keyboard) {
+          e.exactStopped = forwarded.exactStopped; e.$stopped = forwarded.$stopped;
+        }
       });
       if (inner) inner.append(clone); else outer = clone;
       inner = clone;

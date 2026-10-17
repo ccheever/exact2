@@ -514,7 +514,7 @@ function syncViewportFit() {
 }
 function attach(el, id, handlers) {
   el.dataset.view = String(id); el.exactHandlers = handlers; if (handlers.length) el.dataset.exactOn = handlers.join(" "); else delete el.dataset.exactOn;
-  el.exactFlowEvents = [...new Set(handlers.flatMap(k => ({ press: ["click"], hover: ["pointerenter", "pointerleave"], focus: ["focus"], blur: ["blur"], focusin: ["focusin"], focusout: ["focusout"], key: ["keydown"], keycapture: ["keydown"] }[k] ?? [])))];
+  el.exactFlowEvents = [...new Set(handlers.flatMap(k => ({ press: ["click"], hover: ["pointerenter", "pointerleave"], focus: ["focus"], blur: ["blur"], focusin: ["focusin"], focusout: ["focusout"], key: ["keydown"], keycapture: ["keydown"], keyup: ["keyup"] }[k] ?? [])))];
   if (el.exactMedia) el.exactMedia.handlers = handlers;
   if (handlers.includes("message")) messageViews.add(id);
   const on = (event, handle, capture = false) => el.addEventListener(event, (e) => {
