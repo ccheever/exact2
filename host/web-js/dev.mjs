@@ -11,7 +11,7 @@
 // shows its errors in the page and the page keeps the last good build.
 // `host/web/dev.mjs --wasm` is the resident wasm loop (a plan restarts in
 // place in ~20 ms, state carried).
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer, request } from 'node:http';
 import { copyFileSync, existsSync, lstatSync, readFileSync, realpathSync, renameSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
@@ -175,7 +175,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // a value-only edit's and a scrub's. Optimised (host-dev), built as the
   // loop starts and again after any edit that is not a design's, so it is
   // the compiler the builds use; until it is, the debug compiler answers.
-  const tool = { path: resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'host-dev/exact-web-js'), ready: false, built: null, child: null, reading: null };
+  const tool = { path: resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'host-dev/exact-web-js'), ready: false, built: null, child: null, reading: null, cleaner: null };
   // Cargo and the compilers it runs, as a group (stopped together).
   const stopGroup = (child) => { if (!child) return; try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill(); } };
   // What a failed build said: each error with the lines that explain it (a
@@ -193,6 +193,40 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     out.push(...lines.slice(-4).map(cut));
     return [...new Set(out)].slice(0, 60).join('\n');
   };
+  // A link that wants `.llvm.<hash>` symbols of a crate's own objects is
+  // that crate's incremental state gone stale (the checkout's sources moved
+  // under it, as a branch switch does, host-dev being incremental): each
+  // workspace crate whose object or archive wanted such a symbol (macOS
+  // ld's `referenced from`, LLD's `referenced by`, GNU ld's `in function`,
+  // read per symbol) is cleaned from host-dev and the reader built again,
+  // once. Cargo's lock on target/ keeps the clean from
+  // running under another build there.
+  const workspace = () => {
+    const meta = spawnSync('cargo', ['metadata', '--no-deps', '--format-version', '1'], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
+    try { return new Map(JSON.parse(meta.stdout).packages.map((p) => [p.name.replaceAll('-', '_'), p.name])); } catch { return new Map(); }
+  };
+  const staleCrates = (text, packages) => {
+    const crates = new Set(), lines = text.split('\n');
+    const collect = (l) => { for (const m of l.matchAll(/\b(?:lib)?([a-z_][a-z0-9_]*)-[0-9a-f]{16}\b/g)) crates.add(m[1]); };
+    const header = /"([^"]+)", referenced from:|undefined (?:hidden )?symbol: (\S+)/;
+    lines.forEach((l, i) => {
+      // macOS ld's and LLD's: a missing symbol, then the lines that want it.
+      const block = header.exec(l);
+      if (block) {
+        if (!/\.llvm\.\d+/.test(block[1] ?? block[2])) return;
+        for (let j = i + 1; j < lines.length && lines[j].trim() && !header.test(lines[j]); j++) collect(lines[j]);
+        return;
+      }
+      // GNU ld's: the object on the line, or the `in function` line above.
+      const gnu = /undefined reference to [`'"]([^`'"]+)/.exec(l);
+      if (gnu && /\.llvm\.\d+/.test(gnu[1])) {
+        collect(l);
+        if (i > 0 && /in function/.test(lines[i - 1])) collect(lines[i - 1]);
+      }
+    });
+    return [...crates].map((c) => packages.get(c)).filter(Boolean);
+  };
+  let cleaned = false;
   const buildTool = () => {
     tool.ready = false;
     stopGroup(tool.child);
@@ -211,6 +245,21 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       // For the builds' copy: the date this build gave it, while it still has
       // it (not on a filesystem that keeps a coarser one: the debug compiler).
       tool.built = tool.ready && mtimeMs(tool.path) === started.getTime() ? started.getTime() : null;
+      const stale = !tool.ready && !signal && !cleaned && !stopping ? staleCrates(err, workspace()) : [];
+      if (stale.length) {
+        cleaned = true;
+        console.log(`the design reader did not link (stale incremental state in ${stale.join(', ')}): cleaning ${stale.length === 1 ? 'it' : 'them'} from host-dev and building it again`);
+        // A group of its own, which the loop's stop ends too.
+        const clean = tool.cleaner = spawn('cargo', ['clean', '-q', '--profile', 'host-dev', ...stale.flatMap((c) => ['-p', c])], { cwd: root, stdio: 'ignore', detached: true });
+        clean.on('exit', (code) => {
+          if (tool.cleaner !== clean) return;
+          tool.cleaner = null;
+          if (stopping) return;
+          if (code === 0) buildTool();
+          else console.log(`the design reader did not build (design edits take the full build): cleaning ${stale.join(', ')} failed`);
+        });
+        return;
+      }
       if (!tool.ready && !signal) console.log(`the design reader did not build (design edits take the full build):\n${readerFailure(err)}`);
       if (tool.ready) console.log('design reader ready');
     });
@@ -763,7 +812,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   };
   const stop = async () => {
     stopping = true;
-    for (const w of watchers) w.close(); building?.kill('SIGKILL'); stopGroup(tool.child); stopGroup(tool.reading); residentChild?.kill('SIGTERM'); server.close();
+    for (const w of watchers) w.close(); building?.kill('SIGKILL'); stopGroup(tool.child); stopGroup(tool.reading); stopGroup(tool.cleaner); residentChild?.kill('SIGTERM'); server.close();
     // The design server lets go of its lock before this exits.
     await tamber?.close();
     // A local iOS build in flight is stopped and waited for, as the resident loop does.
@@ -776,9 +825,9 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   process.on('SIGHUP', stop);
   watchLauncher(stop);
   // (and on [::1], for a localhost URL: the design tool's canvas)
-  await alsoOnIPv6Loopback(server, port).catch((e) => { console.error(`cannot listen on [::1]:${port}: ${e.code} (another server there would answer a localhost URL; --port <n> picks another)`); stopGroup(tool.child); process.exit(1); });
+  await alsoOnIPv6Loopback(server, port).catch((e) => { console.error(`cannot listen on [::1]:${port}: ${e.code} (another server there would answer a localhost URL; --port <n> picks another)`); stopping = true; stopGroup(tool.child); stopGroup(tool.cleaner); process.exit(1); });
   await new Promise((ok, fail) => { server.on('error', fail); server.listen(port, host, ok); })
-    .catch((e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); stopGroup(tool.child); process.exit(1); });
+    .catch((e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); stopping = true; stopGroup(tool.child); stopGroup(tool.cleaner); process.exit(1); });
   const urls = origins.map((o) => `${o.origin}/`);
   console.log(urls.join('\n'));
   console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));
