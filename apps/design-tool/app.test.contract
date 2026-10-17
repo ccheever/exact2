@@ -123,6 +123,17 @@ test "typed fields by kind: each edits its part of the value and leaves the rest
   type "part-unit-field" "em"
   expect state editTarget == "space.edge"
   expect state editValue == "12em"
+  // So does Only this mode starting a fresh draft after another edit, and
+  // after a whole-value edit.
+  type "part-amount-field" "20"
+  type "branch-value" "24px"
+  type "branch-value" key "Enter"
+  type "dial-gap-slider" "12"
+  tap "only-this-mode"
+  expect state editValue == "12px"
+  type "part-unit-field" "rem"
+  expect state editValue == "12rem"
+  tap "cancel-edit"
   // A shadow list: per shadow, inset, its lengths and its colour (a token's
   // name, which it keeps: no pin), every other shadow as written.
   tap "cell-shadow.ring-0-light"

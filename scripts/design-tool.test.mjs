@@ -1007,8 +1007,9 @@ async function kindsOnTheJsLoop() {
         const snapshot = design.status === 200 ? await design.json() : null;
         const builds = (await (await fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': (await (await fetch(`${TOOL_ORIGIN}/__tamber/token`)).json()).token }, body: '{"method":"hello"}' })).json()).ok.builds;
         const frame = builds.find(b => b.host === 'web-js');
-        if ((frame && (!snapshot || frame.design === snapshot.design)) || Date.now() > end) {
-          seen.push({ connects: connects(), snapshot, frame, file: readFileSync(join(app, 'app.tamber'), 'utf8') });
+        const synced = !!frame && !!snapshot && frame.design === snapshot.design;
+        if (synced || Date.now() > end) {
+          seen.push({ synced, connects: connects(), snapshot, frame, file: readFileSync(join(app, 'app.tamber'), 'utf8') });
           return;
         }
         await Bun.sleep(100);
@@ -1040,6 +1041,8 @@ async function kindsOnTheJsLoop() {
     const states = replies.filter(r => r.resources);
     const trees = replies.filter(r => r.nodes);
     const [before, during, kept] = seen;
+    // Each look found the frame running the design the loop serves.
+    expect(seen.map(l => l.synced)).toEqual([true, true, true]);
     expect(states[0].resources.proposal).toMatchObject({ ok: true, active: true, chip: 'live' });
     expect(trees[0].nodes.some(n => n.props.testId === 'part-amount-field')).toBe(true);
     expect(states[1].resources.scrub).toMatchObject({ ok: true, live: true, ready: true });
@@ -1048,7 +1051,7 @@ async function kindsOnTheJsLoop() {
     expect(during.frame.id).toBe(before.frame.id);
     expect(during.connects).toBe(before.connects);
     expect(during.frame.design).not.toBe(before.frame.design);
-    if (during.snapshot) expect(JSON.stringify(during.snapshot)).toContain('16px');
+    expect(JSON.stringify(during.snapshot)).toContain('16px');
     expect(during.file).toBe(original);
     // Keep: one line, the value previewed; the same build, no reload.
     const line = '  space.card = 12px';
@@ -1222,7 +1225,7 @@ test('typed fields: every value joins back byte for byte, and a field edits only
     expect(joined(p.parts, p.tail)).toBe(v);
   }
   // No field where none fits: a function, a named length, an expression, a kind with none.
-  for (const [kind, v] of [['length', 'calc(1px + 2px)'], ['length', '-exact-hairline'], ['number', 'lift'], ['box-shadow', '0 red'], ['box-shadow', '0 1px 2px red blue'], ['text-shadow', 'inset 0 1px red'], ['text-shadow', '1px 1px red, 0 0 blue'], ['type', 'type.body'], ['type', 'normal 16px'], ['type', 'oblique 16px'], ['box-shadow', '0 1px 2px#000'], ['duration', '200ms'], ['color', '#fff']]) expect(partsOf(kind, v, isLength)).toBeNull();
+  for (const [kind, v] of [['length', 'calc(1px + 2px)'], ['length', '-exact-hairline'], ['number', 'lift'], ['box-shadow', '0 red'], ['box-shadow', '0 1px 2px red blue'], ['text-shadow', 'inset 0 1px red'], ['text-shadow', '1px 1px red, 0 0 blue'], ['type', 'type.body'], ['type', 'normal 16px'], ['type', 'oblique 16px'], ['type', 'italic 600 normal'], ['box-shadow', '0 1px 2px#000'], ['box-shadow', 'red.0 1px 2px'], ['duration', '200ms'], ['color', '#fff']]) expect(partsOf(kind, v, isLength)).toBeNull();
   // Each word read as the server reads it: a signed or exponent length is a
   // length, not the colour; a weight with a fraction is the weight; a weight
   // before `italic` leaves `italic` the size, as typeface.rs refuses it.

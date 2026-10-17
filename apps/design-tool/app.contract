@@ -547,6 +547,8 @@ component DesignTool
   state rawFor = ""
   state partTexts: string[] = []
   state partFor = ""
+  // The branch (by its value) a cell's token draft was typed against.
+  state draftFor = ""
   state newName = ""
   state newValue = ""
   state renameTo = ""
@@ -598,9 +600,11 @@ component DesignTool
   // The branch by what it is, not which read: a read that gives the same
   // value back (after a scrub cancelled, an undo elsewhere) keeps the cut.
   derive branchKey = `${branch.token}␟${branch.column}␟${branch.when}␟${branch.value}`
-  derive partsBase = rawFor == branchKey ? rawBase : branch.value
+  derive partsBase = rawFor == branchKey and editKind == "set-token" and editTarget == branch.token ? rawBase : branch.value
   resource typed = loadParts(branch.kind, partsBase, design.answer) as shape Typed else empty(ok=false)
-  derive partsKey = `${branchKey}␟${typed.of}`
+  // The cut by its value and its parts (a reread that reads a name as
+  // another kind cuts it otherwise, and a draft of the old cut is stale).
+  derive partsKey = `${branchKey}␟${typed.of}␟${typed.parts.map(p => p.key).join(",")}`
   // The fields' texts: the draft's while it is this cell's token edit from
   // this cut, else the cut's own (another edit replaced it, or none).
   derive fieldDraft = partFor == partsKey and editKind == "set-token" and editTarget == branch.token
@@ -609,9 +613,9 @@ component DesignTool
   // place before a later part that is written): emptied, a later part would
   // read in its place, so nothing is drafted until they are filled.
   derive partMissing = typed.parts.filter(p => p.control != "fixed" and fieldTexts.slice(p.index, p.index + 1).join("") == "" and (not p.optional or (p.after >= 0 and fieldTexts.slice(p.after, p.after + 1).join("") != ""))).map(p => p.label).join(", ")
-  // A field draft whose cut is not the branch's now (its value moved under
-  // it): stale, as one for another branch is.
-  derive partsStale = editKind == "set-token" and editTarget == branch.token and partFor != "" and partFor != partsKey
+  // A cell's token draft typed against another value of its branch (it
+  // moved under it, a write elsewhere): stale, as one for another branch is.
+  derive partsStale = editKind == "set-token" and editTarget == branch.token and draftFor != "" and draftFor != branchKey
 
   // The oldest highlight here fades after 3 s, then the next.
   task fading when lit.names.length > 0 key=`${lit.epoch}-${lit.file}-${lit.seq}`
@@ -748,6 +752,7 @@ component DesignTool
     rawBase = v.trim()
     rawFor = branchKey
     partFor = ""
+    draftFor = branchKey
   action partEdit(i: number, v: string)
     // One typed field: the value with this part changed and every other as
     // written, so the line written changes only there.
@@ -756,6 +761,7 @@ component DesignTool
       let missing = typed.parts.filter(p => p.control != "fixed" and texts.slice(p.index, p.index + 1).join("") == "" and (not p.optional or (p.after >= 0 and texts.slice(p.after, p.after + 1).join("") != ""))).length > 0
       partTexts = texts
       partFor = partsKey
+      draftFor = branchKey
       editKind = "set-token"
       editTarget = branch.token
       editWhen = scopeOwn ? branch.own : branch.when
@@ -764,6 +770,10 @@ component DesignTool
     // A value already typed for this cell is kept, now for this mode alone.
     if not (editKind == "set-token" and editTarget == branch.token)
       editValue = branch.value
+      // A fresh draft: the fields are the value's, and it is of this value.
+      rawFor = ""
+      partFor = ""
+      draftFor = branchKey
     scopeOwn = true
     editKind = "set-token"
     editTarget = branch.token
@@ -818,7 +828,7 @@ component DesignTool
       scrubWant = true
   action keepScrub
     // The one write: what the server previews, once it is the draft.
-    if scrub.live and scrub.ready and not pending(scrub) and not pending(written)
+    if scrub.live and scrub.ready and not partsStale and not pending(scrub) and not pending(written)
       scrubTick = scrubTick + 1
       scrubWant = false
       send written = releaseScrub(file, editKind, editTarget, editWhen, editValue)
@@ -1274,7 +1284,7 @@ component DesignTool
                       else if scrub.open != ""
                         text (scrub.ready ? "Previewing: the running copies show this value, and the files are unchanged until Keep." : scrub.sending ? "Previewing: sending this value to the running copies…" : "Previewing the last value sent: this one is not previewed.") color="-exact-system-orange" testId="scrub-previewing"
                       row gap=8
-                        button press=keepScrub disabled=(not scrub.ok or not scrub.ready or pending(scrub) or pending(written)) buttonStyle="filled" testId="scrub-keep"
+                        button press=keepScrub disabled=(not scrub.ok or not scrub.ready or partsStale or pending(scrub) or pending(written)) buttonStyle="filled" testId="scrub-keep"
                           text "Keep"
                         button press=cancelScrub aria-keyshortcuts="Escape" testId="scrub-cancel"
                           text "Cancel scrub"

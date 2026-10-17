@@ -12,7 +12,8 @@ type Part = Result<'loadParts'>['parts'][number];
 // an exponent. With a unit after it, a dimension.
 const NUMBER = '[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?';
 const numeric = new RegExp(`^${NUMBER}[a-zA-Z%]*$`);
-const ITEM = new RegExp(`^(?:${NUMBER}[a-zA-Z%]*|#[0-9a-fA-F]+|-?[a-zA-Z_][\\w.-]*(?:\\(.*\\))?)$`, 's');
+// (A name's dots join names, as a token's do: `red.0` is a name and a number.)
+const ITEM = new RegExp(`^(?:${NUMBER}[a-zA-Z%]*|#[0-9a-fA-F]+|-?[a-zA-Z_][\\w-]*(?:\\.[a-zA-Z_-][\\w-]*)*(?:\\(.*\\))?)$`, 's');
 /** A name as Tamber reads a type token's whole value as one (typeface.rs's
  * `is_name`). */
 const isName = (t: string) => t !== '' && !/[\s/,"']/.test(t) && !/^[\d.]/.test(t);
@@ -174,7 +175,8 @@ function typeParts(value: string, kindOf: (name: string) => string | undefined):
     else if (!weight && (x === 'bold' || new RegExp(`^${NUMBER}$`).test(x))) parts.push(weight = part(0, 'weight', 'weight', 'text', x, { optional: true, post: w.gaps[i + 1] }));
     else break;
   }
-  if (i >= w.words.length) return null;
+  // The size's place: `normal` or `oblique` there is refused too.
+  if (i >= w.words.length || w.words[i] === 'normal' || w.words[i] === 'oblique') return null;
   // The size, its line height after a `/` touching it or apart.
   const sizeWord = w.words[i];
   const slash = sizeWord.indexOf('/');
