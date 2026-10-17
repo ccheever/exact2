@@ -18,6 +18,9 @@ mod emit_tests;
 mod events;
 mod faces;
 mod facts;
+mod inspect;
+#[cfg(test)]
+mod inspect_tests;
 mod measures;
 #[cfg(test)]
 mod measures_tests;
@@ -34,7 +37,28 @@ mod symbols;
 use std::process::ExitCode;
 
 const USAGE: &str =
-    "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites] [--dev-reload] [--app <dir>]\n       exact-web-js normalize-grants <file>\n       exact-web-js design <app.contract> <design text file, or - for stdin>";
+    "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites] [--dev-reload] [--app <dir>]\n       exact-web-js normalize-grants <file>\n       exact-web-js design <app.contract> <design text file, or - for stdin>\n       exact-web-js inspect-table <app.plan> <out.json>";
+
+/// `inspect-table <app.plan> <out.json>` (LLP 1122 T2b, the JS target): the
+/// plan's inspect table (inspect.rs), made when the dev loop is first asked
+/// for it, not by every build: seconds for a large app.
+fn inspect_table(plan: &str, out: &str) -> ExitCode {
+    exact_web::link(exact_web_capabilities::ALL);
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
+    let _every = modes::every(true);
+    let written = std::fs::read(plan)
+        .map_err(|e| e.to_string())
+        .and_then(|bytes| exact_plan::Plan::decode(&bytes).map_err(|e| format!("{e:?}")))
+        .and_then(|plan| emit::Sites::new(&plan).and_then(|sites| inspect::table(&plan, &sites)))
+        .and_then(|table| std::fs::write(out, table).map_err(|e| e.to_string()));
+    match written {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{plan}: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
 
 /// `design <app.contract> <file | ->` (LLP 1121 stage 4, commit 6): a scrub's
 /// design, the text (`-`: stdin) compiled in place of the app's design file, as a
@@ -88,6 +112,9 @@ fn main() -> ExitCode {
     if let [cmd, input, text] = all.as_slice() {
         if cmd == "design" {
             return scrub_design(std::path::Path::new(input), text);
+        }
+        if cmd == "inspect-table" {
+            return inspect_table(input, text);
         }
     }
     let sites = all.iter().any(|a| a == "--sites");

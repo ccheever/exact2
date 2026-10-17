@@ -123,15 +123,18 @@ pub fn element_children(plan: &Plan, sites: &crate::emit::Sites) -> Vec<Vec<u32>
     out
 }
 
-/// Every node's parts, by node index (`None` for a head, which is no element).
-pub fn project(
+/// The static tree as the kernel holds it: every site a view (`site + 1`)
+/// with its literal rows and props, under its element parent with every
+/// region's arms flattened in; with each node's element children. Its
+/// rows are what the parts are made from, and what the inspect table
+/// (inspect.rs) reads.
+pub fn static_tree(
     plan: &Plan,
     sites: &crate::emit::Sites,
-    warnings: &mut Vec<String>,
-) -> Result<Vec<Option<Parts>>, String> {
+) -> Result<(Kernel, Vec<Vec<u32>>), String> {
     let mut kernel: Kernel = template::kernel();
-    let mut ops = Vec::new();
     let view = |i: usize| -> ViewId { i as u32 + 1 };
+    let mut ops = Vec::new();
     for (i, node) in plan.nodes.iter().enumerate() {
         let node_type = NodeType::from_wire(node.node_type).ok_or("unknown node type")?;
         ops.push(Op::CreateView {
@@ -204,6 +207,17 @@ pub fn project(
     kernel
         .apply(0, 1, &ops)
         .map_err(|e| format!("kernel refused the static tree: {e:?}"))?;
+    Ok((kernel, tree))
+}
+
+/// Every node's parts, by node index (`None` for a head, which is no element).
+pub fn project(
+    plan: &Plan,
+    sites: &crate::emit::Sites,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<Option<Parts>>, String> {
+    let (kernel, tree) = static_tree(plan, sites)?;
+    let view = |i: usize| -> ViewId { i as u32 + 1 };
     // A text folds into its box's content (LLP 1007.001) only when the
     // template holds all of it: no bound row or prop but its text, no
     // handler, and not a repeated row (copies would join one block). A box
@@ -979,7 +993,7 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
 
 /// `host/web/src/css.rs` `property`: the row's name with `-` for `_`, but
 /// for the few spelled there.
-fn css_property(id: StyleId) -> String {
+pub(crate) fn css_property(id: StyleId) -> String {
     let name = match id {
         StyleId::TextColor => return "color".into(),
         StyleId::TintColor => return "--exact-tint".into(),

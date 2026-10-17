@@ -21,7 +21,7 @@ import { basename, dirname, isAbsolute, join, normalize, posix, relative, resolv
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { transformSync, parseSync } from 'rolldown/utils';
 import { localImports, stageHostGlue } from './glue.mjs';
-import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler, withoutDev } from './module.mjs';
+import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler, withInspectHooks, withoutDev } from './module.mjs';
 import { developmentStore } from '../../scripts/agent-launch.mjs';
 import { withLook } from '../web/look.mjs';
 
@@ -175,6 +175,8 @@ compiler.done();
 for (const f of ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js', 'persist.js', 'modes.js', 'beat.js', 'regions.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The live table's runtime is the dev loop's build's alone.
 if (!devReload) writeFileSync(resolve(gen, 'modes.js'), withoutDev(readFileSync(resolve(here, 'modes.js'), 'utf8')));
+// Inspect mode's hooks in the runtime are the dev loop's build's alone (module.mjs `withInspectHooks`).
+if (devReload) writeFileSync(resolve(gen, 'rt.js'), withInspectHooks(readFileSync(resolve(here, 'rt.js'), 'utf8')));
 // Canvas 2D surfaces (a loaded chunk: this runtime's engine over the web
 // host's own replayer) are drawn by the Rust data module, or by a
 // TypeScript source's `draw` in the page (ts-draw.js, in the same chunk).
