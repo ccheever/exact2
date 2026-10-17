@@ -697,7 +697,7 @@ impl<D: DataSource> Runner<D> {
         links: RunnerLinks,
         plan: Plan,
         mut data: D,
-        kernel: Kernel,
+        mut kernel: Kernel,
         seed: Seed<'_>,
         snapshot: Vec<(String, Vec<u8>)>,
         delivery: crate::delivery::Delivery,
@@ -825,9 +825,7 @@ impl<D: DataSource> Runner<D> {
         // Its own role overrides (LLP 1121 stage 5): bound while it boots, installed once it has.
         let roles = exact_kernel::style::roles::Roles::new(crate::bridge::role_overrides(&plan));
         let booting = exact_kernel::style::roles::bind(&roles);
-        // The person's Bold Text, before the first frame (LLP 1115.000 D12.3).
-        let mut kernel = kernel;
-        root_font::bold_text_facts(&mut kernel, &plan, viewport.preferences.bold_text);
+        root_font::bold_text_facts(&mut kernel, &plan, viewport.preferences.bold_text); // LLP 1115.000 D12.3
         let mut runner = Runner {
             sites: crate::instance::SiteIndex::linked(&plan, links.keyframes),
             strings: vm::intern(&plan),
@@ -1416,14 +1414,8 @@ impl<D: DataSource> Runner<D> {
         }
         let change = self.router_change()?;
         self.batch += 1;
-        let language = self.resolved_locale().to_owned();
-        let direction = if self.direction() == "rtl" {
-            exact_kernel::Direction::Rtl
-        } else {
-            exact_kernel::Direction::Ltr
-        };
+        let (language, direction) = self.document_facts();
         let shown = std::mem::take(&mut self.shown);
-        root_font::runtime_stacks(&mut self.kernel, &self.plan, &self.fonts.borrow());
         let mut receipt =
             match self
                 .kernel

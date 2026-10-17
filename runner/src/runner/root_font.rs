@@ -97,6 +97,20 @@ pub(super) fn system_stacks(
 }
 
 impl<D: DataSource> Runner<D> {
+    /// What a document commit tells the kernel beside its ops: the page's
+    /// language and direction. And first, a runtime font stack interned
+    /// since the last commit says whether it is the system's (LLP 1115.000
+    /// D12.3, [`runtime_stacks`]).
+    pub(super) fn document_facts(&mut self) -> (String, exact_kernel::Direction) {
+        runtime_stacks(&mut self.kernel, &self.plan, &self.fonts.borrow());
+        let direction = if self.direction() == "rtl" {
+            exact_kernel::Direction::Rtl
+        } else {
+            exact_kernel::Direction::Ltr
+        };
+        (self.resolved_locale().to_owned(), direction)
+    }
+
     /// The root font size in CSS pixels, as last set; 16 until a host says.
     pub fn root_font_size(&self) -> f64 {
         self.kernel.root_font_size() as f64
