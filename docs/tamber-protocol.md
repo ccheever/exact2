@@ -780,8 +780,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
     own hit view, that stands for a plan node, a walk that stops at a system bar or the title bar
     (a plan node the bar hosts, its title, a bar or toolbar item, a tab, is selected; UIKit's and
     AppKit's own parts, Back, a window button, the bar, select nothing, and the banner says so);
-    a finger down (the pointer over a view, on the Mac) highlights what it would select. tvOS
-    answers `inspect` unsupported. A build that registers again
+    a finger down (the pointer over a view, on the Mac) highlights what it would select. tvOS,
+    the Linux host and a development JS page (until the JS target names the capability) answer
+    `inspect` unsupported. A build that registers again
     is told inspect mode as the server holds it. A build that can says
     `inspect` among its `capabilities` (the wasm web page, and the iOS and Mac hosts; the JS
     target later). Development builds only.
