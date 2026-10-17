@@ -90,6 +90,7 @@ function reportRefused(r) {
     if (!maybe(r.rootFontSize, Number.isFinite) || !maybe(r.revision, v => Number.isSafeInteger(v) && v >= 0)) return '`rootFontSize` is a number and `revision` a whole number, or null';
   }
   if (r.kind === 'selected' && !maybe(r.inspect, v => Number.isSafeInteger(v) && v >= 0)) return '`inspect` is a whole number';
+  if (r.kind === 'selected' && !maybe(r.click, v => typeof v === 'string' && v.length > 0 && v.length <= 64)) return '`click` is a string of 1 to 64 characters';
   if (r.kind === 'unsupported' && (!maybe(r.what, v => text(v, 256)) || !maybe(r.detail, v => text(v, 4096)) || !maybe(r.revision, v => Number.isSafeInteger(v) && v >= 0))) return '`what` and `detail` are strings, and `revision` a whole number';
   return null;
 }
@@ -355,10 +356,11 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
      * inspect (`outline {sites, plan}`); a build running another plan
      * leaves it. The outlines are that client's: cleared on a build when it
      * goes (`clear`), unless another client's came since. */
-    outline(client, sites, plan) {
+    outline(client, sites, plan, click = null) {
       sweep();
       const to = listed().filter(b => b.capabilities?.includes('inspect')).map(b => b.id);
-      for (const t of to) { frame(t, sites == null ? { kind: 'outline', clear: true } : { kind: 'outline', sites, plan }); outliners.set(t, client); }
+      // (`click`: the click's token the outline answers, tamber/1.7.)
+      for (const t of to) { frame(t, sites == null ? { kind: 'outline', clear: true } : { kind: 'outline', sites, plan, ...(click ? { click } : {}) }); outliners.set(t, client); }
       return to;
     },
     /** A command a host does not speak yet (`hold`):

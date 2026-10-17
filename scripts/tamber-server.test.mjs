@@ -65,6 +65,10 @@ test('a stale selection asks its build again once per status, its status first; 
   // Current: joined, the token rung offered, every copy outlined.
   expect(report({ kind: 'selected', selected, plan: 'g1', design: 'd2', revision: 0 }).status).toBe(204);
   expect(frames.at(-1)).toEqual({ kind: 'outline', sites: [0], plan: 'p1' });
+  // A click's selection: the outline answering it names its token.
+  expect(report({ kind: 'selected', selected, click: '7-123', plan: 'g1', design: 'd2', revision: 0 }).status).toBe(204);
+  expect(frames.at(-1)).toEqual({ kind: 'outline', sites: [0], plan: 'p1', click: '7-123' });
+  expect(report({ kind: 'selected', selected, click: '', plan: 'g1', design: 'd2', revision: 0 }).status).toBe(400);
   await tamber.close();
 });
 
@@ -565,7 +569,7 @@ for (const [loop, flags] of [['the JS loop', []]]) {
     const { base, stop } = await devLoop(flags);
     try {
       const hello = await helloOf(base);
-      expect(hello.protocol).toBe('tamber/1.6');
+      expect(hello.protocol).toBe('tamber/1.7');
       expect(Object.keys(hello.files)).toContain('app.tamber');
       // The loop's own origin, which the design tool frames, and the page's
       // header that lets only the tool (and itself) frame it.

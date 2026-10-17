@@ -201,8 +201,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       const map = mapFor(sourceMap(), report.selected.planDigest);
       const selection = join(build, report.selected, map, { served: designServed(), design: designPath(appDir) });
       send({ event: 'selection', seq: ++seq, epoch, ...selection });
-      // Outlined as the client that owns inspect mode on that build.
-      if (selection.source) channel.outline(channel.inspector(build.id) ?? 'inspect', sitesAt(map, selection.source), map.digest);
+      // Outlined as the client that owns inspect mode on that build, naming
+      // the click it answers (its page does not scroll for it).
+      if (selection.source) channel.outline(channel.inspector(build.id) ?? 'inspect', sitesAt(map, selection.source), map.digest, report.click ?? null);
       return null;
     },
   });

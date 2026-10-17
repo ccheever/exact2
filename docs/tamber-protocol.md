@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.6`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.7`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.6"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.7"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -44,6 +44,8 @@ on macOS and Linux.
   `kind` (`color`, `length`, `number`), `resolve`'s length and number tuples, and `uses` over the rows
   of a length or number token's kind.
 - `tamber/1.6` (LLP 1122 T2b) added the `inspect` event: inspect mode's owners as they move.
+- `tamber/1.7` (LLP 1122 T2b) added a click's token on `selected`, which the `outline` answering it
+  names.
 
 ## Where it runs
 
@@ -705,9 +707,10 @@ The tool drives no input into an app; a command changes only what `prefer` would
   - `unsupported`: a command or batch it can't apply, by name (`what`), with the pin frame's
     `revision` when it is one (*1.3*, optional).
   - `selected` (*1.3*, LLP 1122 D5; the wasm web page sends it in inspect mode):
-    `{selected, inspect?, plan, design, revision}`, the number of the `inspect` command it was
-    made under (*1.6*; one since replaced is refused), the digests and pin revision the build
-    runs, and
+    `{selected, inspect?, click?, plan, design, revision}`, the number of the `inspect` command it
+    was made under (*1.6*; one since replaced is refused), a click's token (*1.7*, 1 to 64
+    characters: a selection a press made, re-sent when it is reported again), the digests and pin
+    revision the build runs, and
     `selected` `{node, type, testId, site, instance, planDigest, tuple, rows, trimmed}`: the
     node a press in inspect mode hit (the browser's hit test, as a real tap's), its plan site
     and instance path, the plan digest its map is for, the modes it is in (`tuple`: the
@@ -732,10 +735,13 @@ The tool drives no input into an app; a command changes only what `prefer` would
     is told inspect mode as the server holds it. A build that can says
     `inspect` among its `capabilities` (the wasm web page now; the JS target and natives later).
     Development pages only.
-  - `outline` (*1.3*) `{sites, plan}`: the sites of plan `plan` (its digest) to outline while
+  - `outline` (*1.3*) `{sites, plan, click?}`: the sites of plan `plan` (its digest) to outline while
     inspect mode is on, every copy of a node; an empty list clears the outlines, and so does
     `{clear: true}`. A build running another plan leaves its outlines as they are: a host never
-    reads a source map, so only the server resolves sites, from the map it has.
+    reads a source map, so only the server resolves sites, from the map it has. The outline
+    answering a selection names its `click` (*1.7*) when the report carried one: the host that
+    made that click does not scroll to the first copy for it (the copy clicked is under the
+    pointer); every other outline scrolls its first copy into view.
   - `hold` is reserved (stage 8). A host answers it `unsupported`.
 - **A selection joined to source** (*1.3*, LLP 1122 D5). The server takes a `selected` report
   only while the build is in someone's inspect mode (*1.6*: one sent as it ended, or naming an

@@ -427,7 +427,7 @@ if (es) {
   // with the digests the build runs. Development pages only: dev.js is not
   // in a release.
   const INSPECT_EVENTS = ["change", "input", "focus", "blur", "focusout", "compositionend", "cancel", "gotpointercapture", "lostpointercapture", "scroll", "scrollend", "drag", "dragenter", "dragover", "dragleave", "dragend", "pointerdown", "pointerup", "pointercancel", "pointerover", "pointerout", "pointerenter", "pointerleave", "click", "dblclick", "auxclick", "contextmenu", "mousedown", "mouseup", "mouseover", "mouseout", "touchstart", "touchmove", "touchend", "touchcancel", "wheel", "keydown", "keyup", "keypress", "beforeinput", "gesturestart", "gesturechange", "gestureend", "dragstart", "drop"];
-  const inspecting = { on: false, banner: null, outline: null, shield: null, cover: null, close: null, selected: null, press: null, seq: null, left: null };
+  const inspecting = { on: false, banner: null, outline: null, shield: null, cover: null, close: null, selected: null, press: null, seq: null, left: null, session: null };
   // A new generation: the outline drawn on its boxes goes, and the chrome is
   // made again if its tree took it away.
   outlineNone = () => { if (inspecting.outline) inspecting.outline.style.display = "none"; unmark(); if (inspecting.on) chrome(); };
@@ -462,7 +462,7 @@ if (es) {
   // digests and pin revision the build runs; trimmed to the report's room
   // (counted in bytes, as the server does), and said so; refused, named, if
   // even the node's identity does not fit.
-  const selectedReport = async (id) => {
+  const selectedReport = async (id, click = null) => {
     const x = globalThis.exact;
     await x.ready;
     if (x.stages?.()?.inspection === "staged") return { kind: "unsupported", what: "inspect", detail: "this build's inspection stage is not loaded" };
@@ -470,7 +470,8 @@ if (es) {
     if (node.error) return { kind: "unsupported", what: "inspect", detail: node.error };
     const design = x.designDigest ?? await designNow();
     // (Under the inspect command it was made in: one replaced since is refused.)
-    const envelope = (selected) => ({ kind: "selected", selected, inspect: inspecting.seq ?? undefined, plan: channel.plan, design, revision: channel.revision });
+    // (And a click's token, which the outline answering it names.)
+    const envelope = (selected) => ({ kind: "selected", selected, inspect: inspecting.seq ?? undefined, ...(click ? { click } : {}), plan: channel.plan, design, revision: channel.revision });
     let selected = { node: id, type: node.type, testId: node.props?.testId ?? null, site: node.site ?? null, instance: node.instance ?? [], planDigest: node.planDigest ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style ?? {}).map(([name, row]) => ({ name, ...row })), trimmed: false };
     if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, source, from, token }) => ({ name, value, source, from, token })), trimmed: true };
     while (bytes(envelope(selected)) > REPORT_BYTES && selected.rows.length) selected = { ...selected, rows: selected.rows.slice(0, Math.floor(selected.rows.length / 2)) };
@@ -480,15 +481,21 @@ if (es) {
   // A selection is its node in a generation: a refresh after another
   // generation finds the node by its site and instance path again, or says
   // it is gone.
-  const select = async (id, clicked = false) => {
+  // A click's selection carries a token (`click`), and the outline that
+  // answers it names it (tamber/1.7): that one leaves the page where it is,
+  // since the copy clicked is under the pointer. A refresh of it re-sends
+  // its token, so an answer to either report stays put. A token is this
+  // page's inspect session (a random prefix, new each time inspect mode
+  // starts) and a counter, so any click of the session is known, however
+  // many are on their way.
+  let clicks = 0;
+  const select = async (id, clicked = false, click = null) => {
     const seq = inspecting.seq;
-    const report_ = await selectedReport(id);
+    if (clicked) click = `${inspecting.session ??= crypto.getRandomValues(new Uint32Array(2)).join("")}.${++clicks}`;
+    const report_ = await selectedReport(id, click);
     // Left (or another command came) meanwhile: not published.
     if (!inspecting.on || inspecting.seq !== seq) return;
-    if (report_.kind === "selected") inspecting.selected = { id, generation: globalThis.exact.generation, plan: report_.selected.planDigest, site: report_.selected.site, instance: JSON.stringify(report_.selected.instance) };
-    // A click's: the outline the server answers it with (its site's copies,
-    // on its plan, within 10 s) leaves the page where it is.
-    if (clicked && report_.kind === "selected") inspecting.clicked = { site: report_.selected.site, plan: report_.selected.planDigest, at: performance.now() };
+    if (report_.kind === "selected") inspecting.selected = { id, click, generation: globalThis.exact.generation, plan: report_.selected.planDigest, site: report_.selected.site, instance: JSON.stringify(report_.selected.instance) };
     report(report_);
   };
   const refresh = async () => {
@@ -511,7 +518,7 @@ if (es) {
       if (found == null) { inspecting.selected = null; report({ kind: "unsupported", what: "inspect", detail: "the selected node is gone in this generation: select it again" }); return; }
       was.id = found;
     }
-    await select(was.id);
+    await select(was.id, false, was.click);
   };
   const swallow = (event) => {
     if (!inspecting.on) return;
@@ -603,13 +610,13 @@ if (es) {
       document.activeElement?.blur?.();
       chrome();
     } else {
-      inspecting.banner?.remove(); inspecting.outline?.remove(); inspecting.shield?.remove(); inspecting.cover?.remove(); unmark(); inspecting.clicked = null;
+      inspecting.banner?.remove(); inspecting.outline?.remove(); inspecting.shield?.remove(); inspecting.cover?.remove(); unmark(); inspecting.session = null;
       inspecting.banner = inspecting.outline = inspecting.shield = inspecting.cover = inspecting.close = inspecting.press = null;
     }
   };
   // `outline {sites, plan}` (D4, D5): every copy of the selected node, the
   // views of those plan sites, outlined while inspect mode is on (the first
-  // scrolled into view, unless they are the copies of one just clicked here;
+  // scrolled into view, unless the frame answers a click here (`click`);
   // then measured; kept on them as the page scrolls and resizes). A frame for another plan leaves the outlines as they are (a
   // host never reads a source map: the server resolves sites); an empty one
   // clears them; `clear` too.
@@ -625,19 +632,17 @@ if (es) {
     }
   };
   const outlineSites = (frame) => {
-    if (frame.clear) { unmark(); inspecting.clicked = null; return; }
+    if (frame.clear) { unmark(); return; }
     if (!inspecting.on) return;
     const views = ask({ op: "sites" });
     if (views.error || views.planDigest !== frame.plan || !Array.isArray(frame.sites)) return;
     unmark();
     const wanted = new Set(frame.sites);
     const found = views.sites.filter(([, site]) => wanted.has(site)).map(([id]) => globalThis.exact.views?.get(id)).filter((el) => el?.isConnected);
-    // The outline of a copy just clicked here scrolls nothing: that copy is
-    // (or was) under the pointer. Any other (the tool's Outline) brings the
-    // first in.
-    const c = inspecting.clicked, ours = !!c && c.plan === frame.plan && wanted.has(c.site) && performance.now() - c.at < 10_000;
-    if (ours) inspecting.clicked = null;
-    else found[0]?.scrollIntoView({ block: "nearest" });
+    // The outline answering a click here (its token) scrolls nothing: that
+    // copy is (or was) under the pointer. Any other (the tool's Outline)
+    // brings the first in.
+    if (!(inspecting.session && typeof frame.click === "string" && frame.click.startsWith(`${inspecting.session}.`))) found[0]?.scrollIntoView({ block: "nearest" });
     for (const el of found) {
       const mark = document.createElement("div");
       mark.dataset.exactOutline = "";
