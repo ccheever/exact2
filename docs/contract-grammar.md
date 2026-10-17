@@ -740,6 +740,7 @@ says. Every roster function has a row and an example, and each example written
 | `text.split(separator)` | `string[]`; the pieces between the separator's matches, left to right; `""` splits into UTF-16 code units (a cut surrogate half is U+FFFD), and `"".split("")` is `[]` | `"a,b,c".split(",")` is `["a", "b", "c"]` |
 | `text.replaceAll(find, with)` | String; every match of the string `find`, left to right; `$$`, `$&`, `` $` ``, `$'` in `with` (`$1` is literal); an empty `find` inserts at every code-unit boundary; no regular expressions | `"a-b-c".replaceAll("-", " ")` is `"a b c"` |
 | `text.toLowerCase()` | String; Unicode's default lowercase, final sigma kept, no locale (the web core links the case tables by use) | `"Milk".toLowerCase()` is `"milk"` |
+| `text.toUpperCase()` | String; Unicode's default uppercase through the same tables, its full mappings included (`"ß"` is `"SS"`), no locale. Text on screen is uppercased by `text-transform="uppercase"`, which each platform applies as it draws; `toUpperCase` is for a string handed elsewhere: a native view's argument, `share`, a value stored or sent | `"Straße".toUpperCase()` is `"STRASSE"` |
 | `first(T[])` | `option<T>` | `first([4, 5])` is `some(4)` |
 | `xs.at(index)` | `option<T>`; truncates index toward zero, negative from end | `[4, 5, 6].at(-1)` is `some(6)` |
 | `xs.map(callback)` | `U[]`; callback returns one value | `[1, 2].map(x => x * 10)` is `[10, 20]` |
@@ -791,7 +792,7 @@ locale (`"09:30" < "10:00"`, `"Z" < "a"`). `slice` and `replaceAll` work on code
 units as JavaScript does and make the whole result well formed once: a lone
 surrogate half is U+FFFD, since the native runners hold Unicode scalar values.
 A result past the runner's string bound (64 MiB of UTF-8) traps on every
-executor. `toUpperCase`, `padStart` and number parsing are not in Contract;
+executor. `padStart` is not in Contract;
 the refusals say what to write instead. Neither `indexOf` nor `split` takes
 the web's second argument (a start position, a limit), and `split` takes no
 regular expression.

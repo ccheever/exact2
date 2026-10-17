@@ -557,8 +557,8 @@ impl Gen<'_> {
             }
             5 => self.format_expr(env, d),
             // LLP 1088 D2: over UTF-16 code units, an astral string cut or
-            // split by an empty pattern; `toLowerCase` is left out, as the
-            // semantics leaves it out.
+            // split by an empty pattern; `toLowerCase` and `toUpperCase` are
+            // left out, as the semantics leaves them out.
             6 => {
                 let s = self.expr(env, &Ty::Str, d, false);
                 if self.rng.chance(1, 2) {

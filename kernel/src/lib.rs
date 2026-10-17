@@ -97,7 +97,9 @@ pub use style::{
     SegmentVar, StyleValue, Transitions, Vec2, ViewportUnit,
 };
 pub use text::case::link as link_text_transform;
-pub use text::case::{linked_lowercase, lowercase_bounded, Lowercase};
+pub use text::case::{
+    linked_lowercase, linked_uppercase, lowercase_bounded, uppercase_bounded, CaseMapping,
+};
 pub use text::{
     Markup, MonospaceMeasurer, OverEdge, ParagraphStamp, SymbolRequest, TextEdges,
     TextMeasureRequest, TextMeasurer, TextMetrics, TextRun, TextStyle, UnderEdge,

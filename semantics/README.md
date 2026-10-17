@@ -818,7 +818,12 @@ refused as unsupported rather than given a meaning: layout is out of
 scope. So are resources reading `exactTransport` and `exactMIDI` (LLP
 1125), which the runner answers from its transport and its MIDI ports and
 answers again as they play; the semantics models neither. `sendMIDI` and
-`requestMIDIAccess` are in, as commands. Routes are in
+`requestMIDIAccess` are in, as commands. `toLowerCase` and `toUpperCase`
+(LLP 1088 D2) are typed but left out: their mappings are Unicode's case
+tables, which the semantics does not carry, and the generator writes
+neither. The corpus checks them against the values Bun gives
+(`corpus/typescript/lowercase.contract`, `uppercase.contract`), the runner
+and the web runtime agreeing. Routes are in
 (`Contract/Route.lean`, the `exact_route` crate and the runner's plan
 boundary transcribed): the router slot starts at the launch of `/`, as the
 harness boots the runner, and a commit that leaves it holding an invalid

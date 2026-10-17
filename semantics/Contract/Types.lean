@@ -93,7 +93,7 @@ def unsupportedTy (name : String) (ts : List Ty) : Option Ty :=
     | _ => .none
   else if name = "frame" ∨ name = "measure" then
     match ts with | [.string] => .some (.record "Geometry") | _ => .none
-  else if name = "toLowerCase" then match ts with | [.string] => .some .string | _ => .none
+  else if name = "toLowerCase" ∨ name = "toUpperCase" then match ts with | [.string] => .some .string | _ => .none
   else if name = "elementFromPoint" then
     match ts with | [.number, .number] => .some (.option .string) | _ => .none
   else .none

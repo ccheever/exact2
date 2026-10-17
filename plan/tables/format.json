@@ -1553,6 +1553,12 @@
       "params": ["any", "any", "bool"],
       "returns": "any",
       "_comment": "@ref LLP 1116.016 §5 (Charlie, 2026-10-17): `sortBy(list<T>, (T, number) => K, \"asc\" | \"desc\"?) -> list<T>` with `K` a number or a string (the type checker's). Lowered as the list bound once as a local, a `Map` of the key callback over it (one list step an item, the key evaluated once an item), then this call on (the list, its keys, descending): the items in a stable order of their keys, a bottom-up merge sort written out alike in the runner and the JS target. Numbers by `<` with NaN as +0 (so -0, +0 and NaN tie); strings by UTF-16 code units, as `<`; equal keys keep their input order in both directions. The call takes no list step: its n·⌈log₂ n⌉ comparisons are the stated cost (LLP 1116.016 D0); the list it builds is measured as `List` measures one."
+    },
+    {
+      "name": "toUpperCase",
+      "params": ["string"],
+      "returns": "string",
+      "_comment": "@ref LLP 1088 D2 (admitted 2026-10-17): JavaScript's `String.prototype.toUpperCase()`: Unicode's default, locale-independent full mapping, expansions included (`ß` is `SS`). Linked by use through the same case tables as `toLowerCase` (capability `text_transform`), bounded by `MAX_STRING`. Displayed text is uppercased by `text-transform`, not by this."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

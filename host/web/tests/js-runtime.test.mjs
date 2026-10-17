@@ -777,8 +777,8 @@ test('capture stop ends Exact key handlers but leaves Enter submission and the b
 
 // LLP 1088 D2: the roster's string entries are JavaScript's, made well formed, and `replaceAll` is bounded by the
 // runner's MAX_STRING as it builds (a quadratic `$\`` stops there), throwing the runner's trap at the call's pc (budget.js).
-test('slice, replaceAll and toLowerCase are the web methods, well formed and bounded', async () => {
-  const { x_slice: slice, x_replaceAll: replaceAll, x_toLowerCase: toLowerCase } = await import(resolve(dir, 'budget.js'));
+test('slice, replaceAll, toLowerCase and toUpperCase are the web methods, well formed and bounded', async () => {
+  const { x_slice: slice, x_replaceAll: replaceAll, x_toLowerCase: toLowerCase, x_toUpperCase: toUpperCase } = await import(resolve(dir, 'budget.js'));
   const x_slice = (s, a, b) => slice(s, a, b, 0, 4);
   const x_replaceAll = (s, f, w) => replaceAll(s, f, w, 4), x_toLowerCase = s => toLowerCase(s, 4);
   expect([x_slice('calc', 0, -1), x_slice('hello', -3, Infinity), x_slice('a😀b', 1, 2), x_slice('hello', NaN, 2.9)]).toEqual(['cal', 'llo', '�', 'he']);
@@ -786,6 +786,7 @@ test('slice, replaceAll and toLowerCase are the web methods, well formed and bou
     expect(x_replaceAll(s, f, w)).toBe(s.replaceAll(f, w).toWellFormed());
   expect(x_replaceAll('😀', '', '-')).toBe('-�-�-');
   expect([x_toLowerCase('ΟΣ'), x_toLowerCase('İ'), x_toLowerCase('ABC')]).toEqual(['ος', 'i̇', 'abc']);
+  expect([toUpperCase('straße', 4), toUpperCase('ﬃ', 4), toUpperCase('\ud800a', 4)]).toEqual(['STRASSE', 'FFI', '\ufffdA']);
   expect(() => x_replaceAll('x'.repeat(10000), '', "$`$'")).toThrow('Trap(StringTooLong { pc: 4 })');
   // The bound at a smaller limit, as the runner's own tests take it (strings.rs `replace_all(…, max)`): a result
   // that ends on a completed surrogate pair past it traps too (review b5-a 1: "xxx" → three emoji is 12 bytes).
@@ -1147,6 +1148,11 @@ test('string builders check expanded size before calling their builders', async 
   String.prototype.toLowerCase = function () { if (this.length > 65536) throw new Error('lowercase built before its bound'); return lower.call(this); };
   try { expect(() => B.x_toLowerCase('İ'.repeat(22369622), 56)).toThrow('Trap(StringTooLong { pc: 56 })'); }
   finally { String.prototype.toLowerCase = lower; }
+  // `ŉ` is 2 bytes and `ʼN` 3: 22,369,622 of them pass the bound only once uppercased.
+  const upper = String.prototype.toUpperCase;
+  String.prototype.toUpperCase = function () { if (this.length > 65536) throw new Error('uppercase built before its bound'); return upper.call(this); };
+  try { expect(() => B.x_toUpperCase('ŉ'.repeat(22369622), 57)).toThrow('Trap(StringTooLong { pc: 57 })'); }
+  finally { String.prototype.toUpperCase = upper; }
 });
 
 test('translation expansion stops when its output exceeds the byte budget', async () => {

@@ -289,17 +289,21 @@ export function x_replaceAll(s, find, w, pc, max = MAX) {
   if (high && bytes + 3 > max) throw new Trap("StringTooLong", pc);
   return out.join("").toWellFormed();
 }
-/** `toLowerCase(s)` (LLP 1088 D2): the browser's whole-string mapping, context rules kept, with bytes checked in chunks before building a large result. */
-export function x_toLowerCase(s, pc) {
+/** `toLowerCase(s)` and `toUpperCase(s)` (LLP 1088 D2): the browser's whole-string mapping, context rules kept, with bytes
+ * checked in chunks before building a large result (a final sigma's two forms are both 2 bytes, and uppercasing has no
+ * context rule, so the chunks' bytes are the whole's). */
+function cased(s, map, pc) {
   if (9 * s.length > MAX) {
     let bytes = 0;
     for (let at = 0; at < s.length;) {
       let end = Math.min(at + 65536, s.length);
       if (end < s.length && s.charCodeAt(end - 1) >= 0xd800 && s.charCodeAt(end - 1) <= 0xdbff && s.charCodeAt(end) >= 0xdc00 && s.charCodeAt(end) <= 0xdfff) end++;
-      bytes += utf8(s.slice(at, end).toLowerCase().toWellFormed());
+      bytes += utf8(map(s.slice(at, end)).toWellFormed());
       if (bytes > MAX) throw new Trap("StringTooLong", pc);
       at = end;
     }
   }
-  return str(s.toLowerCase().toWellFormed(), pc);
+  return str(map(s).toWellFormed(), pc);
 }
+export const x_toLowerCase = (s, pc) => cased(s, t => t.toLowerCase(), pc);
+export const x_toUpperCase = (s, pc) => cased(s, t => t.toUpperCase(), pc);

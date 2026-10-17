@@ -100,6 +100,7 @@ fn checked(f: Stdlib) -> bool {
             | Stdlib::EncodeRouteSegment
             | Stdlib::ReplaceAll
             | Stdlib::ToLowerCase
+            | Stdlib::ToUpperCase
     )
 }
 

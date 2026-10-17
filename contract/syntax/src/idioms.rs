@@ -12,7 +12,7 @@ pub const NOW_REFUSED: &str = "`now()` is not in Contract: write `performanceNow
 /// The roster functions written as a call on their first argument, the web's
 /// method of the same name and meaning (@ref LLP 1116.015 D2): `s.trim()`,
 /// `xs.map(x => …)`. `length` is the property `xs.length`.
-pub const METHODS: [&str; 17] = [
+pub const METHODS: [&str; 18] = [
     "isEmpty",
     "toString",
     "includes",
@@ -20,6 +20,7 @@ pub const METHODS: [&str; 17] = [
     "endsWith",
     "trim",
     "toLowerCase",
+    "toUpperCase",
     "slice",
     "concat",
     "indexOf",
@@ -173,7 +174,6 @@ pub fn refusal(name: &str) -> Option<String> {
         "pow" | "sqrt" | "abs" => format!(
             "`{name}` is not in Contract: `x * x` is a square and `max(x, -x)` a magnitude; compute other maths in the data source and hand the view the result"
         ),
-        "toUpperCase" => "display casing is CSS: `text-transform=\"uppercase\"`; Contract has no `toUpperCase` (LLP 1088 D2)".into(),
         // LLP 1116.018: repairs changed what an unreadable field shows
         // without saying so; the message names where the two differ.
         "Number" | "parseInt" | "parseFloat" => {

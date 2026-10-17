@@ -93,9 +93,13 @@ fn text(f: Stdlib, args: &[Value]) -> Result<Option<Value>, CallError> {
         // The case tables through `text-transform`'s link, which a web
         // artifact holds only when its plan uses them (LLP 1047 D6 refuses
         // one that does not at boot); unlinked, a trap.
-        Stdlib::ToLowerCase => {
-            let lower = exact_kernel::linked_lowercase().ok_or(CallError::TypeMismatch)?;
-            let out = lower(s(0)?, MAX_STRING).ok_or(CallError::StringTooLong)?;
+        Stdlib::ToLowerCase | Stdlib::ToUpperCase => {
+            let map = match f {
+                Stdlib::ToLowerCase => exact_kernel::linked_lowercase(),
+                _ => exact_kernel::linked_uppercase(),
+            };
+            let map = map.ok_or(CallError::TypeMismatch)?;
+            let out = map(s(0)?, MAX_STRING).ok_or(CallError::StringTooLong)?;
             if out == s(0)? {
                 args[0].clone()
             } else {
@@ -259,7 +263,7 @@ fn call_value(
         Stdlib::Max => Value::Number(js_max(num(0)?, num(1)?)),
         Stdlib::Min => Value::Number(js_min(num(0)?, num(1)?)),
         Stdlib::T => unreachable!("interpolation is bounded by call"),
-        Stdlib::Slice | Stdlib::ReplaceAll | Stdlib::ToLowerCase => {
+        Stdlib::Slice | Stdlib::ReplaceAll | Stdlib::ToLowerCase | Stdlib::ToUpperCase => {
             unreachable!("strings are bounded by call")
         }
     })

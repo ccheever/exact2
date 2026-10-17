@@ -214,8 +214,8 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
         | v@(.str _) | v@(.num _) | v@(.bool _) => v.display
         | _ => .error (.type "join of an item that is not a string, number or bool")
       .ok (.str (sep.intercalate parts))
-  -- LLP 1088 D2: over UTF-16 code units, well formed. `toLowerCase` is
-  -- left out (its case tables are Unicode's).
+  -- LLP 1088 D2: over UTF-16 code units, well formed. `toLowerCase` and
+  -- `toUpperCase` are left out (their case tables are Unicode's).
   | "slice", [v, .num a, .num b] => sliceOf v a b
   | "replaceAll", [.str s, .str find, .str w] => .ok (.str (Str.replaceAll s find w))
   -- LLP 1088 §9.1: JavaScript's `Array.prototype.concat`.

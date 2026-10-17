@@ -174,8 +174,8 @@ theorem stdlib_unsupported {env : Env} {p : Program} {name : String} {vs : List 
   by_cases hn : name = "frame" ∨ name = "measure"
   · rcases hn with rfl | rfl <;> simp [stdlib, GoodR, Legit]
   rw [ite_neg hn] at h
-  by_cases hn : name = "toLowerCase"
-  · subst hn; simp [stdlib, GoodR, Legit]
+  by_cases hn : name = "toLowerCase" ∨ name = "toUpperCase"
+  · rcases hn with rfl | rfl <;> simp [stdlib, GoodR, Legit]
   rw [ite_neg hn] at h
   by_cases hn : name = "elementFromPoint"
   · subst hn; simp [stdlib, GoodR, Legit]
