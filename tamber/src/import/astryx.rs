@@ -249,37 +249,45 @@ pub fn import(
             false => unmapped.push(report("not a colour Tamber folds".into(), Some(name))),
         }
     }
+    // Each token's source variables, for a token refused where it lands.
+    let mut sources: Vec<(String, Vec<Unmapped>)> = Vec::new();
     mapped += other_kinds(
         &others,
         &mut made,
-        &mut tokens,
-        &mut unmapped,
+        (&mut tokens, &mut unmapped, &mut sources),
         design,
         vocab,
     );
-    // A colour that would not hold where it lands: its variable reported.
-    for (name, why) in super::landing::colours_refused(&mut tokens, &[], design, vocab) {
-        let Some(var) = made.get(&name) else { continue };
-        let (block, value) = match light.get(var).or_else(|| dark.get(var)) {
-            Some(v) => ("light | dark", v.as_str().unwrap_or_default().to_string()),
-            None => (
-                "localTokens",
-                local
-                    .get(var)
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
-            ),
+    for t in tokens.iter().filter(|t| t.kind.is_none()) {
+        let Some(var) = made.get(&t.name) else {
+            continue;
         };
-        mapped -= 1;
-        unmapped.push(Unmapped {
+        let side = |m: &serde_json::Map<String, Value>| {
+            m.get(var).and_then(Value::as_str).map(str::to_string)
+        };
+        let (block, value) = match (side(light), side(dark)) {
+            (Some(l), Some(d)) if l != d => ("light | dark", format!("{l} | {d}")),
+            (Some(v), _) | (None, Some(v)) => ("light | dark", v),
+            (None, None) => ("localTokens", side(&local).unwrap_or_default()),
+        };
+        let record = Unmapped {
             block: block.into(),
             name: var.clone(),
             value,
-            why,
-            token: Some(name),
-        });
+            why: String::new(),
+            token: Some(t.name.clone()),
+        };
+        sources.push((t.name.clone(), vec![record]));
     }
+    // What would not hold where it lands: its variables reported.
+    mapped -= super::landing::settle(
+        &mut tokens,
+        &sources,
+        (&[], &[]),
+        design,
+        vocab,
+        &mut unmapped,
+    );
     let ops = reconcile(design, &[], &[], &tokens);
     let offers = offers(prefix, design, vocab, &tokens);
     let counted = counted(names.len() + local.len(), mapped, unmapped.len())?;
@@ -309,8 +317,7 @@ struct Other {
 fn other_kinds(
     others: &[Other],
     made: &mut std::collections::BTreeMap<String, String>,
-    tokens: &mut Vec<Mapped>,
-    unmapped: &mut Vec<Unmapped>,
+    (tokens, unmapped, sources): super::Written<'_>,
     design: &Design,
     vocab: &Vocab,
 ) -> usize {
@@ -427,7 +434,20 @@ fn other_kinds(
     let mut mapped = 0;
     for (k, (kind, group)) in carried.iter().enumerate() {
         match &why[start + k] {
-            None => mapped += group.len(),
+            None => {
+                mapped += group.len();
+                let from = group
+                    .iter()
+                    .map(|x| Unmapped {
+                        block: "light | dark".into(),
+                        name: x.var.clone(),
+                        value: x.shown.clone(),
+                        why: String::new(),
+                        token: Some(x.token.clone()),
+                    })
+                    .collect();
+                sources.push((tokens[start + k].name.clone(), from));
+            }
             Some(why) => {
                 made.remove(&group[0].token);
                 for x in group {

@@ -38,13 +38,14 @@
 //! stroke styles are reported, as are strings and booleans. Names come from group paths, each
 //! segment made an identifier (`$root` is `root`); collisions are reported.
 
-use super::{colour_literal, counted, reconcile, Import, Mapped, Unmapped};
+use super::{counted, reconcile, Import, Mapped, Unmapped};
 use crate::import::kinds as other;
 use crate::{Design, Diagnostic};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 mod kinds;
+pub(crate) use kinds::colour;
 
 /// Where a layer applies.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -879,51 +880,6 @@ fn kind(ty: Option<&str>) -> Kind {
     }
 }
 
-/// A colour value as Tamber writes it: a string, or 2025.10's object form
-/// (its colour space first; `hex` only without one).
-pub(crate) fn colour(value: &Value) -> Option<String> {
-    if let Some(s) = value.as_str() {
-        return colour_literal(s);
-    }
-    let obj = value.as_object()?;
-    let alpha = obj
-        .get("alpha")
-        .and_then(Value::as_f64)
-        .filter(|a| *a < 1.0);
-    let space = obj.get("colorSpace").and_then(Value::as_str);
-    let components = obj.get("components").and_then(Value::as_array);
-    if let (Some(space), Some(components)) = (space, components) {
-        let parts: Option<Vec<String>> = components
-            .iter()
-            .map(|c| match c {
-                Value::String(s) if s == "none" => Some("none".to_string()),
-                c => c.as_f64().map(|n| format!("{n}")),
-            })
-            .collect();
-        if let Some(parts) = parts {
-            let a = alpha.map_or(String::new(), |a| format!(" / {a}"));
-            let text = match space {
-                "oklch" | "oklab" | "lab" | "lch" | "hsl" | "hwb" => {
-                    Some(format!("{space}({}{a})", parts.join(" ")))
-                }
-                "srgb" | "srgb-linear" | "display-p3" | "a98-rgb" | "prophoto-rgb" | "rec2020"
-                | "xyz-d50" | "xyz-d65" => Some(format!("color({space} {}{a})", parts.join(" "))),
-                _ => None,
-            };
-            if let Some(c) = text.and_then(|t| colour_literal(&t)) {
-                return Some(c);
-            }
-        }
-    }
-    let hex = obj.get("hex").and_then(Value::as_str)?;
-    let full = match (hex.len(), alpha) {
-        (_, None) => hex.to_string(),
-        (7, Some(a)) => format!("{hex}{:02x}", (a * 255.0).round() as u8),
-        _ => return None,
-    };
-    colour_literal(&full)
-}
-
 /// An alias's target path: `{a.b}`, or `{"$ref": "#/a/b/$value"}`;
 /// `Err` for a reference to part of a value.
 fn alias(value: &Value) -> Option<Result<String, String>> {
@@ -1053,6 +1009,16 @@ pub fn import(
     files: &[(String, String)],
     prefix: &str,
     design: &Design,
+) -> Result<Import, Vec<Diagnostic>> {
+    import_with(files, prefix, design, &crate::Vocab::default())
+}
+
+/// [`import`], the design checked against `vocab` where the import lands.
+pub fn import_with(
+    files: &[(String, String)],
+    prefix: &str,
+    design: &Design,
+    vocab: &crate::Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
     let refuse = |id: &'static str, m: String| vec![Diagnostic::new(id, m, 1, 1)];
     let read = read(files).map_err(|m| refuse("tamber-import-source", m))?;
@@ -1416,7 +1382,8 @@ pub fn import(
     }
     // Each of another kind that does not fold, and each colour that would not
     // hold where it lands, makes no token.
-    let why = other::refused(&tokens, &axes, design, &crate::Vocab::default());
+    let owned: Vec<&str> = axes.iter().map(|(a, _)| a.as_str()).collect();
+    let why = other::refused(&tokens, (&axes, &owned), design, vocab);
     for (path, why) in made.iter().zip(&why) {
         if let Some(why) = why {
             let why = kinds_of
@@ -1486,7 +1453,6 @@ pub fn import(
         };
         unmapped.push(report(why, token));
     }
-    let owned: Vec<&str> = axes.iter().map(|(a, _)| a.as_str()).collect();
     let ops = reconcile(design, &axes, &owned, &tokens);
     let reported = unmapped.len();
     let counted = counted(defs.len(), mapped, reported)?;

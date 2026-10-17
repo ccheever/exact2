@@ -307,7 +307,7 @@ fn each_importer_maps_what_the_source_means_or_reports_it() {
     assert!(i.ops.is_empty(), "{:?}", i.ops);
     assert_eq!(
         why(&i, "--radius-md"),
-        ["not a length Tamber folds: the design's `tw.radius.md` is a number token, not a length"]
+        ["the design's `tw.radius.md` is a number token, not a length"]
     );
 
     let sc = |css: &str| shadcn::import(css, "shadcn", &parse(EMPTY).unwrap(), &vocab()).unwrap();
@@ -559,4 +559,66 @@ fn an_import_holds_where_it_lands_or_says_why() {
         why(&i, "--color-accent"),
         ["the design's `astryx.accent` is a length token, not a colour"]
     );
+}
+
+/// Review round 1 of the landing check: what the reviewers' inputs propose.
+#[test]
+fn the_landing_check_charges_what_breaks_and_only_that() {
+    let vocab = vocab();
+    let held = |i: &Import| {
+        let c = i.counted;
+        assert_eq!(c.mapped + c.reported, c.source, "{c:?}");
+    };
+    let names = |i: &Import| -> Vec<String> {
+        i.ops
+            .iter()
+            .filter_map(|o| match o {
+                exact_tamber::Op::AddToken { name, .. } | exact_tamber::Op::SetToken { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    // A refused colour takes its aliases, and the role offer over them.
+    let design = parse("tamber app\n\ntheme\n  shadcn.base: length = 8px\n").unwrap();
+    let i = shadcn::import(":root { --base: #ffffff; --primary: var(--base); --background: var(--primary); }", "shadcn", &design, &vocab).unwrap();
+    held(&i);
+    assert!(names(&i).is_empty(), "{:?}", i.ops);
+    assert!(i.offers.iter().all(|o| o.ops.is_empty()), "{:?}", i.offers);
+    assert_eq!(why(&i, "--primary"), ["it names `shadcn.base`, which this import does not set"]);
+    // A design with a role, checked against the app's vocabulary: a
+    // dependent and an untyped length are both seen.
+    let design = parse("tamber app\n\ntheme\n  -exact-background = #ffffff\n  tw.radius.md: length = 4px\n  derived: length = calc(tw.radius.md + 1px)\n  tw.brand = 8px\n").unwrap();
+    let i = tailwind::import_with("@theme { --radius-md: 1rem; --color-brand: #ff0000; }", "tw", &design, &vocab).unwrap();
+    held(&i);
+    assert!(names(&i).is_empty(), "{:?}", i.ops);
+    assert!(why(&i, "--color-brand")[0].contains("is a length token, not a colour"));
+    // The importer's own `when` lines it takes back are taken back first.
+    let design = parse("tamber app\n\naxes\n  theme = default | ocean\n\ntheme\n  shadcn.primary: length = 1rem\n    when theme=default: 4px\n    when theme=ocean: 8px\n  derived: length = calc(shadcn.primary + 1px)\n").unwrap();
+    let i = shadcn::import(":root { --primary: 1rem; }", "shadcn", &design, &vocab).unwrap();
+    held(&i);
+    assert!(i.ops.is_empty(), "{:?}", i.ops);
+    // A kept `when` under scheme=dark charges the default that breaks it.
+    let design = parse("tamber app\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  tw.brand = #ffffff\n    when dark-style=dim: light-dark(#ffffff, #222222)\n").unwrap();
+    let i = tailwind::import("@theme { --color-brand: #000000; }", "tw", &design).unwrap();
+    held(&i);
+    assert!(i.ops.is_empty(), "{:?}", i.ops);
+    // A chain longer than any fixed number of passes goes whole.
+    let mut css = String::from(":root { --a0: #ffffff;");
+    for k in 1..=10 {
+        css.push_str(&format!(" --a{k}: var(--a{});", k - 1));
+    }
+    css.push_str(" } .dark {");
+    for k in 1..=10 {
+        css.push_str(&format!(" --a{k}: #000000;"));
+    }
+    css.push_str(" }");
+    let design = parse("tamber app\n\ntheme\n  shadcn.a0: length = 8px\n").unwrap();
+    let i = shadcn::import(&css, "shadcn", &design, &vocab).unwrap();
+    held(&i);
+    assert!(names(&i).is_empty(), "{:?}", i.ops);
+    // One branch's failure charges only what that branch reads.
+    let design = parse("tamber app\n\naxes\n  mode = normal | compact\n\ntheme\n  tw.radius.bad: length = 4px\n  tw.radius.good: length = 8px\n  derived: length = calc(tw.radius.bad + 1px)\n    when mode=compact: calc(tw.radius.good + 1px)\n").unwrap();
+    let i = tailwind::import("@theme { --radius-bad: 1rem; --radius-good: 12px; }", "tw", &design).unwrap();
+    held(&i);
+    assert_eq!(names(&i), ["tw.radius.good"], "{:?}", i.ops);
 }

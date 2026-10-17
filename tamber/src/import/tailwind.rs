@@ -240,6 +240,16 @@ struct Entry {
 /// Import `css` under `prefix` (`tw` by default), planned against
 /// `design`.
 pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Diagnostic>> {
+    import_with(css, prefix, design, &crate::Vocab::default())
+}
+
+/// [`import`], the design checked against `vocab` where the import lands.
+pub fn import_with(
+    css: &str,
+    prefix: &str,
+    design: &Design,
+    vocab: &crate::Vocab,
+) -> Result<Import, Vec<Diagnostic>> {
     let mut source = 0;
     let mut unmapped = Vec::new();
     let report = |unmapped: &mut Vec<Unmapped>,
@@ -634,32 +644,41 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
         report(&mut unmapped, label, var, value, why, token);
     }
     let mut tokens = tokens;
+    // Each token's source declarations, for a token refused where it lands.
+    let mut sources: Vec<(String, Vec<Unmapped>)> = Vec::new();
     mapped += other_kinds(
         &others,
         &named.names,
         (&redefined, &shadowed),
-        design,
-        &mut tokens,
-        &mut unmapped,
+        (design, vocab),
+        (&mut tokens, &mut unmapped, &mut sources),
     );
-    // A colour that would not hold where it lands: its declarations reported.
-    let refused =
-        super::landing::colours_refused(&mut tokens, &[], design, &crate::Vocab::default());
-    for (name, why) in refused {
-        for ((label, var, value, _), fate) in decls.iter().zip(&fates) {
-            if *fate == Fate::Mapped && named.names.get(var) == Some(&name) {
-                mapped -= 1;
-                report(
-                    &mut unmapped,
-                    label,
-                    var,
-                    value,
-                    why.clone(),
-                    Some(name.clone()),
-                );
-            }
+    // Each colour's declarations mapped, by its token.
+    for ((label, var, value, _), fate) in decls.iter().zip(&fates) {
+        let Some(name) = named.names.get(var).filter(|_| *fate == Fate::Mapped) else {
+            continue;
+        };
+        let record = Unmapped {
+            block: label.clone(),
+            name: var.clone(),
+            value: value.clone(),
+            why: String::new(),
+            token: Some(name.clone()),
+        };
+        match sources.iter_mut().find(|(n, _)| n == name) {
+            Some((_, from)) => from.push(record),
+            None => sources.push((name.clone(), vec![record])),
         }
     }
+    // What would not hold where it lands: its declarations reported.
+    mapped -= super::landing::settle(
+        &mut tokens,
+        &sources,
+        (&[], &[]),
+        design,
+        vocab,
+        &mut unmapped,
+    );
     let ops = reconcile(design, &[], &[], &tokens);
     let reported = unmapped.len();
     let counted = counted(source, mapped, reported)?;
@@ -715,9 +734,8 @@ fn other_kinds(
     others: &[Other],
     colours: &std::collections::BTreeMap<String, String>,
     (redefined, shadowed): (&[(String, String)], &[String]),
-    design: &Design,
-    tokens: &mut Vec<crate::import::Mapped>,
-    unmapped: &mut Vec<Unmapped>,
+    (design, vocab): (&Design, &crate::Vocab),
+    (tokens, unmapped, sources): super::Written<'_>,
 ) -> usize {
     use super::kinds;
     let report = |unmapped: &mut Vec<Unmapped>, o: &Other, why: String| {
@@ -899,13 +917,26 @@ fn other_kinds(
             }
         }
     }
-    let why = kinds::unfolded(tokens, &[], design, &crate::Vocab::default());
+    let why = kinds::unfolded(tokens, &[], design, vocab);
     let mut mapped = 0;
     let mut gone = Vec::new();
     for (i, why) in why.into_iter().enumerate().skip(start) {
         let (kind, carried) = &made[i - start];
         match why {
-            None => mapped += carried.len(),
+            None => {
+                mapped += carried.len();
+                let from = carried
+                    .iter()
+                    .map(|o| Unmapped {
+                        block: o.block.clone(),
+                        name: o.name.clone(),
+                        value: o.value.clone(),
+                        why: String::new(),
+                        token: Some(o.token.clone()),
+                    })
+                    .collect();
+                sources.push((tokens[i].name.clone(), from));
+            }
             Some(why) => {
                 for o in carried {
                     report(unmapped, o, format!("not a {kind} Tamber folds: {why}"));

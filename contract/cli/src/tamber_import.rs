@@ -126,8 +126,8 @@ fn import_with(
     }
     Some(match kind {
         "shadcn" => shadcn::import(text, prefix.unwrap_or("shadcn"), design, &vocab),
-        "tailwind" => tailwind::import(text, prefix.unwrap_or("tw"), design),
-        "dtcg" => dtcg::import(files, prefix.unwrap_or("dtcg"), design),
+        "tailwind" => tailwind::import_with(text, prefix.unwrap_or("tw"), design, &vocab),
+        "dtcg" => dtcg::import_with(files, prefix.unwrap_or("dtcg"), design, &vocab),
         "astryx" => astryx::import(text, prefix.unwrap_or("astryx"), design, &vocab),
         _ => return None,
     })

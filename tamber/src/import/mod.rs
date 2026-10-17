@@ -87,6 +87,14 @@ pub fn tamber_name(prefix: &str, segments: &[&str]) -> String {
         .join(".")
 }
 
+/// Each token's source values, by its name: what is reported when the
+/// token is refused where it lands (`landing::settle`).
+pub(super) type Sources = Vec<(String, Vec<Unmapped>)>;
+
+/// What an importer's pass for the kinds besides colour writes: the tokens,
+/// the report, and each token's sources.
+pub(super) type Written<'a> = (&'a mut Vec<Mapped>, &'a mut Vec<Unmapped>, &'a mut Sources);
+
 /// A token an importer maps a source to: its default value and `when` lines.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mapped {

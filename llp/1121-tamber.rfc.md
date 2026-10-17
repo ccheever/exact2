@@ -2992,13 +2992,18 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   so is a value that would change the kind of a design token with no kind written (`set-token`
   leaves it unsaid), and one the edit grammar would not take on its own line (an unquoted `in`).
   **The import is checked where it lands** (the follow-up, 2026-10-17, `import/landing.rs`):
-  each token it adds or sets is laid into the design as `reconcile` writes it, and the design
-  folded against the importer's vocabulary. A token the design has of another kind is reported
-  first, a colour too ("the design's `x` is a length token, not a colour"). So is one that leaves
-  a design token reading it unfolded ("the design's `derived` reads it, and would not fold once it
-  lands: …"), and one that does not fold there itself. Its source values move from mapped to
-  reported, so the count holds. A design that does not fold before the import (against
-  Tailwind's and DTCG's role-less vocabulary, say) is checked for kinds alone.
+  each token it adds or sets is laid into the design as `reconcile` writes it (a `when` on the
+  importer's own axes it no longer gives taken out), and the design folded against the app's
+  vocabulary (`tailwind::import_with`, `dtcg::import_with`; the CLI and the server pass it).
+  - A token the design has of another kind is reported first, a colour too ("the design's `x` is
+    a length token, not a colour"). A token naming a refused one goes with it.
+  - Each refusal the fold makes that the design did not make before is charged to its cause: a
+    laid token's own line, a kept `when` of it included; a design token's failing value, through
+    the design tokens it reads, to the laid token whose absence clears it ("the design's `derived`
+    reads it, and would not fold once it lands: …"); a dial left unused to the token that no
+    longer reads it; anything else to every token laid. Until the design folds.
+  - The refused tokens' source values move from mapped to reported, so the count holds; a role
+    offer over a refused token is not made.
 - **References.** A `var(--x)` is the token `--x` becomes, named bare (D3), through a chain of
   them; one to a variable that makes no token (another's name, a redefined key) is reported. A
   string (a quoted family) is kept as written. A Tailwind shadow over `var(--color-ring)` names

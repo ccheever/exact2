@@ -239,6 +239,8 @@ pub fn import(
     // The declarations of the kinds besides colour, each made a token or
     // reported there (stage 6 H).
     let mut others: Vec<(usize, &'static str)> = Vec::new();
+    // Each token's source declarations, for a token refused where it lands.
+    let mut sources: Vec<(String, Vec<Unmapped>)> = Vec::new();
     // Each declaration mapped, or reported once with why.
     let mut mapped = 0;
     // A variable that makes no token is no token's to name.
@@ -337,23 +339,34 @@ pub fn import(
         (design, vocab),
         &mut tokens,
         &mut unmapped,
+        &mut sources,
     );
-    // A colour that would not hold where it lands: its declarations reported.
-    for (name, why) in super::landing::colours_refused(&mut tokens, &axes, design, vocab) {
-        for ((label, var, value, _), fate) in decls.iter().zip(&fates) {
-            if *fate == Fate::Mapped && names.get(var) == Some(&name) {
-                mapped -= 1;
-                report(
-                    &mut unmapped,
-                    label,
-                    var,
-                    value,
-                    why.clone(),
-                    Some(name.clone()),
-                );
-            }
+    // Each colour's declarations mapped, by its token.
+    for ((label, var, value, _), fate) in decls.iter().zip(&fates) {
+        let Some(name) = names.get(var).filter(|_| *fate == Fate::Mapped) else {
+            continue;
+        };
+        let record = Unmapped {
+            block: label.clone(),
+            name: var.clone(),
+            value: value.clone(),
+            why: String::new(),
+            token: Some(name.clone()),
+        };
+        match sources.iter_mut().find(|(n, _)| n == name) {
+            Some((_, from)) => from.push(record),
+            None => sources.push((name.clone(), vec![record])),
         }
     }
+    // What would not hold where it lands: its declarations reported.
+    mapped -= super::landing::settle(
+        &mut tokens,
+        &sources,
+        (&axes, OWNED),
+        design,
+        vocab,
+        &mut unmapped,
+    );
     let ops = reconcile(design, &axes, OWNED, &tokens);
     let offers = offers(prefix, design, vocab, &axes, &tokens);
     let derived = unmapped.iter().filter(|u| u.block == "(derived)").count();
@@ -426,6 +439,7 @@ fn other_kinds(
     (design, vocab): (&Design, &Vocab),
     tokens: &mut Vec<Mapped>,
     unmapped: &mut Vec<Unmapped>,
+    sources: &mut Vec<(String, Vec<Unmapped>)>,
 ) -> usize {
     use super::kinds;
     let report = |unmapped: &mut Vec<Unmapped>, i: usize, why: String| {
@@ -560,9 +574,23 @@ fn other_kinds(
     }
     let why = kinds::unfolded(tokens, axes, design, vocab);
     let mut mapped = 0;
+    let record = |i: usize| {
+        let (label, var, value, _) = &decls[i];
+        Unmapped {
+            block: label.clone(),
+            name: var.clone(),
+            value: value.clone(),
+            why: String::new(),
+            token: names.get(var).cloned(),
+        }
+    };
     for (k, (kind, carried)) in made.iter().enumerate() {
         match &why[start + k] {
-            None => mapped += carried.len(),
+            None => {
+                mapped += carried.len();
+                let from = carried.iter().map(|&i| record(i)).collect();
+                sources.push((tokens[start + k].name.clone(), from));
+            }
             Some(why) => {
                 for i in carried {
                     report(unmapped, *i, format!("not a {kind} Tamber folds: {why}"));
@@ -571,6 +599,16 @@ fn other_kinds(
         }
     }
     for (name, value, at) in &derived {
+        if why[*at].is_none() {
+            let derived = Unmapped {
+                block: "(derived)".into(),
+                name: name.clone(),
+                value: value.clone(),
+                why: String::new(),
+                token: None,
+            };
+            sources.push((tokens[*at].name.clone(), vec![derived]));
+        }
         if let Some(why) = &why[*at] {
             unmapped.push(Unmapped {
                 block: "(derived)".into(),

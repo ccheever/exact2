@@ -15,7 +15,8 @@
 //!   letter spacing, paragraph spacing, case or decoration that says
 //!   anything is refused, since a type token holds none.
 
-use super::{alias, colour, Resolve};
+use super::{alias, Resolve};
+use crate::import::colour_literal;
 use crate::measure::num;
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -328,6 +329,51 @@ pub(super) fn text(ty: &str, v: &Value) -> Result<String, String> {
         "typography" => typography(v),
         _ => Err(format!("a `{ty}` Tamber's DTCG mapping does not name")),
     }
+}
+
+/// A colour value as Tamber writes it: a string, or 2025.10's object form
+/// (its colour space first; `hex` only without one).
+pub(crate) fn colour(value: &Value) -> Option<String> {
+    if let Some(s) = value.as_str() {
+        return colour_literal(s);
+    }
+    let obj = value.as_object()?;
+    let alpha = obj
+        .get("alpha")
+        .and_then(Value::as_f64)
+        .filter(|a| *a < 1.0);
+    let space = obj.get("colorSpace").and_then(Value::as_str);
+    let components = obj.get("components").and_then(Value::as_array);
+    if let (Some(space), Some(components)) = (space, components) {
+        let parts: Option<Vec<String>> = components
+            .iter()
+            .map(|c| match c {
+                Value::String(s) if s == "none" => Some("none".to_string()),
+                c => c.as_f64().map(|n| format!("{n}")),
+            })
+            .collect();
+        if let Some(parts) = parts {
+            let a = alpha.map_or(String::new(), |a| format!(" / {a}"));
+            let text = match space {
+                "oklch" | "oklab" | "lab" | "lch" | "hsl" | "hwb" => {
+                    Some(format!("{space}({}{a})", parts.join(" ")))
+                }
+                "srgb" | "srgb-linear" | "display-p3" | "a98-rgb" | "prophoto-rgb" | "rec2020"
+                | "xyz-d50" | "xyz-d65" => Some(format!("color({space} {}{a})", parts.join(" "))),
+                _ => None,
+            };
+            if let Some(c) = text.and_then(|t| colour_literal(&t)) {
+                return Some(c);
+            }
+        }
+    }
+    let hex = obj.get("hex").and_then(Value::as_str)?;
+    let full = match (hex.len(), alpha) {
+        (_, None) => hex.to_string(),
+        (7, Some(a)) => format!("{hex}{:02x}", (a * 255.0).round() as u8),
+        _ => return None,
+    };
+    colour_literal(&full)
 }
 
 #[cfg(test)]

@@ -123,21 +123,23 @@ pub(super) fn folded(kind: &str, text: &str) -> Result<String, String> {
     }
 }
 
-/// [`unfolded`] for the tokens with a kind, and for a colour why it would
-/// not hold where it lands (`landing`).
+/// [`unfolded`] for the tokens with a kind, then, for those and every
+/// colour, why it would not hold where it lands (`landing`): one why a
+/// token.
 pub(super) fn refused(
     tokens: &[Mapped],
-    axes: &[(String, Vec<String>)],
+    (axes, owned): (&[(String, Vec<String>)], &[&str]),
     design: &crate::Design,
     vocab: &Vocab,
 ) -> Vec<Option<String>> {
-    let landed = super::landing::landing(tokens, axes, design, vocab);
-    let kinded = unfolded(tokens, axes, design, vocab);
-    tokens
-        .iter()
-        .zip(kinded.into_iter().zip(landed))
-        .map(|(t, (k, l))| if t.kind.is_some() { k } else { l })
-        .collect()
+    let mut why = unfolded(tokens, axes, design, vocab);
+    let kept: Vec<usize> = (0..tokens.len()).filter(|&i| why[i].is_none()).collect();
+    let laid: Vec<Mapped> = kept.iter().map(|&i| tokens[i].clone()).collect();
+    let landed = super::landing::landing(&laid, axes, owned, design, vocab);
+    for (i, w) in kept.into_iter().zip(landed) {
+        why[i] = w;
+    }
+    why
 }
 
 /// The names a value may hold.
@@ -158,15 +160,8 @@ pub(super) fn unfolded(
     vocab: &Vocab,
 ) -> Vec<Option<String>> {
     let mut why: Vec<Option<String>> = vec![None; tokens.len()];
-    // Where it lands: a design token of another kind, or one that reads it
-    // and would not fold (`landing`).
-    let landed = super::landing::landing(tokens, axes, design, vocab);
-    for ((t, why), landed) in tokens.iter().zip(why.iter_mut()).zip(landed) {
+    for (t, why) in tokens.iter().zip(why.iter_mut()) {
         let Some(kind) = t.kind else { continue };
-        if landed.is_some() {
-            *why = landed;
-            continue;
-        }
         // A value the edit grammar takes on its own line (no unquoted `in`,
         // no `key=value` last word, no comment).
         let op = crate::edit::Op::AddToken {
