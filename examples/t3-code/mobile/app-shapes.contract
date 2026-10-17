@@ -134,6 +134,14 @@ shape VoiceFocus
   label: string
 shape PreviewOwner
   owner: string
+  visit: string
+  kind: string
+  admissionKey: string
+shape PreviewPreparation
+  revision: number
+  admissionKey: string
+  retryable: bool
+fn previewMayRetry(prepared: PreviewPreparation, owner: PreviewOwner, retried: string, allowed: bool, reading: bool): bool = allowed and not reading and owner.admissionKey != "" and prepared.admissionKey == owner.admissionKey and prepared.retryable and retried != owner.admissionKey
 shape PreviewMenus
   selection: string
   options: string
