@@ -1283,3 +1283,74 @@ fn re_asks_past_their_window_settle_on_the_wake_alone() {
     assert!(p.host().runner().failed_resources().is_empty());
     assert!(!p.host().runner().has_pending());
 }
+
+#[test]
+fn native_module_events_commit_only_for_the_view_allocation_that_emitted_them() {
+    let source = r#"component App
+  state selection = "initial"
+  state visible = true
+  action choose(value: string)
+    selection = value
+  action remove
+    visible = false
+  view
+    column width=400 height=400
+      text selection testId="selection" height=24
+      button "Remove" press=remove testId="remove" height=32
+      if visible
+        native-menu change=choose width=120 height=40 testId="menu"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (400., 400.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let menu = id(&p, "menu");
+    let key = p.host.kernel().node(menu).unwrap().key;
+    let selection = |p: &Presenter<()>| {
+        p.host
+            .kernel()
+            .node(id(p, "selection"))
+            .unwrap()
+            .props
+            .str(PropId::Text)
+            .unwrap()
+            .to_string()
+    };
+    assert!(!p.reader_module_event(
+        menu,
+        exact_kernel::NodeKey {
+            generation: key.generation.wrapping_add(1),
+            ..key
+        },
+        "change",
+        "stale".into(),
+        1.
+    ));
+    assert!(!p.reader_module_event(
+        menu,
+        exact_kernel::NodeKey {
+            index: key.index.wrapping_add(1),
+            ..key
+        },
+        "change",
+        "other allocation".into(),
+        1.
+    ));
+    assert!(!p.reader_module_event(menu, key, "unsupported", "invalid".into(), 2.));
+    assert_eq!(selection(&p), "initial");
+    assert!(p.reader_module_event(menu, key, "change", "week".into(), 3.));
+    assert_eq!(selection(&p), "week");
+    let remove = id(&p, "remove");
+    let other_key = p.host.kernel().node(remove).unwrap().key;
+    assert!(!p.reader_module_event(remove, other_key, "press", String::new(), 4.));
+    assert!(p.host.dispatch_at(remove, Event::Press, 5.).is_none());
+    assert!(p.after_commit().is_none());
+    assert!(!p.reader_module_event(menu, key, "change", "retired".into(), 6.));
+    assert_eq!(selection(&p), "week");
+}

@@ -238,11 +238,56 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         postDelayed(held, android.view.ViewConfiguration.getLongPressTimeout().toLong())
     }
 
+    private var moduleTap = 0
+    private var moduleSlot = 0
+    private var moduleGeneration = 0
+    private var moduleAwaiting = false
+    private var moduleReleased: MotionEvent? = null
+    private var moduleSerial = 0
+    private var moduleX = 0f
+    private var moduleY = 0f
+    private var moduleDownX = 0f
+    private var moduleDownY = 0f
+
+    private fun forgetModuleTap(replayRelease: Boolean = false) {
+        moduleTap = 0; moduleAwaiting = false; moduleSerial++
+        moduleReleased?.let { release ->
+            moduleReleased = null
+            forward(if (replayRelease) 1 else 3, release.x, release.y, release.getToolType(0), -1L)
+            release.recycle()
+        }
+    }
+
+    private fun releaseModuleTap(e: MotionEvent) {
+        val clicked = moduleTap != 0 && natives?.click(moduleTap, moduleSlot, moduleGeneration, moduleX, moduleY) == true
+        forgetModuleTap()
+        forward(if (clicked) 3 else 1, e.x, e.y, e.getToolType(0), -1L)
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        // A touch that scrolls is the reader's and exact2 hears no more of it; any other goes on to exact2.
-        if (started && scrolling.touch(e)) { hold(null); return true }
         val down = e.actionMasked == MotionEvent.ACTION_DOWN
+        if (down) {
+            // A new contact cannot borrow the previous contact's delayed hit answer.
+            forgetModuleTap(replayRelease = true)
+            moduleDownX = e.x; moduleDownY = e.y
+        }
+        // A touch that scrolls is the reader's and exact2 hears no more of it; any other goes on to exact2.
+        if (started && scrolling.touch(e)) { forgetModuleTap(); hold(null); return true }
+        if (e.actionMasked == MotionEvent.ACTION_MOVE && (Math.abs(e.x - moduleDownX) > slop || Math.abs(e.y - moduleDownY) > slop)) {
+            forgetModuleTap()
+        }
+        if (e.actionMasked == MotionEvent.ACTION_UP && (moduleAwaiting || moduleTap != 0)) {
+            hold(null)
+            Exact.touched = e.eventTime
+            if (moduleAwaiting) {
+                // As Fields does, keep a completed contact until exact2 identifies its target.
+                moduleReleased = MotionEvent.obtain(e)
+            } else releaseModuleTap(e)
+            return true
+        }
+        if (e.actionMasked == MotionEvent.ACTION_CANCEL || e.actionMasked == MotionEvent.ACTION_UP ||
+            e.actionMasked == MotionEvent.ACTION_POINTER_DOWN || e.actionMasked == MotionEvent.ACTION_POINTER_UP) forgetModuleTap()
         // A touch in a hosted text field's box is held for the field, and is the field's own once exact2 says the
         // field is what is under it ([Fields], LLP 1115.001 D8): exact2 hears of the focus, not of the touch.
         val hosted = fields
@@ -261,7 +306,25 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         }
         if (action == 1) Exact.touched = e.eventTime
         forward(action, e.x, e.y, e.getToolType(0), -1L)
-        if (down && started) under(e.x, e.y) {}
+        if (down && started) {
+            val serial = moduleSerial
+            moduleAwaiting = true
+            under(e.x, e.y) { words ->
+                if (serial != moduleSerial || !moduleAwaiting) return@under
+                moduleAwaiting = false
+                val at = 3 + 11 * words.getOrElse(1) { 0 }
+                if (words.size >= at + 7) {
+                    moduleTap = words[at]
+                    moduleX = Float.fromBits(words[at + 1]); moduleY = Float.fromBits(words[at + 2])
+                    moduleSlot = words[at + 5]; moduleGeneration = words[at + 6]
+                }
+                moduleReleased?.let { release ->
+                    moduleReleased = null
+                    releaseModuleTap(release)
+                    release.recycle()
+                }
+            }
+        }
         return true
     }
 
@@ -413,6 +476,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     /** wait=N: a release waits N ms for exact2's answer (Exact.WAIT_MS by default), to compare. */
     private val releaseWait = (context as Activity).intent.getStringExtra("wait")?.toLongOrNull() ?: Exact.WAIT_MS
     override fun onDetachedFromWindow() {
+        forgetModuleTap()
         warmer.destroy()
         worker.shutdown()
         val queue = Looper.getMainLooper().queue

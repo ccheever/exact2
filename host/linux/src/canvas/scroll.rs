@@ -20,7 +20,24 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// axes the presenter's own gestures claim
     /// ([`crate::presenter::Presenter::reader_under`] has the words).
     pub fn under(&mut self, x: f32, y: f32) -> Vec<i32> {
-        self.p.reader_under(x, y, self.scale)
+        let mut words = self.p.reader_under(x, y, self.scale);
+        let module = self.p.hit(x / self.scale, y / self.scale).filter(|id| {
+            self.p.host().kernel().node(*id).is_some_and(|node| {
+                node.node_type == exact_kernel::NodeType::NativeView
+                    && self.p.host().retained_action_eligible(node.key)
+            })
+        });
+        let rect = module.and_then(|id| self.p.rect_of(id)).unwrap_or_default();
+        words.push(module.unwrap_or(0) as i32);
+        words.extend(
+            [rect.0, rect.1, rect.2, rect.3].map(|value| (value * self.scale).to_bits() as i32),
+        );
+        let key = module.and_then(|id| self.p.host().kernel().node(id).map(|node| node.key));
+        words.extend([
+            key.map_or(0, |key| key.index as i32),
+            key.map_or(0, |key| key.generation as i32),
+        ]);
+        words
     }
 
     /// The reader moved scroller `id` by (`dx`, `dy`) pixels, knowing

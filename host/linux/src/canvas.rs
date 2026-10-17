@@ -58,6 +58,8 @@ use crate::paint::border::{BorderFill, PathOp};
 use crate::paint::{Backend, GradientPaint, Rect4, Shape};
 use crate::presenter::Presenter;
 use crate::text::{Paragraph, RunPaint, TextEngine};
+#[doc(hidden)]
+pub use exact_kernel::NodeKey as ModuleKey;
 use exact_kernel::ViewId;
 use exact_runner::DataSource;
 use std::cell::RefCell;

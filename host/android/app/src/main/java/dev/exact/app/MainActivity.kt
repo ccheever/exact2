@@ -5,10 +5,12 @@ import android.os.Bundle
 import dev.exact.canvas.AgentDrive
 import dev.exact.canvas.Drive
 import dev.exact.canvas.ExactActivity
+import dev.exact.canvas.NativeModules
 
 /** An app on the Canvas host, edge to edge: its text fields take keys and the software keyboard. */
 class MainActivity : ExactActivity() {
     override val input = true
+    override val modules = NativeModules.load()
     /** Compose Material 3's, when the plan has a date or time control (`src/compose`). */
     override val pickers get() = materialPickers ?: super.pickers
 
