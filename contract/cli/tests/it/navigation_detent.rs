@@ -99,3 +99,68 @@ fn the_grabber_words_lower_and_others_are_refused() {
         );
     }
 }
+
+/// A stack whose routes are sheets: `route` on each route, `inner` on a box
+/// inside it.
+fn sheet(route: &str, inner: &str) -> String {
+    format!(
+        "routes nav\n  home \"/\"\n    menu \"/menu\"\ncomponent App\n  state detents: string = \"medium large\"\n  view\n    main navigationKey=`${{top(nav).id}}` navigationBack=\"back\"\n      for e in stack(nav) key=e.id\n        column navigationKey=`${{e.id}}` navigationPresentation=\"modal\" {route}\n          column {inner}\n            text e.name\n"
+    )
+}
+
+/// A sheet opens at the detent `navigationInitialDetent` names, one of the
+/// words of its route's `navigationDetent` (`large` when it says none); a
+/// literal naming another height is refused, a computed list is not
+/// checked, and off a route, where no host reads it, it is refused.
+#[test]
+fn the_initial_detent_is_one_of_the_sheets_heights() {
+    let compile = |route: &str| contract::compile(&sheet(route, ""));
+    for route in [
+        "navigationDetent=\"medium large\" navigationInitialDetent=\"large\"",
+        "navigationDetent=\"medium large\" navigationInitialDetent=\"medium\"",
+        "navigationDetent=\"300 500 large\" navigationInitialDetent=\"500\"",
+        "navigationInitialDetent=\"large\"",
+        "navigationDetent=\"\" navigationInitialDetent=\"large\"",
+        "navigationDetent=(detents) navigationInitialDetent=\"medium\"",
+        "navigationDetent=\"medium large\" navigationInitialDetent=\"\"",
+    ] {
+        compile(route).unwrap_or_else(|e| panic!("{route:?}: {e}"));
+    }
+    for (route, says) in [
+        (
+            "navigationDetent=\"medium large\" navigationInitialDetent=\"45%\"",
+            "`navigationDetent=\"medium large\"`",
+        ),
+        ("navigationInitialDetent=\"medium\"", "`large` alone"),
+    ] {
+        let error = compile(route).unwrap_err().to_string();
+        assert!(
+            error.contains("lower-attr-value")
+                && error.contains("is not one of this sheet's heights")
+                && error.contains(says),
+            "{route}: {error}"
+        );
+    }
+    for value in ["tall", "medium large", "0"] {
+        let error = compile(&format!(
+            "navigationDetent=\"medium large\" navigationInitialDetent=\"{value}\""
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("`navigationInitialDetent` takes one word"),
+            "{value:?}: {error}"
+        );
+    }
+    // Off a route: a box in one, and a keyed element no navigation root holds.
+    for src in [
+        sheet("navigationDetent=\"medium large\"", "navigationInitialDetent=\"large\""),
+        "component App\n  view\n    column\n      column navigationKey=\"sheet\" navigationPresentation=\"modal\" navigationDetent=\"medium large\" navigationInitialDetent=\"large\"\n        text \"Sheet\"\n".into(),
+    ] {
+        let error = contract::compile(&src).unwrap_err().to_string();
+        assert!(
+            error.contains("`navigationInitialDetent` is read only on a route"),
+            "{error}"
+        );
+    }
+}
