@@ -185,10 +185,38 @@ pub fn reconcile(
     ops
 }
 
-/// Two values the same, as written (spacing aside).
+/// Two values the same, as written (spacing aside, but a string's own).
 fn same(a: &str, b: &str) -> bool {
-    let squash = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
     squash(a) == squash(b)
+}
+
+/// `v` with each run of spaces outside a string one space.
+pub(crate) fn squash(v: &str) -> String {
+    let (mut out, mut quote, mut space) = (String::new(), None, false);
+    let mut chars = v.trim().chars();
+    while let Some(c) = chars.next() {
+        match quote {
+            Some(q) => {
+                out.push(c);
+                if c == '\\' {
+                    out.extend(chars.next());
+                } else if c == q {
+                    quote = None;
+                }
+            }
+            None if c.is_whitespace() => space = true,
+            None => {
+                if std::mem::take(&mut space) {
+                    out.push(' ');
+                }
+                if c == '"' || c == '\'' {
+                    quote = Some(c);
+                }
+                out.push(c);
+            }
+        }
+    }
+    out
 }
 
 fn same_conds(a: &[(String, String)], b: &[(String, String)]) -> bool {

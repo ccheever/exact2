@@ -575,6 +575,10 @@ fn other_kinds(
 
 fn looks_like_length(v: &str) -> bool {
     let v = v.trim();
+    // A bare zero is a length (`0px`).
+    if v.parse::<f64>().is_ok_and(|n| n == 0.0) {
+        return true;
+    }
     ["px", "rem", "em", "%"].iter().any(|u| {
         v.strip_suffix(u)
             .is_some_and(|n| n.trim().parse::<f64>().is_ok())

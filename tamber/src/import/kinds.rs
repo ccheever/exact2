@@ -97,6 +97,16 @@ pub(super) fn bare(value: &str, token: impl Fn(&str) -> Option<String>) -> Resul
     Ok(out)
 }
 
+/// The variables `value`'s `var()`s name, outside its strings.
+pub(super) fn vars_in(value: &str) -> Vec<String> {
+    let names = std::cell::RefCell::new(Vec::new());
+    let _ = bare(value, |var| {
+        names.borrow_mut().push(var.to_string());
+        Some(String::new())
+    });
+    names.into_inner()
+}
+
 /// `text` folded alone as a `kind` value, as the plan writes it
 /// (`calc(1 / 0.75)` as a number is `1.3333333333333333`), or why not.
 pub(super) fn folded(kind: &str, text: &str) -> Result<String, String> {
@@ -155,8 +165,39 @@ pub(super) fn unfolded(
                 "the design's `{}` is a {have} token, not a {kind}",
                 t.name
             ));
+            continue;
+        }
+        // A value the edit grammar takes on its own line (no unquoted `in`,
+        // no `key=value` last word, no comment).
+        let op = crate::edit::Op::AddToken {
+            name: t.name.clone(),
+            kind: Some(kind.to_string()),
+            value: t.value.clone(),
+            meta: Vec::new(),
+            whens: t
+                .whens
+                .iter()
+                .map(|(c, v)| (c.clone(), v.clone(), None))
+                .collect(),
+            comment: None,
+            before: None,
+        };
+        if let Err(all) = crate::edit::valid(&op) {
+            *why = all.first().map(|d| d.message.clone());
         }
     }
+    // A token the design has with no kind written, whose value this changes:
+    // `set-token` keeps the line's kind unsaid, so the new value says it.
+    let untyped: Vec<usize> = (0..tokens.len())
+        .filter(|&i| {
+            tokens[i].kind.is_some()
+                && design.tokens.iter().any(|d| {
+                    d.name.value == tokens[i].name
+                        && d.kind.is_none()
+                        && super::squash(&d.value.value) != super::squash(&tokens[i].value)
+                })
+        })
+        .collect();
     let named = |i: usize| {
         let t = &tokens[i];
         std::iter::once(t.value.as_str())
@@ -214,7 +255,7 @@ pub(super) fn unfolded(
         for &i in &included {
             let t = &tokens[i];
             let start = text.lines().count() as u32 + 1;
-            match t.kind {
+            match t.kind.filter(|_| !untyped.contains(&i)) {
                 Some(k) => text.push_str(&format!("  {}: {k} = {}\n", t.name, t.value)),
                 None => text.push_str(&format!("  {} = {}\n", t.name, t.value)),
             }
@@ -224,8 +265,22 @@ pub(super) fn unfolded(
             }
             lines.push((start, text.lines().count() as u32, i));
         }
-        let Err(all) = crate::check(&text, vocab) else {
-            return why;
+        let all = match crate::check(&text, vocab) {
+            Ok(f) => {
+                for &i in &untyped {
+                    let (t, kind) = (&tokens[i], tokens[i].kind.unwrap_or_default());
+                    let inferred = f
+                        .tokens
+                        .iter()
+                        .find(|c| c.name == t.name)
+                        .map(|c| c.kind.name());
+                    if let Some(other) = inferred.filter(|k| *k != kind) {
+                        why[i] = Some(format!("the design's `{}` takes its kind from its value, and `{}` would make it a {other}, not a {kind}", t.name, t.value));
+                    }
+                }
+                return why;
+            }
+            Err(all) => all,
         };
         let mut refused = false;
         for d in &all {

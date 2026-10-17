@@ -73,7 +73,22 @@ impl Resolve<'_> {
             Some(Ok(target)) => {
                 let found = self.raw(&target, visiting);
                 visiting.remove(&target);
-                found
+                // A Tokens Studio stack named inside a composite keeps its
+                // members (a `fontFamily` string there is one family).
+                let stack =
+                    super::type_of(self.defs, self.w, &target).as_deref() == Some("fontFamilies");
+                found.map(|v| match (stack, v) {
+                    (true, Value::String(s)) => Value::Array(
+                        s.split(',')
+                            .map(|m| {
+                                Value::String(
+                                    m.trim().trim_matches(|c| c == '"' || c == '\'').to_string(),
+                                )
+                            })
+                            .collect(),
+                    ),
+                    (_, v) => v,
+                })
             }
             Some(Err(why)) => Err(why),
             None => self.inner(x, visiting),
@@ -142,12 +157,13 @@ fn number(ty: &str, v: &Value) -> Result<String, String> {
         "thin" | "hairline" => 100,
         "extralight" | "ultralight" => 200,
         "light" => 300,
-        "regular" | "normal" => 400,
+        "regular" | "normal" | "book" => 400,
         "medium" => 500,
         "semibold" | "demibold" => 600,
         "bold" => 700,
         "extrabold" | "ultrabold" => 800,
         "black" | "heavy" => 900,
+        "extrablack" | "ultrablack" => 950,
         _ => return Err(format!("`{s}` is no number")),
     };
     match ty.starts_with("fontWeight") {
@@ -163,6 +179,7 @@ fn family(ty: &str, v: &Value) -> Result<String, String> {
     let member = |m: &str| {
         let bare = !m.is_empty()
             && !m.contains(',')
+            && m.split_whitespace().collect::<Vec<_>>().join(" ") == m
             && m.split_whitespace().all(|w| {
                 w.chars()
                     .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
@@ -224,9 +241,16 @@ fn typography(v: &Value) -> Result<String, String> {
         ("textDecoration", &["none"][..]),
     ] {
         let Some(x) = o.get(k) else { continue };
+        // A zero in any unit says nothing.
+        let zero = |s: &str| {
+            let n = s
+                .trim()
+                .trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == '%');
+            n.parse::<f64>().is_ok_and(|n| n == 0.0)
+        };
         let said = match x {
             Value::Number(n) => n.as_f64() != Some(0.0),
-            Value::String(s) => !quiet.contains(&s.trim()),
+            Value::String(s) => !quiet.contains(&s.trim()) && !zero(s),
             Value::Object(d) => d.get("value").and_then(Value::as_f64) != Some(0.0),
             _ => true,
         };
@@ -254,6 +278,7 @@ fn typography(v: &Value) -> Result<String, String> {
             format!("{size}/{}", number("lineHeight", l)?)
         }
         Some(l @ Value::Object(_)) => format!("{size}/{}", length(l)?),
+        Some(Value::String(l)) if l.trim() == "normal" => format!("{size}/normal"),
         Some(l) => format!("{size}/{}", number("lineHeight", l)?),
     });
     if let Some(f) = o.get("fontFamily") {

@@ -1122,7 +1122,8 @@ stage 5.
 
 - **Names:** a group path becomes a dotted name, with the segments sanitised and
   collisions reported.
-- **Aliases:** `{a.b}` becomes a reference to the token.
+- **Aliases:** `{a.b}` becomes a reference to the token, for a colour; a value of another
+  kind is written out (as built, stage 6 H), inside a composite too.
 - **Modes:** a Resolver modifier, Tokens Studio theme set, or Figma mode named `light` and
   `dark` (or `Light` and `Dark`) is the scheme, and becomes `light-dark()`. Any other
   modifier becomes an app axis, proposed, with its contexts as values and `when` lines for
@@ -2980,7 +2981,11 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   folds as its kind beside the import's other tokens. The check is one design of them, plus the
   colours they name and the axes their `when` lines name (`import/kinds.rs`). It also says why a
   value does not fold, and that reason goes in the report: `not a <kind> Tamber folds: <why>`. A
-  token the design already has of another kind is reported, not set (its line keeps its kind).
+  token the design already has of another kind is reported, not set (its line keeps its kind);
+  so is a value that would change the kind of a design token with no kind written (`set-token`
+  leaves it unsaid), and one the edit grammar would not take on its own line (an unquoted `in`).
+  The import is not folded into the destination design itself: a design token that reads an
+  imported one is not checked (QUEUE).
 - **References.** A `var(--x)` is the token `--x` becomes, named bare (D3), through a chain of
   them; one to a variable that makes no token (another's name, a redefined key) is reported. A
   string (a quoted family) is kept as written. A Tailwind shadow over `var(--color-ring)` names
@@ -2991,9 +2996,11 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   `when` line.
 - **Each importer:**
   - **Tailwind.** `--text-<n>` with its `--line-height` and `--font-weight` is one type token.
-    The leading and the weight are written out, their `var()`s as what the keys hold, and a
-    `calc()` leading is folded to its number. A type key whose size is `var(--text-<m>)` takes
-    that size alone, not `<m>`'s leading and weight.
+    Its size, leading and weight are written out, their `var()`s as what the keys hold (a
+    sub-property of another type too), and a `calc()` leading is folded to its number. A type
+    key whose size is `var(--text-<m>)` takes that size alone, through a chain, not `<m>`'s
+    leading and weight. A key whose value reads an `inline` key the stylesheet redefines,
+    anywhere in it, is reported.
     Reported:
     - a sub-property a token holds no part of (`--letter-spacing`, a family's
       `--font-feature-settings`);
@@ -3003,7 +3010,7 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
     - a text shadow list.
 
     The default theme is now 419 = 364 mapped + 55 reported.
-  - **shadcn.** A declaration that is no colour is a length by its value. It is a shadow or a
+  - **shadcn.** A declaration that is no colour is a length by its value (a bare `0` too). It is a shadow or a
     family by its name (`--shadow-*`, `--font-*`), or a reference the kind of what it names (its
     last declaration, through a chain). A variable with one kind in every block it wins is a
     token; one that is a colour, or a value of no kind, in another block is reported. A colour
@@ -3016,15 +3023,16 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
     - `dimension` and Tokens Studio's length types (a bare number is px);
     - `fontFamily` (a string is one family, commas and all; Tokens Studio's `fontFamilies`
       text is a stack);
-    - `fontWeight` (a weight's name too) and `number` (a line height's percentage, as text or a
-      dimension, is a ratio);
+    - `fontWeight` (a weight's name too, DTCG's list: `book` 400, `extra-black` 950) and `number`
+      (a line height's percentage, as text or a dimension, is a ratio);
     - `duration`, `cubicBezier`, `shadow` (an `innerShadow` is inset);
-    - `typography`. A typography whose letter spacing, paragraph spacing, case or decoration
-      says anything is refused: a type token holds none.
+    - `typography`, a `normal` leading kept. A typography whose letter spacing, paragraph
+      spacing, case or decoration says anything (a zero in any unit says nothing) is refused: a
+      type token holds none. A Tokens Studio `fontFamilies` alias inside it keeps its members.
 
     Figma's fixture is 104 = 101 + 3; Tokens Studio's sample is 49 = 49 + 0.
   - **Astryx.** A text style's size, weight and leading is one type token. Font sizes are lengths
     and weights are numbers. A value must be on both sides. A second variable to one token's
-    name is reported. 268 = 261 + 7: the six duration tiers and the line style.
+    name is reported, a second text style's too. 268 = 261 + 7: the six duration tiers and the line style.
 - **Counts.** Every importer's count still holds (source = mapped + reported), and re-importing
   proposes nothing (`tamber/tests/it/import.rs`, `import_kinds.rs`).

@@ -637,7 +637,7 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
     mapped += other_kinds(
         &others,
         &named.names,
-        &redefined,
+        (&redefined, &shadowed),
         design,
         &mut tokens,
         &mut unmapped,
@@ -696,7 +696,7 @@ struct Other {
 fn other_kinds(
     others: &[Other],
     colours: &std::collections::BTreeMap<String, String>,
-    redefined: &[(String, String)],
+    (redefined, shadowed): (&[(String, String)], &[String]),
     design: &Design,
     tokens: &mut Vec<crate::import::Mapped>,
     unmapped: &mut Vec<Unmapped>,
@@ -744,11 +744,12 @@ fn other_kinds(
         .filter(|(_, base)| redefined_at(base).is_none())
         .map(|(token, base)| (base.clone(), *token))
         .collect();
+    // What a key holds: one that owns its token, or a sub-property of one.
     let value_of = |var: &str| match redefined_at(var) {
         Some(block) => Err(format!("`{var}` is redefined in `{block}`")),
         None => others
             .iter()
-            .find(|o| o.name == var && base_of.contains_key(var))
+            .find(|o| o.name == var && base_of.contains_key(&split(var).0))
             .map(|o| o.value.trim().to_string())
             .ok_or(format!("`{var}` makes no token of another kind")),
     };
@@ -786,13 +787,27 @@ fn other_kinds(
             }
             continue;
         }
+        // A key whose value reads an `inline` key the stylesheet redefines
+        // (or what follows one), anywhere in it, follows that redefinition.
+        if let Some((name, r)) = keys.iter().find_map(|o| {
+            kinds::vars_in(&o.value)
+                .into_iter()
+                .find(|v| shadowed.contains(v))
+                .map(|r| (&o.name, r))
+        }) {
+            for o in &keys {
+                report(unmapped, o, format!("`{name}` reads `{r}`, which follows an `inline` key the stylesheet redefines, which its token cannot follow"));
+            }
+            continue;
+        }
         let mut carried = vec![*head];
         // A type's size naming another type key is that key's size alone,
         // not the token its sub-properties make.
-        let mut value = match (head.kind, engine::reference(&head.value)) {
-            ("type", Some(r)) if others.iter().any(|o| o.name == r && o.kind == "type") => {
-                value_of(r).and_then(|v| kinds::bare(&v, token_of))
-            }
+        // A type's size is written out, its `var()`s as what the keys hold:
+        // another type key's is its size alone, not the token its
+        // sub-properties make, and a length key's its length.
+        let mut value = match head.kind {
+            "type" => written_out(&head.value, &value_of, 0),
             _ => kinds::bare(&head.value, token_of),
         };
         if head.kind == "type" {

@@ -383,3 +383,109 @@ fn chains_resolve_to_what_they_end_at() {
     assert!(i.ops.is_empty(), "{:?}", i.ops);
     assert!(why(&i, "--radius")[0].contains("is a color token, not a length"));
 }
+
+/// Review round 2 (Astra): kinds through `set-token`, longer chains, quoted
+/// names, the edit grammar, and DTCG's weight names.
+#[test]
+fn round_two_cases_map_what_the_source_means() {
+    let tw =
+        |css: &str, design: &str| tailwind::import(css, "tw", &parse(design).unwrap()).unwrap();
+    // A design token with no kind written takes it from its value: a type
+    // value that would read as a length is reported, not set.
+    let i = tw(
+        "@theme { --text-body: 16px; }",
+        "tamber app\n\ntheme\n  tw.type.body = 700 16px\n",
+    );
+    assert!(i.ops.is_empty(), "{:?}", i.ops);
+    assert!(
+        why(&i, "--text-body")[0].contains("takes its kind from its value"),
+        "{:?}",
+        why(&i, "--text-body")
+    );
+    // A type size through two type keys is the size alone.
+    let text = accepted(&tw("@theme { --text-base: 16px; --text-base--font-weight: 700; --text-mid: var(--text-base); --text-copy: var(--text-mid); }", EMPTY));
+    assert!(text.contains("  tw.type.copy: type = 16px\n"), "{text}");
+    // A `var()` inside an expression naming an inline key the stylesheet
+    // redefines.
+    let i = tw("@theme inline { --spacing-base: 4px; } @theme { --radius-card: calc(var(--spacing-base) + 2px); } :root { --spacing-base: 8px; }", EMPTY);
+    assert!(!accepted(&i).contains("tw.radius.card"));
+    assert!(why(&i, "--radius-card")[0].contains("inline"));
+    // A quoted name's spaces are its own: a changed one is set.
+    let i = tw(
+        "@theme { --font-brand: \"A  B\"; }",
+        "tamber app\n\ntheme\n  tw.family.brand: family = \"A B\"\n",
+    );
+    assert_eq!(i.ops.len(), 1, "{:?}", i.ops);
+    // A value the edit grammar would read as a range clause is reported.
+    let i = tw("@theme { --font-brand: Made in Heaven; }", EMPTY);
+    assert!(!accepted(&i).contains("tw.family.brand"));
+    assert!(!why(&i, "--font-brand").is_empty());
+
+    let dt = |json: &str| {
+        let files = vec![("t.json".to_string(), json.to_string())];
+        dtcg::import(&files, "ds", &parse(EMPTY).unwrap()).unwrap()
+    };
+    // A Tokens Studio stack named in a typography keeps its members.
+    let text = accepted(&dt(
+        r#"{"face": {"type": "fontFamilies", "value": "Inter, sans-serif"}, "body": {"type": "typography", "value": {"fontFamily": "{face}", "fontSize": "16px", "fontWeight": "400", "lineHeight": "150%"}}}"#,
+    ));
+    assert!(
+        text.contains("  ds.body: type = 400 16px/1.5 Inter, sans-serif\n"),
+        "{text}"
+    );
+    // A family name whose spacing a bare name would lose is quoted.
+    let text = accepted(&dt(r#"{"f": {"$type": "fontFamily", "$value": "A  B"}}"#));
+    assert!(text.contains("  ds.f: family = \"A  B\"\n"), "{text}");
+    // DTCG's weight names.
+    let text = accepted(&dt(
+        r#"{"w": {"$type": "fontWeight", "$value": "book"}, "x": {"$type": "fontWeight", "$value": "extra-black"}}"#,
+    ));
+    assert!(
+        text.contains("  ds.w: number = 400\n") && text.contains("  ds.x: number = 950\n"),
+        "{text}"
+    );
+
+    // Astryx: two styles whose names become one token are not one style.
+    let json = r#"{"source": "t", "core": "t", "light": {"--text-1-size": "16px", "--text-s1-weight": "700"}, "dark": {"--text-1-size": "16px", "--text-s1-weight": "700"}}"#;
+    let i = astryx::import(json, "astryx", &parse(EMPTY).unwrap(), &vocab()).unwrap();
+    assert!(accepted(&i).contains("  astryx.type.s1: type = 16px\n"));
+    assert_eq!(
+        why(&i, "--text-s1-weight"),
+        ["its token is `--text-1-size`'s (astryx.type.s1)"]
+    );
+}
+
+/// Review round 2 (Grok): sizes and sub-properties written out, a bare
+/// zero, and a typography's quiet values.
+#[test]
+fn round_two_values_are_written_out() {
+    let tw = |css: &str| accepted(&tailwind::import(css, "tw", &parse(EMPTY).unwrap()).unwrap());
+    let text = tw("@theme { --text-sm: 16px; --text-sm--line-height: 1.4; --text-sm--font-weight: 700; --text-base: var(--text-sm); --text-copy: var(--text-base); }");
+    assert!(text.contains("  tw.type.copy: type = 16px\n"), "{text}");
+    let text = tw("@theme { --text-sm: 16px; --text-sm--line-height: 1.5; --text-sm--font-weight: 700; --text-body: 16px; --text-body--line-height: var(--text-sm--line-height); --text-body--font-weight: var(--text-sm--font-weight); }");
+    assert!(
+        text.contains("  tw.type.body: type = 700 16px/1.5\n"),
+        "{text}"
+    );
+    let text = tw("@theme { --spacing-4: 1rem; --text-body: var(--spacing-4); }");
+    assert!(text.contains("  tw.type.body: type = 1rem\n"), "{text}");
+    let i = shadcn::import(
+        ":root { --radius: 0; }",
+        "shadcn",
+        &parse(EMPTY).unwrap(),
+        &vocab(),
+    )
+    .unwrap();
+    let text = accepted(&i);
+    assert!(text.contains("  shadcn.radius: length = 0\n"), "{text}");
+    assert!(
+        text.contains("  shadcn.radius.sm: length = calc(shadcn.radius - 4px)\n"),
+        "{text}"
+    );
+    let files = vec![(
+        "t.json".to_string(),
+        r#"{"t": {"$type": "typography", "$value": {"fontSize": "16px", "lineHeight": "normal", "letterSpacing": "0.0px"}}}"#.to_string(),
+    )];
+    let text = accepted(&dtcg::import(&files, "ds", &parse(EMPTY).unwrap()).unwrap());
+    assert!(text.contains("  ds.t: type = 16px/normal\n"), "{text}");
+}

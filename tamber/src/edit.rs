@@ -233,7 +233,7 @@ fn step(src: &str, op: &Op, vocab: &Vocab) -> Result<(String, Op), Vec<Diagnosti
 /// An operation's fields, each its own kind: a value on one line, names and
 /// conditions as the grammar has them, a comment that is one, so a field
 /// cannot write a second line or name.
-fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
+pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
     let one_line = |field: &str, v: &str| match v.contains(['\n', '\r']) {
         true => Err(refuse(format!("`{field}` is one line"))),
         false => Ok(()),

@@ -315,10 +315,15 @@ fn other_kinds(
         // leading, the first of each; any other to its name is reported.
         let mut group: Vec<&Other> = Vec::new();
         for x in others.iter().filter(|x| x.token == o.token) {
+            // A text style's parts share its variables' stem
+            // (`--text-body-`): another style whose name becomes this
+            // token's is a collision.
+            let stem = |o: &Other| o.var.rsplit_once('-').map_or("", |(s, _)| s).to_string();
             let fits = match o.kind {
                 "type" => {
                     matches!(part(x).as_str(), "size" | "weight" | "leading")
                         && !group.iter().any(|g| part(g) == part(x))
+                        && group.first().is_none_or(|g| stem(g) == stem(x))
                 }
                 _ => group.is_empty(),
             };
