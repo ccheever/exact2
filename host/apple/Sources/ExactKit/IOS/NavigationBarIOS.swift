@@ -16,6 +16,7 @@ struct BarSource: Equatable {
     let bar: NavigationRules.Bar
     let authored: [UInt32], placed: [UInt32]
     let header: UInt32?, title: String, level: Int, leading: [String], trailing: [String], group: String, canGoBack: Bool
+    let presented: Bool
 }
 
 /// The inputs the route hatch last ran with. A change runs it again.
@@ -655,6 +656,7 @@ extension NavigationHost {
         followTablist(routes, in: nav)
         let stackShows = barShows(nav)
         let back = container?.props["navigationBack"]
+        let presented = presentedNavigations.contains { $0 === nav }
         for (index, c) in routes.enumerated() {
             // The bar is each route's (LLP 1115.000 D5.2, D5.3): its header,
             // the system Back alone on a pushed route with none of its own
@@ -668,7 +670,7 @@ extension NavigationHost {
             let scroller = contentScroller(of: c), scroll = scroller?.scrollView
             let dataset = c.node.props["dataset"]
             let source = BarSource(bar: bar, authored: shape?.authored.map(\.id) ?? [], placed: shape?.placed.map(\.id) ?? [], header: shape?.header.id, title: shape?.title ?? "", level: shape?.level ?? 0, leading: shape?.leading.map(\.source) ?? [],
-                                   trailing: shape?.trailing.map(\.source) ?? [], group: shape?.group?.source ?? "", canGoBack: canGoBack)
+                                   trailing: shape?.trailing.map(\.source) ?? [], group: shape?.group?.source ?? "", canGoBack: canGoBack, presented: presented)
             // The hatch runs again after anything Exact wrote to the item (the
             // Back control the route above gives it, too) and when the route
             // moves to another stack (a root whose tabs changed).
@@ -676,7 +678,7 @@ extension NavigationHost {
                                        scroll: scroll.map(ObjectIdentifier.init))
             if c.projectedSource != source {
                 c.projectedSource = source
-                project(shape, into: c, canGoBack: canGoBack, shows: shows)
+                project(shape, into: c, canGoBack: canGoBack, shows: shows, presented: presented)
             }
             collapse(c, shape: shape, shows: shows, scroller: scroller)
             showReadouts(shows ? shape : nil, in: c)
@@ -727,7 +729,7 @@ extension NavigationHost {
     /// route that shows the bar with no header of the bar's (`shape` nil)
     /// is left UIKit's Back button alone: no title and no items, the
     /// button's title read from the route beneath, as UIKit reads it.
-    private func project(_ shape: HeaderShape?, into c: RouteController, canGoBack: Bool, shows: Bool) {
+    private func project(_ shape: HeaderShape?, into c: RouteController, canGoBack: Bool, shows: Bool, presented: Bool) {
         let item = c.navigationItem
         // A header the bar stops standing for shows its native buttons.
         defer { presenter.controls.syncShown() }
@@ -749,7 +751,10 @@ extension NavigationHost {
         item.title = shape?.title
         // tvOS has no large titles or back button.
         #if !os(tvOS)
-        item.largeTitleDisplayMode = shape?.level == 1 ? .always : .never
+        // @ref LLP 1116.020 D2 — a presented stack's title is inline at any
+        // level, as UIKit's sheets and Apple's (New Contact, New Event) have
+        // it; a pushed or root route's level-1 heading is large.
+        item.largeTitleDisplayMode = shape?.level == 1 && !presented ? .always : .never
         item.hidesBackButton = !canGoBack
         item.leftItemsSupplementBackButton = true
         #endif

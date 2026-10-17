@@ -755,6 +755,19 @@ final class NavigationBasicsIOSTests: XCTestCase {
                       "and the stack beneath is as it was")
     }
 
+    /// LLP 1116.020 D2: a presented stack's title is inline at any level, as
+    /// UIKit's sheets and Apple's are; a level-1 heading pushed in the stack
+    /// beneath is large.
+    func testASheetsLevelOneTitleIsInline() throws {
+        let (session, _, _) = try bars("bars-titled-sheet")
+        let navigation = session.presenter.navigation
+        try tapNode(session, "start-open-titled")
+        until("the sheet has its own stack") { navigation.modalNavigation?.viewControllers.count == 1 }
+        let route = try XCTUnwrap(navigation.modalNavigation?.topViewController as? RouteController)
+        XCTAssertEqual(route.navigationItem.title, "Titled")
+        XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .never, "a sheet's title is inline")
+    }
+
 
     /// A scroller UIKit insets lays its content out between those insets
     /// (LLP 1116.000 D1.2): Chat's column, its tall box gone, fills the port
