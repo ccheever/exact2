@@ -15,8 +15,11 @@
 //!   (API 28), the same platform decoder's Java face, asked the same things:
 //!   the target size, the crop, software pixels.
 //!
-//! The outlines are swash's, whose scaler the host already links (Canvas 2D
-//! text, glyph ink).
+//! The outlines are swash's (skrifa's scaler underneath), which the host
+//! already links for Canvas 2D text and glyph ink. Colour is COLR version 0
+//! and bitmap strikes (CBDT, sbix): a COLRv1 glyph is drawn from its plain
+//! outline, which Noto Color Emoji's COLRv1 build leaves empty. Android 10
+//! and 11 ship the CBDT build; only an app's own COLRv1 face would show it.
 //!
 //! @ref LLP 1076 §3.3 (Exact plus Android Canvas)
 
@@ -27,6 +30,10 @@ use swash::zeno::{Command, PathData};
 /// The size a COLR glyph's image is rendered at, pixels an em; a bitmap
 /// glyph's is its largest strike's.
 const COLOR_PPEM: f32 = 128.0;
+
+/// Every axis at its default: a scaler context keeps the last builder's
+/// coordinates, and `variations` sets only the axes it names.
+const DEFAULT: [swash::NormalizedCoord; 0] = [];
 
 /// Glyph `id` of face `index` in `data` at the variation settings `axes`
 /// (tag, value in the axis's units), as the reader's words:
@@ -63,6 +70,7 @@ pub(crate) fn glyph_words(
     let mut scaler = context
         .builder(font)
         .size(ppem)
+        .normalized_coords(DEFAULT)
         .variations(settings())
         .build();
     if scaler.has_color_outlines() || scaler.has_color_bitmaps() {
@@ -93,6 +101,7 @@ pub(crate) fn glyph_words(
     let mut scaler = context
         .builder(font)
         .size(1.0)
+        .normalized_coords(DEFAULT)
         .variations(settings())
         .build();
     let outline = scaler.scale_outline(id)?;
@@ -425,8 +434,11 @@ mod tests {
                 .to_u32() as u16
         };
         let wght = u32::from_be_bytes(*b"wght");
+        let plain = glyph_words(&data, 0, &[], id).unwrap();
         let light = glyph_words(&data, 0, &[(wght, 100.0)], id).unwrap();
         let bold = glyph_words(&data, 0, &[(wght, 900.0)], id).unwrap();
         assert_ne!(light, bold);
+        // What one face was asked at is not the next one's.
+        assert_eq!(glyph_words(&data, 0, &[], id).unwrap(), plain);
     }
 }
