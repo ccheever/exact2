@@ -689,6 +689,7 @@ export function notBuildInput(dir, keep = []) {
   };
 }
 
+const fileDigest = path => { try { return createHash('sha256').update(readFileSync(path)).digest('hex'); } catch { return null; } };
 /** An Apple build's receipt: its Rust and Swift inputs by digest, then by mtime the app's own files the receipt leaves out on purpose (the root build script's watches: the contract, app.json, data, shaders, assets — what the baked plan and bundle are made from). */
 export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hashed`: this drive compared its inputs' bytes already
   if (!existsSync(receipt)) return [];
@@ -714,13 +715,14 @@ export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hash
   // It names every source the bake captured (its rerun-if-changed): of the app's own, those the
   // walk above skips are no input here either (a backend app.ts never imports); one gone still counts.
   const skipped = path => { const at = resolve(ROOT, path); return at.startsWith(app.dir + '/') && existsSync(at) && skip(at); };
-  // A product of this build that the bake then read (the GPU dylib signed beside Cargo's, whose digest it binds) is
-  // newer than the build's start; it changed only when written after the compile that read it ended (which wrote the
-  // dep-info) or after the receipt (a later build that stopped short of the bundle). One gone still counts.
-  const profile = info && dirname(info), compiled = info && Math.min(statSync(info).mtimeMs, statSync(receipt).mtimeMs);
-  const product = path => { const at = resolve(ROOT, path); return at.startsWith(profile + '/') && (statSync(at, { throwIfNoEntry: false })?.mtimeMs ?? Infinity) <= compiled; };
-  const tools = info ? depInfoNewer(since, null, info).filter(path => !skipped(path) && !product(path)) : [];
-  return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own, ...tools])];
+  // A product the build wrote and then read (the GPU dylib it signs beside Cargo's, whose digest the bake binds) is
+  // newer than the build's start by construction. The receipt records its bytes, which are what the bundle captured
+  // (captureAppleProduct): those decide, not its time. Every other input keeps the build's start as its bound.
+  const products = new Map((build?.products ?? []).map(p => [resolve(p.path), p.sha256]));
+  const inputs = info ? depInfoInputs(null, info).map(p => resolve(p)) : [];
+  const replaced = inputs.filter(path => products.has(path) && fileDigest(path) !== products.get(path)).map(shown);
+  const tools = info ? depInfoNewer(since, null, info).filter(path => !skipped(path) && !products.has(resolve(ROOT, path))) : [];
+  return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own, ...tools, ...replaced])];
 }
 
 /** A web `dist/`: app and shared runtime sources newer than its build marker.
