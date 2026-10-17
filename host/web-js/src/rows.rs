@@ -557,23 +557,20 @@ impl Em<'_> {
         }
     }
 
-    /// A node's authored `id`, named for `Sr` in a plan whose rows can
-    /// reference an element.
+    /// Preserve literal authored IDs for URL references and for drag bindings
+    /// when the template rewrites an SVG element's DOM ID.
     pub(super) fn exact_id(&self, i: u32) -> Option<String> {
         let plan = self.plan;
-        if !self.refs {
+        let node = &plan.nodes[i as usize];
+        if !self.refs && !NodeType::from_wire(node.node_type).is_some_and(|t| t.is_svg_element()) {
             return None;
         }
-        plan.nodes[i as usize]
-            .bindings
-            .iter()
-            .map(|b| plan.binding(b))
-            .find_map(|b| {
-                (b.kind == BindingKind::Prop && b.id == PropId::Id as u16)
-                    .then(|| style::literal(plan, plan.code(b.expr)))
-                    .flatten()
-                    .and_then(|v| v.as_str().map(str::to_string))
-            })
+        node.bindings.iter().map(|b| plan.binding(b)).find_map(|b| {
+            (b.kind == BindingKind::Prop && b.id == PropId::Id as u16)
+                .then(|| style::literal(plan, plan.code(b.expr)))
+                .flatten()
+                .and_then(|v| v.as_str().map(str::to_string))
+        })
     }
 }
 

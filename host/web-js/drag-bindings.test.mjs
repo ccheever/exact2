@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { resolve } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
 import { webCompiler } from './module.mjs';
+import { dragTarget } from './drag-target.js';
 
 const root = resolve(import.meta.dir, '../..');
 let dir, server;
@@ -82,6 +83,8 @@ beforeAll(async () => {
       row
         button testId="fixed-reorder" press=choose("fixed-reorder")
           text "Literal reorder"
+        button testId="svg" press=choose("svg")
+          text "SVG"
         button testId="root" press=rootName
           text "Root ID"
       text \`\${releases}\` testId="releases"
@@ -104,6 +107,16 @@ ${handle('reorderFor', '', 16)}
             for item in rows key=item
               column height=60 box-sizing="border-box"
                 column reorderFor="target" testId=\`handle-\${item}\` width="100%" height=40 touch-action="none" background-color="#6699aa"
+        if mode == "svg"
+          svg width=300 height=300
+            svg id="viewport" testId="viewport" width=300 height=300
+              g id="cards" testId="group"
+                foreignObject id="sheet" testId="svg-sheet" width=300 height=300
+                  column heightDragFor="sheet" heightrelease=resized testId="svg-handle" width=300 height=40 touch-action="none"
+                  list id="cards" virtualized=true estimated-item-height=60 reorderdrop=reordered width=300 height=240
+                    for item in rows key=item
+                      column height=60 box-sizing="border-box"
+                        column reorderFor="cards" testId=\`handle-\${item}\` width="100%" height=40 touch-action="none" background-color="#6699aa"
 `);
   const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'drag-bindings', '--out', resolve(dir, 'dist'), '--render', 'none'], {
     cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
@@ -207,5 +220,34 @@ test('literal reorder cancels a contact when an ancestor ID becomes ambiguous', 
     await drag(1);
     await browser.tap('duplicate');
     await drag(2);
+  } finally { await browser.close(); }
+}, 60_000);
+
+test('rewritten SVG IDs resolve by their authored names', async () => {
+  const browser = await open({ host: 'web', url: server.url.href, size: [800, 800] });
+  try {
+    await browser.tap('svg');
+    // Resolve against the built DOM without requiring an SVG height owner to be eligible.
+    const resolve = name => browser.carrier.evaluate(`(() => {
+      const handle = document.querySelector('[data-testid="svg-handle"]');
+      handle.dataset.heightdragfor = ${JSON.stringify(name)};
+      return (${dragTarget})(handle, 'heightdragfor')?.dataset.testid ?? null;
+    })()`);
+    expect(await resolve('sheet')).toBe('svg-sheet');
+    expect(await resolve('cards')).toBe('group');
+    expect(await resolve('viewport')).toBe('viewport');
+    const domID = await browser.carrier.evaluate('document.querySelector(\'[data-testid="svg-sheet"]\').id');
+    expect(domID).not.toBe('sheet');
+    expect(await resolve(domID)).toBeNull();
+  } finally { await browser.close(); }
+}, 60_000);
+
+test('a rewritten SVG ancestor still makes a reorder binding ambiguous', async () => {
+  const browser = await open({ host: 'web', url: server.url.href, size: [800, 800] });
+  try {
+    await browser.tap('svg');
+    await browser.tap('handle-a', { drag: { dx: 0, dy: 130, over: 300 } });
+    await browser.clock('settle');
+    expect((await browser.state()).slots.releases).toBe(0);
   } finally { await browser.close(); }
 }, 60_000);
