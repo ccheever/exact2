@@ -322,6 +322,7 @@ Start from the nearest pattern, a tested app with what the recipes teach. Open a
 |---|---|
 |an entry or settings form|`grouped-form`|
 |a write that may be refused|`after-a-write`|
+|tabular digits: numeric columns or values changing in place|`numeric-readout`|
 |a count 1–99|`contract vocab stepper`|
 |a chat that opens at its newest message|`chat-thread`|
 |SQLite, grants|`files-and-grants`|
