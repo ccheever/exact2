@@ -215,14 +215,16 @@ component UsagePage
   // Light dismiss (Base UI Popover's useDismiss, outsidePressEvent "intentional" for a mouse): a primary
   // press that starts outside the pinned popover's card and both its triggers (the segment, the legend
   // row), and does not end in the card, closes it as the press ends, before that press's own action; a
-  // press on another segment then pins that one. Presses on the page come here; the window counts the rest
-  // (`outside`). Base UI closes it however it opened, so the hover-opened state goes too.
+  // press on another segment then pins that one. Presses on the page come here and stop, so the window
+  // counts only the rest (`outside`). Base UI closes it however it opened, so the hover-opened state goes too.
   action pressDown(e: PointerEvent)
+    stopPropagation()
     let seg = frame(`usage-seg-${held}`)
     let pop = frame(`usage-seg-pop-${held}`)
     let leg = frame(`usage-legend-${held}`)
     downOutside = held != "" and e.buttons == 1 and not (usageHit(seg, e.clientX, e.clientY) or usageHit(pop, e.clientX, e.clientY) or usageHit(leg, e.clientX, e.clientY))
   action pressUp(e: PointerEvent)
+    stopPropagation()
     let id = held
     let pop = frame(`usage-seg-pop-${id}`)
     if downOutside and not usageHit(pop, e.clientX, e.clientY)

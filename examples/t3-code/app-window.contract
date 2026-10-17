@@ -484,9 +484,7 @@ component T3Window
   // The floating player lies above the popover's backdrop: a primary press on it (its pill buttons, its screen, its resize
   // edges) is outside the popover and closes it (ChatColumn's players' pointerdown and pointerup). It closes as the press
   // ends, so the press lands where it went down: a popover leaving between the button's down and up lost a pill button's
-  // press in the agent drive. The player takes the press from the window's `main` (outsidePressDown), so a skill
-  // chip's details close here too, as they do on a press anywhere else (a citation's comment settles, as on its own
-  // outside press).
+  // press in the agent drive.
   state detailsPlayerArmed = false
   action detailsPlayerPointer(e: PointerEvent)
     if e.buttons == 1
@@ -494,11 +492,6 @@ component T3Window
     else
       if detailsPlayerArmed and detailsOpen
         detailsAct("dismiss", "", "")
-      if detailsPlayerArmed and chipShown
-        if chip.kind == "citation"
-          citeSettle()
-        else
-          chipClose(false)
       detailsPlayerArmed = false
   // Over a right panel sheet (a narrow window) the thread details popover is the window's, above the sheet (WindowOverlays).
   derive detailsSheet = detailsOpen and narrowDiff and (rightPanel or shell.panel.open or data.diffOpen)
