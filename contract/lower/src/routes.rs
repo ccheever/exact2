@@ -550,8 +550,7 @@ fn still_on_y(tag: &str, attrs: &[Attr]) -> bool {
         return false;
     }
     let y = if scrolls { "scroll" } else { "visible" };
-    crate::shorthands::literal_overflow(attrs, y)
-        .is_some_and(|(_, y)| matches!(y, "visible" | "hidden"))
+    crate::overflow::Overflow::of(attrs, y).scrolls_y() == Some(false)
 }
 
 /// Whether a route's content scroller is a grouped list (`list
@@ -661,6 +660,5 @@ fn scrolls_y(tag: &str, attrs: &[Attr]) -> Option<bool> {
         }
     }
     let y = if scroller { "scroll" } else { "visible" };
-    let (_, y) = crate::shorthands::literal_overflow(attrs, y)?;
-    Some(!matches!(y, "visible" | "hidden"))
+    crate::overflow::Overflow::of(attrs, y).scrolls_y()
 }

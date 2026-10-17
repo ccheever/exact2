@@ -576,51 +576,6 @@ pub(crate) const PAIRS: [[StyleId; 2]; 3] = [
     [StyleId::OverflowX, StyleId::OverflowY],
     [StyleId::OverscrollBehaviorX, StyleId::OverscrollBehaviorY],
 ];
-/// A literal `overflow`'s x and y values: `"hidden auto"` is x hidden and y
-/// auto, one value is both axes'.
-fn overflow_axes(text: &str) -> (&str, &str) {
-    let v = exact_kernel::style::sides::values(text);
-    let x = v.first().copied().unwrap_or(text);
-    (x, v.get(1).copied().unwrap_or(x))
-}
-/// The computed x and y overflow of literal rows, the last of `overflow`,
-/// `overflow-x` and `overflow-y` winning per axis over `y` (a scroller's
-/// `scroll`, else `visible`), as CSS Overflow 3 §3.1 computes them: beside an
-/// axis that is not `visible`, `visible` is `auto`, as the kernel's
-/// `style.rs` lays it out (no row admits `clip`). `None` where a row is
-/// computed.
-pub(crate) fn literal_overflow<'a>(
-    attrs: impl IntoIterator<Item = &'a Attr>,
-    y: &'a str,
-) -> Option<(&'a str, &'a str)> {
-    let mut axes = ("visible", y);
-    for a in attrs {
-        let (x, y) = match a.name.as_str() {
-            "overflow" => (true, true),
-            "overflow-x" | "overflowX" => (true, false),
-            "overflow-y" | "overflowY" => (false, true),
-            _ => continue,
-        };
-        let Expr::Str(v, _) = &a.value else {
-            return None;
-        };
-        let (vx, vy) = overflow_axes(v);
-        if x {
-            axes.0 = vx;
-        }
-        if y {
-            axes.1 = vy;
-        }
-    }
-    let computed = |v: &'a str, other: &str| {
-        if v == "visible" && other != "visible" {
-            "auto"
-        } else {
-            v
-        }
-    };
-    Some((computed(axes.0, axes.1), computed(axes.1, axes.0)))
-}
 /// The longhands a shorthand's values go to, as an author writes them.
 pub(crate) fn longhands(name: &str) -> Vec<String> {
     let sides = ["top", "right", "bottom", "left"];
@@ -635,58 +590,5 @@ pub(crate) fn longhands(name: &str) -> Vec<String> {
             Some(part) => sides.map(|s| format!("border-{s}-{part}")).to_vec(),
             None => sides.map(|s| format!("{n}-{s}")).to_vec(),
         },
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn rows(pairs: &[(&str, &str)]) -> Vec<Attr> {
-        pairs
-            .iter()
-            .map(|(name, value)| Attr {
-                name: (*name).into(),
-                value: Expr::Str((*value).into(), Span::default()),
-                span: Span::default(),
-                written: true,
-            })
-            .collect()
-    }
-
-    /// CSS Overflow 3 §3.1, as the kernel lays it out: a `visible` axis
-    /// beside a scrolling or hidden one computes to `auto`; the last row of
-    /// an axis wins; a computed row is doubt.
-    #[test]
-    fn literal_overflow_computes_each_axis_as_css_does() {
-        let of = |pairs: &[(&str, &str)], y: &'static str| {
-            literal_overflow(&rows(pairs), y).map(|(x, y)| (x.to_string(), y.to_string()))
-        };
-        assert_eq!(
-            of(&[("overflow", "hidden visible")], "visible"),
-            Some(("hidden".into(), "auto".into()))
-        );
-        assert_eq!(
-            of(&[("overflow", "visible")], "visible"),
-            Some(("visible".into(), "visible".into()))
-        );
-        assert_eq!(
-            of(&[("overflow-x", "hidden")], "visible"),
-            Some(("hidden".into(), "auto".into()))
-        );
-        assert_eq!(
-            of(&[("overflow-y", "hidden")], "scroll"),
-            Some(("auto".into(), "hidden".into()))
-        );
-        assert_eq!(of(&[], "scroll"), Some(("auto".into(), "scroll".into())));
-        let last = [("overflow", "auto"), ("overflow-y", "hidden")];
-        assert_eq!(of(&last, "visible"), Some(("auto".into(), "hidden".into())));
-        let computed = vec![Attr {
-            name: "overflow-x".into(),
-            value: Expr::Ident("o".into(), Span::default()),
-            span: Span::default(),
-            written: true,
-        }];
-        assert_eq!(literal_overflow(&computed, "visible"), None);
     }
 }

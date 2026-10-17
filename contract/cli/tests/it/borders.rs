@@ -555,3 +555,42 @@ fn two_value_shorthands_split_into_their_rows() {
     assert_eq!(e.id, "lower-attr-value");
     assert!(e.message.contains("one or two values (row, column)"), "{e}");
 }
+
+/// LLP 1053.000.000: a glass group on a box that scrolls is refused, the
+/// box's overflow computed as CSS Overflow 3 §3.1 does (a `visible` axis
+/// beside a non-`visible` one is `auto`), from every row and each literal
+/// arm of a choice (the review of the two-value split).
+#[test]
+fn a_glass_group_reads_every_overflow_row_and_arm() {
+    for overflow in [
+        "overflow=\"hidden\"",
+        "overflow=\"visible\"",
+        // `""` and `"unset"` declare nothing: both axes stay `visible`.
+        "overflow=\"\"",
+        "overflow=\"unset\"",
+        // Each arm keeps its two axes together: neither scrolls.
+        "overflow=(on ? \"hidden\" : \"visible\")",
+        // A computed x beside a `visible` y could compute anything; doubt is no refusal.
+        "overflow-x=o",
+    ] {
+        contract::compile(&format!(
+            "component App\n  state on = true\n  state o = \"hidden\"\n  view\n    box glassGroup=0 {overflow}\n"
+        ))
+        .unwrap_or_else(|e| panic!("{overflow}: {e}"));
+    }
+    // A later literal overrides an earlier computed row; an arm that scrolls,
+    // or a known `hidden` beside a computed axis, may scroll.
+    for overflow in [
+        "overflow=\"hidden visible\"",
+        "overflow-x=\"hidden\"",
+        "overflow-x=o overflow=\"auto\"",
+        "overflow=(on ? \"hidden visible\" : \"hidden\")",
+        "overflow-x=\"hidden\" overflow-y=o",
+    ] {
+        let e = contract::compile(&format!(
+            "component App\n  state on = true\n  state o = \"hidden\"\n  view\n    box glassGroup=4 height=40 {overflow}\n"
+        ))
+        .unwrap_err();
+        assert_eq!(e.id, "lower-glass-group", "{overflow}: {e}");
+    }
+}
