@@ -494,7 +494,7 @@
   // `claimed` once a settle has handed the executor its request, `release`
   // ends its watch on `signal`.
   var pending = new Map();
-  var currentCall = null;    // the answer a fetch belongs to
+  var currentCall = null, mapping = null; // the answer a fetch belongs to; a socket's mapper answering a frame (D7)
   // A fetch's `signal` is watched through Ibex's own abort hooks natively,
   // which run before any listener and so cannot be stopped by one; a
   // browser realm's signal is the browser's, watched by a listener, and
@@ -590,44 +590,44 @@
   // A resource's two-way socket (LLP 1016.000 D7): the handle its mapper
   // receives. Its state is what the mapper has seen: CONNECTING until
   // `open`, OPEN until the end, CLOSED once the stream ends or its answer
-  // is let go. Only a mutation's synchronous source may send or close; each
-  // operation is copied now, kept with that call, and handed to the host
-  // only when its answer is given now (`settle`). The runner publishes it
-  // once the mutation's commit stands; the host checks the transport then.
+  // is let go. A mutation's synchronous source may send or close, and so may
+  // the socket's own mapper answering `open` or a `message`; each operation
+  // is copied now and handed to the host with that turn's answer (`settle`,
+  // `__exact_message`), and published once the commit that settles it stands.
   var SOCKET_OPS = 256, SOCKET_BYTES = 1048576;
-  // A mutation does one kind of effect: socket operations or a fetch, never
-  // both. Whichever comes second refuses, and so does the mutation, before
-  // either leaves: no frame is handed over and no fetch is.
+  // A mutation does one kind of effect, socket operations or a fetch: whichever
+  // comes second refuses, and the mutation with it, before either leaves.
   var SOCKET_AND_FETCH = "a mutation cannot both send on a socket and fetch";
   function socketOwner(ticket) {
     var owner = { ticket: ticket, state: 0 };
-    // The transport's bytes as this turn began (the runner's snapshot,
-    // door op 15), as WHATWG's `bufferedAmount` counts them at a task's
-    // start; the bytes this turn stages on the socket add to them.
-    // (The web's wasm realm has no such door; its handle never opens.)
+    // The transport's bytes as this turn began (the runner's snapshot, door
+    // op 15, none on wasm, whose handle never opens), as WHATWG's
+    // `bufferedAmount` counts them at a task's start; what the turn stages adds.
     function buffered() { try { return Number(host(15, String(ticket), "")) || 0; } catch (e) { return 0; } }
+    function turn() { return mapping && mapping.owner === owner ? mapping : currentCall; } // its own mapper's call, else a mutation's
     function stage(op) {
-      var call = currentCall;
-      if (!call || !call.mutation || !call.sync) throw new Error("socket." + (op.op === "close" ? "close" : "send") + " is only available in a mutation's synchronous source");
+      var call = turn(), mapper = !!mapping && call === mapping;
+      if (!call || !mapper && (!call.mutation || !call.sync)) throw new Error("socket." + (op.op === "close" ? "close" : "send") + " is only available in a mutation's synchronous source or its socket's own mapper");
       if (owner.state !== 1) throw new DOMException("the socket is not open", "InvalidStateError");
-      if (call.tickets.length) { call.socketConflict = true; throw new Error(SOCKET_AND_FETCH); }
-      var ops = call.socketOps || (call.socketOps = []), bytes = op.size, mine = op.size;
-      if (ops.length >= SOCKET_OPS) throw new DOMException("socket mutation exceeds 256 operations", "QuotaExceededError");
+      if (!mapper && call.tickets.length) { call.socketConflict = true; throw new Error(SOCKET_AND_FETCH); }
+      var over = function (what) { var e = new DOMException(what, "QuotaExceededError"); if (mapper) call.overload = e; return e; }; // fails a mapper's snapshot, caught or not
+      var ops = call.socketOps || (call.socketOps = []), bytes = op.size, mine = op.size, kind = mapper ? "mapper call" : "mutation";
+      if (ops.length >= SOCKET_OPS) throw over("socket " + kind + " exceeds 256 operations");
       for (var i = 0; i < ops.length; i++) {
         if (ops[i].owner === owner && ops[i].op === "close") throw new DOMException("the socket is not open", "InvalidStateError");
         bytes += ops[i].size;
         if (ops[i].owner === owner) mine += ops[i].size;
       }
-      // The mutation's payload as a whole; this socket's buffer with what it stages on it.
-      if (bytes > SOCKET_BYTES) throw new DOMException("socket mutation exceeds 1 MiB", "QuotaExceededError");
-      if (buffered() + mine > SOCKET_BYTES) throw new DOMException("socket buffer exceeds 1 MiB", "QuotaExceededError");
+      // The turn's payload as a whole; this socket's buffer with what it stages on it.
+      if (bytes > SOCKET_BYTES) throw over("socket " + kind + " exceeds 1 MiB");
+      if (buffered() + mine > SOCKET_BYTES) throw over("socket buffer exceeds 1 MiB");
       op.owner = owner;
       ops.push(op);
     }
     owner.handle = Object.freeze({
       get readyState() { return owner.state; },
       get bufferedAmount() {
-        var n = buffered(), ops = currentCall && currentCall.socketOps;
+        var n = buffered(), call = turn(), ops = call && call.socketOps;
         for (var i = 0; ops && i < ops.length; i++) if (ops[i].owner === owner) n += ops[i].size;
         return n;
       },
@@ -653,19 +653,16 @@
     call.tickets = [];
     call.socketOps = null;
   }
-  // A mutation's staged operations to the host, as its answer is given.
+  // A turn's staged operations to the host, with its answer.
   function handSocketOps(call) {
     var ops = call.socketOps;
     call.socketOps = null;
-    for (var i = 0; ops && i < ops.length; i++) {
-      var op = ops[i];
-      host(14, String(op.owner.ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason }));
-    }
+    for (var i = 0, op; ops && (op = ops[i]); i++) host(14, String(op.owner.ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason }));
   }
 
   global.Response = Response;
   global.fetch = function (url, init) {
-    if (overlaying) return Promise.reject(inOverlay("fetch()"));
+    if (overlaying || mapping) return Promise.reject(overlaying ? inOverlay("fetch()") : new Error("fetch() is unavailable in a socket's mapper: it answers each frame now"));
     var call = currentCall;
     // A continuation running as an answer already given still fetches: the
     // next answer to settle claims the request (see `settle`).
@@ -1401,12 +1398,15 @@
     // The socket's state as of this event (D7): `open` opens it, an end closes it.
     if (socket) socket.state = !o.message ? 3 : event.type === "open" && socket.state === 0 ? 1 : socket.state;
     currentCall = call;
+    // Its mapper may reply on it answering `open` or a `message` (never on wasm, where it never opens): handed over however the call ends, sent if the frame's commit stands.
+    var turn = mapping = socket && o.message && socket.state === 1 ? { owner: socket, socketOps: null, overload: null } : null;
     try {
       var value = socket ? call.stream(event, socket.handle) : call.stream(event);
       if (value && typeof value.then === "function") throw new Error("exactStream answers each event now; it cannot await");
+      if (turn && turn.overload) throw turn.overload;
       return ok(value);
     } catch (e) { return fail(e); }
-    finally { currentCall = null; }
+    finally { currentCall = null; mapping = null; if (turn) handSocketOps(turn); }
   };
   // The module's storage, after a call or a delivery (LLP 1097 D5, D8):
   // whether the operation in flight is the background's (`head`), the

@@ -12,6 +12,8 @@ import { tsGrantSet } from './admission-data.js';
 export const SOCKET_AND_FETCH = 'a mutation cannot both send on a socket and fetch';
 export function fetch(input, options) {
   if (overlaying.on) return Promise.reject(inOverlay('fetch()'));
+  // A socket's mapper answering a frame makes no fetch (D7).
+  if (answering.mapper) return Promise.reject(new Error("fetch() is unavailable in a socket's mapper: it answers each frame now"));
   const call = answering.call;
   if (call?.mutation) {
     if (call.socketConflict || call.socketOps?.length) { call.socketConflict = true; return Promise.reject(new Error(SOCKET_AND_FETCH)); }
@@ -88,7 +90,7 @@ export const files = { appId: null };
 // (js/src/prelude.js): the stream is the answer's, so its fetch is made while
 // the answer is asked (`answering`, set by ts-data.js), which opens it. Its
 // promise never settles: the answer is what `exactStream` maps each event to.
-export const answering = { call: null, sockets: false };
+export const answering = { call: null, sockets: false, mapper: null };
 function stream(input, init, redirect) {
   const call = answering.call;
   // Hermes also claims a stream started after an await; this page has no

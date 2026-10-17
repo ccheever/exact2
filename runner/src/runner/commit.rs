@@ -1075,13 +1075,26 @@ impl<D: DataSource> Runner<D> {
         }
         let p = p.clone();
         self.sync_pending_flags();
-        let (ticket, target) = (p.ticket, p.target);
-        let what = super::lines::fulfilling(ticket, &self.target_name(target), summary);
+        let (ticket, target, name) = (p.ticket, p.target, self.target_name(p.target));
+        let what = super::lines::fulfilling(ticket, &name, summary);
+        let before = self.sockets.len();
         let result = self.fulfill_inner(p, outcome);
+        // What the mapper staged answering this frame (LLP 1016.000 D7):
+        // addressed for the commit, or left staged by a frame that failed.
+        let left = !self.store.take_sockets().is_empty();
+        let replied = left || self.sockets.len() > before;
         self.conclude(checkpoint, &result, was_poisoned);
         self.arm_then(result.is_ok());
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
+        // Or by one whose answer reopened the stream, which sends none.
+        if replied && (result.is_err() || left) {
+            let why = (result.as_ref().err())
+                .map_or("its answer reopened the stream".into(), |e| {
+                    crate::failure::Failure::of(e).message
+                });
+            self.log(sockets::refused(&crate::SocketOrigin::Mapper(name), &why));
+        }
         if let (Err(e), true) = (&result, self.holds(ticket)) {
             return self.release_failed(ticket, target, crate::failure::Failure::of(e));
         }
@@ -1107,6 +1120,10 @@ impl<D: DataSource> Runner<D> {
         let parsed = self
             .data
             .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome);
+        // Only a socket's mapper answering a frame sends (LLP 1016.000 D7).
+        if !message {
+            self.store.take_sockets();
+        }
         for line in self.data.take_logs() {
             self.log(line);
         }
@@ -1154,6 +1171,16 @@ impl<D: DataSource> Runner<D> {
         };
         if !self.conforms(&value, ty) {
             return Err(self.shape(name, &value, ty));
+        }
+        // Its replies go out once this frame's commit stands (D7).
+        if message {
+            if let Err(why) = self.stage_replies(&p) {
+                let error = DataError::Unavailable(why);
+                return Err(RunnerError::Data {
+                    resource: name,
+                    error,
+                });
+            }
         }
         match p.target {
             Target::Resource(i) => {

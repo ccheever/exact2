@@ -733,7 +733,8 @@ receive `(event, socket)` for a WebSocket (LLP 1016.000 D7). Keep the handle by 
 module state. Its events are `open`, ordered `message` (string or ArrayBuffer
 `data`), and `close` (`code`, `reason`, `wasClean`); a refusal is still `error`.
 Every protocol frame reaches the mapper; `coalesced` is zero. The mapper must
-return a shaped snapshot synchronously. Sending belongs to a mutation:
+return a shaped snapshot synchronously. A mutation sends on a kept handle, and
+the mapper may answer its own socket's frames (below):
 
 ```ts
 import type { StreamSocket } from './app.contract.d.ts';
@@ -757,8 +758,8 @@ export function answer(source: string, [id, url, text]: [string, string, string]
 Call `sendFrame` through a Contract `mutation`, after the feed reports `open`.
 `send` accepts a string, ArrayBuffer or ArrayBufferView; bytes are copied at
 the call. `close(code = 1000, reason = "")` accepts 1000 or 3000–4999 and a
-reason of at most 123 UTF-8 bytes. Both methods are allowed only during the
-mutation source's synchronous call. A source that stages socket operations
+reason of at most 123 UTF-8 bytes. In a mutation, both methods are allowed
+only during its source's synchronous call. A source that stages socket operations
 must answer now with a value: not a promise, not a stream answer, and with
 no `fetch` in the same mutation. Whichever of a socket operation and a
 `fetch` comes second throws `a mutation cannot both send on a socket and
@@ -770,8 +771,30 @@ module began, plus what this mutation has staged on the socket, so a turn
 that sends nothing still sees a buffer that has drained. It cannot extend
 the resource's lifetime.
 
-A mutation stages at most 256 operations and 1 MiB, including bytes already
-buffered by the browser. Overflow throws `QuotaExceededError`; a stale or
+The mapper may also `send` and `close` on the socket it was handed while it
+answers `open` or a `message`: a subscribe on `open`, an `Ack` or `Pong` for
+each frame, as a browser client answers in its handlers (LLP 1016.000 D7,
+amended 2026-10-16):
+
+```ts
+exactStream(event, socket) {
+  if (event.type === "open") socket.send('{"_tag":"Subscribe"}');
+  if (event.type === "message") socket.send(JSON.stringify({ _tag: "Ack", id: JSON.parse(event.data).id }));
+  return { status: event.type, text: typeof event.data === "string" ? event.data : "" };
+},
+```
+
+What a mapper call stages is sent once the commit that settles that frame's
+snapshot stands, in arrival order and ahead of later mutations' frames. A
+throw, a wrong-shaped snapshot or a refused commit sends none of it, and
+`logs` say `mapper <resource> failed: …; socket frames were refused`. Each
+call has a mutation's bounds below; overload throws `QuotaExceededError` and
+fails that frame's snapshot even if the mapper catches it. On `close` and
+`error` the handle is already closed and refuses; so do another socket's
+handle, a continuation the mapper schedules, and a `fetch` in the call.
+
+A mutation or mapper call stages at most 256 operations and 1 MiB, including
+bytes already buffered by the browser. Overflow throws `QuotaExceededError`; a stale or
 not-yet-open handle throws `InvalidStateError` (also after close, a deliberate
 difference from the browser's silent discard). A change before publication
 can still refuse transport admission, reported in `logs`: acceptance is not

@@ -862,10 +862,12 @@ A bidirectional WebSocket uses a resource's TypeScript
 `fetch(url, { exactStream(event, socket) { … } })` (LLP 1016.000 D7).
 Keep the handle in module state by resource identity; after its `open` event,
 a mutation source can call `socket.send(textOrBytes)` or `socket.close(code,
-reason)`. The mapper only reads frames and returns snapshots. Sends run after
-the mutation's commit stands, in order, and have bounded admission. The
-source must send and answer synchronously, and a mutation that sends cannot
-also `fetch` (whichever comes second refuses it). Refreshing or removing the
+reason)`. The mapper may also send and close on its own socket while it
+answers `open` or a `message` (a subscribe, an Ack per frame), with no
+`fetch`. Sends run after the commit that settles the mutation or the frame
+stands, in order, and have bounded admission. The source must send and
+answer synchronously, and a mutation that sends cannot also `fetch`
+(whichever comes second refuses it). Refreshing or removing the
 resource invalidates the old handle. **TypeScript on the web JS target,
 macOS, iOS and Linux**; the wasm target and Rust sources remain
 receive-only. See

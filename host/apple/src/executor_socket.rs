@@ -4,8 +4,9 @@
 //! binary, never coalesced, and ends with the closing handshake's code and
 //! reason. Frames wait for the runner in the stream's own queue, bounded at
 //! 256 frames and 1 MiB besides the per-message ceiling; overflow ends the
-//! stream refused after the frames already queued. A mutation's batch
-//! ([`exact_runner::SocketSend`]) is checked whole, then sent in order.
+//! stream refused after the frames already queued. A mutation's or a
+//! mapper call's batch ([`exact_runner::SocketSend`]) is checked whole,
+//! then sent in order.
 use super::super::{complete, failed, has_ready, wake, Completed, Core, Shared};
 use exact_runner::{FailureKind, Message, Outcome, SocketOp, SocketSend};
 use ibex2::stdlib::{
@@ -17,7 +18,7 @@ use std::sync::Arc;
 /// Undelivered frames a socket may hold, by count and by bytes (D7).
 const RECEIVE_FRAMES: usize = 256;
 const RECEIVE_BYTES: usize = 1 << 20;
-/// What a mutation's batch and the transport's buffer may hold together:
+/// What one batch and the transport's buffer may hold together:
 /// bytes (D7), and frames, the bound past which both ibex2 transports close
 /// the connection rather than queue (WHATWG's "full").
 const SEND_BYTES: usize = 1 << 20;
@@ -98,7 +99,7 @@ enum Frame {
 }
 
 /// Read the open socket `ticket` to its end. Its sender is registered for
-/// mutations' batches until then.
+/// batches until then.
 pub(super) fn read(
     shared: &Shared,
     ticket: u64,
@@ -244,11 +245,11 @@ impl Core {
         })
     }
 
-    /// Send one mutation's socket batch, whose commit stood: every socket
-    /// it names must still be open and wanted, and each must take its
-    /// share without its buffer passing 1 MiB or 256 frames, or nothing is
-    /// sent. For each
-    /// socket, the frames it accepted and the bytes it now buffers.
+    /// Send one mutation's or mapper call's socket batch, whose commit
+    /// stood: every socket it names must still be open and wanted, and each
+    /// must take its share without its buffer passing 1 MiB or 256 frames,
+    /// or nothing is sent. For each socket, the frames it accepted and the
+    /// bytes it now buffers.
     pub(crate) fn socket(&self, batch: &SocketSend) -> Result<Vec<(u64, u64, u64)>, String> {
         let not_open = || "InvalidStateError: the socket is not open".to_string();
         {
