@@ -4,14 +4,14 @@ import { test, expect } from 'bun:test';
 import { dragTap, STROKES } from './agent-drag.mjs';
 
 /** A session and carrier whose journal says `lines` during the drag; replies settle a tick later. */
-function drive(lines, { touches = false } = {}) {
+function drive(lines, { touches = false, notes = {} } = {}) {
   const later = (v) => new Promise((done) => setTimeout(() => done(v), 1));
   const s = {
     contact: null,
     held: null,
     now: 0,
     async layout() { return later({ nodes: [{ id: 7, x: 10, y: 10, w: 40, h: 20 }], viewport: { w: 400, h: 800 } }); },
-    async pointer(phase) { return later({ phase, at: [30, 60], delivery: 'platform' }); },
+    async pointer(phase) { return later({ phase, at: [30, 60], delivery: 'platform', ...(notes[phase] ? { note: notes[phase] } : {}) }); },
     async op(req) {
       if (req.op !== 'logs') return later({});
       return later(req.since === Number.MAX_SAFE_INTEGER ? { lines: [], next: 5 } : { lines, next: 5 + lines.length });
@@ -35,6 +35,12 @@ test('a refused drag names the refusal and keeps the reply', async () => {
   expect(r.delivery).toBe('platform');
   expect(r.epoch).toBe(3);
   expect(r.drag).toEqual(expect.objectContaining({ dx: 0, dy: 40 }));
+});
+
+// A phase's reply says a refused write once a drive (`landed`): the drag's reply carries it on (round-2 review).
+test('a note a phase of the drag carried is the drag\'s', async () => {
+  const r = await drive([], { notes: { move: 'a data source\'s write was refused' } });
+  expect(r.note).toBe('a data source\'s write was refused');
 });
 
 test('a drag the host said nothing about has no note', async () => {
@@ -98,6 +104,7 @@ function strokeDrive(replies = () => ({})) {
   const s = { contact: null, async layout() { return { nodes: [node], viewport: { w: 400, h: 800 } }; },
     async op() { return { lines: [], next: 0 }; },
     async tagged(r) { return r; },
+    async landed(r) { return { ...r, landed: true }; },
     async tap(target, { drag }) { strokes.push(drag); return { tapped: 9, drag, ...replies(strokes.length) }; } };
   const run = (opts, { host = 'web', carrier = {} } = {}) => dragTap({ s, carrier, node: { id: 9 }, target: 'list', host, timing: 'agent' }, opts);
   return { strokes, node, run };
@@ -133,6 +140,7 @@ test('on iOS a scroller takes the whole drag at once, and under real touches say
     expect(d.strokes).toEqual([]);
     expect(r.scrolledBy).toEqual([0, 1500]);
     expect(Boolean(r.note?.includes('not a real touch'))).toBe(!!touches);
+    expect(r.landed).toBe(true); // what the scroll settled lands before the reply
   }
 });
 

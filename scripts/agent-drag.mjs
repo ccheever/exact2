@@ -96,8 +96,9 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     if (!['ios', 'host-ios'].includes(host)) return strokes(s, target, opts, start, vp);
     const r = await carrier.ask({ op: 'tap', id: node.id, scrollDrag: [dx, dy], ...(from ? { from: start } : {}) });
     if (r.error) throw new Error(r.error);
-    const real = carrier.touches ? { note: 'past the screen a drag is the scroll view\'s own (recognized), not a real touch: one ends inside the screen' } : {};
-    return noted(await s.tagged({ ...r, ...real, target, ...(scrolled ? { scrolled } : {}), drag: said, carrier: host, mode: timing }), await reorderNotes(s, mark));
+    // Landed as an input is (`s.landed`): what the scroll settled lands its `then`s before the reply, and a landing error is said.
+    const real = carrier.touches ? ['past the screen a drag is the scroll view\'s own (recognized), not a real touch: one ends inside the screen'] : [];
+    return noted(await s.landed({ ...r, target, ...(scrolled ? { scrolled } : {}), drag: said, carrier: host, mode: timing }), [...real, ...await reorderNotes(s, mark)]);
   }
   // Each op runs with input refused; the runner path bounds each one by the gesture.
   const held = (op) => async () => { s.held = target; try { return await op(); } finally { s.held = null; } };
@@ -109,10 +110,13 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   }
   // The carrier's phases, each reply checked: an error or a refusal releases the contact and throws.
   let down, done = [], up;
+  // A phase's note (a refused write, said once a drive) is the drag's: its reply carries it (`noted`).
+  const phaseNotes = [];
   const phase = async (name, opts) => {
     const r = await s.pointer(name, opts);
     if (r.error || r.delivery === 'unsupported') throw new Error(`drag: ${name}: ${r.error ?? r.reason ?? 'unsupported'}`);
     if (r.landError) throw new Error(`drag: ${name} was delivered; landing what it started failed: ${r.landError}`);
+    if (r.note) phaseNotes.push(r.note);
     return r;
   };
   try {
@@ -167,7 +171,7 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     if (s.contact) error.message += '; the contact could not be released (tap cancel, or close the session)';
     throw error;
   }
-  return noted(await s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing }), await reorderNotes(s, mark));
+  return noted(await s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing }), [...new Set(phaseNotes), ...await reorderNotes(s, mark)]);
 }
 
 /** The most strokes a drag past the viewport is split into, and how long each but the last rests before it lifts. */
