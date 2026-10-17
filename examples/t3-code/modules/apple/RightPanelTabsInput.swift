@@ -10,7 +10,7 @@ final class RightPanelTabsInput {
     private var elements: [String: Weak] = [:]
     private var monitor: Any?
     func install(_ element: ExactElement) {
-        // The rename editor is the anchor `tab-editor:<id>` (r4-surfaces.contract R4TabNameField).
+        // The rename editor is the anchor `tab-editor:<id>` (panel.contract R4TabNameField).
         guard element.hatch == .t3Anchor, let name = element.data[.anchor],
               ["r12-tab:", "tab-close:", "tab-cancel:", "tab-focus:", "tab-editor:"].contains(where: name.hasPrefix) else { return }
         elements[name] = Weak(element)

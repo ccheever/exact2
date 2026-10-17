@@ -171,7 +171,7 @@ final class T3Composer {
         let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
         // ⌘B / ⌘I toggle bold and italic when the rich text composer is on (by key code
-        // under a non-Latin source, ending composition first, R9Input.swift).
+        // under a non-Latin source, ending composition first, T3ComposerInput.swift).
         let chord = R9Input.chordKey(event)
         if flags == .command, chord == "b" || chord == "i", window.firstResponder === view, editor.styler.richText, R9Input.commitMarkedText(view) {
             editor.toggleMark(chord == "b" ? "**" : "*", in: view)

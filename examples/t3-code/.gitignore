@@ -1,4 +1,4 @@
-# The embedded server runtime that stage-runtime.mjs puts beside its pin (the
+# The embedded server runtime that tools/stage-runtime/stage-runtime.mjs puts beside its pin (the
 # release archive and its manifest), and its download cache. Only the pin is committed.
 /server-runtime/*
 !/server-runtime/runtime-pin.json
@@ -15,24 +15,24 @@
 /.exact/
 # Generated sources (tools/generate/generate.mjs writes them; the app build runs it): built, not
 # committed (rules/RULES.md).
-/r12-render-grammar.ts
-/r12-render-grammar-*.ts
-/r7-polish-css-words.ts
-/settings-b-lucide.ts
-/pages-icons.contract
-/icons.contract
-/shell-icons.contract
-/sidebar-icons.contract
-/timeline-icons.contract
-/r4-surfaces-icons.contract
-/settings-icons.contract
-/provider-icons.contract
-/diff-glyphs.contract
-/editor-icons.contract
-/settings-brands.contract
-/timeline-files.contract
-/timeline-files-tables.ts
-/shell-morph.contract
+/src/highlight/grammar.ts
+/src/highlight/grammar-*.ts
+/src/highlight/css-words.ts
+/src/settings/settings-b-lucide.ts
+/src/settings/settings-icons.contract
+/src/settings/settings-brands.contract
+/src/shared/pages-icons.contract
+/src/shared/icons.contract
+/src/shared/timeline-files.contract
+/src/shared/timeline-files-tables.ts
+/src/shell/shell-icons.contract
+/src/shell/editor-icons.contract
+/src/shell/shell-morph.contract
+/src/sidebar/sidebar-icons.contract
+/src/timeline/timeline-icons.contract
+/src/panel/panel-icons.contract
+/src/providers/provider-icons.contract
+/src/diff/diff-glyphs.contract
 /assets/composer-icons.json
 /macos/pierre-icons.tsv
 /macos/tests/terminal/vectors.json

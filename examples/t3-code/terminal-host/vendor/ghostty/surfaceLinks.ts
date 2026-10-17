@@ -5,7 +5,7 @@
 // - split out of surface.ts for the 1,500-line cap.
 // - the import path of terminal-links follows this tree.
 // - `isSameTerminalLink` is exported for surface.ts.
-import { collectWrappedTerminalLinkLine, extractTerminalLinks } from "../../../terminal-links";
+import { collectWrappedTerminalLinkLine, extractTerminalLinks } from "../../../src/terminal/terminal-links";
 import type { GhosttySnapshot } from "./core";
 import type { GhosttyCellRange } from "./renderer";
 

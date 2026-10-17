@@ -3,14 +3,14 @@
 // highlighter), the @shikijs/langs grammars and the @pierre/theme pierre-light / pierre-dark themes;
 // this compiles those grammars the way vscode-textmate's RuleFactory does (one id per rule, includes
 // resolved ahead of time) and converts each regex the way Shiki's JavaScript engine does
-// (oniguruma-to-es with Shiki's options, target ES2018 for Hermes), so r12-render-textmate.ts can run
+// (oniguruma-to-es with Shiki's options, target ES2018 for Hermes), so textmate.ts can run
 // them with no Oniguruma and no regex conversion. generate.mjs writes the files (the app build runs it).
 //
 // Every grammar of @shikijs/langs is here (the reference loads any
 // language of Shiki's bundle). They share one rule space, so an include of another language
 // resolves as a registry that has it loaded resolves it, and each grammar's rules, names and
 // regexes are one chunk the app parses only when a language first needs it. Output:
-// r12-render-grammar.ts (the index: languages, aliases, injections, chunk ranges, the themes) and
+// grammar.ts (the index: languages, aliases, injections, chunk ranges, the themes) and
 // r12-render-grammar-<n>.ts (the chunks, packed in order, each file under the line cap).
 
 import { createHash } from 'node:crypto';
@@ -24,6 +24,7 @@ import { toRegExpDetails } from 'oniguruma-to-es';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const example = join(here, '..', '..');
+const highlight = join(example, 'src', 'highlight');
 const pkg = name => JSON.parse(readFileSync(join(here, 'node_modules', name, 'package.json'), 'utf8'));
 
 /** @shikijs/langs grammars that are not languages of Shiki's bundle (shiki 4.2 `bundledLanguagesInfo`): other
@@ -203,7 +204,7 @@ function regexEntry(raw, closing) {
   let entry = converted.get(key);
   if (entry) return entry;
   // A back-reference (\N) becomes U+E000+N before conversion; the runtime swaps in the
-  // begin match's escaped capture (r12-render-textmate.ts resolveBackrefs).
+  // begin match's escaped capture (textmate.ts resolveBackrefs).
   const marked = backrefs ? parsed.source.replace(/\\(\d+)/g, (_, n) => String.fromCharCode(0xe000 + Number(n))) : parsed.source;
   if (parsed.hasAnchor) {
     // The four \A / \G variants; one equal to an earlier one is stored as that one's index.
@@ -504,7 +505,7 @@ const literalLines = json => {
 };
 /** Each chunk file stays under the source-file cap (1,500 lines; rules/RULES.md). */
 const FILE_LINES = 1400;
-const DATA_FILE = /^r12-render-grammar(-\d+)?\.ts$/;
+const DATA_FILE = /^grammar(-\d+)?\.ts$/;
 
 export async function generate() {
   const self = createHash('sha256').update(readFileSync(fileURLToPath(import.meta.url))).digest('hex').slice(0, 16);
@@ -523,7 +524,7 @@ export async function generate() {
     const text = header(`The reference's Shiki 4.2 TextMate grammars ${names[0]} to ${names[names.length - 1]} (@shikijs/langs, MIT; each grammar's own licence travels with it in its upstream repository), their Oniguruma regexes converted to JavaScript (oniguruma-to-es, MIT). See LICENSE-T3.`)
       + `/** Grammar chunks ${names.join(', ')}: each a function returning its JSON text (parsed when first used). */\n`
       + `export const CHUNKS: (() => string)[] = [\n${lines.join('\n')}\n];\n`;
-    files.push({ file: join(example, `r12-render-grammar-${number}.ts`), text });
+    files.push({ file: join(highlight, `grammar-${number}.ts`), text });
     lines = []; names = [];
   };
   for (const chunk of chunks) {
@@ -539,18 +540,18 @@ export async function generate() {
   flush();
 
   const languages = [...Object.keys(index.roots), ...Object.keys(index.aliases)].join(' ');
-  const indexText = header(`The index of the grammar chunks (r12-render-grammar-1.ts to -${files.length}.ts): languages, aliases, injections, rule ranges, and the pierre-light / pierre-dark token colours and font styles (@pierre/theme, MIT). See LICENSE-T3.`)
-    + files.map((_, at) => `import { CHUNKS as CHUNKS_${at + 1} } from './r12-render-grammar-${at + 1}';\n`).join('')
+  const indexText = header(`The index of the grammar chunks (grammar-1.ts to -${files.length}.ts): languages, aliases, injections, rule ranges, and the pierre-light / pierre-dark token colours and font styles (@pierre/theme, MIT). See LICENSE-T3.`)
+    + files.map((_, at) => `import { CHUNKS as CHUNKS_${at + 1} } from './grammar-${at + 1}';\n`).join('')
     + `/** The languages and aliases the chunks hold, readable without parsing the index. */\n`
     + `export const GRAMMAR_LANGUAGES = ${JSON.stringify(languages)};\n`
     + `/** Every grammar's chunk, in the order of the index's \`chunks\` ranges. */\n`
     + `export const GRAMMAR_CHUNKS: (() => string)[] = [${files.map((_, at) => `...CHUNKS_${at + 1}`).join(', ')}];\n`
     + `export const GRAMMAR_INDEX: string = [\n${literalLines(JSON.stringify(index)).map(part => `  ${part},`).join('\n')}\n].join('');\n`;
-  return [{ file: join(example, 'r12-render-grammar.ts'), text: indexText }, ...files];
+  return [{ file: join(highlight, 'grammar.ts'), text: indexText }, ...files];
 }
 
-/** Grammar data files the generator no longer writes (fewer chunk files, the old -more file). */
+/** Grammar data files the generator no longer writes (fewer chunk files). */
 export function stale(outputs) {
   const wanted = new Set(outputs.map(({ file }) => file));
-  return readdirSync(example).filter(one => DATA_FILE.test(one) || one === 'r12-render-grammar-more.ts').map(one => join(example, one)).filter(file => !wanted.has(file));
+  return readdirSync(highlight).filter(one => DATA_FILE.test(one)).map(one => join(highlight, one)).filter(file => !wanted.has(file));
 }

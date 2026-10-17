@@ -460,7 +460,7 @@ mod link_tests {
             3
         );
         assert!(items.iter().all(|f| f[17] == Value::Number(-1.0)));
-        // renderFileMarkdown answers a "file" source (r4-surfaces-files.ts markdownSource) with offsets.
+        // renderFileMarkdown answers a "file" source (files-surface.ts markdownSource) with offsets.
         let source = Value::list(vec![Value::record(vec![
             Value::str("file:docs/notes.md"),
             Value::str("file"),

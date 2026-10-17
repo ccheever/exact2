@@ -5,7 +5,7 @@ import Foundation
 import AppKit
 
 extension T3Module {
-    /// Window-level popup frames (R8KeysMeasure.swift), device presentation, the folder picker and the clipboard.
+    /// Window-level popup frames (T3Measure.swift), device presentation, the folder picker and the clipboard.
     func windowOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
         if request["op"] as? String == "r8MeasureFrame" { DispatchQueue.main.async { [weak self] in reply.send(self?.measure.perform(request) ?? ["ok": false, "generation": 0]) }; return }
         if request["op"] as? String == "installedFonts" {

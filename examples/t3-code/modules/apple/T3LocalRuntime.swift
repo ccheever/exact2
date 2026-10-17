@@ -87,7 +87,7 @@ final class T3LocalRuntime {
         guard let bundleDir else { return .missing("The app bundle has no server runtime.") }
         let archive = bundleDir.appendingPathComponent(pin.asset), manifestURL = bundleDir.appendingPathComponent("runtime-manifest.json")
         guard FileManager.default.fileExists(atPath: archive.path), let manifestData = try? Data(contentsOf: manifestURL) else {
-            return .missing("This build has no server runtime: run `bun stage-runtime.mjs` (app.json commands.runtime) before the bundle build.")
+            return .missing("This build has no server runtime: run `bun tools/stage-runtime/stage-runtime.mjs` (app.json commands.runtime) before the bundle build.")
         }
         guard let manifest = try? JSONDecoder().decode(T3LocalRuntimeManifest.self, from: manifestData),
               manifest.version == pin.version, manifest.sha256 == pin.sha256, manifest.asset == pin.asset else {

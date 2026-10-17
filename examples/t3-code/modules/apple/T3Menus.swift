@@ -35,7 +35,7 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
     var presentAlert: (NSAlert) -> Void = { _ = $0.runModal() }
     private lazy var appUpdatesItem = makeUpdatesItem()
     private lazy var helpUpdatesItem = makeUpdatesItem()
-    /// File, View, Edit › Undo and the host's extra menus as the reference bar has them (R8KeysMenus.swift).
+    /// File, View, Edit › Undo and the host's extra menus as the reference bar has them (T3MenuBar.swift).
     let keys = R8KeysMenus()
 
     override init() {

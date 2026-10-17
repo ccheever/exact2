@@ -1,9 +1,9 @@
 // Verification apparatus (never part of the app build). Runs real Shiki 4.2 with the
 // Oniguruma engine — the reference T3 Code's highlighter (apps/web/src/lib/syntaxHighlighting.ts,
-// PREFERRED_HIGHLIGHTER "shiki-wasm") — and the clone's grammar engine (r12-render-textmate.ts) on
+// PREFERRED_HIGHLIGHTER "shiki-wasm") — and the clone's grammar engine (textmate.ts) on
 // the same files, and compares every non-blank character's pierre-light colour, pierre-dark colour
 // and italic. It also checks that each colour pair Shiki paints has a synColor class
-// (r12-render-highlight.ts CLASS_OF_PAIR), since a pair without one paints as plain text.
+// (shiki-highlight.ts CLASS_OF_PAIR), since a pair without one paints as plain text.
 //
 //   bun install --frozen-lockfile                      (once, in this directory)
 //   bun shiki-compare.mjs <language> <file>...         one language, any number of files
@@ -40,9 +40,9 @@ import { bundledLanguages, bundledLanguagesInfo } from 'shiki/langs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const example = join(here, '..', '..');
-const { tokenizeCode, styleOf } = await import(join(example, 'r12-render-textmate.ts'));
-const { CLASS_OF_PAIR } = await import(join(example, 'r12-render-highlight.ts'));
-const { highlight } = await import(join(example, 'timeline-highlight.ts'));
+const { tokenizeCode, styleOf } = await import(join(example, 'src', 'highlight', 'textmate.ts'));
+const { CLASS_OF_PAIR } = await import(join(example, 'src', 'highlight', 'shiki-highlight.ts'));
+const { highlight } = await import(join(example, 'src', 'highlight', 'timeline-highlight.ts'));
 const { EMBEDDED_ONLY, LICENCE_HELD } = await import(join(example, 'tools', 'generate', 'gen-grammar.mjs'));
 const theme = name => JSON.parse(readFileSync(join(here, 'node_modules', '@pierre', 'theme', 'themes', `${name}.json`), 'utf8'));
 const THEMES = { light: theme('pierre-light'), dark: theme('pierre-dark') };
@@ -55,7 +55,7 @@ const rest = args.filter((arg, at) => arg !== '--js' && (maxAt < 0 || at !== max
 if (rest[0] === '--list') {
   // The clone's fence words (ids and aliases) are Shiki's bundledLanguages keys, and the
   // generator's EMBEDDED_ONLY grammars are exactly those of @shikijs/langs Shiki does not bundle.
-  const { GRAMMAR_LANGUAGES } = await import(join(example, 'r12-render-grammar.ts'));
+  const { GRAMMAR_LANGUAGES } = await import(join(example, 'src', 'highlight', 'grammar.ts'));
   const { languageNames } = await import('@shikijs/langs');
   const clone = new Set(GRAMMAR_LANGUAGES.split(' ')), shiki = new Set(Object.keys(bundledLanguages));
   const ids = new Set(bundledLanguagesInfo.map(info => info.id));

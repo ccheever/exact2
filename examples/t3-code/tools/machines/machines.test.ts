@@ -5,7 +5,7 @@ import { expect, test } from "bun:test";
 import { ENVIRONMENTS, SEEDS, checkPort } from "../second-environment/lib.mjs";
 import { MACHINES, OLDER, OPEN_CONNECTIONS } from "./machines.mjs";
 import { SELF_UPDATE, rewrite, updateScript } from "./older-server.mjs";
-import { CLIENT_VERSION } from "../../version-skew";
+import { CLIENT_VERSION } from "../../src/connections/version-skew";
 
 test("two distinct environments in the fixture's ports, both holding shared-notes under one origin", () => {
   expect(new Set(MACHINES).size).toBe(2);

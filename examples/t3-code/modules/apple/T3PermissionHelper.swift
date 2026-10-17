@@ -99,7 +99,7 @@ struct T3FinderReveal {
     }
 }
 
-/// With R9_INPUT_LOG set (the real-input sessions' log, R9Input.swift), each System
+/// With R9_INPUT_LOG set (the real-input sessions' log, T3ComposerInput.swift), each System
 /// Settings reading and each show, hide and close of the helper, and why: a session can tell a hidden helper (it comes
 /// back with the next reading) from a closed one, which no screenshot can.
 enum T3PermissionHelperLog {

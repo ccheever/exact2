@@ -3,12 +3,13 @@
 // integrity values the reference T3 Code locks; installed on first use) and from committed inputs,
 // and examples/t3-code/.gitignore keeps it out of git:
 //
-//   gen-grammar.mjs    r12-render-grammar.ts and r12-render-grammar-<n>.ts: Shiki's grammars, the pierre themes
-//   gen-css-words.mjs  r7-polish-css-words.ts: the CSS grammar's word lists
-//   gen-icons.mjs      settings-b-lucide.ts, pages-icons.contract (Lucide); timeline-files.contract,
-//                      timeline-files-tables.ts, macos/pierre-icons.tsv, assets/composer-icons.json (Pierre);
-//                      the icon tables of icon-tables.mjs and icon-marks.mjs (icons.contract and nine more)
-//   gen-morph.mjs      shell-morph.contract: morphicons' plan for each icon pair
+//   gen-grammar.mjs    src/highlight/grammar.ts and grammar-<n>.ts: Shiki's grammars, the pierre themes
+//   gen-css-words.mjs  src/highlight/css-words.ts: the CSS grammar's word lists
+//   gen-icons.mjs      src/settings/settings-b-lucide.ts, src/shared/pages-icons.contract (Lucide);
+//                      src/shared/timeline-files.contract and timeline-files-tables.ts, macos/pierre-icons.tsv,
+//                      assets/composer-icons.json (Pierre); the icon tables of icon-tables.mjs and
+//                      icon-marks.mjs (src/shared/icons.contract and nine more in their features' folders)
+//   gen-morph.mjs      src/shell/shell-morph.contract: morphicons' plan for each icon pair
 //   gen-vectors.mjs    macos/tests/terminal/vectors.json: the buffer cases and their committed expectations
 //
 // The app build runs it before it bakes (macos/build.rs). Run it by hand before anything else reads
