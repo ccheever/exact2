@@ -49,4 +49,5 @@ Load balancing on and a new thread on `shared-notes` that is balanced across bot
 composer's Auto balance banner "Update available for 1 machine", whose title opens the machines
 popover (`notice-machines-<id>`) with its Update; while it runs the rows read "Downloading…" and
 then "Restarting…". The stand-in updates once: `down` and `up --older` again for another run. Its
-log is `envs/third/older-server.log`.
+log is `envs/third/older-server.log`. A normal launch paired through it saves its token under the
+stand-in's origin; `env.mjs forget third` removes that one too while the stand-in runs.
