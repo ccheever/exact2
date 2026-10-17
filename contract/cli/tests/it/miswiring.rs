@@ -112,6 +112,47 @@ fn a_swipe_row_wired_inside_its_scroll_is_not_named() {
         "",
     );
     assert_eq!(warned(&mixed), []);
+    // A choice of actions, euxy's Reset on presets alone: each arm's names are
+    // inside, and an empty arm is a row with no action that time.
+    for trailing in [
+        "(i == \"Milk\" ? `reset-${i} delete-${i}` : `delete-${i}`)",
+        "(i == \"Milk\" ? `delete-${i}` : \"\")",
+    ] {
+        let chosen = rows(
+            &format!("swipeContent=`row-${{i}}` swipeTrailing={trailing}"),
+            &format!("{ROW}\nbutton id=`reset-${{i}}` press=remove(i) aria-label=\"Reset\"\n  image \"symbol:delete\"\n{DELETE}"),
+            "",
+        );
+        assert_eq!(warned(&chosen), [], "{trailing}");
+    }
+}
+
+#[test]
+fn a_choice_of_swipe_actions_is_read_arm_by_arm() {
+    let row = |trailing: &str| {
+        rows(
+            &format!("swipeContent=`row-${{i}}` swipeTrailing={trailing}"),
+            &format!("{ROW}\n{DELETE}"),
+            "",
+        )
+    };
+    // An arm that names a button outside the scroll is refused when it is taken.
+    let src = row("(i == \"Milk\" ? `reset-${i} delete-${i}` : `delete-${i}`)");
+    assert_eq!(warned(&src), [(SWIPE.to_string(), 8)]);
+    assert!(
+        messages(&src)[0].contains("`swipeTrailing` names `reset-${i}`"),
+        "{:?}",
+        messages(&src)
+    );
+    // Arms that name nothing: no action on any row.
+    let src = row("(i == \"Milk\" ? \"\" : \"\")");
+    assert!(
+        messages(&src)[0].contains("written without `swipeLeading` or `swipeTrailing`"),
+        "{:?}",
+        messages(&src)
+    );
+    // An action the compiler cannot read is the benefit of the doubt.
+    assert_eq!(warned(&row("i")), []);
 }
 
 #[test]

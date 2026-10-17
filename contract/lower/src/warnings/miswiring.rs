@@ -61,17 +61,35 @@ impl Name {
         }
     }
 
-    /// The names a whitespace-separated list attribute holds: a literal splits,
-    /// a template is one name.
+    /// The names a whitespace-separated list attribute holds, split at the
+    /// whitespace in its written text; a choice (`c ? "a b" : ""`) holds every
+    /// name its arms do.
     fn list(e: &Expr) -> Option<Vec<Name>> {
-        match e {
-            Expr::Str(s, _) => Some(
-                s.split_whitespace()
-                    .map(|w| Name(vec![Piece::Text(w.to_string())]))
-                    .collect(),
-            ),
-            other => Name::of(other).map(|n| vec![n]),
+        if let Expr::Ternary(_, a, b, _) = e {
+            let mut names = Name::list(a)?;
+            names.extend(Name::list(b)?);
+            return Some(names);
         }
+        let mut names = Vec::new();
+        let mut name = Vec::new();
+        for piece in Name::of(e)?.0 {
+            let Piece::Text(text) = piece else {
+                name.push(piece);
+                continue;
+            };
+            for (i, word) in text.split(char::is_whitespace).enumerate() {
+                if i > 0 && !name.is_empty() {
+                    names.push(Name(std::mem::take(&mut name)));
+                }
+                if !word.is_empty() {
+                    name.push(Piece::Text(word.to_string()));
+                }
+            }
+        }
+        if !name.is_empty() {
+            names.push(Name(name));
+        }
+        Some(names)
     }
 
     fn literal(&self) -> Option<String> {
@@ -231,7 +249,9 @@ pub(super) fn swipe(attrs: &[Attr], children: &[Node], fresh: bool, out: &mut Ve
             warn(content.span, format!("`swipeContent` names {}, but no element inside this `scroll` has that `id`: iOS refuses the row (`logs`: `swipeContent … names no one descendant of it`) and the web shows it as a plain row. Give the box that holds what the row shows `id=…` to match, inside this `scroll` {SWIPE_FIX}", written(c)), out);
         }
     }
-    if named.is_empty() {
+    // No action only when every action is read and names none: one computed some
+    // other way may name one.
+    if named.len() == actions.len() && named.iter().all(|(_, names)| names.is_empty()) {
         warn(content.span, format!("`swipeContent` is written without `swipeLeading` or `swipeTrailing`, so the row has no action to reveal and iOS refuses it (`it names no swipeLeading or swipeTrailing control`): name the action button's `id` in `swipeTrailing`, a button inside this `scroll` after the content {SWIPE_FIX}"), out);
     }
     for (a, names) in &named {
