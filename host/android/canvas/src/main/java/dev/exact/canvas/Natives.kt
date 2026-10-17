@@ -279,12 +279,19 @@ class Natives(
 
     /** Op 28 seen while ingesting a stream: make or update the element; [row] draws it (0: not in a row). */
     fun ensure(id: Int, kind: Int, w: Int, h: Int, props: String, row: Int) {
+        val json = if (kind == 2) JSONObject(props) else null
+        val module = json?.optString("module")
+        val generation = json?.optInt("generation") ?: 0
+        val slot = json?.optInt("slot") ?: 0
         var e = elements[id]
-        if (e == null || e.kind != kind || (kind == 2 && (e.generation != JSONObject(props).optInt("generation") || e.slot != JSONObject(props).optInt("slot")))) {
+        if (e == null || e.kind != kind || (kind == 2 && (e.generation != generation || e.slot != slot || e.module != module))) {
             e?.let { release(it) }
-            val module = if (kind == 2) JSONObject(props).optString("module") else null
             val created = if (lazy && row != 0 && ((kind == 0 && videos != null && lazyVideo) || kind == 1 || (kind == 2 && modules.containsKey(module)))) {
-                Element(id, kind, standIn, RenderNode("exact native")).also { it.parked = true; it.module = module; waiting++ }
+                Element(id, kind, standIn, RenderNode("exact native")).also {
+                    it.parked = true; it.module = module
+                    it.generation = generation; it.slot = slot
+                    waiting++
+                }
             } else create(id, kind, props) ?: return
             e = created
             elements[id] = e
@@ -498,6 +505,7 @@ class Natives(
     /** A module button under an unscrolled tap. Other native input stays with its dedicated host. */
     fun click(id: Int, x: Float, y: Float): Boolean {
         val e = elements[id]?.takeIf { it.kind == 2 && !it.parked } ?: return false
+        if (!e.view.isEnabled || !e.view.isClickable) return false
         e.view.translationX = x
         e.view.translationY = y
         return e.view.performClick()
