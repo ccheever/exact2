@@ -8,7 +8,7 @@ test('grouped hold starts at the packet release time after an idle page', () => 
   const binding = { handle: 1, list: 2, wrapper: 3, root: 4, rowEpoch: 5 };
   const geometry = { list: 2, revision: 1, scrollSequence: 1, scrollTop: 0, portWidth: 100, portHeight: 100, rowWidth: 100, totalExtent: 20 };
   const list = { $reorderdrop() {}, dataset: { reordergroup: 'cards' }, id: 'cards', isConnected: true };
-  const grip = { $reorderList: list, isConnected: true, closest: () => null, getClientRects: () => [1] };
+  const grip = { parentElement: list, dataset: { reorderfor: 'cards' }, isConnected: true, closest: () => null, getClientRects: () => [1] };
   class Collection {}
   const c = new Collection();
   Object.assign(c, {

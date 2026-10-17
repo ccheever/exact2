@@ -161,13 +161,9 @@ struct Em<'a> {
     /// Whether an image draws a symbol (`symbols.js`), and whether a
     /// binding names one (its roles are then the plan's strings).
     symbols: (bool, bool),
-    /// Each height drag handle's owner (`heightDragFor`, resolved as the
-    /// kernel resolves it), by node.
-    heights: std::collections::BTreeMap<u32, u32>,
-    /// Each transform drag handle's target and clip, by node.
-    transforms: std::collections::BTreeMap<u32, (u32, u32)>,
-    /// Each Arrange grip's list (`reorderFor`), by node.
-    reorders: std::collections::BTreeMap<u32, u32>,
+    /// Possible height and transform owners whose motion values must be observed.
+    heights: std::collections::BTreeSet<u32>,
+    transforms: std::collections::BTreeSet<u32>,
     /// The `@keyframes` that animate `scale` (a pressed node plays their
     /// `-exact-press` copies).
     press_keyframes: Vec<String>,
@@ -241,16 +237,14 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         symbols: (false, false),
         heights: Default::default(),
         transforms: Default::default(),
-        reorders: Default::default(),
         press_keyframes: rows::press_keyframes(plan),
         refs: rows::can_refer(plan),
         site_attrs,
         dev_reload,
         panels: exact_runner::instance::tabs::panel_sites(plan),
     };
-    em.heights = em.height_targets();
-    em.transforms = em.transform_targets();
-    em.reorders = em.reorder_lists();
+    em.heights = em.drag_targets(PropId::HeightDragFor);
+    em.transforms = em.drag_targets(PropId::TransformDragFor);
     let top = Scope::default();
     let action = Scope {
         action: true,
@@ -1237,16 +1231,10 @@ impl Em<'_> {
         }
         self.motion_node(i, &e, scope)?;
         self.height_owner(i, &e, scope)?;
-        if let Some(l) = self.reorders.get(&i) {
+        if self.reorder_handle(i) {
             self.motion = true;
             let on = self.uses.rt("onReorder");
-            let _ = write!(self.out, "{on}({e},e{l});");
-        } else if self.computed_reorder(i) {
-            // A computed `reorderFor` (a board's `cards-${col.id}`, LLP 1094
-            // D1) names its list at run time, as the runner's binding does.
-            self.motion = true;
-            let on = self.uses.rt("onReorder");
-            let _ = write!(self.out, "{on}({e},null);");
+            let _ = write!(self.out, "{on}({e});");
         }
         self.wrap_flow(i, &e, scope)?;
         let mut edges = ["0".to_string(), "0".to_string()];
@@ -1355,12 +1343,7 @@ impl Em<'_> {
             let piece = crate::events::piece(h.event);
             if let Some(piece) = piece {
                 let f = self.uses.rt(piece);
-                let owner = match (h.event, self.heights.get(&i), self.transforms.get(&i)) {
-                    (EventKind::Heightrelease, Some(t), _) => format!(",e{t}"),
-                    (EventKind::Transformrelease, _, Some((t, c))) => format!(",e{t},e{c}"),
-                    _ => String::new(),
-                };
-                let _ = write!(self.out, "{f}({e},{handler}{owner});");
+                let _ = write!(self.out, "{f}({e},{handler});");
                 continue;
             }
             if h.event == EventKind::Navigate {

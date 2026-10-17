@@ -1415,8 +1415,11 @@ screen, 2026-10-16.)
 The first valid target keeps ownership until it has no valid binding (LLP 1071).
 Several handles may name that target, but another target cannot take over while
 it remains valid. In a gallery, mount the handle for the current page; do not
-leave a binding on every page or list row. Keep `transformDragFor` literal on the
-JS target: computed target strings are not resolved. The runtime journal names
+leave a binding on every page or list row. The JS target resolves `transformDragFor`,
+`heightDragFor` and `reorderFor` after each commit against current ancestor IDs.
+Each binding must name exactly one strict ancestor; self, siblings and duplicate
+matching ancestors do not qualify. Changing the binding or ancestor ID cancels a
+drag whose target is no longer valid. The runtime journal names
 each passed-over target view and the owner once, then reports it again only after
 its valid bindings disappear and return. Read it with
 `bun scripts/agent.mjs web logs` (or the native host).

@@ -4,11 +4,15 @@ import { transformDrags } from './transform.js';
 test('passed-over transform targets are journaled once until no longer valid', () => {
   const views = new Map(), lines = [], bindings = new Map();
   const element = id => {
-    const el = { id, valid: true, $tgeom() {}, $trelease() {} };
+    const el = { id, valid: true, dataset: {}, $tgeom() {}, $trelease() {} };
     views.set(id, el);
     return el;
   };
   const [clip, first, second, a, b, c, d] = [1, 2, 3, 4, 5, 6, 7].map(element);
+  first.parentElement = second.parentElement = clip;
+  for (const [el, target] of [[a, first], [b, first], [c, second], [d, second]]) {
+    el.parentElement = target; el.dataset.transformdragfor = target.id;
+  }
   const oldFrame = globalThis.requestAnimationFrame;
   globalThis.requestAnimationFrame = fn => fn();
   try {
@@ -17,10 +21,10 @@ test('passed-over transform targets are journaled once until no longer valid', (
       eligible: el => !!el?.valid, say: line => lines.push(line),
       api: { attachTransformDrag() {}, transformBinding: b => bindings.set(b.id, b.target) },
     });
-    drag.attach(a, first, clip);
-    drag.attach(b, first, clip);
-    drag.attach(c, second, clip);
-    drag.attach(d, second, clip);
+    drag.attach(a);
+    drag.attach(b);
+    drag.attach(c);
+    drag.attach(d);
     const report = 'transformDragFor: target view #3 passed over for owner view #2; one owner (first valid, never stolen; LLP 1071)';
     drag.reconcile();
     expect(lines).toEqual([report]);
@@ -38,7 +42,7 @@ test('passed-over transform targets are journaled once until no longer valid', (
     expect(lines).toHaveLength(2);
     drag.gone(d.id);
     drag.reconcile();
-    drag.attach(c, second, clip);
+    drag.attach(c);
     drag.reconcile();
     expect(lines).toEqual([report, report, report]);
     first.valid = false;
