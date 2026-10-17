@@ -284,14 +284,22 @@ component T3Code
   action highlightStep
     if not pending(highlightSliced)
       send highlightSliced = highlightSlice(wallTime.epochAtZero + performanceNow())
+  // A refresh replaces an answer in flight, so the pump leaves one alone; one that lands with a text
+  // still without its tokens reports highlightPending and is asked again. Replaced every 16 ms, a
+  // launch's snapshot answer (seconds) never landed to clear highlightPending, and its forgotten
+  // native calls filled the executor's admission limit. With nothing finished, only an answer still
+  // reporting highlightPending is asked again.
   action highlightStepped
     match highlightSliced
       case some(step)
         if step.finished or not step.pending
-          refresh data
-          refresh shell
+          if not pending(data) and (step.finished or data.highlightPending)
+            refresh data
+          if not pending(shell) and (step.finished or shell.highlightPending)
+            refresh shell
       case none
-        refresh data
+        if not pending(data)
+          refresh data
   task highlightPump when data.highlightPending or shell.highlightPending
     every(16, highlightStep)
   resource viewport = exactViewport() as shape Viewport
