@@ -336,6 +336,8 @@ fn a_launch_relative_time_sent_to_a_source_is_named_with_its_repair() {
         "performanceNow() - (performanceNow() - start)",
         "performanceNow() - time.epochAtZero",
         "performanceNow() - other",
+        // The origin added on one branch only: the other is a launch's time.
+        "performanceNow() + (other > 0 ? time.epochAtZero : 0)",
     ] {
         assert_eq!(
             warned(&stopwatch("", send)),
@@ -393,6 +395,14 @@ fn a_launch_relative_time_in_a_persisted_state_is_named() {
     // is a time, the next a span, and so on (a timestamp kept every other run).
     let toggled = "component App\n  state mark = 0 persist\n  action tick\n    mark = performanceNow() - mark\n  view\n    button \"go\" press=tick\n";
     assert_eq!(warned(toggled), [(PERSISTED.to_string(), 2)]);
+    // A state that is a launch's time in one action and the origin in
+    // another is sometimes a time: so is a number added to it.
+    let either = "shape Time\n  epochAtZero: number\nshape Ack\n  ok: bool\ncomponent App\n  resource time = exactTime() as shape Time\n  mutation wrote as shape Ack\n  state mark = 0\n  action a\n    mark = performanceNow()\n  action b\n    mark = time.epochAtZero\n  action save\n    send wrote = keep(mark + 1000)\n  view\n    button \"save\" press=save\n";
+    assert_eq!(warned(either), [(PERSISTED.to_string(), 14)]);
+    // A derive of the origin, read before the fixed point resolves it, is
+    // the origin: added to a reading it is the wall-clock time, kept as is.
+    let origin = "shape Time\n  epochAtZero: number\ncomponent App\n  resource time = exactTime() as shape Time\n  state at = 0 persist\n  derive origin = time.epochAtZero\n  action go\n    at = origin + performanceNow()\n  view\n    button \"go\" press=go\n";
+    assert_eq!(warned(origin), []);
 }
 
 const ONE_SCHEME: &str = "lower-colour-one-scheme";

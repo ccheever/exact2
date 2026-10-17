@@ -617,25 +617,64 @@ fn single_tab(tablist: &Node, out: &mut Vec<LowerError>) {
 
 /// What a number may be, as far as the clock goes: a bit set. A value may
 /// be several (a state assigned a reading in one action and a duration in
-/// another).
+/// another). The empty set is a state or derive not yet resolved, which
+/// adds nothing to what reads it (see `performance_now`).
 type Kinds = u8;
 /// A reading of `performanceNow()`, the milliseconds since this launch, or
 /// a number made from one: a launch-relative time.
 const TIME: Kinds = 1;
 /// One reading less another: a span of time, the same on every launch.
 const SPAN: Kinds = 2;
-/// A number the source writes (a literal, or a call of literals).
+/// A value the source writes, or one of no clock (a literal, a count, a
+/// truth, a call of literals).
 const CONST: Kinds = 4;
-/// A value the compiler cannot see (a source's field, a parameter, a state
-/// nothing assigns a number to): taken, as an anchor, to be on the clock.
+/// A value the compiler cannot see (a source's field, a parameter): taken,
+/// as an anchor, to be on the clock.
 const UNSEEN: Kinds = 8;
 /// The launch's wall-clock origin, `epochAtZero`.
 const EPOCH: Kinds = 16;
+const ALL: [Kinds; 5] = [TIME, SPAN, CONST, UNSEEN, EPOCH];
+
+/// One kind with another, under `op`: a time with the origin added is the
+/// wall-clock time; a time less a time or an unseen anchor is a span, less
+/// a constant, a span or the origin still a time; otherwise what either is,
+/// a constant only when both are.
+fn pair(op: BinOp, x: Kinds, y: Kinds) -> Kinds {
+    let join = if x == y || y == CONST {
+        x
+    } else if x == CONST {
+        y
+    } else {
+        x | y
+    };
+    match op {
+        BinOp::Add if x | y == TIME | EPOCH => UNSEEN,
+        BinOp::Sub if x == TIME => match y {
+            TIME | UNSEEN => SPAN,
+            _ => TIME,
+        },
+        BinOp::Sub if y == TIME => TIME,
+        _ => join,
+    }
+}
+
+/// `op` over every kind `a` may be and every kind `b` may be: monotone, so
+/// the names' kinds only grow. Either side unresolved, nothing yet.
+fn arith(op: BinOp, a: Kinds, b: Kinds) -> Kinds {
+    let mut out = 0;
+    for x in ALL.into_iter().filter(|x| a & x != 0) {
+        for y in ALL.into_iter().filter(|y| b & y != 0) {
+            out |= pair(op, x, y);
+        }
+    }
+    out
+}
 
 /// What the expanded root's names may hold, as far as the clock goes.
 struct Clock<'a> {
     fns: &'a [FnDecl],
-    /// Each state's and derive's kinds, from what is assigned to it.
+    /// Each state's and derive's kinds, from what is assigned to it; empty
+    /// while not yet resolved.
     names: BTreeMap<String, Kinds>,
 }
 
@@ -645,38 +684,21 @@ impl Clock<'_> {
         self.kinds(e, locals, depth) & TIME != 0
     }
 
-    /// What `e` may be: `performanceNow()` is a time; `epochAtZero` added to
-    /// a time is the wall-clock time; a time less another time, or less an
-    /// anchor the compiler cannot see, is a span, and less a constant or a
-    /// span it is still a time. `depth` bounds a `fn`'s expansion.
+    /// What `e` may be (`pair`). `depth` bounds a `fn`'s expansion.
     fn kinds(&self, e: &Expr, locals: &[(String, Kinds)], depth: u32) -> Kinds {
         let k = |e: &Expr| self.kinds(e, locals, depth);
-        // A sum, product or quotient: what either side may be, a constant
-        // only when both are.
-        let join = |a: Kinds, b: Kinds| {
-            let joined = (a | b) & !CONST;
-            if joined == 0 {
-                a & b & CONST
-            } else {
-                joined | (a & b & CONST)
-            }
-        };
         match e {
-            Expr::Number(..) => CONST,
-            Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => 0,
+            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => CONST,
             Expr::Ident(name, _) => match locals.iter().rev().find(|(n, _)| n == name) {
                 Some(&(_, kinds)) => kinds,
-                None => match self.names.get(name) {
-                    Some(&kinds) if kinds != 0 => kinds,
-                    _ => UNSEEN,
-                },
+                None => self.names.get(name).copied().unwrap_or(UNSEEN),
             },
             Expr::Member(_, field, _) if field == "epochAtZero" => EPOCH,
             Expr::Member(inner, _, _) => UNSEEN | (k(inner) & (TIME | EPOCH)),
             Expr::Call(name, args, _) => {
                 if let Some(f) = self.fns.iter().find(|f| &f.name == name) {
                     if depth == 0 {
-                        return args.iter().fold(0, |acc, a| acc | k(a)) | UNSEEN;
+                        return args.iter().fold(UNSEEN, |acc, a| acc | k(a));
                     }
                     let bound: Vec<(String, Kinds)> = f
                         .params
@@ -689,39 +711,23 @@ impl Clock<'_> {
                 match Stdlib::from_name(name) {
                     Some(Stdlib::PerformanceNow) => TIME,
                     // A count, a position or a truth is no time.
-                    Some(f) if f.returns() == "bool" => 0,
-                    Some(Stdlib::Length | Stdlib::IndexOf) => 0,
-                    _ => match args.iter().map(k).reduce(join) {
-                        Some(kinds) => kinds,
-                        None => UNSEEN,
-                    },
+                    Some(f) if f.returns() == "bool" => CONST,
+                    Some(Stdlib::Length | Stdlib::IndexOf) => CONST,
+                    _ => args
+                        .iter()
+                        .map(k)
+                        .reduce(|a, b| arith(BinOp::Mul, a, b))
+                        .unwrap_or(UNSEEN),
                 }
             }
-            Expr::Binary(op, a, b, _) => {
-                let (a, b) = (k(a), k(b));
-                match op {
-                    // The wall-clock time: a launch's origin and its reading.
-                    BinOp::Add if (a | b) & EPOCH != 0 && (a | b) & TIME != 0 => UNSEEN,
-                    BinOp::Sub => {
-                        let mut out = join(a & !TIME, b & !TIME);
-                        if a & TIME != 0 {
-                            if b & (TIME | UNSEEN) != 0 {
-                                out |= SPAN;
-                            }
-                            if b & (SPAN | CONST | EPOCH) != 0 || b == 0 {
-                                out |= TIME;
-                            }
-                        } else if b & TIME != 0 {
-                            out |= TIME;
-                        }
-                        out
-                    }
-                    BinOp::Add | BinOp::Mul | BinOp::Div | BinOp::Rem => join(a, b),
-                    _ => 0,
+            Expr::Binary(op, a, b, _) => match op {
+                BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
+                    arith(*op, k(a), k(b))
                 }
-            }
+                _ => CONST,
+            },
             Expr::Unary(UnOp::Neg, inner, _) => k(inner),
-            Expr::Unary(..) => 0,
+            Expr::Unary(..) => CONST,
             Expr::Ternary(_, a, b, _) => k(a) | k(b),
             Expr::Match {
                 subject,
@@ -741,7 +747,7 @@ impl Clock<'_> {
                 inner.push((name.clone(), k(value)));
                 self.kinds(body, &inner, depth)
             }
-            Expr::Template(parts, _) => parts.iter().fold(0, |acc, p| match p {
+            Expr::Template(parts, _) => parts.iter().fold(CONST, |acc, p| match p {
                 TemplatePart::Expr(e) => acc | (k(e) & TIME),
                 TemplatePart::Text(_) => acc,
             }),
@@ -750,6 +756,33 @@ impl Clock<'_> {
                 k(inner)
             }
             Expr::Arrow { body, .. } => k(body),
+        }
+    }
+}
+
+/// The states an assignment computes from themselves (`mark = performanceNow() - mark`).
+fn self_assigned(body: &[Stmt], out: &mut BTreeSet<String>) {
+    for s in body {
+        match s {
+            Stmt::Assign { target, expr, .. } => {
+                let mut read = Vec::new();
+                screens::idents(expr, &mut read);
+                if read.contains(target) {
+                    out.insert(target.clone());
+                }
+            }
+            Stmt::If {
+                then, otherwise, ..
+            } => {
+                self_assigned(then, out);
+                self_assigned(otherwise, out);
+            }
+            Stmt::Match { some, none, .. } => {
+                self_assigned(&some.1, out);
+                self_assigned(none, out);
+            }
+            Stmt::Call { body, .. } => self_assigned(body, out),
+            Stmt::Let { .. } | Stmt::Command { .. } | Stmt::Send { .. } | Stmt::Refresh { .. } => {}
         }
     }
 }
@@ -849,29 +882,32 @@ fn sent(
 /// anchor the compiler cannot see, euxy's `transport.anchorAt`), is kept as
 /// it is.
 fn performance_now(root: &contract_syntax::Component, fns: &[FnDecl], out: &mut Vec<LowerError>) {
+    // Every state and derive starts unresolved (no kinds), so what reads one
+    // waits for it: a derive of the origin read before it resolves gives
+    // nothing, not a guess it keeps.
+    let names = root.states.iter().chain(&root.derives);
     let mut clock = Clock {
         fns,
-        names: BTreeMap::new(),
+        names: names.map(|b| (b.name.clone(), 0)).collect(),
     };
-    // What each state and derive may hold, grown round by round from what
-    // is assigned to it until nothing more is added. An assigned state's
-    // initial number is its placeholder (`state start = 0`), not a value of
-    // the clock: only a reading there counts; one never assigned is its
-    // initial value. Kinds only grow, so the rounds end, bounded by the
-    // names and the five kinds.
+    // What each grows to, round by round, from what is assigned to it, until
+    // nothing more is added: every step is monotone (`arith`), so the rounds
+    // end, at most five kinds a name. An assigned state's initial number is
+    // its placeholder (`state start = 0`), only a reading there counting,
+    // unless an assignment computes the state from itself, whose first run
+    // reads that number; one never assigned is its initial value.
     let mut targets = BTreeMap::new();
+    let mut selfish = BTreeSet::new();
     for a in &root.actions {
         assigned(&clock, &a.body, &mut Vec::new(), &mut targets);
+        self_assigned(&a.body, &mut selfish);
     }
-    let rounds = (root.states.len() + root.derives.len() + 1) * 5;
+    let rounds = (clock.names.len() + 1) * ALL.len();
     for _ in 0..rounds {
         let mut names = clock.names.clone();
         for s in &root.states {
-            let kept = if targets.contains_key(&s.name) {
-                TIME
-            } else {
-                !0
-            };
+            let placeholder = targets.contains_key(&s.name) && !selfish.contains(&s.name);
+            let kept = if placeholder { TIME } else { !0 };
             *names.entry(s.name.clone()).or_default() |= clock.kinds(&s.expr, &[], 4) & kept;
         }
         for d in &root.derives {
