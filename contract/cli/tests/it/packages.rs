@@ -449,13 +449,13 @@ component App
         let v = all
             .iter()
             .find(|n| n.node_type == NodeType::Text && n.props.str(PropId::Text) == Some("50 kg"))
-            .unwrap()
-            .clone();
+            .copied()
+            .unwrap();
         let row = all
             .iter()
             .find(|n| n.children().contains(&v.id))
-            .unwrap()
-            .clone();
+            .copied()
+            .unwrap();
         (v.frame, row.frame)
     };
     let (v, row) = value("straight");
