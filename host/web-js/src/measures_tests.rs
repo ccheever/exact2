@@ -153,7 +153,7 @@ fn a_bound_row_maps_a_tokens_name_to_its_css() {
         out.js
     );
     assert!(
-        out.js.contains(",\"padding-top\",\"px\",()=>$tm("),
+        out.js.contains(",\"padding-top\",\"px\",()=>$tl("),
         "{}",
         out.js
     );
@@ -197,4 +197,56 @@ fn sentinels_stay_apart_and_unitless_lengths_and_weights_are_handled() {
         .find(|t| t["name"] == "weight.strong")
         .unwrap();
     assert_eq!(weight["inline"], true);
+}
+
+/// Review round 2: a bound row's map holds only the kinds the row takes;
+/// an SVG attribute reads no property, so its token is inline in a
+/// development build and refused when it varies.
+#[test]
+fn a_rows_map_takes_its_kinds_and_an_svg_attribute_writes_inline() {
+    let kinds = plan(
+        "kinds",
+        DESIGN,
+        "component App\n  state w = \"weight.strong\"\n  view\n    column width=w opacity=(w == \"x\" ? \"opacity.faded\" : 1)\n      text \"a\"\n",
+    );
+    let out = crate::emit::emit(&kinds, false, false).unwrap();
+    let width = out.js.split(",\"width\",").nth(1).unwrap_or_default();
+    let map = |name: &str| {
+        out.js
+            .split(&format!("const {name}="))
+            .nth(1)
+            .and_then(|m| m.split(';').next())
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert!(width.starts_with("\"px\",()=>$tl("), "{}", out.js);
+    assert!(
+        !map("$tl").contains("weight.strong") && map("$tl").contains("space.row"),
+        "{}",
+        out.js
+    );
+    assert!(
+        map("$tn").contains("weight.strong") && !map("$tn").contains("space.row"),
+        "{}",
+        out.js
+    );
+    let tile = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  tile = 8px\n  tile.varying = 8px\n    when density=compact: 6px\n";
+    let view = |token: &str| {
+        format!("component App\n  view\n    svg viewBox=\"0 0 24 24\" width=24 height=24\n      pattern id=\"p\" width=\"{token}\" height=\"{token}\"\n        path d=\"M0 0L4 4\"\n")
+    };
+    let constant = plan("tile", tile, &view("tile"));
+    let dev = crate::emit::emit(&constant, false, true).unwrap();
+    assert!(
+        !dev.css.contains("var(--x-tile)") && !dev.js.contains("var(--x-tile)"),
+        "{}",
+        dev.js
+    );
+    let varying = plan("tile-varying", tile, &view("tile.varying"));
+    let refused = crate::emit::emit(&varying, false, false)
+        .err()
+        .unwrap_or_default();
+    assert!(
+        refused.contains("tile.varying") && refused.contains("SVG"),
+        "{refused}"
+    );
 }

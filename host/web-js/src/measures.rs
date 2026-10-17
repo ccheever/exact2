@@ -11,15 +11,6 @@ use exact_kernel::style::theme::Kind;
 use exact_kernel::StyleId;
 use exact_plan::{BindingKind, Plan};
 
-/// The plan's kind code for `kind` ([`Kind::of`]'s inverse).
-fn code(kind: Kind) -> u8 {
-    match kind {
-        Kind::Color => 0,
-        Kind::Length => 1,
-        Kind::Number => 2,
-    }
-}
-
 /// A theme row's kind, when this build knows it.
 pub fn kind(row: &exact_plan::ThemeRow) -> Option<Kind> {
     Kind::of(row.kind)
@@ -52,35 +43,57 @@ pub fn row(id: StyleId) -> bool {
     admits(Kind::Length, id) || admits(Kind::Number, id)
 }
 
-/// Whether the plan keeps a length or number token.
-pub fn any(plan: &Plan) -> bool {
-    plan.theme
-        .iter()
-        .any(|r| kind(r).is_some_and(|k| k != Kind::Color))
-}
-
-/// The number tokens a literal names in a row that takes an integer
-/// (`font-weight`): no sentinel fraction stands in for them, so they stay
-/// inline, and a change to one builds (the design says `inline`).
-pub fn inline_tokens(plan: &Plan) -> Vec<String> {
-    let mut out = Vec::new();
+/// The tokens the page must write inline, each with what writes it: a
+/// number a `font-weight` names (no sentinel fraction is a weight), and a
+/// length or number an SVG attribute row names (`x`, `width`, `r` …: an
+/// attribute reads no property). In a development build a change to one
+/// builds (the design says `inline`); one that varies by an app axis is
+/// refused ([`refuse_inline`]).
+pub fn inline_tokens(plan: &Plan) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
     for node in &plan.nodes {
+        let attributes = exact_kernel::NodeType::from_wire(node.node_type)
+            .map_or(&[][..], exact_web::host::template::attribute_rows);
         for b in node.bindings.iter() {
             let b = plan.binding(b);
-            if b.kind != BindingKind::Style || b.id != StyleId::FontWeight as u16 {
+            if b.kind != BindingKind::Style {
                 continue;
             }
-            for r in plan.theme.iter().filter(|r| r.kind == code(Kind::Number)) {
+            let writer = match attributes.iter().find(|(r, _)| *r as u16 == b.id) {
+                Some((_, attribute)) => format!("an SVG `{attribute}` attribute"),
+                None if b.id == StyleId::FontWeight as u16 => "`font-weight`".to_string(),
+                None => continue,
+            };
+            for r in plan
+                .theme
+                .iter()
+                .filter(|r| matches!(kind(r), Some(Kind::Length | Kind::Number)))
+            {
                 let name = plan.str(r.name);
                 if crate::style::can_be(plan, plan.code(b.expr), &|s| s.trim() == name)
-                    && !out.iter().any(|n| n == name)
+                    && !out.iter().any(|(n, _)| n == name)
                 {
-                    out.push(name.to_string());
+                    out.push((name.to_string(), writer.clone()));
                 }
             }
         }
     }
     out
+}
+
+/// A token the page writes inline that varies by an app axis: no tuple's
+/// rule can reach it on the JS target, so the build is refused, naming it.
+pub fn refuse_inline(plan: &Plan) -> Result<(), String> {
+    for (name, writer) in inline_tokens(plan) {
+        let varies = plan
+            .theme
+            .iter()
+            .any(|r| plan.str(r.name) == name && r.slices.len > 0);
+        if varies {
+            return Err(format!("`{name}` varies by an app axis, and {writer} reads no design property on the JS target (LLP 1121 D7): give it one value, or write the row from state"));
+        }
+    }
+    Ok(())
 }
 
 /// Token `i`'s sentinel of `kind` at offset `k`: the value text a parse
@@ -107,17 +120,38 @@ pub fn sentinel(kind: Kind, k: u32, i: usize) -> Vec<String> {
     }
 }
 
-/// The bound rows' map: each length or number token's CSS, or its
+/// The name of row `id`'s bound map ([`map`]): one per mix of the kinds it
+/// takes, and an attribute row's of its own.
+pub fn map_name(id: StyleId, attribute: bool) -> String {
+    use exact_kernel::style::theme::admits;
+    format!(
+        "$t{}{}{}",
+        if admits(Kind::Length, id) { "l" } else { "" },
+        if admits(Kind::Number, id) { "n" } else { "" },
+        if attribute { "a" } else { "" }
+    )
+}
+
+/// Row `id`'s bound map: each length or number token of a kind the row
+/// takes (`style::theme::admits`; a name of another kind stands, for the
+/// browser to refuse, as the kernel leaves it), as its CSS, or its
 /// property's `var()` where the page declares one (`props`, name to
-/// property). `None` when the plan keeps none.
-pub fn map(plan: &Plan, props: &[(String, String)]) -> Option<String> {
+/// property) and the row is no SVG attribute. `None` when the plan keeps
+/// no such token.
+pub fn map(
+    plan: &Plan,
+    props: &[(String, String)],
+    id: StyleId,
+    attribute: bool,
+) -> Option<String> {
     let pairs: Vec<String> = plan
         .theme
         .iter()
         .filter_map(|r| {
-            let kind = kind(r).filter(|k| *k != Kind::Color)?;
+            let kind = kind(r)
+                .filter(|k| *k != Kind::Color && exact_kernel::style::theme::admits(*k, id))?;
             let name = plan.str(r.name);
-            let value = match props.iter().find(|(n, _)| n == name) {
+            let value = match props.iter().find(|(n, _)| n == name && !attribute) {
                 Some((_, prop)) => serde_json::to_string(&format!("var({prop})")).unwrap(),
                 None if kind == Kind::Number => css(kind, plan.str(r.value)),
                 None => serde_json::to_string(&css(kind, plan.str(r.value))).unwrap(),

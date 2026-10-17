@@ -245,7 +245,8 @@ pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, 
                 ),
             );
         }
-        StyleId::Opacity => "v!=null&&Number(v)<1",
+        // A design token's name (LLP 1121 D7) may stand below 1.
+        StyleId::Opacity => "v!=null&&(typeof v===\"string\"&&isNaN(v)||Number(v)<1)",
         StyleId::PressScale => "v!=null&&Number(v)!==1",
         StyleId::Perspective => "v!=null&&parseFloat(v)>0",
         StyleId::Translate

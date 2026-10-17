@@ -127,12 +127,18 @@ impl Em<'_> {
         let f = metric.as_deref().unwrap_or(f);
         // @ref LLP 1121 D7 — a length or number token a bound value names is
         // its CSS, or its property's `var()` where the page declares one.
-        let measure = (crate::measures::row(id) && crate::measures::any(plan)).then(|| {
-            let map = self.uses.constant("$tm", || {
-                crate::measures::map(plan, &crate::modes::properties(plan)).unwrap_or_default()
+        let attribute = exact_web::host::template::attribute_rows(kind)
+            .iter()
+            .any(|(r, _)| *r == id);
+        let measure = crate::measures::row(id)
+            .then(|| crate::measures::map(plan, &crate::modes::properties(plan), id, attribute))
+            .flatten()
+            .map(|m| {
+                let map = self
+                    .uses
+                    .constant(&crate::measures::map_name(id, attribute), || m);
+                format!("()=>{map}(({f})())")
             });
-            format!("()=>{map}(({f})())")
-        });
         let f = measure.as_deref().unwrap_or(f);
         // A list on a corner is the elliptical radius no row holds, which
         // the browser would draw: refused whole, as the kernel refuses it.

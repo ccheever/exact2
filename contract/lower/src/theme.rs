@@ -917,7 +917,11 @@ pub(crate) fn names_measures(v: &Expr) -> bool {
 /// number; neither, when it varies by an app axis, in an inherited row,
 /// since only colours re-select at a mode boundary. The kernel then reads
 /// the token's value as the row's (a text style only as a font size, …).
-pub(crate) fn measure_row(a: &Attr, rows: &[exact_kernel::StyleId]) -> Result<(), LowerError> {
+pub(crate) fn measure_row(
+    a: &Attr,
+    rows: &[exact_kernel::StyleId],
+    check: &dyn Fn(&Attr) -> Result<(), LowerError>,
+) -> Result<(), LowerError> {
     let mut all = Vec::new();
     leaves(&a.value, &mut Vec::new(), &mut all);
     let found = all.into_iter().filter_map(|e| match e {
@@ -932,21 +936,26 @@ pub(crate) fn measure_row(a: &Attr, rows: &[exact_kernel::StyleId]) -> Result<()
         let refuse = |id: &'static str, message: String| Err(LowerError { id, message, span });
         let kind_name = kind.name();
         let Some(row) = rows.iter().find(|r| !theme::admits(kernel_kind(kind), **r)) else {
-            // Each tuple's value as the row's codec reads it: a text style
-            // only a font size, in every tuple, not the default's alone.
-            for row in rows {
-                for value in &values {
-                    let read = match kind {
-                        tamber::Kind::Number => exact_num::parse_f64(value)
-                            .map(exact_kernel::style::StyleValue::Number)
-                            .unwrap_or_else(|_| {
-                                exact_kernel::style::StyleValue::Text(value.as_str().into())
-                            }),
-                        _ => exact_kernel::style::StyleValue::Text(value.as_str().into()),
-                    };
-                    if let Err(e) = exact_kernel::StyleProps::default().set_dynamic(*row, &read) {
-                        return refuse("tamber-kind", format!("`{}=\"{text}\"`: `{text}` is the {kind_name} `{value}` in some app mode, which `{}` does not take: {e}", a.name, a.name));
-                    }
+            // Each tuple's value checked as the row checks its literal (the
+            // kernel's codec, and what the compiler adds: a text style only a
+            // font size, a press scale positive), not the default's alone.
+            for value in &values {
+                let literal = match kind {
+                    tamber::Kind::Number => exact_num::parse_f64(value)
+                        .map(|n| Expr::Number(n, span))
+                        .unwrap_or_else(|_| Expr::Str(value.clone(), span)),
+                    _ => Expr::Str(value.clone(), span),
+                };
+                let alt = Attr {
+                    value: literal,
+                    ..a.clone()
+                };
+                if let Err(e) = check(&alt) {
+                    let why = e
+                        .message
+                        .rsplit_once(": ")
+                        .map_or(e.message.as_str(), |(_, why)| why);
+                    return refuse("tamber-kind", format!("`{}=\"{text}\"`: `{text}` is the {kind_name} `{value}` in some app mode, which `{}` does not take: {why}", a.name, a.name));
                 }
             }
             if values.len() > 1 && rows.iter().any(|r| r.inherited()) {

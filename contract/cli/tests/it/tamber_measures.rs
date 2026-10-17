@@ -241,3 +241,14 @@ fn a_tokens_name_through_a_prop_is_checked_as_written() {
     let e = contract::compile_path(&path).unwrap_err();
     assert_eq!(e.id, "tamber-kind", "{e:?}");
 }
+
+/// Review round 2: a tuple's value meets what the compiler adds to the
+/// kernel's codec (a press scale is positive), as a literal does.
+#[test]
+fn a_tuples_value_meets_the_rows_own_rules() {
+    let design = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  press.amount: number = 0.97\n    when density=compact: 0\n";
+    let path = app("press-zero", &[("app.tamber", design), ("app.contract", "component App\n  view\n    button -exact-press-scale=\"press.amount\"\n      text \"a\"\n")]);
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-kind", "{e:?}");
+    assert!(e.message.contains("positive scale"), "{}", e.message);
+}

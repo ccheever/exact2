@@ -471,7 +471,13 @@ pub(crate) fn check_style_value(
         return crate::theme::mode_pins(a);
     }
     // A length or number token in a row of another kind (LLP 1121 D3).
-    crate::theme::measure_row(a, rows)?;
+    crate::theme::measure_row(a, rows, &|alt| {
+        let ty = match alt.value {
+            Expr::Number(..) => Ty::Number,
+            _ => Ty::String,
+        };
+        style_value(alt, rows, &ty, fonts, scope, shapes)
+    })?;
     // A name the design lacks, or a colour token in another row (LLP 1121 D3).
     style_value(a, rows, ty, fonts, scope, shapes)
         .map_err(|e| crate::theme::token_error(a, rows, e))

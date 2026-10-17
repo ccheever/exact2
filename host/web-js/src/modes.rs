@@ -90,17 +90,13 @@ pub fn properties(plan: &Plan) -> Vec<(String, String)> {
     use exact_kernel::style::roles;
     let mut out: Vec<(String, String)> = Vec::new();
     // A number token a font weight names stays inline (`measures`).
-    let integer = if every_token() {
-        crate::measures::inline_tokens(plan)
-    } else {
-        Vec::new()
-    };
+    let inline = crate::measures::inline_tokens(plan);
     for (i, row) in plan.theme.iter().enumerate() {
         let role = roles::role(plan.str(row.role));
         if crate::measures::kind(row).is_none()
             || row.slices.len == 0 && !every_token()
             || role.is_some_and(roles::tint)
-            || integer.iter().any(|n| n == plan.str(row.name))
+            || inline.iter().any(|(n, _)| n == plan.str(row.name))
         {
             continue;
         }
@@ -173,6 +169,7 @@ impl Modes {
         sites: &crate::emit::Sites,
         warnings: &mut Vec<String>,
     ) -> Result<Vec<Option<Parts>>, String> {
+        crate::measures::refuse_inline(plan)?;
         let mut parts = crate::style::project(plan, sites, warnings)?;
         if !self.tokens.is_empty() {
             let plain = written(&parts);
@@ -527,7 +524,7 @@ pub fn design(plan: &Plan) -> serde_json::Value {
                 row["prop"] = prop.clone().into();
                 row["css"] = css.into();
                 row["accent"] = accent.into();
-            } else if inline.contains(&t.name) {
+            } else if inline.iter().any(|(n, _)| *n == t.name) {
                 // Written inline: a change builds (`measures`).
                 row["inline"] = true.into();
             } else if let Some(prop) = tint_property(plan, &t.name) {

@@ -439,6 +439,9 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     const from = scrubbed ?? design;
     if (!from || from.shape !== next.shape || from.tokens.length !== next.tokens.length
       || next.tokens.some((t, i) => t.name !== from.tokens[i].name || String(t.accent) !== String(from.tokens[i].accent))) return { error: 'it changes the design\'s shape: a rebuild applies on release' };
+    // A token the page writes inline has no property to preview through.
+    const inline = next.tokens.find((t, i) => t.inline && !same(t, from.tokens[i]));
+    if (inline) return { error: `\`${inline.name}\` is written inline on this page (a font weight, an SVG attribute): a rebuild applies on release` };
     if (!scrubbed) aside = snapshot;
     // A new preview is no released scrub's.
     scrubbed = next;

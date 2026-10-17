@@ -2702,10 +2702,13 @@ channel (queued).
   Every sentinel of a kind is as long as every other, so none is another's substring; a length's
   bare number is replaced too, since an SVG stroke's CSS is unitless. A number token a
   `font-weight` names stays inline in a development build, since no fraction is a weight; its
-  design entry says `inline`, so a change to it builds. A token-backed `-exact-press-scale` reaches
+  design entry says `inline`, so a change to it (or a scrub of it) builds. So does a token an SVG
+  attribute row names (`x`, `width`, `r` …), since an attribute reads no property; one that varies
+  by an app axis there refuses the JS build, naming it. A token-backed `-exact-press-scale` reaches
   the press animation through the computed property (`input-glue.js`). A bound row's value naming a
-  token maps through one module constant (`$tm`), on every bound length or number row of a plan that
-  keeps such a token. In a static row a release writes a token that does not vary byte for byte as
+  token maps through a module constant per mix of the kinds the row takes (`$tl`, `$tn`, `$tln`, an
+  SVG attribute's `…a` writing values, never `var()`), so a name of a kind the row does not take
+  stands, as the kernel leaves it; a bound `opacity` naming a token counts as a layer. In a static row a release writes a token that does not vary byte for byte as
   its literal; a plan that keeps no length or number token is byte for byte as before (the clone's
   `app.js` and `app.css` are identical).
 - **Measured on theme-fixture with the JS loop, by hand:** a length edit arrives in ~0.2 s, a number
