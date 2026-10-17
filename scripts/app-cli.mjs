@@ -3,8 +3,8 @@
 // a builder reading it learns where the verbs are (`bun exact.mjs --help`), not this code. An
 // exact.mjs written before this file held all of it, and still runs; `bun exact.mjs update` thins it.
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { constants } from 'node:os';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { constants, tmpdir } from 'node:os';
 import { basename, isAbsolute, relative, resolve } from 'node:path';
 
 /** exact2's verbs for the app `name` in `dir`: each the script it runs, from the checkout, and its
@@ -147,7 +147,11 @@ if (verb === 'contract') {
     const refusal = verb === 'test' ? (await import(resolve(exact2, 'scripts/verify.mjs'))).appServer(dir)?.refusal : null;
     if (refusal) { console.error(`test: ${refusal}`); return log(1); }
     const sim = rest.includes('--sim') ? ['--sim', rest[rest.indexOf('--sim') + 1]] : [];
+    // An `agent` drive's check hashes the build's inputs, and the driver need not again (LLP 1012.001.000 D1: once a drive).
+    const checked = verb === 'agent' && drivesNative ? resolve(tmpdir(), `exact-build-check-${process.pid}`) : null;
+    if (checked) process.env.EXACT_BUILD_CHECK_OUT = checked;
     const built = await script(drivesWeb ? verbs['web-build'] : ['scripts/agent-build.mjs', host, '--app', name, ...sim], [], [0, 2, 2]);
+    if (checked) { delete process.env.EXACT_BUILD_CHECK_OUT; try { process.env.EXACT_BUILD_CHECKED = readFileSync(checked, 'utf8'); rmSync(checked); } catch {} }
     if (built) return log(built);
   }
   if (verb === 'contract' && rest[0] === 'build' && existsSync(manifest) && existsSync(resolve(exact2, 'snapback4/web/device-build.mjs'))) {

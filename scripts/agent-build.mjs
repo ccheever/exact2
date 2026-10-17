@@ -39,14 +39,17 @@ const shown = file => relative(process.cwd(), file).startsWith('..') ? file : re
 
 /** What a drive of `app` on `host` (`ios`, else macOS) launches, by its own
  * record: `missing`, or the inputs `changed` since its receipt ([] when fresh,
- * or when a macOS binary has no receipt). `sample` is the sample host's. */
-export function nativeBuild(host, app, { sample = false } = {}) {
+ * or when a macOS binary has no receipt). `sample` is the sample host's.
+ * `checked` is the digest of a receipt whose inputs this drive's own check
+ * (`buildFirst`, run first by an app's exact.mjs) has just hashed: the same
+ * receipt's are not hashed twice (LLP 1012.001.000 D1: once a drive). */
+export function nativeBuild(host, app, { sample = false, checked = null } = {}) {
   const ios = host === 'ios';
   const built = ios ? appleArtifacts(app, { destination: 'ios-simulator', host: sample }).bundle : appleRunBinary(app, sample);
   if (!existsSync(built)) return { built, missing: true, changed: [] };
   const receipt = ios ? resolve(built, 'receipt.json')
     : [resolve(built, '..', 'receipt.json'), resolve(appleArtifacts(app, { host: sample }).bundle, 'Contents/Resources/receipt.json')].find(existsSync);
-  return { built, receipt, changed: receipt ? receiptChanges(receipt, app) : [] };
+  return { built, receipt, changed: receipt ? receiptChanges(receipt, app, { hashed: !!checked && checked === digestOf(receipt) }) : [] };
 }
 
 /** Why a drive must build first, or null when it need not: no build yet, or
@@ -256,16 +259,18 @@ export async function buildFirst(host, app, { sim, say = line => console.error(l
   if (host === 'macos' && process.env.EXACT_MAC_BIN) return 0; // the caller's own binary: the driver says it did not check
   await wait(app, say);
   const state = nativeBuild(host, app);
+  // What the drive after this need not hash again: its receipt, when nothing is rebuilt (`nativeBuild`'s `checked`).
+  const hashed = () => { if (process.env.EXACT_BUILD_CHECK_OUT && state.receipt) writeFileSync(process.env.EXACT_BUILD_CHECK_OUT, digestOf(state.receipt)); return 0; };
   let reason = buildReason(state, app);
-  if (!reason) return 0;
+  if (!reason) return hashed();
   const graph = graphOf(app);
   if (!state.missing && state.changed.every(path => planSource(path, app, graph))) {
-    if (planOverride(host, app, state, graph)) return 0;
+    if (planOverride(host, app, state, graph)) return hashed();
     const log = resolve(app.dir, '.exact', `${host}-plan.log`), made = await makeOverride(host, app, state, { bake, log }), what = named(app, state.changed);
     if (made.made) {
       say(`${label(host)}: ${what} changed; running the new plan on the existing build (no native rebuild)`);
       for (const warning of compilerWarnings(made.output)) say(warning);
-      return 0;
+      return hashed();
     }
     if (made.failed) {
       say(`${made.failed}\nthe ${label(host)} plan did not bake (${what} changed), so nothing was driven; its whole log: ${shown(log)}`);

@@ -1097,7 +1097,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     if (inputs.get(name)?.path === path) return;
     const info = statSync(path);
     if (info.isDirectory()) { const names = readdirSync(path).sort(); directories.set(name, {path,names}); for (const entry of names) add(resolve(path,entry)); }
-    else if (info.isFile()) inputs.set(name, {name,path,sha256:hashes.of(path, info),size:info.size,mtimeMs:info.mtimeMs}); // size and mtime: what a drive's check need not hash again
+    else if (info.isFile()) inputs.set(name, {name,path,sha256:hashes.of(path, info)});
     else throw new Error(`unsupported compiler input ${path}`);
   };
   const normalizeEnv = ([key,value]) => [key, value == null ? null : ['OUT_DIR','CARGO_MANIFEST_DIR'].includes(key) ? nameOf(value) : buildHash(value)];
@@ -1238,11 +1238,10 @@ export function claimLive(text) {
   let claim;
   try { claim = JSON.parse(text); } catch { return true; } // unreadable: never guess
   if (!Number.isSafeInteger(claim.pid) || claim.pid <= 0) return true;
-  const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(claim.pid)], { encoding: 'utf8' });
-  const started = Date.parse(ps.stdout?.trim() ?? '');
-  if (ps.status !== 0 || !Number.isFinite(started)) return false;
-  // `lstart` has whole seconds: the holder started at or before its claim.
-  return started <= Date.parse(claim.started) + 1000;
+  try { process.kill(claim.pid, 0); } catch (error) { if (error.code === 'ESRCH') return false; } // gone (EPERM: alive, another user's)
+  const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(claim.pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } }), started = Date.parse(ps.stdout?.trim() ?? '');
+  if (ps.status !== 0 || !Number.isFinite(started)) return true; // running, and `ps` cannot say since when: never guess
+  return !(started > Date.parse(claim.started) + 1000); // `lstart` has whole seconds: a holder started after its claim is a reused pid
 }
 
 /** Cargo library filenames use the selected target name, with hyphens
@@ -1400,12 +1399,12 @@ export function developmentCandidate(build, plan, assets, surfaces) {
 
 /** Source staleness is provisional until the next actual bake. These paths
  * came from the previous compiler receipt, including absent watched inputs. */
-export function pendingBuildInputs(build) { // a file whose size and mtime are the build's own is not hashed again (a drive hashed 116 MB, twice)
+export function pendingBuildInputs(build) {
   const changed=[];
   try {if(build.binary.assetCatalogApp && canonicalBuild(appleAssetCatalogInventory(build.binary.assetCatalogApp, build.binary.assetCatalogApp.platform)) !== canonicalBuild(build.binary.metadata.appleAssetCatalogs ?? [])) changed.push('Apple asset catalogs');} catch {changed.push('Apple asset catalogs');}
   try {if(build.binary.nativeResourceApp && canonicalBuild(macResourceInventory(build.binary.nativeResourceApp)) !== canonicalBuild(build.binary.metadata.nativeResources)) changed.push('host.macos.resources');} catch {changed.push('host.macos.resources');}
   for(const file of build.binary.inputs) {
-    try {const stat=statSync(file.path); if(!stat.isFile()||!(stat.size===file.size&&stat.mtimeMs===file.mtimeMs)&&buildHash(readFileSync(file.path))!==file.sha256)changed.push(file.name);}
+    try {if(!statSync(file.path).isFile()||buildHash(readFileSync(file.path))!==file.sha256)changed.push(file.name);}
     catch {changed.push(file.name);}
   }
   for(const path of build.binary.missing)if(existsSync(path))changed.push(path);
