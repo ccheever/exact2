@@ -3094,7 +3094,7 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
 
 **Stage 6 is closed** (with stage 9's icons).
 
-### Stage 7, commit A: the `params` section (draft for theme2)
+### Stage 7, commit A: the `params` section (`be8ae002c`..`08dfc82c3`)
 
 - **Grammar.** A component takes one `params` section. Each line is `name: kind = "default"`
   followed by attributes `range`, `step`, `control`, `options`, `label`, `help`, `group` and
