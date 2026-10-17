@@ -277,6 +277,8 @@ theorem stdlib_ty {env : Env} {sh f vs ts v} (h : stdlib env f vs = .ok v) (hts 
   case h_44 =>
     split at h <;> simp at h; subst h
     split <;> simp [VTy]
+  case h_49 =>
+    split at h <;> simp at h; subst h; simp [VTy]
 
 /-! ## Strict operators -/
 

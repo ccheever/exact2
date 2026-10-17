@@ -1,5 +1,6 @@
 import Contract.Syntax
 import Contract.Binary64
+import Contract.Trig
 import Contract.Binary64Facts
 import Contract.Number
 import Contract.Format

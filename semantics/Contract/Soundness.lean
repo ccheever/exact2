@@ -424,6 +424,14 @@ theorem pathValue_good {t : Route.Table} {name : String} {route : RouteDecl} {vs
   | ok s => intro _; exact ⟨s, rfl⟩
   | error e => intro hg; exact hg
 
+theorem sum_ok {p : Program} {xs : List Value} (h : ValTys p xs .number) (a : F64) :
+    ∃ n, Value.sum xs a = .some n := by
+  induction xs generalizing a with
+  | nil => exact ⟨a, rfl⟩
+  | cons x xs ih =>
+    obtain ⟨n, rfl⟩ := ValTy.num_inv h.1
+    exact ih h.2 (a + n)
+
 /-- A roster call on arguments of the types `rosterTy` takes answers a
 value of the type it gives, or is unsupported; never a type error. -/
 theorem stdlib_good {env : Env} {p : Program} {name : String} {vs : List Value} {ts : List Ty} {t : Ty}
@@ -462,12 +470,22 @@ theorem stdlib_good {env : Env} {p : Program} {name : String} {vs : List Value} 
     obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]
     obtain ⟨_, rfl⟩ := hw.num_inv; simp [stdlib, GoodR, ValTy]
   rw [ite_neg hn] at h
-  by_cases hn : name = "ceil" ∨ name = "round"
+  by_cases hn : name = "ceil" ∨ name = "round" ∨ name = "sin" ∨ name = "cos"
   · rw [ite_pos hn] at h
     split at h <;> simp at h; subst h
     obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]
     obtain ⟨_, rfl⟩ := hw.num_inv
-    rcases hn with rfl | rfl <;> simp [stdlib, GoodR, ValTy]
+    rcases hn with rfl | rfl | rfl | rfl <;> simp [stdlib, GoodR, ValTy]
+  rw [ite_neg hn] at h
+  by_cases hn : name = "sum"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h <;> simp at h <;> subst h
+    all_goals
+      obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]
+      obtain ⟨xs, rfl, hxs⟩ := hw.list_inv
+      have hx : ValTys p xs .number := ValTys.of_mem fun x hx => (hxs.mem x hx).mono rfl
+      obtain ⟨n, hn⟩ := sum_ok hx 0
+      simp [stdlib, hn, GoodR, ValTy]
   rw [ite_neg hn] at h
   by_cases hn : name = "parseNumber"
   · subst hn; rw [ite_pos rfl] at h

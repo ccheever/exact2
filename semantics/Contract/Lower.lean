@@ -129,12 +129,12 @@ def roster : List String :=
    "filter", "join", "formatDate", "formatNumber", "frame", "measure", "at", "startsWith",
    "endsWith", "slice", "replaceAll", "toLowerCase", "concat", "indexOf", "split",
    "elementFromPoint", "parseNumber", "ceil", "round", "calendarDiff",
-   "toFixed", "formatDecimal", "formatDay"]
+   "toFixed", "formatDecimal", "formatDay", "sin", "cos", "sum"]
 
 /-- A roster entry's result type. -/
 def rosterTy (f : String) (args : List STy) : STy :=
   if f = "performanceNow" ∨ f = "length" ∨ f = "floor" ∨ f = "ceil" ∨ f = "round" ∨ f = "max" ∨ f = "min"
-    ∨ f = "indexOf" then .number
+    ∨ f = "indexOf" ∨ f = "sin" ∨ f = "cos" ∨ f = "sum" then .number
   else if f = "isEmpty" ∨ f = "includes" ∨ f = "startsWith" ∨ f = "endsWith" then .bool
   else if f = "toString" ∨ f = "trim" ∨ f = "encodeURIComponent" ∨ f = "join"
     ∨ f = "replaceAll" ∨ f = "toLowerCase" ∨ f = "formatTime" ∨ f = "formatDate" ∨ f = "formatNumber"

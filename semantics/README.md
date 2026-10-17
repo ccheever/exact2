@@ -7,6 +7,7 @@ tested against it, differentially and at random.
 |---|---|
 | `Contract/Syntax.lean` | The abstract syntax: a deep embedding of the expanded root component (every used component's declarations lifted into it), the file's shapes and `fn`s. A statement may call an action (`Stmt.call`, LLP 1089 D9): by name, with its whole argument list, never the body the Rust compiler expanded. |
 | `Contract/Binary64.lean` | Numbers: IEEE-754 binary64 as its bits (`F64`), every operation the exact result rounded once to nearest, ties to even, over `Nat`/`Int` — computable in the kernel. |
+| `Contract/Trig.lean` | `sin` and `cos`: libm 0.2.16's kernels and argument reduction, including large arguments, over the exact F64 operations. No hardware floats or external oracle. |
 | `Contract/Binary64Facts.lean` | That model proved: correct rounding, overflow, monotonicity, exactness (below). |
 | `Contract/Number.lean` | `max`/`min` as JavaScript's `Math.max`/`Math.min` (NaN and signed zero included), and JavaScript's `Number#toString` over exact rationals. |
 | `Contract/Value.lean` | Values, structural equality as the runner's `compare::equal`, and the roster's string functions. |
@@ -93,12 +94,25 @@ operand pair (random bits; edge values and their neighbours; pairs that
 cancel or sit a few exponents apart; integers around `2^53`; operands
 near overflow and underflow) and natural number, `+ - * / %`, `floor`,
 `max`, `min`, `trunc`, negation, a natural number as a double, `ceil`,
-`round` (JavaScript's `Math.round`), and `< <= ==`, as the runner computes
-them, compared by bits (every NaN one); and, for a numeral and two dates
+`round` (JavaScript's `Math.round`), `sin`, `cos`, `sum([a, b, -a])`, and
+`< <= ==`, as the runner computes them, compared by bits (every NaN one); and, for a numeral and two dates
 each case carries, `parseNumber` and `calendarDiff` in years and months
 (LLP 1102 §3.1, §3.4), the runner's `stdlib` against `Contract.Value`'s;
 and, at a random digit count each, `toFixed` and `formatDecimal` (§3.2),
 the `format` capability against `Contract.Format`'s.
+The trigonometric reference is `exact_motion::math`, the runner's pinned
+libm 0.2.16. Every run starts with both signs and the neighbours of zero,
+subnormals, tiny-input cutoffs, multiples of pi/2, argument-reduction
+cutoffs, large arguments through 1e300, the largest finite value, infinity
+and NaN. Random cases also sample pi/2 neighbourhoods. This checks the
+port's bits; it is not a proof that the port refines libm. JavaScript's
+`Math.sin` and `Math.cos` may differ in the last bits.
+
+`sum` folds binary64 addition left to right from +0; an empty list returns
++0. As with `includes`, the semantics omits the runner's list-budget limit
+(one list step per item), so a program exceeding that limit remains outside
+the comparison's resource-bound model.
+
 `numbers` does the same for number printing.
 
 `types` runs the Lean checker (`Contract.check`) against the Rust one: every

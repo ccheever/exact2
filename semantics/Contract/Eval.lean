@@ -11,6 +11,7 @@ import Contract.Syntax
 import Contract.Value
 import Contract.Route
 import Contract.Format
+import Contract.Trig
 
 namespace Contract
 
@@ -240,9 +241,16 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
     else .error (.unsupported "`calendarDiff` of a unit it does not take")
   | "toFixed", vs => formatting "toFixed" vs
   | "formatDecimal", vs => formatting "formatDecimal" vs
+  | "sin", [.num x] => .ok (.num x.sin)
+  | "cos", [.num x] => .ok (.num x.cos)
+  | "sum", [.list xs] =>
+    match Value.sum xs with
+    | .some n => .ok (.num n)
+    | .none => .error (.type "`sum` of an item that is not a number")
   | "length", _ | "isEmpty", _ | "floor", _ | "max", _ | "min", _ | "first", _ | "at", _
   | "includes", _ | "startsWith", _ | "endsWith", _ | "trim", _ | "join", _
   | "encodeURIComponent", _ | "slice", _ | "replaceAll", _ | "concat", _ | "indexOf", _
+  | "sin", _ | "cos", _ | "sum", _
   | "split", _ | "ceil", _ | "round", _ | "parseNumber", _ | "calendarDiff", _ =>
     .error (.type s!"`{f}` of arguments it does not take")
   | f, _ => .error (.unsupported s!"roster entry `{f}`")

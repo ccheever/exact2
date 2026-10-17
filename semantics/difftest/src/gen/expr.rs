@@ -453,7 +453,7 @@ impl Gen<'_> {
     }
 
     fn num_expr(&mut self, env: &Env, d: usize) -> String {
-        match self.rng.weighted(&[8, 1, 3, 1, 2, 1]) {
+        match self.rng.weighted(&[8, 1, 3, 2, 2, 1, 1]) {
             0 => {
                 let op = *self.rng.pick(&["+", "-", "*", "/", "%", "+", "-", "*"]);
                 let a = self.expr(env, &Ty::Num, d, false);
@@ -464,8 +464,12 @@ impl Gen<'_> {
             2 => format!("({}).length", self.sized(env, d)),
             // `round` is JavaScript's `Math.round` (LLP 1102 §3.2).
             3 => {
-                let f = *self.rng.pick(&["floor", "ceil", "round"]);
+                let f = *self.rng.pick(&["floor", "ceil", "round", "sin", "cos"]);
                 format!("{f}({})", self.expr(env, &Ty::Num, d, false))
+            }
+            6 => {
+                let xs = self.expr(env, &Ty::list(Ty::Num), d, false);
+                format!("sum({xs})")
             }
             // `indexOf` over a list of strings, numbers or bools by strict
             // equality, or over text in code units (LLP 1088 §9.1).
