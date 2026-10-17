@@ -170,14 +170,9 @@ fn fmt_keeps_a_state_part() {
 fn a_host_states_look_is_recorded_one_a_state() {
     let src = "style Card\n  background-color = \"#ffffff\"\n  :active\n    background-color = \"#eeeeee\"\n    opacity = 0.9\n  :hover\n    border-color = \"#cccccc\"\n\ncomponent App\n  state on = false\n  action go\n    on = !on\n  view\n    column class=Card press=go testId=\"card\"\n      :active\n        background-color = \"#dddddd\"\n      text \"c\"\n";
     let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e:?}"));
-    let node = plan
-        .nodes
-        .iter()
-        .find(|n| n.looks.len > 0)
-        .expect("a node with looks");
-    let looks: Vec<_> = (node.looks.start..node.looks.start + node.looks.len)
-        .map(|i| &plan.looks[i as usize])
-        .collect();
+    let node = plan.looks.first().expect("a node with looks").node;
+    let looks: Vec<_> = plan.looks.iter().filter(|l| l.node == node).collect();
+    assert_eq!(looks.len(), plan.looks.len(), "one node's looks, by node");
     assert_eq!(
         looks.iter().map(|l| l.state).collect::<Vec<_>>(),
         [0, 1],

@@ -524,11 +524,6 @@
         {
           "name": "surface",
           "codec": "opt:surfaces"
-        },
-        {
-          "name": "looks",
-          "codec": "range:looks",
-          "_comment": "@ref LLP 1121 D8 (stage 8 A): the node's host-known state looks, at most one a state (its class's and its own rows composed, by longhand). Empty for a node with none; a host that does not apply them yet ignores them."
         }
       ]
     },
@@ -556,8 +551,12 @@
     },
     {
       "name": "looks",
-      "_comment": "@ref LLP 1121 D8 (stage 8 A): a host-known state's look on a node, which the host applies on its own tracking with no round trip (LLP 1061 D1's reason): `state` 0 `:active` (the host's press), 1 `:hover`, 2 `:focus-visible`; `bindings` its style rows, each a literal (a token's name is one, as a static row's): `background-color`, a side's `border-*-color`, `opacity`, `box-shadow`, `-exact-press-scale`. A host composes the states over the base, `:hover`, then `:focus-visible`, then `:active` (D8's order, the last highest); a disabled node takes none.",
+      "_comment": "@ref LLP 1121 D8 (stage 8 A): a host-known state's look on a node `node` (rows in node order, at most one a state a node; a node with none has no row, so a plan without state parts pays nothing), which the host applies on its own tracking with no round trip (LLP 1061 D1's reason): `state` 0 `:active` (the host's press), 1 `:hover`, 2 `:focus-visible`; `bindings` its style rows, each a literal (a token's name is one, as a static row's): `background-color`, a side's `border-*-color`, `opacity`, `box-shadow`, `-exact-press-scale`. A host composes the states over the base, `:hover`, then `:focus-visible`, then `:active` (D8's order, the last highest); a disabled node takes none.",
       "fields": [
+        {
+          "name": "node",
+          "codec": "idx:nodes"
+        },
         {
           "name": "state",
           "codec": "u8"

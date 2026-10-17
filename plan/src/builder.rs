@@ -816,22 +816,19 @@ impl PlanBuilder {
                 len: handlers.len() as u32,
             },
             surface,
-            looks: LooksRange {
-                start: self.plan.looks.len() as u32,
-                len: 0,
-            },
         });
         NodesId(self.plan.nodes.len() as u32 - 1)
     }
 
     /// Node `id`'s host-known state looks (LLP 1121 D8): each `(state,
-    /// bindings)`, its rows after every binding so far.
+    /// bindings)`, its rows after every binding so far, in node order (the
+    /// node is the last made).
     pub fn set_looks(&mut self, id: NodesId, looks: &[(u8, Vec<BindingsRow>)]) {
-        let start = self.plan.looks.len() as u32;
         for (state, bindings) in looks {
             let bstart = self.plan.bindings.len() as u32;
             self.plan.bindings.extend_from_slice(bindings);
             self.plan.looks.push(LooksRow {
+                node: id,
                 state: *state,
                 bindings: BindingsRange {
                     start: bstart,
@@ -839,10 +836,6 @@ impl PlanBuilder {
                 },
             });
         }
-        self.plan.nodes[id.0 as usize].looks = LooksRange {
-            start,
-            len: looks.len() as u32,
-        };
     }
 
     /// Replace a slot's initializer (declared first, filled once every id exists).

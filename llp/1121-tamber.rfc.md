@@ -3343,11 +3343,13 @@ verifying build (not reproduced in three replays); and the iOS tamber smoke's re
 - **`lower-state-dead`** (a lint, theme2's ruling (a)): a node's own `:disabled` where it writes no
   `disabled`, or its own `:checked` where it writes none of the four. A class's part is not judged.
 - **Host-known states are recorded** (the plan break, ruling (c), shape agreed with x2-perf4): a
-  `looks` table, `{state, bindings}` (0 `:active`, 1 `:hover`, 2 `:focus-visible`), and the nodes'
-  `looks` range, one look a state with the class's and the node's rows composed by longhand, each a
-  literal style row as a static row's (a token's name stays a name, for a live batch and a mode).
-  No host reads it until B. FORMAT_DIGEST moves to `0x3d64_575c_f08b_0862`: every host takes a new
-  binary (plan decode is generated), and none applies looks yet.
+  `looks` table, `{node, state, bindings}` (0 `:active`, 1 `:hover`, 2 `:focus-visible`) in node
+  order, one look a state a node with the class's and the node's rows composed by longhand, each a
+  literal style row as a static row's (a token's name stays a name, for a live batch and a mode). A
+  node with no look has no row, so a plan without state parts pays 4 bytes (a nodes column cost the
+  clone's plan 159,596 bytes, 4%: theme2 asked to key the table by node). No host reads it until B.
+  FORMAT_DIGEST moves to `0x73dd_d2b7_978c_aec0`: every host takes a new binary (plan decode is
+  generated), and none applies looks yet.
 - **LLP 1001** declares the `:checked` deviation.
 - **Tests:** `contract/cli/tests/it/state_parts.rs`: `:checked` under `:disabled` on a checked,
   disabled toggle (the gate line); a state's `border-color` over a `border` and a side's longhand;
