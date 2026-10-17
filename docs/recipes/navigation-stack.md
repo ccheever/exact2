@@ -99,7 +99,7 @@ column navigationKey=`${e.id}` navigationScroll="note-list" position="absolute" 
 ```
 
 The sheet: `navigationPresentation="modal"`; its Cancel's `id` is the root's `navigationBack`,
-which the swipe down presses. Its last child, the `scroll`, runs to the bottom edge.
+which the swipe down presses.
 
 <!-- check: route add -->
 ```contract
@@ -134,13 +134,14 @@ test "add, open, delete after asking"
   expect state lib == []
 ```
 
-- An alert's `aria-label` is its title. It has text, buttons and one Cancel. Escape/Back
-  chooses Cancel; only written `closedby="any"` dismisses outside. Linux centres it and
-  scrolls content to its actions; another modal is a sheet, closed on ok
+- An alert's `aria-label` is its title. Escape/Back chooses Cancel; only written
+  `closedby="any"` dismisses outside. Another modal is a sheet, closed on ok
   ([after-a-write](after-a-write.md)).
 - Routes stay mounted: use unique `testId`s. `clock settle` follows a push, sheet or alert;
   `clock data` precedes reading a save.
 - At 900 px up, pushed rows split list and detail; `follow` replaces it and
   `navigationSplit="none"` keeps it pushed.
+- A run (a study session, a workout, a quiz) has one exit, which ends it or asks: not two
+  exits, nor a pushed page whose Back leaves it running.
 - An unmatched location keeps its URL and offers home (or uses `notfound`); a missing detail
   says so.
