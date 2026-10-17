@@ -3168,7 +3168,7 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
   `set-param` and `resolve` take it. A param's name is a field's, so a reserved word may be one.
 - **No digest moves.** A param is a token in the reference table.
 
-### Stage 7, commit D: components that aren't Contract (draft for theme2)
+### Stage 7, commit D: components that aren't Contract (ending `0d2e94e3b`)
 
 - **Grammar.** A design may declare `component Name` over one indented `params` block. Each line
   reads as a dial's, for any kind: `name: kind = value [in low..high] [meta=…]`
@@ -3203,7 +3203,7 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
 - **Not yet:** a live `set-param` reaching them waits for B's server folding (the server's own
   fold adds no params today). Packages' `.tamber` components are QUEUEd.
 
-### Stage 7, commit B: the app's value, `set-param` and `unset-param` (draft for theme2)
+### Stage 7, commit B: the app's value, `set-param` and `unset-param` (`1530e9671`..`ff89cbae9`)
 
 - **The `params` block** (theme2's ruling, option 1). A design may have a `params` block beside
   `theme`. Each line is a param's full or short name, `= value`, with `when` lines. `#` and `/`
