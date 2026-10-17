@@ -127,9 +127,8 @@ pub(crate) struct Poller {
     channel_due: std::time::Instant,
     /// Since when the generation it fetched has waited on requests in flight.
     pub held_since: Option<std::time::Instant>,
-    /// Woken when a worker's answer lands, for a host that turns only when
-    /// woken (the Android reader's canvas host); `None` where a loop polls
-    /// on its own (the Linux display).
+    /// Woken when a worker's answer lands (the executor's waker), for a
+    /// host that turns only when woken (the Android reader's canvas host).
     pub waker: Option<Waker>,
 }
 

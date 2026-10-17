@@ -8,8 +8,6 @@ import android.graphics.Canvas
 import android.graphics.RectF
 import android.graphics.fonts.Font
 import android.os.Looper
-import android.os.MessageQueue
-import android.os.ParcelFileDescriptor
 import android.view.MotionEvent
 import android.view.View
 import java.io.File
@@ -175,25 +173,19 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
             try { Native.hardwarePictures(hwbuf) } catch (e: UnsatisfiedLinkError) { }
             started = Native.start(window.first, window.second, resources.displayMetrics.density, dir, live)
         }
-        // Executor replies and decoded images wake the main looper; poll drains them.
-        val queue = Looper.getMainLooper().queue
-        for (fd in Native.fds()) {
-            if (fd < 0) continue
-            val pfd = ParcelFileDescriptor.fromFd(fd)
-            wakes.add(pfd)
-            queue.addOnFileDescriptorEventListener(pfd.fileDescriptor, MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT) { _, _ ->
-                val turn = Native.poll()
-                asking()
-                if (turn) pump()
-                MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT
-            }
-        }
+        // Executor replies and decoded images wake the main looper; poll drains them. A wake with no turn to take
+        // still owes the next timer (a dev loop's next poll among them).
+        wakes = Wakes(Looper.getMainLooper().queue) {
+            val turn = Native.poll()
+            asking()
+            if (turn) pump() else schedule()
+        }.also { it.sync() }
         invalidate()
     }
 
     /** The host's wake descriptors this view watches on the main looper (owner=0), until it leaves its window: a view
      * made after it (the activity made again) watches its own, and this one must not take that one's streams. */
-    private val wakes = ArrayList<ParcelFileDescriptor>()
+    private var wakes: Wakes? = null
 
     /** Whether the activity is started. Stopped, the view asks for no frame (LLP 1115.001 D15.2): no turn at a vsync,
      * no timer, no layer sampled; the first frame after it starts again shows what changed meanwhile. */
@@ -415,9 +407,8 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     override fun onDetachedFromWindow() {
         warmer.destroy()
         worker.shutdown()
-        val queue = Looper.getMainLooper().queue
-        for (pfd in wakes) { queue.removeOnFileDescriptorEventListener(pfd.fileDescriptor); pfd.close() }
-        wakes.clear()
+        wakes?.close()
+        wakes = null
         super.onDetachedFromWindow()
     }
 
@@ -950,6 +941,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         // What this turn asked of the platform (a press's haptic, the keyboard for a field it focused).
         asking()
         if (!running) return
+        wakes?.sync()
         if (Native.animating() && !turnPosted) { turnPosted = true; android.view.Choreographer.getInstance().postFrameCallback(turn) }
         var due = Native.nextDue()
         // A moved paint is owed a paint once scrolling pauses: each step pushes this back.

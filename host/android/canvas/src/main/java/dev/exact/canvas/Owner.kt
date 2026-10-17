@@ -3,8 +3,6 @@ package dev.exact.canvas
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
-import android.os.MessageQueue
-import android.os.ParcelFileDescriptor
 import android.view.Choreographer
 import java.nio.ByteOrder
 import java.nio.IntBuffer
@@ -137,6 +135,8 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
 
     /** Whether the host's wake descriptors are watched: once, however many readers boot it. */
     private var watching = false
+    /** The host's wake descriptors, watched again after each turn ([schedule]): a dev loop's plan brings new ones. */
+    private var wakes: Wakes? = null
 
     /** Whether an accessibility service is on, and whether the reader holds nothing of the tree yet (LLP 1115.001
      * D13): the exact thread's own. exact2 is asked for the tree with each stream only while one is on. */
@@ -168,17 +168,10 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
                 synchronized(lock) { owedDy = 0f; owedSeq = 0 }
                 if (!watching) {
                     watching = true
-                    val wakes = thread.looper.queue
-                    for (fd in Native.fds()) {
-                        if (fd < 0) continue
-                        val pfd = ParcelFileDescriptor.fromFd(fd)
-                        wakes.addOnFileDescriptorEventListener(pfd.fileDescriptor, MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT) { _, _ ->
-                            // A reply, a picture, or a request exact2 queued with no frame to follow it.
-                            if (Native.poll()) produce() else { requests(); schedule() }
-                            MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT
-                        }
-                    }
+                    // A reply, a picture, or a request exact2 queued with no frame to follow it.
+                    wakes = Wakes(thread.looper.queue) { if (Native.poll()) produce() else { requests(); schedule() } }
                 }
+                wakes?.sync()
                 produce()
             }
             main.post { done(ok) }
@@ -430,6 +423,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
 
     private fun schedule() {
         if (!running) return
+        wakes?.sync()
         if (Native.animating() && late) { late = false; handler.post(again) }
         else if (Native.animating() && !turnPosted) { turnPosted = true; choreographer?.postFrameCallback(turn) }
         var due = Native.nextDue()

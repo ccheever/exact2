@@ -142,8 +142,9 @@ function readerDeploy(app, apk, env) {
     if (env[name]) throw new Error(`android --reader: ${flag} does not reach the reader, which boots the plan its APK bakes`);
   // A dev loop's URL (`--url`, LLP 1122 D4): the reader polls it, as the Linux display does, through
   // `adb reverse` when it is this Mac's loopback; a file path is no URL a phone reads.
-  const dev = env.EXACT_DEV_PLAN;
-  if (dev && !/^https?:\/\//i.test(dev)) throw new Error('android --reader: a development plan is a dev loop\'s http(s) URL (--url), not a file');
+  const devUrl = env.EXACT_DEV_PLAN ? URL.parse(env.EXACT_DEV_PLAN) : null;
+  if (env.EXACT_DEV_PLAN && !['http:', 'https:'].includes(devUrl?.protocol)) throw new Error('android --reader: a development plan is a dev loop\'s http(s) URL (--url), not a file');
+  if (devUrl) env = { ...env, EXACT_DEV_PLAN: devUrl.href };
   const serial = androidDevice(env), tool = adb(env), id = app.id.replaceAll('-', '_') + (env.ORG_GRADLE_PROJECT_idSuffix ?? ''); // as the Gradle shell names the package
   const dir = `/data/local/tmp/exact/${id}`, shot = `${dir}/reader-shot-${process.pid}.png`;
   const run = (args, what) => {
@@ -152,8 +153,8 @@ function readerDeploy(app, apk, env) {
   };
   run(['install', '-r', apk], `install ${apk}`);
   run(['shell', `mkdir -p ${quote(dir)}`], 'prepare');
-  if (dev && ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(dev).hostname)) {
-    const port = new URL(dev).port || (dev.startsWith('https') ? '443' : '80');
+  if (devUrl && ['127.0.0.1', 'localhost', '[::1]'].includes(devUrl.hostname)) {
+    const port = devUrl.port || (devUrl.protocol === 'https:' ? '443' : '80');
     run(['reverse', `tcp:${port}`, `tcp:${port}`], `reverse tcp:${port}`);
   }
   // What the app reads of the drive: EXACT_AGENT and every EXACT_AGENT_* (the store, the epoch, the locale, the
@@ -191,7 +192,10 @@ async function relay([serial, id, vars]) {
   if (!port) throw new Error('adb forward gave no port');
   const logs = spawn(tool, ['-s', serial, 'logcat', '-v', 'raw', 'exact:V', 'AndroidRuntime:E', '*:S'], { stdio: ['ignore', 'pipe', 'ignore'] });
   logs.stdout.pipe(process.stderr);
-  const done = (code) => { logs.kill(); sh('forward', '--remove', `tcp:${port}`); sh('shell', 'am', 'force-stop', id); process.exit(code); };
+  // A dev loop's port the deploy reversed (`readerDeploy`) goes with the drive.
+  const dev = URL.parse(JSON.parse(vars).EXACT_DEV_PLAN ?? '');
+  const reversed = dev && ['127.0.0.1', 'localhost', '[::1]'].includes(dev.hostname) ? dev.port || (dev.protocol === 'https:' ? '443' : '80') : null;
+  const done = (code) => { logs.kill(); sh('forward', '--remove', `tcp:${port}`); if (reversed) sh('reverse', '--remove', `tcp:${reversed}`); sh('shell', 'am', 'force-stop', id); process.exit(code); };
   // The app opens its socket as its activity is made; the forward connects when it is there.
   let socket;
   for (let tries = 0; !socket; tries++) {

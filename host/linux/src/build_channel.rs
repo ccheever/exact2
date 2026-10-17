@@ -18,6 +18,13 @@
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
 
+/// The host a registration names: the Android reader runs this code too.
+const HOST: &str = if cfg!(target_os = "android") {
+    "android"
+} else {
+    "linux"
+};
+
 /// A hello, a report's answer and a frame list are small documents.
 const MAX_CHANNEL_BYTES: usize = 64 * 1024;
 /// How long a dev loop that answered hello 404 is left before it is asked again.
@@ -32,7 +39,7 @@ fn build_id() -> &'static str {
         let mut bytes = [0u8; 8];
         let _ = getrandom::fill(&mut bytes);
         let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-        format!("linux-{hex}")
+        format!("{HOST}-{hex}")
     })
 }
 
@@ -268,7 +275,7 @@ impl Exchange {
                         return;
                     };
                     let register = json!({"nonce": nonce, "kind": "register", "id": self.id,
-                        "host": "linux", "capabilities": ["pin"],
+                        "host": HOST, "capabilities": ["pin"],
                         "plan": self.plan, "design": self.design});
                     if send(&report, Some(&register)).map(|r| r.0) != Some(200) {
                         return;

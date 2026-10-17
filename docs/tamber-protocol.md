@@ -732,7 +732,8 @@ The tool drives no input into an app; a command changes only what `prefer` would
 
 - **Registration.** A build's dev stream hello (`/__dev`; the JS target's `/__dev/page`) carries
   a `nonce` when the loop has a design. The build answers with one `POST /__dev/report`:
-  `{nonce, kind: "register", id, host, capabilities, plan, planDigest?, design}`. `planDigest`
+  `{nonce, kind: "register", id, host, capabilities, plan, planDigest?, design}` (`host`: `web`,
+  `web-js`, `ios` (tvOS too), `macos`, `linux`, or `android` for the Android reader, *1.9*). `planDigest`
   (*1.9*) is the SHA-256 of the plan the build runs, the digest its source map names; the server
   joins and outlines that build from that plan's map.
   - `id` is the build's own, stable across its reconnects (a tab's, kept across its reloads but

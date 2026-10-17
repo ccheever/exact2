@@ -98,26 +98,29 @@ fn a_woken_host_is_told_the_development_polls_turn_and_woken_by_its_answer() {
     assert_eq!(p.turn_due_ms(p.host.now()), None, "no timer, no dev loop");
     // A port nothing listens on: the poll's answer is a refused connection.
     p.set_development(Some("http://127.0.0.1:9/".into()), None);
-    p.wake_development();
     assert_eq!(
         p.turn_due_ms(p.host.now()),
         None,
         "it polls after the first pixel"
     );
-    p.painted = true;
-    let due = p.turn_due_ms(p.host.now()).expect("the poll is due");
-    assert!(due <= 500.0, "{due}");
     assert!(
         p.dev.as_ref().unwrap().waker.is_some(),
         "the executor's waker"
     );
-    // The first poll starts its workers; each answer wakes the host.
+    // Each answer wakes the host (a counting waker stands in for the fd's).
     let woken = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let count = woken.clone();
     p.dev.as_mut().unwrap().waker = Some(std::sync::Arc::new(move || {
         count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }));
-    p.poll_development(|| Held);
+    p.painted = true;
+    let due = p.turn_due_ms(p.host.now()).expect("the poll is due");
+    assert!(due <= 500.0, "{due}");
+    // A tick alone (a quick frame's) starts the due poll: it is due no
+    // longer, so a host asking again does not spin on a zero deadline.
+    p.tick_development();
+    let after = p.turn_due_ms(p.host.now());
+    assert!(after.is_none_or(|d| d > 0.0), "{after:?}");
     let start = std::time::Instant::now();
     while woken.load(std::sync::atomic::Ordering::SeqCst) == 0 && start.elapsed().as_secs() < 10 {
         std::thread::sleep(std::time::Duration::from_millis(10));

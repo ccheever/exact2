@@ -1114,7 +1114,6 @@ impl<D: DataSource + Default> CanvasHost<D> {
             eprintln!("exact: {e}");
         }
         p.set_live_clock(Some(crate::presenter::wall_since(started)));
-        p.wake_development();
         // What the reader read of the device, before the first frame (D3.1).
         if let Some(e) = device::configured().and_then(|d| p.set_device(&d)) {
             eprintln!("exact: device: {e}");
@@ -1248,6 +1247,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         // [`CanvasHost::poll`] when their fds wake, so this one skips them.
         let quick = self.scrolled;
         let p = &mut self.p;
+        p.tick_development(); // a quick frame too: a due dev poll waits on none
         if !quick {
             if let Some(e) = p.pump(now) {
                 eprintln!("exact: {e}");

@@ -66,7 +66,8 @@ Then `adb install -r <apk>` and `adb shell am start -n <app id>/dev.exact.app.Ma
 
 **In a dev loop** (LLP 1122 D4): give the launch the loop's page URL as `x_dev_plan` (exact2's `EXACT_DEV_PLAN`),
 through `adb reverse` since the loop serves this Mac's loopback only: `adb reverse tcp:<port> tcp:<port>`, then
-`adb shell am start -n <app id>/dev.exact.app.MainActivity --es x_dev_plan http://127.0.0.1:<port>/`. The reader
+`adb shell am start -S -n <app id>/dev.exact.app.MainActivity --es x_dev_plan http://127.0.0.1:<port>/` (`-S`:
+the environment is read once per process, so a running reader is stopped first). The reader
 polls it as the Linux display does (`CanvasHost`'s turn and wakes): a plan the loop compiles replaces the running
 one with its state carried, and the build channel brings the design server's live batches, pins and `prefer`s, and
 registers the build, so the design tool sees it. A generation whose Rust pair changed is refused with the URL loop's
