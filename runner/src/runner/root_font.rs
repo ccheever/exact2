@@ -49,17 +49,51 @@ pub(super) fn bold_text_facts(
     plan: &exact_plan::Plan,
     on: bool,
 ) {
-    let system = plan
-        .stacks
-        .iter()
-        .map(|stack| {
-            plan.stack_members[stack.members.start as usize..][..stack.members.len as usize]
-                .first()
-                .is_some_and(|m| m.kind != exact_plan::StackMemberKind::Family)
-        })
-        .collect();
-    kernel.set_system_stacks(system);
+    system_stacks(kernel, plan, &[]);
     kernel.set_bold_text(on);
+}
+
+/// Before a commit: a runtime font stack interned since the last says
+/// whether it is the system's ([`system_stacks`]).
+pub(super) fn runtime_stacks(
+    kernel: &mut exact_kernel::Kernel,
+    plan: &exact_plan::Plan,
+    fonts: &crate::bridge::RuntimeFonts,
+) {
+    if plan.stacks.len() + fonts.names().len() != kernel.system_stack_count() {
+        system_stacks(kernel, plan, fonts.names());
+    }
+}
+
+/// Which font stacks are the system's ([`bold_text_facts`]): the plan's,
+/// then the runtime lists a binding interned (`system-ui, sans-serif`), a
+/// list whose first member is a generic family the author did not quote.
+pub(super) fn system_stacks(
+    kernel: &mut exact_kernel::Kernel,
+    plan: &exact_plan::Plan,
+    runtime: &[String],
+) {
+    const GENERICS: [&str; 8] = [
+        "system-ui",
+        "ui-sans-serif",
+        "sans-serif",
+        "ui-serif",
+        "serif",
+        "ui-monospace",
+        "monospace",
+        "ui-rounded",
+    ];
+    let compiled = plan.stacks.iter().map(|stack| {
+        plan.stack_members[stack.members.start as usize..][..stack.members.len as usize]
+            .first()
+            .is_some_and(|m| m.kind != exact_plan::StackMemberKind::Family)
+    });
+    let runtime = runtime.iter().map(|list| {
+        crate::bridge::runtime_family_members(list)
+            .first()
+            .is_some_and(|m| !m.quoted && GENERICS.contains(&m.name.to_ascii_lowercase().as_str()))
+    });
+    kernel.set_system_stacks(compiled.chain(runtime).collect());
 }
 
 impl<D: DataSource> Runner<D> {

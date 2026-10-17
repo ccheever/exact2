@@ -116,23 +116,57 @@ impl NodeArena {
     }
 
     /// Whether stack `family` is the system's: as the plan said
-    /// ([`crate::Kernel::set_system_stacks`]), else a generic stack.
+    /// ([`crate::Kernel::set_system_stacks`]), else a generic stack; and
+    /// the platform's control font, registered by the host.
     pub(crate) fn system_family(&self, family: u16) -> bool {
         self.system_stacks
             .get(usize::from(family))
             .copied()
             .unwrap_or(family < GENERIC_STACKS)
+            || self
+                .control_styles
+                .as_ref()
+                .is_some_and(|starts| starts.iter().any(|s| s.font_family == family))
+    }
+
+    /// Whether `slot`'s weight is the platform's control font's, as its host
+    /// gave it: drawn at the person's text settings already.
+    fn platform_control_weight(&self, slot: u32) -> bool {
+        let source = self.computed_source(slot, StyleId::FontWeight);
+        self.control_styles
+            .as_ref()
+            .is_some_and(|starts| starts.iter().any(|s| std::ptr::eq(s, source)))
     }
 
     /// `weight` as Bold Text draws it on `slot` in stack `family` (LLP
     /// 1115.000 D12.3): heavier in the system font, the generic stacks, when
     /// the person turned it on; a family the app ships is left alone, and so
-    /// is what UIKit weights itself on iOS: a symbol (its configuration takes
-    /// the trait), and a native button whose title is in UIKit's own font
-    /// (neither it nor its title writes a size or a weight). A host that
-    /// paints its controls (Android's) and a font Exact pins (a field's) are
-    /// stepped here.
+    /// is what UIKit weights itself on iOS: a native button whose title is in
+    /// UIKit's own font (neither it nor its title writes a size or a weight).
+    /// A symbol is stepped (its configuration names the weight). A host that
+    /// paints its controls (Android's) is stepped here, and so is a weight an
+    /// author gives a control in the platform's control font; not the weight
+    /// that font has as a host gave it (UIKit's body font, bold already).
     pub(crate) fn emboldened(&self, slot: u32, weight: u16, family: u16) -> u16 {
+        if self.takes_bold_text(slot, family) {
+            bolder(weight)
+        } else {
+            weight
+        }
+    }
+
+    /// A run's style as Bold Text draws it ([`Self::emboldened`]), and
+    /// whether it does.
+    pub(crate) fn embolden(&self, slot: u32, style: &mut crate::text::TextStyle) {
+        style.bold_text = self.takes_bold_text(slot, style.font_family);
+        if style.bold_text {
+            style.font_weight = bolder(style.font_weight);
+        }
+    }
+
+    /// Whether Bold Text weights `slot`'s text in stack `family`
+    /// ([`Self::emboldened`]).
+    fn takes_bold_text(&self, slot: u32, family: u16) -> bool {
         let uikit = metrics::column() == metrics::Column::Ios;
         let fonted = |s: u32| {
             let own = self.style(s);
@@ -141,16 +175,11 @@ impl NodeArena {
         let uikit_font = |button: u32| {
             uikit && self.is_native_button(button) && !fonted(button) && !fonted(slot)
         };
-        if self.bold_text
+        self.bold_text
             && self.system_family(family)
-            && !(uikit && self.node_types[slot as usize] == NodeType::Image)
             && !uikit_font(slot)
             && !self.parents[slot as usize].is_some_and(uikit_font)
-        {
-            bolder(weight)
-        } else {
-            weight
-        }
+            && !self.platform_control_weight(slot)
     }
 
     /// The rows `slot`'s own bare `font-size` style gives, when its size

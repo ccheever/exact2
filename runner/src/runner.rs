@@ -1423,6 +1423,7 @@ impl<D: DataSource> Runner<D> {
             exact_kernel::Direction::Ltr
         };
         let shown = std::mem::take(&mut self.shown);
+        root_font::runtime_stacks(&mut self.kernel, &self.plan, &self.fonts.borrow());
         let mut receipt =
             match self
                 .kernel

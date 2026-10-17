@@ -297,7 +297,7 @@ impl NodeArena {
             crate::text::TextStyle::from_rows(&self.styles[slot as usize], |rows, take| {
                 self.copy_inherited(slot, rows, take)
             });
-        style.font_weight = self.emboldened(slot, style.font_weight, style.font_family);
+        self.embolden(slot, &mut style);
         style
     }
 

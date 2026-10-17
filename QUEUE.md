@@ -863,6 +863,7 @@ sits on that list carries the trade it would take.
 
 ## Cheap, any time
 
+- **Bold Text on a Linux host's own chrome** (2026-10-17; LLP 1115.000 D12.3): the kernel steps every run and title it gives, but a weight the Linux host assigns after it is not stepped: a file field's button word, an alert's title, Material's clock and menu glyphs (they read `node.style`). Step them through `exact_kernel::bolder` where the run says `bold_text`, or take the weight from the kernel.
 - **A store write that fails to persist is dropped** (2026-10-14): the web glue's and the JS target's `persist` swallow a `localStorage` error, and the Apple and Linux hosts likewise, while the runner keeps the value. Keep a failed write and retry it, or report it to the app. Keeping an unchanged value is no write, so a later identical `set` no longer retries it by chance.
 - **scrollend gaps on the hosts that have it** (2026-10-13; LLP 1005):
   - Apple unbracketed moves use a 100 ms `DispatchWorkItem`; known instant commands and discrete wheel notches should complete without that quiet delay.

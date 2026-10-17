@@ -185,7 +185,7 @@ impl NodeArena {
         let title_mask = mask(TITLE_ROWS);
         let text_style = |child: Option<u32>| {
             let at = child.unwrap_or(slot);
-            let mut style = self.computed_style(at, title_mask);
+            let mut style = self.computed_rows(at, title_mask);
             // Non-inheriting rows (line-clamp) also map from button to title.
             for &row in TITLE_ROWS {
                 // A text style the title names gives its own (LLP 1115.000
@@ -205,6 +205,16 @@ impl NodeArena {
             for row in [StyleId::FontWeight, StyleId::LineHeight] {
                 if title_mask.has(row) && self.text_style_source(at, row).is_some() {
                     style.mask.set(row);
+                }
+            }
+            // Bold Text's step (LLP 1115.000 D12.3) on the weight the title
+            // has, the button's included, said so the host paints it.
+            if self.bold_text {
+                let family = self.computed_source(at, StyleId::FontFamily).font_family;
+                let weight = self.emboldened(at, style.font_weight, family);
+                if weight != style.font_weight {
+                    style.font_weight = weight;
+                    style.mask.set(StyleId::FontWeight);
                 }
             }
             style

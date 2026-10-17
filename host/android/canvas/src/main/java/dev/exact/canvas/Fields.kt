@@ -1,6 +1,7 @@
 package dev.exact.canvas
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.RenderNode
 import android.graphics.Typeface
@@ -791,8 +792,13 @@ internal class Fields(context: Context) : FrameLayout(context) {
          * the device's default family). */
         private fun face(v: EditText, size: Float, weight: Int, italic: Boolean, spacing: Float, line: Float, family: String) {
             v.setTextSize(TypedValue.COMPLEX_UNIT_PX, size)
-            v.typeface = faces.getOrPut("$family|$weight|$italic") {
-                val w = weight.coerceIn(1, 1000)
+            // Bold Text's step is in `weight` already (the kernel's, LLP 1115.000 D12.3), and a TextView adds the
+            // device's font weight adjustment to any typeface it is given: given less by that much, it draws `weight`.
+            val adjust = v.resources.configuration.fontWeightAdjustment
+                .takeIf { it != Configuration.FONT_WEIGHT_ADJUSTMENT_UNDEFINED } ?: 0
+            val given = weight - adjust
+            v.typeface = faces.getOrPut("$family|$given|$italic") {
+                val w = given.coerceIn(1, 1000)
                 val hash = family.lastIndexOf('#')
                 val made = if (hash <= 0) null else try {
                     Typeface.Builder(File(family.substring(0, hash))).setTtcIndex(family.substring(hash + 1).toIntOrNull() ?: 0)

@@ -174,9 +174,7 @@ impl Resolver<'_, '_> {
         };
         // Bold Text (LLP 1115.000 D12.3), on the run's own weight and family.
         let mut drawn = TextStyle::from_style(style);
-        drawn.font_weight = node
-            .arena
-            .emboldened(node.slot, drawn.font_weight, drawn.font_family);
+        node.arena.embolden(node.slot, &mut drawn);
         let run = |text: String| TextRun {
             id: node.id,
             text,

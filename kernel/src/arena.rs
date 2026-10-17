@@ -15,7 +15,7 @@ pub(crate) mod alert;
 pub(crate) mod button;
 pub(crate) mod control_text;
 pub(crate) mod defaults;
-pub(crate) mod text_style;
+pub mod text_style;
 
 use taffy::NodeId;
 
@@ -575,8 +575,7 @@ impl NodeArena {
             });
         paragraph.markup = self.markup(slot);
         // Bold Text, as its runs are (LLP 1115.000 D12.3).
-        let strut = &mut paragraph.strut;
-        strut.font_weight = self.emboldened(slot, strut.font_weight, strut.font_family);
+        self.embolden(slot, &mut paragraph.strut);
         if scale != 1.0 {
             paragraph.strut = paragraph.strut.scaled(scale);
         }
@@ -630,7 +629,7 @@ impl NodeArena {
         match self.node_types[s] {
             NodeType::TextInput => {
                 let mut style = rows.style();
-                style.font_weight = self.emboldened(slot, style.font_weight, style.font_family);
+                self.embolden(slot, &mut style);
                 // An input has a line box even when empty (the web's
                 // `<input>`): its value, else its placeholder, else one space.
                 let props = &self.props[s];
@@ -682,7 +681,7 @@ impl NodeArena {
                     boundary.push(text);
                     let mut style = rows.style();
                     // Bold Text (LLP 1115.000 D12.3), as `text_style` reads it.
-                    style.font_weight = self.emboldened(slot, style.font_weight, style.font_family);
+                    self.embolden(slot, &mut style);
                     out.push(TextRun { text: shown, style });
                 } else {
                     for child in &self.children[s] {

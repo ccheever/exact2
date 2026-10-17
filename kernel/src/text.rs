@@ -107,6 +107,10 @@ pub struct TextStyle {
     pub letter_spacing: f32,
     /// OpenType numeric-feature bitmask.
     pub font_variant_numeric: u8,
+    /// Bold Text weights this run's font (LLP 1115.000 D12.3): its weight is
+    /// stepped already, and a weight a host gives a piece of it itself (a
+    /// Markdown piece's bold) takes the same step ([`crate::bolder`]).
+    pub bold_text: bool,
 }
 
 impl TextStyle {
@@ -156,6 +160,7 @@ impl TextStyle {
             line_height: s.line_height.resolve(s.font_size),
             letter_spacing: s.letter_spacing,
             font_variant_numeric: s.font_variant_numeric,
+            bold_text: false,
         }
     }
 }
@@ -964,6 +969,7 @@ impl TextRows {
             line_height: self.line_height.resolve(self.font_size),
             letter_spacing: self.letter_spacing,
             font_variant_numeric: self.font_variant_numeric,
+            bold_text: false,
         }
     }
 }
@@ -1135,6 +1141,7 @@ mod tests {
             line_height: None,
             letter_spacing: 0.0,
             font_variant_numeric: 0,
+            bold_text: false,
         }
     }
 

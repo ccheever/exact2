@@ -182,3 +182,23 @@ enum DisplayPreferences {
         #endif
     }
 }
+
+extension TextEngine {
+    /// Whether Bold Text weights a run in stack `family` (LLP 1115.000
+    /// D12.3), as the kernel weights its runs: the setting on, and the
+    /// family none the app ships a file for. A Markdown piece's own weight
+    /// takes the step its run's took.
+    package func boldTextSteps(_ family: Int) -> Bool {
+        DisplayPreferences.boldText && catalog[family]?.isEmpty != false
+    }
+
+    /// The kernel's step (`exact_kernel::bolder`), UIKit's as measured: 100
+    /// to 200, 200 to 300, 300 to 400, 400 to 600, 500 to 700, 600 to 800,
+    /// 700 and on to 900; between two hundreds, between their steps.
+    package static func bolder(_ weight: Int) -> Int {
+        let steps = [100, 200, 300, 400, 600, 700, 800, 900, 900, 900, 1000]
+        let w = min(max(weight, 1), 1000), at = w / 100, rest = w % 100
+        if at >= 10 { return 1000 }
+        return steps[at] + (steps[at + 1] - steps[at]) * rest / 100
+    }
+}

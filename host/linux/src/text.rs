@@ -85,6 +85,9 @@ pub struct Run {
     pub mark: u8,
     /// A Markdown link's target ([`markup::target`]); empty otherwise.
     pub href: String,
+    /// Bold Text weights this run (`TextStyle::bold_text`, LLP 1115.000
+    /// D12.3): a Markdown piece's own weight takes the step too.
+    pub bold_text: bool,
 }
 
 #[cfg(test)]
@@ -104,6 +107,7 @@ impl Clone for Run {
             hang: self.hang,
             mark: self.mark,
             href: self.href.clone(),
+            bold_text: self.bold_text,
         }
     }
 }
@@ -126,6 +130,7 @@ impl Run {
             hang: false,
             mark: 0,
             href: String::new(),
+            bold_text: style.bold_text,
         }
     }
 }

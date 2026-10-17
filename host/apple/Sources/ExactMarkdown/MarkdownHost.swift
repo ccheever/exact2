@@ -13,7 +13,9 @@ public enum ExactMarkdown {
 }
 
 final class MarkdownHost: MarkdownCapability {
-    func expand(_ source: String, base: Run, color: [Double]?) -> [Run] { MarkupRuns.expand(source, base: base, color: color) }
+    func expand(_ source: String, base: Run, color: [Double]?, boldText: Bool) -> [Run] {
+        MarkupRuns.expand(source, base: base, color: color, boldText: boldText)
+    }
     func editor() -> MarkdownEditing { MarkupEditor() }
     func plain(_ source: String) -> String? { MarkupCommands.plain(source) }
     func format(_ node: NodeView, command: String, argument: String, selection: NSRange?) -> Bool {

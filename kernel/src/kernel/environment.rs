@@ -9,6 +9,12 @@ impl Kernel {
         self.arena.system_stacks = system;
     }
 
+    /// How many stacks [`Self::set_system_stacks`] has said: a runner says
+    /// a runtime stack's too once it interns one.
+    pub fn system_stack_count(&self) -> usize {
+        self.arena.system_stacks.len()
+    }
+
     /// Say whether Bold Text is on (LLP 1115.000 D12.3): the person's
     /// accessibility setting, which weights the system font, an authored
     /// weight included, and leaves a family the app ships alone. The next
