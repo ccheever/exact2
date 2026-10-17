@@ -1,6 +1,6 @@
 #if os(iOS)
 // @ref llp/1109.002-design-system-parity.spec.md#icons-and-imagery
-// upstream 365aa87982 AppSymbol.ios.tsx: preserve SF name, point size and weight.
+// upstream 365aa87982 AppSymbol.ios.tsx and expo-symbols 58.0.3: size is the view's bounds.
 // GAP 002: the portable symbol role roster cannot express these SF names.
 import UIKit
 
@@ -15,27 +15,29 @@ final class T3SymbolView: ExactNativeInstance {
 
     override init(events: ExactNativeEvents) {
         super.init(events: events)
-        image.contentMode = .center
+        image.contentMode = .scaleAspectFit
         image.isUserInteractionEnabled = false
         image.isAccessibilityElement = false
     }
 
     override func setProps(_ props: [String: String]) throws {
         let name = props["symbol-name"] ?? ""
-        let size = Double(props["point-size"] ?? "16") ?? 16
         let weights: [String: UIImage.SymbolWeight] = [
             "ultraLight": .ultraLight, "thin": .thin, "light": .light,
             "regular": .regular, "medium": .medium, "semibold": .semibold,
             "bold": .bold, "heavy": .heavy, "black": .black,
         ]
-        guard size.isFinite, size > 0, size <= 512,
-              let weight = weights[props["symbol-weight"] ?? "regular"],
-              let symbol = UIImage(systemName: name, withConfiguration:
-                UIImage.SymbolConfiguration(pointSize: size, weight: weight, scale: .medium)) else {
+        guard let weight = weights[props["symbol-weight"] ?? "regular"],
+              let symbol = UIImage(systemName: name) else {
             throw ExactNativeRefusal("Invalid mobile SF Symbol configuration: \(name)")
         }
-        image.image = symbol.withRenderingMode(.alwaysTemplate)
-        image.tintColor = try Self.color(props["symbol-tint"] ?? "#27272a")
+        let tint = try Self.color(props["symbol-tint"] ?? "#27272a")
+        image.image = symbol
+        image.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: UIFont.systemFontSize, weight: weight, scale: .unspecified
+        ).applying(UIImage.SymbolConfiguration.preferringMonochrome())
+        image.image = symbol.withTintColor(tint, renderingMode: .alwaysOriginal)
+        image.tintColor = tint
     }
 
     static func color(_ text: String) throws -> UIColor {

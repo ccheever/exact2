@@ -63,7 +63,7 @@ component VoiceStartAction
       button width=44 height=44 padding=0 disabled=disabled
         press=action(data.errorAction == "settings" ? "settings" : "start") aria-label=(data.errorAction == "settings" ? "Open microphone settings" : "Start dictation")
         column width=44 height=44 align-items="center" justify-content="center"
-          t3-symbol symbol-name="mic" point-size=20 symbol-weight="regular" symbol-tint=colors.icon width=20 height=20
+          t3-symbol symbol-name="mic" symbol-weight="regular" symbol-tint=colors.icon width=20 height=20
 
 component VoiceDictationToolbar
   props
@@ -74,7 +74,7 @@ component VoiceDictationToolbar
     row height=44 align-items="center" font-family="DM Sans"
       button width=44 height=44 padding=0 press=action("cancel") aria-label="Cancel dictation"
         column width=44 height=44 align-items="center" justify-content="center"
-          t3-symbol symbol-name="xmark" point-size=20 symbol-weight="regular" symbol-tint=colors.icon width=20 height=20
+          t3-symbol symbol-name="xmark" symbol-weight="regular" symbol-tint=colors.icon width=20 height=20
       column flex=1 min-width=0 height=44 justify-content="center"
         if data.phase == "recording"
           row min-width=0 gap=7 align-items="center" padding-left=3.5 padding-right=3.5 aria-label=data.statusLabel
@@ -89,7 +89,7 @@ component VoiceDictationToolbar
         column width=44 height=44 align-items="center" justify-content="center"
           column width=30 height=30 border-radius=15 background-color=(data.confirmationEnabled ? colors.primary : colors.subtle) align-items="center" justify-content="center"
             if data.confirmationEnabled
-              t3-symbol symbol-name="checkmark" point-size=16 symbol-weight="semibold" symbol-tint=colors.primaryForeground width=16 height=16
+              t3-symbol symbol-name="checkmark" symbol-weight="semibold" symbol-tint=colors.primaryForeground width=16 height=16
             else
               t3-archive-spinner spinner-tint=colors.iconMuted width=20 height=20
 
@@ -104,7 +104,7 @@ component VoiceErrorStatus
         text data.error flex=1 min-width=0 font-family="DM Sans" font-size=12.25 color=colors.danger line-clamp=2
         button width=24.5 height=24.5 padding=0 press=action("cancel") aria-label="Dismiss voice input error"
           column align-items="center" justify-content="center"
-            t3-symbol symbol-name="xmark" point-size=12 symbol-weight="regular" symbol-tint=colors.iconMuted width=12 height=12
+            t3-symbol symbol-name="xmark" symbol-weight="regular" symbol-tint=colors.iconMuted width=12 height=12
 
 // Root positions this above bottom chrome at max(safeAreaBottom,12)+64, right=safeAreaRight.
 component VoiceGlobalPill
@@ -124,7 +124,7 @@ component VoiceGlobalPill
           button flex=1 height=36 padding=0 press=expand(true) aria-label=`${data.statusLabel}, dictating into ${data.label}`
             row gap=5.25 justify-content="center" align-items="center"
               if data.phase == "error"
-                t3-symbol symbol-name="exclamationmark.circle" point-size=16 symbol-weight="regular" symbol-tint=colors.danger width=16 height=16
+                t3-symbol symbol-name="exclamationmark.circle" symbol-weight="regular" symbol-tint=colors.danger width=16 height=16
               else if data.phase == "recording"
                 view width=7 height=7 border-radius=3.5 background-color=colors.danger
                 text data.elapsedLabel font-family="system-ui" font-size=10.5 font-variant-numeric="tabular-nums" color=colors.foreground
@@ -133,7 +133,7 @@ component VoiceGlobalPill
         else
           button width=30 height=30 padding=0 press=action("cancel") aria-label=(data.phase == "error" ? "Dismiss voice input error" : "Cancel dictation")
             column align-items="center" justify-content="center"
-              t3-symbol symbol-name="xmark" point-size=13 symbol-weight="regular" symbol-tint=colors.iconMuted width=13 height=13
+              t3-symbol symbol-name="xmark" symbol-weight="regular" symbol-tint=colors.iconMuted width=13 height=13
           button appearance="none" flex=1 min-width=0 height=34 padding=0 press=expand(false) aria-label=(data.phase == "error" ? data.error : data.label)
             text (data.phase == "error" ? data.error : data.label) font-size=10.5 font-weight=500 line-clamp=1 color=(data.phase == "error" ? colors.danger : colors.foreground)
           if data.phase == "recording"
@@ -143,10 +143,10 @@ component VoiceGlobalPill
             text data.elapsedLabel margin-left=5.25 font-family="system-ui" font-size=10.5 font-variant-numeric="tabular-nums" color=colors.muted
             button width=30 height=30 padding=0 press=action("stop") disabled=(not data.confirmationEnabled) aria-label="Finish dictation"
               column width=24 height=24 border-radius=12 background-color=colors.primary align-items="center" justify-content="center"
-                t3-symbol symbol-name="checkmark" point-size=12 symbol-weight="semibold" symbol-tint=colors.primaryForeground width=12 height=12
+                t3-symbol symbol-name="checkmark" symbol-weight="semibold" symbol-tint=colors.primaryForeground width=12 height=12
           else if data.phase == "error"
             button width=30 height=30 padding=0 press=action(data.errorAction == "settings" ? "settings" : "retry") aria-label=(data.errorAction == "settings" ? "Open microphone settings" : "Retry dictation")
               column align-items="center" justify-content="center"
-                t3-symbol symbol-name="mic" point-size=16 symbol-weight="regular" symbol-tint=colors.icon width=16 height=16
+                t3-symbol symbol-name="mic" symbol-weight="regular" symbol-tint=colors.icon width=16 height=16
           else
             t3-archive-spinner spinner-tint=colors.iconMuted width=20 height=20 margin=5

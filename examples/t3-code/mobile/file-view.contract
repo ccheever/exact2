@@ -67,7 +67,7 @@ component MobileFileView
               if data.svgRetrying
                 t3-archive-spinner spinner-tint=colors.iconMuted width=20 height=20
               else
-                t3-symbol symbol-name=data.svgSymbol symbol-tint=colors.iconMuted point-size=24 width=24 height=24
+                t3-symbol symbol-name=data.svgSymbol symbol-tint=colors.iconMuted width=24 height=24
               text data.svgTitle font-size=18 font-weight=700 text-align="center" color=colors.foreground
               text data.svgDetail font-size=14 text-align="center" color=colors.muted
               if data.svgTrace != ""

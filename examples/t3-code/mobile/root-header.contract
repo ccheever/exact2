@@ -27,7 +27,7 @@ component MobileRootHeader
     header height=44 flex-shrink=0 align-items="center" justify-content="space-between"
       if sidebarAvailable and routeName != "threadBrowser" and routeName != "home" and routeName != "threadQueue" and routeName != "thread" and routeName != "newTaskDraft" and routeName != "newTask" and not routeName.startsWith("settings")
         button id="workspace-sidebar-toggle" press=toggleSidebar aria-label=(sidebarVisible ? "Hide sidebar" : "Show sidebar") aria-pressed=sidebarVisible
-          t3-symbol symbol-name="sidebar.left" point-size=20 symbol-tint=iconColor width=20 height=20
+          t3-symbol symbol-name="sidebar.left" symbol-tint=iconColor width=20 height=20
       if routeName == "newTaskDraft"
         button id="new-task-cancel" press=closeNewTask aria-label="Cancel" testId="new-task-cancel"
           text "Cancel"
@@ -55,12 +55,12 @@ component MobileRootHeader
           image "symbol:add" width=20 height=20
       if routeName == "settingsScheduledTasks"
         button id="scheduled-new" press=automationAction("new", "", "", "") disabled=(not scheduledCanCreate or automationBusy) aria-label="New scheduled task"
-          t3-symbol symbol-name="plus" point-size=20 symbol-tint=iconColor width=20 height=20
+          t3-symbol symbol-name="plus" symbol-tint=iconColor width=20 height=20
       if routeName == "settingsUsage"
         button press=automationAction("usage-environments", "", "", "") disabled=automationBusy aria-label="Filter usage environments"
-          t3-symbol symbol-name="line.3.horizontal.decrease" point-size=20 symbol-tint=iconColor width=20 height=20
+          t3-symbol symbol-name="line.3.horizontal.decrease" symbol-tint=iconColor width=20 height=20
       if routeName == "threadBrowser"
         t3-preview-menu configuration=browserMenuConfiguration change=browserMenu width=38.5 height=38.5
       if inspectorAvailable and (routeName == "threadFile" or routeName == "threadReview")
         button press=toggleInspector aria-label=(inspectorVisible ? "Hide inspector" : "Show inspector") aria-pressed=inspectorVisible
-          t3-symbol symbol-name="sidebar.right" point-size=20 symbol-tint=iconColor width=20 height=20
+          t3-symbol symbol-name="sidebar.right" symbol-tint=iconColor width=20 height=20

@@ -107,7 +107,6 @@ component AgentActivityItem
               color=colors.muted
           if row.canOpen
             t3-symbol symbol-name="chevron.right"
-              point-size=12
               symbol-weight="regular"
               symbol-tint=colors.iconSubtle
               width=12
@@ -123,7 +122,6 @@ component AgentActivityItem
             row min-width=0 align-items="center" gap=5.25 aria-label=`${item.label}: ${item.value}`
               text "·" font-size=13 line-height="17px" color=colors.muted
               t3-symbol symbol-name=item.symbol
-                point-size=11
                 symbol-weight="regular"
                 symbol-tint=colors.iconMuted
                 width=11

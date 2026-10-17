@@ -52,7 +52,6 @@ component Scanner
             testId="allow-camera"
             row align-items="center" justify-content="center" gap=5.25
               t3-symbol symbol-name="camera"
-                point-size=13
                 symbol-weight="regular"
                 symbol-tint=secondaryForeground
                 width=13

@@ -76,7 +76,7 @@ component ThreadLocalFeedback
             text item.title flex=1 min-width=0 font-size=14 line-height="19px" color=colors.foreground aria-live="polite"
             if item.dismissible
               button press=command("feedback-dismiss", item.id, "") padding=3.5 aria-label="Dismiss feedback notice" retainFocus=true
-                t3-symbol symbol-name="xmark" point-size=14 symbol-tint=colors.iconMuted width=14 height=14
+                t3-symbol symbol-name="xmark" symbol-tint=colors.iconMuted width=14 height=14
           if item.description.length > 0
             text item.description font-size=13 line-height="17px" color=colors.muted
           if item.status == "sent"
@@ -112,7 +112,7 @@ component ThreadLocalClose
     command: action
   view
     button press=command("usage-close", usageKey, "") margin-right=-3.5 padding=3.5 aria-label="Dismiss usage limits" retainFocus=true
-      t3-symbol symbol-name="xmark" point-size=14 symbol-tint=color width=14 height=14
+      t3-symbol symbol-name="xmark" symbol-tint=color width=14 height=14
 component ThreadLocalAccount
   props
     account: ThreadLocalLimitAccount

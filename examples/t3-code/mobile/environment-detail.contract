@@ -139,7 +139,6 @@ component EnvironmentDetail
                         padding=0
                         aria-label=`Remove ${route.label}`
                         t3-symbol symbol-name="xmark.circle.fill"
-                          point-size=20
                           symbol-weight="regular"
                           symbol-tint=colors.dangerForeground
                           width=20
@@ -154,7 +153,6 @@ component EnvironmentDetail
                     padding-right=(editingRoutes ? 0 : 14)
                     align-items="center"
                     t3-symbol symbol-name=route.icon
-                      point-size=22
                       symbol-weight="regular"
                       symbol-tint=colors.foreground
                       width=22
@@ -195,7 +193,6 @@ component EnvironmentDetail
                       align-items="center"
                       justify-content="center"
                       t3-symbol symbol-name="line.3.horizontal"
-                        point-size=20
                         symbol-weight="regular"
                         symbol-tint=colors.muted
                         width=20
@@ -331,7 +328,6 @@ component DetailActionRow
       testId=rowId
       row align-items="center" gap=14
         t3-symbol symbol-name=icon
-          point-size=22
           symbol-weight="regular"
           symbol-tint=colors.foreground
           width=22

@@ -95,10 +95,10 @@ component SettingsServerRow
               text item.label text-align="left" color=colors.foreground font-size=roles.headline.size line-height=`${roles.headline.line}px`
               text item.description text-align="left" color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.size * 1.5}px`
             if item.selected
-              t3-symbol symbol-name="checkmark" point-size=18 symbol-weight="semibold" symbol-tint=colors.icon width=18 height=18
+              t3-symbol symbol-name="checkmark" symbol-weight="semibold" symbol-tint=colors.icon width=18 height=18
       else if item.kind == "switch"
         row gap=14 padding=14 align-items="center"
-          t3-symbol symbol-name=item.icon point-size=22 symbol-weight="regular" symbol-tint=colors.icon width=22 height=22 flex-shrink=0
+          t3-symbol symbol-name=item.icon symbol-weight="regular" symbol-tint=colors.icon width=22 height=22 flex-shrink=0
           column flex=1 min-width=0
             text item.label color=colors.foreground font-size=roles.headline.size line-height=`${roles.headline.line}px`
             text item.description color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
@@ -110,10 +110,10 @@ component SettingsServerRow
       else if item.kind == "navigate"
         button press=environment(item.value) disabled=item.disabled padding=0
           row gap=14 padding=14 align-items="center"
-            t3-symbol symbol-name=item.icon point-size=22 symbol-weight="regular" symbol-tint=colors.icon width=22 height=22
+            t3-symbol symbol-name=item.icon symbol-weight="regular" symbol-tint=colors.icon width=22 height=22
             text item.label color=colors.foreground font-size=roles.headline.size line-height=`${roles.headline.line}px`
             text item.description flex=1 min-width=0 text-align="right" line-clamp=1 text-overflow="ellipsis" color=colors.muted font-size=roles.body.size line-height=`${roles.body.line}px`
-            t3-symbol symbol-name="chevron.right" point-size=16 symbol-weight="semibold" symbol-tint=colors.chevron width=16 height=16
+            t3-symbol symbol-name="chevron.right" symbol-weight="semibold" symbol-tint=colors.chevron width=16 height=16
       else
         column gap=7 padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5
           text item.description color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`

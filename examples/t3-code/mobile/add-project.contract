@@ -233,7 +233,7 @@ component AddProjectRow
       row padding-left=12.25 padding-right=12.25 padding-top=8.75 padding-bottom=8.75 gap=10.5 align-items="center"
         column width=24.5 height=24.5 flex-shrink=0 align-items="center" justify-content="center" border-radius=999 background-color=(selected ? colors.primary : "transparent")
           if source == ""
-            t3-symbol symbol-name=symbol point-size=17 symbol-weight="regular" symbol-tint=(symbol == "folder" or symbol == "arrow.turn.left.up" ? colors.iconMuted : colors.icon) width=17 height=17
+            t3-symbol symbol-name=symbol symbol-weight="regular" symbol-tint=(symbol == "folder" or symbol == "arrow.turn.left.up" ? colors.iconMuted : colors.icon) width=17 height=17
           if source != ""
             AddProjectProviderIcon(source=source, color=colors.icon)
         column flex=1 min-width=0 gap=1.75
@@ -241,9 +241,9 @@ component AddProjectRow
           if subtitle != ""
             text subtitle font-size=14 line-height="19.25px" color=colors.muted line-clamp=2
         if check and selected
-          t3-symbol symbol-name="checkmark" point-size=14 symbol-weight="regular" symbol-tint=colors.icon width=14 height=14
+          t3-symbol symbol-name="checkmark" symbol-weight="regular" symbol-tint=colors.icon width=14 height=14
         if chevron and not disabled
-          t3-symbol symbol-name="chevron.right" point-size=13 symbol-weight="regular" symbol-tint=colors.chevron width=13 height=13
+          t3-symbol symbol-name="chevron.right" symbol-weight="regular" symbol-tint=colors.chevron width=13 height=13
 
 // SourceControlIcon exact source marks. Azure DevOps: selfhst/icons, CC BY 4.0; source attribution retained upstream.
 component AddProjectProviderIcon

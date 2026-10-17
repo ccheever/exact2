@@ -106,7 +106,7 @@ component SettingsProviderAction
   view
     button press=press disabled=item.disabled padding=0 aria-label=item.label
       row gap=14 padding=14 align-items="center" opacity=(item.disabled ? 0.4 : 1)
-        t3-symbol symbol-name=item.icon point-size=22 symbol-weight="regular" symbol-tint=(item.danger ? danger : colors.icon) width=22 height=22
+        t3-symbol symbol-name=item.icon symbol-weight="regular" symbol-tint=(item.danger ? danger : colors.icon) width=22 height=22
         text item.label flex=1 text-align="left" color=(item.danger ? danger : colors.foreground) font-size=roles.headline.size line-height=`${roles.headline.line}px`
         if item.loading
           t3-archive-spinner spinner-tint=colors.icon width=20 height=20

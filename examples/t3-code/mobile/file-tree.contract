@@ -72,8 +72,8 @@ component MobileFileTree
               background-color=(item.selected ? colors.subtleStrong : "transparent")
               row align-items="center" gap=7 min-height=42
                 if item.directory
-                  t3-symbol symbol-name=(item.expanded ? "chevron.down" : "chevron.right") point-size=12 symbol-weight="regular" symbol-tint=colors.iconMuted width=12 height=12
-                  t3-symbol symbol-name="folder" point-size=17 symbol-weight="regular" symbol-tint=colors.iconSubtle width=17 height=17
+                  t3-symbol symbol-name=(item.expanded ? "chevron.down" : "chevron.right") symbol-weight="regular" symbol-tint=colors.iconMuted width=12 height=12
+                  t3-symbol symbol-name="folder" symbol-weight="regular" symbol-tint=colors.iconSubtle width=17 height=17
                 else
                   view width=10.5
                   FileTypeIcon(token=item.token, size=17)

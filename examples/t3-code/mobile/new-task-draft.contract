@@ -110,11 +110,12 @@ component NewTaskDraft
                   row min-width=0 align-items="center" gap=7
                     ProviderIcon(driver=data.composer.providerDriver, size=14, dark=dark, iconUrl=data.composer.providerIconURL)
                     text data.composer.modelLabel min-width=0 flex-shrink=1 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.foreground
-                    t3-symbol symbol-name="chevron.down" point-size=10 symbol-weight="regular" symbol-tint=threadColors.foreground width=10 height=10
+                    t3-symbol symbol-name="chevron.down" symbol-weight="regular" symbol-tint=threadColors.foreground width=10 height=10
               VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
               if recovery.blocked
                 button disabled=true width=44 height=44 padding=0 aria-label="Resolve saved task before sending"
-                  t3-symbol symbol-name="arrow.up" point-size=18 symbol-weight="semibold" symbol-tint=colors.muted width=44 height=44
+                  column width=44 height=44 align-items="center" justify-content="center"
+                    t3-symbol symbol-name="arrow.up" symbol-weight="semibold" symbol-tint=colors.muted width=18 height=18
               else
                 ThreadSendButton(data=data.composer, sendLabel=data.composer.sendLabel, sendSymbol=data.composer.sendSymbol, canSend=data.composer.canSend, showStop=data.composer.showStop, blockedReason=data.composer.blockedReason, action=action, colors=threadColors)
             else if dictating
