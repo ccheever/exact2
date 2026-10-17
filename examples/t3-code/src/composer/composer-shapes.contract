@@ -1,7 +1,7 @@
-use R5Probe from "./composer-label-probes.contract"
-use R4EnvOption from "../details/git-shapes.contract"
+use TextProbe from "./composer-label-probes.contract"
+use RunOnOption from "../details/git-shapes.contract"
 use StripPrTip from "./strip-pr-badge.contract"
-use R9CheckoutItem from "./pr-checkout-shapes.contract"
+use CheckoutItem from "./pr-checkout-shapes.contract"
 use UsageAccount from "../usage/usage-bars.contract" // the /usage-limits body
 // The composer's projected toolbar/menu rows (composer-presentation.ts) and the
 // model picker catalog (model-catalog.ts).
@@ -118,7 +118,7 @@ shape ComposerBranches
   enterOp: string
   enterValue: string
   // "Checkout pull request" before the refs (0 or 1).
-  checkout: R9CheckoutItem[]
+  checkout: CheckoutItem[]
   // "Run on" (git-env.ts stripRunOn).
   envShow: bool
   // A non-Git project (a No project draft, say) shows only the machine selector
@@ -126,7 +126,7 @@ shape ComposerBranches
   gitless: bool
   envMachine: string
   envMachineLabel: string
-  envOptions: R4EnvOption[]
+  envOptions: RunOnOption[]
   envMenuWidth: number
   // The host-resource load the root's balanceLoad task sends ("" when none is due).
   balanceFetch: string
@@ -226,7 +226,7 @@ shape ComposerView
   runtimeCount: number
   runtimes: ComposerRuntime[]
   // Menu texts to measure, and the menus' widths from the measurements (composer-menus.ts).
-  menuProbes: R5Probe[]
+  menuProbes: TextProbe[]
   effortMenuWidth: number
   runtimeMenuWidth: number
   effortMenuHeight: number

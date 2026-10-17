@@ -7,9 +7,9 @@ import Foundation
 /// `stream.avcc` (falling back to `stream.mjpeg` when the description cannot be decoded) and
 /// talks to `helper/ws?device=` after priming the helper; Android opens serve-emu's one
 /// `ws?device=<serial>&frame-meta=1` socket for H.264 and JSON input. Everything runs on main.
-final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocketDelegate {
+final class T3DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocketDelegate {
     typealias Access = (@escaping (URL?, String?) -> Void) -> Void
-    struct Screen: Equatable { var width: Double; var height: Double; var orientation: String; var duo: R9DuoConfig? = nil }
+    struct Screen: Equatable { var width: Double; var height: Double; var orientation: String; var duo: T3DuoConfig? = nil }
     static let retryDelay: TimeInterval = 1, firstFrameTimeout: TimeInterval = 15, frameDuration: Int64 = 16_667
 
     let platform: String, deviceId: String, hostId: String
@@ -20,16 +20,16 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
     var onFrame: (CGImage) -> Void = { _ in }
     var onMjpeg: () -> Void = {}
     // T3DeviceDuo.swift: the Duo's command queue, its fixed panel feeds and their frames.
-    var onDuoControl: (R9DuoControlState) -> Void = { _ in }
+    var onDuoControl: (T3DuoControlState) -> Void = { _ in }
     var onDuoUnavailable: (String) -> Void = { _ in }
     var onPanelFrame: (Int, CGImage) -> Void = { _, _ in }
     /// A fixed Duo panel's video-only feed (`/helper/<id>/panel/<n>/stream.avcc`), or the elected surface's (0).
     let panelId: Int?
-    private(set) var panelClients: [R7DeviceClient] = []
+    private(set) var panelClients: [T3DeviceClient] = []
     private(set) var duoPanels = false
     private var rotationCursor: String?
     private var pendingOrientation: Int?
-    lazy var duoControl = R9DuoControl(send: { [weak self] id, command in self?.sendDuo(id, command) ?? false },
+    lazy var duoControl = T3DuoControl(send: { [weak self] id, command in self?.sendDuo(id, command) ?? false },
                                        onChange: { [weak self] state in if !state.pending { self?.pendingOrientation = nil }; self?.onDuoControl(state) })
 
     private var session: URLSession?
@@ -38,10 +38,10 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
     private var socket: URLSessionWebSocketTask?
     private(set) var origin: URL?
     private var ticket: String?
-    private var decoder: R7H264Decoder?
+    private var decoder: T3H264Decoder?
     /// The soft queue measured over time on the device's own feed (T3DeviceDecodeBacklog.swift).
-    private var backlog = R11DecodeBacklog()
-    private let demuxer = R7H264.Demuxer()
+    private var backlog = T3DecodeBacklog()
+    private let demuxer = T3H264.Demuxer()
     private var mjpegBuffer = Data()
     private(set) var stopped = true
     private(set) var mjpeg = false
@@ -64,15 +64,15 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
         self.platform = platform; self.deviceId = deviceId; self.hostId = hostId; self.access = access; self.panelId = panelId
     }
 
-    private var vendor: String { R6DeviceWire.vendor(platform) }
+    private var vendor: String { T3DeviceWire.vendor(platform) }
     private var encodedDevice: String { deviceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? deviceId }
     private func http(_ path: String, _ query: [URLQueryItem] = []) -> URL? {
         guard let origin, let ticket else { return nil }
-        return R6DeviceWire.url(origin: origin, path: vendor + path, query: query, ticket: ticket, hostId: hostId)
+        return T3DeviceWire.url(origin: origin, path: vendor + path, query: query, ticket: ticket, hostId: hostId)
     }
     private func ws(_ path: String, _ query: [URLQueryItem]) -> URL? {
         guard let origin, let ticket else { return nil }
-        return R6DeviceWire.url(origin: origin, path: vendor + path, query: query, ticket: ticket, hostId: hostId, websocket: true)
+        return T3DeviceWire.url(origin: origin, path: vendor + path, query: query, ticket: ticket, hostId: hostId, websocket: true)
     }
 
     // MARK: Lifecycle
@@ -167,10 +167,10 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
         frameReceived()
     }
 
-    private func makeDecoder() -> R7H264Decoder {
+    private func makeDecoder() -> T3H264Decoder {
         let run = generation
-        var made: R7H264Decoder?
-        made = R7H264Decoder(onFrame: { [weak self] image in
+        var made: T3H264Decoder?
+        made = T3H264Decoder(onFrame: { [weak self] image in
             guard let self, self.generation == run, self.decoder === made else { return }
             self.paint(image)
         }, onError: { [weak self] in
@@ -211,13 +211,13 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
         if awaitingKeyframe { guard isKey else { return }; awaitingKeyframe = false }
         // A Duo panel feed reopens at once; the device's own feed waits out a burst.
         let pending = decoder.queueSize
-        if panelId != nil ? pending > R7H264.softDecodeQueue : backlog.behind(pending: pending, now: CACurrentMediaTime()) { recovered = "queue"; return recoverDecoder() }
+        if panelId != nil ? pending > T3H264.softDecodeQueue : backlog.behind(pending: pending, now: CACurrentMediaTime()) { recovered = "queue"; return recoverDecoder() }
         decoder.decode(sample: sample, pts: pts.map { Int64(clamping: $0) } ?? timestamp)
         timestamp += Self.frameDuration
     }
 
     private func requestKeyframe() {
-        if platform == "android", socketOpen { send(text: R7DeviceKeys.json(["type": "reset-video", "ack": false])) }
+        if platform == "android", socketOpen { send(text: T3DeviceKeys.json(["type": "reset-video", "ack": false])) }
     }
 
     // MARK: iOS
@@ -295,22 +295,22 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
     }
 
     private func androidMessage(_ data: Data) {
-        let packet = R7H264.parseSemu(data)
+        let packet = T3H264.parseSemu(data)
         let ready = decoder?.configured == true
         let needsScan = packet.isKey == nil || (packet.isKey == true && !ready)
-        let scanned = needsScan ? R7H264.scan(packet.data) : nil
+        let scanned = needsScan ? T3H264.scan(packet.data) : nil
         let isKey = packet.isKey ?? scanned?.isKey ?? false
         if let sps = scanned?.sps, !ready {
             guard !configuring else { return }
             configuring = true
             guard let pps = scanned?.pps else { configuring = false; return requestKeyframe() }
             let next = makeDecoder()
-            guard next.configure(sps: sps, pps: pps) else { configuring = false; return fail("This client cannot decode \(R7H264.codecString(sps)).") }
+            guard next.configure(sps: sps, pps: pps) else { configuring = false; return fail("This client cannot decode \(T3H264.codecString(sps)).") }
             decoder = next; configuring = false; awaitingKeyframe = true
             return requestKeyframe()
         }
         guard ready else { if !isKey { requestKeyframe() }; return }
-        decode(isKey: isKey, sample: R7H264.avccSample(annexB: packet.data), pts: packet.timestamp)
+        decode(isKey: isKey, sample: T3H264.avccSample(annexB: packet.data), pts: packet.timestamp)
     }
 
     // MARK: Sockets
@@ -318,7 +318,7 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
         guard webSocketTask === socket, !stopped else { return }
         socketOpen = true
-        if platform == "ios" { send(R6DeviceWire.tagged(R6DeviceWire.hardwareKeyboard, ["enabled": false])) } else { connecting() }
+        if platform == "ios" { send(T3DeviceWire.tagged(T3DeviceWire.hardwareKeyboard, ["enabled": false])) } else { connecting() }
         onInput(true, "")
     }
 
@@ -376,10 +376,10 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
             guard let id = (payload["requestId"] as? NSNumber).flatMap({ Int(exactly: $0.doubleValue) }), let ok = payload["ok"] as? Bool else { return }
             return duoControl.receive(requestId: id, ok: ok, error: payload["error"] as? String)
         }
-        guard tag == R6DeviceWire.screenConfig,
+        guard tag == T3DeviceWire.screenConfig,
               let width = (payload["width"] as? NSNumber)?.doubleValue, let height = (payload["height"] as? NSNumber)?.doubleValue, width > 0, height > 0,
-              let orientation = payload["orientation"] as? String, R6DeviceWire.orientations.contains(orientation),
-              case .success(let duo) = R9DuoConfig.parse(payload) else { return }
+              let orientation = payload["orientation"] as? String, T3DeviceWire.orientations.contains(orientation),
+              case .success(let duo) = T3DuoConfig.parse(payload) else { return }
         let previous = screen
         screen = Screen(width: width, height: height, orientation: orientation, duo: duo)
         if let pose = duo?.hingePose, pose != previous?.duo?.hingePose { rotationCursor = pose == "laptop" ? "landscape_left" : "portrait" }
@@ -397,21 +397,21 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
 
     /// createDuoControl's send: hinge commands as `0x10`, orientation as the ordinary `0x07`, which
     /// the next screen config acknowledges.
-    private func sendDuo(_ requestId: Int, _ command: R9DuoCommand) -> Bool {
+    private func sendDuo(_ requestId: Int, _ command: T3DuoCommand) -> Bool {
         guard socketOpen, !stopped, let duo = screen?.duo, duo.supportsHingeAngle else { return false }
         if case .physical = command, !duo.supportsPhysicalOrientation { return false }
         pendingOrientation = nil
         if case .orientation(let value) = command {
             pendingOrientation = requestId
             rotationCursor = value
-            send(R6DeviceWire.tagged(R6DeviceWire.orientation, ["orientation": value]))
+            send(T3DeviceWire.tagged(T3DeviceWire.orientation, ["orientation": value]))
         } else {
-            send(R6DeviceWire.tagged(0x10, ["requestId": requestId, "command": command.json]))
+            send(T3DeviceWire.tagged(0x10, ["requestId": requestId, "command": command.json]))
         }
         return true
     }
 
-    func controlDuo(_ command: R9DuoCommand) { duoControl.enqueue(command) }
+    func controlDuo(_ command: T3DuoCommand) { duoControl.enqueue(command) }
 
     /// setDuoPanels: the 3D Duo takes its pictures from the fixed panel feeds (one elected feed when
     /// the hub hands the surface over physically); off returns to the device's own stream.
@@ -431,7 +431,7 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
         panelClients.forEach { $0.stop() }
         let ids = screen?.duo?.supportsPhysicalOrientation == true ? [0] : [1, 3]
         panelClients = ids.map { id in
-            let panel = R7DeviceClient(platform: platform, deviceId: deviceId, hostId: hostId, access: access, panelId: id)
+            let panel = T3DeviceClient(platform: platform, deviceId: deviceId, hostId: hostId, access: access, panelId: id)
             panel.onFrame = { [weak self] image in
                 guard let self, !self.stopped else { return }
                 // An inactive native LCD can emit its shutdown black frame: only the active panel paints.
@@ -483,7 +483,7 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
                 let next = makeDecoder()
                 guard next.configure(avcC: chunk.payload) else {
                     recovered = "description"
-                    if panelId != nil { video?.cancel(); video = nil; return setStatus("error", "This client cannot decode the Duo panel's \(R7H264.codecString(chunk.payload)) stream.") }
+                    if panelId != nil { video?.cancel(); video = nil; return setStatus("error", "This client cannot decode the Duo panel's \(T3H264.codecString(chunk.payload)) stream.") }
                     return fallBackToMjpeg()
                 }
                 decoder = next
@@ -496,7 +496,7 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
 
     private func mjpegData(_ data: Data) {
         mjpegBuffer.append(data)
-        let (images, rest) = R6DeviceWire.frames(mjpegBuffer)
+        let (images, rest) = T3DeviceWire.frames(mjpegBuffer)
         mjpegBuffer = rest.count > 8 * 1024 * 1024 ? Data() : rest
         if let last = images.last, let image = NSImage(data: last)?.cgImage(forProposedRect: nil, context: nil, hints: nil) { paint(image) }
     }
@@ -544,44 +544,44 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
     /// sendTouch: normalized 0…1 in the displayed frame.
     func sendTouch(_ phase: String, x: Double, y: Double) {
         if platform == "ios" {
-            let raw = R6DeviceWire.rawPoint(x: x, y: y, screen: screen.map { ($0.width, $0.height, $0.orientation) })
-            return send(R6DeviceWire.tagged(R6DeviceWire.touch, ["type": phase, "x": raw.0, "y": raw.1]))
+            let raw = T3DeviceWire.rawPoint(x: x, y: y, screen: screen.map { ($0.width, $0.height, $0.orientation) })
+            return send(T3DeviceWire.tagged(T3DeviceWire.touch, ["type": phase, "x": raw.0, "y": raw.1]))
         }
-        send(text: R7DeviceKeys.json(["type": "touch", "action": phase == "begin" ? "down" : phase == "move" ? "move" : "up", "x": x, "y": y]))
+        send(text: T3DeviceKeys.json(["type": "touch", "action": phase == "begin" ? "down" : phase == "move" ? "move" : "up", "x": x, "y": y]))
     }
 
     /// sendRawTouch: the 3D view's UVs already map to the hardware framebuffer.
     func sendRawTouch(_ phase: String, x: Double, y: Double) {
-        if platform == "ios" { send(R6DeviceWire.tagged(R6DeviceWire.touch, ["type": phase, "x": x, "y": y])) } else { sendTouch(phase, x: x, y: y) }
+        if platform == "ios" { send(T3DeviceWire.tagged(T3DeviceWire.touch, ["type": phase, "x": x, "y": y])) } else { sendTouch(phase, x: x, y: y) }
     }
 
     func sendKey(phase: String, keyCode: UInt16, characters: String?, flags: NSEvent.ModifierFlags) {
-        guard let packet = R7DeviceKeys.packet(platform: platform, phase: phase, keyCode: keyCode, characters: characters, meta: flags.contains(.command), control: flags.contains(.control)) else { return }
+        guard let packet = T3DeviceKeys.packet(platform: platform, phase: phase, keyCode: keyCode, characters: characters, meta: flags.contains(.command), control: flags.contains(.control)) else { return }
         platform == "ios" ? send(packet) : send(text: packet)
     }
 
     func pressButton(_ button: String) {
         if platform == "ios" {
             let name = button == "home" ? "home" : button == "appSwitcher" ? "app_switcher" : button == "power" ? "lock" : nil
-            if let name { send(R6DeviceWire.tagged(R6DeviceWire.button, ["button": name])) }
+            if let name { send(T3DeviceWire.tagged(T3DeviceWire.button, ["button": name])) }
             return
         }
         let type = button == "appSwitcher" ? "recents" : button
-        if ["home", "back", "recents", "power"].contains(type) { send(text: R7DeviceKeys.json(["type": type])) }
+        if ["home", "back", "recents", "power"].contains(type) { send(text: T3DeviceKeys.json(["type": type])) }
     }
 
     func rotate() {
         guard platform == "ios" else { return }
         if screen?.duo?.supportsHingeAngle == true {
-            let next = R6DeviceWire.nextOrientation(rotationCursor ?? screen?.orientation)
+            let next = T3DeviceWire.nextOrientation(rotationCursor ?? screen?.orientation)
             rotationCursor = next
             return duoControl.enqueue(.orientation(next))
         }
-        send(R6DeviceWire.tagged(R6DeviceWire.orientation, ["orientation": R6DeviceWire.nextOrientation(screen?.orientation)]))
+        send(T3DeviceWire.tagged(T3DeviceWire.orientation, ["orientation": T3DeviceWire.nextOrientation(screen?.orientation)]))
     }
 
     func setOrientation(_ orientation: String) {
-        if platform == "ios" { send(R6DeviceWire.tagged(R6DeviceWire.orientation, ["orientation": orientation])) }
+        if platform == "ios" { send(T3DeviceWire.tagged(T3DeviceWire.orientation, ["orientation": orientation])) }
     }
 }
 #endif

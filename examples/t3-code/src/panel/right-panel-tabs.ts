@@ -9,7 +9,7 @@ import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
 export type TabAction = 'rename' | 'copy-path' | 'toggle-mute' | 'close' | 'close-others' | 'close-to-right' | 'close-all';
 export type TabMenuItem = { id: TabAction; label: string; disabled?: boolean };
-/** A tab's menu row as the tab strip's `contextPopover` shows it (R4Tab.menu): every flag spelled out. */
+/** A tab's menu row as the tab strip's `contextPopover` shows it (PanelTab.menu): every flag spelled out. */
 export type TabMenuRow = { id: TabAction; label: string; disabled: boolean };
 /** A Browser tab's Mute / Unmute row (RightPanelTabs `tabMuteMenuItem`): disabled until the page exists (the
  *  native overlay) and its runtime id resolves. Not gated on audibility: silencing a quiet tab ahead of time counts. */
@@ -39,7 +39,7 @@ export function tabContextMenuItems(surface: Surface, surfaces: readonly Surface
   ];
 }
 /**
- * The rows of the strip's one context popover (panel.contract `r4-tab-menu`). A
+ * The rows of the strip's one context popover (panel.contract `panel-tab-menu`). A
  * right-click opens it through the host (macOS: an NSMenu at the pointer; the agent: the
  * painted popover), so no native request waits on menu tracking; each row presses
  * `surface-<id>` for its tab, the same op the menu's choice ran before.
@@ -116,7 +116,7 @@ export function editTabName(state: PanelState, op: string, id: string, value: st
   if (!surface) return;
   if (op === 'rename') editors.set(state, { id, value: surface.title || surface.device?.name || 'Device' });
   // The editor's field owns the typed name and commits it as `value` (panel.contract
-  // R4TabNameField): Enter and blur, after Escape's cancel the commit finds no editor.
+  // PanelTabNameField): Enter and blur, after Escape's cancel the commit finds no editor.
   else if (op === 'rename-commit' && editors.get(state)?.id === id) { renameDevice(state, id, value); editors.delete(state); }
   else if (op === 'rename-cancel') editors.delete(state);
 }

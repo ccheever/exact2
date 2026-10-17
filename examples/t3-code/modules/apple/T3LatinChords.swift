@@ -2,7 +2,7 @@
 import AppKit
 
 /// MIT reference, see LICENSE-T3:
-/// - Wake (`r10Wake`): the shell resource reads again now, so a command's state is drawn while
+/// - Wake (`wake`): the shell resource reads again now, so a command's state is drawn while
 ///   the command still waits (the pull request dialog's "Resolving pull request..." during its
 ///   450 ms debounce, command-waits.ts); `t3.pr` wakes the pull request panel's resource for
 ///   the read that follows the ghost it just showed.
@@ -21,11 +21,11 @@ import AppKit
 ///   anywhere in the window (the keybinding recorder needs none: it binds the physical Latin
 ///   letter by `KeyboardEvent.code`, key-recorder.contract). The re-issue is one event-level transform,
 ///   not a per-route one: what was retired (#110) is the surface launcher's
-///   own re-post of its letters (R8KeysLauncher), now declared shortcuts matched by the physical
+///   own native re-post of its letters, now declared shortcuts matched by the physical
 ///   key. Composition keeps its own keys (the composer ends it first, T3ComposerInput.swift).
 /// A row that slides under a still pointer (Settle, ⌘Z) is hovered by the host itself, which
 /// hit-tests a resting pointer after layout and scrolling as a browser does (exact2 #139).
-final class R10Connect {
+final class T3LatinChords {
     private let agent: Bool
     private var monitor: Any?
 
@@ -41,7 +41,7 @@ final class R10Connect {
         let topic = request["topic"] as? String ?? ""
         // `t3.pr`: the pull request panel's resource asks again for the read after the state it showed (pages-pr-detail.ts).
         guard ["t3.notify", "t3.pr"].contains(topic) else {
-            return reply(["ok": false, "generation": generation, "error": ["kind": "Arguments", "message": "r10Wake names an unknown topic.", "uncertain": false]])
+            return reply(["ok": false, "generation": generation, "error": ["kind": "Arguments", "message": "wake names an unknown topic.", "uncertain": false]])
         }
         DispatchQueue.main.async { changed(topic); reply(["ok": true, "generation": generation, "value": [:]]) }
     }

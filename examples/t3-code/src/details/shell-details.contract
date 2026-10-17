@@ -29,9 +29,9 @@ use ShellEditorIcon from "../shell/shell-icons-kit.contract"
 use TipBubble from "../shell/shell-tip.contract"
 use CnMachineIcon from "../settings/settings-b-kit.contract"
 use ProviderMark from "../shared/icons.contract"
-use R4GitRows from "./git.contract"
-use R4EnvRow from "./git.contract"
-use R6ScriptRow from "./project-scripts.contract"
+use GitRows from "./git.contract"
+use RunOnRow from "./git.contract"
+use ScriptRow from "./project-scripts.contract"
 use ThreadAutomationsSection from "./thread-automations.contract"
 use KmItem from "../shared/menu-keys.contract"
 use KeyMenu from "../shared/menu-keys.contract"
@@ -123,7 +123,7 @@ component DetailsBody
             column width="100%" hatch="t3-frame" data-frame="details-full-top"
               if details.envShow
                 // BranchToolbarEnvironmentSelector: a Select for a draft with somewhere else to run, else its static label.
-                R4EnvRow(details=details, inline=inline, act=act)
+                RunOnRow(details=details, inline=inline, act=act)
               if details.envModeSelect
                 // BranchToolbarEnvModeSelector as a select row (THREAD_DETAILS_PANEL_SELECT_ROW_CLASS): its value, the kind, a hairline and the chevron.
                 box position="relative" width="100%"
@@ -154,7 +154,7 @@ component DetailsBody
             OpenInRow(details=details, menuWidth=((inline ? 262 : 246) * rem / 16), act=act)
           // A project with scripts shows its primary script as a split row (project-scripts.contract).
           if details.scriptName != ""
-            R6ScriptRow(details=details, menuWidth=((inline ? 262 : 246) * rem / 16), run=act("terminallocal:run-script", "", ""), act=act)
+            ScriptRow(details=details, menuWidth=((inline ? 262 : 246) * rem / 16), run=act("terminallocal:run-script", "", ""), act=act)
           else
             // ProjectScriptsControl's openAddDialog: the Add Action dialog over the thread (ProjectDialogs, settings-b-actions.contract).
             button id="details-add-script" press=act("ui:add-script", "", "") hover=hover("script") aria-label="Add project script" testId="details-add-script" width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" background-color=(hovered == "script" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
@@ -165,7 +165,7 @@ component DetailsBody
           column width="100%" hatch="t3-frame" data-frame="details-vcs"
             DetailsSection(title="Version Control", separated=(density == "full"), heading=false)
               // The branch select, the split Git action (or Initialize Git) and Changes.
-              R4GitRows(details=details, compact=(density != "full"), inline=inline, act=act, local=local)
+              GitRows(details=details, compact=(density != "full"), inline=inline, act=act, local=local)
               if details.error != ""
                 text details.error padding-left="0.6875rem" padding-right="0.6875rem" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="details-vcs-error"
         // ThreadAutomationsPanel and ThreadRelationshipsPanel: `full` only.

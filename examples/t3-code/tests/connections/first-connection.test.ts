@@ -125,11 +125,11 @@ describe('PullRequestThreadDialog shows its lookup after a 450 ms debounce (HEAD
     expect(lookups).toEqual(['101']); // the opening reference resolves at once (debounced value starts there)
     const typing = checkoutLocal(client, clock, 'text', '#102');
     await tick();
-    expect(clock.ops).toEqual(['r10Wake', 'timelineSleep']);
+    expect(clock.ops).toEqual(['wake', 'timelineSleep']);
     expect(lookups).toEqual(['101', '102']); // the answer is in the cache already...
     expect(checkoutView(client)).toMatchObject({ resolving: true, resolvingLabel: 'Resolving pull request...', prTitle: '', canConfirm: false, settled: '101' });
     await clock.elapse(); await typing; // ...and shows when the wait ends
-    expect(clock.ops).toEqual(['r10Wake', 'timelineSleep', 'r10Wake']);
+    expect(clock.ops).toEqual(['wake', 'timelineSleep', 'wake']);
     expect(checkoutView(client)).toMatchObject({ resolving: false, prTitle: 'PR 102', canConfirm: true, settled: '102' });
   });
   test('edits inside the wait each look up; only the last one settles', async () => {

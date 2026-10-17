@@ -150,7 +150,7 @@ export async function performChipAct(client: T3Client, native: Native, press: Ob
   if (act === 'video') {
     const file = draftFiles(client.local).find(entry => entry.contextId === context && entry.draftKey === client.draftKey);
     if (!file) throw new ClientError('That video is no longer attached.');
-    return videoOp(client, native, 'r4c-video-play', file.id);
+    return videoOp(client, native, 'shelf-video-play', file.id);
   }
   return '';
 }

@@ -207,7 +207,7 @@ describe('Run on (BranchToolbarEnvironmentSelector, logicalProjectEnvironments)'
 describe('Git branch Return dismissal', () => {
   test('a disabled Git menu row still shows its reason without requesting focus', async () => {
     const { contractComponent } = await import('../support/contract-action-fixture');
-    const row = contractComponent('git.contract', 'R4GitMenuRow'), state = row.state(), focused: string[] = [];
+    const row = contractComponent('git.contract', 'GitMenuRow'), state = row.state(), focused: string[] = [];
     const scope = { item: { id: 'push', disabled: true }, keysId: 'details-git-options-keys', focus: (id: string) => focused.push(id) };
     row.call('hover', state, scope, [true]);
     expect(state.over).toBe(true);
@@ -218,7 +218,7 @@ describe('Git branch Return dismissal', () => {
 
   test('accepted Return hides the actual popup, returns focus and dispatches once; an empty command does nothing', async () => {
     const { contractComponent } = await import('../support/contract-action-fixture');
-    const picker = contractComponent('git.contract', 'R4BranchPicker');
+    const picker = contractComponent('git.contract', 'GitBranchPicker');
     for (const enterOp of ['shell:git-branch', 'shell:git-branch-create', 'chatlocal:git-pr-open', '']) {
       const calls: unknown[][] = [], state = picker.state();
       const scope = { git: { branch: { enterOp, enterValue: 'feature/audit' } },

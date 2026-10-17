@@ -19,7 +19,7 @@ import {
 } from './git-logic';
 import { letGo } from '../client/let-go';
 
-export const GIT_ACTION_KEY = 'r4-git-action';
+export const GIT_ACTION_KEY = 'git-action';
 export const SUCCESS_VISIBLE_MS = 10_000;
 
 type Run = { cwd: string; transportId: string; action: string; operation: string; running: boolean; label: string; phaseLabel: string; output: string;
@@ -68,7 +68,7 @@ function finish(client: T3Client, state: GitState, run: Run, failed: string): vo
   if (failed) failure(client, 'Action failed', failed);
 }
 
-/** One `r4-git-action` inbox entry: applyVcsActionProgressEvent, then the terminal result. */
+/** One `git-action` inbox entry: applyVcsActionProgressEvent, then the terminal result. */
 export function gitActionEvent(client: T3Client, entry: Obj): void {
   const state = states.get(client), run = state?.run;
   if (!state || !run) return;

@@ -61,7 +61,7 @@ async function wearMode(client: T3Client, native: Native | null | undefined, mod
   const was = worn.get(client);
   if (was === mode) return;
   if (was !== undefined && native?.available) {
-    try { await native.later({ op: 'r10Wake', topic: 't3.notify' }); } catch (error) { if (letGo(error)) throw error; }
+    try { await native.later({ op: 'wake', topic: 't3.notify' }); } catch (error) { if (letGo(error)) throw error; }
   }
   worn.set(client, mode);
 }

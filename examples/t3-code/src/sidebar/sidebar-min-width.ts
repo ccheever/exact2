@@ -7,7 +7,7 @@
 // 0.75rem gap, the mark, 0.75rem, 1 px. Its rems follow the root font size, which
 // is the Interface font size setting (appearanceFonts.ts applyAppearanceFontVariables).
 // The mark's widths are the reference's, measured per size in Chrome on macOS
-// (lanes/r12-sidebar/tools/refbrand.mjs); 16 px gives 196.78, under the floor.
+// with a script over the reference page; 16 px gives 196.78, under the floor.
 import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
 export const SIDEBAR_FLOOR_WIDTH = 13 * 16;
 export const MACOS_TRAFFIC_LIGHTS_INSET = 90;

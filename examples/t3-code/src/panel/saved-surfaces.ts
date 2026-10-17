@@ -13,14 +13,14 @@ import { prSurfaceId, type PrTarget } from './pr-surface';
 import type { AttachmentMeta } from './attachment-surface';
 import type { DeviceTarget } from '../device/device-session';
 
-export type R11SavedSurface =
+export type RestoredSurface =
   | { id: string; kind: 'terminal'; path: ''; line: 0; terminal: PanelTerminal }
   | { id: 'diff'; kind: 'diff'; path: ''; line: 0 }
   | { id: string; kind: 'device'; path: ''; line: 0; device?: DeviceTarget; title?: string }
   | { id: string; kind: 'pull-request'; path: ''; line: 0; pr: PrTarget }
   | { id: string; kind: 'attachment'; path: string; line: 0; attachment: AttachmentMeta };
-export type R11Surface = { id: string; kind: string; path: string; line: number; pr?: unknown; attachment?: unknown; device?: unknown; title?: string; terminal?: unknown };
-export const R11_KINDS = new Set(['terminal', 'diff', 'device', 'pull-request', 'attachment']);
+export type SurfaceEntry = { id: string; kind: string; path: string; line: number; pr?: unknown; attachment?: unknown; device?: unknown; title?: string; terminal?: unknown };
+export const RESTORED_KINDS = new Set(['terminal', 'diff', 'device', 'pull-request', 'attachment']);
 
 /** rightPanelStore's DeviceTabTarget, or nothing when malformed. */
 export function deviceTarget(value: unknown): DeviceTarget | undefined {
@@ -43,7 +43,7 @@ function attachmentOf(value: unknown): AttachmentMeta | null {
 }
 
 /** One of this module's surfaces as saved, or null (not one of them, or malformed). */
-export function keepR11(surface: R11Surface): R11SavedSurface | null {
+export function keepRestored(surface: SurfaceEntry): RestoredSurface | null {
   if (surface.kind === 'terminal') {
     const raw = obj(surface.terminal);
     const ids = Array.isArray(raw.terminalIds) ? [...new Set(raw.terminalIds.filter((id): id is string => typeof id === 'string' && id.length > 0))] : [];
@@ -69,13 +69,13 @@ export function keepR11(surface: R11Surface): R11SavedSurface | null {
   return null;
 }
 
-/** A saved record's surface fields as read back (the raw entry, before keepR11 re-validates it). */
-export function readR11(entry: Obj): R11Surface {
+/** A saved record's surface fields as read back (the raw entry, before keepRestored re-validates it). */
+export function readRestored(entry: Obj): SurfaceEntry {
   return { id: str(entry.id), kind: str(entry.kind), path: str(entry.path), line: num(entry.line), pr: entry.pr, attachment: entry.attachment, device: entry.device, title: str(entry.title), terminal: entry.terminal };
 }
 
 /** What the restored panel must do once it is in place: reopen the Diff's own panel and name the device. */
-export function restoredEffects(surfaces: readonly R11Surface[], active: string, visible: boolean): { diff: boolean; device: DeviceTarget | undefined } {
+export function restoredEffects(surfaces: readonly SurfaceEntry[], active: string, visible: boolean): { diff: boolean; device: DeviceTarget | undefined } {
   const device = deviceTarget((surfaces.find(surface => surface.kind === 'device' && surface.id === active) ?? surfaces.find(surface => surface.kind === 'device'))?.device);
   return { diff: visible && active === 'diff' && surfaces.some(surface => surface.id === 'diff'), device };
 }

@@ -7,19 +7,19 @@ import XCTest
 // in a real window. Compiled with every file in modules/apple (T3Module included).
 
 private var acted: [(node: UInt32, action: UInt32)] = []
-private let r8Resolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
-private let r8Act: ExactHatches.ActFn = { _, node, action in acted.append((node, action)); return 0 }
-private let r8Log: ExactHatches.LogFn = { _, _, _ in }
-private let r8Delegate: ExactHatches.DelegateFn = { _, _, _ in }
+private let hatchResolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
+private let hatchAct: ExactHatches.ActFn = { _, node, action in acted.append((node, action)); return 0 }
+private let hatchLog: ExactHatches.LogFn = { _, _, _ in }
+private let hatchDelegate: ExactHatches.DelegateFn = { _, _, _ in }
 
 private func makeHooks() -> ExactHatches {
     let table = UnsafeMutableRawPointer.allocate(byteCount: 40, alignment: 8)
     table.initializeMemory(as: UInt8.self, repeating: 0, count: 40)
     table.storeBytes(of: UInt32(40), as: UInt32.self)
-    table.storeBytes(of: unsafeBitCast(r8Resolve, to: UnsafeRawPointer.self), toByteOffset: 8, as: UnsafeRawPointer.self)
-    table.storeBytes(of: unsafeBitCast(r8Act, to: UnsafeRawPointer.self), toByteOffset: 16, as: UnsafeRawPointer.self)
-    table.storeBytes(of: unsafeBitCast(r8Log, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
-    table.storeBytes(of: unsafeBitCast(r8Delegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
+    table.storeBytes(of: unsafeBitCast(hatchResolve, to: UnsafeRawPointer.self), toByteOffset: 8, as: UnsafeRawPointer.self)
+    table.storeBytes(of: unsafeBitCast(hatchAct, to: UnsafeRawPointer.self), toByteOffset: 16, as: UnsafeRawPointer.self)
+    table.storeBytes(of: unsafeBitCast(hatchLog, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
+    table.storeBytes(of: unsafeBitCast(hatchDelegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
     return ExactHatches(host: nil, table: UnsafeRawPointer(table))!
 }
 
@@ -89,7 +89,7 @@ private func sync(_ bar: NSMenu, _ chords: [String: (String, NSEvent.ModifierFla
     }
 }
 
-final class R8KeysTests: XCTestCase {
+final class MenuBarTests: XCTestCase {
     let chords: [String: (String, NSEvent.ModifierFlags)] = ["Thread 1": ("1", .command), "Undo": ("z", .command), "Close Right Panel": ("w", .command),
                                                             "Toggle Diff": ("d", .command), "Open in Editor": ("o", .command), "Medium": ("e", [.command, .shift])]
 
@@ -212,7 +212,7 @@ final class R8KeysTests: XCTestCase {
         var pressed: [String] = []
         func exact(_ event: NSEvent) -> NSEvent? {
             let typed = event.charactersIgnoringModifiers ?? ""
-            let letter = typed.unicodeScalars.allSatisfy(\.isASCII) ? typed : (R10Connect.physicalKeys[event.keyCode] ?? typed)
+            let letter = typed.unicodeScalars.allSatisfy(\.isASCII) ? typed : (T3LatinChords.physicalKeys[event.keyCode] ?? typed)
             guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty, "BTFDL".contains(letter.uppercased()) else { return event }
             pressed.append(letter.uppercased())
             return nil
@@ -268,7 +268,7 @@ final class R8KeysTests: XCTestCase {
         window.contentView!.addSubview(scroll)
         let button = NSView(frame: NSRect(x: 300, y: 200, width: 24, height: 24))
         scroll.addSubview(button)
-        let measure = R8KeysMeasure()
+        let measure = T3Measure()
         let element = ExactElement(hatch: .t3Measure, id: "", node: 9, hatches: hooks)
         element.view = button
         element.data = ExactData(["frame": "table-copy-1"])
@@ -369,8 +369,8 @@ final class LauncherView: NSView {
     override func keyDown(with event: NSEvent) { keys.append(event.characters ?? "") }
 }
 
-let suite = XCTestSuite(forTestCaseClass: R8KeysTests.self)
+let suite = XCTestSuite(forTestCaseClass: MenuBarTests.self)
 suite.run()
 let run = suite.testRun!
-print("R8 keys tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
+print("Menu bar tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
 exit(run.executionCount == 5 && run.totalFailureCount == 0 ? 0 : 1)

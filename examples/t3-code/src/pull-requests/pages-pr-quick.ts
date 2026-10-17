@@ -114,7 +114,7 @@ export async function runQuickAction(client: T3Client, native: Native, value: st
   if (state.pending.has(key)) return '';
   state.pending.add(key);
   try {
-    try { await native.later({ op: 'r10Wake', topic: 't3.pr' }); } catch (error) { if (letGo(error)) throw error; }
+    try { await native.later({ op: 'wake', topic: 't3.pr' }); } catch (error) { if (letGo(error)) throw error; }
     const method = action === 'merge' ? await resolveMergeMethod(client, native, entry) : undefined;
     await client.rpc(native, 'pullRequests.runAction', actionPayload(referenceOf(entry), action, method), true);
   } catch (error) {
@@ -208,7 +208,7 @@ export async function quickPopovers(client: T3Client, native: Native | null, ent
       Object.assign(stack, { number: num(membership.number), label: `Stack #${num(membership.number)}`, message: read.error ?? (read.isPending ? 'Loading stack…' : 'This pull request is no longer in a stack.') });
     }
   }
-  if (wake && native) { try { await native.later({ op: 'r10Wake', topic: 't3.pr' }); } catch (error) { if (letGo(error)) throw error; } }
+  if (wake && native) { try { await native.later({ op: 'wake', topic: 't3.pr' }); } catch (error) { if (letGo(error)) throw error; } }
   return { checks, stack };
 }
 /** The detail behind a row's checks: what the panel's read already holds, else one read (shown as loading first). */

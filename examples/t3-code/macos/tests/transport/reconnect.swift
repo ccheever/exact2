@@ -3,7 +3,7 @@ import Network
 import XCTest
 
 /// HTTP for the fixture origin (descriptor, OAuth, session, socket ticket).
-final class R3HTTP: URLProtocol, @unchecked Sendable {
+final class FixtureHTTP: URLProtocol, @unchecked Sendable {
     static let lock = NSLock()
     static var handler: (URLRequest) -> (Int, Any) = { _ in (500, [:]) }
     static var paths: [String] = []
@@ -34,9 +34,9 @@ final class R3HTTP: URLProtocol, @unchecked Sendable {
 }
 
 /// A WebSocket peer speaking the Effect RPC frames the transport sends.
-final class R3Socket: @unchecked Sendable {
+final class FixtureSocket: @unchecked Sendable {
     let listener: NWListener
-    let queue = DispatchQueue(label: "r3.socket")
+    let queue = DispatchQueue(label: "fixture.socket")
     private let lock = NSLock()
     private var connections: [NWConnection] = []
     private var frames: [[String: Any]] = []
@@ -51,7 +51,7 @@ final class R3Socket: @unchecked Sendable {
         let options = NWProtocolWebSocket.Options()
         options.autoReplyPing = true
         let captured = self.captured
-        options.setClientRequestHandler(DispatchQueue(label: "r3.socket.handshake")) { _, additional in
+        options.setClientRequestHandler(DispatchQueue(label: "fixture.socket.handshake")) { _, additional in
             captured.add(additional)
             return NWProtocolWebSocket.Response(status: .accept, subprotocol: nil)
         }
@@ -109,7 +109,7 @@ final class R3Socket: @unchecked Sendable {
 
 // The reconnect policy and same-session stream retries
 // (T3Transport.swift). The read gate's cases left with T3ReadGate.swift (exact2 #183).
-final class R3TransportTests: XCTestCase {
+final class ReconnectTests: XCTestCase {
     private final class Topics: @unchecked Sendable {
         private let lock = NSLock(); private var list: [String] = []
         func add(_ topic: String) { lock.lock(); list.append(topic); lock.unlock() }
@@ -122,7 +122,7 @@ final class R3TransportTests: XCTestCase {
 
     private func transport(random: Double = 0, topics: Topics? = nil) -> T3Transport {
         let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [R3HTTP.self]
+        config.protocolClasses = [FixtureHTTP.self]
         return T3Transport(persistent: false, configuration: config, random: { random }, signals: false, changed: { topics?.add($0) })
     }
     private func perform(_ transport: T3Transport, _ request: [String: Any], timeout: TimeInterval = 5) -> [String: Any] {
@@ -138,8 +138,8 @@ final class R3TransportTests: XCTestCase {
         while Date() < end { if condition() { return true }; wait(0.02) }
         return condition()
     }
-    private func connected(_ socket: R3Socket, random: Double = 0, descriptor: [String: Any] = [:]) -> T3Transport {
-        R3HTTP.healthy(descriptor)
+    private func connected(_ socket: FixtureSocket, random: Double = 0, descriptor: [String: Any] = [:]) -> T3Transport {
+        FixtureHTTP.healthy(descriptor)
         let transport = transport(random: random)
         let opened = perform(transport, ["op": "connect", "origin": "http://127.0.0.1:\(socket.port)", "credential": "pairing"])
         XCTAssertEqual((opened["value"] as? [String: Any])?["state"] as? String, "connected", "\(opened)")
@@ -163,23 +163,23 @@ final class R3TransportTests: XCTestCase {
     }
 
     func testALostSocketBacksOffWithJitterAndAnExplicitRetryRunsNowFromTheFirstRung() throws {
-        let socket = try R3Socket()
+        let socket = try FixtureSocket()
         let transport = connected(socket); defer { transport.destroy() }
-        R3HTTP.reset { _ in (503, ["message": "Starting up."]) }
+        FixtureHTTP.reset { _ in (503, ["message": "Starting up."]) }
         socket.dropAll()
         XCTAssertTrue(until(3) { (status(transport)["message"] as? String ?? "").hasSuffix("Reconnecting in 1s…") }, "\(status(transport))")
         XCTAssertEqual(status(transport)["state"] as? String, "reconnecting")
         // The 1 s rung elapses, the descriptor fails again, and the next rung is 2–4 s.
         XCTAssertTrue(until(3) { status(transport)["message"] as? String == "Starting up. Reconnecting in 2s…" }, "\(status(transport))")
-        let attempts = R3HTTP.count("/.well-known/t3/environment")
+        let attempts = FixtureHTTP.count("/.well-known/t3/environment")
         let retried = perform(transport, ["op": "retry", "origin": "http://127.0.0.1:\(socket.port)"])
         XCTAssertEqual((retried["error"] as? [String: Any])?["kind"] as? String, "HTTP", "The waiting attempt ran at once and failed.")
-        XCTAssertEqual(R3HTTP.count("/.well-known/t3/environment"), attempts + 1)
+        XCTAssertEqual(FixtureHTTP.count("/.well-known/t3/environment"), attempts + 1)
         XCTAssertEqual(status(transport)["message"] as? String, "Starting up. Reconnecting in 1s…", "An explicit retry restarts the ladder.")
     }
 
     func testAnExplicitRetryProbesTheLiveSocketInsteadOfReplacingIt() throws {
-        let socket = try R3Socket()
+        let socket = try FixtureSocket()
         let transport = connected(socket); defer { transport.destroy() }
         let generation = perform(transport, ["op": "status"])["generation"] as? Int
         let retried = perform(transport, ["op": "retry", "origin": "http://127.0.0.1:\(socket.port)"])
@@ -187,9 +187,9 @@ final class R3TransportTests: XCTestCase {
         XCTAssertEqual(retried["generation"] as? Int, generation, "A healthy socket is kept.")
         XCTAssertEqual(socket.requests("server.probe").count, 1)
         XCTAssertEqual(socket.connectionCount, 1)
-        XCTAssertEqual(R3HTTP.count("/.well-known/t3/environment"), 1)
+        XCTAssertEqual(FixtureHTTP.count("/.well-known/t3/environment"), 1)
         // Before connectionProbe, the probe is server.getConfig.
-        let older = try R3Socket()
+        let older = try FixtureSocket()
         let legacy = connected(older, descriptor: ["capabilities": [:]]); defer { legacy.destroy() }
         _ = perform(legacy, ["op": "retry"])
         XCTAssertEqual(older.requests("server.getConfig").count, 1)
@@ -197,7 +197,7 @@ final class R3TransportTests: XCTestCase {
     }
 
     func testAnUnansweredProbeReconnectsWithoutTheBackoffWait() throws {
-        let socket = try R3Socket()
+        let socket = try FixtureSocket()
         socket.answer = { request in request["tag"] as? String == "server.probe" ? nil : [["_tag": "Exit", "requestId": request["id"]!, "exit": ["_tag": "Success", "value": [:]]]] }
         let transport = connected(socket); defer { transport.destroy() }
         let started = Date()
@@ -207,11 +207,11 @@ final class R3TransportTests: XCTestCase {
         // No backoff rung: the replacement connects straight away.
         XCTAssertTrue(until(3) { status(transport)["state"] as? String == "connected" }, "\(status(transport))")
         XCTAssertEqual(socket.connectionCount, 2)
-        XCTAssertEqual(R3HTTP.count("/.well-known/t3/environment"), 2)
+        XCTAssertEqual(FixtureHTTP.count("/.well-known/t3/environment"), 2)
     }
 
     func testForegroundAndNetworkSignalsProbeInsteadOfTearingDown() throws {
-        let socket = try R3Socket()
+        let socket = try FixtureSocket()
         socket.answer = { request in request["tag"] as? String == "orchestration.subscribeShell" ? [] : [["_tag": "Exit", "requestId": request["id"]!, "exit": ["_tag": "Success", "value": [:]]]] }
         let transport = connected(socket); defer { transport.destroy() }
         let generation = perform(transport, ["op": "status"])["generation"] as! Int
@@ -227,13 +227,13 @@ final class R3TransportTests: XCTestCase {
         XCTAssertEqual(status(transport)["state"] as? String, "connected")
         XCTAssertEqual(socket.connectionCount, 1)
         // Back online during a backoff wait: the attempt runs now.
-        R3HTTP.reset { _ in (503, ["message": "Starting up."]) }
+        FixtureHTTP.reset { _ in (503, ["message": "Starting up."]) }
         socket.dropAll()
         XCTAssertTrue(until(3) { status(transport)["state"] as? String == "reconnecting" })
-        R3HTTP.healthy()
-        let before = R3HTTP.count("/.well-known/t3/environment")
+        FixtureHTTP.healthy()
+        let before = FixtureHTTP.count("/.well-known/t3/environment")
         transport.networkChanged(online: true)
-        XCTAssertTrue(until(0.8) { R3HTTP.count("/.well-known/t3/environment") > before }, "Online wakes the waiting retry.")
+        XCTAssertTrue(until(0.8) { FixtureHTTP.count("/.well-known/t3/environment") > before }, "Online wakes the waiting retry.")
         XCTAssertTrue(until(3) { status(transport)["state"] as? String == "connected" })
     }
 
@@ -244,7 +244,7 @@ final class R3TransportTests: XCTestCase {
     }
 
     func testAFailedStreamIsRetriedOnTheSameSessionWithADoublingDelay() throws {
-        let socket = try R3Socket()
+        let socket = try FixtureSocket()
         let failure: [String: Any] = ["_tag": "Failure", "cause": [["_tag": "Fail", "error": ["_tag": "OrchestrationV2ShellStreamError", "message": "Shell stream failed."]]]]
         socket.answer = { request in request["tag"] as? String == "orchestration.subscribeShell" ? [] : [["_tag": "Exit", "requestId": request["id"]!, "exit": ["_tag": "Success", "value": [:]]]] }
         let transport = connected(socket); defer { transport.destroy() }
@@ -283,7 +283,7 @@ final class R3TransportTests: XCTestCase {
     // composer-replies.ts: a request with `deliver` answers its id at once,
     // and its reply (or typed failure) joins the inbox under that key, so no answer waits on it.
     func testADeliveredRequestAnswersAtOnceAndFilesItsReplyInTheInbox() throws {
-        let socket = try R3Socket()
+        let socket = try FixtureSocket()
         socket.answer = { request in request["tag"] as? String == "provider.uploadFeedback" ? [] : [["_tag": "Exit", "requestId": request["id"]!, "exit": ["_tag": "Success", "value": [:]]]] }
         let transport = connected(socket); defer { transport.destroy() }
         let generation = perform(transport, ["op": "status"])["generation"] as! Int
@@ -313,23 +313,23 @@ final class R3TransportTests: XCTestCase {
 
     func testPairingAndConnectingNameTheProtocolDirection() throws {
         let credentials = T3Credentials(persistent: false), saved = T3SavedEnvironments(persistent: false)
-        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [R3HTTP.self]
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [FixtureHTTP.self]
         let transport = T3Transport(persistent: false, configuration: config, credentials: credentials, savedEnvironments: saved, signals: false, changed: { _ in })
         defer { transport.destroy() }
         func pair(_ descriptor: [String: Any]) -> [String: Any] {
-            R3HTTP.reset { request in request.url!.path == "/oauth/token" ? (200, ["access_token": "old-access", "token_type": "Bearer"]) : (200, descriptor) }
+            FixtureHTTP.reset { request in request.url!.path == "/oauth/token" ? (200, ["access_token": "old-access", "token_type": "Bearer"]) : (200, descriptor) }
             return perform(transport, ["op": "pairEnvironment", "origin": "http://127.0.0.1:4400", "credential": "pairing"])
         }
         // An older host is refused here (kind Protocol); T3Fleet's fleetOutdatedPair saves one that can update itself.
         let older = pair(outdated(["serverSelfUpdate": "boot-service"]))
         XCTAssertEqual((older["error"] as? [String: Any])?["kind"] as? String, "Protocol")
         XCTAssertEqual((older["error"] as? [String: Any])?["message"] as? String, "This client requires a newer server. Update T3 Code on Old box to connect.")
-        XCTAssertEqual(R3HTTP.count("/oauth/token"), 0, "An incompatible host never receives the credential.")
+        XCTAssertEqual(FixtureHTTP.count("/oauth/token"), 0, "An incompatible host never receives the credential.")
         let newer = pair(outdated([:], version: 3, label: "New box"))
         XCTAssertEqual((newer["error"] as? [String: Any])?["message"] as? String, "This client is not supported by this server. Update your app or use a compatible release to connect to New box.")
         XCTAssertTrue(saved.all.isEmpty)
         // A focused connection names the direction too, and keeps the descriptor for the row.
-        R3HTTP.reset { _ in (200, self.outdated(["serverSelfUpdate": "respawn"])) }
+        FixtureHTTP.reset { _ in (200, self.outdated(["serverSelfUpdate": "respawn"])) }
         let refused = perform(transport, ["op": "connect", "origin": "http://127.0.0.1:4400", "credential": "pairing"])
         XCTAssertEqual((refused["error"] as? [String: Any])?["message"] as? String, "This client requires a newer server. Update T3 Code on Old box to connect.")
         XCTAssertEqual(status(transport)["failureKind"] as? String, "Protocol")
@@ -340,18 +340,18 @@ final class R3TransportTests: XCTestCase {
     }
 
     func testANormalSocketCarriesTheProtocolGate() throws {
-        let socket = try R3Socket()
+        let socket = try FixtureSocket()
         let transport = connected(socket); defer { transport.destroy() }
         XCTAssertEqual(socket.handshakes, 1)
         XCTAssertEqual(socket.header("x-t3-orchestration-protocol", connection: 0), "2", "\(socket.handshakes)")
     }
 
-    /// Against a real server (R3_LIVE_PAIRING_FILE: {"credential": pairing link}; R3_LIVE_ORIGIN):
+    /// Against a real server (T3_LIVE_PAIRING_FILE: {"credential": pairing link}; T3_LIVE_ORIGIN):
     /// Retry on a live socket is answered by server.probe and keeps the session.
     func testLiveRetryProbesAHeadServerAndKeepsTheSession() throws {
-        guard let path = ProcessInfo.processInfo.environment["R3_LIVE_PAIRING_FILE"] else { throw XCTSkip("Set R3_LIVE_PAIRING_FILE to a disposable credential.") }
+        guard let path = ProcessInfo.processInfo.environment["T3_LIVE_PAIRING_FILE"] else { throw XCTSkip("Set T3_LIVE_PAIRING_FILE to a disposable credential.") }
         let pairing = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path))) as! [String: Any]
-        let origin = ProcessInfo.processInfo.environment["R3_LIVE_ORIGIN"] ?? "http://127.0.0.1:14828"
+        let origin = ProcessInfo.processInfo.environment["T3_LIVE_ORIGIN"] ?? "http://127.0.0.1:14828"
         let transport = T3Transport(persistent: false, signals: false, changed: { _ in }); defer { transport.destroy() }
         let opened = perform(transport, ["op": "connect", "origin": origin, "credential": pairing["credential"] as? String ?? ""], timeout: 15)
         XCTAssertEqual((opened["value"] as? [String: Any])?["state"] as? String, "connected")

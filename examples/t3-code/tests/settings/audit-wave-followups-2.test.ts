@@ -51,11 +51,11 @@ function fakeClient(projects: Obj[] = [{ id: 'p1', title: 'many-refs', workspace
   return { client: client as unknown as T3Client & typeof client, reads };
 }
 const native = { available: true, watch: () => {}, later: async () => ({ ok: true, value: {} }) } as unknown as Native;
-/** A native that counts the page's own wakes (R10Connect `r10Wake`) and what it watches. */
+/** A native that counts the page's own wakes (T3LatinChords `wake`) and what it watches. */
 function wakingNative() {
   const wakes: string[] = [], watched: string[] = [];
   const module = { available: true, watch: (topic: string) => { watched.push(topic); },
-    later: async (request: Obj) => { if (request.op === 'r10Wake') wakes.push(String(request.topic)); return { ok: true, generation: 0, value: request.op === 'installedFonts' ? { fonts: [] } : {} }; } } as unknown as Native;
+    later: async (request: Obj) => { if (request.op === 'wake') wakes.push(String(request.topic)); return { ok: true, generation: 0, value: request.op === 'installedFonts' ? { fonts: [] } : {} }; } } as unknown as Native;
   return { module, wakes, watched };
 }
 const KEY = 'new'; // a new task's dialog key, whatever its environment
@@ -72,7 +72,7 @@ describe('the scheduled task\'s base-branch picker', () => {
     expect(reads).toEqual([{ cwd: '/many', limit: 100 }, { cwd: '/many', query: 'main', limit: 10 }]);
     expect(group.selected.map(ref => [ref.value, ref.remote])).toEqual([['main', false]]);
     expect(scheduledRefsWanted(client)).toBe(false);
-    // R5ComposerScroll counts a scroll within 96pt of the list's end: the page is wanted, "Loading more refs..." first,
+    // T3RefPaging counts a scroll within 96pt of the list's end: the page is wanted, "Loading more refs..." first,
     // then the shell clock's next look reads it (cursor 100).
     client.presentation.scrollEnds['scroll:task-refs'] = 1;
     expect(scheduledRefsWanted(client)).toBe(true);
@@ -188,7 +188,7 @@ describe('a theme with one palette', () => {
       ready: true, environmentId: 'env1', revision: 0, config: { environment: { environmentId: 'env1', label: 'Studio' }, providers: [], settings: {} }, projectGroups: () => [] } as unknown as T3Client;
     expect([look(client).mode, windowAppearanceMode(client)]).toEqual(['dark', 'dark']);
     const wakes: string[] = [];
-    const module = { available: true, watch: () => {}, later: async (request: Obj) => { if (request.op === 'r10Wake') wakes.push(String(request.topic)); return { ok: true, generation: 0, value: request.op === 'installedFonts' ? { fonts: [] } : {} }; } } as unknown as Native;
+    const module = { available: true, watch: () => {}, later: async (request: Obj) => { if (request.op === 'wake') wakes.push(String(request.topic)); return { ok: true, generation: 0, value: request.op === 'installedFonts' ? { fonts: [] } : {} }; } } as unknown as Native;
     const core = (kind: string) => settingsCore(client, module, '', '', '', '', 'appearance', '', true, kind, kind ? '#1' : '', 'embedded', false, look(client).mode);
     await core('');
     expect(wakes).toEqual([]);

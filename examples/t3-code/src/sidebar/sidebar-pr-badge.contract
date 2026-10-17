@@ -1,4 +1,4 @@
-// Round-4 integration fixes (MIT reference, see LICENSE-T3).
+// MIT reference, see LICENSE-T3.
 // ThreadPullRequestBadgeControl in the sidebar row (ThreadStatusIndicators.tsx):
 // an InlineButton (gap-0.5) holding the status glyph, GitPullRequestArrow until
 // the host reports a state (Layers for a stack), and the number in text-xs.

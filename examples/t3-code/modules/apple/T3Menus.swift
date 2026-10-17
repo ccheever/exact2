@@ -36,7 +36,7 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
     private lazy var appUpdatesItem = makeUpdatesItem()
     private lazy var helpUpdatesItem = makeUpdatesItem()
     /// File, View, Edit › Undo and the host's extra menus as the reference bar has them (T3MenuBar.swift).
-    let keys = R8KeysMenus()
+    let keys = T3MenuBar()
 
     override init() {
         super.init()
@@ -381,7 +381,7 @@ final class T3QuitHold {
         }
     }
     /// The event's key; Q's key code stands in when a non-Latin source (Korean 2-Set's ㅂ) types no
-    /// Latin letter there, as R10Connect's chords do: the quit hold reads raw key events, which
+    /// Latin letter there, as T3LatinChords's chords do: the quit hold reads raw key events, which
     /// exact2 #168 (declared chords only) does not reach (#110).
     static func key(_ event: NSEvent) -> String {
         let key = (event.charactersIgnoringModifiers ?? "").lowercased()

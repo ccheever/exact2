@@ -40,7 +40,7 @@ describe('a file chip\'s press opens AttachmentFilePreview over the draft\'s byt
     expect(view.lines.map(line => line.runs.map(run => run.text).join(''))).toEqual(['const a = 1;', 'export { a };']);
     // The staged copy, never the server: nothing is uploaded to preview it.
     expect(calls).toEqual([{ op: 'attachmentText', staged: ID }]);
-    await composerFileLocal(client, native, 'surface-r5-att-save', ID);
+    await composerFileLocal(client, native, 'surface-linked-att-save', ID);
     expect(calls.at(-1)).toEqual({ op: 'attachmentSave', staged: ID, name: 'notes.js' });
     // Close (and Escape, the backdrop's) ends it.
     await composerFileLocal(client, native, 'close', ID);
@@ -83,7 +83,7 @@ describe('a file chip\'s press opens AttachmentFilePreview over the draft\'s byt
   test('Remove from draft removes the chip and its staged copy, and closes', async () => {
     const { calls, native, client } = harness([file({})]);
     await performChipAct(client, native, { act: 'file', context: `file_${ID}` });
-    await composerFileLocal(client, native, 'surface-r5-att-remove', ID);
+    await composerFileLocal(client, native, 'surface-linked-att-remove', ID);
     expect(client.local.drafts['env:t1']).toBe('see now');
     expect(client.local.composerFiles).toEqual([]);
     expect(calls.some(call => call.op === 'composerAttachRemove' && call.id === ID)).toBe(true);
@@ -93,7 +93,7 @@ describe('a file chip\'s press opens AttachmentFilePreview over the draft\'s byt
   test('leaving the draft closes it; a late control of another preview leaves it open', async () => {
     const { native, client } = harness([file({})]);
     await performChipAct(client, native, { act: 'file', context: `file_${ID}` });
-    await composerFileLocal(client, native, 'surface-r5-att-media-error', 'another-file');
+    await composerFileLocal(client, native, 'surface-linked-att-media-error', 'another-file');
     expect((await composerFileView(client, native, 1)).open).toBe(true);
     (client as unknown as { draftKey: string }).draftKey = 'env:t2';
     expect((await composerFileView(client, native, 1)).open).toBe(false);

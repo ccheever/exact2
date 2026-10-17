@@ -2,7 +2,7 @@
 //! construction into the compiled plan, read from the plan as the host reads it.
 //! The window's root removes the standard tab items by `menuRemove`, the surface
 //! launcher's available rows declare their letters as `accessibilityKeyShortcuts`
-//! (R8KeysLauncher is gone), a sidebar row's press carries its own click modifiers
+//! (the native launcher's key re-post is gone), a sidebar row's press carries its own click modifiers
 //! (T3Sidebar's click monitor is gone), and the keybinding recorder is a Contract
 //! capture handler (T3KeyRecorder is gone).
 

@@ -2,7 +2,7 @@
 // runtime-clock shapes a data source can see, or nothing at all.
 //   refused  — the data runtime: js/src/prelude.js replaces Date.now() with a function that throws (shell-details.ts,
 //              composer-controls-queue.test.ts model it the same way);
-//   launch   — a clock counting from launch (the round-12 report's reading of a normal run);
+//   launch   — a clock counting from launch (a real-input report's reading of a normal run);
 //   virtual  — the agent's virtual clock, which counts from 0.
 // The window's time (app.contract: wallTime.epochAtZero + performanceNow()) is the only wall time in either case.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';

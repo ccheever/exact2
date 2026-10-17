@@ -67,7 +67,7 @@ describe('details card pull request rows (ThreadDetailsPrRows)', () => {
     expect(view.rows[0]).toMatchObject({ label: '#72: Fix the panel', state: 'draft', tinted: true, icon: 'git-pull-request-arrow', tooltip: 'PR #72 - Draft: Fix the panel' });
     expect(view.rest).toEqual([]);
     expect(view).toMatchObject({ moreLabel: 'Show 1 more', expanded: false });
-    await surfaceLocal(client, native, 'r5-pr-more', '', '');
+    await surfaceLocal(client, native, 'linked-pr-more', '', '');
     const open = await prRowsView(client, native, { status: null, threadId: 't1', now: 1, projectId: 'p1' });
     expect(open.rest.map(row => [row.label, row.state, row.icon])).toEqual([['#73: Merged one', 'merged', 'git-merge']]);
     expect(open).toMatchObject({ moreLabel: 'Show less', expanded: true });
@@ -143,7 +143,7 @@ describe('the Pull request (P) surface', () => {
     expect(view.tabs[0]).toMatchObject({ kind: 'pull-request', title: '#72', icon: 'git-pull-request-arrow', tone: '' });
     expect(view.pr).toEqual({ selected: JSON.stringify({ projectId: 'p1', host: 'github.com', repository: 'ccheever/exact2', number: 72 }), number: 72, label: '#72' });
     // The details row opens the same kind of surface through the link's project; the tab is its peer.
-    await surfaceLocal(client, native, 'r5-pr-open', '', URL72);
+    await surfaceLocal(client, native, 'linked-pr-open', '', URL72);
     expect(state.surfaces.map(entry => entry.id)).toEqual(['pull-request:p1:github.com:ccheever%2Fexact2:72', 'pull-request:p2:github.com:ccheever%2Fexact2:72']);
     await surfaceLocal(client, native, 'close', state.active, '');
     expect(state.surfaces.length).toBe(1);
@@ -177,7 +177,7 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
     state.surfaces = [{ id: 'files', kind: 'files', path: '', line: 0, reveal: 0 }];
     replies['assets.createUrl'] = payload => ({ relativeUrl: `/api/assets/${(payload.resource as { disposition: string }).disposition}/sig`, expiresAt: 0 });
     replies.attachmentText = () => ({ ok: true, text: '# Notes\n\n- one\n', truncated: false });
-    await surfaceLocal(client, native, 'r5-attachment', 'att-md', 'owner');
+    await surfaceLocal(client, native, 'linked-attachment', 'att-md', 'owner');
     expect(state.surfaces.map(entry => entry.id)).toEqual(['attachment:att-md']);
     let view = await panelView(client, native, 1000);
     expect(view.tabs[0]).toMatchObject({ kind: 'attachment', title: 'notes.md', fileToken: 'markdown' });
@@ -186,18 +186,18 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
     // The chat renderer's source (app.contract filesMarkdown), kind "attachment" (no folder).
     expect(view.attachment.markdownSource).toEqual([{ id: 'attachment:att-md', kind: 'attachment', title: '', body: '# Notes\n\n- one\n' }]);
     expect(calls.find(call => call.method === 'attachmentText')!.payload.url).toBe('http://127.0.0.1:14861/api/assets/inline/sig');
-    await surfaceLocal(client, native, 'r5-att-render', 'att-md', '');
+    await surfaceLocal(client, native, 'linked-att-render', 'att-md', '');
     view = await panelView(client, native, 1000);
     expect(view.attachment).toMatchObject({ preview: 'code', renderLabel: 'Show rendered markdown', renderIcon: 'eye', showWrap: true, wrap: true, markdownSource: [] });
     expect(view.attachment.lines.map(line => line.number)).toEqual(['1', '2', '3', '4']);
-    await surfaceLocal(client, native, 'r5-att-copy', 'att-md', '');
+    await surfaceLocal(client, native, 'linked-att-copy', 'att-md', '');
     expect(calls.find(call => call.method === 'copyText')!.payload.text).toBe('# Notes\n\n- one\n');
     view = await panelView(client, native, 5000);
     expect(view.attachment).toMatchObject({ copied: true, copyLabel: 'Copied' });
     view = await panelView(client, native, 7100);
     expect(view.attachment.copied).toBe(false);
     replies.attachmentSave = call => ({ ok: true, saved: true, name: call.name });
-    await surfaceLocal(client, native, 'r5-att-save', 'att-md', '');
+    await surfaceLocal(client, native, 'linked-att-save', 'att-md', '');
     const save = calls.find(call => call.method === 'attachmentSave')!;
     expect(save.payload).toMatchObject({ url: 'http://127.0.0.1:14861/api/assets/attachment/sig', name: 'notes.md' });
   });
@@ -209,7 +209,7 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
     replies.attachmentText = () => ({ ok: true, text, truncated: false });
     let json = '';
     replies.mermaidRender = () => ({ items: ['light', 'dark'].map(theme => ({ key: `${theme}\n${flow}`, json })) });
-    await surfaceLocal(client, native, 'r5-attachment', 'att-md', '');
+    await surfaceLocal(client, native, 'linked-attachment', 'att-md', '');
     let view = await panelView(client, native, 1);
     expect(view.attachment.markdownSource).toEqual([{ id: 'attachment:att-md', kind: 'attachment', title: '', body: text }]);
     expect(view.attachment.code.map(block => block.code)).toContain('const x = 1;');
@@ -225,25 +225,25 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
     const { client, replies } = fakeClient();
     replies['assets.createUrl'] = () => ({ relativeUrl: '/api/assets/x', expiresAt: 0 });
     replies.attachmentText = () => ({ ok: true, text: 'a,b\n1,2\n', truncated: false });
-    await surfaceLocal(client, native, 'r5-attachment', 'att-csv', '');
+    await surfaceLocal(client, native, 'linked-attachment', 'att-csv', '');
     let view = await panelView(client, native, 1);
     expect(view.attachment).toMatchObject({ preview: 'table', renderLabel: 'Show source', renderIcon: 'code' });
     expect(view.attachment.table[0]!.cells.map(cell => cell.text)).toEqual(['a', 'b']);
-    await surfaceLocal(client, native, 'r5-attachment', 'att-bin', '');
+    await surfaceLocal(client, native, 'linked-attachment', 'att-bin', '');
     view = await panelView(client, native, 1);
     expect(view.attachment).toMatchObject({ preview: 'none', canCopy: false, canSave: true, noPreview: 'Save it to open in an app that supports bin files.' });
     expect(findAttachment(client, 'img-1')).toBeNull(); // images open the expanded image dialog
-    await expect(surfaceLocal(client, native, 'r5-attachment', 'gone', '')).rejects.toThrow('That attachment is no longer available.');
+    await expect(surfaceLocal(client, native, 'linked-attachment', 'gone', '')).rejects.toThrow('That attachment is no longer available.');
   });
   test('a read failure shows the message and Try again reads afresh', async () => {
     const { client, replies } = fakeClient();
     replies['assets.createUrl'] = () => ({ relativeUrl: '/api/assets/x', expiresAt: 0 });
     replies.attachmentText = () => ({ ok: false, message: 'This file is not UTF-8 text. Open it in another app to view its contents.' });
-    await surfaceLocal(client, native, 'r5-attachment', 'att-md', '');
+    await surfaceLocal(client, native, 'linked-attachment', 'att-md', '');
     let view = await panelView(client, native, 1);
     expect(view.attachment).toMatchObject({ preview: 'error', error: 'This file is not UTF-8 text. Open it in another app to view its contents.', canCopy: false });
     replies.attachmentText = () => ({ ok: true, text: 'ok', truncated: true });
-    await surfaceLocal(client, native, 'r5-att-retry', 'att-md', '');
+    await surfaceLocal(client, native, 'linked-att-retry', 'att-md', '');
     view = await panelView(client, native, 1);
     expect(view.attachment).toMatchObject({ preview: 'markdown', copyLabel: 'Copy preview', truncatedNote: 'Preview limited to the first 1 MB of a 64 byte file. Save the file to read it in full.' });
   });

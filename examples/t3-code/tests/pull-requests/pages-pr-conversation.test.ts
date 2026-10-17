@@ -117,7 +117,7 @@ function fixture(replies: Record<string, Reply>) {
     savePreferences: async () => { native.push('save'); },
   } as unknown as T3Client;
   let wakes = 0;
-  const waking = { available: true, watch: () => {}, later: async (request: Obj) => { if (request.op === 'r10Wake') wakes++; return { ok: true, generation: 1, value: { at: NOW } }; } } as unknown as Native;
+  const waking = { available: true, watch: () => {}, later: async (request: Obj) => { if (request.op === 'wake') wakes++; return { ok: true, generation: 1, value: { at: NOW } }; } } as unknown as Native;
   const ask = (input: Partial<DetailInput> = {}) => pullRequestDetail(client, waking, { selected, refresh: 0, now: NOW, ...input });
   /** Ask until the answer stops waking the resource, as the runner does (LLP 1016.002 D4). */
   const settle = async (input: Partial<DetailInput> = {}) => { let before = wakes, view = await ask(input); for (let i = 0; wakes > before && i < 8; i++) { before = wakes; view = await ask(input); } return view; };

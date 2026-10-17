@@ -3,7 +3,7 @@
 
 // The strip's geometry: whether its tabs overflow, the viewport width, the furthest scroll, and
 // the active tab's span within the content row.
-shape R12TabStrip
+shape TabStrip
   overflow: bool
   view: number
   content: number
@@ -14,7 +14,7 @@ shape R12TabStrip
 
 // "Scroll panel tabs": two ghost icon-xs buttons (24pt, rounded 8, 14pt chevrons in the muted
 // icon colour), disabled at 64% at their end of the strip.
-component R12TabScroll
+component TabScroll
   props
     canLeft: bool
     canRight: bool
@@ -22,10 +22,10 @@ component R12TabScroll
     right: action
   view
     row flex-shrink=0 gap="0.125rem" align-items="center" role="group" aria-label="Scroll panel tabs" testId="panel-tab-scroll-buttons"
-      R12TabScrollButton(label="Scroll tabs left", geometry="M15 18l-6-6 6-6", enabled=canLeft, press=left, testId="panel-tabs-left")
-      R12TabScrollButton(label="Scroll tabs right", geometry="M9 18l6-6-6-6", enabled=canRight, press=right, testId="panel-tabs-right")
+      TabScrollButton(label="Scroll tabs left", geometry="M15 18l-6-6 6-6", enabled=canLeft, press=left, testId="panel-tabs-left")
+      TabScrollButton(label="Scroll tabs right", geometry="M9 18l6-6-6-6", enabled=canRight, press=right, testId="panel-tabs-right")
 
-component R12TabScrollButton
+component TabScrollButton
   props
     label: string
     geometry: string

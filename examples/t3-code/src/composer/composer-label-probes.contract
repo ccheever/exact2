@@ -6,7 +6,7 @@
 // invisible and out of flow, and reports its width through the app module's
 // t3-anchor hook (T3Composer.swift); composer-measure.ts reads the widths.
 
-component R5LabelProbe
+component LabelProbe
   props
     name: string
     label: string
@@ -15,36 +15,36 @@ component R5LabelProbe
     box hatch="t3-anchor" data-anchor=name display="flex" flex-direction="row" flex-shrink=0
       text (label == "" ? " " : label) font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) line-height=(xs ? "1rem" : "1.25rem") white-space="nowrap" flex-shrink=0
 
-component R5ComposerLabelProbes
+component ComposerLabelProbes
   props
     model: string
     traits: string
     runtime: string
     plan: string
   view
-    column position="absolute" left=0 top=0 opacity=0 pointer-events="none" aria-hidden=true align-items="flex-start" testId="r5-label-probes"
-      R5LabelProbe(name="m-model-sm", label=model, xs=false)
-      R5LabelProbe(name="m-model-xs", label=model, xs=true)
-      R5LabelProbe(name="m-traits-sm", label=traits, xs=false)
-      R5LabelProbe(name="m-traits-xs", label=traits, xs=true)
-      R5LabelProbe(name="m-runtime-sm", label=runtime, xs=false)
-      R5LabelProbe(name="m-runtime-xs", label=runtime, xs=true)
-      R5LabelProbe(name="m-plan-sm", label=plan, xs=false)
-      R5LabelProbe(name="m-plan-xs", label=plan, xs=true)
+    column position="absolute" left=0 top=0 opacity=0 pointer-events="none" aria-hidden=true align-items="flex-start" testId="composer-label-probes"
+      LabelProbe(name="m-model-sm", label=model, xs=false)
+      LabelProbe(name="m-model-xs", label=model, xs=true)
+      LabelProbe(name="m-traits-sm", label=traits, xs=false)
+      LabelProbe(name="m-traits-xs", label=traits, xs=true)
+      LabelProbe(name="m-runtime-sm", label=runtime, xs=false)
+      LabelProbe(name="m-runtime-xs", label=runtime, xs=true)
+      LabelProbe(name="m-plan-sm", label=plan, xs=false)
+      LabelProbe(name="m-plan-xs", label=plan, xs=true)
 
 // Menu texts the app sizes its menus by (composer-menus.ts): each text at its
 // own size and weight, one probe each, keyed by the anchor name it reports under.
-shape R5Probe
+shape TextProbe
   key: string
   text: string
   size: number
   weight: number
 
-component R5TextProbes
+component TextProbes
   props
-    probes: R5Probe[]
+    probes: TextProbe[]
   view
-    column position="absolute" left=0 top=0 opacity=0 pointer-events="none" aria-hidden=true align-items="flex-start" testId="r5-text-probes"
+    column position="absolute" left=0 top=0 opacity=0 pointer-events="none" aria-hidden=true align-items="flex-start" testId="composer-text-probes"
       for probe in probes key=probe.key
         box hatch="t3-anchor" data-anchor=probe.key display="flex" flex-direction="row" flex-shrink=0
           text probe.text font-size=probe.size font-weight=probe.weight line-height=`${probe.size + 4}px` white-space="nowrap" flex-shrink=0

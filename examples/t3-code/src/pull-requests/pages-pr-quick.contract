@@ -8,7 +8,7 @@
 // PullRequestStackPopover,PullRequestStackLayers,PullRequestStackHeader}.tsx, ui/{button,popover,menu}.tsx.
 use PgIcon from "../shared/pages-icons.contract"
 use Tip from "../shell/shell-tip.contract"
-use R6Check from "../details/pr-row-shapes.contract"
+use PrCheck from "../details/pr-row-shapes.contract"
 use KmItem from "../shared/menu-keys.contract"
 use KeyMenu from "../shared/menu-keys.contract"
 use kmTriggerKey, kmTriggerTarget from "../shared/menu-keys.contract"
@@ -43,7 +43,7 @@ shape PrChecksPopover
   loading: bool
   error: string
   empty: bool
-  rows: R6Check[]
+  rows: PrCheck[]
   collapsible: bool
   expanded: bool
 shape PrStackPopover
@@ -226,7 +226,7 @@ component PqCheckRow
   inject
     linkOpen: action
   props
-    check: R6Check
+    check: PrCheck
   view
     row width="100%" height="1rem" gap="0.5rem" align-items="center" role="listitem"
       if check.status == "pending"

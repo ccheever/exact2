@@ -67,7 +67,7 @@ component TimelineTimestamp
 // moves an end- (or start-) aligned bubble past the trigger's edge, as Base
 // UI's 5pt collision shift lands it against the window edge. An aligned
 // bubble's row reaches 360pt the other way, so a 320pt card shifted far in
-// (r8-pointer: the Send tooltip beside a right panel) never wraps early.
+// (the Send tooltip beside a right panel) never wraps early.
 component TipBubble
   inject
     rem: number

@@ -6,8 +6,8 @@ use DiffItem from "../shared/shapes.contract"
 use DiffSegment from "../shared/shapes.contract"
 use DiffFile from "../shared/shapes.contract"
 use DiffBaseRef from "../shared/shapes.contract"
-use R4Glyph from "../details/git.contract"
-use R4Switch from "../details/git.contract"
+use ExtraGlyph from "../details/git.contract"
+use ToggleSwitch from "../details/git.contract"
 use ReqIcon from "../composer/requests.contract"
 use diffInk from "../appearance/settings-appearance-look.contract"
 use synColor from "../timeline/markdown.contract"
@@ -16,7 +16,7 @@ use ShellView from "../shell/shell-shapes.contract"
 use ShellSurface from "../shell/shell-shapes.contract"
 use ShellIcon from "../shell/shell-icons.contract"
 use TipBubble from "../shell/shell-tip.contract"
-use R4PanelHeader from "../panel/panel.contract"
+use PanelHeader from "../panel/panel.contract"
 use DiffGlyph from "./diff-glyphs.contract"
 use DiffTree from "./diff-tree.contract"
 use DiffRow, DiffTool from "./diff-rows.contract"
@@ -80,7 +80,7 @@ component DiffPanelBody
   view
     column height="100%" width="100%" min-width=0 position="relative" box-sizing="border-box" background-color=(sheet ? "light-dark(#ffffff, #0a0a0a)" : "light-dark(#fcfcfc, #0a0a0a)") border-left-style="solid" border-left-width=1 border-color="light-dark(#e4e4e7, #191919)" box-shadow=(sheet ? "0 10px 15px -3px #0000000d, 0 4px 6px -4px #0000000d" : "none") testId="diff-panel" role=(sheet ? "dialog" : "region") aria-label="Diff"
       // The shared tab bar (every open surface, "+", the layout controls; the details toggle in a sheet).
-      R4PanelHeader(panel=shell.panel, surfaces=shell.surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=shell.keyThreadPanel, keyRightPanel=shell.keyRightPanel, terminalAvailable=shell.terminalAvailable, terminalOpen=shell.terminalOpen, keyTerminal=shell.keyTerminal, still=false, ui=ui, details=details, local=local, scheme="", searchFocused=false)
+      PanelHeader(panel=shell.panel, surfaces=shell.surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=shell.keyThreadPanel, keyRightPanel=shell.keyRightPanel, terminalAvailable=shell.terminalAvailable, terminalOpen=shell.terminalOpen, keyTerminal=shell.keyTerminal, still=false, ui=ui, details=details, local=local, scheme="", searchFocused=false)
       // A sheet's toolbar sits 6pt lower over the same content top (served reference at 840).
       column margin-top=(sheet ? "0.375rem" : "0px")
         DiffToolbar(data=data, command=command)
@@ -374,7 +374,7 @@ component DiffBasePicker
         column width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" box-sizing="border-box" flex-shrink=0
           row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" position="relative" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color=(focused ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#e4e4e7b3, #ffffff0b)")
             box position="absolute" left=0 top="0.375rem" display="flex" pointer-events="none"
-              R4Glyph(name="search", size=16, color="light-dark(#71717a8c, #8181818c)")
+              ExtraGlyph(name="search", size=16, color="light-dark(#71717a8c, #8181818c)")
             if query == ""
               text "Search refs..." position="absolute" left="1.25rem" top=0 font-size="0.875rem" line-height="1.625rem" color="light-dark(#71717a, #818181)" aria-hidden=true pointer-events="none"
             input id="diff-base-search" value=query input=edit key=searchKey submit=pick focus=searchFocus(true) blur=searchFocus(false) autofocus=true role="combobox" aria-label="Search refs..." testId="diff-base-search" flex=1 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
@@ -406,7 +406,7 @@ component DiffBaseRow
       row width="2rem" margin-right="0.5rem" flex-shrink=0 justify-content="flex-end" align-items="center"
         if ref.remote == "switch"
           button press=command("diff-base", "", ref.other, 0) popovertarget="diff-base-menu" popovertargetaction="hide" role="switch" aria-checked=ref.remoteOn aria-label=`Use remote version of ${ref.label}` testId=`diff-base-remote-${ref.label}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
-            R4Switch(on=ref.remoteOn)
+            ToggleSwitch(on=ref.remoteOn)
         if ref.remote == "only"
           box display="flex" role="img" aria-label="Remote only" title="Remote only" testId=`diff-base-remote-only-${ref.label}`
             ShellIcon(name="check", size=12, color="light-dark(#71717a, #818181)")

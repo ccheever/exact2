@@ -12,12 +12,12 @@ import Foundation
 /// A backlog over the soft queue therefore opens a window; the feed is behind only when the
 /// backlog is still over it a `window` later and has not shrunk. A burst drains within it; a
 /// decoder slower than the stream does not, and recovers as the reference's does.
-struct R11DecodeBacklog {
+struct T3DecodeBacklog {
     static let window: TimeInterval = 1
     private var since: (at: TimeInterval, pending: Int)?
 
     /// Whether the decoder has fallen behind, given the samples it holds now.
-    mutating func behind(pending: Int, soft: Int = R7H264.softDecodeQueue, now: TimeInterval) -> Bool {
+    mutating func behind(pending: Int, soft: Int = T3H264.softDecodeQueue, now: TimeInterval) -> Bool {
         guard pending > soft else { since = nil; return false }
         guard let start = since else { since = (now, pending); return false }
         guard now - start.at >= Self.window else { return false }

@@ -177,7 +177,7 @@ final class TerminalInputMethodTests: XCTestCase {
     private var window: NSWindow!
     private var view: T3TerminalView!
     private var method: FakeHangulInputMethod!
-    private var latin: R10Connect!
+    private var latin: T3LatinChords!
 
     override func setUpWithError() throws {
         let app = try XCTUnwrap(ProcessInfo.processInfo.environment["T3_APP_DIR"], "set T3_APP_DIR to examples/t3-code")
@@ -194,7 +194,7 @@ final class TerminalInputMethodTests: XCTestCase {
         spin(until: { self.view.focused && self.view.web.inputContext != nil }, timeout: 5)
         method = FakeHangulInputMethod()
         method.install()
-        latin = R10Connect(agent: true)
+        latin = T3LatinChords(agent: true)
     }
 
     override func tearDown() {
@@ -216,7 +216,7 @@ final class TerminalInputMethodTests: XCTestCase {
     }
 
     /// A key down and up as AppKit dispatches a person's: the local monitors (the module's re-issue of
-    /// a ⌃ or ⌘ chord typed under a non-Latin layout with its key's Latin letter, R10Connect, when
+    /// a ⌃ or ⌘ chord typed under a non-Latin layout with its key's Latin letter, T3LatinChords, when
     /// `monitors`; then the terminal's), then `-[NSApplication sendEvent:]`, which offers a key down
     /// with ⌘, ⌃ or fn to the key window's `performKeyEquivalent:` first and sends it to the window
     /// (the first responder's keyDown) only if no view takes it. The test app is never active, so its

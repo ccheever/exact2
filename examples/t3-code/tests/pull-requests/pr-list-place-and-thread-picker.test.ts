@@ -27,7 +27,7 @@ const rows = Array.from({ length: 30 }, (_, index) => ({ projectId: 'p-gh', host
 /**
  * T3Transport as the fleet sees one background environment (the GitHub lane added from Settings › Connections): its
  * status, the bootstrap, and the inbox. `foreground()` is T3Transport.applicationActive: a `_retryDue` on the shell
- * stream, as macos/tests/transport/r3.swift proves the transport appends when the app becomes active.
+ * stream, as macos/tests/transport/reconnect.swift proves the transport appends when the app becomes active.
  */
 function backgroundTransport() {
   let serial = 0, seq = 0, generation = 1;

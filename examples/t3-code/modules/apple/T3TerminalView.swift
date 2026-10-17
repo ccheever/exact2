@@ -294,7 +294,7 @@ final class T3TerminalView: ExactNativeInstance {
         markedKey = event
         let flags = event.modifierFlags
         send(["type": "compositionKey", "metaKey": flags.contains(.command), "ctrlKey": flags.contains(.control),
-              "altKey": flags.contains(.option), "shiftKey": flags.contains(.shift), "code": R7DeviceKeys.codes[event.keyCode] ?? ""])
+              "altKey": flags.contains(.option), "shiftKey": flags.contains(.shift), "code": T3DeviceKeys.codes[event.keyCode] ?? ""])
     }
 
     /// Reconnects the input context to an input method another process selected (T3TerminalInputSource).

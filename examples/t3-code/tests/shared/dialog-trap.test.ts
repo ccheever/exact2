@@ -47,7 +47,7 @@ const GUARDED: Record<string, string> = {
   'composer-video.contract "video-preview"': 'video-preview',
   'composer-chip-image.contract "chip-image-preview"': 'chip-image-preview',
   'composer-chip-file.contract "chip-file-preview"': 'chip-file-preview',
-  'git.contract testId': 'r4-dialog',
+  'git.contract testId': 'dialog-frame',
   'panel.contract "device-setup"': 'device-setup',
   'pr-row.contract "pr-merge-dialog"': 'pr-merge',
   'pr-checkout.contract "pr-checkout-dialog"': 'pr-checkout',
@@ -232,7 +232,7 @@ describe('the FocusGuard pair (Base UI FloatingFocusManager\'s inside guards)', 
   });
 
   test.each([
-    ['git-publish.contract', 'R4Step', 'git.contract', 'R4Dialog', 'git-publish-step-0', 'git-publish-dialog', { index: 0, current: 0 }, { index: 0, current: 2 }],
+    ['git-publish.contract', 'PublishStep', 'git.contract', 'DialogFrame', 'git-publish-step-0', 'git-publish-dialog', { index: 0, current: 0 }, { index: 0, current: 2 }],
     ['settings-rows.contract', 'CoreSelect', 'settings-a-dialogs.contract', 'SaDialog', 'setting-background-policy', 'background-activity-dialog', { rowId: 'background-policy', disabled: false }, { rowId: 'background-policy', disabled: true }],
     ['pages-usage-prices.contract', 'UsageGhostIcon', 'pages-usage-dialogs.contract', 'UsageDialogShell', 'usage-prices-add', 'usage-prices-dialog', { elementId: 'usage-prices-add', disabled: false }, { elementId: 'usage-prices-add', disabled: true }],
   ] as const)('%s %s exposes its actual eligibility to the shared dialog guards', (file, component, frameFile, frameComponent, first, popup, on, off) => {
@@ -298,8 +298,8 @@ describe('the guards name ordered controls; mounted enabled filtering decides bu
     expect(targets('snapshot.contract', 'SnapshotSetup', {})).toEqual(['snapshot-setup-record', 'snapshot-permission-screen-allow', 'snapshot-permission-accessibility-allow', 'snapshot-setup-advanced', 'snapshot-setup-cancel', 'snapshot-setup-close']);
     expect(targets('providers-wizard.contract', 'UsageHubDialog', {})).toEqual(['usage-hub-url', 'usage-hub-label', 'usage-hub-close']);
     expect(targets('settings-a-hosts.contract', 'DeviceHostDialog', {})).toEqual(['device-host-name', 'device-host-options', 'device-host-close']);
-    expect(targets('pr-checkout.contract', 'R9CheckoutDialog', {})).toEqual(['pr-checkout-input', 'pr-checkout-close']);
-    expect(targets('panel.contract', 'R4DeviceSetup', {})).toEqual(['device-setup-step-0', 'device-setup-close']);
+    expect(targets('pr-checkout.contract', 'CheckoutDialog', {})).toEqual(['pr-checkout-input', 'pr-checkout-close']);
+    expect(targets('panel.contract', 'DeviceSurfaceSetup', {})).toEqual(['device-setup-step-0', 'device-setup-close']);
   });
 });
 
@@ -331,7 +331,7 @@ describe('the reference\'s order of stops', () => {
     }
   });
 
-  test('the shared frames put the X after their content: R4Dialog, SaDialog, UsageDialogShell', () => {
+  test('the shared frames put the X after their content: DialogFrame, SaDialog, UsageDialogShell', () => {
     for (const [file, close] of [['git.contract', 'button id=`${testId}-close`'], ['settings-a-dialogs.contract', 'button id=`${dialogId}-close`'], ['pages-usage-dialogs.contract', 'button id=`${dialogId}-close`']] as const) {
       const text = source(file);
       expect(text.indexOf(close)).toBeGreaterThan(text.indexOf('        children', text.indexOf('FocusGuard(')));
@@ -378,7 +378,7 @@ describe('review fixes (PR #431)', () => {
   });
 
   test('a shared control takes the id a guard names as its own prop, so no two instances share one', () => {
-    const shared = ['MediaActions', 'UsagePrimaryButton', 'UsageGhostIcon', 'WelcomePrimary', 'WelcomeGhost', 'WelcomeDisclosure', 'R4Button', 'R4Checkbox', 'PreviewStep', 'PaletteToggle'];
+    const shared = ['MediaActions', 'UsagePrimaryButton', 'UsageGhostIcon', 'WelcomePrimary', 'WelcomeGhost', 'WelcomeDisclosure', 'DialogButton', 'DialogCheckbox', 'PreviewStep', 'PaletteToggle'];
     // What a guard can name: its target's literals, and those of the `first` a shared frame's guard takes.
     const firsts = (line: string) => [...line.matchAll(/\bfirst=(\((?:[^()]|\([^()]*\))*\)|"[^"]*")/g)].flatMap(m => named(m[1]!));
     const targets = new Set([...sources.values()].flatMap(text => text.split('\n')).flatMap(line =>

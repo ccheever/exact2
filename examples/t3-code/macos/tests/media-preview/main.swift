@@ -14,7 +14,7 @@ final class LoopbackAssets {
     private(set) var paths: [String] = []
     var bodies: [String: (String, Data)] = [:]
     private(set) var port: UInt16 = 0
-    private let queue = DispatchQueue(label: "r6-media-assets")
+    private let queue = DispatchQueue(label: "media-preview-assets")
 
     init() throws {
         listener = try NWListener(using: .tcp, on: .any)
@@ -49,7 +49,7 @@ final class MediaPreviewTests: XCTestCase {
     private var window: NSWindow!
     private var host: NSView!
     private var assets: LoopbackAssets!
-    private let media = R6MediaPreview(agent: true)
+    private let media = T3MediaPreview(agent: true)
 
     override func setUpWithError() throws {
         assets = try LoopbackAssets()
@@ -128,7 +128,7 @@ final class MediaPreviewTests: XCTestCase {
         spin(until: { self.evaluate(web, "String(document.getElementById('i').naturalWidth)") == "12" }, timeout: 5)
         XCTAssertEqual(evaluate(web, "String(document.getElementById('i').naturalWidth)"), "12", "an image from another host painted")
         XCTAssertEqual(evaluate(web, "document.querySelector('iframe').getAttribute('sandbox')", frame: false), "allow-scripts allow-forms allow-popups allow-modals")
-        save(web, "r6-media-html.png")
+        save(web, "media-html.png")
         // One click per script: WebKit drops a new window a second navigation in the same turn supersedes.
         _ = evaluate(web, "document.getElementById('b').click(); 'clicked'")
         RunLoop.main.run(until: Date().addingTimeInterval(0.8))
@@ -176,8 +176,8 @@ final class MediaPreviewTests: XCTestCase {
         let seen = Set(assets.seen.map { String($0.split(separator: "?").first ?? "") })
         XCTAssertTrue(seen.isSuperset(of: ["\(dir)/page.html", "\(dir)/style.css", "\(dir)/js/app.js", "\(dir)/img/dot.svg", "\(dir)/data.json", "/api/assets/other/leak.png", "/beacon-fetch"]),
                       "the token directory and, as in the reference, every other path the page names: \(seen)")
-        XCTAssertEqual(R6MediaPreview.wrapperURL(for: URL(string: "\(base)\(dir)/page.html?x=1")!)?.absoluteString, "\(base)/api/assets/")
-        save(web, "r11-misc-sibling.png")
+        XCTAssertEqual(T3MediaPreview.wrapperURL(for: URL(string: "\(base)\(dir)/page.html?x=1")!)?.absoluteString, "\(base)/api/assets/")
+        save(web, "sibling-link.png")
     }
 
     func testPdfFitsTheWidthOnTheViewerSurface() throws {
@@ -195,7 +195,7 @@ final class MediaPreviewTests: XCTestCase {
         let pdf = try XCTUnwrap(document.dataRepresentation())
         assets.bodies["/api/assets/report"] = ("application/pdf", pdf)
         media.mount(host: host, kind: "pdf", raw: "http://127.0.0.1:\(assets.port)/api/assets/report", name: "report.pdf")
-        let body = try XCTUnwrap(host.subviews.first as? R6PDFBody)
+        let body = try XCTUnwrap(host.subviews.first as? T3PDFBody)
         let view = body.pdf
         spin(until: { view.document != nil })
         XCTAssertEqual(view.document?.pageCount, 2)
@@ -209,13 +209,13 @@ final class MediaPreviewTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         XCTAssertEqual(view.frame, body.bounds)
         XCTAssertLessThan(try firstPage(in: body).top, 12)
-        save(view, "r6-media-pdf.png")
+        save(view, "media-pdf.png")
         media.unmount(host: host)
         XCTAssertTrue(host.subviews.isEmpty)
     }
 
     /// Where the first page sits in the body's box (flipped): its top gap and the surface below it.
-    private func firstPage(in body: R6PDFBody) throws -> (top: CGFloat, below: CGFloat, height: CGFloat) {
+    private func firstPage(in body: T3PDFBody) throws -> (top: CGFloat, below: CGFloat, height: CGFloat) {
         let page = try XCTUnwrap(body.pdf.document?.page(at: 0))
         let rect = body.convert(body.pdf.convert(page.bounds(for: .mediaBox), from: page), from: body.pdf)
         return (rect.minY, body.bounds.maxY - rect.maxY, rect.height)
@@ -238,10 +238,10 @@ final class MediaPreviewTests: XCTestCase {
         <script>document.getElementById('s').textContent = 'ran:' + self.origin;</script>
         """.utf8).write(to: root.appendingPathComponent(pageID))
         try Data(repeating: 0, count: 64).write(to: root.appendingPathComponent(audioID))
-        let media = R6MediaPreview(agent: true, stagedFile: { id in [pdfID, pageID, audioID].contains(id) ? root.appendingPathComponent(id) : nil })
+        let media = T3MediaPreview(agent: true, stagedFile: { id in [pdfID, pageID, audioID].contains(id) ? root.appendingPathComponent(id) : nil })
         defer { media.destroy() }
         media.mount(host: host, kind: "pdf", raw: "t3-staged:\(pdfID)", name: "spec.pdf")
-        let body = try XCTUnwrap(host.subviews.first as? R6PDFBody)
+        let body = try XCTUnwrap(host.subviews.first as? T3PDFBody)
         spin(until: { body.pdf.document != nil })
         XCTAssertEqual(body.pdf.document?.pageCount, 1)
         XCTAssertEqual(media.loaded["spec.pdf"], "pdf:1")
@@ -287,12 +287,12 @@ final class MediaPreviewTests: XCTestCase {
         XCTAssertEqual(Set(other.seen.map { String($0.split(separator: "?").first ?? "") }), ["/next.html"], "the popup and the top navigation never reached the host")
         // Audio: AVKit's inline controls, from a typed link beside the staged copy.
         media.mount(host: host, kind: "audio", raw: "t3-staged:\(audioID)", name: "memo.mp3")
-        let audio = try XCTUnwrap(host.subviews.first as? R6AudioBody)
+        let audio = try XCTUnwrap(host.subviews.first as? T3AudioBody)
         XCTAssertNotNil(audio.player.player)
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("\(audioID).mp3").path))
         // A copy that is gone says so.
         media.mount(host: host, kind: "pdf", raw: "t3-staged:\(UUID().uuidString.lowercased())", name: "gone.pdf")
-        let gone = try XCTUnwrap(host.subviews.first as? R6PDFBody)
+        let gone = try XCTUnwrap(host.subviews.first as? T3PDFBody)
         XCTAssertTrue(gone.subviews.contains { ($0 as? NSTextField)?.stringValue == "Could not load this file." })
     }
 
@@ -303,15 +303,15 @@ final class MediaPreviewTests: XCTestCase {
         let sheet = NSView(frame: NSRect(x: 0, y: 0, width: 612, height: 792))
         assets.bodies["/api/assets/guide"] = ("application/pdf", sheet.dataWithPDF(inside: sheet.bounds))
         media.mount(host: host, kind: "pdf", raw: "http://127.0.0.1:\(assets.port)/api/assets/guide", name: "guide.pdf")
-        let body = try XCTUnwrap(host.subviews.first as? R6PDFBody)
+        let body = try XCTUnwrap(host.subviews.first as? T3PDFBody)
         spin(until: { body.pdf.document != nil })
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         var page = try firstPage(in: body)
         XCTAssertLessThan(page.height, body.bounds.height * 0.75, "the page is shorter than the panel")
         XCTAssertLessThan(page.top, 12, "the page starts at the top of the panel (top gap \(page.top))")
         XCTAssertGreaterThan(page.below, 250, "the viewer surface is below the page (\(page.below))")
-        XCTAssertEqual(body.layer?.backgroundColor, R6MediaPreview.viewerSurface.cgColor)
-        save(body, "r6-media-pdf-short.png")
+        XCTAssertEqual(body.layer?.backgroundColor, T3MediaPreview.viewerSurface.cgColor)
+        save(body, "media-pdf-short.png")
         // The same after the panel grows (the host lays out again after the bytes arrive).
         host.frame = NSRect(x: 0, y: 0, width: 300, height: 840)
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
@@ -343,7 +343,7 @@ final class MediaPreviewTests: XCTestCase {
 
 _ = NSApplication.shared
 NSApp.setActivationPolicy(.accessory)
-let suite = XCTestSuite(name: "r6-media")
+let suite = XCTestSuite(name: "media-preview")
 suite.addTest(XCTestSuite(forTestCaseClass: MediaPreviewTests.self))
 suite.addTest(XCTestSuite(forTestCaseClass: WebInspectionTests.self))
 suite.run()

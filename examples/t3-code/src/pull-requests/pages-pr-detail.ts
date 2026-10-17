@@ -120,7 +120,7 @@ export type PrDetailView = ReturnType<typeof emptyDetail>;
 
 // ── The panel's reads ───────────────────────────────────────────────────────
 
-/** The topic this resource watches; T3LatinChords.swift `r10Wake` announces it. */
+/** The topic this resource watches; T3LatinChords.swift `wake` announces it. */
 export const PR_WAKE_TOPIC = 't3.pr';
 type Panel = {
   key: string; reference: PullRequestDetailSnapshotRef; cached: Obj | null;
@@ -205,7 +205,7 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
 }
 async function wake(client: T3Client, native: Native, view: PrDetailView, panel: Panel): Promise<PrDetailView> {
   shown.set(client, phaseOf(panel));
-  try { await native.later({ op: 'r10Wake', topic: PR_WAKE_TOPIC }); } catch (error) { if (letGo(error)) throw error; }
+  try { await native.later({ op: 'wake', topic: PR_WAKE_TOPIC }); } catch (error) { if (letGo(error)) throw error; }
   return view;
 }
 /** useLiveRefresh: an arrival (a reopened view, the window shown or focused again) and the 5-minute interval read the detail. */
@@ -417,7 +417,7 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
   if (op === 'act-on') { const ctx = contextOf(client, selected); if (ctx) chooseActOn(client, ctx.key, value); return ''; } // "Act on"'s radio
   // The linked threads' count and the Link item (`palette:…` opens the palette), and a pull request link's click.
   if (op === 'links') { if (!storage) throw new ClientError('Open on macOS to link pull requests.'); return linksCommand(client, native, storage, value); }
-  if (op === 'link-open') return openLink(client, native, linkPanelOnPage(client), value, async (url, target) => { await surfaceLocal(client, native, 'r5-pr-open', target, url); });
+  if (op === 'link-open') return openLink(client, native, linkPanelOnPage(client), value, async (url, target) => { await surfaceLocal(client, native, 'linked-pr-open', target, url); });
   // A checkout hand-off's second half, once the window shows its thread.
   if (op === 'handoff-run') return finishCheckoutHandoff(client, native);
   // A list row's Shift quick action (it names its own row, whatever is selected).

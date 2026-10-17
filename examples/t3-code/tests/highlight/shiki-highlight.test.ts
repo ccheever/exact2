@@ -28,7 +28,7 @@ const SHIKI: [string, string, string, string][] = [["type-alias right-hand sides
 // An app test may leave slicing on, and a language's first use then defers its tokens.
 beforeEach(() => resetHighlightSlicing());
 
-describe('the shared highlighter against Shiki 4.2 (r12-render)', () => {
+describe('the shared highlighter against Shiki 4.2', () => {
   for (const [name, lang, code, expected] of SHIKI) test(name, () => {
     const tokens = highlight(code, lang);
     expect(tokens.map(token => token.text).join('')).toBe(code);

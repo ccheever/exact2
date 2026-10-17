@@ -93,7 +93,7 @@ export function presentThreads(client: object, state: ThreadState, reference: Wr
 }
 
 export type ThreadContext = { client: T3Client; native: Native; state: ThreadState; reference: WriteReference; threads: () => Obj[]; refresh: () => void };
-const wake = async (native: Native) => { try { await native.later({ op: 'r10Wake', topic: 't3.pr' }); } catch (error) { if (letGo(error)) throw error; } };
+const wake = async (native: Native) => { try { await native.later({ op: 'wake', topic: 't3.pr' }); } catch (error) { if (letGo(error)) throw error; } };
 const split = (value: string, count: number) => { const parts: string[] = []; let rest = value; for (let i = 1; i < count; i++) { const bar = rest.indexOf('|'); if (bar < 0) break; parts.push(rest.slice(0, bar)); rest = rest.slice(bar + 1); } parts.push(rest); return parts; };
 
 /** runThreadCommand: one write at a time; a failure toasts its label; success re-reads the detail. */

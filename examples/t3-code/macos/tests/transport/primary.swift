@@ -16,7 +16,7 @@ final class PrimaryTransportTests: XCTestCase {
     }
     /// The embedded server: environment "local-env"; the session answers only the memory bearer.
     private func serve(_ headers: Headers) {
-        R3HTTP.reset { (request: URLRequest) -> (Int, Any) in
+        FixtureHTTP.reset { (request: URLRequest) -> (Int, Any) in
             let descriptor: [String: Any] = ["environmentId": "local-env", "label": "Morgan's MacBook Pro", "orchestrationProtocolVersion": 2,
                                              "capabilities": ["connectionProbe": true] as [String: Any]]
             let session: [String: Any] = ["authenticated": true, "scopes": ["orchestration:read", "orchestration:operate", "access:write"]]
@@ -36,7 +36,7 @@ final class PrimaryTransportTests: XCTestCase {
     private func makeTransport(persistent: Bool = false, defaults: UserDefaults = .standard, saved: T3SavedEnvironments = T3SavedEnvironments(persistent: false),
                                credentials: T3Credentials = T3Credentials(persistent: false), bearer: @escaping () -> String? = { "memory-bearer" }) -> T3Transport {
         let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [R3HTTP.self]
+        config.protocolClasses = [FixtureHTTP.self]
         let transport = T3Transport(persistent: persistent, configuration: config, credentials: credentials, savedEnvironments: saved,
                                     defaults: defaults, signals: false, changed: { _ in })
         transport.primaryBearer = bearer
@@ -57,7 +57,7 @@ final class PrimaryTransportTests: XCTestCase {
     }
 
     func testThePrimaryConnectsWithTheMemoryBearerAndIsNeverSaved() throws {
-        let socket = try R3Socket(), headers = Headers(), saved = T3SavedEnvironments(persistent: false), credentials = T3Credentials(persistent: false)
+        let socket = try FixtureSocket(), headers = Headers(), saved = T3SavedEnvironments(persistent: false), credentials = T3Credentials(persistent: false)
         serve(headers)
         let transport = makeTransport(saved: saved, credentials: credentials); defer { transport.destroy() }
         let origin = "http://127.0.0.1:\(socket.port)"
@@ -68,14 +68,14 @@ final class PrimaryTransportTests: XCTestCase {
         XCTAssertEqual(value["focus"] as? String, "primary")
         XCTAssertEqual(value["environmentId"] as? String, "local-env")
         XCTAssertEqual(Set(headers.all), ["Bearer memory-bearer"], "every authorized request carries the memory bearer")
-        XCTAssertEqual(R3HTTP.count("/oauth/token"), 0, "no pairing exchange")
+        XCTAssertEqual(FixtureHTTP.count("/oauth/token"), 0, "no pairing exchange")
         XCTAssertTrue(saved.all.isEmpty, "the primary is never a saved environment")
         XCTAssertNil(try credentials.read(origin: origin, environment: "local-env"), "nor a stored credential")
         XCTAssertEqual(socket.header("x-t3-orchestration-protocol", connection: 0), "2")
     }
 
     func testThePrimaryWaitsForItsBearerOnItsLadderInsteadOfFailing() throws {
-        let socket = try R3Socket(), headers = Headers()
+        let socket = try FixtureSocket(), headers = Headers()
         serve(headers)
         final class Bearer: @unchecked Sendable { var value: String? }
         let bearer = Bearer()
@@ -89,7 +89,7 @@ final class PrimaryTransportTests: XCTestCase {
     }
 
     func testAFocusOnThePrimaryNeverRewritesTheRememberedOrigin() throws {
-        let first = try R3Socket(), second = try R3Socket(), headers = Headers()
+        let first = try FixtureSocket(), second = try FixtureSocket(), headers = Headers()
         serve(headers)
         let suite = "exact-t3-transport-primary-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -119,7 +119,7 @@ final class PrimaryTransportTests: XCTestCase {
     }
 
     func testForgettingASavedDuplicateKeepsThePrimaryConnected() throws {
-        let socket = try R3Socket(), headers = Headers(), saved = T3SavedEnvironments(persistent: false), credentials = T3Credentials(persistent: false)
+        let socket = try FixtureSocket(), headers = Headers(), saved = T3SavedEnvironments(persistent: false), credentials = T3Credentials(persistent: false)
         serve(headers)
         let transport = makeTransport(saved: saved, credentials: credentials); defer { transport.destroy() }
         _ = perform(transport, ["op": "connect", "origin": "http://127.0.0.1:\(socket.port)", "primary": true])
@@ -140,7 +140,7 @@ final class PrimaryTransportTests: XCTestCase {
 
     func testForgettingAFocusedDuplicateSaysSoSoThePrimaryCanTakeTheWindow() throws {
         // A launch opened the duplicate by its remembered origin (the primary had not named itself yet).
-        let socket = try R3Socket(), headers = Headers(), saved = T3SavedEnvironments(persistent: false), credentials = T3Credentials(persistent: false)
+        let socket = try FixtureSocket(), headers = Headers(), saved = T3SavedEnvironments(persistent: false), credentials = T3Credentials(persistent: false)
         serve(headers)
         let duplicate = "http://127.0.0.1:\(socket.port)"
         saved.remember(origin: duplicate, descriptor: ["environmentId": "local-env", "label": "Old pairing"])
@@ -157,7 +157,7 @@ final class PrimaryTransportTests: XCTestCase {
     func testPairingThisMachinesOwnServerSpendsTheCodeAndSavesNothing() throws {
         // The reference's `register` does nothing for the primary's environment id (registry.ts).
         let exchanged = Headers(), saved = T3SavedEnvironments(persistent: false), credentials = T3Credentials(persistent: false)
-        R3HTTP.reset { (request: URLRequest) -> (Int, Any) in
+        FixtureHTTP.reset { (request: URLRequest) -> (Int, Any) in
             switch request.url!.path {
             case "/.well-known/t3/environment": return (200, ["environmentId": "local-env", "label": "Lane Mac", "orchestrationProtocolVersion": 2] as [String: Any])
             case "/oauth/token": exchanged.add("code"); return (200, ["token_type": "Bearer", "access_token": "paired-token"] as [String: Any])

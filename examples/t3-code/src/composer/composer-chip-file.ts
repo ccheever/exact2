@@ -86,17 +86,17 @@ export async function composerFileView(client: T3Client, native: Native | null |
 }
 
 /**
- * `editorlocal:chip-file`: `id` the control (the header's `surface-r5-att-<op>`, or `close`), `value` the draft file.
+ * `editorlocal:chip-file`: `id` the control (the header's `surface-linked-att-<op>`, or `close`), `value` the draft file.
  * Remove from draft is removeComposerFileFromDraft (the chip and the staged copy go), then the dialog closes.
  */
 export async function composerFileLocal(client: T3Client, native: Native, control: string, value: string): Promise<string> {
-  const op = control.replace(/^surface-r5-att-/, ''), file = openFile(client);
+  const op = control.replace(/^surface-linked-att-/, ''), file = openFile(client);
   // A control of a preview already gone (a late media error) leaves the open one alone.
   if (!file || file.id !== value) return '';
   if (op === 'close') { close(client); return ''; }
   if (op === 'remove') {
     close(client);
-    return videoOp(client, native, 'r4c-video-remove', file.id);
+    return videoOp(client, native, 'shelf-video-remove', file.id);
   }
   const { meta, source } = draftSource(client, native, file);
   return attachmentOp(client, native, meta, source, op, 0);

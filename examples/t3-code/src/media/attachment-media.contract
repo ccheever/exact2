@@ -8,21 +8,21 @@
 // - Video: `<video controls playsInline class="max-h-full max-w-full">` centred on black.
 // Audio and video are Contract `video` nodes with `controls` (AVKit); their `error` event is the
 // reference's onError ("Unable to load audio." / "Unable to load video.", attachment-media.ts).
-use R5Attachment from "../panel/pr-attachment-shapes.contract"
+use AttachmentSurface from "../panel/pr-attachment-shapes.contract"
 
-component R6MediaBody
+component AttachmentMediaBody
   props
-    att: R5Attachment
+    att: AttachmentSurface
     local: action
   view
-    // A draft's audio plays from its staged copy in the same hook (T3MediaPreview.swift R6AudioBody).
+    // A draft's audio plays from its staged copy in the same hook (T3MediaPreview.swift T3AudioBody).
     if att.preview == "audio-local"
       box hatch="t3-media" data-media-url=att.url data-media-kind="audio" data-media-name=att.name flex=1 min-height=0 width="100%" aria-label=att.name testId="attachment-audio"
     if att.preview == "pdf" or att.preview == "html"
       box hatch="t3-media" data-media-url=att.url data-media-kind=att.preview data-media-name=att.name flex=1 min-height=0 width="100%" background-color="#ffffff" aria-label=att.name testId=`attachment-${att.preview}`
     if att.preview == "audio"
       column flex=1 min-height=0 width="100%" padding="1.5rem" box-sizing="border-box" align-items="center" justify-content="center" testId="attachment-audio"
-        video att.url controls=true preload="metadata" aria-label=att.name error=local("surface-r5-att-media-error", att.id) width="100%" max-width="36rem" height="3.375rem" flex-shrink=0 border-radius="1.6875rem" overflow="hidden" testId="attachment-audio-player"
+        video att.url controls=true preload="metadata" aria-label=att.name error=local("surface-linked-att-media-error", att.id) width="100%" max-width="36rem" height="3.375rem" flex-shrink=0 border-radius="1.6875rem" overflow="hidden" testId="attachment-audio-player"
     if att.preview == "video"
       column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" overflow="hidden" background-color="#000000" testId="attachment-video"
-        video att.url controls=true playsinline=true preload="metadata" aria-label=att.name error=local("surface-r5-att-media-error", att.id) max-width="100%" max-height="100%" object-fit="contain" testId="attachment-video-player"
+        video att.url controls=true playsinline=true preload="metadata" aria-label=att.name error=local("surface-linked-att-media-error", att.id) max-width="100%" max-height="100%" object-fit="contain" testId="attachment-video-player"

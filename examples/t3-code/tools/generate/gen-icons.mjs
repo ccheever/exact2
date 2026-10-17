@@ -20,7 +20,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DIFF_GLYPHS, ICON, ICON_FILLED, ICON_THIN, PROVIDER_FILLED, PROVIDER_ICON, R4_ICON, SETTINGS_ICONS, SHELL_ICON, SIDEBAR_ICON, TIMELINE_ICON } from './icon-tables.mjs';
+import { DIFF_GLYPHS, ICON, ICON_FILLED, ICON_THIN, PROVIDER_FILLED, PROVIDER_ICON, PANEL_ICON, SETTINGS_ICONS, SHELL_ICON, SIDEBAR_ICON, TIMELINE_ICON } from './icon-tables.mjs';
 import { DIFF_STATUS, DRIVER_MARKS, EDITOR_MARKS, PROVIDER_MARKS, SHELL_EDITOR_MARKS, SOURCE_CONTROL_MARKS, TIMELINE_MARKS, WORDMARK } from './icon-marks.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -422,13 +422,13 @@ ${markComponents(TIMELINE_MARKS)}
 `;
 }
 
-async function r4Contract() {
-  return `${header(`R4Icon: the Lucide glyphs the right panel's surfaces draw (${LUCIDE_PIN}, ISC), each flattened to
-// one path (icon-tables.mjs R4_ICON).`)}
+async function panelContract() {
+  return `${header(`PanelIcon: the Lucide glyphs the right panel's surfaces draw (${LUCIDE_PIN}, ISC), each flattened to
+// one path (icon-tables.mjs PANEL_ICON).`)}
 
-${await lookupFn('r4Path', R4_ICON)}
+${await lookupFn('panelIconPath', PANEL_ICON)}
 
-${glyphComponent('R4Icon', 'path d=r4Path(name)')}
+${glyphComponent('PanelIcon', 'path d=panelIconPath(name)')}
 `;
 }
 
@@ -559,7 +559,7 @@ export async function generate() {
     { file: join(example, 'src', 'sidebar', 'sidebar-icons.contract'), text: await tableContract(`SidebarIcon: ${LUCIDE} for the sidebar's own glyphs, each
 // flattened to one path (icon-tables.mjs SIDEBAR_ICON).`, 'sidebarIconGeometry', SIDEBAR_ICON, 'SidebarIcon') },
     { file: join(example, 'src', 'timeline', 'timeline-icons.contract'), text: await timelineContract() },
-    { file: join(example, 'src', 'panel', 'panel-icons.contract'), text: await r4Contract() },
+    { file: join(example, 'src', 'panel', 'panel-icons.contract'), text: await panelContract() },
     { file: join(example, 'src', 'settings', 'settings-icons.contract'), text: await settingsContract() },
     { file: join(example, 'src', 'providers', 'provider-icons.contract'), text: await providerContract() },
     { file: join(example, 'src', 'diff', 'diff-glyphs.contract'), text: await diffContract(symbols) },

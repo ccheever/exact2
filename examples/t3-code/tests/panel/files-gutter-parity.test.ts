@@ -15,7 +15,7 @@ import { appPath } from '../support/app-files';
 const source = (file: string) => readFileSync(appPath(file), 'utf8');
 const component = (text: string, name: string) => { const start = text.indexOf(`component ${name}\n`); const next = text.indexOf('\ncomponent ', start + 1); return text.slice(start, next < 0 ? undefined : next); };
 const files = source('files-surface.contract');
-const code = component(files, 'R4CodeRow');
+const code = component(files, 'FilesCodeRow');
 
 /** CDP (1e2ecbd975), light then dark. */
 const REFERENCE = {

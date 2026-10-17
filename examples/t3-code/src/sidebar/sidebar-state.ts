@@ -113,7 +113,7 @@ export function adoptSidebarPrefs(local: object, saved: { sidebar?: unknown }): 
  * The runtime clock where one exists. Data modules have none: the bake refuses a direct `Date.now()` (exact2
  * 8be2b2623) and the data runtime refused it before that, so in the app this returns the fallback. Bun tests
  * stand in for a host clock with `setRuntimeClock`. It is never an instant on its own (the agent's clock counts
- * from 0); `wall` below turns it into one by measuring from the window's wall time; r8-pointer-clock's
+ * from 0); `wall` below turns it into one by measuring from the window's wall time; wall-clock.ts's
  * `wallIso` is the rule for stored stamps.
  */
 let runtimeClock: () => number = () => Number.NaN;
@@ -131,7 +131,7 @@ export function adoptCommandTime(client: T3Client, at: number): void {
   if (Number.isFinite(at) && at > 1e12) offsets.set(client, at - clock());
 }
 /**
- * r13-store audit: every persisted value `wall` produces (a snooze's `snoozedUntil`, `visited`) is computed inside
+ * Every persisted value `wall` produces (a snooze's `snoozedUntil`, `visited`) is computed inside
  * a command that adopted the window's instant first (`sidebarCommand` adopts before anything reads), so it is that
  * instant plus the clock's advance. Without an adopted instant `wall` is the bare clock: 0 under the data runtime
  * (snoozePresets then returns nothing), so no 1970 value is written (persisted-instants.test.ts).

@@ -153,7 +153,7 @@ final class TextContextMenuTests: XCTestCase {
             return try XCTUnwrap(reader.drawn, "the native menu opened and was read during tracking")
         }
         let selected = try present()
-        print("t3.r11sel: selected page text, drawn menu: \(selected)")
+        print("t3.selection-menu: selected page text, drawn menu: \(selected)")
         XCTAssertEqual(selected, ["Cut", "Copy", "Paste", "Select All", "Services"])
         XCTAssertGreaterThan(requestor.servicesAsks, 0, "the selected text's services requestor is consulted")
         let provider = try XCTUnwrap(requestor.validRequestor(forSendType: .string, returnType: nil) as? NSServicesMenuRequestor)
@@ -164,7 +164,7 @@ final class TextContextMenuTests: XCTestCase {
         XCTAssertNil(requestor.validRequestor(forSendType: .string, returnType: .string), "Services cannot replace read-only text")
         requestor.selection = ""
         let unselected = try present()
-        print("t3.r11sel: unselected page text, drawn menu: \(unselected)")
+        print("t3.selection-menu: unselected page text, drawn menu: \(unselected)")
         XCTAssertEqual(unselected, ["Cut", "Copy", "Paste", "Select All"], "no selection supplies no Services")
     }
 }

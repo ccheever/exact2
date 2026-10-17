@@ -10,16 +10,16 @@
 // the panel is open, and a panel with nothing kept stays closed.
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { PanelState, Surface } from './panel-surfaces';
-import { keepR11, readR11, R11_KINDS, type R11SavedSurface, type R11Surface } from './saved-surfaces';
+import { keepRestored, readRestored, RESTORED_KINDS, type RestoredSurface, type SurfaceEntry } from './saved-surfaces';
 
-export type SavedSurface = { id: string; kind: 'files' | 'file' | 'pull-requests'; path: string; line: number } | R11SavedSurface;
+export type SavedSurface = { id: string; kind: 'files' | 'file' | 'pull-requests'; path: string; line: number } | RestoredSurface;
 export type SavedPanel = { visible: boolean; active: string; surfaces: SavedSurface[] };
 type Holder = { local: object };
 const KEPT = new Set(['files', 'file', 'pull-requests']);
 const MAX_PANELS = 200;
 
-function keep(surface: R11Surface): SavedSurface | null {
-  if (R11_KINDS.has(surface.kind)) return keepR11(surface);
+function keep(surface: SurfaceEntry): SavedSurface | null {
+  if (RESTORED_KINDS.has(surface.kind)) return keepRestored(surface);
   if (!KEPT.has(surface.kind)) return null;
   if (surface.kind === 'file') {
     if (!surface.path || surface.id !== `file:${surface.path}`) return null;
@@ -29,7 +29,7 @@ function keep(surface: R11Surface): SavedSurface | null {
 }
 
 /** One panel as saved: its kept surfaces, the active one (or the first while open), open only with something kept. */
-export function savedPanel(state: { surfaces: readonly R11Surface[]; active: string; visible: boolean }): SavedPanel | null {
+export function savedPanel(state: { surfaces: readonly SurfaceEntry[]; active: string; visible: boolean }): SavedPanel | null {
   const surfaces = state.surfaces.map(keep).filter((entry): entry is SavedSurface => !!entry);
   if (!surfaces.length) return null;
   const kept = surfaces.some(entry => entry.id === state.active);
@@ -45,7 +45,7 @@ export function adoptRightPanels(next: object, saved: Obj): void {
   for (const [key, value] of Object.entries(obj(saved.rightPanels)).slice(0, MAX_PANELS)) {
     const entry = obj(value);
     const panel = savedPanel({
-      surfaces: arr(entry.surfaces).map(readR11),
+      surfaces: arr(entry.surfaces).map(readRestored),
       active: str(entry.active), visible: entry.visible === true,
     });
     if (key && panel) panels[key] = panel;

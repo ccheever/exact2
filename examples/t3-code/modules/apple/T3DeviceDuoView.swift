@@ -12,7 +12,7 @@ import CoreImage
 /// `inner-display-right`); the cover shows panel 1, the inner pair shares panel 3's framebuffer.
 /// The hinge follows the hub's confirmed angle (or a pinch's preview); the body rests in the pose's
 /// physical presentation and snaps to views built from the real display planes.
-final class R9DuoView: NSView {
+final class T3DuoView: NSView {
     private let scnView = SCNView(frame: .zero, options: [SCNView.Option.preferredRenderingAPI.rawValue: SCNRenderingAPI.metal.rawValue])
     private let ground = CALayer()
     private let scene = SCNScene()
@@ -22,8 +22,8 @@ final class R9DuoView: NSView {
     private var leftHalf: SCNNode?, rightHalf: SCNNode?
     private var surfaces: [Int: [SCNNode]] = [:]
     private var bounds3: [Int: (lower: SIMD2<Double>, size: SIMD2<Double>)] = [:]
-    private let materials: [Int: SCNMaterial] = [1: R9DuoView.screenMaterial(1), 3: R9DuoView.screenMaterial(3)]
-    private var screen: R7DeviceClient.Screen?
+    private let materials: [Int: SCNMaterial] = [1: T3DuoView.screenMaterial(1), 3: T3DuoView.screenMaterial(3)]
+    private var screen: T3DeviceClient.Screen?
     private var readyKey = "", primaryKey = "", activationAt = 0.0
     private var restFace = "inside"
     private var requestedOrientation: String?, viewOrientation: String?
@@ -36,15 +36,15 @@ final class R9DuoView: NSView {
     private var interactionActive = false
     private var firstPose = true
     private var physicalPose = "open", presentationAngle = 180.0
-    private var targetPresentation = R7Quat.identity
+    private var targetPresentation = T3Quaternion.identity
     private var lastTime = 0.0
-    private lazy var motion = R7DeviceMotion(choose: { [weak self] rotation in self?.choose(rotation) ?? rotation })
-    private let framing = R7DeviceFraming()
+    private lazy var motion = T3DeviceMotion(choose: { [weak self] rotation in self?.choose(rotation) ?? rotation })
+    private let framing = T3DeviceFraming()
     private var timer: Timer?
     private var disposed = false
     private var active: (mode: String, last: CGPoint, screen: CGPoint?)?
     private var scrolling = false
-    private(set) var pinch: R9DuoPinch!
+    private(set) var pinch: T3DuoPinch!
     private var captured: (panel: Int, node: SCNNode, key: String)?
     let touch: (String, Double, Double) -> Void
     let unavailable: () -> Void
@@ -75,21 +75,21 @@ final class R9DuoView: NSView {
         cam.fieldOfView = Self.fov; cam.projectionDirection = .vertical; cam.zNear = 0.1; cam.zFar = 150
         camera.camera = cam
         scene.rootNode.addChildNode(camera)
-        // createDuoViewer: ambient 2.4, a white key and a cool fill (three.js units, as R7DevicePhoneView converts them).
+        // createDuoViewer: ambient 2.4, a white key and a cool fill (three.js units, as T3DevicePhoneView converts them).
         func light(_ type: SCNLight.LightType, _ color: UInt32, _ intensity: Double, _ position: SCNVector3) {
-            let light = SCNLight(); light.type = type; light.color = R7DevicePhoneView.color(color)
-            light.intensity = CGFloat(intensity * R7DevicePhoneView.lightScale.direct)
+            let light = SCNLight(); light.type = type; light.color = T3DevicePhoneView.color(color)
+            light.intensity = CGFloat(intensity * T3DevicePhoneView.lightScale.direct)
             let node = SCNNode(); node.light = light; node.position = position; node.look(at: SCNVector3(0, 0, 0))
             scene.rootNode.addChildNode(node)
         }
         light(.directional, 0xffffff, 4, SCNVector3(-6, 10, 14))
         light(.directional, 0xc7dcff, 2, SCNVector3(8, -3, -5))
         // RoomEnvironment through PMREM (sigma 0.04): a soft grey room with bright ceiling panels.
-        scene.lightingEnvironment.contents = R9Duo.room()
-        scene.lightingEnvironment.intensity = R9Duo.roomIntensity
+        scene.lightingEnvironment.contents = T3Duo.room()
+        scene.lightingEnvironment.intensity = T3Duo.roomIntensity
         root.addChildNode(content)
         scene.rootNode.addChildNode(root)
-        pinch = R9DuoPinch(angle: { [weak self] in
+        pinch = T3DuoPinch(angle: { [weak self] in
             guard let self else { return 180 }
             return self.previewAngle ?? self.screen?.duo?.hingeAngle ?? (self.screen?.duo?.screenId == 1 ? 0 : 180)
         }, contains: { [weak self] x, y in self?.screen != nil && self?.beginHinge(x, y) == true }, change: { [weak self] value in
@@ -107,8 +107,8 @@ final class R9DuoView: NSView {
         let material = SCNMaterial()
         material.lightingModel = .constant
         material.isDoubleSided = true
-        let size = R9Duo.surfaceSize(panel)
-        material.diffuse.contents = R9Duo.blank(size)
+        let size = T3Duo.surfaceSize(panel)
+        material.diffuse.contents = T3Duo.blank(size)
         material.diffuse.minificationFilter = .linear; material.diffuse.magnificationFilter = .linear; material.diffuse.mipFilter = .none
         return material
     }
@@ -132,10 +132,10 @@ final class R9DuoView: NSView {
 
     private func loadModel() {
         guard let origin else { return }
-        R7DeviceModels.locate(origin: origin) { [weak self] found in
+        T3DeviceModels.locate(origin: origin) { [weak self] found in
             guard let self, !self.disposed else { return }
             guard let url = found["iphone-duo"] else { return self.unavailable() }
-            R7DeviceModels.load(url) { [weak self] node in
+            T3DeviceModels.load(url) { [weak self] node in
                 guard let self, !self.disposed else { return }
                 guard let node, self.install(node) else { return self.unavailable() }
             }
@@ -147,7 +147,7 @@ final class R9DuoView: NSView {
         let named = { (name: String) in model.childNode(withName: name, recursively: true) }
         guard let left = named("left-half"), let right = named("right-half"), let cover = named("cover-display"), cover.geometry != nil,
               let innerLeft = named("inner-display-left"), innerLeft.geometry != nil, let innerRight = named("inner-display-right"), innerRight.geometry != nil else { return false }
-        model.enumerateHierarchy { node, _ in node.geometry?.materials.forEach(R7DevicePhoneView.ambient) }
+        model.enumerateHierarchy { node, _ in node.geometry?.materials.forEach(T3DevicePhoneView.ambient) }
         let groups: [Int: [SCNNode]] = [1: [cover], 3: [innerLeft, innerRight]]
         for id in [1, 3] {
             var lower = SIMD2<Double>(repeating: .infinity), upper = SIMD2<Double>(repeating: -.infinity)
@@ -171,7 +171,7 @@ final class R9DuoView: NSView {
         content.addChildNode(model)
         appliedAngle = .nan
         applyPose()
-        if screen?.duo?.screenId == 1, let snap = R9DuoSnaps.nearest(motion.rotation, activeSnaps()) {
+        if screen?.duo?.screenId == 1, let snap = T3DuoSnaps.nearest(motion.rotation, activeSnaps()) {
             restFace = snap.face
             motion.setPose(snap.rotation, now, immediate: true)
             applyPose()
@@ -226,9 +226,9 @@ final class R9DuoView: NSView {
     }
 
     /// restFrames: each display's plane in the body's frame (orbit excluded).
-    func restFrames(_ panel: Int) -> [R9DuoRestFrame] {
+    func restFrames(_ panel: Int) -> [T3DuoRestFrame] {
         guard let cover = surfaces[1]?.first, let inner = surfaces[3], inner.count == 2 else { return [] }
-        func frame(_ meshes: [SCNNode], _ face: String) -> R9DuoRestFrame {
+        func frame(_ meshes: [SCNNode], _ face: String) -> T3DuoRestFrame {
             var lower = SIMD3<Double>(repeating: .infinity), upper = SIMD3<Double>(repeating: -.infinity)
             var normal = SIMD3<Double>.zero, up = SIMD3<Double>.zero
             for mesh in meshes {
@@ -240,7 +240,7 @@ final class R9DuoView: NSView {
                 normal += rootDirection(mesh, Self.firstNormal(mesh.geometry))
                 up += rootDirection(mesh, SIMD3(0, 1, 0))
             }
-            return R9DuoRestFrame(face: face, normal: simd_normalize(normal), up: simd_normalize(up), center: (lower + upper) / 2)
+            return T3DuoRestFrame(face: face, normal: simd_normalize(normal), up: simd_normalize(up), center: (lower + upper) / 2)
         }
         if panel == 1 { return [frame([cover], "cover")] }
         let inside = frame(inner, "inside")
@@ -271,18 +271,18 @@ final class R9DuoView: NSView {
     private var reducedMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     private var activePanel: Int { screen?.duo?.screenId == 1 ? 1 : 3 }
 
-    private func activeSnaps() -> [R9DuoViewSnap] { asset == nil ? [] : R9DuoSnaps.snaps(restFrames(activePanel), panel: activePanel) }
-    private func snaps() -> [R9DuoViewSnap] {
+    private func activeSnaps() -> [T3DuoViewSnap] { asset == nil ? [] : T3DuoSnaps.snaps(restFrames(activePanel), panel: activePanel) }
+    private func snaps() -> [T3DuoViewSnap] {
         guard asset != nil, screen?.duo?.supportsPhysicalOrientation == true else { return activeSnaps() }
-        let cover = R9DuoSnaps.snaps(restFrames(1), panel: 1)
+        let cover = T3DuoSnaps.snaps(restFrames(1), panel: 1)
         // A shut inner display is occluded and cannot become a useful rest view.
-        return angle > 20 && angle < 180 ? R9DuoSnaps.snaps(restFrames(3), panel: 3) + cover : activeSnaps()
+        return angle > 20 && angle < 180 ? T3DuoSnaps.snaps(restFrames(3), panel: 3) + cover : activeSnaps()
     }
 
     private func clearHandoff() { handoff?.cancel(); handoff = nil; requestedPanel = nil }
 
     private func choose(_ rotation: simd_quatd) -> simd_quatd {
-        guard let snap = R9DuoSnaps.nearest(rotation, snaps()) else { return rotation }
+        guard let snap = T3DuoSnaps.nearest(rotation, snaps()) else { return rotation }
         restFace = snap.face
         let panel = snap.face == "cover" ? 1 : 3
         if let screen, screen.duo?.supportsPhysicalOrientation == true, panel != (requestedPanel ?? screen.duo?.screenId) {
@@ -293,7 +293,7 @@ final class R9DuoView: NSView {
             let item = DispatchWorkItem { [weak self] in
                 guard let self else { return }
                 self.clearHandoff()
-                if let confirmed = R9DuoSnaps.nearest(self.motion.rotation, self.activeSnaps()) { self.restFace = confirmed.face; self.motion.setPose(confirmed.rotation, self.now) }
+                if let confirmed = T3DuoSnaps.nearest(self.motion.rotation, self.activeSnaps()) { self.restFace = confirmed.face; self.motion.setPose(confirmed.rotation, self.now) }
                 self.invalidate()
             }
             handoff = item
@@ -306,10 +306,10 @@ final class R9DuoView: NSView {
         return snap.rotation
     }
 
-    func setScreen(_ next: R7DeviceClient.Screen?) {
+    func setScreen(_ next: T3DeviceClient.Screen?) {
         guard !disposed else { return }
         let wasMoving = moving || motion.needsFrame
-        if R9Duo.displayKey(screen) != R9Duo.displayKey(next) { readyKey = ""; activationAt = now; captured = nil }
+        if T3Duo.displayKey(screen) != T3Duo.displayKey(next) { readyKey = ""; activationAt = now; captured = nil }
         let previous = screen
         let ownedHandoff = requestedPanel != nil
         if next == nil || next?.duo?.screenId == requestedPanel { clearHandoff() }
@@ -329,13 +329,13 @@ final class R9DuoView: NSView {
         if firstPose || changedPose || (rotated && !ownedRotation && !ownedHandoff && !folding) {
             hingeLeaf = nil
             viewOrientation = next?.orientation
-            targetPresentation = R9DuoSnaps.presentation(pose: physicalPose, angle: presentationAngle, screen: next)
-            if next?.duo?.screenId == 1, let snap = R9DuoSnaps.nearest(targetPresentation, activeSnaps()) { targetPresentation = snap.rotation }
+            targetPresentation = T3DuoSnaps.presentation(pose: physicalPose, angle: presentationAngle, screen: next)
+            if next?.duo?.screenId == 1, let snap = T3DuoSnaps.nearest(targetPresentation, activeSnaps()) { targetPresentation = snap.rotation }
             if firstPose { angle = targetAngle }
             restFace = next?.duo?.screenId == 1 ? "cover" : physicalPose == "laptop" ? "right" : "inside"
             motion.setPose(targetPresentation, now, immediate: firstPose)
             firstPose = false
-        } else if next != nil, changedDisplay, !ownedHandoff, !folding, let snap = R9DuoSnaps.nearest(motion.rotation, activeSnaps()) {
+        } else if next != nil, changedDisplay, !ownedHandoff, !folding, let snap = T3DuoSnaps.nearest(motion.rotation, activeSnaps()) {
             restFace = snap.face
             motion.setPose(snap.rotation, now)
         }
@@ -370,7 +370,7 @@ final class R9DuoView: NSView {
         guard !disposed, requestedOrientation != nil || requestedPanel != nil else { return }
         clearHandoff(); requestedOrientation = nil
         viewOrientation = screen?.orientation
-        if let snap = R9DuoSnaps.nearest(motion.rotation, activeSnaps().filter { $0.orientation == screen?.orientation }) { restFace = snap.face; motion.setPose(snap.rotation, now) }
+        if let snap = T3DuoSnaps.nearest(motion.rotation, activeSnaps().filter { $0.orientation == screen?.orientation }) { restFace = snap.face; motion.setPose(snap.rotation, now) }
         invalidate()
     }
 
@@ -393,13 +393,13 @@ final class R9DuoView: NSView {
     /// ignored for 1.5 s after the display changes.
     func frameUpdated(_ panel: Int, _ image: CGImage) {
         guard !disposed, let screen, screen.duo?.screenId == panel else { return }
-        guard R9Duo.frameMatches(width: Double(image.width), height: Double(image.height), screen: screen) else { return }
-        if readyKey.isEmpty, now - activationAt < 1500, R9Duo.isBlank(image) { return }
-        guard let painted = R9Duo.paint(image, panel: panel) else { return }
+        guard T3Duo.frameMatches(width: Double(image.width), height: Double(image.height), screen: screen) else { return }
+        if readyKey.isEmpty, now - activationAt < 1500, T3Duo.isBlank(image) { return }
+        guard let painted = T3Duo.paint(image, panel: panel) else { return }
         SCNTransaction.begin(); SCNTransaction.disableActions = true
         materials[panel]?.diffuse.contents = painted
         SCNTransaction.commit()
-        readyKey = R9Duo.displayKey(screen); primaryKey = readyKey
+        readyKey = T3Duo.displayKey(screen); primaryKey = readyKey
         invalidate()
     }
 
@@ -413,7 +413,7 @@ final class R9DuoView: NSView {
         if let before, let leaf = hingeLeaf {
             // The primary surface stays in camera space; its partner supplies the fold.
             let correction = before * leafRotation(leaf).inverse
-            if R7Quat.angle(correction, R7Quat.identity) > 1e-8 { motion.setPose(motion.rotation * correction, now, immediate: true) }
+            if T3Quaternion.angle(correction, T3Quaternion.identity) > 1e-8 { motion.setPose(motion.rotation * correction, now, immediate: true) }
         }
         let q = motion.rotation
         root.simdOrientation = simd_quatf(ix: Float(q.imag.x), iy: Float(q.imag.y), iz: Float(q.imag.z), r: Float(q.real))
@@ -425,7 +425,7 @@ final class R9DuoView: NSView {
     }
 
     private func leafRotation(_ leaf: String) -> simd_quatd {
-        guard let node = leaf == "left" ? leftHalf : rightHalf else { return R7Quat.identity }
+        guard let node = leaf == "left" ? leftHalf : rightHalf else { return T3Quaternion.identity }
         let m = node.simdConvertTransform(matrix_identity_float4x4, to: root)
         let q = simd_quatf(simd_float3x3(SIMD3(m.columns.0.x, m.columns.0.y, m.columns.0.z), SIMD3(m.columns.1.x, m.columns.1.y, m.columns.1.z), SIMD3(m.columns.2.x, m.columns.2.y, m.columns.2.z)))
         return simd_quatd(ix: Double(q.imag.x), iy: Double(q.imag.y), iz: Double(q.imag.z), r: Double(q.real)).normalized
@@ -488,7 +488,7 @@ final class R9DuoView: NSView {
     func screenPoint(_ x: Double, _ y: Double, captured isCaptured: Bool) -> CGPoint? {
         guard !disposed, !moving, previewAngle == nil, requestedOrientation == nil, requestedPanel == nil, let screen else { return nil }
         applyPose()
-        let key = R9Duo.displayKey(screen)
+        let key = T3Duo.displayKey(screen)
         guard !readyKey.isEmpty, key == readyKey else { captured = nil; return nil }
         let point = viewPoint(x, y)
         var node: SCNNode, panel: Int, local: SIMD3<Float>
@@ -510,7 +510,7 @@ final class R9DuoView: NSView {
         }
         guard let box = bounds3[panel] else { return nil }
         let u = (Double(local.x) - box.lower.x) / box.size.x, v = (Double(local.y) - box.lower.y) / box.size.y
-        return R9Duo.rawPoint(panel: panel, x: panel == 1 ? 1 - u : u, y: 1 - v)
+        return T3Duo.rawPoint(panel: panel, x: panel == 1 ? 1 - u : u, y: 1 - v)
     }
 
     /// beginHinge: a pinch over either leaf holds the leaf the primary display lives on.
@@ -619,7 +619,7 @@ final class R9DuoView: NSView {
     var readyDisplay: String { readyKey }
 }
 
-extension R9Duo {
+extension T3Duo {
     static var roomIntensity: CGFloat = 1
     static var roomWall: CGFloat = 0.45, roomPanel: CGFloat = 1
     /// An equirectangular stand-in for three.js's RoomEnvironment: grey walls, a darker floor and

@@ -10,7 +10,7 @@ import VideoToolbox
 /// keyframe, 3 delta, 4 JPEG seed); serve-emu (Android) sends H.264 access units in Annex B over
 /// `ws?device=<serial>&frame-meta=1`, each behind a 16-byte "SEMU" header (magic, version, key
 /// flag, pts). Both are decoded here with VideoToolbox, where the reference uses WebCodecs.
-enum R7H264 {
+enum T3H264 {
     static let semuMagic: UInt32 = 0x53454d55
     static let semuHeaderBytes = 16
     static let softDecodeQueue = 8
@@ -155,10 +155,10 @@ enum R7H264 {
 
 /// One VideoToolbox session. Frames come back on the main queue as CGImages; a decode error is
 /// reported once per session (stream.ts recoverDecoder decides what to do).
-final class R7H264Decoder {
+final class T3H264Decoder {
     private var session: VTDecompressionSession?
     private var format: CMVideoFormatDescription?
-    private let queue = DispatchQueue(label: "r7-device-decode")
+    private let queue = DispatchQueue(label: "device-decode")
     private var pending = 0
     private let lock = NSLock()
     private var failed = false
@@ -174,7 +174,7 @@ final class R7H264Decoder {
 
     /// configureDecoder with an avcC description (iOS) or an SPS / PPS pair (Android).
     func configure(avcC: Data) -> Bool {
-        guard let sets = R7H264.parameterSets(avcC: avcC) else { return false }
+        guard let sets = T3H264.parameterSets(avcC: avcC) else { return false }
         return configure(sps: sets.sps[0], pps: sets.pps[0], nalLength: sets.nalLength)
     }
 
@@ -241,7 +241,7 @@ final class R7H264Decoder {
 /// Keyboard forwarding (DeviceStreamView onKeyDown / onKeyUp → stream.ts sendKey): iOS takes HID
 /// usages from the physical key (`KeyboardEvent.code`), Android takes key codes, Back for Escape
 /// and typed text from the produced character (`KeyboardEvent.key`).
-enum R7DeviceKeys {
+enum T3DeviceKeys {
     /// macOS virtual key code → the web's `KeyboardEvent.code`.
     static let codes: [UInt16: String] = [
         0: "KeyA", 1: "KeyS", 2: "KeyD", 3: "KeyF", 4: "KeyH", 5: "KeyG", 6: "KeyZ", 7: "KeyX", 8: "KeyC", 9: "KeyV",
@@ -291,7 +291,7 @@ enum R7DeviceKeys {
     static func packet(platform: String, phase: String, keyCode: UInt16, characters: String?, meta: Bool, control: Bool) -> Data? {
         if platform == "ios" {
             guard let code = codes[keyCode], let usage = usage(code: code) else { return nil }
-            return R6DeviceWire.tagged(0x06, ["type": phase, "usage": usage])
+            return T3DeviceWire.tagged(0x06, ["type": phase, "usage": usage])
         }
         guard phase == "down" else { return nil }
         let key = key(keyCode: keyCode, characters: characters)

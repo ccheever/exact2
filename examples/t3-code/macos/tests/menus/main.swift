@@ -486,7 +486,7 @@ final class MenuTests: XCTestCase {
         edit.addItem(.separator())
         edit.addItem(withTitle: "Speech", action: nil, keyEquivalent: "")
         bar.addItem(withTitle: "Edit", action: nil, keyEquivalent: "").submenu = edit
-        let keys = R8KeysMenus()
+        let keys = T3MenuBar()
         keys.arrange(bar)
         let shown = { edit.items.filter { !$0.isHidden }.map { $0.isSeparatorItem ? "—" : $0.title } }
         XCTAssertEqual(shown(), ["Undo", "Redo", "—", "Cut", "Copy", "Paste", "Delete", "Select All", "—", "Speech"])
@@ -705,5 +705,5 @@ guard let run = suite.testRun, run.executionCount == 47 else { print("Menus: une
 print("Menus: \(run.executionCount) tests, \(run.totalFailureCount) failures")
 exit(run.hasSucceeded ? 0 : 1)
 
-/// The host's command target (ExactKit's ShortcutHost), named as R8KeysMenus finds it.
+/// The host's command target (ExactKit's ShortcutHost), named as T3MenuBar finds it.
 final class ShortcutHost: NSObject { nonisolated(unsafe) static var fired = 0; @objc func fire(_ sender: Any?) { Self.fired += 1 } }

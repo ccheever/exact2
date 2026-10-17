@@ -31,12 +31,12 @@ component VideoDraftTile
   action removeFocus(on: bool)
     removeFocused = on
   action removeNow
-    command("editorlocal:r4c-video-remove", video.id, "", 0)
+    command("editorlocal:shelf-video-remove", video.id, "", 0)
     if removeFocused
       focus(after)
   view
     column position="relative" width="4rem" height="4rem" flex-shrink=0 box-sizing="border-box" overflow="hidden" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff0d)" background-color="#000000" testId=`video-draft-${video.id}`
-      button press=command("editorlocal:r4c-video-play", video.id, "", 0) disabled=disabled aria-label=`Play ${video.name}` testId=`play-video-${video.id}` position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="column" align-items="center" justify-content="center" title="" id=`play-video-${video.id}`
+      button press=command("editorlocal:shelf-video-play", video.id, "", 0) disabled=disabled aria-label=`Play ${video.name}` testId=`play-video-${video.id}` position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="column" align-items="center" justify-content="center" title="" id=`play-video-${video.id}`
         box hatch="t3-snapshot-tile" data-snapshot-id=video.id position="absolute" top=0 left=0 right=0 bottom=0 testId=`video-thumbnail-${video.id}`
         box position="absolute" top=0 left=0 right=0 bottom=0 background-image="linear-gradient(to top, #000000b3, #0000001a 50%, #0000001a)" aria-hidden=true
         svg width="1rem" height="1rem" viewBox="0 0 24 24" position="relative" color="#ffffff" fill="currentColor" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
@@ -71,11 +71,11 @@ component VideoPreviewDialog
       // The focus trap (dialog-trap.contract): the X is the only Tab stop; the backdrop is none (the reference's popup takes its clicks).
       FocusGuard(guardId="video-preview-guard-start", targets=dialogTargets, popup="video-preview")
       DialogOpenFocus(target="video-preview-close")
-      button press=command("editorlocal:r4c-video-close", "", "", 0) aria-label="Close video preview" aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="video-preview-backdrop" title=""
+      button press=command("editorlocal:shelf-video-close", "", "", 0) aria-label="Close video preview" aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="video-preview-backdrop" title=""
       column min-width=0 align-items="center"
         box position="relative" width=mediaWidth height=(mediaWidth / aspect) border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7b3, #ffffff0d)" box-shadow="0 25px 50px -12px #00000040" box-sizing="border-box" background-color="#000000"
           box hatch="t3-video" data-snapshot-id=preview.id position="absolute" left=0 top=0 right=0 bottom=0 border-radius="0.4375rem" overflow="hidden" testId="video-preview-player"
-          button id="video-preview-close" press=command("editorlocal:r4c-video-close", "", "", 0) aria-label="Close video preview" testId="video-preview-close" position="absolute" right=0 top="-2.5rem" width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
+          button id="video-preview-close" press=command("editorlocal:shelf-video-close", "", "", 0) aria-label="Close video preview" testId="video-preview-close" position="absolute" right=0 top="-2.5rem" width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
             svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color="#ffffff" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
               path d="M18 6 6 18M6 6l12 12"
         text preview.name margin-top="0.5rem" max-width=maxWidth line-clamp=1 font-size="0.75rem" line-height="1rem" color="#ffffffcc"

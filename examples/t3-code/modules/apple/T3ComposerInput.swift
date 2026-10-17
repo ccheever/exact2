@@ -15,13 +15,13 @@ import AppKit
 /// - The transcript's remembered position is Contract's: ChatColumn keeps the first visible
 ///   key and offset from the list's ScrollEvent and restores them with a keyed
 ///   `scrollIntoView` (app-main.contract).
-/// - Diagnostics: R9_INPUT_LOG=<file> logs presses, ⌘ keys and focus.
-final class R9Input {
+/// - Diagnostics: T3_COMPOSER_INPUT_LOG=<file> logs presses, ⌘ keys and focus.
+final class T3ComposerInput {
     init() {
-        if let path = ProcessInfo.processInfo.environment["R9_INPUT_LOG"], !path.isEmpty { logPath = path }
-        holdComposition = ProcessInfo.processInfo.environment["R9_INPUT_HOLD_COMPOSITION"] == "1"
+        if let path = ProcessInfo.processInfo.environment["T3_COMPOSER_INPUT_LOG"], !path.isEmpty { logPath = path }
+        holdComposition = ProcessInfo.processInfo.environment["T3_COMPOSER_HOLD_COMPOSITION"] == "1"
     }
-    /// Diagnostics only (R9_INPUT_HOLD_COMPOSITION=1): leave composition to AppKit on a press, for an A/B check.
+    /// Diagnostics only (T3_COMPOSER_HOLD_COMPOSITION=1): leave composition to AppKit on a press, for an A/B check.
     private var holdComposition = false
 
     // MARK: Elements

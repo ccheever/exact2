@@ -1,4 +1,4 @@
-use R5Probe from "../composer/composer-label-probes.contract"
+use TextProbe from "../composer/composer-label-probes.contract"
 // The sidebar's projected rows and view state (sidebar-view.ts).
 // Custom snooze's calendar month (snooze-calendar.ts, drawn by snooze-calendar.contract).
 shape CalendarDay
@@ -156,7 +156,7 @@ shape SidebarView
   drafts: SidebarDraft[]
   // A row shows Working (the root's one-second clock runs); the texts its tooltips are placed by (project-scripts.contract).
   ticking: bool
-  probes: R5Probe[]
+  probes: TextProbe[]
   searching: bool
   searchPending: bool
   searchIndex: number

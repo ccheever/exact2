@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { activeDevice, r6DeviceCommand, r6DeviceLocal, r6DeviceMini, r6DeviceView, railAction, streamView } from '../../src/device/device-session';
+import { activeDevice, deviceSessionCommand, deviceSessionLocal, deviceMini, deviceSessionView, railAction, streamView } from '../../src/device/device-session';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import type { Obj } from '../../src/client/domain';
@@ -34,32 +34,32 @@ const settings = { hostId: 'local', deviceId: 'SIM-1', platform: 'ios', settings
 describe('the Device surface after onboarding', () => {
   test('the list until a device is chosen; host detail, booting devices and a busy host as the reference words them', async () => {
     const c = client([]);
-    expect((await r6DeviceView(c, native, deviceState(), true, 'p')).mode).toBe('list');
-    const view = await r6DeviceView(c, native, deviceState({ hostStatusDetail: 'Simulator runtime 26.0 is installing', bootingDevices: [{ ...iphone, threadId: 't1' }, { ...pixel, threadId: 'other' }] }), true, 'p');
+    expect((await deviceSessionView(c, native, deviceState(), true, 'p')).mode).toBe('list');
+    const view = await deviceSessionView(c, native, deviceState({ hostStatusDetail: 'Simulator runtime 26.0 is installing', bootingDevices: [{ ...iphone, threadId: 't1' }, { ...pixel, threadId: 'other' }] }), true, 'p');
     expect([view.mode, view.hostDetail, view.booting]).toEqual(['list', 'Simulator runtime 26.0 is installing', 'Starting iPhone 17 Pro… This can take a minute.']);
-    const busy = await r6DeviceView(c, native, deviceState({ hostStatus: 'installing', hostStatuses: { local: { status: 'installing' } }, hostStatusDetail: 'Installing device hub 0.11.0…' }), true, 'p');
+    const busy = await deviceSessionView(c, native, deviceState({ hostStatus: 'installing', hostStatuses: { local: { status: 'installing' } }, hostStatusDetail: 'Installing device hub 0.11.0…' }), true, 'p');
     expect([busy.mode, busy.openingName, busy.openingMessage]).toEqual(['opening', 'Devices', 'Installing device hub 0.11.0…']);
-    expect((await r6DeviceView(c, native, deviceState(), false, 'p')).openingMessage).toBe('Finding devices…');
+    expect((await deviceSessionView(c, native, deviceState(), false, 'p')).openingMessage).toBe('Finding devices…');
   });
 
   test('on a draft a row opens its device for the draft\'s own thread id (ChatView activeThreadRef)', async () => {
     const calls: Call[] = [];
     const c = Object.assign(client(calls, { 'device.open': { hostId: 'local', deviceId: 'SIM-1' } }), { threadId: '', environmentId: 'env', draftKey: 'env:new:p1', local: { composerControls: { draftThreads: { 'env:new:p1': 'draft-7' } } } });
-    await r6DeviceCommand(c, native, deviceState(), 'p', 'open', KEY, '');
+    await deviceSessionCommand(c, native, deviceState(), 'p', 'open', KEY, '');
     expect(calls[0]).toEqual({ method: 'device.open', payload: { threadId: 'draft-7', hostId: 'local', deviceId: 'SIM-1', platform: 'ios' }, write: true });
-    const view = await r6DeviceView(c, native, deviceState({ sessions: [{ threadId: 'draft-7', hostId: 'local', deviceId: 'SIM-1', platform: 'ios', openedAt: '' }] }), true, 'p');
+    const view = await deviceSessionView(c, native, deviceState({ sessions: [{ threadId: 'draft-7', hostId: 'local', deviceId: 'SIM-1', platform: 'ios', openedAt: '' }] }), true, 'p');
     expect(view.mode).toBe('workspace');
   });
 
   test('a row opens its device with device.open for this thread, then the workspace shows it with its settings', async () => {
     const calls: Call[] = [], c = client(calls, { 'device.open': { hostId: 'local', deviceId: 'SIM-1' }, 'device.detail': settings });
     let state = deviceState();
-    await r6DeviceCommand(c, native, state, 'p', 'open', KEY, '');
+    await deviceSessionCommand(c, native, state, 'p', 'open', KEY, '');
     expect(calls[0]).toEqual({ method: 'device.open', payload: { threadId: 't1', hostId: 'local', deviceId: 'SIM-1', platform: 'ios' }, write: true });
     // The session arrives with the next device state.
     state = deviceState({ sessions: [{ threadId: 't1', hostId: 'local', deviceId: 'SIM-1', platform: 'ios', openedAt: '2026-10-04T12:00:00Z' }], devices: [{ ...iphone, booted: true }, pixel] });
     expect(activeDevice(state, 't1', { hostId: 'local', deviceId: 'SIM-1', platform: 'ios', name: '' })?.name).toBe('iPhone 17 Pro');
-    const view = await r6DeviceView(c, native, state, true, 'p');
+    const view = await deviceSessionView(c, native, state, true, 'p');
     expect(view.mode).toBe('workspace');
     expect(calls.filter(call => call.method === 'device.detail').map(call => call.payload)).toEqual([{ hostId: 'local', deviceId: 'SIM-1' }]);
     const ws = view.workspace;
@@ -72,48 +72,48 @@ describe('the Device surface after onboarding', () => {
 
   test('a failed open is the dismissible device error; the list returns', async () => {
     const c = client([], { 'device.open': new ClientError('Device SIM-1 failed to boot: There is not enough free disk space on the environment server.') });
-    await r6DeviceCommand(c, native, deviceState(), 'p', 'open', KEY, '');
-    let view = await r6DeviceView(c, native, deviceState(), true, 'p');
+    await deviceSessionCommand(c, native, deviceState(), 'p', 'open', KEY, '');
+    let view = await deviceSessionView(c, native, deviceState(), true, 'p');
     expect([view.mode, view.operationError]).toEqual(['list', 'Device SIM-1 failed to boot: There is not enough free disk space on the environment server.']);
-    await r6DeviceLocal(c, native, deviceState(), 'p', 'dismiss-error', '');
-    view = await r6DeviceView(c, native, deviceState(), true, 'p');
+    await deviceSessionLocal(c, native, deviceState(), 'p', 'dismiss-error', '');
+    view = await deviceSessionView(c, native, deviceState(), true, 'p');
     expect(view.operationError).toBe('');
-    await expect(r6DeviceCommand(c, native, deviceState(), 'p', 'open', 'local\u0000gone', '')).rejects.toThrow('That device is no longer available.');
+    await expect(deviceSessionCommand(c, native, deviceState(), 'p', 'open', 'local\u0000gone', '')).rejects.toThrow('That device is no longer available.');
   });
 
   test('rail actions go through device.action and take its confirmed detail; Power off closes with shutdown', async () => {
     const calls: Call[] = [], c = client(calls, { 'device.open': { hostId: 'local', deviceId: 'SIM-1' }, 'device.detail': settings,
       'device.action': { ...settings, settings: { appearance: 'dark', textSize: 'large' } } });
     const state = deviceState({ sessions: [{ threadId: 't1', hostId: 'local', deviceId: 'SIM-1', platform: 'ios', openedAt: '' }] });
-    await r6DeviceCommand(c, native, state, 'p', 'open', KEY, '');
-    await r6DeviceView(c, native, state, true, 'p');
-    await r6DeviceCommand(c, native, state, 'p', 'appearance', '', '');
-    await r6DeviceCommand(c, native, state, 'p', 'text-size', '', 'large');
+    await deviceSessionCommand(c, native, state, 'p', 'open', KEY, '');
+    await deviceSessionView(c, native, state, true, 'p');
+    await deviceSessionCommand(c, native, state, 'p', 'appearance', '', '');
+    await deviceSessionCommand(c, native, state, 'p', 'text-size', '', 'large');
     expect(calls.filter(call => call.method === 'device.action').map(call => call.payload)).toEqual([
       { hostId: 'local', deviceId: 'SIM-1', type: 'setAppearance', value: 'dark' }, { hostId: 'local', deviceId: 'SIM-1', type: 'setTextSize', value: 'large' }]);
-    const view = await r6DeviceView(c, native, state, true, 'p');
+    const view = await deviceSessionView(c, native, state, true, 'p');
     expect([view.workspace.rail.appearanceLabel, view.workspace.rail.appearanceIcon, view.workspace.rail.textSize]).toEqual(['Switch device to light mode', 'sun', 'large']);
     expect([railAction('text-size', 'huge', 'dark'), railAction('appearance', '', '')]).toEqual([null, null]);
-    expect(await r6DeviceCommand(c, native, state, 'p', 'poweroff', '', '')).toBe(true);
+    expect(await deviceSessionCommand(c, native, state, 'p', 'poweroff', '', '')).toBe(true);
     expect(calls.find(call => call.method === 'device.close')?.payload).toEqual({ threadId: 't1', hostId: 'local', deviceId: 'SIM-1', shutdown: true });
   });
 
   test('Float moves the device over the chat and hides the panel; Open in right panel and Close floating preview', async () => {
     const c = client([], { 'device.open': { hostId: 'local', deviceId: 'SIM-1' } });
     const state = deviceState({ sessions: [{ threadId: 't1', hostId: 'local', deviceId: 'SIM-1', platform: 'ios', openedAt: '' }] });
-    await r6DeviceCommand(c, native, state, 'p', 'open', KEY, '');
-    expect(r6DeviceMini(c, state).show).toBe(false);
-    expect(await r6DeviceLocal(c, native, state, 'p', 'float', '')).toBe('hide');
-    const mini = r6DeviceMini(c, state);
+    await deviceSessionCommand(c, native, state, 'p', 'open', KEY, '');
+    expect(deviceMini(c, state).show).toBe(false);
+    expect(await deviceSessionLocal(c, native, state, 'p', 'float', '')).toBe('hide');
+    const mini = deviceMini(c, state);
     // The player's frame is the chat canvas's (chat-canvas-view.test.ts); this is its source and stream.
     expect([mini.show, mini.name, mini.description, mini.sourceKey]).toEqual([true, 'iPhone 17 Pro', 'This Mac · iOS 26.0', 'device:local:SIM-1']);
     (c.presentation as Obj).deviceStreams = { [KEY]: { status: 'streaming', inputConnected: true, width: 1206, height: 2622 } };
-    expect(r6DeviceMini(c, state).stream.status).toBe('streaming');
-    expect(await r6DeviceLocal(c, native, state, 'p', 'mini-restore', '')).toBe('reopen');
-    expect(r6DeviceMini(c, state).show).toBe(false);
-    await r6DeviceLocal(c, native, state, 'p', 'float', '');
-    await r6DeviceLocal(c, native, state, 'p', 'mini-close', '');
-    expect(r6DeviceMini(c, state).show).toBe(false);
+    expect(deviceMini(c, state).stream.status).toBe('streaming');
+    expect(await deviceSessionLocal(c, native, state, 'p', 'mini-restore', '')).toBe('reopen');
+    expect(deviceMini(c, state).show).toBe(false);
+    await deviceSessionLocal(c, native, state, 'p', 'float', '');
+    await deviceSessionLocal(c, native, state, 'p', 'mini-close', '');
+    expect(deviceMini(c, state).show).toBe(false);
   });
 
   test('the stream report reads as DeviceStreamView words it; input buttons and Reconnect reach the module', async () => {
@@ -123,15 +123,15 @@ describe('the Device surface after onboarding', () => {
     expect(streamView(c, KEY, 'ios')).toEqual({ status: 'error', message: 'No video received from the device. Reconnect to try again.', error: true, inputNotice: '' });
     (c.presentation as Obj).deviceStreams = { [KEY]: { status: 'streaming', inputConnected: false, inputDetail: 'closed 1006' } };
     expect(streamView(c, KEY, 'ios').inputNotice).toBe('Input disconnected (closed 1006), reconnecting…');
-    for (const op of ['home', 'rotate', 'reconnect']) await r6DeviceLocal(c, native, null, 'p', op, KEY);
-    expect(calls.map(call => [call.op, call.request?.action, call.request?.key])).toEqual([['r6DeviceInput', 'home', KEY], ['r6DeviceInput', 'rotate', KEY], ['r6DeviceInput', 'reconnect', KEY]]);
+    for (const op of ['home', 'rotate', 'reconnect']) await deviceSessionLocal(c, native, null, 'p', op, KEY);
+    expect(calls.map(call => [call.op, call.request?.action, call.request?.key])).toEqual([['deviceInput', 'home', KEY], ['deviceInput', 'rotate', KEY], ['deviceInput', 'reconnect', KEY]]);
   });
 
   test('Save screenshot reports the hub failure in the workspace', async () => {
-    const c = client([], { 'device.open': { hostId: 'local', deviceId: 'SIM-1' }, 'device.detail': settings, r6DeviceScreenshot: { ok: false, message: 'Screenshot capture failed (502). Try again.' } });
+    const c = client([], { 'device.open': { hostId: 'local', deviceId: 'SIM-1' }, 'device.detail': settings, deviceScreenshot: { ok: false, message: 'Screenshot capture failed (502). Try again.' } });
     const state = deviceState({ sessions: [{ threadId: 't1', hostId: 'local', deviceId: 'SIM-1', platform: 'ios', openedAt: '' }] });
-    await r6DeviceCommand(c, native, state, 'p', 'open', KEY, '');
-    await r6DeviceCommand(c, native, state, 'p', 'screenshot', '', '');
-    expect((await r6DeviceView(c, native, state, true, 'p')).workspace.alert).toBe('Screenshot capture failed (502). Try again.');
+    await deviceSessionCommand(c, native, state, 'p', 'open', KEY, '');
+    await deviceSessionCommand(c, native, state, 'p', 'screenshot', '', '');
+    expect((await deviceSessionView(c, native, state, true, 'p')).workspace.alert).toBe('Screenshot capture failed (502). Try again.');
   });
 });

@@ -20,12 +20,12 @@ use ShellView from "./shell-shapes.contract"
 use ToastStack from "./shell-toast.contract"
 use TitleMenu from "./shell-panels.contract"
 use AppConfirm from "./shell-panels.contract"
-use R4DeviceSetup from "../panel/panel.contract"
+use DeviceSurfaceSetup from "../panel/panel.contract"
 use ThreadDetailsPanel from "../details/shell-details.contract"
 use ShellDetails from "./shell-shapes.contract"
-use R4GitLayers from "../details/git.contract"
-use R6PrLayers from "../details/pr-row.contract"
-use R4PublishDialog from "../details/git-publish.contract"
+use GitLayers from "../details/git.contract"
+use PrRowLayers from "../details/pr-row.contract"
+use PublishDialog from "../details/git-publish.contract"
 use CommandPalette from "../palette/palette.contract"
 use PaletteView from "../palette/palette.contract"
 use VideoPreviewDialog from "../composer/composer-video.contract"
@@ -33,8 +33,8 @@ use ComposerImageDialog from "../composer/composer-chip-image.contract"
 use ComposerFileDialog from "../composer/composer-chip-file.contract"
 use ChatDocument from "../timeline/markdown.contract"
 use ResetCreditDialog from "../usage/usage-bars.contract"
-use R8TableMenu from "../timeline/table-menu.contract"
-use R9CheckoutDialog from "../composer/pr-checkout.contract"
+use TableCopyMenu from "../timeline/table-menu.contract"
+use CheckoutDialog from "../composer/pr-checkout.contract"
 use PrDetailView from "../pull-requests/pages-pr-detail.contract"
 use PrActionLayers from "../pull-requests/pages-pr-actions.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
@@ -188,8 +188,8 @@ component WindowOverlays
       CommandPalette(view=palette, query=paletteQuery, highlight=paletteHighlight, scroll=paletteScroll, busy=paletteBusy, viewport=viewport, scheme=scheme, edit=paletteEdit, onKey=paletteKey, run=paletteRun, hover=paletteHover, close=paletteClose, back=paletteKey("Back"), flag=paletteFlag)
     if detailsSheet
       ThreadDetailsPanel(details=details, density=detailsDensity, right=13, below=0, maxHeight=(viewport.height - 104), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
-    R4GitLayers(details=details, windowHeight=viewport.height, act=detailsAct, local=chatLocal)
-    R6PrLayers(details=details, scheme=scheme, act=detailsAct, local=chatLocal) // the Merge AlertDialog
+    GitLayers(details=details, windowHeight=viewport.height, act=detailsAct, local=chatLocal)
+    PrRowLayers(details=details, scheme=scheme, act=detailsAct, local=chatLocal) // the Merge AlertDialog
     PrActionLayers(actions=prDetail.actions, ref=prDetail.ref, dark=(scheme == "dark"), act=prAct, local=chatLocal) // the panel's confirmations
     // The git card's dialogs (Publish, Commit, and the default-branch confirm a commit can lead to) give the focus back
     // to the quick action or the options menu's trigger, whichever opened the first (dialog-trap.contract DialogFinalFocus).
@@ -197,11 +197,11 @@ component WindowOverlays
     DialogFinalFocus(open=(details.ready and details.git.dialog == "confirm"), owner="git-confirm-dialog")
     DialogFinalFocus(open=(details.ready and details.git.dialog == "publish"), owner="git-publish-dialog")
     if details.ready and details.git.dialog == "publish"
-      R4PublishDialog(git=details.git, cwd=details.cwd, act=detailsAct, local=chatLocal)
+      PublishDialog(git=details.git, cwd=details.cwd, act=detailsAct, local=chatLocal)
     // The branch pickers' PullRequestThreadDialog (pr-checkout.contract).
     DialogFinalFocus(open=shell.prCheckout.open, owner="pr-checkout-dialog")
     if shell.prCheckout.open
-      R9CheckoutDialog(checkout=shell.prCheckout, viewportWidth=viewport.width, viewportHeight=viewport.height, dark=(scheme == "dark"), local=chatLocal, command=command)
+      CheckoutDialog(checkout=shell.prCheckout, viewportWidth=viewport.width, viewportHeight=viewport.height, dark=(scheme == "dark"), local=chatLocal, command=command)
     if titleMenuOpen
       TitleMenu(items=shell.titleMenu, children=shell.titleSubmenu, x=titleMenuX, y=titleMenuY, serial=titleMenuSerial, pick=titleMenuPick, ui=titleUi)
     DialogFinalFocus(open=(data.revertPending != ""), owner="revert-dialog")
@@ -231,7 +231,7 @@ component WindowOverlays
       PlanSaveDialog(path=data.planSavePath, root=data.planSaveRoot, saving=data.planSaving, local=chatLocal)
     DialogFinalFocus(open=shell.panel.deviceSetup, owner="device-setup")
     if shell.panel.deviceSetup
-      R4DeviceSetup(device=shell.panel.device, scheme=scheme, viewportHeight=viewport.height, local=chatLocal, command=command)
+      DeviceSurfaceSetup(device=shell.panel.device, scheme=scheme, viewportHeight=viewport.height, local=chatLocal, command=command)
     // requestConfirmDialog before a desktop-managed server's app updates (server-update-notices.ts).
     DialogFinalFocus(open=(data.serverUpdate.confirmTitle != ""), owner="server-update-confirm")
     if data.serverUpdate.confirmTitle != ""
@@ -246,4 +246,4 @@ component WindowOverlays
     ToastStack(toasts=shell.toasts, width=min(22.5 * rem, viewport.width - (viewport.width >= 640 ? 4 : 2) * rem), top=(52 + (viewport.width >= 640 ? 2 : 1) * rem), right=((viewport.width >= 640 ? 2 : 1) * rem), expanded=toastHover, still=viewport.prefersReducedMotion, hover=toastHovering, act=toastAct)
     // A Markdown table's Copy menu over every layer (table-menu.contract).
     for menu in data.tableMenu key=menu.id
-      R8TableMenu(menu=menu, dark=(scheme == "dark"), local=chatLocal)
+      TableCopyMenu(menu=menu, dark=(scheme == "dark"), local=chatLocal)

@@ -202,7 +202,7 @@ final class MediaActionsTests: XCTestCase {
     func testRenderedHtmlLoadsExternalAssets() throws {
         _ = NSApplication.shared
         let other = try Fixture()
-        let media = R6MediaPreview(agent: true)
+        let media = T3MediaPreview(agent: true)
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 520, height: 420), styleMask: [.titled], backing: .buffered, defer: false)
         let host = NSView(frame: window.contentView!.bounds)
         window.contentView!.addSubview(host)

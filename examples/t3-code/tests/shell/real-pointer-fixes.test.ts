@@ -85,7 +85,7 @@ describe('A relaunch reconnects to the saved environment', () => {
     expect(await reconnectOnLaunch({}, empty, { state: 'disconnected', origin: '', environmentId: '' })).toBe(false);
     expect(empty.calls.map(call => call.op)).toEqual(['environments']);
   });
-  test('Connections lists the paired loopback environment as a saved row under Environments (r9-connect), with its Remove (Forget) menu', () => {
+  test('Connections lists the paired loopback environment as a saved row under Environments, with its Remove (Forget) menu', () => {
     const host = { connection: 'connected', origin: loop.origin, environmentId: 'env-local', statusMessage: '', scopes: [], config: { environment: { label: 'Fixture' } } };
     const page = connectionsProjection(host, [loop, remote]);
     expect(page.environments.map(row => row.label)).toEqual(['Fixture', 'Box']);

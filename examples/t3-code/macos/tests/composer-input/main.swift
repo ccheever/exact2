@@ -7,18 +7,18 @@ import XCTest
 // app-main.contract); its cases are in timeline-anchor.test.ts.
 // Real AppKit views in a real window; compiled with every file in modules/apple.
 
-private let r9Resolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
-private let r9Act: ExactHatches.ActFn = { _, _, _ in 0 }
-private let r9Log: ExactHatches.LogFn = { _, _, _ in }
-private let r9Delegate: ExactHatches.DelegateFn = { _, _, _ in }
+private let hatchResolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
+private let hatchAct: ExactHatches.ActFn = { _, _, _ in 0 }
+private let hatchLog: ExactHatches.LogFn = { _, _, _ in }
+private let hatchDelegate: ExactHatches.DelegateFn = { _, _, _ in }
 private func makeHooks() -> ExactHatches {
     let table = UnsafeMutableRawPointer.allocate(byteCount: 40, alignment: 8)
     table.initializeMemory(as: UInt8.self, repeating: 0, count: 40)
     table.storeBytes(of: UInt32(40), as: UInt32.self)
-    table.storeBytes(of: unsafeBitCast(r9Resolve, to: UnsafeRawPointer.self), toByteOffset: 8, as: UnsafeRawPointer.self)
-    table.storeBytes(of: unsafeBitCast(r9Act, to: UnsafeRawPointer.self), toByteOffset: 16, as: UnsafeRawPointer.self)
-    table.storeBytes(of: unsafeBitCast(r9Log, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
-    table.storeBytes(of: unsafeBitCast(r9Delegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
+    table.storeBytes(of: unsafeBitCast(hatchResolve, to: UnsafeRawPointer.self), toByteOffset: 8, as: UnsafeRawPointer.self)
+    table.storeBytes(of: unsafeBitCast(hatchAct, to: UnsafeRawPointer.self), toByteOffset: 16, as: UnsafeRawPointer.self)
+    table.storeBytes(of: unsafeBitCast(hatchLog, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
+    table.storeBytes(of: unsafeBitCast(hatchDelegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
     return ExactHatches(host: nil, table: UnsafeRawPointer(table))!
 }
 
@@ -38,7 +38,7 @@ final class ComposerFixture {
     let button = NSButton(frame: NSRect(x: 0, y: 160, width: 80, height: 30))
     let node = Node()
     let composer = T3Composer()
-    let r9 = R9Input()
+    let composerInput = T3ComposerInput()
     let element: ExactElement
     init() {
         _ = NSApplication.shared
@@ -52,7 +52,7 @@ final class ComposerFixture {
         element.data = ExactData(["snapshot-owner": "owner-a"])
         composer.install(element) // the real delegate proxy goes in front of the node
         composer.editor.styler.richText = true
-        r9.install(element)
+        composerInput.install(element)
     }
     func key(_ characters: String, _ ignoring: String, _ code: UInt16, _ flags: NSEvent.ModifierFlags = [.command]) -> NSEvent {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber, context: nil,
@@ -63,7 +63,7 @@ final class ComposerFixture {
     }
 }
 
-final class R9InputTests: XCTestCase {
+final class ComposerInputTests: XCTestCase {
     func testClickFocusReachesTheNodeOnce() {
         let f = ComposerFixture()
         f.window.makeFirstResponder(f.button); tick()
@@ -72,21 +72,21 @@ final class R9InputTests: XCTestCase {
         f.editor.string = "existing draft"
         f.window.makeFirstResponder(f.editor); tick()
         XCTAssertEqual(f.node.events.filter { $0 == "focus" }.count, 1, "focus reaches Exact's node through the proxy without typing")
-        XCTAssertTrue(f.r9.composerFocused)
+        XCTAssertTrue(f.composerInput.composerFocused)
         f.window.makeFirstResponder(f.button); tick()
         XCTAssertEqual(f.node.events.last, "blur")
-        XCTAssertFalse(f.r9.composerFocused)
+        XCTAssertFalse(f.composerInput.composerFocused)
         f.window.makeFirstResponder(f.editor); tick()
         XCTAssertEqual(f.node.events.filter { $0 == "focus" }.count, 2, "each return of the focus is a new focus")
-        XCTAssertEqual(f.r9.bridged, 2)
+        XCTAssertEqual(f.composerInput.bridged, 2)
     }
 
     func testChordKeyUnderAKoreanSource() {
         let f = ComposerFixture()
-        XCTAssertEqual(R9Input.chordKey(f.key("b", "b", 11)), "b")
-        XCTAssertEqual(R9Input.chordKey(f.key("ㅠ", "ㅠ", 11)), "b", "Korean 2-Set reports ㅠ for the B key")
-        XCTAssertEqual(R9Input.chordKey(f.key("ㅑ", "ㅑ", 34)), "i")
-        XCTAssertEqual(R9Input.chordKey(f.key("ㅠ", "ㅠ", 99)), "ㅠ", "an unmapped key keeps its characters")
+        XCTAssertEqual(T3ComposerInput.chordKey(f.key("b", "b", 11)), "b")
+        XCTAssertEqual(T3ComposerInput.chordKey(f.key("ㅠ", "ㅠ", 11)), "b", "Korean 2-Set reports ㅠ for the B key")
+        XCTAssertEqual(T3ComposerInput.chordKey(f.key("ㅑ", "ㅑ", 34)), "i")
+        XCTAssertEqual(T3ComposerInput.chordKey(f.key("ㅠ", "ㅠ", 99)), "ㅠ", "an unmapped key keeps its characters")
     }
 
     func testCommandBBoldsAfterAClickAndUnderKorean() {
@@ -119,9 +119,9 @@ final class R9InputTests: XCTestCase {
         f.window.makeFirstResponder(f.editor); tick()
         f.editor.string = ""
         f.editor.setMarkedText("한", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
-        f.r9.handle(f.press(at: NSPoint(x: 20, y: 60))) // inside the composer: composition goes on
+        f.composerInput.handle(f.press(at: NSPoint(x: 20, y: 60))) // inside the composer: composition goes on
         XCTAssertTrue(f.editor.hasMarkedText())
-        f.r9.handle(f.press(at: NSPoint(x: 20, y: 175))) // on the button
+        f.composerInput.handle(f.press(at: NSPoint(x: 20, y: 175))) // on the button
         XCTAssertFalse(f.editor.hasMarkedText())
         XCTAssertEqual(f.editor.string, "한")
     }
@@ -148,7 +148,7 @@ final class R9InputTests: XCTestCase {
     }
 }
 
-let suite = XCTestSuite(forTestCaseClass: R9InputTests.self)
+let suite = XCTestSuite(forTestCaseClass: ComposerInputTests.self)
 suite.run()
 let run = suite.testRun!
 print("Executed \(run.executionCount) tests, with \(run.failureCount) failures")

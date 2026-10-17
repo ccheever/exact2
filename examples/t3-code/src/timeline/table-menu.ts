@@ -39,7 +39,7 @@ export function placeTableMenu(trigger: { x: number; y: number; width: number; h
 async function drawnFrame(native: Native | undefined, id: string): Promise<number[] | null> {
   if (!native?.available) return null;
   try {
-    const reply = obj(await native.later({ op: 'r8MeasureFrame', name: `table-copy-${id}`, generation: 0 }));
+    const reply = obj(await native.later({ op: 'measureFrame', name: `table-copy-${id}`, generation: 0 }));
     const box = obj(reply.value);
     return reply.ok === true && num(box.width) > 0 ? [num(box.x), num(box.y), num(box.width), num(box.height), num(box.windowWidth), num(box.windowHeight)] : null;
   } catch { return null; }

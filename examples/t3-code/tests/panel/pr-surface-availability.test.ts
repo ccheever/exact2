@@ -22,7 +22,7 @@ describe('Pull request panel target (upstream f90b77d809)', () => {
     expect(currentPullRequestLink([link(1, { source: 'stack-dismissed' })])).toBeNull();
     expect(currentPullRequestLink([link(1, { snapshot: { state: 'closed', updatedAt: '2026-10-08T00:00:00.000Z' } }), link(2, { snapshot: { state: 'merged', updatedAt: '2026-10-03T00:00:00.000Z' } })])).toMatchObject({ number: 1 });
   });
-  test('a PR known only through pullRequests makes the Pull request (P) surface available where the environment reads pull requests (r5-panels)', () => {
+  test('a PR known only through pullRequests makes the Pull request (P) surface available where the environment reads pull requests', () => {
     const config = { environment: { capabilities: { pullRequests: true, threadPullRequests: true } } };
     const client = { threadId: 't1', projectId: 'p1', ready: true, config, shell: { threads: [{ id: 't1', projectId: 'p1', pullRequests: [link(5)] }], projects: [{ id: 'p1' }] } } as unknown as T3Client;
     const row = surfaces(client).find(entry => entry.id === 'pull-request')!;

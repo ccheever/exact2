@@ -7,7 +7,7 @@ import Network
 // (serve-sim's AVCC body at 60 fps over the loopback hub in hub.swift) keeps H.264, and so the 3D
 // phone, through main-thread stalls that hand the decoder a burst of samples at once; a decoder
 // that really falls behind still takes the reference's MJPEG fallback.
-final class R11DeviceTests: XCTestCase {
+final class DeviceDecodeBacklogTests: XCTestCase {
     private func spin(until condition: () -> Bool, timeout: TimeInterval = 10) {
         let end = Date().addingTimeInterval(timeout)
         while !condition() && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
@@ -27,14 +27,14 @@ final class R11DeviceTests: XCTestCase {
         hub.http.append(("/stream.mjpeg", { _, connection in hub.open(connection, type: "multipart/x-mixed-replace; boundary=frame") }))
         hub.http.append(("/stream.avcc", { _, connection in
             hub.open(connection, type: "application/octet-stream")
-            hub.write(connection, R7H264.Demuxer.envelope(.description, encoded.avcC))
+            hub.write(connection, T3H264.Demuxer.envelope(.description, encoded.avcC))
             let timer = DispatchSource.makeTimerSource(queue: hub.queue)
             var index = 0
             timer.schedule(deadline: .now(), repeating: .milliseconds(every))
             timer.setEventHandler {
                 guard connection.state == .ready else { return timer.cancel() }
                 let sample = encoded.samples[index % encoded.samples.count]; index += 1
-                hub.write(connection, R7H264.Demuxer.envelope(sample.key ? .keyframe : .delta, sample.data))
+                hub.write(connection, T3H264.Demuxer.envelope(sample.key ? .keyframe : .delta, sample.data))
             }
             timer.resume()
             hub.timers.append(timer)
@@ -51,7 +51,7 @@ final class R11DeviceTests: XCTestCase {
         let encoded = Encoded.make(width: 1206, height: 2622, colors: colors)
         XCTAssertEqual(encoded.samples.count, 60)
         let hub = try pacedHub(encoded, every: 16)
-        let view = R6DeviceScreenView(key: "local\u{0}SIM-3D", platform: "ios", deviceId: "SIM-3D", hostId: "local", access: { done in done(hub.origin, "ticket-3d") }) {}
+        let view = T3DeviceScreenView(key: "local\u{0}SIM-3D", platform: "ios", deviceId: "SIM-3D", hostId: "local", access: { done in done(hub.origin, "ticket-3d") }) {}
         view.deviceName = "iPhone 18 Pro"
         view.presentation = "phone"
         let window = window(view)
@@ -81,7 +81,7 @@ final class R11DeviceTests: XCTestCase {
         let hub = try pacedHub(encoded, every: 16)
         var phones = 0
         for run in 0..<10 {
-            let view = R6DeviceScreenView(key: "local\u{0}SIM-\(run)", platform: "ios", deviceId: "SIM-\(run)", hostId: "local", access: { done in done(hub.origin, "t\(run)") }) {}
+            let view = T3DeviceScreenView(key: "local\u{0}SIM-\(run)", platform: "ios", deviceId: "SIM-\(run)", hostId: "local", access: { done in done(hub.origin, "t\(run)") }) {}
             view.deviceName = "iPhone 18 Pro"
             view.presentation = "phone"
             let window = window(view)
@@ -99,7 +99,7 @@ final class R11DeviceTests: XCTestCase {
     /// The reference's rule still holds for a decoder that cannot keep up: a backlog over the soft
     /// queue that does not shrink for a second is behind; a burst that drains is not.
     func testBacklogWindow() {
-        var backlog = R11DecodeBacklog()
+        var backlog = T3DecodeBacklog()
         XCTAssertFalse(backlog.behind(pending: 8, now: 0), "at the soft queue")
         // A burst: 40 samples at once, draining.
         XCTAssertFalse(backlog.behind(pending: 40, now: 1))
@@ -126,7 +126,7 @@ final class R11DeviceTests: XCTestCase {
 
 _ = NSApplication.shared
 NSApp.setActivationPolicy(.accessory)
-let suite = XCTestSuite(forTestCaseClass: R11DeviceTests.self)
+let suite = XCTestSuite(forTestCaseClass: DeviceDecodeBacklogTests.self)
 suite.run()
 let run = suite.testRun!
 print("Executed \(run.executionCount) tests, with \(run.totalFailureCount) failures")

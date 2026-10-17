@@ -4,7 +4,7 @@ use PvField from "../settings/providers-kit.contract"
 use CnGlyph from "../settings/settings-b-kit.contract"
 use CnTooltip from "../settings/settings-b-kit.contract"
 use hoverTipAtFrame from "../shell/hover-layer.contract"
-use R4Glyph from "../details/git.contract"
+use ExtraGlyph from "../details/git.contract"
 use QrCell from "../settings/settings-core.contract"
 
 // Settings → Connections › This machine: Network access, its endpoints, Tailscale HTTPS, the

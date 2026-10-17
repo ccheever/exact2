@@ -26,7 +26,7 @@ export type PrTarget = { projectId: string; host: string; repository: string; nu
 export type PrRow = {
   key: string; label: string; tooltip: string; icon: string; state: string; tinted: boolean; target: string; url: string; aria: string;
   split: boolean; checks: string; checksCount: string; checksAria: string; action: string; actionTarget: string; actionLabel: string; actionTooltip: string; actionDisabled: boolean;
-  r6: RowExtra; // The hand-offs, Merge, the checks popover and the tooltip card
+  extra: RowExtra; // The hand-offs, Merge, the checks popover and the tooltip card
 };
 export type PrRowsView = { show: boolean; rows: PrRow[]; rest: PrRow[]; moreLabel: string; expanded: boolean; merge: MergeAsk };
 /** ThreadDetailsPrRows' expanded state, per thread so a scheme rebuild of the card keeps it. */
@@ -130,7 +130,7 @@ function simpleRow(client: T3Client, number: number, url: string, label: string,
     // ChangeRequestStatusIcon(state) without isDraft: the glyph follows the lifecycle, the tone the draft-aware status.
     icon: pr ? lifecycleIcon(lifecycle(pr.state, false)) : 'git-pull-request-arrow', state: pr ? lifecycle(pr.state, pr.isDraft) : '', tinted: !!pr,
     target: target ? JSON.stringify(target) : '', url, aria: url || 'Open pull request',
-    split: false, checks: '', checksCount: '', checksAria: '', action: '', actionTarget: '', actionLabel: '', actionTooltip: '', actionDisabled: false, r6: emptyExtra(),
+    split: false, checks: '', checksCount: '', checksAria: '', action: '', actionTarget: '', actionLabel: '', actionTooltip: '', actionDisabled: false, extra: emptyExtra(),
   };
 }
 /**
@@ -178,7 +178,7 @@ export async function prRowsView(client: T3Client, native: Native, input: { stat
 export function emptyPrRows(): PrRowsView { return { show: false, rows: [], rest: [], moreLabel: '', expanded: false, merge: { open: false, number: 0, description: '', target: '', pending: false } }; }
 
 /**
- * `shell:surface-r5-pr-*`: Ready and the confirmed Merge run against the host; Resolve
+ * `shell:surface-linked-pr-*`: Ready and the confirmed Merge run against the host; Resolve
  * and Fix hand the pull request to a new thread. `id` is the row's reference (Merge adds its method).
  */
 export async function prRowCommand(client: T3Client, native: Native, op: string, id: string): Promise<string> {
@@ -192,7 +192,7 @@ export async function prRowCommand(client: T3Client, native: Native, op: string,
   }
   return '';
 }
-/** `surface-r5-pr-*` without the command gate: the Merge dialog and the checks popover's "Show all". */
+/** `surface-linked-pr-*` without the command gate: the Merge dialog and the checks popover's "Show all". */
 export function prRowLocal(client: T3Client, op: string, id: string, value: string): boolean {
   if (op === 'merge-ask') { const target = obj(JSON.parse(id || '{}')); askMerge(client, target, num(target.number), (value || 'merge') as 'merge'); return true; }
   if (op === 'merge-cancel') { closeMerge(client); return true; }

@@ -8,7 +8,7 @@ use ThemeRoleUsage from "../appearance/settings-appearance-editor-shapes.contrac
 // writes both sets the window's half, then calls the root's half, passed as `<name>Root`.
 use Time from "./app-shapes.contract"
 use Snapshot, Viewport, LicenseSettings, SnapshotSettings, Settings, Canvas from "../shared/shapes.contract"
-use R10PairFields from "../connections/pairing-shapes.contract"
+use PairFields from "../connections/pairing-shapes.contract"
 use SshPromptView, SshPasswordPrompt from "../connections/ssh-prompt.contract"
 use TranscriptMarkdown from "../timeline/markdown.contract"
 use TimelineAttachmentUrls from "../timeline/timeline-attachments.contract"
@@ -281,7 +281,7 @@ component T3Window
     sbEmoji: string
     sbSet: action
     origin: string
-    pairFields: R10PairFields
+    pairFields: PairFields
     sbSshHosts: SbSshHosts
     sbSshHost: string
     editOriginRoot: action

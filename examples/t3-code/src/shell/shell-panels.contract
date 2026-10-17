@@ -9,10 +9,10 @@ use ShellMenuItem from "./shell-shapes.contract"
 use ShellIcon from "./shell-icons.contract"
 use TipBubble from "./shell-tip.contract"
 use MorphMaximize from "./shell-morph.contract"
-use R4PanelHeader from "../panel/panel.contract"
-use R4SurfaceBody from "../panel/panel.contract"
-use R5PrSurfaceBody from "../panel/pr-attachment.contract"
-use R5AttachmentBody from "../panel/pr-attachment.contract"
+use PanelHeader from "../panel/panel.contract"
+use SurfaceBody from "../panel/panel.contract"
+use PrSurfaceBody from "../panel/pr-attachment.contract"
+use AttachmentBody from "../panel/pr-attachment.contract"
 use PrDetailView from "../pull-requests/pages-pr-detail.contract"
 use ChatDocument from "../timeline/markdown.contract"
 use Look from "../appearance/settings-appearance-look.contract"
@@ -70,13 +70,13 @@ component SurfacePanel
     column height="100%" width="100%" min-width=0 position="relative" box-sizing="border-box" background-color=(sheet ? "light-dark(#ffffff, #0a0a0a)" : "light-dark(#fcfcfc, #0a0a0a)") border-left-style="solid" border-left-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" box-shadow=(sheet ? "0 10px 15px -3px #0000000d, 0 4px 6px -4px #0000000d" : "none") role=(sheet ? "dialog" : "region") aria-label="Right panel" testId="right-panel"
       // An open surface draws the tab bar and its body (panel.contract); otherwise the launcher.
       if shell.panel.open
-        R4PanelHeader(panel=shell.panel, surfaces=shell.surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=shell.keyThreadPanel, keyRightPanel=shell.keyRightPanel, terminalAvailable=shell.terminalAvailable, terminalOpen=shell.terminalOpen, keyTerminal=shell.keyTerminal, still=still, ui=ui, details=details, local=local, scheme=scheme, searchFocused=(filesSearchAt != "" and filesSearchAt == shell.panel.active and shell.panel.files.showExplorer))
-        R4SurfaceBody(panel=shell.panel, scheme=scheme, sheet=sheet, local=local, command=command, paletteShow=paletteShow, look=look, confirm=confirm, closePending=closePending, urlFocus=urlFocus, filesDocuments=filesDocuments, urlFocused=(urlFocusTab != "" and shell.panel.kind == "browser" and urlFocusTab == shell.panel.browser.tabId), searchFocus=filesSearchFocus)
+        PanelHeader(panel=shell.panel, surfaces=shell.surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=shell.keyThreadPanel, keyRightPanel=shell.keyRightPanel, terminalAvailable=shell.terminalAvailable, terminalOpen=shell.terminalOpen, keyTerminal=shell.keyTerminal, still=still, ui=ui, details=details, local=local, scheme=scheme, searchFocused=(filesSearchAt != "" and filesSearchAt == shell.panel.active and shell.panel.files.showExplorer))
+        SurfaceBody(panel=shell.panel, scheme=scheme, sheet=sheet, local=local, command=command, paletteShow=paletteShow, look=look, confirm=confirm, closePending=closePending, urlFocus=urlFocus, filesDocuments=filesDocuments, urlFocused=(urlFocusTab != "" and shell.panel.kind == "browser" and urlFocusTab == shell.panel.browser.tabId), searchFocus=filesSearchFocus)
         // The pull request beside the thread and a sent attachment (pr-attachment.contract).
         if shell.panel.kind == "pull-request"
-          R5PrSurfaceBody(pr=shell.panel.pr, detail=prDetail, documents=prDocuments, scheme=scheme, tab=prTab, setTab=prSetTab, reload=prReload, act=prAct, copy=prCopy, local=local, still=still, compact=(width < 480))
+          PrSurfaceBody(pr=shell.panel.pr, detail=prDetail, documents=prDocuments, scheme=scheme, tab=prTab, setTab=prSetTab, reload=prReload, act=prAct, copy=prCopy, local=local, still=still, compact=(width < 480))
         if shell.panel.kind == "attachment"
-          R5AttachmentBody(att=shell.panel.attachment, documents=filesDocuments, scheme=scheme, sheet=sheet, local=local, actionIds="")
+          AttachmentBody(att=shell.panel.attachment, documents=filesDocuments, scheme=scheme, sheet=sheet, local=local, actionIds="")
       else
         row height=52 flex-shrink=0 padding-right="0.8125rem" box-sizing="border-box" align-items="center" justify-content="flex-end" gap="0.25rem" position="relative" z-index=20
           if sheet
@@ -106,7 +106,7 @@ component SurfacePanel
 // capture listener prevents it and stops it): each available row declares its letter as `aria-keyshortcuts`, which the host
 // hears before any key handler, never from a text field or a terminal (an input context), never behind a modal or while the
 // launcher is inert, once per press (a repeat is taken, not pressed), and by its physical key under a non-Latin layout
-// (the native R8KeysLauncher's repost is gone). The native type-to-focus leaves those letters to
+// (the native launcher's key re-post is gone). The native type-to-focus leaves those letters to
 // it (T3Composer.launcherLetter). It mounts afresh each time the panel has no surface, so the highlight starts with none (-1).
 component SurfaceLauncher
   inject

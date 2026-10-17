@@ -4,27 +4,27 @@
 // opens the dialog (`chatlocal:git-pr-open`), each edit of the field resolves its
 // reference (`chatlocal:git-pr-text`), Local and Worktree prepare the checkout
 // (`shell:git-pr-checkout`), Cancel, Escape and the backdrop close it.
-use R9Checkout from "./pr-checkout-shapes.contract"
+use PrCheckout from "./pr-checkout-shapes.contract"
 use FieldPlaceholder from "../shared/field-placeholder.contract"
-use R4Glyph from "../details/git.contract"
+use ExtraGlyph from "../details/git.contract"
 use ShellIcon from "../shell/shell-icons.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
 use FieldOpenSelect from "../shared/dialog-trap.contract"
 
-keyframes r9Spin
+keyframes checkoutSpin
   from rotate=0
   to rotate=360
 
-fn r9StateTone(pr: string): string = pr == "Merged" ? "light-dark(#7f22fe, #c4b4ffe6)" : pr == "Closed" ? "light-dark(#71717b, #9f9fa9cc)" : pr == "Open" ? "light-dark(#009966, #5ee9b5e6)" : "light-dark(#71717b, #818181)"
+fn checkoutStateTone(pr: string): string = pr == "Merged" ? "light-dark(#7f22fe, #c4b4ffe6)" : pr == "Closed" ? "light-dark(#71717b, #9f9fa9cc)" : pr == "Open" ? "light-dark(#009966, #5ee9b5e6)" : "light-dark(#71717b, #818181)"
 
 // PullRequestThreadDialog: DialogPopup max-w-xl. The field keeps its own text
 // (bound to the reference the dialog opened with); every edit goes to the app.
-component R9CheckoutDialog
+component CheckoutDialog
   inject
     dialogEntered: action
     dialogFallback: action
   props
-    checkout: R9Checkout
+    checkout: PrCheckout
     viewportWidth: number
     viewportHeight: number
     dark: bool
@@ -47,7 +47,7 @@ component R9CheckoutDialog
         column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
           row align-items="center" padding-right="1.5rem"
             box margin-right="0.5rem" display="flex"
-              R4Glyph(name=checkout.mark, size=16, color="light-dark(#27272a, #f5f5f5)")
+              ExtraGlyph(name=checkout.mark, size=16, color="light-dark(#27272a, #f5f5f5)")
             text checkout.title font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text checkout.description font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" testId="pr-checkout-description"
         column gap="1rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="0.25rem" padding-bottom="1.5rem" box-sizing="border-box"
@@ -60,24 +60,24 @@ component R9CheckoutDialog
               column min-width=0 flex=1
                 text checkout.prTitle font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" testId="pr-checkout-title"
                 text checkout.prMeta font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" testId="pr-checkout-meta"
-              text checkout.prState font-size="0.75rem" line-height="1rem" flex-shrink=0 color=r9StateTone(checkout.prState) testId="pr-checkout-state"
+              text checkout.prState font-size="0.75rem" line-height="1rem" flex-shrink=0 color=checkoutStateTone(checkout.prState) testId="pr-checkout-state"
           if checkout.resolving
             row gap="0.5rem" align-items="center" testId="pr-checkout-resolving"
-              box width="0.875rem" height="0.875rem" display="flex" animation="r9Spin 1s linear infinite"
-                R4Glyph(name="loader-circle", size=14, color="light-dark(#71717b, #818181)")
+              box width="0.875rem" height="0.875rem" display="flex" animation="checkoutSpin 1s linear infinite"
+                ExtraGlyph(name="loader-circle", size=14, color="light-dark(#71717b, #818181)")
               text checkout.resolvingLabel font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
           if checkout.error != ""
             text checkout.error font-size="0.75rem" line-height="1rem" color="light-dark(#fb2c36, #fb414a)" role="alert" testId="pr-checkout-error"
         row gap="0.5rem" justify-content="flex-end" align-items="center" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
-          R9Button(label="Cancel", primary=false, disabled=pending, press=local("git-pr-close", "", ""), testId="pr-checkout-cancel")
-          R9Button(label=(checkout.preparing == "local" ? "Preparing local..." : "Local"), primary=false, disabled=(not checkout.canConfirm), press=command("shell:git-pr-checkout", "local", "", 0), testId="pr-checkout-local")
-          R9Button(label=(checkout.preparing == "worktree" ? "Preparing worktree..." : "Worktree"), primary=true, disabled=(not checkout.canConfirm), press=command("shell:git-pr-checkout", "worktree", "", 0), testId="pr-checkout-worktree")
+          CheckoutButton(label="Cancel", primary=false, disabled=pending, press=local("git-pr-close", "", ""), testId="pr-checkout-cancel")
+          CheckoutButton(label=(checkout.preparing == "local" ? "Preparing local..." : "Local"), primary=false, disabled=(not checkout.canConfirm), press=command("shell:git-pr-checkout", "local", "", 0), testId="pr-checkout-local")
+          CheckoutButton(label=(checkout.preparing == "worktree" ? "Preparing worktree..." : "Worktree"), primary=true, disabled=(not checkout.canConfirm), press=command("shell:git-pr-checkout", "worktree", "", 0), testId="pr-checkout-worktree")
         button id="pr-checkout-close" press=local("git-pr-close", "", "") aria-label="Close" testId="pr-checkout-close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
           ShellIcon(name="x", size=16, color="light-dark(#71717b, #818181)")
         FocusGuard(guardId="pr-checkout-guard-end", targets=dialogTargets, popup="pr-checkout-dialog")
 
 // Button size="sm" (outline or default).
-component R9Button
+component CheckoutButton
   props
     label: string
     primary: bool

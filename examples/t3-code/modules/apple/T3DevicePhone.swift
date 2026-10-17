@@ -9,7 +9,7 @@ import SceneKit
 /// shapeProfile.ts, phoneInteraction.ts) in SceneKit where the reference uses three.js. The live
 /// picture is the screen's texture; a drag that starts on the screen is a touch, anywhere else
 /// (or with ⌥) it turns the device, as does a two-finger trackpad swipe.
-enum R7DeviceGeometry {
+enum T3DeviceGeometry {
     /// fitDeviceFrame.
     static func fit(aspect: Double, width: Double, height: Double, rightInset: Double = 0) -> CGSize {
         let available = max(0, width - rightInset)
@@ -19,7 +19,7 @@ enum R7DeviceGeometry {
 
     /// phoneDisplayLayout.
     struct Layout: Equatable { var aspect: Double; var rotation: Double; var landscape: Bool; var rawLandscape: Bool }
-    static func layout(screen: R7DeviceClient.Screen?, rawWidth: Double, rawHeight: Double) -> Layout {
+    static func layout(screen: T3DeviceClient.Screen?, rawWidth: Double, rawHeight: Double) -> Layout {
         let width = rawWidth > 0 ? rawWidth : screen?.width ?? 900, height = rawHeight > 0 ? rawHeight : screen?.height ?? 1950
         let orientation = screen?.orientation
         let rotation = orientation == "landscape_left" ? -Double.pi / 2 : orientation == "landscape_right" ? Double.pi / 2 : orientation == "portrait_upside_down" ? Double.pi : 0
@@ -45,27 +45,27 @@ enum R7DeviceGeometry {
 }
 
 /// shapeProfile.ts: original family silhouettes for devices without a model.
-struct R7ShapeProfile: Equatable {
+struct T3PhoneShapeProfile: Equatable {
     struct Button: Equatable { let edge: String; let offset: Double; let length: Double }
     let id: String, bezel: Double, bodyRadius: Double, screenRadius: Double, depth: Double, backColor: UInt32
     let buttons: [Button]
     let cameraWidth: Double, cameraHeight: Double, insetX: Double, insetY: Double, lensRadius: Double
     let lenses: [SIMD2<Double>], flash: SIMD2<Double>?
 
-    static let iosPhone = R7ShapeProfile(id: "ios-phone", bezel: 0.055, bodyRadius: 0.15, screenRadius: 0.105, depth: 0.085, backColor: 0x424b5d,
+    static let iosPhone = T3PhoneShapeProfile(id: "ios-phone", bezel: 0.055, bodyRadius: 0.15, screenRadius: 0.105, depth: 0.085, backColor: 0x424b5d,
                                          buttons: [.init(edge: "right", offset: 0.35, length: 0.3), .init(edge: "left", offset: 0.48, length: 0.18), .init(edge: "left", offset: 0.22, length: 0.18)],
                                          cameraWidth: 0.39, cameraHeight: 0.44, insetX: 0.25, insetY: 0.29, lensRadius: 0.068, lenses: [SIMD2(-0.08, 0.095), SIMD2(0.08, -0.095)], flash: SIMD2(0.085, 0.11))
-    static let iosTablet = R7ShapeProfile(id: "ios-tablet", bezel: 0.065, bodyRadius: 0.105, screenRadius: 0.045, depth: 0.055, backColor: 0x9ca5af,
+    static let iosTablet = T3PhoneShapeProfile(id: "ios-tablet", bezel: 0.065, bodyRadius: 0.105, screenRadius: 0.045, depth: 0.055, backColor: 0x9ca5af,
                                           buttons: [.init(edge: "top", offset: 0.5, length: 0.15), .init(edge: "right", offset: 0.78, length: 0.13), .init(edge: "right", offset: 0.58, length: 0.13)],
                                           cameraWidth: 0.19, cameraHeight: 0.19, insetX: 0.15, insetY: 0.15, lensRadius: 0.045, lenses: [SIMD2(0, 0)], flash: nil)
-    static let androidPhone = R7ShapeProfile(id: "android-phone", bezel: 0.035, bodyRadius: 0.115, screenRadius: 0.08, depth: 0.085, backColor: 0x344449,
+    static let androidPhone = T3PhoneShapeProfile(id: "android-phone", bezel: 0.035, bodyRadius: 0.115, screenRadius: 0.08, depth: 0.085, backColor: 0x344449,
                                              buttons: [.init(edge: "right", offset: 0.2, length: 0.24), .init(edge: "right", offset: 0.65, length: 0.32)],
                                              cameraWidth: 0.24, cameraHeight: 0.47, insetX: 0.18, insetY: 0.29, lensRadius: 0.056, lenses: [SIMD2(0, 0.11), SIMD2(0, -0.11)], flash: SIMD2(0.1, 0))
-    static let androidTablet = R7ShapeProfile(id: "android-tablet", bezel: 0.065, bodyRadius: 0.105, screenRadius: 0.045, depth: 0.055, backColor: 0x697b80,
+    static let androidTablet = T3PhoneShapeProfile(id: "android-tablet", bezel: 0.065, bodyRadius: 0.105, screenRadius: 0.045, depth: 0.055, backColor: 0x697b80,
                                               buttons: iosTablet.buttons, cameraWidth: 0.19, cameraHeight: 0.19, insetX: 0.15, insetY: 0.15, lensRadius: 0.045, lenses: [SIMD2(0, 0)], flash: nil)
 
     /// resolveDeviceShape.
-    static func resolve(platform: String, name: String, portraitAspect: Double) -> R7ShapeProfile {
+    static func resolve(platform: String, name: String, portraitAspect: Double) -> T3PhoneShapeProfile {
         let lower = name.lowercased()
         func word(_ w: String) -> Bool { lower.range(of: "\\b\(w)\\b", options: .regularExpression) != nil }
         let tablet = word("ipad") || word("tablet") || (!(word("iphone") || word("phone")) && portraitAspect >= 0.6)
@@ -74,7 +74,7 @@ struct R7ShapeProfile: Equatable {
 }
 
 /// model.ts resolveDeviceModelId, deviceModels.ts deviceKeyboard, and the server's model files.
-enum R7DeviceModels {
+enum T3DeviceModels {
     static func id(platform: String, name: String) -> String? {
         guard platform == "ios" else { return nil }
         switch name.lowercased() {
@@ -144,7 +144,7 @@ enum R7DeviceModels {
     static func load(_ url: URL, _ done: @escaping (SCNNode?) -> Void) {
         if let model = models[url] { return done(model.clone()) }
         URLSession.shared.dataTask(with: url) { data, response, _ in
-            let node = data.flatMap { (response as? HTTPURLResponse)?.statusCode == 200 ? try? R7GLB.parse($0) : nil }
+            let node = data.flatMap { (response as? HTTPURLResponse)?.statusCode == 200 ? try? T3GLB.parse($0) : nil }
             DispatchQueue.main.async {
                 if let node { models[url] = node }
                 done(node?.clone())
@@ -153,7 +153,7 @@ enum R7DeviceModels {
     }
 }
 
-final class R7DevicePhoneView: NSView {
+final class T3DevicePhoneView: NSView {
     private let scnView: SCNView
     private let ground = CALayer()
     private let scene = SCNScene()
@@ -170,19 +170,19 @@ final class R7DevicePhoneView: NSView {
     private var accessoryWanted = false
     private let platform: String
     private var name: String
-    private var screen: R7DeviceClient.Screen?
+    private var screen: T3DeviceClient.Screen?
     private var raw = CGSize.zero
-    private var displayLayout = R7DeviceGeometry.layout(screen: nil, rawWidth: 0, rawHeight: 0)
-    private var profile: R7ShapeProfile
+    private var displayLayout = T3DeviceGeometry.layout(screen: nil, rawWidth: 0, rawHeight: 0)
+    private var profile: T3PhoneShapeProfile
     private var orientationAngle = 0.0
     private var orientationTurn: (from: Double, to: Double, at: Double)?
-    // An Android foldable's hinged body (T3DeviceFold.swift R9FoldScene).
-    private(set) var fold: R9FoldScene?
+    // An Android foldable's hinged body (T3DeviceFold.swift T3FoldScene).
+    private(set) var fold: T3FoldScene?
     private var foldAngle: Double?
     private var foldTurn: (from: Double, to: Double, at: Double)?
-    private var foldAspect = R9FoldScene.defaultInnerAspect
-    private let motion = R7DeviceMotion()
-    private let framing = R7DeviceFraming()
+    private var foldAspect = T3FoldScene.defaultInnerAspect
+    private let motion = T3DeviceMotion()
+    private let framing = T3DeviceFraming()
     private var timer: Timer?
     private var active: (mode: String, last: CGPoint, screen: CGPoint?)?
     private var scrolling = false
@@ -196,7 +196,7 @@ final class R7DevicePhoneView: NSView {
 
     init(platform: String, name: String, touch: @escaping (String, Double, Double) -> Void, unavailable: @escaping () -> Void) {
         self.platform = platform; self.name = name; self.touch = touch; self.unavailable = unavailable
-        profile = R7ShapeProfile.resolve(platform: platform, name: name, portraitAspect: 9 / 19.5)
+        profile = T3PhoneShapeProfile.resolve(platform: platform, name: name, portraitAspect: 9 / 19.5)
         scnView = SCNView(frame: .zero, options: [SCNView.Option.preferredRenderingAPI.rawValue: SCNRenderingAPI.metal.rawValue])
         super.init(frame: .zero)
         scnView.scene = scene
@@ -250,8 +250,8 @@ final class R7DevicePhoneView: NSView {
         func light(_ type: SCNLight.LightType, _ color: UInt32, _ intensity: Double, _ position: SCNVector3?) {
             let light = SCNLight()
             light.type = type
-            light.color = R7DevicePhoneView.color(color)
-            light.intensity = CGFloat(intensity * (type == .ambient ? R7DevicePhoneView.lightScale.ambient : R7DevicePhoneView.lightScale.direct))
+            light.color = T3DevicePhoneView.color(color)
+            light.intensity = CGFloat(intensity * (type == .ambient ? T3DevicePhoneView.lightScale.ambient : T3DevicePhoneView.lightScale.direct))
             let node = SCNNode(); node.light = light
             if let position { node.position = position; node.look(at: SCNVector3(0, 0, 0)) }
             scene.rootNode.addChildNode(node)
@@ -275,7 +275,7 @@ final class R7DevicePhoneView: NSView {
     static func material(_ color: UInt32, metal: Double, rough: Double, clearcoat: Double = 0) -> SCNMaterial {
         let material = SCNMaterial()
         material.lightingModel = .physicallyBased
-        material.diffuse.contents = R7DevicePhoneView.color(color)
+        material.diffuse.contents = T3DevicePhoneView.color(color)
         material.metalness.contents = NSNumber(value: metal)
         material.roughness.contents = NSNumber(value: rough)
         if clearcoat > 0 { material.clearCoat.contents = NSNumber(value: clearcoat) }
@@ -288,7 +288,7 @@ final class R7DevicePhoneView: NSView {
         guard material.lightingModel == .physicallyBased, material.emission.contents == nil || (material.emission.contents as? NSColor) == .black else { return }
         let metal = material.metalness.contents is NSNumber ? (material.metalness.contents as! NSNumber).doubleValue : material.metalness.intensity * 0.5
         material.emission.contents = material.diffuse.contents
-        material.emission.intensity = CGFloat(R7DevicePhoneView.lightScale.ambient * 2.4 / 1000 * max(0, 1 - metal))
+        material.emission.intensity = CGFloat(T3DevicePhoneView.lightScale.ambient * 2.4 / 1000 * max(0, 1 - metal))
     }
 
     static func rounded(_ width: Double, _ height: Double, _ radius: Double) -> NSBezierPath {
@@ -300,7 +300,7 @@ final class R7DevicePhoneView: NSView {
         body.removeFromParentNode()
         imported = false
         if platform == "android", let angle = foldAngle {
-            let scene = R9FoldScene(material: screenMaterial, angle: visibleFoldAngle(angle), innerAspect: foldAspect)
+            let scene = T3FoldScene(material: screenMaterial, angle: visibleFoldAngle(angle), innerAspect: foldAspect)
             scene.rotation = displayLayout.rotation
             fold = scene; body = scene.root; display = nil
             orientationAngle = 0
@@ -387,7 +387,7 @@ final class R7DevicePhoneView: NSView {
     }
 
     private func displayGeometry(positions: [SCNVector3], indices: [UInt16], width: Double, height: Double) -> SCNGeometry {
-        let uvs = positions.map { R7DeviceGeometry.uv(x: Double($0.x), y: Double($0.y), width: width, height: height, layout: displayLayout) }
+        let uvs = positions.map { T3DeviceGeometry.uv(x: Double($0.x), y: Double($0.y), width: width, height: height, layout: displayLayout) }
         let normals = positions.map { _ in SCNVector3(0, 0, 1) }
         let uvData = uvs.withUnsafeBufferPointer { Data(buffer: $0) }
         let geometry = SCNGeometry(sources: [SCNGeometrySource(vertices: positions), SCNGeometrySource(normals: normals),
@@ -437,17 +437,17 @@ final class R7DevicePhoneView: NSView {
     }
 
     private func loadModel() {
-        guard let origin, let id = R7DeviceModels.id(platform: platform, name: name), id != "iphone-duo" else { return }
+        guard let origin, let id = T3DeviceModels.id(platform: platform, name: name), id != "iphone-duo" else { return }
         let wanted = name
-        R7DeviceModels.locate(origin: origin) { [weak self] found in
+        T3DeviceModels.locate(origin: origin) { [weak self] found in
             guard let self, !self.disposed, self.name == wanted, let url = found[id] else { return }
-            R7DeviceModels.load(url) { [weak self] node in
+            T3DeviceModels.load(url) { [weak self] node in
                 guard let self, !self.disposed, self.name == wanted, let node else { return }
                 // The procedural body stays installed on download, decoding or validation failure.
                 _ = self.install(model: node)
             }
-            if R7DeviceModels.keyboard(platform: self.platform, name: self.name), let keyboard = found["ipad-pro-13-m5-magic-keyboard"] {
-                R7DeviceModels.load(keyboard) { [weak self] node in
+            if T3DeviceModels.keyboard(platform: self.platform, name: self.name), let keyboard = found["ipad-pro-13-m5-magic-keyboard"] {
+                T3DeviceModels.load(keyboard) { [weak self] node in
                     guard let self, !self.disposed else { return }
                     node?.enumerateHierarchy { child, _ in child.geometry?.materials.forEach(Self.ambient) }
                     self.accessory = node
@@ -463,7 +463,7 @@ final class R7DevicePhoneView: NSView {
         guard next != name else { return }
         name = next
         accessory?.removeFromParentNode(); accessory = nil
-        profile = R7ShapeProfile.resolve(platform: platform, name: name, portraitAspect: displayLayout.aspect)
+        profile = T3PhoneShapeProfile.resolve(platform: platform, name: name, portraitAspect: displayLayout.aspect)
         installProcedural(); loadModel(); invalidate()
     }
 
@@ -474,7 +474,7 @@ final class R7DevicePhoneView: NSView {
         fit(immediate: true); invalidate()
     }
 
-    func setScreen(_ next: R7DeviceClient.Screen?) { screen = next; updateLayout() }
+    func setScreen(_ next: T3DeviceClient.Screen?) { screen = next; updateLayout() }
 
     func setFrame(_ image: CGImage) {
         let size = CGSize(width: image.width, height: image.height)
@@ -488,10 +488,10 @@ final class R7DevicePhoneView: NSView {
     /// updateLayout: a new aspect rebuilds the procedural body; a new rotation turns the display
     /// (Android over 450 ms, iOS at once).
     private func updateLayout() {
-        let next = R7DeviceGeometry.layout(screen: screen, rawWidth: Double(raw.width), rawHeight: Double(raw.height))
+        let next = T3DeviceGeometry.layout(screen: screen, rawWidth: Double(raw.width), rawHeight: Double(raw.height))
         // Learn the inner display shape from any unfolded frame, including before fold mode.
         let frameAspect = raw.height > 0 ? Double(raw.width / raw.height) : 0
-        if R9FoldScene.isInnerAspect(frameAspect), frameAspect != foldAspect {
+        if T3FoldScene.isInnerAspect(frameAspect), frameAspect != foldAspect {
             foldAspect = frameAspect
             if fold != nil { displayLayout = next; installProcedural(); applyPose(); fit(immediate: true); invalidate(); return }
         }
@@ -502,7 +502,7 @@ final class R7DevicePhoneView: NSView {
         }
         let previous = displayLayout
         displayLayout = next
-        let nextProfile = R7ShapeProfile.resolve(platform: platform, name: name, portraitAspect: next.aspect)
+        let nextProfile = T3PhoneShapeProfile.resolve(platform: platform, name: name, portraitAspect: next.aspect)
         if !imported, nextProfile != profile || next.aspect != previous.aspect { profile = nextProfile; installProcedural() } else { profile = nextProfile; rebuildDisplayUV() }
         if next.rotation != previous.rotation {
             if profile.id.hasPrefix("android") && !reducedMotion {
@@ -513,7 +513,7 @@ final class R7DevicePhoneView: NSView {
         applyPose(); fit(immediate: orientationTurn == nil); invalidate()
     }
 
-    func resetPose() { motion.reset(R7Quat.identity, now); invalidate() }
+    func resetPose() { motion.reset(T3Quaternion.identity, now); invalidate() }
 
     /// The hinge currently drawn, including an unfinished turn.
     private func visibleFoldAngle(_ fallback: Double) -> Double {
@@ -644,7 +644,7 @@ final class R7DevicePhoneView: NSView {
         }
         let u = min(1, max(0, (local.x + Double(displaySize.width) / 2) / Double(displaySize.width)))
         let v = min(1, max(0, (local.y + Double(displaySize.height) / 2) / Double(displaySize.height)))
-        return R7DeviceGeometry.screenPoint(u: u, v: v, rotation: displayLayout.rotation)
+        return T3DeviceGeometry.screenPoint(u: u, v: v, rotation: displayLayout.rotation)
     }
 
     private func setInteractionActive(_ on: Bool, _ mode: String) {

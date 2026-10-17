@@ -34,7 +34,7 @@ private final class Fixture {
     }
 }
 
-final class R5ComposerTests: XCTestCase {
+final class RefPagingTests: XCTestCase {
     func testScrollTowardTheEndCountsOncePerPage() {
         let fixture = Fixture()
         let scroll = fixture.scroll(height: 224, content: 2800)
@@ -42,7 +42,7 @@ final class R5ComposerTests: XCTestCase {
         element.view = scroll; element.platform = scroll
         element.data = ExactData(["anchor": "scroll:details-refs"])
         var changes = 0
-        let ends = R5ComposerScroll(changed: { _ in changes += 1 })
+        let ends = T3RefPaging(changed: { _ in changes += 1 })
         ends.install(element)
         func move(_ y: CGFloat) {
             scroll.contentView.scroll(to: NSPoint(x: 0, y: y)); scroll.reflectScrolledClipView(scroll.contentView)
@@ -79,7 +79,7 @@ final class R5ComposerTests: XCTestCase {
         let element = ExactElement(hatch: .t3Anchor, id: "refs", node: 4, hatches: fixture.hooks)
         element.view = scroll; element.platform = scroll
         element.data = ExactData(["anchor": "scroll:strip-refs"])
-        let ends = R5ComposerScroll()
+        let ends = T3RefPaging()
         ends.install(element)
         scroll.documentView!.setFrameSize(NSSize(width: 300, height: 2800))
         NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scroll.contentView)
@@ -133,8 +133,8 @@ final class R5ComposerTests: XCTestCase {
     }
 }
 
-let suite = XCTestSuite(forTestCaseClass: R5ComposerTests.self)
+let suite = XCTestSuite(forTestCaseClass: RefPagingTests.self)
 suite.run()
 let run = suite.testRun!
-print("R5 composer: \(run.executionCount) tests, \(run.totalFailureCount) failures")
+print("Ref paging: \(run.executionCount) tests, \(run.totalFailureCount) failures")
 exit(run.totalFailureCount == 0 && run.executionCount == 3 ? 0 : 1)

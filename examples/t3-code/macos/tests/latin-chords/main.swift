@@ -13,7 +13,7 @@ class Flipped: NSView { override var isFlipped: Bool { true } }
 /// Records the menu equivalents it is sent, as the app menu's declared chords do.
 final class Target: NSObject { var fired: [String] = []; @objc func sidebar(_ sender: Any?) { fired.append("sidebar") }; @objc func palette(_ sender: Any?) { fired.append("palette") } }
 
-final class R10ConnectTests: XCTestCase {
+final class LatinChordsTests: XCTestCase {
     let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 420, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
     func key(_ characters: String, _ code: UInt16, _ flags: NSEvent.ModifierFlags = [.command]) -> NSEvent {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber, context: nil,
@@ -23,19 +23,19 @@ final class R10ConnectTests: XCTestCase {
 
     func testKoreanChordsTakeTheirPhysicalKey() {
         // Korean 2-Set: B is ㅠ, K is ㅏ, I is ㅑ (keybindings.ts adds KeyboardEvent.code's letter).
-        XCTAssertEqual(R10Connect.latinChord(key("ㅠ", 11))?.charactersIgnoringModifiers, "b")
-        XCTAssertEqual(R10Connect.latinChord(key("ㅏ", 40))?.charactersIgnoringModifiers, "k")
-        XCTAssertEqual(R10Connect.latinChord(key("ㅑ", 34))?.keyCode, 34)
-        XCTAssertEqual(R10Connect.latinChord(key("ㅠ", 11, [.command, .shift]))?.charactersIgnoringModifiers, "B")
-        XCTAssertEqual(R10Connect.latinChord(key("ㅠ", 11, [.control]))?.charactersIgnoringModifiers, "b")
-        XCTAssertEqual(R10Connect.latinChord(key("ㅠ", 11))?.modifierFlags.contains(.command), true)
+        XCTAssertEqual(T3LatinChords.latinChord(key("ㅠ", 11))?.charactersIgnoringModifiers, "b")
+        XCTAssertEqual(T3LatinChords.latinChord(key("ㅏ", 40))?.charactersIgnoringModifiers, "k")
+        XCTAssertEqual(T3LatinChords.latinChord(key("ㅑ", 34))?.keyCode, 34)
+        XCTAssertEqual(T3LatinChords.latinChord(key("ㅠ", 11, [.command, .shift]))?.charactersIgnoringModifiers, "B")
+        XCTAssertEqual(T3LatinChords.latinChord(key("ㅠ", 11, [.control]))?.charactersIgnoringModifiers, "b")
+        XCTAssertEqual(T3LatinChords.latinChord(key("ㅠ", 11))?.modifierFlags.contains(.command), true)
         // A Cyrillic layout's chord too; the digit row keeps its digits.
-        XCTAssertEqual(R10Connect.latinChord(key("и", 11))?.charactersIgnoringModifiers, "b")
-        XCTAssertNil(R10Connect.latinChord(key("b", 11)), "a Latin key is left alone (no second letter on remapped layouts)")
-        XCTAssertNil(R10Connect.latinChord(key("ü", 99)), "an unmapped key keeps its characters")
-        XCTAssertNil(R10Connect.latinChord(key("ㅠ", 11, [])), "typing Hangul is not a chord")
-        XCTAssertNil(R10Connect.latinChord(key("ㅠ", 11, [.option])), "Option alone is text input")
-        XCTAssertNil(R10Connect.latinChord(key("ㅠ", 11), composing: true), "composition keeps its keys")
+        XCTAssertEqual(T3LatinChords.latinChord(key("и", 11))?.charactersIgnoringModifiers, "b")
+        XCTAssertNil(T3LatinChords.latinChord(key("b", 11)), "a Latin key is left alone (no second letter on remapped layouts)")
+        XCTAssertNil(T3LatinChords.latinChord(key("ü", 99)), "an unmapped key keeps its characters")
+        XCTAssertNil(T3LatinChords.latinChord(key("ㅠ", 11, [])), "typing Hangul is not a chord")
+        XCTAssertNil(T3LatinChords.latinChord(key("ㅠ", 11, [.option])), "Option alone is text input")
+        XCTAssertNil(T3LatinChords.latinChord(key("ㅠ", 11), composing: true), "composition keeps its keys")
     }
 
     func testTheRemappedChordReachesAMenuEquivalent() {
@@ -43,38 +43,38 @@ final class R10ConnectTests: XCTestCase {
         let sidebar = NSMenuItem(title: "Toggle Sidebar", action: #selector(Target.sidebar(_:)), keyEquivalent: "b"); sidebar.target = target
         let palette = NSMenuItem(title: "Command Palette", action: #selector(Target.palette(_:)), keyEquivalent: "k"); palette.target = target
         sub.addItem(sidebar); sub.addItem(palette); top.submenu = sub; menu.addItem(top)
-        let r10 = R10Connect(agent: true)
+        let chords = T3LatinChords(agent: true)
         XCTAssertFalse(menu.performKeyEquivalent(with: key("ㅠ", 11)), "AppKit alone does not match ⌘ㅠ to ⌘B")
-        XCTAssertTrue(menu.performKeyEquivalent(with: r10.route(key("ㅠ", 11))))
-        XCTAssertTrue(menu.performKeyEquivalent(with: r10.route(key("ㅏ", 40))))
+        XCTAssertTrue(menu.performKeyEquivalent(with: chords.route(key("ㅠ", 11))))
+        XCTAssertTrue(menu.performKeyEquivalent(with: chords.route(key("ㅏ", 40))))
         XCTAssertEqual(target.fired, ["sidebar", "palette"])
         // Inside a field that is composing, the chord is the input method's.
         let field = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40)); window.contentView?.addSubview(field)
         window.makeFirstResponder(field); tick()
         field.setMarkedText("한", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
-        XCTAssertEqual(r10.route(key("ㅠ", 11)).charactersIgnoringModifiers, "ㅠ")
+        XCTAssertEqual(chords.route(key("ㅠ", 11)).charactersIgnoringModifiers, "ㅠ")
         field.unmarkText()
-        XCTAssertEqual(r10.route(key("ㅠ", 11)).charactersIgnoringModifiers, "b", "outside the composer and with nothing composing")
-        r10.destroy()
+        XCTAssertEqual(chords.route(key("ㅠ", 11)).charactersIgnoringModifiers, "b", "outside the composer and with nothing composing")
+        chords.destroy()
     }
 
     func testWakeEmitsOnlyKnownTopics() {
         var topics: [String] = [], replies: [[String: Any]] = []
-        R10Connect.wake(["op": "r10Wake", "topic": "t3.notify", "generation": 3], changed: { topics.append($0) }) { replies.append($0) }
-        R10Connect.wake(["op": "r10Wake", "topic": "t3.events"], changed: { topics.append($0) }) { replies.append($0) }
+        T3LatinChords.wake(["op": "wake", "topic": "t3.notify", "generation": 3], changed: { topics.append($0) }) { replies.append($0) }
+        T3LatinChords.wake(["op": "wake", "topic": "t3.events"], changed: { topics.append($0) }) { replies.append($0) }
         tick()
         XCTAssertEqual(topics, ["t3.notify"])
         XCTAssertEqual(replies.map { $0["ok"] as? Bool }, [false, true], "the refusal answers at once; the wake after it emits")
         XCTAssertEqual(replies.last?["generation"] as? Int, 3)
         // The pull request panel wakes its own resource.
-        R10Connect.wake(["op": "r10Wake", "topic": "t3.pr", "generation": 4], changed: { topics.append($0) }) { replies.append($0) }
+        T3LatinChords.wake(["op": "wake", "topic": "t3.pr", "generation": 4], changed: { topics.append($0) }) { replies.append($0) }
         tick()
         XCTAssertEqual(topics, ["t3.notify", "t3.pr"])
         XCTAssertEqual(replies.last?["ok"] as? Bool, true)
     }
 }
 
-let suite = XCTestSuite(forTestCaseClass: R10ConnectTests.self)
+let suite = XCTestSuite(forTestCaseClass: LatinChordsTests.self)
 suite.run()
 let run = suite.testRun!
 print("Executed \(run.executionCount) tests, with \(run.failureCount) failures")

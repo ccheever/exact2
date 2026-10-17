@@ -247,7 +247,7 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
   }
   if (op === 'search') { await search(client, native, value); return ''; }
   if (op.startsWith('comment-')) return fileComment(client, native, op.slice(8), id, value, state.reads.get(id)?.contents ?? '', panelKey(client)); // diff-file-comments.ts
-  // FileSearchField: its Escape closes the search (closeSearch); the field blurs itself (R4Explorer searchKey).
+  // FileSearchField: its Escape closes the search (closeSearch); the field blurs itself (FilesExplorer searchKey).
   if (op === 'search-key') { if (value === 'Escape') await search(client, native, ''); return ''; }
   if (op === 'begin-edit') {
     const read = state.reads.get(id);
@@ -406,7 +406,7 @@ function crumbMenu(state: FilesState, project: string, current: string, presenta
   if (!menu || !current) return closedCrumbs();
   const trail = crumbs(project, current), index = trail.findIndex(crumb => (crumb.path === '.' ? '' : crumb.path) === menu.root);
   if (index < 0) return closedCrumbs();
-  // 12pt subheader inset; a crumb after the first starts with its 14pt chevron and 4pt margins. r6-polish: the
+  // 12pt subheader inset; a crumb after the first starts with its 14pt chevron and 4pt margins. The
   // crumb's laid-out place (hooked `crumb:<path>`, laid-out-widths.ts); the advance table only before it reports.
   const placed = anchorFrame(presentation, `crumb:${trail[index]!.id}`);
   const x = placed ? 12 + crumbsShift(presentation) + placed[0] + (index > 0 ? 22 : 0) : 12 + trail.slice(0, index).reduce((sum, crumb) => sum + textWidth(crumb.label, 12) + 4 + 22, 0);

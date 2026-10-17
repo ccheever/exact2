@@ -7,16 +7,16 @@ use MarkdownEnv from "../timeline/markdown.contract"
 use MarkdownSource from "../timeline/markdown.contract"
 use MermaidDiagram from "../timeline/markdown.contract"
 use AttachmentUrl from "../timeline/timeline-attachments.contract"
-use R5PrSurface from "./pr-attachment-shapes.contract"
-use R5Attachment from "./pr-attachment-shapes.contract"
-use R6DeviceView from "../device/device-workspace-shapes.contract"
-use R6DeviceMini from "../device/device-workspace-shapes.contract"
-use R12TabStrip from "./tab-strip.contract"
+use PrSurface from "./pr-attachment-shapes.contract"
+use AttachmentSurface from "./pr-attachment-shapes.contract"
+use DeviceSessionView from "../device/device-workspace-shapes.contract"
+use DeviceMini from "../device/device-workspace-shapes.contract"
+use TabStrip from "./tab-strip.contract"
 use BrowserPanel from "../browser/browser-shapes.contract"
 use BrowserMini from "../browser/browser-shapes.contract"
 use MediaView from "../media/media-actions.contract"
 
-shape R4Tab
+shape PanelTab
   id: string
   kind: string
   title: string
@@ -30,16 +30,16 @@ shape R4Tab
   closeTitle: string
   closeBody: string
   closeTarget: string
-  menu: R4TabMenuItem[]
+  menu: PanelTabMenuItem[]
   favicon: string // a Browser tab's captured favicon, then the public service's
   faviconFallback: string
   audio: string // "none", "audible" or "muted" (the tab's audio button)
 // One row of the tab's context menu (right-panel-tabs.ts tabMenuRows).
-shape R4TabMenuItem
+shape PanelTabMenuItem
   id: string
   label: string
   disabled: bool
-shape R4TreeRow
+shape FilesTreeRow
   id: string
   path: string
   name: string
@@ -49,24 +49,24 @@ shape R4TreeRow
   selected: bool
   token: string
   ignored: bool
-  guides: R4Guide[]
-shape R4Guide
+  guides: TreeGuide[]
+shape TreeGuide
   id: string
   left: number
-shape R4Crumb
+shape FilesCrumb
   id: string
   label: string
   path: string
   current: bool
   directory: bool
-shape R4CodeRun
+shape FilesCodeRun
   id: string
   text: string
   syntax: string
-shape R4CodeLine
+shape FilesCodeLine
   id: string
   number: string
-  runs: R4CodeRun[]
+  runs: FilesCodeRun[]
   // diff-review: a code line ("line"), or a saved ("note") or draft comment under its last line; line selection.
   kind: string
   line: number
@@ -77,15 +77,15 @@ shape R4CodeLine
   entry: string
   text: string
   label: string
-shape R4Editor
+shape FileEditor
   id: string
   label: string
   selected: bool
-shape R4TableRow
+shape RenderedTableRow
   id: string
   header: bool
-  cells: R4CodeRun[]
-shape R4Files
+  cells: FilesCodeRun[]
+shape FilesView
   cwd: string
   project: string
   ready: bool
@@ -93,7 +93,7 @@ shape R4Files
   error: string
   query: string
   truncated: bool
-  rows: R4TreeRow[]
+  rows: FilesTreeRow[]
   hasDirectories: bool
   allExpanded: bool
   explorer: bool
@@ -101,8 +101,8 @@ shape R4Files
   path: string
   preview: string
   previewError: string
-  crumbs: R4Crumb[]
-  lines: R4CodeLine[]
+  crumbs: FilesCrumb[]
+  lines: FilesCodeLine[]
   commentOpen: bool
   text: string
   textKey: string
@@ -123,7 +123,7 @@ shape R4Files
   editorShow: bool
   editorHint: string
   editorUnavailable: string
-  editors: R4Editor[]
+  editors: FileEditor[]
   absolutePath: string
   // The rendered file is ChatMarkdown (app.contract's filesMarkdown answers
   // markdownSource); md, code, diagrams, mdUrls and the Copy code check are what the transcript's answers carry.
@@ -134,16 +134,16 @@ shape R4Files
   mdUrls: AttachmentUrl[]
   codeCopied: string
   codeCopyNonce: number
-  table: R4TableRow[]
+  table: RenderedTableRow[]
   editing: bool
   editorText: string
-  crumbMenu: R4CrumbMenu
+  crumbMenu: FilesCrumbMenu
   crumbsMask: string
   crumbsOffset: number
   url: string
   // An image or video file (media-views.ts filesMediaView).
   media: MediaView
-shape R4CrumbEntry
+shape FilesCrumbEntry
   id: string
   path: string
   label: string
@@ -151,15 +151,15 @@ shape R4CrumbEntry
   token: string
   current: bool
   ignored: bool
-shape R4CrumbMenu
+shape FilesCrumbMenu
   open: bool
   root: string
   x: number
   back: string
   backPath: string
   status: string
-  entries: R4CrumbEntry[]
-shape R4LinkedRow
+  entries: FilesCrumbEntry[]
+shape LinkedPrRow
   key: string
   index: number
   number: number
@@ -191,32 +191,32 @@ shape R4LinkedRow
   sourceLabel: string
   unlinkLabel: string
   canWatch: bool
-shape R4Prs
+shape LinkedPrs
   supported: bool
-  rows: R4LinkedRow[]
+  rows: LinkedPrRow[]
   footer: string
   canWatch: bool
-shape R4Platform
+shape DeviceSurfacePlatform
   id: string
   platform: string
   ready: bool
   message: string
-shape R4HostNotice
+shape DeviceHostNotice
   id: string
   label: string
   detail: string
   failed: bool
-shape R4DeviceRow
+shape DeviceSurfaceRow
   id: string
   name: string
   description: string
   action: string
   platform: string
-shape R4DeviceGroup
+shape DeviceSurfaceGroup
   id: string
   label: string
-  devices: R4DeviceRow[]
-shape R4Device
+  devices: DeviceSurfaceRow[]
+shape DeviceSurface
   loaded: bool
   step: number
   enabled: bool
@@ -225,21 +225,21 @@ shape R4Device
   hostStatus: string
   hubStatus: string
   hubReady: bool
-  platforms: R4Platform[]
+  platforms: DeviceSurfacePlatform[]
   agentEnabled: bool
   agentStatus: string
   agentReady: bool
   failure: string
   canContinue: bool
   doneLabel: string
-  notices: R4HostNotice[]
-  groups: R4DeviceGroup[]
+  notices: DeviceHostNotice[]
+  groups: DeviceSurfaceGroup[]
   empty: string
   hint: string
   panelStatus: string
   refreshable: bool
   // The opened device and its workspace (device-session.ts).
-  r6: R6DeviceView
+  session: DeviceSessionView
   // 1e2ecbd975 (5318d054a5): a local host has no available platform (device-support.ts).
   localPlatformsUnavailable: bool
 shape TerminalSurfaceClose
@@ -249,11 +249,11 @@ shape TerminalSurfaceClose
   body: string
   target: string
 
-shape R4AutomationRecording // browser-automation-recording.ts automationRecordingView
+shape AutomationRecording // browser-automation-recording.ts automationRecordingView
   serial: number // bumps once for each request the module newly lists
   slot: number // the queued send to run it on (app.contract automationRecordingServed0-3)
 
-shape R4Panel
+shape PanelView
   key: string // the thread (or draft) the panel belongs to (rightPanelStore byThreadKey)
   launcher: bool // open on the launcher alone (isOpen with no surface)
   terminalClose: TerminalSurfaceClose
@@ -262,16 +262,16 @@ shape R4Panel
   kind: string
   active: string
   count: number
-  tabs: R4Tab[]
-  files: R4Files
-  prs: R4Prs
-  device: R4Device
+  tabs: PanelTab[]
+  files: FilesView
+  prs: LinkedPrs
+  device: DeviceSurface
   deviceSetup: bool
-  pr: R5PrSurface
-  attachment: R5Attachment
-  deviceMini: R6DeviceMini
-  tabStrip: R12TabStrip // the tab strip's scroll (tab-strip.ts)
+  pr: PrSurface
+  attachment: AttachmentSurface
+  deviceMini: DeviceMini
+  tabStrip: TabStrip // the tab strip's scroll (tab-strip.ts)
   browser: BrowserPanel // the active Browser tab (browser-surface.ts browserView)
   browserMini: BrowserMini // the floating player's browser tab (browser-capture.ts browserMiniView)
   annotationSend: number // an annotation's ⌘Return asks the window's Send, whatever the panel shows
-  automationRecording: R4AutomationRecording // a recording request the agent's previewAutomation host handed over
+  automationRecording: AutomationRecording // a recording request the agent's previewAutomation host handed over

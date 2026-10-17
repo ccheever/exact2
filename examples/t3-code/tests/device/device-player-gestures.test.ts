@@ -1,6 +1,6 @@
 // T3 Code 1e2ecbd975 (MIT, see LICENSE-T3: ThreadPreviewMiniPlayer.tsx MiniPlayerShell's
 // beginGesture / handlePointerMove and its pill, chatCanvasLayout.ts, previewMiniPlayerLayout.ts). The floating device
-// player's gestures as a hand makes them: R6DeviceMiniPlayer's `pan` runs from device-workspace.contract with the clock moving
+// player's gestures as a hand makes them: DeviceMiniPlayer's `pan` runs from device-workspace.contract with the clock moving
 // between moves (contract-action-fixture.ts), and every gesture it sends goes to the canvas source (chat-canvas-view.ts).
 // One serial per gesture, so a drag moves by the pointer's total once, and the resizes from it.
 // The pill's drag is a grab box behind its buttons. The 840 × 620 cells.
@@ -21,7 +21,7 @@ const native = null as unknown as Native;
 // composer overlay 172 pt; the lane's drag stop is 20 + 640 + 12 = 672 from the canvas edge.
 const frames = { chat: [256, 0, 1024, 840], overlay: [400, 668, 736, 172] };
 const args = (extra: Partial<ChatCanvasArgs> = {}): ChatCanvasArgs => ({ width: 1024, viewportHeight: 840, detailsInline: false, chatMax: 736, overlaid: true, gesture: '', wide: true, popoverOpen: false, ...extra });
-const player = contractComponent('device-workspace.contract', 'R6DeviceMiniPlayer');
+const player = contractComponent('device-workspace.contract', 'DeviceMiniPlayer');
 let client: T3Client;
 let canvasArgs: Partial<ChatCanvasArgs>;
 // The player's slots and the clock live across the gestures of a test, as the mounted component's do.

@@ -159,15 +159,15 @@ describe('each thread keeps its own place', () => {
 });
 
 describe('one writer per navigation', () => {
-  test('the marker beside the list reports each thread\'s transcript, and R9Input keeps only the composer\'s input', () => {
+  test('the marker beside the list reports each thread\'s transcript, and T3ComposerInput keeps only the composer\'s input', () => {
     const main = source('app-main.contract');
     expect(main).toContain('          for owner in [composerOwner] key=owner\n            box intersect=transcriptOpened(owner) position="absolute"');
     const c = chat();
     expect(column.drawn('intersect=transcriptOpened(owner)', c.state, c.scope)).toBe(true);
     (c.scope.data as Env).messages = [];
     expect(column.drawn('intersect=transcriptOpened(owner)', c.state, c.scope)).toBe(false);
-    const r9 = source('modules/apple/T3ComposerInput.swift');
-    expect(r9).not.toMatch(/func remember|func step|restoring|turns\[|boundsDidChange|timelineOwner/);
-    for (const kept of ['func responderChanged', 'static func chordKey', 'static func commitMarkedText', 'commit-on-press']) expect(r9).toContain(kept);
+    const input = source('modules/apple/T3ComposerInput.swift');
+    expect(input).not.toMatch(/func remember|func step|restoring|turns\[|boundsDidChange|timelineOwner/);
+    for (const kept of ['func responderChanged', 'static func chordKey', 'static func commitMarkedText', 'commit-on-press']) expect(input).toContain(kept);
   });
 });

@@ -91,7 +91,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op === 'pr-link-pick') { await pullRequestLinkPick(client, native, value); return ''; } // the detail header's number's menu choice
   if (op === 'pr-preview') { notePreviewHover(client, id, value === '1'); return ''; } // a pull request link's hover card
   if (op.startsWith('prw-')) return prLocalWrite(client, native, op.slice(4), id, value); // the composer's drafts (pages-pr-detail.ts)
-  if (op === 'pr-ui-select') return surfaceLocal(client, native, 'r5-pr-open', stackLayerTarget(value), ''); // a stack layer beside a thread
+  if (op === 'pr-ui-select') return surfaceLocal(client, native, 'linked-pr-open', stackLayerTarget(value), ''); // a stack layer beside a thread
   if (op.startsWith('pr-ui-')) return prUiLocal(client, op.slice(6), id, value); // the panel header's menu choices
   if (op.startsWith('pr-code-')) return prCodeLocalFor(client, native, op.slice(8), id, value); // the Code tab's presses (pages-pr-code.ts)
   if (op.startsWith('git-')) return gitChatLocal(client, native, op.slice(4), id, value); // git-route.ts

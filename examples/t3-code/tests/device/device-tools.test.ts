@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { r6DeviceCommand, r6DeviceLocal, r6DeviceView } from '../../src/device/device-session';
+import { deviceSessionCommand, deviceSessionLocal, deviceSessionView } from '../../src/device/device-session';
 import { foregroundOf, hasKeyboard, locationValid, toolBody, workspaceOf } from '../../src/device/device-tools';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
@@ -30,7 +30,7 @@ const native = { available: true } as Native;
 const iosSettings = { appearance: 'dark', textSize: 'large', reduceMotion: false, increaseContrast: true, reduceTransparency: false, showBorders: false, voiceOver: false, liquidGlass: 'clear', colorFilter: 'grayscale' };
 async function open(c: T3Client, device: Obj) {
   const state = deviceState(device);
-  await r6DeviceCommand(c, native, state, 'p', 'open', `local\u0000${device.id}`, '');
+  await deviceSessionCommand(c, native, state, 'p', 'open', `local\u0000${device.id}`, '');
   return state;
 }
 
@@ -38,26 +38,26 @@ describe('device workspace completeness', () => {
   test('the rail: 3D by default once streaming H.264, Flat on request, the reason 3D is unavailable, the Magic Keyboard', async () => {
     const calls: Call[] = [], c = client(calls, { 'device.open': { hostId: 'local', deviceId: 'SIM-1' }, 'device.detail': detail('SIM-1', iosSettings) });
     const state = await open(c, iphone);
-    let ws = (await r6DeviceView(c, native, state, true, 'p')).workspace;
-    expect(ws.r7.rail).toMatchObject({ view: 'phone', ax: '0', phone: false, streaming: false, phoneDisabled: true, toolsOpen: false, keyboard: false });
+    let ws = (await deviceSessionView(c, native, state, true, 'p')).workspace;
+    expect(ws.controls.rail).toMatchObject({ view: 'phone', ax: '0', phone: false, streaming: false, phoneDisabled: true, toolsOpen: false, keyboard: false });
     (c.presentation as Obj).deviceStreams = { [IOS]: { status: 'streaming', inputConnected: true, phone: true, phoneUnavailable: '', orientation: 'portrait' } };
-    ws = (await r6DeviceView(c, native, state, true, 'p')).workspace;
-    expect(ws.r7.rail).toMatchObject({ phone: true, streaming: true, phoneDisabled: false, keyboard: true, keyboardAttached: false, rotateDisabled: false });
+    ws = (await deviceSessionView(c, native, state, true, 'p')).workspace;
+    expect(ws.controls.rail).toMatchObject({ phone: true, streaming: true, phoneDisabled: false, keyboard: true, keyboardAttached: false, rotateDisabled: false });
     // Attaching the keyboard turns the iPad to landscape first and disables Rotate.
-    await r6DeviceLocal(c, native, state, 'p', 'tools-keyboard', '');
-    expect(calls.filter(call => call.op === 'r6DeviceInput').map(call => call.request)).toEqual([{ op: 'r6DeviceInput', action: 'orientation', key: IOS, value: 'landscape_right' }]);
-    ws = (await r6DeviceView(c, native, state, true, 'p')).workspace;
-    expect([ws.r7.rail.view, ws.r7.rail.keyboardAttached, ws.r7.rail.rotateDisabled]).toEqual(['phone-keyboard', true, true]);
-    await r6DeviceLocal(c, native, state, 'p', 'tools-reset', '');
-    expect(calls.at(-1)?.request).toEqual({ op: 'r6DeviceInput', action: 'reset', key: IOS, value: 'keyboard' });
-    await r6DeviceLocal(c, native, state, 'p', 'tools-view', 'flat');
+    await deviceSessionLocal(c, native, state, 'p', 'tools-keyboard', '');
+    expect(calls.filter(call => call.op === 'deviceInput').map(call => call.request)).toEqual([{ op: 'deviceInput', action: 'orientation', key: IOS, value: 'landscape_right' }]);
+    ws = (await deviceSessionView(c, native, state, true, 'p')).workspace;
+    expect([ws.controls.rail.view, ws.controls.rail.keyboardAttached, ws.controls.rail.rotateDisabled]).toEqual(['phone-keyboard', true, true]);
+    await deviceSessionLocal(c, native, state, 'p', 'tools-reset', '');
+    expect(calls.at(-1)?.request).toEqual({ op: 'deviceInput', action: 'reset', key: IOS, value: 'keyboard' });
+    await deviceSessionLocal(c, native, state, 'p', 'tools-view', 'flat');
     (c.presentation as Obj).deviceStreams = { [IOS]: { status: 'streaming', inputConnected: true, phone: false, phoneUnavailable: '' } };
-    ws = (await r6DeviceView(c, native, state, true, 'p')).workspace;
-    expect([ws.r7.rail.view, ws.r7.rail.phone, ws.r7.rail.keyboard]).toEqual(['flat', false, false]);
+    ws = (await deviceSessionView(c, native, state, true, 'p')).workspace;
+    expect([ws.controls.rail.view, ws.controls.rail.phone, ws.controls.rail.keyboard]).toEqual(['flat', false, false]);
     // The module's reason disables the 3D button (MJPEG fallback, frames overlay).
     (c.presentation as Obj).deviceStreams = { [IOS]: { status: 'streaming', inputConnected: true, phone: false, phoneUnavailable: '3D requires the H.264 stream', mjpeg: true } };
-    ws = (await r6DeviceView(c, native, state, true, 'p')).workspace;
-    expect([ws.r7.rail.phoneDisabled, ws.r7.rail.phoneReason]).toEqual([true, '3D requires the H.264 stream']);
+    ws = (await deviceSessionView(c, native, state, true, 'p')).workspace;
+    expect([ws.controls.rail.phoneDisabled, ws.controls.rail.phoneReason]).toEqual([true, '3D requires the H.264 stream']);
     expect(hasKeyboard('ios', 'iPad Pro 13-inch (M5)')).toBe(true);
     expect(hasKeyboard('ios', 'iPad Air 11-inch (M3)')).toBe(false);
   });
@@ -66,30 +66,30 @@ describe('device workspace completeness', () => {
     const calls: Call[] = [], c = client(calls, { 'device.open': { hostId: 'local', deviceId: 'emulator-5554' }, 'device.detail': detail('emulator-5554', { appearance: 'light', textSize: 'default', reduceMotion: false, networkEnabled: true }),
       'device.action': (payload: Obj) => detail('emulator-5554', { appearance: 'light', textSize: 'default', reduceMotion: false, networkEnabled: payload.type === 'setToggle' ? payload.value : true }) });
     const state = await open(c, pixel);
-    await r6DeviceView(c, native, state, true, 'p');
-    await r6DeviceLocal(c, native, state, 'p', 'back', ANDROID);
-    await r6DeviceLocal(c, native, state, 'p', 'recents', ANDROID);
-    expect(calls.filter(call => call.op === 'r6DeviceInput').map(call => call.request?.action)).toEqual(['back', 'recents']);
-    let ws = (await r6DeviceView(c, native, state, true, 'p')).workspace;
-    expect(ws.r7.rail.rotateDisabled).toBe(false);
-    await r6DeviceLocal(c, native, state, 'p', 'tools-pick-orientation', 'landscape_left');
+    await deviceSessionView(c, native, state, true, 'p');
+    await deviceSessionLocal(c, native, state, 'p', 'back', ANDROID);
+    await deviceSessionLocal(c, native, state, 'p', 'recents', ANDROID);
+    expect(calls.filter(call => call.op === 'deviceInput').map(call => call.request?.action)).toEqual(['back', 'recents']);
+    let ws = (await deviceSessionView(c, native, state, true, 'p')).workspace;
+    expect(ws.controls.rail.rotateDisabled).toBe(false);
+    await deviceSessionLocal(c, native, state, 'p', 'tools-pick-orientation', 'landscape_left');
     expect(calls.filter(call => call.method === 'device.action').map(call => call.payload)).toEqual([{ hostId: 'local', deviceId: 'emulator-5554', type: 'setOrientation', value: 'landscape_left' }]);
     (c.presentation as Obj).deviceStreams = { [ANDROID]: { status: 'streaming', inputConnected: false, inputDetail: 'closed 1001' } };
-    ws = (await r6DeviceView(c, native, state, true, 'p')).workspace;
+    ws = (await deviceSessionView(c, native, state, true, 'p')).workspace;
     expect(ws.stream.inputNotice).toBe('Input disconnected (closed 1001), reconnecting…');
     // The encoder restarting after a fold: the last frame stays in 3D, then "Waiting for device video…".
     (c.presentation as Obj).deviceStreams = { [ANDROID]: { status: 'connecting', inputConnected: true, phone: true, retaining: true, restartNotice: true } };
-    ws = (await r6DeviceView(c, native, state, true, 'p')).workspace;
-    expect([ws.stream.status, ws.r7.rail.waiting]).toEqual(['streaming', 'Waiting for device video…']);
+    ws = (await deviceSessionView(c, native, state, true, 'p')).workspace;
+    expect([ws.stream.status, ws.controls.rail.waiting]).toEqual(['streaming', 'Waiting for device video…']);
     // The drawer's Android rows: Orientation and Network instead of the iOS-only controls.
-    await r6DeviceLocal(c, native, state, 'p', 'tools-toggle', '');
-    const tools = (await r6DeviceView(c, native, state, true, 'p')).workspace.r7.tools;
+    await deviceSessionLocal(c, native, state, 'p', 'tools-toggle', '');
+    const tools = (await deviceSessionView(c, native, state, true, 'p')).workspace.controls.tools;
     expect([tools.ios, tools.platformTitle, tools.log, tools.launchPlaceholder]).toEqual([false, 'Emulator', false, 'Package name to launch']);
     expect(tools.switches.map(item => [item.id, item.label, item.checked])).toEqual([['reduceMotion', 'Reduce Motion', false], ['networkEnabled', 'Network', true]]);
     expect(tools.permissions.map(item => item.label)).toEqual(['Camera', 'Microphone', 'Photos', 'Contacts', 'Calendar', 'Location', 'Notifications', 'Physical activity']);
-    await r6DeviceCommand(c, native, state, 'p', 'tools-act', 'toggle', 'networkEnabled=0');
+    await deviceSessionCommand(c, native, state, 'p', 'tools-act', 'toggle', 'networkEnabled=0');
     expect(calls.filter(call => call.method === 'device.action').at(-1)?.payload).toEqual({ hostId: 'local', deviceId: 'emulator-5554', type: 'setToggle', setting: 'networkEnabled', value: false });
-    expect((await r6DeviceView(c, native, state, true, 'p')).workspace.r7.tools.switches[1]!.checked).toBe(false);
+    expect((await deviceSessionView(c, native, state, true, 'p')).workspace.controls.tools.switches[1]!.checked).toBe(false);
   });
 
   test('the Tools drawer: settings read from the device, one device.action per control, confirmed values only', async () => {
@@ -101,8 +101,8 @@ describe('device workspace completeness', () => {
         return detail('SIM-1', current, { id: 'com.example.app' });
       } });
     const state = await open(c, iphone);
-    await r6DeviceLocal(c, native, state, 'p', 'tools-toggle', '');
-    let tools = (await r6DeviceView(c, native, state, true, 'p')).workspace.r7.tools;
+    await deviceSessionLocal(c, native, state, 'p', 'tools-toggle', '');
+    let tools = (await deviceSessionView(c, native, state, true, 'p')).workspace.controls.tools;
     expect(tools).toMatchObject({ open: true, overlay: true, ios: true, platformTitle: 'Simulator', foreground: 'com.example.app', hasForeground: true, disabled: false, loading: false,
       appearance: 'dark', textSizeLabel: 'Large', textSizeKnown: true, liquidGlass: 'clear', liquidGlassDisabled: false, colorFilterLabel: 'Grayscale', diagnostics: 'Simulator runtime 26.0 ready',
       permPlaceholder: 'com.example.app', permDisabled: false, permissionLabel: 'Camera', pushDisabled: false, pushSendDisabled: true, log: true, logOpen: false, eventsEmpty: true });
@@ -110,27 +110,27 @@ describe('device workspace completeness', () => {
     expect(tools.colorFilters.map(item => item.label)).toEqual(['None', 'Grayscale', 'Red / green (protanopia)', 'Green / red (deuteranopia)', 'Blue / yellow (tritanopia)']);
     expect(tools.presets.map(item => item.label)).toEqual(['San Francisco', 'New York', 'London', 'Stockholm', 'Tokyo']);
     // A 700pt-wide area keeps the drawer beside the screen.
-    (c.presentation as Obj).frames = { 'r7-device-area': [0, 0, 760, 700] };
-    expect((await r6DeviceView(c, native, state, true, 'p')).workspace.r7.tools.overlay).toBe(false);
+    (c.presentation as Obj).frames = { 'device-area': [0, 0, 760, 700] };
+    expect((await deviceSessionView(c, native, state, true, 'p')).workspace.controls.tools.overlay).toBe(false);
     // Drafts, submits (a submitted field clears), selects, toggles, permissions, push, location.
-    await r6DeviceLocal(c, native, state, 'p', 'tools-draft-url', '  myapp://home ');
-    tools = (await r6DeviceView(c, native, state, true, 'p')).workspace.r7.tools;
+    await deviceSessionLocal(c, native, state, 'p', 'tools-draft-url', '  myapp://home ');
+    tools = (await deviceSessionView(c, native, state, true, 'p')).workspace.controls.tools;
     expect([tools.url, tools.urlDisabled]).toEqual(['  myapp://home ', false]);
-    await r6DeviceLocal(c, native, state, 'p', 'tools-submit-url', '');
-    await r6DeviceLocal(c, native, state, 'p', 'tools-pick-color-filter', 'blue-yellow');
-    await r6DeviceLocal(c, native, state, 'p', 'tools-pick-liquid-glass', 'tinted');
-    await r6DeviceCommand(c, native, state, 'p', 'tools-act', 'terminate', '');
-    await r6DeviceCommand(c, native, state, 'p', 'tools-act', 'relaunch', '');
-    await r6DeviceLocal(c, native, state, 'p', 'tools-permission', 'faceid');
-    await r6DeviceCommand(c, native, state, 'p', 'tools-act', 'grant', '');
-    await r6DeviceLocal(c, native, state, 'p', 'tools-draft-permApp', 'com.other');
-    await r6DeviceCommand(c, native, state, 'p', 'tools-act', 'reset', '');
-    await r6DeviceLocal(c, native, state, 'p', 'tools-draft-push', 'Hello');
-    await r6DeviceCommand(c, native, state, 'p', 'tools-act', 'push', '');
-    await r6DeviceLocal(c, native, state, 'p', 'tools-pick-preset', 'Tokyo');
-    await r6DeviceLocal(c, native, state, 'p', 'tools-draft-lat', '95');
-    await r6DeviceCommand(c, native, state, 'p', 'tools-act', 'location', '');
-    await r6DeviceCommand(c, native, state, 'p', 'tools-act', 'location-clear', '');
+    await deviceSessionLocal(c, native, state, 'p', 'tools-submit-url', '');
+    await deviceSessionLocal(c, native, state, 'p', 'tools-pick-color-filter', 'blue-yellow');
+    await deviceSessionLocal(c, native, state, 'p', 'tools-pick-liquid-glass', 'tinted');
+    await deviceSessionCommand(c, native, state, 'p', 'tools-act', 'terminate', '');
+    await deviceSessionCommand(c, native, state, 'p', 'tools-act', 'relaunch', '');
+    await deviceSessionLocal(c, native, state, 'p', 'tools-permission', 'faceid');
+    await deviceSessionCommand(c, native, state, 'p', 'tools-act', 'grant', '');
+    await deviceSessionLocal(c, native, state, 'p', 'tools-draft-permApp', 'com.other');
+    await deviceSessionCommand(c, native, state, 'p', 'tools-act', 'reset', '');
+    await deviceSessionLocal(c, native, state, 'p', 'tools-draft-push', 'Hello');
+    await deviceSessionCommand(c, native, state, 'p', 'tools-act', 'push', '');
+    await deviceSessionLocal(c, native, state, 'p', 'tools-pick-preset', 'Tokyo');
+    await deviceSessionLocal(c, native, state, 'p', 'tools-draft-lat', '95');
+    await deviceSessionCommand(c, native, state, 'p', 'tools-act', 'location', '');
+    await deviceSessionCommand(c, native, state, 'p', 'tools-act', 'location-clear', '');
     expect(calls.filter(call => call.method === 'device.action').map(call => { const { hostId: _h, deviceId: _d, ...body } = call.payload!; return body; })).toEqual([
       { type: 'openUrl', url: 'myapp://home' },
       { type: 'setColorFilter', value: 'blue-yellow' },
@@ -143,29 +143,29 @@ describe('device workspace completeness', () => {
       { type: 'setLocation', latitude: 35.6762, longitude: 139.6503 },
       { type: 'clearLocation' },
     ]);
-    tools = (await r6DeviceView(c, native, state, true, 'p')).workspace.r7.tools;
+    tools = (await deviceSessionView(c, native, state, true, 'p')).workspace.controls.tools;
     expect([tools.url, tools.push, tools.lat, tools.lng, tools.colorFilterLabel, tools.liquidGlass]).toEqual(['', '', '', '', 'Blue / yellow (tritanopia)', 'tinted']);
     // The overlay and event log are local; the log's entries come from the module's feed.
-    await r6DeviceLocal(c, native, state, 'p', 'tools-ax', '');
-    await r6DeviceLocal(c, native, state, 'p', 'tools-log', '');
+    await deviceSessionLocal(c, native, state, 'p', 'tools-ax', '');
+    await deviceSessionLocal(c, native, state, 'p', 'tools-log', '');
     (c.presentation as Obj).deviceTools = { [IOS]: { foreground: 'com.apple.Preferences', eventsOpen: true, events: [{ id: 3, time: '12:35:09', summary: 'Swipe' }] } };
-    const ws = (await r6DeviceView(c, native, state, true, 'p')).workspace;
-    expect([ws.r7.rail.ax, ws.r7.tools.axOn, ws.r7.tools.logOpen, ws.r7.tools.logDevice, ws.r7.tools.logHost, ws.r7.tools.foreground]).toEqual(['1', true, true, 'SIM-1', 'local', 'com.apple.Preferences']);
-    expect(ws.r7.tools.events).toEqual([{ id: '3', time: '12:35:09', summary: 'Swipe' }]);
-    await r6DeviceLocal(c, native, state, 'p', 'tools-close', '');
-    expect((await r6DeviceView(c, native, state, true, 'p')).workspace.r7.tools.open).toBe(false);
+    const ws = (await deviceSessionView(c, native, state, true, 'p')).workspace;
+    expect([ws.controls.rail.ax, ws.controls.tools.axOn, ws.controls.tools.logOpen, ws.controls.tools.logDevice, ws.controls.tools.logHost, ws.controls.tools.foreground]).toEqual(['1', true, true, 'SIM-1', 'local', 'com.apple.Preferences']);
+    expect(ws.controls.tools.events).toEqual([{ id: '3', time: '12:35:09', summary: 'Swipe' }]);
+    await deviceSessionLocal(c, native, state, 'p', 'tools-close', '');
+    expect((await deviceSessionView(c, native, state, true, 'p')).workspace.controls.tools.open).toBe(false);
   });
 
   test('a failed action shows in the drawer while it is open, in the workspace otherwise; nothing runs while one is pending', async () => {
     const calls: Call[] = [], c = client(calls, { 'device.open': { hostId: 'local', deviceId: 'SIM-1' }, 'device.detail': detail('SIM-1', iosSettings), 'device.action': new Error('simctl failed') });
     const state = await open(c, iphone);
-    await r6DeviceView(c, native, state, true, 'p');
-    await r6DeviceLocal(c, native, state, 'p', 'tools-toggle', '');
-    await r6DeviceCommand(c, native, state, 'p', 'tools-act', 'toggle', 'voiceOver=1');
-    let ws = (await r6DeviceView(c, native, state, true, 'p')).workspace;
-    expect([ws.alert, ws.r7.tools.error]).toEqual(['', 'simctl failed']);
-    await r6DeviceLocal(c, native, state, 'p', 'tools-close', '');
-    ws = (await r6DeviceView(c, native, state, true, 'p')).workspace;
+    await deviceSessionView(c, native, state, true, 'p');
+    await deviceSessionLocal(c, native, state, 'p', 'tools-toggle', '');
+    await deviceSessionCommand(c, native, state, 'p', 'tools-act', 'toggle', 'voiceOver=1');
+    let ws = (await deviceSessionView(c, native, state, true, 'p')).workspace;
+    expect([ws.alert, ws.controls.tools.error]).toEqual(['', 'simctl failed']);
+    await deviceSessionLocal(c, native, state, 'p', 'tools-close', '');
+    ws = (await deviceSessionView(c, native, state, true, 'p')).workspace;
     expect(ws.alert).toBe('simctl failed');
   });
 

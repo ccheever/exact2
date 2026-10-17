@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 
 // The pull request diff's narrow POST (T3Transport+PullRequests.swift) against
-// the R3 fixture server (r3.swift): the allow-listed body, the bearer, the reply, the refusals, and an
+// the fixture server (reconnect.swift): the allow-listed body, the bearer, the reply, the refusals, and an
 // identical read joining the one still out.
 final class PullRequestDiffTransportTests: XCTestCase {
     private final class Seen: @unchecked Sendable {
@@ -21,7 +21,7 @@ final class PullRequestDiffTransportTests: XCTestCase {
     }
     /// A healthy fixture whose diff endpoint answers one slice (after `delay`) and records each request.
     private func serve(_ seen: Seen, delay: TimeInterval = 0) {
-        R3HTTP.reset { request in
+        FixtureHTTP.reset { request in
             switch request.url!.path {
             case "/.well-known/t3/environment": return (200, ["environmentId": "fixture", "label": "Fixture", "orchestrationProtocolVersion": 2, "capabilities": ["connectionProbe": true]])
             case "/oauth/token": return (200, ["access_token": "fixture-access", "token_type": "Bearer"])
@@ -42,9 +42,9 @@ final class PullRequestDiffTransportTests: XCTestCase {
         XCTAssertEqual(done.wait(timeout: .now() + timeout), .success, "\(request["op"] ?? "") did not answer")
         return result
     }
-    private func connected(_ socket: R3Socket) -> (T3Transport, Int) {
+    private func connected(_ socket: FixtureSocket) -> (T3Transport, Int) {
         let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [R3HTTP.self]
+        config.protocolClasses = [FixtureHTTP.self]
         let transport = T3Transport(persistent: false, configuration: config, signals: false, changed: { _ in })
         let opened = perform(transport, ["op": "connect", "origin": "http://127.0.0.1:\(socket.port)", "credential": "pairing"])
         XCTAssertEqual((opened["value"] as? [String: Any])?["state"] as? String, "connected", "\(opened)")
@@ -53,7 +53,7 @@ final class PullRequestDiffTransportTests: XCTestCase {
     private let reference: [String: Any] = ["projectId": "project-1", "host": "github.com", "repository": "acme/web", "number": 114]
 
     func testThePullRequestDiffPostsOnlyItsFieldsWithTheBearerAndAnswersTheSlice() throws {
-        let socket = try R3Socket(), seen = Seen()
+        let socket = try FixtureSocket(), seen = Seen()
         serve(seen)
         let (transport, generation) = connected(socket); defer { transport.destroy() }
         let answer = perform(transport, ["op": "prDiff", "generation": generation, "payload": reference.merging(["cursor": "100", "commit": "abc1234"]) { $1 }])
@@ -66,7 +66,7 @@ final class PullRequestDiffTransportTests: XCTestCase {
     }
 
     func testThePullRequestDiffRefusesAnythingButItsFields() throws {
-        let socket = try R3Socket(), seen = Seen()
+        let socket = try FixtureSocket(), seen = Seen()
         serve(seen)
         let (transport, generation) = connected(socket); defer { transport.destroy() }
         for payload: [String: Any] in [reference.merging(["path": "/api/other"]) { $1 }, reference.merging(["number": 0]) { $1 }, reference.merging(["number": true]) { $1 },
@@ -82,7 +82,7 @@ final class PullRequestDiffTransportTests: XCTestCase {
     }
 
     func testAnIdenticalDiffReadJoinsTheOneStillOut() throws {
-        let socket = try R3Socket(), seen = Seen()
+        let socket = try FixtureSocket(), seen = Seen()
         serve(seen, delay: 0.3)
         let (transport, generation) = connected(socket); defer { transport.destroy() }
         let first = DispatchSemaphore(value: 0), second = DispatchSemaphore(value: 0)

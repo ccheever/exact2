@@ -23,7 +23,7 @@ describe('video preview aspect after relaunch', () => {
     const saved = JSON.parse(JSON.stringify({ version: 1, ...first.local }));
     const second = client();
     adoptComposerFiles(second.local, saved);
-    await videoOp(second, native, 'r4c-video-play', vid);
+    await videoOp(second, native, 'shelf-video-play', vid);
     expect(composerVideoSnapshot(second).composerVideoPreview).toEqual([{ open: true, id: vid, name: 'clip.mov', width: 1080, height: 1920 }]);
   });
   test('an unknown or invalid size stays unknown (16:9 in the view)', async () => {
@@ -31,7 +31,7 @@ describe('video preview aspect after relaunch', () => {
     const next = client();
     adoptComposerFiles(next.local, saved);
     expect(draftFiles(next.local)[0]!.videoWidth).toBeUndefined();
-    await videoOp(next, native, 'r4c-video-play', vid);
+    await videoOp(next, native, 'shelf-video-play', vid);
     expect(composerVideoSnapshot(next).composerVideoPreview[0]).toMatchObject({ width: 0, height: 0 });
   });
 });

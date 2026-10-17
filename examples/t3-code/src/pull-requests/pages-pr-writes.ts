@@ -161,7 +161,7 @@ export function previewBodies(client: object, reference: WriteReference): { id: 
 // ── The writes ──────────────────────────────────────────────────────────────
 
 async function wakePanel(native: Native): Promise<void> {
-  try { await native.later({ op: 'r10Wake', topic: 't3.pr' }); } catch (error) { if (letGo(error)) throw error; }
+  try { await native.later({ op: 'wake', topic: 't3.pr' }); } catch (error) { if (letGo(error)) throw error; }
 }
 const failureOf = (error: unknown) => { if (letGo(error)) throw error; return error; };
 /** `actionContext`: the header's action context (pages-pr-actions.ts), which Close/Reopen with comment run their action through. */

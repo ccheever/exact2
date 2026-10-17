@@ -60,7 +60,7 @@ export function videoTiles(files: ReadonlyArray<{ id: string; name: string; mime
     .map(file => ({ id: file.id, name: str(file.name, 'video'), poster: file.id, contextId: file.contextId }));
 }
 
-// The first frame's natural size from the pick (T3ComposerAttach.swift). r5-composer: it is saved on the
+// The first frame's natural size from the pick (T3ComposerAttach.swift). It is saved on the
 // draft's file entry too (adoptComposerFiles keeps it), so a relaunched draft opens at the same aspect.
 const frames = new WeakMap<object, Map<string, { width: number; height: number }>>();
 export function rememberVideoFrame(client: object, file: Obj): void {
@@ -88,13 +88,13 @@ export function composerVideoSnapshot(client: T3Client): { composerVideos: Array
     composerVideoPreview: tile ? [{ open: true, id: tile.id, name: tile.name, width: size?.width ?? 0, height: size?.height ?? 0 }] : [] };
 }
 
-/** `editorlocal:r4c-video-*`: Play opens the expanded preview, Remove is removeComposerFileFromDraft. */
+/** `editorlocal:shelf-video-*`: Play opens the expanded preview, Remove is removeComposerFileFromDraft. */
 export async function videoOp(client: T3Client, native: Native, op: string, id: string): Promise<string> {
-  if (op === 'r4c-video-close') { previews.delete(client); return ''; }
+  if (op === 'shelf-video-close') { previews.delete(client); return ''; }
   const file = draftFiles(client.local).find(candidate => candidate.id === id && candidate.draftKey === client.draftKey);
   if (!file) throw new ClientError('That video is no longer attached.');
-  if (op === 'r4c-video-play') { previews.set(client, id); return ''; }
-  if (op !== 'r4c-video-remove') throw new ClientError(`Unknown editor action: ${op}`);
+  if (op === 'shelf-video-play') { previews.set(client, id); return ''; }
+  if (op !== 'shelf-video-remove') throw new ClientError(`Unknown editor action: ${op}`);
   if (previews.get(client) === id) previews.delete(client);
   setDraftFiles(client.local, draftFiles(client.local).filter(candidate => candidate !== file));
   await removeAttachmentReferences(client, native, client.draftKey, 'file', file.contextId);

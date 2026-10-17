@@ -13,7 +13,7 @@ use LucideEllipsisVertical from "../settings/settings-icons.contract"
 use LucideCheck from "../settings/settings-icons.contract"
 use LucideHardDrive from "../settings/settings-icons.contract"
 use LucideX from "../settings/settings-icons.contract"
-use R4Glyph from "../details/git.contract"
+use ExtraGlyph from "../details/git.contract"
 use BrowserDefaultsView from "./browser-defaults.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
 
@@ -308,7 +308,7 @@ component BrowserImportWizard
           BiHeader(title=(wizard.step == "importing" ? "Importing cookies" : `Checking ${wizard.sourceName}`), description=(wizard.step == "importing" ? "This may take a moment." : wizard.check == "fullDiskAccess" ? "Checking Full Disk Access." : "Checking whether the browser has closed."))
           row gap="0.75rem" align-items="center" padding-left="1.5rem" padding-right="1.5rem" padding-top="0.5rem" padding-bottom="1.5rem" box-sizing="border-box"
             box width="1.25rem" height="1.25rem" display="flex" animation=(still ? "none" : "bpSpin 1s linear infinite") testId="browser-import-spinner"
-              R4Glyph(name="loader-circle", size=20, color="light-dark(#71717b, #818181)")
+              ExtraGlyph(name="loader-circle", size=20, color="light-dark(#71717b, #818181)")
             text (wizard.step == "importing" ? "Importing…" : wizard.check == "fullDiskAccess" ? "Checking access…" : "Checking…") font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
         if wizard.step == "done"
           BiHeader(title=wizard.doneTitle, description=wizard.doneDescription)

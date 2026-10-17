@@ -61,7 +61,7 @@ test('adding over SSH tunnels, pairs beside the focused environment and toasts',
   expect(CONNECTION_OPS).toEqual(expect.arrayContaining(SSH_OPS));
 });
 
-test('an SSH environment is listed as "SSH user@host" beside the paired loopback one (r9-connect: no "This machine")', () => {
+test('an SSH environment is listed as "SSH user@host" beside the paired loopback one (no "This machine")', () => {
   const host: ConnectionHost = { connection: 'connected', origin: 'http://127.0.0.1:3773', environmentId: 'env-a', statusMessage: '', scopes: [],
     config: { environment: { label: 'This Mac', platform: { machine: 'laptop' } } } };
   const saved = [{ origin: 'http://127.0.0.1:3773', environmentId: 'env-a', label: 'This Mac', enabled: true },

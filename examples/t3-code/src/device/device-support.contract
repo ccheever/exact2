@@ -5,13 +5,13 @@
 // "Simulator support" row with compact PlatformStatus and Refresh.
 // exact2: the reference animates the row's reveal (AnimatedHeight); layout
 // interpolation is unsupported, so the row shows at once, with or without reduced motion.
-use R4Device from "../panel/panel-shapes.contract"
-use R4Platform from "../panel/panel-shapes.contract"
-use R4Icon from "../panel/panel-icons.contract"
+use DeviceSurface from "../panel/panel-shapes.contract"
+use DeviceSurfacePlatform from "../panel/panel-shapes.contract"
+use PanelIcon from "../panel/panel-icons.contract"
 
 shape SimulatorSupportRow
   key: string
-  platforms: R4Platform[]
+  platforms: DeviceSurfacePlatform[]
   description: string
   disabled: bool
 
@@ -19,7 +19,7 @@ shape SimulatorSupportRow
 // mt-4 is a 4 pt margin on top of it.
 component SimulatorSupportSection
   props
-    device: R4Device
+    device: DeviceSurface
     command: action
   view
     column width="100%" gap="0.75rem" margin-top=(device.step == 0 ? "0.25rem" : "0px") testId=`device-platforms-step-${device.step}`
@@ -27,7 +27,7 @@ component SimulatorSupportSection
       for platform in device.platforms key=platform.id
         row gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)"
           box margin-top="0.125rem" flex-shrink=0
-            R4Icon(name=(platform.ready ? "check" : "circle-alert"), size=16, color=(platform.ready ? "light-dark(#00a63e, #05df72)" : "light-dark(#71717b, #818181)"))
+            PanelIcon(name=(platform.ready ? "check" : "circle-alert"), size=16, color=(platform.ready ? "light-dark(#00a63e, #05df72)" : "light-dark(#71717b, #818181)"))
           column flex=1 min-width=0
             text platform.platform font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
             text platform.message font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
@@ -58,7 +58,7 @@ component SimulatorSupportSettingsRow
           for platform in row.platforms key=platform.id
             row gap="0.5rem" align-items=(platform.ready ? "center" : "flex-start") testId=`device-platform-${platform.id}`
               box margin-top=(platform.ready ? "0px" : "0.125rem") flex-shrink=0
-                R4Icon(name=(platform.ready ? "check" : "circle-alert"), size=16, color=(platform.ready ? "light-dark(#00a63e, #05df72)" : "light-dark(#71717b, #818181)"))
+                PanelIcon(name=(platform.ready ? "check" : "circle-alert"), size=16, color=(platform.ready ? "light-dark(#00a63e, #05df72)" : "light-dark(#71717b, #818181)"))
               if platform.ready
                 row gap="0.5rem" align-items="center"
                   text platform.platform font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"

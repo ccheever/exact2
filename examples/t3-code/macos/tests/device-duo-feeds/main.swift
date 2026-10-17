@@ -8,14 +8,14 @@ import Network
 // behind must come back, not go dark), and the physical hand-off (one elected feed; an orbit to
 // the other display asks for facedown / faceup), against the loopback hub in hub.swift.
 // `T3_DEVICE_GLB_DIR` (a T3 server's built client assets) adds the served model the orbit needs.
-final class R10DeviceTests: XCTestCase {
+final class DeviceDuoFeedsTests: XCTestCase {
     private func spin(until condition: () -> Bool, timeout: TimeInterval = 10) {
         let end = Date().addingTimeInterval(timeout)
         while !condition() && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
     }
     private func json(_ data: Data) -> [String: Any] { (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:] }
     private func config(_ screenId: Int, _ angle: Double, _ pose: String?, physical: Bool = false, orientation: String = "portrait") -> Data {
-        R6DeviceWire.tagged(0x82, ["width": screenId == 1 ? 784 : 1125, "height": screenId == 1 ? 1140 : 1600, "orientation": orientation, "screenId": screenId,
+        T3DeviceWire.tagged(0x82, ["width": screenId == 1 ? 784 : 1125, "height": screenId == 1 ? 1140 : 1600, "orientation": orientation, "screenId": screenId,
                                    "supportsHingeAngle": true, "supportsPhysicalOrientation": physical, "hingeAngle": angle, "hingePose": pose ?? NSNull()])
     }
 
@@ -26,18 +26,18 @@ final class R10DeviceTests: XCTestCase {
         func stream(_ connection: NWConnection, _ encoded: @escaping () -> Encoded) {
             hub.open(connection, type: "application/octet-stream")
             var current = encoded()
-            hub.write(connection, R7H264.Demuxer.envelope(.description, current.avcC))
+            hub.write(connection, T3H264.Demuxer.envelope(.description, current.avcC))
             let timer = DispatchSource.makeTimerSource(queue: hub.queue)
             var index = 0
             timer.schedule(deadline: .now(), repeating: .milliseconds(every))
             timer.setEventHandler {
                 guard connection.state == .ready else { return timer.cancel() }
                 let next = encoded()
-                if next.avcC != current.avcC { current = next; index = 0; hub.write(connection, R7H264.Demuxer.envelope(.description, current.avcC)) }
+                if next.avcC != current.avcC { current = next; index = 0; hub.write(connection, T3H264.Demuxer.envelope(.description, current.avcC)) }
                 var chunk = Data()
                 for _ in 0..<burst {
                     let sample = current.samples[index % current.samples.count]; index += 1
-                    chunk += R7H264.Demuxer.envelope(sample.key ? .keyframe : .delta, sample.data)
+                    chunk += T3H264.Demuxer.envelope(sample.key ? .keyframe : .delta, sample.data)
                 }
                 hub.write(connection, chunk)
             }
@@ -51,8 +51,8 @@ final class R10DeviceTests: XCTestCase {
         return hub
     }
 
-    private func client(_ hub: Hub) -> R7DeviceClient {
-        R7DeviceClient(platform: "ios", deviceId: "DUO", hostId: "local", access: { done in done(hub.origin, "ticket-d") })
+    private func client(_ hub: Hub) -> T3DeviceClient {
+        T3DeviceClient(platform: "ios", deviceId: "DUO", hostId: "local", access: { done in done(hub.origin, "ticket-d") })
     }
 
     /// The black cover after Closed (3 of 6 live drives): the inactive cover feed, decoded while
@@ -161,7 +161,7 @@ final class R10DeviceTests: XCTestCase {
         let requestId = try XCTUnwrap(sent["requestId"] as? Int)
         let reopened = hub.requests.count
         lock.lock(); screenId = 1; lock.unlock()
-        hub.push("/helper/ws", R6DeviceWire.tagged(0x90, ["requestId": requestId, "ok": true]))
+        hub.push("/helper/ws", T3DeviceWire.tagged(0x90, ["requestId": requestId, "ok": true]))
         hub.push("/helper/ws", config(1, 90, "book", physical: true))
         spin(until: { painted.contains { $0.0 == 1 } })
         XCTAssertTrue(painted.contains { $0 == (1, 784, 1140) }, "the cover paints from the newly elected feed")
@@ -199,10 +199,10 @@ final class R10DeviceTests: XCTestCase {
         let hub = try Hub()
         try modelHub(hub)
         var requested: [Int] = []
-        let view = R9DuoView(touch: { _, _, _ in }, unavailable: { XCTFail("Duo 3D unavailable") }, panelRequested: { requested.append($0) },
+        let view = T3DuoView(touch: { _, _, _ in }, unavailable: { XCTFail("Duo 3D unavailable") }, panelRequested: { requested.append($0) },
                              orientationRequested: { _ in }, hinge: { _ in })
         let window = window(view)
-        let book = R7DeviceClient.Screen(width: 1125, height: 1600, orientation: "portrait", duo: R9DuoConfig(screenId: 3, supportsHingeAngle: true, supportsPhysicalOrientation: true, hingeAngle: 90, hingePose: "book"))
+        let book = T3DeviceClient.Screen(width: 1125, height: 1600, orientation: "portrait", duo: T3DuoConfig(screenId: 3, supportsHingeAngle: true, supportsPhysicalOrientation: true, hingeAngle: 90, hingePose: "book"))
         view.setScreen(book)
         view.origin = hub.origin
         spin(until: { view.isLoaded }, timeout: 30)
@@ -219,7 +219,7 @@ final class R10DeviceTests: XCTestCase {
         XCTAssertEqual(requested, [1], "facing the cover asks for it")
         XCTAssertNil(view.screenPoint(0.5, 0.5, captured: false), "no contact while the hand-off is pending")
         // The hub elects the cover: the hand-off is confirmed and touches return once it settles.
-        view.setScreen(.init(width: 784, height: 1140, orientation: "portrait", duo: R9DuoConfig(screenId: 1, supportsHingeAngle: true, supportsPhysicalOrientation: true, hingeAngle: 90, hingePose: "book")))
+        view.setScreen(.init(width: 784, height: 1140, orientation: "portrait", duo: T3DuoConfig(screenId: 1, supportsHingeAngle: true, supportsPhysicalOrientation: true, hingeAngle: 90, hingePose: "book")))
         // And back: facing the inner pair asks for it (faceup).
         RunLoop.main.run(until: Date().addingTimeInterval(1.5))
         drag(.pi / 0.006)
@@ -230,7 +230,7 @@ final class R10DeviceTests: XCTestCase {
         drag(.pi / 0.006)
         XCTAssertEqual(requested, [1, 3, 3], "after a refusal the next orbit asks again")
         // Without physical orientation the same turn never asks.
-        view.setScreen(.init(width: 1125, height: 1600, orientation: "portrait", duo: R9DuoConfig(screenId: 3, supportsHingeAngle: true, supportsPhysicalOrientation: false, hingeAngle: 90, hingePose: "book")))
+        view.setScreen(.init(width: 1125, height: 1600, orientation: "portrait", duo: T3DuoConfig(screenId: 3, supportsHingeAngle: true, supportsPhysicalOrientation: false, hingeAngle: 90, hingePose: "book")))
         RunLoop.main.run(until: Date().addingTimeInterval(1.5))
         drag(.pi / 0.006)
         XCTAssertEqual(requested, [1, 3, 3], "a hub without physical orientation is never asked")
@@ -241,7 +241,7 @@ final class R10DeviceTests: XCTestCase {
 
 _ = NSApplication.shared
 NSApp.setActivationPolicy(.accessory)
-let suite = XCTestSuite(forTestCaseClass: R10DeviceTests.self)
+let suite = XCTestSuite(forTestCaseClass: DeviceDuoFeedsTests.self)
 suite.run()
 let run = suite.testRun!
 print("Executed \(run.executionCount) tests, with \(run.totalFailureCount) failures")

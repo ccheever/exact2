@@ -78,7 +78,7 @@ describe('Copy path', () => {
   test('copies relative path and reports success', async () => { const requests: unknown[] = [], c = client(async request => { requests.push(request); return { copied: true }; }); await copyTabPath(c, native, surface('src/app.ts')); expect(requests).toEqual([{ op: 'copyText', text: 'src/app.ts' }]); expect(toasts(c)[0]).toMatchObject({ title: 'Path copied', description: 'src/app.ts' }); });
   test('reports clipboard failures and unavailable API', async () => { for (const failure of [new Error('Denied'), null]) { const c = client(async () => { throw failure; }); await copyTabPath(c, native, surface('a')); expect(toasts(c)[0]).toMatchObject({ title: 'Failed to copy path', description: failure?.message ?? 'Clipboard API unavailable.' }); } });
 });
-describe('tab context popover (r4-tab-menu)', () => {
+describe('tab context popover (panel-tab-menu)', () => {
   test('rows spell out every disabled flag in the menu order', () => {
     const state = panel();
     expect(tabMenuRows(state.surfaces[2]!, state.surfaces)).toEqual([{ id: 'copy-path', label: 'Copy path', disabled: false }, { id: 'close', label: 'Close', disabled: false }, { id: 'close-others', label: 'Close others', disabled: false }, { id: 'close-to-right', label: 'Close to the right', disabled: true }, { id: 'close-all', label: 'Close all', disabled: false }]);

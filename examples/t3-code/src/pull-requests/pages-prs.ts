@@ -405,7 +405,7 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
       growingShown.set(client, key);
       const shown = presentList(view, cached.result, '', cached.stats, prefs, query, input.now, input.selected);
       Object.assign(shown, pagingFooter(client, round.key, cached.result.truncated === true, arr(cached.result.entries).length, true, false));
-      try { await native.later({ op: 'r10Wake', topic: 't3.pr' }); } catch (error) { if (letGo(error)) throw error; }
+      try { await native.later({ op: 'wake', topic: 't3.pr' }); } catch (error) { if (letGo(error)) throw error; }
       native.watch?.('t3.pr');
       return shown;
     }

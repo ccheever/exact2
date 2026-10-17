@@ -9,7 +9,7 @@ import XCTest
 final class FocusRow: NSView { override var acceptsFirstResponder: Bool { true } }
 final class FlippedView: NSView { override var isFlipped: Bool { true } }
 
-final class R12SidebarMenuAnchorTests: XCTestCase {
+final class SidebarMenuAnchorTests: XCTestCase {
     func window(flipped: Bool, rowTop: CGFloat) -> (NSWindow, NSView, FocusRow) {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 840), styleMask: [.titled], backing: .buffered, defer: true)
@@ -65,8 +65,8 @@ final class R12SidebarMenuAnchorTests: XCTestCase {
     }
 }
 
-let suite = XCTestSuite(forTestCaseClass: R12SidebarMenuAnchorTests.self)
+let suite = XCTestSuite(forTestCaseClass: SidebarMenuAnchorTests.self)
 suite.run()
 let run = suite.testRun!
-print("R12 sidebar menu anchor tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
+print("Sidebar menu anchor tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
 exit(run.totalFailureCount == 0 ? 0 : 1)

@@ -5,7 +5,7 @@ import XCTest
 // from the client's template (draft-rows.ts draftMenuItems through
 // nativeTemplate, the shape sweep-and-drafts.test.ts pins): Copy ▸ Path / Branch,
 // Project settings, a separator, then the destructive Discard draft with the trash glyph.
-final class R11UpstreamDraftMenuTests: XCTestCase {
+final class DraftMenuTests: XCTestCase {
     let template: [[String: Any]] = [
         ["type": "submenu", "id": "copy", "label": "Copy", "enabled": true, "destructive": false, "children": [
             ["type": "item", "id": "copy-path", "label": "Path", "enabled": true, "destructive": false],
@@ -46,8 +46,8 @@ final class R11UpstreamDraftMenuTests: XCTestCase {
     }
 }
 
-let suite = XCTestSuite(forTestCaseClass: R11UpstreamDraftMenuTests.self)
+let suite = XCTestSuite(forTestCaseClass: DraftMenuTests.self)
 suite.run()
 let run = suite.testRun!
-print("R11 upstream draft menu tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
+print("Draft menu tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
 exit(run.totalFailureCount == 0 ? 0 : 1)

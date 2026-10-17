@@ -6,13 +6,13 @@ import Foundation
 /// apps/web/src/components/device/deviceHubApi.ts, DeviceStreamView.tsx's accessibility overlay,
 /// useDeviceControls.ts's foreground subscription, DeviceToolsPanel.tsx EventLogSection). Device
 /// changes go through `device.action` in TypeScript; nothing here writes to the device.
-struct R7AxElement: Equatable {
+struct T3AxElement: Equatable {
     let id: String, label: String, role: String
     /// Normalized to the displayed screen: 0…1 on both axes.
     let x: Double, y: Double, width: Double, height: Double
 }
 
-enum R7DeviceAx {
+enum T3DeviceAx {
     static let limit = 500
 
     private static func number(_ value: Any?, _ fallback: Double) -> Double {
@@ -22,16 +22,16 @@ enum R7DeviceAx {
     }
 
     /// flattenIosAxTree: serve-sim's nested tree, skipping nodes that cover the root's frame.
-    static func flattenIos(_ roots: [Any]) -> [R7AxElement] {
+    static func flattenIos(_ roots: [Any]) -> [T3AxElement] {
         let rootFrame = (roots.first as? [String: Any])?["frame"] as? [String: Any]
         let screenWidth = max(1, number(rootFrame?["width"], 1)), screenHeight = max(1, number(rootFrame?["height"], 1))
-        var elements: [R7AxElement] = []
+        var elements: [T3AxElement] = []
         func visit(_ node: Any, _ path: String) {
             guard elements.count < limit, let node = node as? [String: Any], let frame = node["frame"] as? [String: Any] else { return }
             let width = number(frame["width"], 0), height = number(frame["height"], 0)
             let covers = abs(width - screenWidth) < 0.5 && abs(height - screenHeight) < 0.5
             if !covers, width > 0, height > 0 {
-                elements.append(R7AxElement(id: node["AXUniqueId"] as? String ?? path, label: node["AXLabel"] as? String ?? "", role: node["type"] as? String ?? "",
+                elements.append(T3AxElement(id: node["AXUniqueId"] as? String ?? path, label: node["AXLabel"] as? String ?? "", role: node["type"] as? String ?? "",
                                             x: number(frame["x"], 0) / screenWidth, y: number(frame["y"], 0) / screenHeight,
                                             width: width / screenWidth, height: height / screenHeight))
             }
@@ -43,7 +43,7 @@ enum R7DeviceAx {
 
     /// Android's uiautomator nodes: pixel bounds, the first node is the window; only labelled or
     /// clickable nodes that do not fill the window are drawn.
-    static func flattenAndroid(_ payload: [String: Any]) -> [R7AxElement]? {
+    static func flattenAndroid(_ payload: [String: Any]) -> [T3AxElement]? {
         guard let raw = payload["nodes"] as? [Any] else { return nil }
         let nodes = raw.compactMap { $0 as? [String: Any] }.filter { $0["bounds"] is [String: Any] }
         let root = nodes.first?["bounds"] as? [String: Any]
@@ -58,13 +58,13 @@ enum R7DeviceAx {
             if label.isEmpty && node["clickable"] as? Bool != true { return nil }
             let className = node["className"] as? String ?? ""
             let id: String = { if let value = node["id"] { return value is NSNull ? "" : "\(value)" } else { return "" } }()
-            return R7AxElement(id: id, label: label, role: className.split(separator: ".").last.map(String.init) ?? "",
+            return T3AxElement(id: id, label: label, role: className.split(separator: ".").last.map(String.init) ?? "",
                                x: left / screenWidth, y: top / screenHeight, width: width, height: height)
         }
     }
 
     /// fetchDeviceAxTree's parse; nil for an unexpected payload (the overlay keeps its last tree).
-    static func parse(platform: String, _ payload: Any) -> [R7AxElement]? {
+    static func parse(platform: String, _ payload: Any) -> [T3AxElement]? {
         if platform == "ios" { return (payload as? [Any]).map(flattenIos) }
         return (payload as? [String: Any]).flatMap(flattenAndroid)
     }
@@ -72,9 +72,9 @@ enum R7DeviceAx {
 
 /// The accessibility frames over the flat picture: `border border-info/80 bg-info/10`, the label
 /// above each box (`bg-info px-1 text-3xs leading-3.5 text-white`, truncated to the box width).
-final class R7DeviceAxOverlay: CALayer {
+final class T3DeviceAxOverlay: CALayer {
     static let info = CGColor(srgbRed: 0x2b / 255, green: 0x7f / 255, blue: 0xff / 255, alpha: 1)
-    private(set) var elements: [R7AxElement] = []
+    private(set) var elements: [T3AxElement] = []
     var count: Int { elements.count }
 
     private var rootFont: NSObjectProtocol?
@@ -86,7 +86,7 @@ final class R7DeviceAxOverlay: CALayer {
     override init(layer: Any) { super.init(layer: layer) }
     required init?(coder: NSCoder) { nil }
 
-    func set(_ next: [R7AxElement]) {
+    func set(_ next: [T3AxElement]) {
         guard next != elements else { return }
         elements = next
         layoutElements()
@@ -129,9 +129,9 @@ final class R7DeviceAxOverlay: CALayer {
 /// The foreground-app and event-log server-sent events (iOS only) and accessibility reads, keyed
 /// by device. A feed runs while the panel shows its device (foreground) or the drawer's event log
 /// is open; its state is reported as `presentation.deviceTools[key]`.
-final class R7DeviceToolFeeds: NSObject, URLSessionDataDelegate {
+final class T3DeviceToolFeeds: NSObject, URLSessionDataDelegate {
     static let eventLimit = 100
-    private let access: R7DeviceClient.Access
+    private let access: T3DeviceClient.Access
     private let changed: (String) -> Void
     private lazy var session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: .main)
     private struct Feed { let key: String; let kind: String; var task: URLSessionDataTask?; var buffer = Data(); var retry = 0 }
@@ -140,7 +140,7 @@ final class R7DeviceToolFeeds: NSObject, URLSessionDataDelegate {
     private var foreground: [String: Any] = [:] // key → bundle id or NSNull
     private var events: [String: [[String: Any]]] = [:]
 
-    init(access: @escaping R7DeviceClient.Access, changed: @escaping (String) -> Void) { self.access = access; self.changed = changed }
+    init(access: @escaping T3DeviceClient.Access, changed: @escaping (String) -> Void) { self.access = access; self.changed = changed }
 
     var status: [String: Any] {
         var out: [String: [String: Any]] = [:]
@@ -188,7 +188,7 @@ final class R7DeviceToolFeeds: NSObject, URLSessionDataDelegate {
         access { [weak self] origin, ticket in
             DispatchQueue.main.async {
                 guard let self, self.feeds[id] != nil else { return }
-                guard let origin, let ticket, let url = R6DeviceWire.url(origin: origin, path: "/vendor/serve-sim" + path, query: [URLQueryItem(name: "device", value: deviceId)] + extra, ticket: ticket, hostId: hostId) else { return self.retry(id, kind: kind, key: key, path: path, deviceId: deviceId, hostId: hostId, extra: extra) }
+                guard let origin, let ticket, let url = T3DeviceWire.url(origin: origin, path: "/vendor/serve-sim" + path, query: [URLQueryItem(name: "device", value: deviceId)] + extra, ticket: ticket, hostId: hostId) else { return self.retry(id, kind: kind, key: key, path: path, deviceId: deviceId, hostId: hostId, extra: extra) }
                 var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 3600)
                 request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
                 let task = self.session.dataTask(with: request)
@@ -260,15 +260,15 @@ final class R7DeviceToolFeeds: NSObject, URLSessionDataDelegate {
     // MARK: Accessibility
 
     /// One fetchDeviceAxTree read; nil on failure (the caller keeps its last tree).
-    func readAx(platform: String, deviceId: String, hostId: String, _ done: @escaping ([R7AxElement]?) -> Void) {
+    func readAx(platform: String, deviceId: String, hostId: String, _ done: @escaping ([T3AxElement]?) -> Void) {
         access { origin, ticket in
-            let vendor = R6DeviceWire.vendor(platform)
+            let vendor = T3DeviceWire.vendor(platform)
             let path = platform == "ios" ? "\(vendor)/helper/\(deviceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? deviceId)/ax" : "\(vendor)/api/accessibility"
             let query = platform == "ios" ? [] : [URLQueryItem(name: "device", value: deviceId)]
-            guard let origin, let ticket, let url = R6DeviceWire.url(origin: origin, path: path, query: query, ticket: ticket, hostId: hostId) else { return done(nil) }
+            guard let origin, let ticket, let url = T3DeviceWire.url(origin: origin, path: path, query: query, ticket: ticket, hostId: hostId) else { return done(nil) }
             URLSession(configuration: .ephemeral).dataTask(with: URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)) { data, response, _ in
                 guard let data, ((response as? HTTPURLResponse)?.statusCode ?? 0) / 100 == 2, let payload = try? JSONSerialization.jsonObject(with: data) else { return done(nil) }
-                done(R7DeviceAx.parse(platform: platform, payload))
+                done(T3DeviceAx.parse(platform: platform, payload))
             }.resume()
         }
     }

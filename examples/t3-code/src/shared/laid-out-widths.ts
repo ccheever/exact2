@@ -14,7 +14,7 @@ export function anchorFrame(presentation: Obj, key: string): [number, number] | 
   return Number.isFinite(x) && Number.isFinite(width) && width > 0 ? [x, width] : null;
 }
 
-/** A probed text's width (project-scripts.contract R6TextProbes), or null before its probe reports. */
+/** A probed text's width (project-scripts.contract PlacementProbes), or null before its probe reports. */
 export type TextMeasure = (text: string, size: number, weight: number) => number | null;
 export const textMeasure = (presentation: Obj): TextMeasure => (text, size, weight) => anchorFrame(presentation, probeKey(text, size, weight))?.[1] ?? null;
 

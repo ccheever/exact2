@@ -10,10 +10,10 @@
 // workspace also has the 3D phone, the Flat / 3D toggle, Android's Back / Recents / Rotate and the
 // Tools drawer (device-tools.ts).
 import type { T3Client } from '../client/client';
-import { emptyR7Workspace, r7Workspace, r7DeviceCommand, r7DeviceLocal, type R7DevDeviceWorkspace } from './device-tools';
+import { emptyDeviceControls, deviceControls, toolsDrawerCommand, toolsDrawerLocal, type DeviceControls } from './device-tools';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
-import { emptyR9Folding, r9Folding, r9FoldingValue, type R9DevFolding } from './device-duo';
+import { emptyFolding, deviceFolding, foldingValue, type DeviceFolding } from './device-duo';
 import { PreviewMiniPlayerStore, previewMiniPlayerSourceKey, type PreviewMiniPlayerSource } from './previewMiniPlayerStore'; // the floating player's per-thread state
 import { letGo } from '../client/let-go';
 import { activeRef } from '../terminal/terminal-drawer-view';
@@ -22,22 +22,22 @@ import { activeRef } from '../terminal/terminal-drawer-view';
 export const deviceThreadId = (client: T3Client): string => activeRef(client)?.threadId ?? client.threadId;
 
 export type DeviceTarget = { hostId: string; deviceId: string; platform: string; name: string };
-export type R6DeviceRail = {
+export type DeviceRail = {
   inputConnected: boolean; appearance: string; appearanceLabel: string; appearanceIcon: string; appearanceDisabled: boolean;
   textSize: string; textSizeDisabled: boolean; screenshotLabel: string; screenshotDisabled: boolean;
 };
-export type R6DeviceStream = { status: string; message: string; error: boolean; inputNotice: string };
-export type R6DeviceWorkspace = {
+export type DeviceStreamState = { status: string; message: string; error: boolean; inputNotice: string };
+export type DeviceWorkspace = {
   key: string; name: string; description: string; platform: string; deviceId: string; hostId: string; screenLabel: string;
-  alert: string; stream: R6DeviceStream; rail: R6DeviceRail; r7: R7DevDeviceWorkspace; r9: R9DevFolding;
+  alert: string; stream: DeviceStreamState; rail: DeviceRail; controls: DeviceControls; folding: DeviceFolding;
 };
-export type R6DeviceView = {
+export type DeviceSessionView = {
   /** "list" (DevicePanel's picker), "opening" (DeviceLoadingView) or "workspace". */
   mode: string; pendingKey: string; openingName: string; openingDescription: string; openingMessage: string;
-  operationError: string; booting: string; hostDetail: string; workspace: R6DeviceWorkspace;
+  operationError: string; booting: string; hostDetail: string; workspace: DeviceWorkspace;
 };
 /** The floating player's source and stream; its frame comes from the chat canvas (chat-canvas-view.ts). */
-export type R6DeviceMini = { show: boolean; key: string; sourceKey: string; name: string; description: string; platform: string; deviceId: string; hostId: string; stream: R6DeviceStream };
+export type DeviceMini = { show: boolean; key: string; sourceKey: string; name: string; description: string; platform: string; deviceId: string; hostId: string; stream: DeviceStreamState };
 
 type Store = {
   generation: number; pending: (DeviceTarget & { booted: boolean; version: string }) | null; operationError: string;
@@ -87,7 +87,7 @@ export function activeDevice(state: Obj, threadId: string, target: DeviceTarget 
 }
 
 /** The module's report for the stream it draws (`presentation.deviceStreams[key]`). */
-export function streamView(client: T3Client, key: string, platform: string): R6DeviceStream {
+export function streamView(client: T3Client, key: string, platform: string): DeviceStreamState {
   const report = obj(obj(client.presentation.deviceStreams)[key]);
   const status = str(report.status, 'connecting'), detail = str(report.detail);
   const inputConnected = report.inputConnected === true;
@@ -100,21 +100,21 @@ export function streamView(client: T3Client, key: string, platform: string): R6D
   };
 }
 
-const EMPTY_STREAM: R6DeviceStream = { status: '', message: '', error: false, inputNotice: '' };
-const EMPTY_RAIL: R6DeviceRail = { inputConnected: false, appearance: '', appearanceLabel: '', appearanceIcon: 'moon', appearanceDisabled: true, textSize: '', textSizeDisabled: true, screenshotLabel: 'Save screenshot', screenshotDisabled: true };
-export const emptyWorkspace = (): R6DeviceWorkspace => ({ key: '', name: '', description: '', platform: '', deviceId: '', hostId: '', screenLabel: '', alert: '', stream: EMPTY_STREAM, rail: EMPTY_RAIL, r7: emptyR7Workspace(), r9: emptyR9Folding() });
-export const emptyR6Device = (): R6DeviceView => ({ mode: 'list', pendingKey: '', openingName: '', openingDescription: '', openingMessage: '', operationError: '', booting: '', hostDetail: '', workspace: emptyWorkspace() });
-export const emptyMini = (): R6DeviceMini => ({ show: false, key: '', sourceKey: '', name: '', description: '', platform: '', deviceId: '', hostId: '', stream: EMPTY_STREAM });
+const EMPTY_STREAM: DeviceStreamState = { status: '', message: '', error: false, inputNotice: '' };
+const EMPTY_RAIL: DeviceRail = { inputConnected: false, appearance: '', appearanceLabel: '', appearanceIcon: 'moon', appearanceDisabled: true, textSize: '', textSizeDisabled: true, screenshotLabel: 'Save screenshot', screenshotDisabled: true };
+export const emptyWorkspace = (): DeviceWorkspace => ({ key: '', name: '', description: '', platform: '', deviceId: '', hostId: '', screenLabel: '', alert: '', stream: EMPTY_STREAM, rail: EMPTY_RAIL, controls: emptyDeviceControls(), folding: emptyFolding() });
+export const emptyDeviceSession = (): DeviceSessionView => ({ mode: 'list', pendingKey: '', openingName: '', openingDescription: '', openingMessage: '', operationError: '', booting: '', hostDetail: '', workspace: emptyWorkspace() });
+export const emptyMini = (): DeviceMini => ({ show: false, key: '', sourceKey: '', name: '', description: '', platform: '', deviceId: '', hostId: '', stream: EMPTY_STREAM });
 
 /** DevicePanel's body after onboarding, for the thread `panelKey` names. */
-export async function r6DeviceView(client: T3Client, native: Native | null, state: Obj, loaded: boolean, panelKey: string): Promise<R6DeviceView> {
+export async function deviceSessionView(client: T3Client, native: Native | null, state: Obj, loaded: boolean, panelKey: string): Promise<DeviceSessionView> {
   const store = storeOf(client), threadId = deviceThreadId(client);
   const device = activeDevice(state, threadId, store.targets.get(panelKey));
   const statuses = Object.values(obj(state.hostStatuses)).map(status => str(obj(status).status));
   const hostReady = statuses.includes('ready');
   const hostBusy = !hostReady && statuses.some(status => status === 'installing' || status === 'starting');
   const booting = arr(state.bootingDevices).filter(entry => str(entry.threadId) === threadId).map(entry => str(entry.name));
-  const base = { ...emptyR6Device(), operationError: store.operationError,
+  const base = { ...emptyDeviceSession(), operationError: store.operationError,
     booting: booting.length ? `Starting ${booting.join(', ')}… This can take a minute.` : '',
     hostDetail: hostReady && !device ? str(state.hostStatusDetail) : '' };
   if (device) {
@@ -123,14 +123,14 @@ export async function r6DeviceView(client: T3Client, native: Native | null, stat
     const platform = platformOf(str(device.platform)), stream = streamView(client, key, platform);
     const settings = obj(store.detail?.settings), appearance = str(settings.appearance), next = appearance === 'dark' ? 'light' : 'dark';
     const controlsDisabled = store.acting || !store.detail;
-    const r7 = r7Workspace(client, { key, platform, name: str(device.name), detail: store.detail, acting: store.acting, error: store.detailError, hostDiagnostics: str(state.hostStatusDetail), controlsDisabled, inputConnected: obj(obj(client.presentation.deviceStreams)[key]).inputConnected === true });
+    const controls = deviceControls(client, { key, platform, name: str(device.name), detail: store.detail, acting: store.acting, error: store.detailError, hostDiagnostics: str(state.hostStatusDetail), controlsDisabled, inputConnected: obj(obj(client.presentation.deviceStreams)[key]).inputConnected === true });
     // The workspace alert shows the controls' error only while the drawer is closed.
-    const alert = store.screenshotError || (r7.tools.open ? '' : store.detailError);
+    const alert = store.screenshotError || (controls.tools.open ? '' : store.detailError);
     return { ...base, mode: 'workspace', workspace: {
       key, name: str(device.name), description: `${hostLabel(state, str(device.hostId))} · ${str(device.version)}`, platform, deviceId: str(device.id), hostId: str(device.hostId),
       screenLabel: platform === 'ios' ? 'iOS Simulator screen' : 'Android Emulator screen',
-      alert, stream: r7.retaining && r7.rail.phone ? { ...stream, status: 'streaming' } : stream, r7,
-      r9: r9Folding(obj(obj(client.presentation.deviceStreams)[key]), platform, r7.rail.phone, obj(obj(client.presentation.deviceStreams)[key]).inputConnected === true),
+      alert, stream: controls.retaining && controls.rail.phone ? { ...stream, status: 'streaming' } : stream, controls,
+      folding: deviceFolding(obj(obj(client.presentation.deviceStreams)[key]), platform, controls.rail.phone, obj(obj(client.presentation.deviceStreams)[key]).inputConnected === true),
       rail: { inputConnected: obj(obj(client.presentation.deviceStreams)[key]).inputConnected === true, appearance,
         appearanceLabel: `Switch device to ${next} mode`, appearanceIcon: appearance === 'dark' ? 'sun' : 'moon', appearanceDisabled: controlsDisabled || !appearance,
         textSize: str(settings.textSize), textSizeDisabled: controlsDisabled || !str(settings.textSize),
@@ -148,7 +148,7 @@ export async function r6DeviceView(client: T3Client, native: Native | null, stat
 }
 
 /** The floating player for this thread, if one was floated (previewMiniPlayerStore). */
-export function r6DeviceMini(client: T3Client, state: Obj | null): R6DeviceMini {
+export function deviceMini(client: T3Client, state: Obj | null): DeviceMini {
   const thread = deviceThreadId(client), target = miniDeviceOf(client, thread);
   if (!target || !thread) return emptyMini();
   const device = state ? arr(state.devices).find(entry => str(entry.hostId) === target.hostId && str(entry.id) === target.deviceId) : undefined;
@@ -231,8 +231,8 @@ export function railAction(op: string, value: string, appearance: string): Obj |
   return null;
 }
 
-/** `shell:surface-r6dev-*`, the gated writes. Returns true when the device surface should close. */
-export async function r6DeviceCommand(client: T3Client, native: Native, state: Obj | null, panelKey: string, op: string, id: string, value: string): Promise<boolean> {
+/** `shell:surface-session-*`, the gated writes. Returns true when the device surface should close. */
+export async function deviceSessionCommand(client: T3Client, native: Native, state: Obj | null, panelKey: string, op: string, id: string, value: string): Promise<boolean> {
   const current = state ?? {};
   if (op === 'open') { await openDevice(client, native, current, id, panelKey); return false; }
   if (op === 'poweroff') return powerOff(client, native, current, panelKey);
@@ -241,7 +241,7 @@ export async function r6DeviceCommand(client: T3Client, native: Native, state: O
   if (op.startsWith('tools-')) {
     const store = storeOf(client), device = activeDevice(current, deviceThreadId(client), store.targets.get(panelKey));
     const key = device ? deviceKey({ hostId: str(device.hostId), id: str(device.id) }) : '';
-    await r7DeviceCommand(client, op.slice(6), id, value, key, store.detail, body => actDevice(client, native, current, panelKey, body));
+    await toolsDrawerCommand(client, op.slice(6), id, value, key, store.detail, body => actDevice(client, native, current, panelKey, body));
     return false;
   }
   throw new ClientError(`Unknown device action: ${op}`);
@@ -253,14 +253,14 @@ export async function saveScreenshot(client: T3Client, native: Native, state: Ob
   if (!device || store.screenshotPending) return;
   store.screenshotPending = true; store.screenshotError = '';
   try {
-    const reply = obj(await client.restAccess(native).call({ op: 'r6DeviceScreenshot', platform: platformOf(str(device.platform)), deviceId: str(device.id), hostId: str(device.hostId), name: str(device.name) }));
+    const reply = obj(await client.restAccess(native).call({ op: 'deviceScreenshot', platform: platformOf(str(device.platform)), deviceId: str(device.id), hostId: str(device.hostId), name: str(device.name) }));
     if (reply.ok !== true) store.screenshotError = str(reply.message, 'Screenshot capture failed. Try again.');
   } catch (error) { if (!letGo(error)) store.screenshotError = message(error, 'Screenshot capture failed. Try again.'); }
   finally { store.screenshotPending = false; }
 }
 
 /** The no-write controls: the error dismissal, float / restore / close, input buttons and Reconnect. */
-export async function r6DeviceLocal(client: T3Client, native: Native, state: Obj | null, panelKey: string, op: string, value: string): Promise<'close' | 'hide' | 'reopen' | ''> {
+export async function deviceSessionLocal(client: T3Client, native: Native, state: Obj | null, panelKey: string, op: string, value: string): Promise<'close' | 'hide' | 'reopen' | ''> {
   const store = storeOf(client);
   if (op === 'dismiss-error') { store.operationError = ''; return ''; }
   if (op === 'close-panel') return 'close';
@@ -279,18 +279,18 @@ export async function r6DeviceLocal(client: T3Client, native: Native, state: Obj
     return 'reopen';
   }
   if (op === 'duo' || op === 'fold') { // a stand or fold button
-    const device = state ? activeDevice(state, deviceThreadId(client), store.targets.get(panelKey)) : null, next = r9FoldingValue(op, value);
-    if (device && next) await client.restAccess(native).call({ op: 'r6DeviceInput', action: op, key: deviceKey({ hostId: str(device.hostId), id: str(device.id) }), value: next });
+    const device = state ? activeDevice(state, deviceThreadId(client), store.targets.get(panelKey)) : null, next = foldingValue(op, value);
+    if (device && next) await client.restAccess(native).call({ op: 'deviceInput', action: op, key: deviceKey({ hostId: str(device.hostId), id: str(device.id) }), value: next });
     return '';
   }
   if (op === 'home' || op === 'rotate' || op === 'reconnect' || op === 'back' || op === 'recents') {
-    await client.restAccess(native).call({ op: 'r6DeviceInput', action: op, key: value });
+    await client.restAccess(native).call({ op: 'deviceInput', action: op, key: value });
     return '';
   }
   if (op.startsWith('tools-')) {
     const device = state ? activeDevice(state, deviceThreadId(client), store.targets.get(panelKey)) : null;
-    await r7DeviceLocal(client, op.slice(6), value, device ? deviceKey({ hostId: str(device.hostId), id: str(device.id) }) : '', {
-      input: (action, key, extra) => client.restAccess(native).call({ op: 'r6DeviceInput', action, key, value: extra }).then(() => undefined),
+    await toolsDrawerLocal(client, op.slice(6), value, device ? deviceKey({ hostId: str(device.hostId), id: str(device.id) }) : '', {
+      input: (action, key, extra) => client.restAccess(native).call({ op: 'deviceInput', action, key, value: extra }).then(() => undefined),
       act: body => (state ? actDevice(client, native, state, panelKey, body) : Promise.resolve(false)), detail: store.detail,
     });
     return '';

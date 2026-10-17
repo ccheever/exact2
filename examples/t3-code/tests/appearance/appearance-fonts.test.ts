@@ -5,7 +5,7 @@ import { describe, expect, it } from "bun:test";
 
 import { clampCodeFontSize, clampInterfaceFontSize, clampPromptFontSize } from "../../src/appearance/appearance-fonts";
 import { chatLaneMetrics } from "../../src/shell/chat-canvas-layout";
-// The look first: importing r5-composer-menus on its own enters an import cycle at r6-polish-measure.
+// The look first: importing composer-menus.ts on its own enters an import cycle at laid-out-widths.ts.
 import { chatMaxWidth, look } from "../../src/appearance/settings-appearance-look";
 import { atRootFontSize } from "../../src/composer/composer-menus";
 
