@@ -3068,6 +3068,32 @@ component App
           color=(dark ? "#9ca3af" : "#6b7280")
 ```
 
+A pressed, hovered, focused, disabled or checked look of your own is a state
+part (LLP 1121 D8): a block of that state's paint rows, in a `style` or under
+the node before its children.
+
+```contract
+style PostButton
+  background-color = "accent.fill"
+  :active
+    background-color = "accent.fill-pressed"
+  :disabled
+    background-color = "accent.fill-faded"
+```
+
+`:disabled` and `:checked` (`checked`, or `aria-checked`, `aria-selected` or
+`aria-pressed` true) are the runner's: they take `background-color`, `color`,
+`border-color`, `opacity`, `box-shadow` and `-exact-tint-color`, `:checked`
+under `:disabled`, and `:disabled` is your own disabled look (no default dim).
+`:active` (the host's press), `:hover` and `:focus-visible` are the host's:
+their rows never inherit (`background-color`, `border-color`, `opacity`,
+`box-shadow`, `-exact-press-scale`) and are literals, tokens included; the
+plan records them, and the hosts apply them on their own tracking from stage
+8 B. A part
+on a native control or a list's row is refused (their states are the
+platform's); a node's own part whose state it never writes (`:disabled` with no
+`disabled`) is warned of (`lower-state-dead`).
+
 A background, border or radius makes it your own box, as in a browser;
 `appearance="none"` says so explicitly. This is decided once after classes
 and shorthands: a row on any conditional arm counts, even if its value is

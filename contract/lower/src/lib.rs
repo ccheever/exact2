@@ -54,6 +54,7 @@ mod routes;
 mod shorthands;
 mod sites;
 mod sounds;
+mod states;
 mod stmts;
 mod strings;
 pub mod style_names;
@@ -174,6 +175,9 @@ pub(crate) struct Lowerer<'a> {
     /// The element whose attributes are lowered has element children, which
     /// inherit its text rows (stage 6 C: no type token that varies there).
     pub(crate) element_children: bool,
+    /// The direct children of the list being lowered whose rows are cells
+    /// (LLP 1115.000 D16): a state part on one is `lower-state-target`.
+    pub(crate) cell_rows: Vec<Span>,
     /// Whether the enclosing element contains its exclusions (LLP 1043.000).
     parent_positioned: bool,
     parent_bounded_column: bool,
@@ -302,6 +306,7 @@ fn lower_with_sites(
         fn_depth: 0,
         svg_depth: 0,
         element_children: false,
+        cell_rows: Vec::new(),
         parent_positioned: true,
         parent_bounded_column: false,
         parent_horizontal_flex: Some(false),
@@ -332,7 +337,11 @@ fn lower_with_sites(
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {
-            match tags::attr(&a.name) {
+            // A state part's row is checked as the row it is; which rows a
+            // state takes is the fold's (`states`, LLP 1121 D8).
+            let name =
+                contract_syntax::state::state_of(&a.name).map_or(a.name.as_str(), |(_, row)| row);
+            match tags::attr(name) {
                 Some(tags::AttrTarget::Styles(_) | tags::AttrTarget::Flex | tags::AttrTarget::Shorthand) => {}
                 Some(tags::AttrTarget::Prop(p)) if p.styleable() => {} // LLP 1069.011 D12
                 Some(_) => l.errors.push(LowerError {

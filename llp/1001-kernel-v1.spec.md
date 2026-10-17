@@ -111,7 +111,10 @@ The schema metadata changes its digest, so producers and hosts re-bake together.
 >   D10.2);
 > - an unset root background is the platform's, never a fixed white;
 > - a pushed route has the platform's Back whether or not one is authored;
-> - a custom pressable that declares no press feedback dims while held on iOS.
+> - a custom pressable that declares no press feedback dims while held on iOS;
+> - a state part's `:checked` (LLP 1121 D8) holds when the node's `checked` is true
+>   or its `aria-checked`, `aria-selected` or `aria-pressed` is `"true"`: one name for
+>   a toggle, a selected row and a pressed button, where CSS's `:checked` is an input's.
 >
 > And one layout deviation, recorded here because it holds on every host and not only
 > the terminal it was made for (LLP 1101 D3): `ch` and `lh` are a fixed 8 × 16 cell

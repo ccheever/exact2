@@ -21,6 +21,7 @@ mod parts;
 mod routes;
 mod sequence;
 mod sounds;
+mod states;
 mod steps;
 mod theme;
 mod view;
@@ -604,6 +605,8 @@ impl Parser {
         self.block(|p| {
             if p.at_part() {
                 p.part(&format!("`{owner}`"), true, &mut attrs)
+            } else if p.at_state() {
+                p.state_part(&format!("`{owner}`"), true, &mut attrs)
             } else {
                 attrs.extend(p.literal_line(&owner)?);
                 Ok(())
@@ -1210,6 +1213,12 @@ impl Parser {
     }
 
     fn node_inner(&mut self) -> R<Node> {
+        if self.at_state() {
+            return self.err(
+                "syntax-state",
+                "a state part (`:disabled`) goes under its node, before the node's children",
+            );
+        }
         let (word, span) = match self.peek_kind().clone() {
             TokenKind::Ident(w) => (w, self.peek().span),
             other => {

@@ -167,6 +167,10 @@ impl Lowerer<'_> {
         self.check_collection(tag, expanded, children, *span, scope)?;
         // @ref LLP 1115.000 D16 — whether this list's rows are cells.
         let cells = cells::rows(tag, expanded, children, grouped.is_some());
+        // A cell's row is no state part's target (LLP 1121 D8).
+        if cells {
+            crate::states::rows_of(children, &mut self.cell_rows);
+        }
         // @ref LLP 1116.020 D1 — a cell's `delete=`, its swipe.
         let swiped = cells.then(|| swipe_rows::cells(children)).flatten();
         // A row list is a flex item of its column like any carousel;
@@ -252,6 +256,16 @@ impl Lowerer<'_> {
                 *span,
             );
         }
+        // @ref LLP 1121 D8 — the state parts, folded or recorded.
+        let target = if control.is_some() || t.node_type == NodeType::Control {
+            Some("a native control")
+        } else if self.cell_rows.contains(span) {
+            Some("a list's row, whose press is the cell's highlight")
+        } else {
+            None
+        };
+        let states = self.fold_states(expanded, target, scope, locals)?;
+        let expanded = states.as_ref().map_or(expanded, |s| s.attrs.as_slice());
         let mut bindings: Vec<BindingsRow> = Vec::new();
         let mut handlers: Vec<(EventKind, exact_plan::ActionsId, Vec<Code>)> = Vec::new();
         let mut surface: Option<exact_plan::SurfacesId> = None;
@@ -266,7 +280,7 @@ impl Lowerer<'_> {
             bindings.push(prop_row(exact_kernel::PropId::ListRows, rows, IMPLIED));
         }
         // @ref LLP 1115.000 D6 — the author's own disabled look: no default dim.
-        if disabled_look::styled(expanded) {
+        if disabled_look::styled(expanded) || states.as_ref().is_some_and(|s| s.disabled_look) {
             let styled = self.b.constant(&Value::Bool(true));
             bindings.push(prop_row(
                 exact_kernel::PropId::DisabledStyled,
@@ -604,6 +618,35 @@ impl Lowerer<'_> {
             &handler_refs,
             surface,
         );
+        // @ref LLP 1121 D8 — its host-known states' looks, each row lowered
+        // as the node's own literal rows are.
+        if let Some(looks) = states.as_ref().filter(|s| !s.looks.is_empty()) {
+            let mut rows = Vec::new();
+            for (state, attrs) in &looks.looks {
+                let mut bindings = Vec::new();
+                for a in attrs {
+                    let (mut handlers, mut surface) = (Vec::new(), None);
+                    self.attr(
+                        tag,
+                        None,
+                        a,
+                        scope,
+                        locals,
+                        &mut bindings,
+                        &mut handlers,
+                        &mut surface,
+                        &font,
+                    )?;
+                }
+                let state = match state.as_str() {
+                    "active" => 0,
+                    "hover" => 1,
+                    _ => 2,
+                };
+                rows.push((state, bindings));
+            }
+            self.b.set_looks(id, &rows);
+        }
         if let Some(sites) = &mut self.sites {
             debug_assert_eq!(sites.nodes.len(), id.0 as usize);
             sites.nodes.push(sites::node_site(
