@@ -183,7 +183,15 @@ impl Painter {
         let weight = f32::from(style.font_weight).clamp(100.0, 900.0);
         let ts = ts.pre_concat(fitted(symbol.view_box, (x, y, w, h)));
         let bw = self::view_box(symbol.view_box)[2];
-        // Each of an icon's paths filled on its own, as its SVG draws them.
+        // Each of an icon's paths filled on its own, as its SVG draws them,
+        // a translucent tint once over all of them, as the web's mask is.
+        let group = symbol.d.contains(';') && colour[3] < 255;
+        let colour = if group {
+            self.backend.push_opacity(f32::from(colour[3]) / 255.0);
+            [colour[0], colour[1], colour[2], 255]
+        } else {
+            colour
+        };
         for d in symbol.d.split(';') {
             let path = parsed_symbol(d);
             let paint = SvgPaint {
@@ -201,6 +209,9 @@ impl Painter {
                 phase: 0.0,
             };
             self.backend.svg_path(&paint, ts);
+        }
+        if group {
+            self.backend.pop_opacity();
         }
     }
 

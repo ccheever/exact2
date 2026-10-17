@@ -111,15 +111,17 @@ pub(crate) fn declare(
             }
             (Some(file), Some(root)) => {
                 let path = root.join("assets").join(file);
-                // Its path travels in the plan and in every literal source.
-                let text = std::fs::read_to_string(&path)
+                // A template's path travels in the plan and in every literal source.
+                let read = std::fs::read_to_string(&path)
                     .map_err(|e| e.to_string())
-                    .and_then(|t| {
-                        (t.len() <= MAX_SVG)
-                            .then_some(t)
-                            .ok_or_else(|| format!("it is over {} KiB", MAX_SVG / 1024))
-                    });
-                match text.and_then(|t| crate::icon_svg::read(&t)) {
+                    .and_then(|t| Ok((t.len(), crate::icon_svg::read(&t)?)))
+                    .and_then(
+                        |(len, svg)| match svg.not_template.is_none() && len > MAX_SVG {
+                            true => Err(format!("it is over {} KiB", MAX_SVG / 1024)),
+                            false => Ok(svg),
+                        },
+                    );
+                match read {
                     Ok(svg) => Some(svg),
                     Err(why) => {
                         errors.push(refuse(
@@ -204,9 +206,8 @@ pub(crate) fn role_or_accessory(name: &str) -> Option<&'static str> {
         return Some(role);
     }
     let sf = named(name)?.sf;
-    ["forward-chevron", "checkmark", "info"]
-        .into_iter()
-        .find(|role| exact_kernel::generated::symbol(role).is_some_and(|s| s.0 == sf))
+    exact_kernel::generated::symbol_role(&sf)
+        .filter(|r| ["forward-chevron", "checkmark", "info"].contains(r))
 }
 
 /// A literal named `icon`, which the plan keeps.

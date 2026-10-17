@@ -1254,6 +1254,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
                 // An icon's SVG that is no template: the page draws the file.
                 Some(icon) => {
                     out.insert("src".into(), format!("assets/{}", icon.svg));
+                    out.insert("data-symbol-file".into(), String::new());
                 }
                 None => {
                     out.insert(

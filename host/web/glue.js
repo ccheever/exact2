@@ -375,7 +375,7 @@ function refreshSymbols() {
       }
     }
     const cs = getComputedStyle(el), size = parseFloat(cs.fontSize), weight = Number(cs.fontWeight);
-    const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), box = el.getAttribute("data-symbol-viewbox") || "0 0 24 24", key = `${path}:${filled}:${size}:${weight}:${box}`;
+    const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), box = el.getAttribute("data-symbol-viewbox") || "0 0 24 24", key = `${path}:${filled}:${size}:${weight}:${box}:${el.hasAttribute("data-symbol-nonzero")}`;
     if (!path && !el.dataset.symbolSource?.startsWith("symbol:sf/") && el.symbolRefusal !== el.dataset.symbolSource) {
       log(`image ${el.dataset.symbolSource} refused: unknown symbol role`); el.symbolRefusal = el.dataset.symbolSource;
     }
@@ -1051,7 +1051,7 @@ function nodeDetail(id, plan = false) {
     inViewport: r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight,
     clipped,
   };
-  node.native = { element: el.localName }; if (el.hasAttribute("data-symbol-source")) { const source = el.dataset.symbolSource, name = source.slice(source.startsWith("symbol:sf/") ? 10 : 7), found = !!el.dataset.symbolPath || source.startsWith("symbol:icon|"); node.native.symbol = { source, name, found, ...(!found ? { reason: source === "symbol:sf/" ? "empty" : source.startsWith("symbol:sf/") ? "platform" : "role" } : {}) }; }
+  node.native = { element: el.localName }; if (el.hasAttribute("data-symbol-source")) { const source = el.dataset.symbolSource, name = source.slice(source.startsWith("symbol:sf/") ? 10 : 7), found = !!el.dataset.symbolPath || el.hasAttribute("data-symbol-file"); node.native.symbol = { source, name, found, ...(!found ? { reason: source === "symbol:sf/" ? "empty" : source.startsWith("symbol:sf/") ? "platform" : "role" } : {}) }; }
   const cs = getComputedStyle(el);
   node.browser = Object.fromEntries(Object.entries(INHERITED_CSS).map(([row, prop]) => [row, cs.getPropertyValue(prop)]));
   const flow = textflow?.facts(id);

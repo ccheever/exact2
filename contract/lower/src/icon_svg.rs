@@ -201,10 +201,13 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                 "filter",
             ]
             .into_iter()
+            .chain(["display", "visibility"])
             .find(|p| {
                 property(&attrs, p).is_some_and(|v| match *p {
                     "fill-rule" => v != "nonzero",
                     "opacity" | "fill-opacity" => v.parse::<f64>().map_or(true, |o| o < 1.0),
+                    "display" => v == "none",
+                    "visibility" => v != "visible",
                     _ => v != "none",
                 })
             });
@@ -213,6 +216,10 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
             }
         }
         match name {
+            // A nested viewport places and scales what it holds.
+            "svg" if !stack.is_empty() => {
+                why.get_or_insert_with(|| "it nests an `<svg>`".to_string());
+            }
             "svg" => {
                 let attr = |a: &str| attrs.iter().find(|(k, _)| *k == a).map(|(_, v)| v.clone());
                 view_box = attr("viewBox").or_else(|| {
@@ -233,6 +240,16 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                 let painted = fill_here.clone().unwrap_or_else(|| "black".into());
                 if painted.starts_with("url(") {
                     why.get_or_insert_with(|| "it fills with a gradient or a pattern".to_string());
+                }
+                // A colour with its own alpha (`rgba()`, `#rrggbbaa`) is no opaque template.
+                let hex = painted.strip_prefix('#').map_or(0, str::len);
+                if painted.contains('/')
+                    || painted.starts_with("rgba")
+                    || painted.starts_with("hsla")
+                    || hex == 4
+                    || hex == 8
+                {
+                    why.get_or_insert_with(|| "it fills in a translucent colour".to_string());
                 }
                 if stroke_here.as_deref().is_some_and(|s| s != "none") {
                     why.get_or_insert_with(|| "it has a stroke".to_string());
@@ -324,6 +341,20 @@ mod tests {
         assert!(styled.not_template.is_some());
         let gradient = read(r#"<svg viewBox="0 0 24 24"><defs><linearGradient id="g"/></defs><path fill="url(#g)" d="M0 0h1"/></svg>"#).unwrap();
         assert!(gradient.not_template.is_some());
+        for hidden in [
+            r#"display="none""#,
+            r#"visibility="hidden""#,
+            r##"fill="#ff000080""##,
+            r#"fill="rgba(0,0,0,.5)""#,
+        ] {
+            let svg = read(&format!(
+                r#"<svg viewBox="0 0 24 24"><path {hidden} d="M0 0h1"/></svg>"#
+            ))
+            .unwrap();
+            assert!(svg.not_template.is_some(), "{hidden}");
+        }
+        let nested = read(r#"<svg viewBox="0 0 24 24"><svg x="12" viewBox="0 0 10 10"><path d="M0 0h1"/></svg></svg>"#).unwrap();
+        assert!(nested.not_template.is_some());
         let important = read(r#"<svg viewBox="0 0 24 24"><path style="fill : red !important" d="M0 0h1"/><path fill="red" d="M2 2h1"/></svg>"#).unwrap();
         assert_eq!(important.not_template, None);
         let nested = read(r#"<svg viewBox="0 0 24 24"><g fill="red"><g fill="blue"><path d="M0 0h1"/><path d="M2 2h1"/></g></g></svg>"#).unwrap();

@@ -27,6 +27,7 @@ function schedule() {
 const draw = (e, name) => {
   const f = name.startsWith("icon|") ? name.split("|") : null;
   const [path, filled, box, file] = f ? [f[3], 1, f[2], f[3] ? "" : f[4]] : Table[name] ?? [""];
+  e.toggleAttribute("data-symbol-file", !!file);
   if (file) { e.removeAttribute("data-symbol-path"); e.src = `assets/${file}`; return; }
   e.setAttribute("data-symbol-path", path); e.toggleAttribute("data-symbol-fill", !!filled);
   // An icon's paths are each filled nonzero under its own viewBox (`d`s joined by `;`).
@@ -76,7 +77,7 @@ export function symbols(table) {
 }
 function unsymbol(e) {
   if (!e.hasAttribute?.("data-symbol-source") && !e.hasAttribute?.("data-symbol-path")) return;
-  for (const a of ["data-symbol-path", "data-symbol-fill", "data-symbol-source", "data-symbol-viewbox", "data-symbol-nonzero"]) e.removeAttribute(a);
+  for (const a of ["data-symbol-path", "data-symbol-fill", "data-symbol-source", "data-symbol-viewbox", "data-symbol-nonzero", "data-symbol-file"]) e.removeAttribute(a);
   e.style.removeProperty("--exact-symbol-mask"); e.style.removeProperty("--exact-symbol-fit");
   if (e.getAttribute("src") === e.symbolPlaceholder) e.removeAttribute("src");
   e.symbolKey = e.symbolMask = e.symbolPlaceholder = e.symbolRefusal = null;
@@ -125,7 +126,7 @@ function refresh() {
       }
     }
     const cs = getComputedStyle(el), size = parseFloat(cs.fontSize), weight = Number(cs.fontWeight);
-    const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), box = el.getAttribute("data-symbol-viewbox") || "0 0 24 24", key = `${path}:${filled}:${size}:${weight}:${box}`;
+    const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), box = el.getAttribute("data-symbol-viewbox") || "0 0 24 24", key = `${path}:${filled}:${size}:${weight}:${box}:${el.hasAttribute("data-symbol-nonzero")}`;
     // As the web host says it (glue.js `refreshSymbols`), once every role is here.
     const source = el.getAttribute("data-symbol-source");
     if (!path && All === true && !source?.startsWith("symbol:sf/") && el.symbolRefusal !== source) {

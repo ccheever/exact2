@@ -240,6 +240,16 @@ pub(in crate::presenter) fn symbol(
     let Some(path) = exact_kernel::symbol_path(role) else {
         return;
     };
+    // A translucent colour once over all an icon's paths.
+    let group = path.d.contains(';') && color[3] < 255;
+    if group {
+        backend.push_opacity(f32::from(color[3]) / 255.0);
+    }
+    let paint = if group {
+        [color[0], color[1], color[2], 255]
+    } else {
+        color
+    };
     for d in path.d.split(';') {
         glyph_in(
             backend,
@@ -248,8 +258,11 @@ pub(in crate::presenter) fn symbol(
             path.even_odd,
             path.view_box,
             rect,
-            color,
+            paint,
         );
+    }
+    if group {
+        backend.pop_opacity();
     }
 }
 
