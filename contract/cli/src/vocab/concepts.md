@@ -258,11 +258,12 @@ component App
         if e.name == "rename"
           column navigationKey=`${e.id}` navigationPresentation="modal" position="absolute" inset=0
             header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
-              button id="back" press=back testId="cancel"
-                text "Cancel"
+              button id="back" press=back aria-label="Cancel" testId="cancel"
+                image "symbol:close"
               text "Rename" role="heading"
-              button press=save disabled=(draft.trim() == "") testId="save"
-                text "Save"
+              button press=save buttonStyle="bordered-prominent" aria-label="Save"
+                disabled=(draft.trim() == "") testId="save"
+                image "symbol:checkmark"
             input value=draft input=edit aria-label="Name" autofocus=true margin=16 testId="field"
 ```
 

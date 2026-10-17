@@ -122,14 +122,14 @@ component App
                         RowText(title=x.title, detail=`${x.category} · ${formatDay(x.at, time.epochAtZero + now, time.utcOffset, "day")}`, value=some(money(x.amount)))
         if e.name == "add"
           column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0
-            // Cancel, title and Save: three items, so `space-between` centres the title. With two (a Close
-            // and a title) it would push the title to the far edge: say nothing, and a sheet's title is centred.
+            // Cancel (the xmark), title and Save (the checkmark): three items, so `space-between`
+            // centres the title. Each symbol's name is its word on the web and the Mac.
             header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
-              button id="back" press=back testId="add-cancel"
-                text "Cancel"
+              button id="back" press=back aria-label="Cancel" testId="add-cancel"
+                image "symbol:close"
               text "New Expense" role="heading"
-              button press=save buttonStyle="bordered-prominent" disabled=(saveHint != "") testId="save"
-                text "Save"
+              button press=save buttonStyle="bordered-prominent" aria-label="Save" disabled=(saveHint != "") testId="save"
+                image "symbol:checkmark"
             list id="add-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
               section
                 row

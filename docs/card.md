@@ -101,7 +101,7 @@ ops: a target is a testId, else a view's exact text or label
   prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · back · fail|pass fetch <prefix>
 
 how (snippets compile)
-a second screen, a sheet: A screen is a route, never an `if` on state; a sheet's root adds `navigationPresentation="modal"`, its Cancel the `id` `navigationBack` names. `pattern list-detail` is the whole.
+a second screen, a sheet: A screen is a route, not an `if`; a sheet's root adds `navigationPresentation="modal"`, its Cancel the `id` `navigationBack` names (`pattern list-detail`).
   routes nav
     home "/"
       edit "/edit"
@@ -122,11 +122,11 @@ a second screen, a sheet: A screen is a route, never an `if` on state; a sheet's
       if e.name == "edit"
         column navigationKey=`${e.id}` navigationPresentation="modal" position="absolute" inset=0
           header
-            button id="back" press=back
-              text "Cancel"
+            button id="back" press=back aria-label="Cancel"
+              image "symbol:close"
             text "New" role="heading"
-            button press=save
-              text "Save"
+            button press=save buttonStyle="bordered-prominent" aria-label="Save"
+              image "symbol:checkmark"
 a confirmation: `aria-label` is the question; each action `button` acts and closes (`command="close"`); the Cancel has no `press`. Open it with `command="show-modal"`, or `showModal(id)` in an action.
   state n = 1
   action remove
@@ -175,7 +175,7 @@ a test, and verify: By `testId` or exact text, each test from empty storage. `cl
     clock data
     reload
     expect text "n" == "1"
-composing a screen: Chrome is the platform's; the content is yours, with one focal point. Emphasis is a part (above), not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search is `input type="search"` in the `header`, the bar's field, filtering as you type. An entry form is a grouped list (`grouped-form`); no rows, an `EmptyState` in the list's place.
+composing a screen: One focal point. Emphasis is a part (above), not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search is `input type="search"` in the `header`, the bar's field, filtering as you type. An entry form is a grouped list (`grouped-form`); no rows, an `EmptyState` in the list's place.
   use SummaryCard from "exact:content"
   column gap=16 padding=16
     SummaryCard(label="Streak", value="12", detail="days in a row", progress=none, symbol=none)
