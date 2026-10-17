@@ -727,10 +727,15 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertTrue(p.menus.observation()?["source"] is NSNull, "raised by an action, not an invoker")
         guard Self.scene else { throw missing("scene", "a presentation completes only in a scene's window") }
         settle { !p.menus.inTransition }
-        // The agent's activation of the alert's action, by its node.
+        // The agent's activation of the alert's action, by its node. Its
+        // press follows UIKit's dismissal; the agent's wait after the input
+        // covers both, so the tap's reply comes after the press has landed.
         XCTAssertEqual(p.menus.activate(try node(session, "clear-confirm-clear")), true)
-        settle { (try? self.counts(session))?.hasPrefix("count 0") == true }
-        settle { p.menus.observation() == nil && controller.presentedViewController == nil }
+        XCTAssertTrue(try counts(session).hasPrefix("count 1"), "the press waits for the dismissal")
+        XCTAssertTrue(session.agentInstance.awaitModalTransitions())
+        XCTAssertNil(p.menus.observation())
+        XCTAssertTrue(try counts(session).hasPrefix("count 0"), "the press has landed")
+        settle { controller.presentedViewController == nil }
 
         // Its invoker opens the same alert; Cancel leaves the count.
         p.press(try node(session, "peek-bump").id)
