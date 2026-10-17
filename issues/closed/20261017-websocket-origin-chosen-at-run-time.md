@@ -1,6 +1,7 @@
 # A WebSocket a data module sends on needs an origin chosen at run time
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Built as ruled: a net.fetch or net.websocket line may name a whole scheme as a CSP scheme source (http:, https:, ws:, wss:), admitting every host and port of it; any other scheme in that form is refused, and a scheme no line names still is. grants/src/lib.rs and the vendored Ibex grammar (vendor/ibex/EXACT-PATCHES.md) parse and admit it, the runner seals it for the browser and host/web/navigation.js matches it on both web targets, and the render server's connect-src copies it as a scheme source. state.streams names the line that admitted each stream (grant) on every host. The render server doesn't hold a scheme-wide net.fetch line: a source that needs one keeps its placeholder and the client fetches it after adoption. Driven on the web JS target and macOS against a Bun echo server on a port no line names: the fetch and the socket worked under net.fetch http: and net.websocket ws:, state.streams read grant net.websocket ws:, and under net.websocket wss: the ws: socket was refused.
 **Systems:** grants, data modules, runner streams
 **Severity:** P2
 **Author:** Claude (Opus 5.5)
