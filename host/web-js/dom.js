@@ -7,6 +7,7 @@
 const VOID = new Set(['img', 'input', 'br', 'hr', 'meta', 'link', 'source', 'area', 'col', 'embed', 'wbr']);
 const esc = (s, attr) => String(s).replace(attr ? /[&"\r]/g : /[&<>\r]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\r': '&#13;' })[c]);
 
+let Trees = 0;
 class Node {
   constructor(type) { this.nodeType = type; this.parentNode = null; this.childNodes = []; }
   get parentElement() { return this.parentNode?.nodeType === 1 ? this.parentNode : null; }
@@ -16,12 +17,13 @@ class Node {
   get previousSibling() { const s = this.parentNode?.childNodes; return s ? s[s.indexOf(this) - 1] ?? null : null; }
   get lastChild() { return this.childNodes.at(-1) ?? null; }
   get isConnected() { let n = this; while (n.parentNode) n = n.parentNode; return n.nodeType === 9; }
-  // DOM §4.4: PRECEDING 2, FOLLOWING 4, CONTAINS 8, CONTAINED_BY 16; another tree is DISCONNECTED 1 (midi.js orders listeners by it).
+  // DOM §4.4 (midi.js orders listeners by it): PRECEDING 2, FOLLOWING 4, CONTAINS 8, CONTAINED_BY 16; a node in
+  // another tree is DISCONNECTED 1 | IMPLEMENTATION_SPECIFIC 32 with a direction that stays put: the trees' roots by when first compared.
   compareDocumentPosition(other) {
     if (other === this) return 0;
     const path = n => { const p = []; for (; n; n = n.parentNode) p.unshift(n); return p; };
     const a = path(this), b = path(other);
-    if (a[0] !== b[0]) return 1;
+    if (a[0] !== b[0]) return 1 | 32 | ((a[0].$tree ??= ++Trees) < (b[0].$tree ??= ++Trees) ? 4 : 2);
     let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++;
     if (i === a.length) return 16 | 4;
     if (i === b.length) return 8 | 2;
@@ -45,7 +47,7 @@ class Node {
   before(...nodes) { for (const n of nodes) this.parentNode.insertBefore(n, this); }
   after(...nodes) { const next = this.nextSibling; for (const n of nodes) this.parentNode.insertBefore(n, next); }
   get textContent() { return this.childNodes.map(c => c.textContent).join(''); }
-  set textContent(v) { for (const c of this.childNodes) c.parentNode = null; this.childNodes = v === '' ? [] : [new Text(v)]; }
+  set textContent(v) { this.replaceChildren(...(v === '' ? [] : [new Text(v)])); }
   addEventListener() {} removeEventListener() {} dispatchEvent() {}
 }
 class Text extends Node { constructor(t) { super(3); this.data = String(t); } get textContent() { return this.data; } html() { return esc(this.data); } }

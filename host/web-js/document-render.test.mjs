@@ -2,6 +2,7 @@ import { test, expect } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { webCompiler } from './module.mjs';
+import { createDocument } from './dom.js';
 
 async function renderedPages(source, check, files = {}) {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
@@ -152,3 +153,20 @@ test('JavaScript-rendered pages exclude the other retained tabs’ heads', async
     expect(page('saved')).toEqual(['Saved', 'Saved description']);
   });
 }, 30000);
+
+// The render's DOM orders nodes as DOM §4.4 does (midi.js sorts its listeners by it).
+test('the render DOM compares document positions, across trees one way each', () => {
+  const doc = createDocument(), root = doc.getElementById('exact-root');
+  const a = doc.createElement('div'), b = doc.createElement('div');
+  root.append(a, b);
+  a.textContent = 'text';
+  expect([a.compareDocumentPosition(b), b.compareDocumentPosition(a)]).toEqual([4, 2]);
+  expect([a.compareDocumentPosition(a.firstChild), a.firstChild.compareDocumentPosition(a)]).toEqual([16 | 4, 8 | 2]);
+  const loose = doc.createElement('p'), other = createDocument().getElementById('exact-root');
+  for (const [x, y] of [[a, loose], [loose, other], [a, other]]) {
+    const there = x.compareDocumentPosition(y), back = y.compareDocumentPosition(x);
+    expect([there & 1, there & 32, back & 1, back & 32]).toEqual([1, 32, 1, 32]);
+    expect([there & 6, back & 6].sort()).toEqual([2, 4]);
+    expect(x.compareDocumentPosition(y)).toBe(there);
+  }
+});
