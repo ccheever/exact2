@@ -142,6 +142,29 @@ final class NativeContextsIOSTests: XCTestCase {
         return presenter(ops + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]], faces: faces)
     }
 
+    /// Opacity only paints (CSS); `visibility: hidden` and `inert` take input away.
+    func testSegmentsFollowTheirStateNotTheirOpacity() throws {
+        let p = tablist([2: face("Day"), 3: face("Week"), 4: face("Month")])
+        let owner = try XCTUnwrap(p.views[1])
+        let segments = try XCTUnwrap(owner.subviews.compactMap { $0 as? UISegmentedControl }.first)
+        owner.alpha = 0
+        p.segments.sync()
+        XCTAssertTrue(segments.isEnabled, "a transparent tablist still takes input")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertEqual(p.segments.activate(try XCTUnwrap(p.views[3])), true)
+        XCTAssertEqual(pressed, [3])
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["visibility": "hidden"]]]))
+        p.segments.sync()
+        XCTAssertFalse(segments.isEnabled, "a hidden tablist takes no input")
+        XCTAssertEqual(p.segments.activate(try XCTUnwrap(p.views[4])), false)
+        XCTAssertEqual(pressed, [3], "nor a pick")
+        p.apply(wireBatch([["op": "style", "id": 1, "style": [:]]]))
+        owner.props["inert"] = "true"
+        p.segments.sync()
+        XCTAssertFalse(segments.isEnabled, "inert disables it too")
+    }
+
     func testNativeTabsAreATabBarOrSegmentsFromTheirFaces() throws {
         // A symbol and a title on every tab: the tab bar.
         var p = tablist([2: face("Inbox", symbol: "tray"), 3: face("Sent", symbol: "paperplane"), 4: face("Trash", symbol: "trash")],
