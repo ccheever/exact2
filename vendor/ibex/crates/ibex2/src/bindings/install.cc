@@ -5,6 +5,7 @@
 #include <hermes/BCGen/HBC/BytecodeFileFormat.h>
 #define IBEX2_HAS_HERMES_BYTECODE_FILE_FORMAT 1
 #endif
+#include <jsi/instrumentation.h>
 #include <cstring>
 #include <cmath>
 #include <limits>
@@ -1945,6 +1946,12 @@ void Adapter::harden(const CompiledScript& script) {
     throw std::invalid_argument("Ibex2 harden requires its compiled bytecode");
   validate_bytecode(script, state_->bytecode_version);
   verify_harden_preconditions();
+  // The guard's walk and harden.js each allocate about 0.45 MB, nearly all of
+  // it garbage. Hermes' young generation keeps every page it has touched, so
+  // collecting between them lets harden.js reuse the guard's pages rather
+  // than touch as many again. 0.15 ms (iPhone simulator).
+  if (!state_->bootstrap_outputs.empty())
+    rt.instrumentation().collectGarbage("ibex2 harden guard");
   state_->hardened = true;
   rt.evaluateJavaScript(std::make_shared<CompiledBytes>(script.bytes, script.len),
                         "harden.js");

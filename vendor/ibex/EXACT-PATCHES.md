@@ -271,6 +271,21 @@ else descriptors reach, by readers the fixture took before bootstrap
 (`js/tests/fixtures/harden-probe.js`). To go upstream to expo/ibex; replay it
 on a refresh until it is there.
 
+## Local patch, upstream-bound: a collection between the guard and `harden.js`
+
+`Adapter::harden` (`bindings/install.cc`) collects garbage after
+`verify_harden_preconditions()` and before it evaluates `harden.js`, when
+`install_with` published a trusted-bootstrap output (otherwise the guard is
+a no-op). The guard allocates about 447 KB and `harden.js` 444 KB, nearly all
+of it garbage, and Hermes' young generation keeps every page touched between
+two collections, so the two together set the data module's young-generation
+footprint. With the collection each reuses the other's pages: in Exact's
+template and in euxy (Release, iPhone 17 simulator, 10 s after launch) the
+young generation keeps 528 KB rather than 944, for 0.15 ms of boot. A
+collection runs no JavaScript and changes no reachability, and the
+allocation could have triggered one at the same point. To go upstream to
+expo/ibex; replay it on a refresh until it is there.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.
