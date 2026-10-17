@@ -135,15 +135,15 @@ impl<D: DataSource> Presenter<D> {
         if !self.alert_allows(id) {
             return Some("page under alert is inert");
         }
-        if self.placement_hidden(id) {
+        let kernel = self.host.kernel();
+        let shown = self.alert_root();
+        let (hidden, inert) = self.host.route_visibility_to(id, shown);
+        if hidden || inert {
             return Some("not rendered");
         }
-        let kernel = self.host.kernel();
         let region = self.host.content_region();
-        if self.brush.region_blocks_action(id) || region.is_some_and(|r| r.contains(kernel, id)) {
-            // Initial pending content and new descendants are absent from the
-            // retained picture's IDs. Even a current publication is replayed;
-            // only its captured Press/Swiperight actions may enter it (1041 §8.121).
+        let content = region.map(|r| r.binding().content);
+        if self.brush.region_blocks_action(id) {
             return Some("content region is not live");
         }
         // The successful presentation owns this boundary, including across a
@@ -151,16 +151,23 @@ impl<D: DataSource> Presenter<D> {
         let skipped_pending = region
             .filter(|r| matches!(self.brush.published_region(r), Ok(Some(_))))
             .map(|r| r.binding().pending);
-        let shown = self.alert_root();
+        // Paint starts at an open alert's root, independently of its page
+        // ancestors. Every inherited eligibility check ends there too.
         let mut at = kernel.node(id);
         while let Some(node) = at {
-            let (hidden, inert) = self.host.route_visibility(node.id);
             if node.style.display == exact_kernel::Display::None
-                || hidden
-                || inert
+                || matches!(
+                    self.brush.placements.get(&node.id),
+                    Some(crate::placement::Placement::Hidden)
+                )
                 || Some(node.key) == skipped_pending
             {
                 return Some("not rendered");
+            }
+            if Some(node.key) == content {
+                // Pending content and newly inserted descendants have no
+                // retained-picture ID; current publications also replay.
+                return Some("content region is not live");
             }
             if Some(node.id) == shown {
                 return None;

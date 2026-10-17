@@ -1080,8 +1080,12 @@ fn focus_region() -> Presenter<()> {
         .replace("testId=\"paragraph\"", "id=\"paragraph\" testId=\"paragraph\" tabindex=0")
         .replace("text \"Preparing content\" id=\"pending\"", "text \"Preparing content\" id=\"pending\" testId=\"pending\" tabindex=0")
         .replace("          text \"Preparing content", "              if title != \"old picture\"\n                text \"New descendant\" id=\"new\" testId=\"new\" tabindex=0\n          text \"Preparing content");
+    region_from(&source)
+}
+
+fn region_from(source: &str) -> Presenter<()> {
     let (p, error) = Presenter::boot_with_content_region(
-        &crate::test_plan(&source),
+        &crate::test_plan(source),
         (),
         (400., 500.),
         1.,
@@ -1181,4 +1185,53 @@ fn placeholder_focus_follows_successful_acknowledged_region_presentation() {
     assert!(p.display_complete(&accepted));
     p.blur();
     focus_refused(&mut p, "pending", "not rendered");
+}
+
+#[test]
+#[ignore = "async lane: retained membership lookup scaling"]
+fn retained_membership_lookup_cost_is_independent_of_paint_order() {
+    let _service = crate::content_region::test_service();
+    let mut nodes = String::from("              view testId=\"first\" width=1 height=1\n");
+    nodes.push_str(&"              view width=1 height=1\n".repeat(3998));
+    nodes.push_str("              view testId=\"last\" width=1 height=1\n");
+    let source = APP
+        .lines()
+        .map(|line| {
+            if line.contains("text title href=link") {
+                nodes.clone()
+            } else {
+                format!("{line}\n")
+            }
+        })
+        .collect::<String>();
+    let mut p = region_from(&source);
+    p.frame();
+    ready(&mut p);
+    p.frame();
+    assert!(p.last_frame_succeeded);
+    let (first, last) = (id(&p, "first"), id(&p, "last"));
+    assert!(p.brush.region_blocks_action(first));
+    assert!(p.brush.region_blocks_action(last));
+    assert!(!p.brush.region_blocks_action(id(&p, "replace")));
+    let measure = |view| {
+        (0..3)
+            .map(|_| {
+                let started = Instant::now();
+                for _ in 0..4096 {
+                    std::hint::black_box(p.brush.region_blocks_action(std::hint::black_box(view)));
+                }
+                started.elapsed()
+            })
+            .min()
+            .unwrap()
+    };
+    let first_time = measure(first);
+    let last_time = measure(last);
+    eprintln!("retained membership, 4096 lookups: first={first_time:?}, last={last_time:?}");
+    // A generous ratio allows scheduling noise and different index depths;
+    // a scan of 4,000 nodes costs orders of magnitude more at the end.
+    assert!(
+        last_time <= first_time * 32,
+        "first={first_time:?}, last={last_time:?}"
+    );
 }

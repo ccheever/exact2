@@ -1388,6 +1388,11 @@ impl<D: DataSource> Host<D> {
         self.navigation.visibility(self.runner.kernel(), id)
     }
 
+    pub(crate) fn route_visibility_to(&self, id: ViewId, root: Option<ViewId>) -> (bool, bool) {
+        self.navigation
+            .visibility_to(self.runner.kernel(), id, true, root)
+    }
+
     /// The first navigation root's stack as its key last named it: its
     /// routes through the one that shows (`presenter/arrive.rs`).
     pub(crate) fn shown_stack(&self) -> Option<&[ViewId]> {
