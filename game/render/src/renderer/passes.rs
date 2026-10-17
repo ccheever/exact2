@@ -89,6 +89,37 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         draws
     }
 
+    /// Last frame's camera lists of convex primitives, depth only at this
+    /// frame's poses, then the occlusion pyramid this frame's cull reads
+    /// (occlusion.rs).
+    pub(super) fn encode_occluders(&self, encoder: &mut wgpu::CommandEncoder) {
+        let occlusion = self.occlusion.as_ref().unwrap();
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("game occluders"),
+            color_attachments: &[],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: occlusion.depth(),
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(occlusion.occluder());
+        pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
+        pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
+        for &(index, offset) in &occlusion.groups {
+            pass.set_bind_group(1, &occlusion.uniforms_bind, &[offset]);
+            self.draw_group(&mut pass, 0, index);
+        }
+        drop(pass);
+        occlusion.reduce(encoder);
+    }
+
     /// A depth-only caster pipeline and its groups 1-3 for one draw group.
     pub(super) fn set_depth_pipeline(
         &self,

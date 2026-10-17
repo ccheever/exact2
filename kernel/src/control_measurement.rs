@@ -126,6 +126,10 @@ pub struct FieldChromeRequest {
     /// iOS the cell is the field, so it has no border of its own; a host
     /// whose field is the same anywhere answers as for any other.
     pub cell: bool,
+    /// The field has a `placeholder`. Where a platform floats it above the
+    /// text as the field's label (Android's filled field, LLP 1115.001.000
+    /// D6), the text sits lower; a host that does not answers as for any other.
+    pub labelled: bool,
 }
 
 /// Chrome in logical pixels, outside authored content, padding and borders.

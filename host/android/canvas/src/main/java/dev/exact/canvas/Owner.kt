@@ -98,6 +98,8 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
     private var seq = 0
     private var steps = 0
     private var turnPosted = false
+    /** The last turn took longer than a display frame: the next one is run at once, not at the next one. */
+    private var late = false
     private var choreographer: Choreographer? = null
     private val prefetch = true
 
@@ -224,6 +226,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
             running = on
             if (on) { produce(); return@post }
             choreographer?.removeFrameCallback(turn); turnPosted = false
+            handler.removeCallbacks(again)
             handler.removeCallbacks(timer); handler.removeCallbacks(refiner); handler.removeCallbacks(settle)
         }
     }
@@ -358,17 +361,31 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         return task.get()
     }
 
+    /** Run [f] on the exact thread and wait for it, publishing nothing: a question that changes nothing
+     * ([ExactTamber]). */
+    fun <T> ask(f: () -> T): T {
+        if (Looper.myLooper() == thread.looper) return f()
+        val task = FutureTask<T> { f() }
+        handler.post(task)
+        return task.get()
+    }
+
     /** exact2's next stream, if it has one: copied, queued, and the main thread told. */
     private fun produce() {
         if (!running) { requests(); return }
         android.os.Trace.beginSection("exact native frame")
+        val started = System.nanoTime()
         val fresh = Native.frame()
+        late = System.nanoTime() - started > frameNanos
         android.os.Trace.endSection()
         val told = Native.scrollers()
         val fields = Native.fields()
         val bars = Native.bars()
         // A host library without the call (an older exact2) is not asked again.
         val access = if (accessible) try { Native.access(accessAgain).also { accessAgain = false } } catch (e: UnsatisfiedLinkError) { accessible = false; null } else null
+        // The bindings ask again first, so a frame's colours read the new answers; every turn, as a token only
+        // native code reads moves no paint (one inputs call per binding).
+        Tambers.turned()
         if (fresh == null && (told != null || fields != null || bars != null || access != null)) {
             queue.add(Pub(null, true, seq, 0, told, fields, bars, access))
             if (!notifying.getAndSet(true)) main.post { notifying.set(false); published() }
@@ -393,7 +410,18 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         schedule()
     }
 
-    private val turn = Choreographer.FrameCallback { turnPosted = false; produce() }
+    private val turn = Choreographer.FrameCallback { t ->
+        // The display's frame: the shortest gap between consecutive vsyncs seen.
+        if (vsync > 0 && t - vsync > 2_000_000) frameNanos = minOf(frameNanos, t - vsync)
+        vsync = t
+        turnPosted = false; produce()
+    }
+    private var vsync = 0L
+    private var frameNanos = 1_000_000_000L / 60
+    /** A turn that overran its display frame (a GPU canvas whose world ran two ticks in it, 256,000 cubes on a
+     * Pixel 5) waits for no vsync: Choreographer would skip the one it missed, and every frame after would take
+     * two. The canvas's buffers hold at most three frames on the GPU, and while they do a turn only runs its ticks. */
+    private val again = Runnable { produce() }
     /** Timers, and the paint a scroll owes once it pauses (only then the collection pass it left behind). */
     private val timer = Runnable {
         if (prefetch && Native.owed() && Native.refine(-1, if (led) velocity else 0f) and 2 != 0) handler.post(refiner)
@@ -402,7 +430,8 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
 
     private fun schedule() {
         if (!running) return
-        if (Native.animating() && !turnPosted) { turnPosted = true; choreographer?.postFrameCallback(turn) }
+        if (Native.animating() && late) { late = false; handler.post(again) }
+        else if (Native.animating() && !turnPosted) { turnPosted = true; choreographer?.postFrameCallback(turn) }
         var due = Native.nextDue()
         // A moved paint is owed a paint once scrolling pauses: each step pushes this back.
         if (Native.owed() && (due < 0 || due > 16)) due = 16.0
@@ -454,6 +483,14 @@ internal object Exact {
         return o.sync { String(Native.agent(line.toByteArray(Charsets.UTF_8)), Charsets.UTF_8) }
     }
 
+    /** What an [ExactTamber] asks ([Native.tamber], LLP 1121 D12): on exact2's thread, waited for, publishing
+     * nothing. An error's JSON where no host runs or the library predates the call. */
+    fun tamber(request: String): String {
+        val f = { try { Native.tamber(request) } catch (e: UnsatisfiedLinkError) { "{\"error\":\"no tamber in this library\"}" } }
+        val o = owner
+        return if (o != null) o.ask(f) else if (live) f() else "{\"error\":\"no host\"}"
+    }
+
     /** Main thread, where exact2 runs there too (owner=0) and a hosted field told it something: the reader draws
      * what that changed. */
     var turned: () -> Unit = {}
@@ -495,6 +532,13 @@ internal object Exact {
     fun accessAct(id: Int, action: Int, value: Float): Boolean {
         val o = owner
         return if (o != null) { o.input(); o.sync { Native.accessAct(id, action, value) } } else Native.accessAct(id, action, value).also { turned() }
+    }
+
+    /** What a hatch's handle asks of node [node] ([ExactElement]): on exact2's thread, waited for, as an
+     * accessibility service's act is; exact2 runs it between its turns and publishes what it changed. */
+    fun hatchAct(node: Int, kind: Int, text: String?): Long {
+        val o = owner
+        return if (o != null) { o.input(); o.sync { Native.hatchAct(node, kind, text) } } else Native.hatchAct(node, kind, text).also { turned() }
     }
 
     /** When the last touch lifted, or was held long enough to be a long press ([android.os.SystemClock.uptimeMillis]):

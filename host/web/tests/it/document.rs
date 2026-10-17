@@ -479,8 +479,8 @@ component App
 }
 
 // @ref LLP 1075.003 §3.3, §3.7 — with tabs, each tab's panel holds its own
-// stack: the unselected panel is hidden and inert, its stack keeps its top
-// route; an app's data-* words are attributes of their own. Both are linked
+// stack, built when the tab is first selected: the unselected panel is
+// hidden and inert; an app's data-* words are attributes of their own. Both are linked
 // by use, and a host without them refuses the plan by name.
 #[test]
 fn tabs_show_their_own_stacks_and_data_words_are_attributes() {
@@ -522,9 +522,8 @@ component App
     let post = tag("route-post");
     assert!(shown(&post), "{post}");
     assert!(post.contains("data-screen=\"post\""), "{post}");
-    // The other tab's stack shows its top route inside its hidden panel.
-    let other = tag("route-second");
-    assert!(shown(&other), "{other}");
+    // The other tab, never selected, is not built yet: its panel is empty.
+    assert!(!doc.contains("data-testid=\"route-second\""), "{doc}");
 
     let plan = contract::bake(contract::compile(src).unwrap(), Says("")).unwrap();
     exact_web::link(exact_web::Linked::CORE);

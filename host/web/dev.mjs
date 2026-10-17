@@ -48,7 +48,7 @@ import { webPortRange } from '../../scripts/agent-launch.mjs';
 import { localInstaller } from './local-install.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
 import { relayChannel, serveCommands, serveReport } from '../../scripts/tamber-builds.mjs';
-import { applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
+import { alsoOnIPv6Loopback, freeOnIPv6Loopback, applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
 const argv = guardFlags('web', process.argv.slice(2)); // --help, or a flag it does not take, before anything starts
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
@@ -63,7 +63,8 @@ async function freePort(from, host) {
   const range = webPortRange() ?? [from, Math.min(from + 99, 65535)];
   for (let p = range[0]; p <= range[1]; p++) {
     const free = await new Promise((ok) => { const t = createServer(); t.once('error', () => ok(false)); t.listen(p, host, () => t.close(() => ok(true))); });
-    if (free) return p;
+    // And on [::1], which a localhost URL (the design tool's canvas) reaches.
+    if (free && await freeOnIPv6Loopback(p)) return p;
   }
   console.error(`ports ${range[0]}–${range[1]} are all in use; --port <n> picks another`);
   process.exit(1);
@@ -84,6 +85,10 @@ const origins = installBrowserOrigins({ host: lan ? '0.0.0.0' : '127.0.0.1', por
 const allowHosts = allowHostArgs(argv);
 const gate = developmentGate(origins, servedAs ?? port, allowHosts);
 const root = resolve(new URL('../..', import.meta.url).pathname);
+// An outside app's wasm loop builds apart from the JS target's `target/web-dist`,
+// so `web` and `web --wasm` can run at once without one serving the other's files.
+if (argv.includes('--wasm') && servedAs == null && process.env.EXACT_APP_DIR && !process.env.EXACT_WEB_DIST)
+  process.env.EXACT_WEB_DIST = buildEnv.EXACT_WEB_DIST = resolve(app.target, 'web-dist-wasm');
 const dist = webDist();
 const source = resolve(app.dir, 'app.contract');
 // The JS target (LLP 1071): the runtime the app ships, rebuilt and reloaded
@@ -245,7 +250,7 @@ const push = (data) => { for (const res of clients) res.write(`data: ${JSON.stri
 // The live table (LLP 1121 stage 4): a value-only design edit publishes no
 // plan; its batch goes to every build, and its snapshot is kept for a build
 // that connects (or missed a batch) until the next plan.
-let designSnapshot = null;
+let designSnapshot = null, designSource = null;
 // A frame larger than this, in UTF-8 bytes, goes as a notice instead: a
 // native host's event frames are bounded (PlanURL.swift's 64 KiB).
 const DESIGN_FRAME = 32 * 1024;
@@ -301,7 +306,11 @@ const unasked = () => { for (const answer of [...scrubAsks.values()]) answer({ e
 let moduleScrubbed = null, moduleReleased = false;
 /** Preview a scrub's texts on every build: the batch from the design they
  * run; nothing written. */
+// A scrub previewing: the design the builds run is no committed one, so it
+// certifies no file (LLP 1122 D5's served design).
+let previewing = false;
 async function scrubPreview(texts) {
+  previewing = true;
   if (!typescript && portableRust) return { error: 'this app\'s own producer publishes every plan: its design edits reload' };
   const file = relative(app.dir, designPath(app.dir));
   // Texts that leave the design file as it is: the committed design.
@@ -328,11 +337,13 @@ async function scrubPreview(texts) {
 /** A scrub ended without its write: every build back on the committed design. */
 /** A scrub being written: the build of what it writes goes from it. */
 async function scrubReleased() {
+  previewing = false;
   if (typescript) { moduleReleased = moduleScrubbed != null; return; }
   if (portableRust) return;
   await scrubAsk((id) => `release ${id}`, () => {});
 }
 async function scrubRestore() {
+  previewing = false;
   if (typescript) {
     const live = moduleScrubbed && moduleDesign && scrubBatch(moduleScrubbed, moduleDesign);
     moduleScrubbed = null;
@@ -354,8 +365,12 @@ const installer = localInstaller({ app: () => app, origins, port: servedAs ?? po
 // Live while a value-only edit has its path here: the resident compiler's or
 // the TypeScript producer's. A Rust-data app's own producer publishes every
 // plan, so its design edits reload.
-// `page`: this loop's own origin, which the design tool frames (LLP 1122 T2).
-const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust, page: `http://127.0.0.1:${port}`, scrub: { preview: scrubPreview, restore: scrubRestore, released: scrubReleased } }) : null;
+// `page`: this loop's own origin, which the design tool frames (LLP 1122 T2);
+// `sourceMap`: the current generation's map, which a selection is joined to.
+const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust, page: `http://127.0.0.1:${port}`, scrub: { preview: scrubPreview, restore: scrubRestore, released: scrubReleased }, sourceMap: () => current?.files.get('app.plan.map.json') ?? readMap(), designServed: () => designSnapshot && !previewing ? { digest: designSnapshot.design ?? null, source: designSource } : null }) : null;
+// The resident compiler's map beside the plan it wrote (a generation from a
+// Rust producer carries none); the server checks its digest.
+function readMap() { try { return readFileSync(resolve(dist, 'app.plan.map.json')); } catch { return null; } }
 // A polled stream (Linux) is told the design to run when it opens.
 tamber?.channel.greet(() => designSnapshot && designNotice(designSnapshot));
 const generationCache = resolve(root, 'target/dev-generations', createHash('sha256').update(canonicalBytes({ app: app.id, path: app.dir, dist })).digest('hex'));
@@ -496,6 +511,10 @@ function startCompiler() {
         const [saved, compile, bake, ready] = rest.slice(0, 4).map(Number);
         let live;
         try { live = JSON.parse(rest.slice(4).join(' ')); } catch { console.error('dev compiler: unreadable design line'); continue; }
+        // The design file's bytes this design was compiled from (LLP 1122
+        // D5: an inspected token's edit is offered only while they are the
+        // file's); a scrub's preview or restore keeps them as they were.
+        try { designSource = createHash('sha256').update(readFileSync(designPath(app.dir))).digest('hex'); } catch { designSource = null; }
         console.log(`edit → batch ready ${(ready - saved).toFixed(0)} ms (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms) · ${live.batch.tokens.length} token${live.batch.tokens.length === 1 ? '' : 's'} to ${clients.size} build${clients.size === 1 ? '' : 's'}, no plan`);
         pushDesign(live);
       } else if (kind === 'plan') {
@@ -1381,6 +1400,8 @@ const server = createServer(async (req, res) => {
 });
 server.on('error', (e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); killCompiler(); process.exit(1); });
 await readStaticFileAsync(dist, '/index.html'); // warm the reader before advertising readiness
+// (and on [::1], for a localhost URL: the design tool's canvas)
+if (servedAs == null) await alsoOnIPv6Loopback(server, port).catch((e) => { console.error(`cannot listen on [::1]:${port}: ${e.code} (another server there would answer a localhost URL; --port <n> picks another)`); killCompiler(); process.exit(1); });
 server.listen(port, host, () => {
   // Every usable IPv4 with --lan, none silently picked (D8): a utun/VPN
   // address printed alone is a silent failure on the phone.

@@ -163,6 +163,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     if let Some(reply) = p.host_mut().answer_hold(line) {
         // A picker's answer is delivered here (LLP 1069.002 D9).
         p.answer_picker(line, &reply);
+        p.answer_date(line, &reply);
         p.answer_save(line, &reply);
         p.answer_document(line, &reply);
         return reply;
@@ -531,6 +532,14 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         Some("clock") => clock(p, line),
         // A fetch fault (LLP 1103) is the runner's; the device facts are this presenter's.
         Some("prefer") if top_level(line, "faults") => p.host().agent(line),
+        // @ref LLP 1125 §4 — MIDI ports the agent names, and a message from one.
+        Some("prefer" | "midi") if top_level(line, "midi") || top_level(line, "input") => {
+            match p.midi_agent(line) {
+                Some(Ok(reply)) => reply,
+                Some(Err(e)) => error(&e),
+                None => malformed("midi: prefer midi.* or tap midi \"<input>\" <hex…>"),
+            }
+        }
         Some("prefer") => prefer(p, line),
         Some("screenshot") => match field_str(line, "path") {
             Some(path) => p.screenshot(&path).unwrap_or_else(|e| error(&e)),
@@ -630,6 +639,8 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             ("visibility-state", v @ ("visible" | "hidden")) => page.hidden = v == "hidden",
             ("online", v @ ("true" | "false")) => page.on_line = v == "true",
             ("can-share", v @ ("true" | "false")) => page.can_share = v == "true",
+            ("can-share-files", v @ ("true" | "false")) => page.can_share_files = v == "true",
+            ("can-share-pictures", v @ ("true" | "false")) => page.can_share_pictures = v == "true",
             ("can-open-files", v @ ("true" | "false")) => page.can_open_files = v == "true",
             ("has-focus", v @ ("true" | "false")) => page.has_focus = v == "true",
             ("root-font-size", v) if v.parse::<f64>().is_ok_and(|n| n.is_finite() && n > 0.0) => {
@@ -693,6 +704,8 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         "visibility-state": page.visibility_state(),
         "online": page.on_line,
         "can-share": page.can_share,
+        "can-share-files": page.can_share_files,
+        "can-share-pictures": page.can_share_pictures,
         "can-open-files": page.can_open_files,
         "has-focus": page.has_focus,
         "root-font-size": p.host().runner().root_font_size(),
@@ -868,6 +881,7 @@ fn settle<D: DataSource>(p: &Presenter<D>) -> Option<f64> {
         .chain(p.group_settles_at())
         .chain(p.scroll_end_due())
         .chain(p.brush.numerals.settles_at())
+        .chain(p.brush.labels.settles_at())
         .reduce(f64::max)
 }
 

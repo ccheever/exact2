@@ -6,6 +6,11 @@ import groovy.json.JsonSlurper
 
 plugins { id("com.android.application") }
 
+// -Pcompose=1: the app's plan has a date or time control, and its picker is Compose Material 3's (LLP 1115.001.000
+// D1-D2; `agent-android.mjs` reads the plan's uses). Without it the framework's dialogs show, and Compose is not linked.
+val compose = providers.gradleProperty("compose").orNull == "1"
+if (compose) apply(plugin = "org.jetbrains.kotlin.plugin.compose")
+
 val app = providers.gradleProperty("app").get()
 val appDir = providers.gradleProperty("appDir").orNull?.let { file(it) } ?: rootDir.resolve("../../apps/$app")
 val manifest = JsonSlurper().parse(appDir.resolve("app.json")) as Map<*, *>
@@ -40,13 +45,17 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("debug")
         }
     }
     // The app's Rust library (as libexactcanvas.so) and its assets (the reader copies `app/` out of the APK once).
     sourceSets["main"].jniLibs.directories.add("build/$app/rust/jniLibs")
     sourceSets["main"].assets.directories.add("build/$app/rust/assets")
+    sourceSets["main"].kotlin.directories.add(if (compose) "src/compose/java" else "src/nocompose/java")
+    // The app's Kotlin hatches (LLP 1115.001.000 D4): `class exact.app.Hatches` in its `modules/android`.
+    appDir.resolve("modules/android").takeIf { it.isDirectory }?.let { sourceSets["main"].kotlin.directories.add(it.path) }
+    if (compose) buildFeatures { this.compose = true }
     // An app's GPU module (-PgpuModule=<file>) is opened by path from the extracted library directory and checked
     // against the digest its bake recorded, so it is extracted and left unstripped.
     val gpuModule = providers.gradleProperty("gpuModule").orNull
@@ -58,4 +67,10 @@ android {
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 }
-dependencies { implementation(project(":canvas")) }
+dependencies {
+    implementation(project(":canvas"))
+    if (compose) {
+        implementation(platform("androidx.compose:compose-bom:2026.09.00"))
+        implementation("androidx.compose.material3:material3")
+    }
+}

@@ -196,7 +196,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         // An authored map's intensity scales its filtered light at sample time.
         uniform[31] *= self.environment.ambient_scale();
         self.queue.write_buffer(&self.uniform, 0, bytes(&uniform));
-        self.prepare_cull(frame, cascades.as_ref(), hooks.materials());
+        self.prepare_cull(frame, cascades.as_ref(), hooks.materials(), size);
         // Direct: no hook, bloom, SSAO, scene copy, retained depth, quad, translucent
         // or model draws, so nothing needs the HDR colour after the opaque pass. A
         // tiling GPU then keeps half the bytes per MSAA sample and skips a full-screen
@@ -274,7 +274,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             }
             state.times[1] = start.map(|s| s.elapsed());
         }
-        if self.cull.encode(encoder, self.current, frame.timestamps) && frame.timestamps.is_some() {
+        if self.occluding {
+            self.encode_occluders(encoder);
+        }
+        self.cull_drew = self.cull.encode(encoder, self.current, frame.timestamps);
+        if self.cull_drew && frame.timestamps.is_some() {
             self.mark(timing::CULL);
         }
         self.encode_local_culls(encoder);

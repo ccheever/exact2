@@ -2480,8 +2480,9 @@ TypeScript producer's alone.
   - It now refuses that program's generations and still says "rebuild and relaunch", but it keeps
     its stream, stays registered, applies value batches, reconnects across restarts, and takes
     the next generation of its own program.
-  - A stub-server test of drop, restart and re-register is a follow-up; the path was driven on
-    the clone.
+  - A stub-server test (`ddd0c1dbb`) covers a dropped stream and a restarted server
+    (re-subscribed and re-registered under the same id, the held pin re-asserted), and a
+    rebuilt-program frame keeping the host registered.
 
 ### Stage 5, commit 1: per-session role tables (`de05c0b2b`..`2ccbc448a`)
 
@@ -2500,3 +2501,129 @@ Stage 1's known limit, "overrides are per thread, not per session", is lifted.
   overrides over it, and `generation()` mixes in the bound session's.
 - The "role overrides" journal line is gone. Two sessions on one thread, with different overrides,
   answer differently both ways round (tested).
+
+### Stage 5, commit 2: role overrides go live (`55f7c4d33`..`3acbeceba`)
+
+**Stage 4's "role overrides are `rebuild`" rule is lifted.** A role override's value is now a
+live-table edit.
+- **The design's shape and the plan structure** leave an override's value out. Gaining or losing an
+  override is still structure, and so are profile colours. `propose` classes a change to an
+  override's value, or to a token one reads, as `live`.
+- **On the wire,** an override rides in the batch's and snapshot's `tokens` under its role's name
+  (`AccentColor`, `-exact-label`), its value the colour the role now takes. It needs no field of
+  its own: in a design an override is a token line named by its role, and a build knows its roles
+  from its plan.
+- **The runner:** `Roles::set` replaces the session's table in place, so every scope bound to it
+  reads the new one, and the rows naming the role (by any spelling) are set again in the same
+  commit.
+- **The hosts:**
+  - Apple re-presents the tint, sheets' tint and ground, bar titles, subtitles, field
+    placeholders and grouped lists, and the Mac retints rows naming the tint;
+  - the web page rewrites its role sheet;
+  - Linux re-targets paint motion and drops kept paint;
+  - the JS target's development build makes each override a sheet property (`--exact-label`, the
+    tint in the theme's `:root` rule). Its release output is byte-identical to before.
+- **Binding is checked.** A role resolved with no session bound while another session is live on the
+  thread is a development assertion and one journal line per call site, and every host binds
+  where it resolves.
+- Apple's and Linux's `unsupported` for a refused pin name its revision.
+
+### Stage 5, commit 3: the binding core (`3e1603cef`..`49c4df257`)
+
+D12's runtime side, under every language's generated names.
+- **`session.tamber()`** (`Runner::tamber`): `color(name, place)` reads what a row naming that token
+  reads at the place. That takes in its app tuple, the live table's edits and the session's role
+  overrides.
+  - Identity is the name. A name the plan lacks, or a value that isn't a colour, is `None` and one
+    journal line.
+  - `Place::{Root, Node(view)}`: a node's tuple is the window's under the nearest `-exact-mode`
+    pin, and its scheme is the nearest `color-scheme`'s, else the window's.
+- **`inputs(place)`** is one number that moves when anything a value at that place depends on moves:
+  its tuple, a token's value (an edit, a live batch, a role override), the platform's reported
+  colours, the scheme, the contrast, and the root font size. Hosts compare it after each batch for
+  `observe`. It may fire when nothing a binding reads changed, but it never misses a change. An
+  update or a dev reload is a new runner. Bold Text and an editor swap come with commit 5.
+- **Apple** has one ABI entry, `exact_tamber(rt, len)`: `{view, names}` → `{inputs, colors}`.
+  Linux and Android's entry comes with commit 5.
+- Two sessions with different designs answer differently, in the runner and through the export.
+
+### Stage 5, commit 4: `tamber gen`, the TypeScript `ColorToken` union, Rust constants, and D7's retention for bindings (`875ad5bc9`..`ce6aef7b7`)
+
+- **`bun exact.mjs tamber gen ts|rust <app> [-o <dir>]`** writes into the app's `.exact/tamber/`.
+  The files are generated and never committed, and an unchanged design isn't rewritten.
+  - `tamber.ts`: the `ColorToken` union, and `tokens.<camelName> = {name, css per tuple}`.
+  - `tamber.css`: `--<camelName>` per tuple, with `:root` the first tuple and `[data-tamber="…"]` each
+    other. Exact roles and platform colours are written as their fallback pair, for pages outside
+    Exact.
+  - `tamber.rs`: `pub const SURFACE_CARD: Token<Color>`, resolved by `session.tamber().get(TOKEN,
+    place)`.
+  - Names map as D12 says. Names that collide after mapping are refused, naming both, and so is a
+    name with no letter, a leading digit, or `__proto__`. Role overrides are named by their role
+    spelling.
+- **The builds' TypeScript declarations** (`contract types`) carry the `ColorToken` union, bounded by
+  `exports`, so a data module returning an unknown token fails `tsc`.
+- **D7's retention for bindings** is one test, `contract_lower::names_tokens_outside_views`. An app
+  that can name tokens outside its views keeps every token, or its `exports` plus what its views
+  name. That means an app with:
+  - `app.ts`, or a Rust data crate;
+  - native modules or hatches;
+  - a seam source the runner doesn't own;
+  - a custom element in its views.
+
+  Other apps prune as before. The clone's plan doesn't change size, since it already kept every
+  token through computed colour rows. Release JS is byte-identical, apart from the declarations
+  gaining the union.
+
+### Stage 5, commit 6: DTCG export and the own-export round trip (`196500b02`..`a7591811c`; built by reload1)
+
+- **`bun exact.mjs tamber export dtcg <app> [-o <file>]`** (`exact_tamber::export::dtcg`) writes
+  DTCG Format 2025.10 with the Resolver Module 2025.10.
+  - There is one modifier, `mode`, whose contexts are the full tuples × `light` and `dark`. Each is
+    complete, and checked to read back as the colour a host renders.
+  - Each value is a 2025.10 colour object in its own space where DTCG has it, else Oklab. An HDR
+    colour is clipped and marked `lossy`.
+  - Validated against DTCG's own 2025.10 schemas, pinned in the repo.
+- **The header** (the as-built form of D14's "dials in root `$extensions`"): the resolver document's
+  root takes no `$extensions`, so the header is a set `exact`, first in `resolutionOrder`, whose
+  token document carries root `$extensions["exact"]`. It holds the format marker, the conversions,
+  axes, dials, the context→tuple map and the design digest. The root `description` states the
+  conversions in prose.
+- **`$extensions["exact"]`** on a token carries `source`, plus `role` or `platform` for a token whose
+  value is a host value (exported as its fallback). A role override is a token under its row name,
+  with `overrides` naming the role. Icons aren't exported, and lengths and type wait for stage 6.
+- **The baseline:** each export keeps what it wrote in `.exact/tamber-dtcg/<digest>.json` (the newest
+  16), in a directory whose own `.gitignore` is `*`. A re-import is compared with the export it came
+  from, so a stale file can't propose reverts.
+- **Re-import:** unchanged values propose nothing, so expressions and roles keep their source. A
+  changed value follows D6's target branch:
+  - it edits the line that won for its tuple, as `explain` says;
+  - a side changed across all of that line's contexts takes the new value, and the other side is
+    kept as written;
+  - only when some of the line's contexts didn't change is the narrowest separating `when` added,
+    never one that ties.
+
+  An unedited export re-imports with no operations, on theme-fixture and on the clone (70 tokens).
+  One changed `$value` gives exactly one `set-token`.
+- **`export {kind: "dtcg"}`** (*1.4*) returns `{kind, text, baseline}`, and `hello` reports
+  `tamber/1.4`.
+
+### Stage 5, commit 5: Swift and Kotlin bindings, and the sample host (`b134894b5`..`fb2fd04fc`; Kotlin `650416fc0`)
+
+- **Swift** (`host/apple/Sources/ExactKit/Tamber.swift`): `ExactTamber(view)` and
+  `ExactTamber(session:)`.
+  - `.color(token, fallback:)` is a dynamic provider over scheme, contrast and elevation, and
+    `observe` notifies.
+  - Answers are kept per place under a lock. After each batch, places whose inputs moved ask again,
+    and their views redraw (on UIKit through a trait that affects colour appearance). So do views
+    moved to another node, and observers follow their view.
+  - The tint is resolved per side on the main thread.
+- **The native-module library** (`host/apple/modules/ExactTamber.swift`) reaches the same core
+  through the hatch host table and a module entry `tamber`, with one place per module view.
+  Colours are extended sRGB.
+- **Kotlin** (`host/android/canvas/.../Tamber.kt`) goes through JNI `Native.tamber` to the Linux
+  host's `Host::tamber_json`. It is compiled with Android's toolchain (the APK builds and the
+  `.so` exports the entry), but not yet run: no emulator.
+- **The sample host,** `apps/tamber-host` with `scripts/smoke-tamber.mjs`, passes on the Mac and the
+  iOS simulator.
+- **Observe** doesn't follow Bold Text yet: colours don't depend on it. It comes with stage 6's
+  `font` accessor.

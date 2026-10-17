@@ -16,12 +16,21 @@ impl<D: DataSource> Host<D> {
                 Some("live: not a tamber batch or snapshot"),
             );
         };
+        let mut batch = crate::batch::Batch::new();
         let (receipts, live, unsupported) = match self.runner.apply_live(&edit) {
             Ok(applied) => (
-                vec![Timed {
-                    at_ms: self.now_ms,
-                    receipt: applied.receipt,
-                }],
+                {
+                    // @ref LLP 1095 D11 — the role sheet again, in this
+                    // batch's one style update (LLP 1121 stage 5); the
+                    // receipt sends every node's rows again.
+                    if applied.roles {
+                        batch.theme(&self.runner.theme_css());
+                    }
+                    vec![Timed {
+                        at_ms: self.now_ms,
+                        receipt: applied.receipt,
+                    }]
+                },
                 "applied".to_string(),
                 applied.full,
             ),
@@ -29,7 +38,7 @@ impl<D: DataSource> Host<D> {
             Err(LiveRefusal::Structure) => (vec![], "structure".to_string(), false),
             Err(LiveRefusal::Refused(why)) => (vec![], format!("refused: {why}"), false),
         };
-        let batch = self.batch_for(&receipts, None);
+        let batch = self.batch_from(batch, &receipts, None);
         let mut out = String::from("{\"live\":");
         exact_runner::agent::quote(&live, &mut out);
         out.push_str(&format!(",\"unsupported\":{unsupported},\"design\":"));

@@ -1324,7 +1324,7 @@ fn warned_circles(name: &str, body: &str) -> Vec<(String, u32, String)> {
     if let Err(e) = result {
         panic!("a warning never fails a build: {e:?}\n{src}");
     }
-    super::text_px_width::without_round_button_widths(warnings)
+    warnings
         .into_iter()
         .map(|w| (w.id.clone(), w.span.line, w.message))
         .collect()

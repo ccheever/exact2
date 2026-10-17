@@ -1,7 +1,8 @@
 //! TypeScript's side of the data seam, derived from the plan's signatures.
 //! @ref LLP 1027 D2/D5 — no separately maintained argument or result shapes.
 
-use exact_plan::{Plan, TypeKind, TypesId};
+use exact_plan::{Opcode, Plan, StrId, TypeKind, TypesId};
+use std::collections::BTreeSet;
 use std::fmt::Write;
 
 /// Generate an `app.d.ts` from a compiled Contract's source signatures.
@@ -12,6 +13,13 @@ use std::fmt::Write;
 /// @ref LLP 1039 D1
 /// This is a build-time artifact, never a runtime import or committed file.
 pub fn typescript(plan: &Plan) -> Result<String, String> {
+    typescript_exporting(plan, None)
+}
+
+/// [`typescript`], its `ColorToken` union bounded by the design's `exports`
+/// when it lists them ([`design_exports`]): what a binding may name (LLP
+/// 1121 D7), though a view may name more.
+pub fn typescript_exporting(plan: &Plan, exports: Option<&[String]>) -> Result<String, String> {
     // Public callers may construct a Plan directly. Refuse malformed tables
     // before following any indices, just as the runtime decoder does.
     Plan::decode(&plan.encode()).map_err(|e| format!("invalid plan: {e:?}"))?;
@@ -73,6 +81,24 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
         }
         out.push_str(";\n");
     }
+    let mutation_sources: BTreeSet<_> = plan
+        .actions
+        .iter()
+        .flat_map(|action| exact_runner::vm::instructions(plan.code(action.body)))
+        .flatten()
+        .filter(|instruction| instruction.op == Opcode::Send)
+        .map(|instruction| quoted(plan.str(StrId(instruction.args[1] as u32))))
+        .collect();
+    writeln!(
+        out,
+        "\n/** Sources called by compiled mutation sends. */\nexport type MutationSource = {};",
+        if mutation_sources.is_empty() {
+            "never".into()
+        } else {
+            mutation_sources.into_iter().collect::<Vec<_>>().join(" | ")
+        }
+    )
+    .unwrap();
     out.push_str("\nexport interface SourceMap {\n");
     for row in &plan.sources {
         let name = plan.str(row.name);
@@ -132,7 +158,51 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
          /** What a resource shows while writes affect it: its answer with them laid over it. Synchronous, with no effects; `undefined` shows the answer and stops showing every answered write. */\n\
          export type Overlay = <S extends Source>(source: S, args: Args<S>, answer: Result<S>, writes: readonly Write[]) => Result<S> | undefined;\n",
     );
+    tokens(plan, exports, &mut out);
     Ok(out)
+}
+
+/// The `exports` lines of the design of the app whose `app.contract` is
+/// `contract`, when it has a design that lists them (LLP 1121 D7).
+pub fn design_exports(contract: &std::path::Path) -> Option<Vec<String>> {
+    let path = crate::design_path(contract)?;
+    let design = exact_tamber::parse(&std::fs::read_to_string(path).ok()?).ok()?;
+    Some(design.exports?.into_iter().map(|e| e.value).collect())
+}
+
+/// @ref LLP 1121 D12 — the design's colour tokens as a string-literal
+/// union, so a data module returning a token's name is checked
+/// (`ColorToken`): those its `exports` lists, else every one the plan keeps;
+/// none without a design. A synthetic token (an expression
+/// a row writes) is no name a module returns.
+fn tokens(plan: &Plan, exports: Option<&[String]>, out: &mut String) {
+    let mut names: Vec<&str> = Vec::new();
+    for row in &plan.theme {
+        let role = Some(plan.str(row.role)).filter(|r| !r.is_empty());
+        // A role override by the role's spelling, as a row writes it and the
+        // generators name it (`CanvasText`, `-exact-secondary-label`).
+        let name = role.unwrap_or(plan.str(row.name));
+        let exported = exports.is_none_or(|lines| {
+            lines
+                .iter()
+                .any(|line| exact_tamber::exports_names(line, name, role))
+        });
+        if exported && !name.contains('(') && !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    if names.is_empty() {
+        return;
+    }
+    let quoted: Vec<String> = names
+        .iter()
+        .map(|n| serde_json::to_string(n).expect("a string is JSON"))
+        .collect();
+    let _ = writeln!(
+        out,
+        "/** A colour token of the app's design, by its name (LLP 1121 D12). */\nexport type ColorToken = {};",
+        quoted.join(" | ")
+    );
 }
 
 /// The file's top (LLP 1116.006 D7): what `app.ts` writes, one line each, so a builder reads

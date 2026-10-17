@@ -409,7 +409,7 @@ pub static SYSTEM_COLOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::
 pub fn color_map(plan: &Plan) -> String {
     let map = platform_map(plan);
     match theme_map(plan) {
-        Some(theme) => format!("(T=>v=>({map})(T(v)))({theme})"),
+        Some(theme) => format!("((T,M)=>v=>M(T(v)))({theme},{map})"),
         None => map,
     }
 }
@@ -496,7 +496,7 @@ fn platform_map(plan: &Plan) -> String {
         return SYSTEM_COLOR_MAP.clone();
     }
     format!(
-        "(P=>v=>typeof v===\"string\"&&v.includes(\"{PLATFORM}\")?Object.hasOwn(P,v)?({m})(P[v]):{refused}:({m})(v))({{{}}})",
+        "((P,M)=>v=>typeof v===\"string\"&&v.includes(\"{PLATFORM}\")?Object.hasOwn(P,v)?M(P[v]):{refused}:M(v))({{{}}},{m})",
         admitted.join(","),
         m = SYSTEM_COLOR_MAP.as_str(),
         refused = invalid_unset("color")

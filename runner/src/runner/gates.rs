@@ -110,6 +110,7 @@ impl<D: DataSource> Runner<D> {
                 self.transport.wake_due(),
                 self.transport.ended_due(),
                 self.transport.answer_due,
+                self.midi.answer_due,
             ])
             .filter(|ms| ms.is_finite())
             .reduce(f64::min)

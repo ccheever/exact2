@@ -182,7 +182,7 @@
     },
     "link": {
       "type": "array",
-      "items": { "enum": ["markdown", "motion", "collections", "drag", "surfaces", "router", "format", "materials", "backdrop", "share", "documents", "picker", "timelines", "text_transform", "effects", "animations", "gradients", "grid", "geometry", "segments", "dataset", "tabs", "notifications", "grouped_lists", "io", "transitions", "media_picker", "auth_session", "numerals"] },
+      "items": { "enum": ["markdown", "motion", "collections", "drag", "surfaces", "router", "format", "materials", "backdrop", "share", "documents", "picker", "timelines", "text_transform", "effects", "animations", "gradients", "grid", "geometry", "segments", "dataset", "tabs", "notifications", "grouped_lists", "io", "transitions", "media_picker", "auth_session", "numerals", "dates"] },
       "uniqueItems": true,
       "description": "Capabilities a native production build links before any plan uses them (LLP 1047 D8; LLP 1047.001), so a later bundle may: an archive otherwise links what its plan uses (and `auth_session` what its grants name) and nothing else, and a bundle that needs more is a new binary. Development links every capability but `media_picker` and `auth_session`, which it links as production would (LLP 1047.001.000 F). Names are the runner's (`exact_runner::Capability::name`)."
     },
@@ -573,6 +573,7 @@
           }
         },
         "channels": {
+          "description": "Each channel's update origin: a directory or URL, or \"appdrop\" for AppDrop's origin named after deploy.signing.key (https://appdrop.app/u/<key id>), which needs no account or server.",
           "type": "object",
           "additionalProperties": {
             "type": "string"
@@ -582,7 +583,8 @@
           "type": "string",
           "enum": [
             "next-launch",
-            "app-decides"
+            "app-decides",
+            "immediate"
           ]
         },
         "check": {
@@ -614,6 +616,14 @@
         },
         "brownfield": {
           "type": "boolean"
+        },
+        "appdrop": {
+          "description": "Publish iOS binary changes to AppDrop, after the streams (`scripts/deploy-appdrop.mjs`). `{}` makes the first such deploy create the link and write its `url` here, to commit. The update key stays out of app.json: $APPDROP_MANAGE_KEY, or the one the appdrop CLI saved. The install page offers the link for iOS when install.ios names no methods.",
+          "type": "object",
+          "properties": {
+            "url": { "type": "string", "pattern": "^https://[^/]+/d/[A-Za-z0-9]+/?$" }
+          },
+          "additionalProperties": false
         },
         "signing": {
           "type": "object",
@@ -825,7 +835,7 @@
             "additionalProperties": false,
             "required": ["finding", "node", "why"],
             "properties": {
-              "finding": { "type": "string", "enum": ["covered", "clipped", "overflow", "overlap", "contrast", "card", "target"] },
+              "finding": { "type": "string", "enum": ["covered", "squeezed", "clipped", "overflow", "overlap", "contrast", "card", "target"] },
               "node": { "type": "string", "pattern": "^[^*]+\\*?$", "description": "A testId, or a non-empty prefix of one and a single trailing *: a bare * would accept the finding on every node." },
               "why": { "type": "string", "minLength": 1 }
             }

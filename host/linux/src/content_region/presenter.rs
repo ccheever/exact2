@@ -50,6 +50,8 @@ impl<D: DataSource> Presenter<D> {
     /// ([`crate::text::cache::deferring_eviction`]): a paint that misses walks
     /// the cache once, not once per paragraph.
     pub fn frame(&mut self) -> Arc<Pixmap> {
+        // Its session's roles, whatever else lives on the thread (LLP 1121 stage 5).
+        let _roles = self.host.runner().bind_roles();
         crate::text::cache::deferring_eviction(|| self.paint_frame())
     }
     fn paint_frame(&mut self) -> Arc<Pixmap> {

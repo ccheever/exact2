@@ -355,7 +355,7 @@ fn check_tasks(c: &Component) -> Vec<AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 67] = [
+pub const HANDLERS: [&str; 68] = [
     "press",
     "change",
     "input",
@@ -398,6 +398,10 @@ pub const HANDLERS: [&str; 67] = [
     // quitting; an action calling `preventDefault()` keeps it open.
     "beforeunload",
     "beforeinput",
+    // `MIDIInput`'s event (LLP 1125 D8), heard as `beforeunload` is: by every
+    // mounted element that declares it; it may hand its action a
+    // `MIDIMessageEvent`.
+    "midimessage",
     // DOM's `wheel` (studio diary R3): a wheel's or a trackpad's scroll, and
     // a pinch as a Control-held wheel; it may hand its action a `WheelEvent`.
     "wheel",

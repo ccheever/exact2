@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.3`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.4`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.3"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.4"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -34,7 +34,12 @@ on macOS and Linux.
   - `hello`'s `page`;
   - `frame-ancestors` on a dev loop's HTML;
   - a build's `pinRevision` and `unsupported`;
+  - `inspect` (the request and the command) and the `selected` report's shape;
+  - the `selection` event, `outline` (the request and the command), and the source map's
+    `sources` (each source's SHA-256 as compiled);
   - the items marked *1.3* below.
+- `tamber/1.4` (LLP 1121 stage 5, commit 6) added `export`, and `import`'s reading of a Tamber export
+  against its baseline.
 
 ## Where it runs
 
@@ -139,9 +144,12 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
   place, with no reload (LLP 1121 stage 4; see [The live table](#the-live-table-llp-1121-stage-4)).
   False from a server no dev loop runs.
 - `design`: the app's design file, the one an operation with no `file` edits (*1.1*);
-- `page` (*1.3*): the dev loop's own origin (`http://127.0.0.1:<port>`), which the design tool
-  frames, or null from a server no dev loop runs (`tamber serve`, `tamber tool` without `--via`).
-  Through `tamber tool --via`, the forwarded `hello` is the loop's, so `page` is the loop's.
+- `page` (*1.3*): the dev loop's own origin (`http://127.0.0.1:<port>`), as it prints it, or null
+  from a server no dev loop runs (`tamber serve`, `tamber tool` without `--via`). Through
+  `tamber tool --via`, the forwarded `hello` is the loop's, so `page` is the loop's. The design
+  tool opens it in a tab as given, and frames it as `http://localhost:<port>` (the dev loops answer
+  on [::1] too): another site than the tool's, so a browser with site isolation runs it in its own
+  process. That frame's cookies and storage are its own, apart from a tab at `page`.
 
 A `client` given in a hello is not a write's attribution (see `transaction`).
 
@@ -254,11 +262,11 @@ design.
   dial included, plus tokens added or removed;
 - `class`, `"live"` or `"rebuild"`: what the edit would do to running development builds (LLP
   1121 D13), judged by the edit's whole closure (stage 4, commit 2). It is `live` when the
-  design's shape is unchanged, no role override or anything one reads changes, and the app's
-  synthetic tokens (its Contract rows' expressions over tokens) fold on both sides. It is
-  `rebuild` for structure, a role override (hosts take role tables at boot), a synthetic token
-  gained, lost or left unfoldable, a profile colour, or an unknown closure (the app's build
-  stops before its design). A `live` edit reaches running development builds as a batch, with
+  design's shape is unchanged and the app's synthetic tokens (its Contract rows' expressions over
+  tokens) fold on both sides; a role override's value, or a token one reads, is a value like any
+  other (stage 5). It is `rebuild` for structure (a role override gained or lost among it), a
+  synthetic token gained, lost or left unfoldable, a profile colour, or an unknown closure (the
+  app's build stops before its design). A `live` edit reaches running development builds as a batch, with
   no reload (see [The live table](#the-live-table-llp-1121-stage-4-12)); a `rebuild` one reloads;
 - `synthetic: [{expr, values}]` (*1.2*): each synthetic token whose value the edit changes, its new
   value as CSS text per app tuple, for the live batch;
@@ -476,6 +484,56 @@ with.
   diagnostic is `{id, message}`, its message naming the file (*1.1*).
 - **An import with nothing new** answers 200, `{proposal: null, review, message}`.
 
+### `export` (*1.4*, LLP 1121 D14)
+
+`{kind: "dtcg"}`, read-only for the design: the app's design as DTCG Format 2025.10 with the Resolver
+Module 2025.10, as `bun exact.mjs tamber export dtcg <app>` writes it, from the same serializer.
+- **The reply** is `{kind, text, baseline}`: `text` is the file, `baseline` where it is kept, by
+  path from the app (`.exact/tamber-dtcg/<digest>.json`, the design's digest). Each export keeps
+  what it wrote there, the newest 16, in a directory whose own `.gitignore` (`*`) keeps them out of
+  every commit. A link in a baseline's place is replaced, never written through.
+- **The document.** One modifier, `mode`, whose contexts are the full tuples (every app-axis tuple,
+  then `light` and `dark`, named `axis=value, …, light`), each a complete set of the colour tokens,
+  checked to read back as the colour a host renders before it is written. The header is the root
+  `$extensions["exact"]` of the one token document of a set `exact`, first in `resolutionOrder`
+  (the resolver's own root takes no `$extensions`): `export` (`"tamber-dtcg/1"`), `design`,
+  `digest`, `conversions`, `axes`, `contexts` (each context's `modes` and `scheme`) and `dials`.
+  The root `description` names the conversions too.
+- **Each token** is `$type: color` with its value as a 2025.10 colour object (`hex` the 8-bit sRGB
+  fallback), and in `$extensions["exact"]`: `source`, the line the context takes when it is not a
+  plain colour; `role` or `platform`, for a value at that role's or platform colour's fallback;
+  `overrides`, for a role override, exported as a token named for the role's row (`AccentColor`);
+  `lossy`, the CSS of a colour past Oklab's range (an HDR one), clipped.
+- **A design that does not check** is refused as a read is.
+- **Importing it back** (`import` with `kind: "dtcg"` and the export as its one source). The file is
+  read as the export when it has the header, or the export's shape (a set `exact`, then the one
+  modifier `mode` with its contexts named for their tuples) where a tool dropped `$extensions`.
+  - **The baseline** is the kept one the header's digest names, or a fresh export of the design
+    when that is the digest. With no header, it is the one candidate (a kept export, or the
+    design's own) with the file's contexts; with none, or more than one (the design changed since),
+    the import is refused: comparing with another export would propose reverting what nobody
+    edited.
+  - **Each token's values** are compared with the baseline's, as colours: a tool that drops `hex`
+    or reprints the numbers changes nothing. In a context with several sources the last that
+    declares a token wins, and a source may be a reference to a set of the same document, as the
+    resolver says. An unchanged token proposes nothing, its source kept
+    (an expression, a role); so does one the design has already.
+  - **A change edits the line that wins for its tuple** (LLP 1121 D6, as `explain` names it): the
+    default or the `when` it is. A line whose contexts on a side all changed, to one value, takes
+    it, its other side kept as written (`light-dark(new, kept)`). A line some of whose contexts did
+    not change cannot move without moving them: its changed tuples get the narrowest `when` that
+    holds for them and for no tuple that should keep another value, never one that ties with an
+    existing `when` as narrow. An axis `under scheme=dark` keeps the light side of the line without
+    it, so a `when` naming one follows that line's new light; a light value edited only in such a
+    tuple is reported. Each side the file did not change is the design's as it is.
+  - **Checked as the design would take it.** Each token's operations are applied and folded: a
+    tuple they reach that the file left alone is pinned to the design's value, until every context
+    renders as wanted. A token no lines can give that, or that the design would refuse, alone or
+    with the tokens before it in one transaction, is reported with the reason or the checker's id.
+  - **Reported in `unmapped`, not added or removed:** a token the export did not have, one the file
+    drops or the design no longer has, one missing from a context, a context the export did not
+    have, and a value no colour is read from.
+
 ## The change stream
 
 Every change is an event, whoever made it:
@@ -496,7 +554,8 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 | `builds` | `builds`: the registered builds, as `hello` lists them, after one registers, goes, or its pins change |
 | `build-status` | `build`: one build, after its `status` report |
 | `unsupported` | `build`, `what` (a command's kind, `pin.mode`, `pin.contrast`, `batch`), `detail` |
-| `selected` | `build`, `selected` (LLP 1122 D5; its sender is T2b's) |
+| `selected` | `build`, `selected` (LLP 1122 D5; *1.3*: the wasm web page in inspect mode, see the build channel) |
+| `selection` | `build`, `node`, `site`, `instance`, `tuple`, `source`, `rows`, `readOnly`, `trimmed` (*1.3*, LLP 1122 D5: a current `selected` report joined to source; see the build channel) |
 | `scrub` | `scrub`, `client`, `reason` (*1.2*; see [Scrub sessions](#scrub-sessions-12-llp-1121-d13-llp-1122-d6)) |
 
 - **A write is announced once,** from its reply. A hand edit made just before a write is announced
@@ -530,25 +589,39 @@ A write reaches every running development build at once. Release builds take non
   same case. The plan file is still written, for a host that watches the file instead of the
   stream.
   - **The structure** is the plan without its design values: every `theme` row's `value` and
-    every slice's, except a role override's or a profile colour's, which hosts take at boot. The
-    dev loop compares it; it does not go on the wire.
+    every slice's, a role override's included (stage 5), except a profile colour's, which hosts
+    take at boot. The dev loop compares it; it does not go on the wire.
   - **Anything else** still publishes a plan and reloads: a Contract edit, a token added, gone or
-    starting to vary, a role override's value, a synthetic token gained or lost.
+    starting to vary, a role override gained or lost, a synthetic token gained or lost.
 - **The batch** is an event on the dev stream the builds already hold (`/__dev`; the JS target's
   `/__dev/page`): `{kind: "tamber-batch", structure, base, design, tokens: [{name, value,
   slices}]}`.
   - `structure` is the digest of the design's **shape** (`design::shape`): the axes, and each
-    token's name, role, role override value and slice count. The JS target's build and a wasm or
-    native build of the same sources share it, though their plans differ.
+    token's name, role and slice count (which tokens override which role, not with what). The JS
+    target's build and a wasm or native build of the same sources share it, though their plans
+    differ.
   - `value` is the default tuple's wire text (a colour as CSS text), and `slices` one text per full
     app tuple where the token varies. A synthetic token's name is its expression, and its new value
     rides along.
+  - **A role override** (stage 5) rides in `tokens` too, as the entry named by its role
+    (`AccentColor`, `-exact-label`, `CanvasText`): its `value` is the colour the role now takes,
+    one for every tuple (a role does not vary by an app axis, so it has no `slices`). There is no
+    second field: the role is the entry's name, and a host knows which entries are roles from the
+    plan it runs. A build sets its session's overrides from those entries, and re-presents what
+    it resolved from the role: Apple sends the presenter its role table again (`{"op": "roles"}`;
+    `AccentColor` is the app's tint) and each node's rows; the web rewrites its role sheet
+    (`{"op": "theme"}`) in the batch's one style update; Linux re-targets its paint and paints
+    again; the JS target's development build sets the role's sheet property (below).
   - `base` is the design digest it applies to, and `design` the new one. The JS target's batches
-    add each token's custom property and its CSS per tuple (`prop`, `css`).
+    add each token's custom property and its CSS per tuple (`prop`, `css`). A role override's
+    `prop` is its role's property in the theme's sheet (`--exact-accent`, `--exact-canvas-text`,
+    `--exact-label`), which a development build's rows and the kernel's own role colours read
+    (`var(--exact-label, #…)`); a release build writes the values.
 - **Applied only on its base.** A build applies a batch whose `base` is the design it runs, in one
   commit with no layout for colours. A build on another design answers stale and fetches the
   **snapshot**: `GET /__dev/design` answers `{kind: "tamber-snapshot", structure, base: null,
-  design, tokens}` with every token, or 204 when no value-only edit came after the published plan.
+  design, tokens}` with every token, the role overrides among them, or 204 when no value-only
+  edit came after the published plan. A build re-presents roles only where an override moved.
   A build applies a batch or a snapshot only when its `structure` equals the shape of the plan it
   runs (`design::shape`); on another it answers `structure`, as a new plan is on its way.
 - **A notice** is a batch with no tokens whose `base` and `design` are the current design. A build
@@ -573,7 +646,8 @@ The tool drives no input into an app; a command changes only what `prefer` would
     not shared with a duplicated tab; a process's), so its pin is replayed when it registers
     again. Every registration is told the pin the server holds for it, or none.
   - `plan` is the generation the build runs (the envelope's identity; the JS target, which runs
-    no plan, sends none), and `design` its design digest.
+    no plan, sends none), and `design` its design digest. Before accepting a dev generation,
+    Apple reports the digest of its running embedded or cached plan.
   - The nonce is 128 random bits. A stream is one build: another `id` registered on it replaces
     the build it was, and that build's pin.
   - **Caps.** At most 256 streams are open, stream and polled together, so at most 256 builds
@@ -607,14 +681,67 @@ The tool drives no input into an app; a command changes only what `prefer` would
     `setRootFontSize` included (at most once a turn).
   - `unsupported`: a command or batch it can't apply, by name (`what`), with the pin frame's
     `revision` when it is one (*1.3*, optional).
-  - `selected`: LLP 1122 D5's; its route is here, its sender comes with T2b.
+  - `selected` (*1.3*, LLP 1122 D5; the wasm web page sends it in inspect mode):
+    `{selected, plan, design, revision}`, the digests and pin revision the build runs, and
+    `selected` `{node, type, testId, site, instance, planDigest, tuple, rows, trimmed}`: the
+    node a press in inspect mode hit (the browser's hit test, as a real tap's), its plan site
+    and instance path, the plan digest its map is for, the modes it is in (`tuple`: the
+    window's, overridden by the pins above it; the runner's `layout` answer now says them as
+    `modes`), and its rows as that answer gives them (`{name, value, source, from?, token?}`).
+    Trimmed to the report's room (64 KiB, in bytes), and said so (`trimmed`). `selected: null`
+    with `inspect` (the `seq` of the inspect command it left) says the page left inspect mode
+    itself (Escape, its close control): the client that owned it there no longer does, unless a
+    newer command (another `seq`) gave it to another.
 - **Commands down**, each a frame whose `kind` the host dispatches before any generation:
   - `pin` `{revision, pin}`: `pin` is `{scheme?: "light"|"dark", contrast?:
     "more"|"less"|"no-preference", mode?: {axis: value}, rootFontSize?: px}`, the facts `prefer`
     pins, or null to hand them back. Each pin replaces the whole set: a fact it doesn't name is
     what the first pin replaced.
-  - `inspect`, `outline` and `hold` are reserved (T2b, stage 8). A host answers them
-    `unsupported`.
+  - `inspect` (*1.3*) `{on, seq}` or `{refresh: true}`: inspect mode on or off (`seq` numbers
+    the command), or the selection
+    reported again under the digests now (found again by its site and instance path after a
+    new generation, or said gone). In inspect mode the page shows a banner with a close control
+    (and leaves on Escape), takes every input itself (pointer, mouse, touch, wheel, keys,
+    gestures; guest frames take no pointer input) so nothing reaches the app, outlines the node
+    under the pointer and selects the one a press is released on. A build that registers again
+    is told inspect mode as the server holds it. A build that can says
+    `inspect` among its `capabilities` (the wasm web page now; the JS target and natives later).
+    Development pages only.
+  - `outline` (*1.3*) `{sites, plan}`: the sites of plan `plan` (its digest) to outline while
+    inspect mode is on, every copy of a node; an empty list clears the outlines, and so does
+    `{clear: true}`. A build running another plan leaves its outlines as they are: a host never
+    reads a source map, so only the server resolves sites, from the map it has.
+  - `hold` is reserved (stage 8). A host answers it `unsupported`.
+- **A selection joined to source** (*1.3*, LLP 1122 D5). The server takes a `selected` report
+  only when it is the build's latest: its `plan`, `design` and `revision` those of its latest
+  status. One from before (a batch or a pin since) is refused (409) and the build is asked again
+  (`inspect {refresh: true, status: true}`: its status first, then the selection), once per
+  status it has. A current one is joined to the source map of the plan it names
+  (the dev loop's `app.plan.map.json`, verified by that digest) and published as the `selection`
+  event: `source` `{file, line, col, end_col, component, chain}` (the component call sites above
+  it), and each row with its map `origin` (`own`, `class:<Name>`, `tag`) and `editable`: `{rung:
+  "token", token, modes}` only for a row the node itself sets (`authored`, `own`) whose whole
+  value is one token, else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
+  expression, a boundary, or an expression over tokens links its token, never this node's edit;
+  a style's or the tag's row comes with template editing, T5). Each file the join reads is
+  checked against the digest the map says it was compiled from (`sources`): one that moved since
+  makes the selection `readOnly`, with its reason, and every row read-only. The app's design file
+  likewise (the one the server serves, which the map must name), unless the build runs the
+  design the dev loop serves now and the file's bytes are the ones that design was made from (a
+  value edit it took, not a later save it kept the last good design over). Then every build that can inspect is sent `outline` with the sites at the
+  selection's source location.
+- **`outline`** `{client, at: [{file, line, col}]}` (*1.3*, write scope, a present client;
+  journaled; the outlines are its client's, cleared when it stops being present): every build
+  that can inspect outlines its views at those source locations (a token's `uses` sites, a
+  changeset entry's), by the dev loop's current map. Answered `{sites, builds}`; refused (409)
+  while a file that map compiled has changed since (a fresh span would land on another node).
+- **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, write scope and a present client)
+  sends
+  `inspect` to a build, or to every build that can. Answered `{builds, unsupported}`: the builds
+  it went to, and those that can't inspect. Inspect mode is its client's: when the client stops
+  being present, it is turned off where it turned it on. Turned off with no `build`, it is off
+  on that client's builds that are away too (not in `builds`): one that registers again is told
+  off, not on.
 - **`pin`** `{client, build?, pin}` (write scope, as the wire's POSTs are) sends one to a build, or
   to every registered build without `build`. `preview` `{client, build, axis, value}` is the
   same as pinning that build's mode for that axis (it replaces that build's pin, as any pin
@@ -627,10 +754,10 @@ The tool drives no input into an app; a command changes only what `prefer` would
     restart) is kept with `revision` null: it acknowledges nothing. A pin to no build sends
     nothing and leaves the revision as it is.
   - Its `unsupported` `{what, detail}` is the last command it could not apply, the frame's whose
-    `revision` the report names (the web hosts name it), or, from a host that names none, the
-    one whose status it reports next (a host answers a frame before its status for it). It is
-    kept while the status stays at that revision and null once it moves to another (or the build
-    registers again); one for a revision the status has passed is dropped.
+    `revision` the report names (the web, Apple and Linux hosts name a refused pin's), or, from a
+    host that names none, the one whose status it reports next (a host answers a frame before its
+    status for it). It is kept while the status stays at that revision and null once it moves to
+    another (or the build registers again); one for a revision the status has passed is dropped.
   - **Ownership.** A pin is its client's while the client is present: it holds an open
     subscription naming it, or a long poll naming it is open or was answered in the last 35
     seconds (a client whose fetch reads a body whole holds the wire by the long poll). A pin from

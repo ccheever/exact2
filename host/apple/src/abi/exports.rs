@@ -307,9 +307,10 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.data_ready(), |n| n)
         }
 
-        /// Prepare an admitted module generation, optionally carrying a delivery token.
+        /// Prepare an admitted module generation, optionally carrying a delivery token;
+        /// `let_go`: the dev loop's, with requests in flight too (LLP 1007 §6).
         #[no_mangle]
-        pub extern "C" fn exact_prepare_module(rt: u32, token: u64, plan: usize, receipt: usize, module: usize, width: f32, height: f32) -> u32 {
+        pub extern "C" fn exact_prepare_module(rt: u32, token: u64, plan: usize, receipt: usize, module: usize, width: f32, height: f32, let_go: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
                 b.set_compat($compat);
                 if let Some(refusal) = b.refuse_analysis() { return refusal; }
@@ -317,7 +318,7 @@ macro_rules! host {
                 let delivery: ::std::option::Option<&'static $crate::delivery::Hooks> = $delivery;
                 let facts = delivery.and_then(|h| (h.candidate_delivery)(token, $compat));
                 if token != 0 && facts.is_none() { return b.refuse_preparation("unknown composition generation"); }
-                b.prepare_module_with_delivery([plan, receipt, module], ($new)(), hooks, width, height, facts)
+                b.prepare_module_with_delivery([plan, receipt, module], ($new)(), hooks, width, height, facts, let_go != 0)
             }, |n| n)
         }
 
@@ -622,6 +623,20 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_page(bits), |n| n)
         }
 
+        /// 1 when the running plan reads `onLine`, and before boot: only
+        /// then does the host watch the network.
+        #[no_mangle]
+        pub extern "C" fn exact_reads_on_line(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reads_on_line(), |_| 1)
+        }
+
+        /// A MIDI message in the input buffer (LLP 1125 D6–D8): the arm's
+        /// ports or inputs, or the agent's `prefer midi` and `tap midi`.
+        #[no_mangle]
+        pub extern "C" fn exact_midi(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.midi(len), |n| n)
+        }
+
         /// App modes, `axis=value` pins in the input buffer (LLP 1121 D5).
         #[no_mangle]
         pub extern "C" fn exact_set_mode(rt: u32, len: usize) -> u32 {
@@ -635,10 +650,23 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.design_rows(len), |n| n)
         }
 
+        /// The binding core (LLP 1121 D12): `{"view", "names"}` in the input
+        /// buffer, `{"inputs", "colors"}` UTF-8 in the output buffer.
+        #[no_mangle]
+        pub extern "C" fn exact_tamber(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.tamber(len), |n| n)
+        }
+
         /// The design digest the running app runs, UTF-8; empty before boot.
         #[no_mangle]
         pub extern "C" fn exact_design_digest(rt: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.design_digest(), |_| 0)
+        }
+
+        /// The running plan's digest, UTF-8; empty before boot.
+        #[no_mangle]
+        pub extern "C" fn exact_plan_digest(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.plan_digest(), |_| 0)
         }
 
         /// The locale and time zone: `locale NUL timeZone` in the input buffer.
@@ -786,6 +814,20 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_canvas_defer(rt: u32, deferred: u32) {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.canvas_defer(deferred != 0), |_| ())
+        }
+
+        /// Runtimes booted from now count each plan site's work for `perf`
+        /// (LLP 1079 D1) from the first ask, `exact_measure_work`, not from
+        /// boot: a release build's choice.
+        #[no_mangle]
+        pub extern "C" fn exact_measure_work_later() {
+            $crate::abi::measure_work_later()
+        }
+
+        /// The first ask for `perf`: this runtime counts its work from now.
+        #[no_mangle]
+        pub extern "C" fn exact_measure_work(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.measure_work(), |n| n)
         }
 
         /// The canvas draws owed (LLP 1072 §8.5); returns the batch's length.

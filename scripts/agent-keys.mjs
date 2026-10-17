@@ -3,6 +3,7 @@
 // `type` and `tap` forms. Split from agent.mjs, which re-exports each.
 import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
+import { dragArguments } from './agent-drag.mjs';
 
 /** Independent of the app and its state. A host sets `malformed: true` on its JSON reply; `reply()` raises this error from that flag. */
 export class MalformedOperation extends Error {
@@ -396,6 +397,15 @@ export function tapWords(args, held = false) {
     }
     return opts;
   };
+  // A MIDI input's message (LLP 1125 §4): `tap midi "<input>" 90 3c 64`, each byte two hex digits; or its clock (D9):
+  // `tap midi "<input>" clock <bpm> <ms>`. The input may be quoted, as a test step quotes it.
+  const input = /^".*"$/.test(form ?? '') ? inputJSON(form) : form;
+  if (first === 'midi' && form !== undefined && rest.length && rest.every((w) => /^[0-9a-f]{2}$/i.test(w))) return [null, { midi: { input, data: rest.map((w) => parseInt(w, 16)) } }];
+  if (first === 'midi' && form !== undefined && rest[0] === 'clock') {
+    const [bpm, ms] = [number(rest[1], 'clock'), number(rest[2], 'clock')];
+    if (rest.length !== 3 || !(bpm > 0 && ms >= 0)) refuse('tap midi "<input>" clock <bpm> <ms> takes a tempo above 0 and a length');
+    return [null, { midi: { input, clock: { bpm, ms } } }];
+  }
   if (held && first === 'move') {
     const by = form === 'by', [a, b, ...more] = by ? rest : [form, ...rest];
     const point = by ? { dx: number(a, 'move by'), dy: number(b, 'move by') } : { x: number(a, 'move'), y: number(b, 'move') };
@@ -442,6 +452,42 @@ export function tapWords(args, held = false) {
     // Most often a target of several words left unquoted (sb4 farm wave 4, 053: `tap Why are my…`).
     default: refuse(`unknown word ${JSON.stringify(form)}; a target of several words is quoted inside the op (\`tap "${args.join(' ').replace(/["\\]/g, '\\$&')}"\`), and after a target come only: tap <target> [at <x> <y> [modifiers <M>] | modifiers <M> | down [at <x> <y>] [modifiers <M>] | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <M>] | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <M>]) | hover | drop <path…> | into <key> … | pinch <scale> [at <x> <y>] | history <n> | mediasession <action> [seconds] | drag …]`);
   }
+}
+
+/** `tap midi "<input>" clock <bpm> <ms>` (LLP 1125 D9) as an arm delivers it: Timing Clock at `k · 60000 / (24 · bpm)` ms
+ * from now, k ≥ 1, through `ms`, in slices at most 50 ms long. Each slice is `{ to, ticks }`, its end and its ticks as ms
+ * from the start; the driver moves the clock to its end, then delivers its ticks, one runner call. A tempo whose tick is a
+ * whole number of ms (125, 100, 250) keeps every stamp exact. */
+export function clockSlices({ bpm, ms }) {
+  const interval = 60000 / (24 * bpm), out = [];
+  for (let k = 1, from = 0; from < ms;) {
+    const to = Math.min(from + 50, ms), ticks = [];
+    for (; k * interval <= to; k++) ticks.push(k * interval);
+    out.push({ to, ticks });
+    from = to;
+  }
+  return out;
+}
+
+/** A `tap`'s options checked before any host is asked: malformed ones are refused by name. Returns the mouse's button forms given. */
+export function tapArguments(opts) {
+  if (opts.wheel !== undefined && ![opts.wheel?.[0], opts.wheel?.[1]].every(Number.isFinite)) throw new MalformedOperation('wheel: expected two finite deltas');
+  if (opts.drag) dragArguments(opts.drag);
+  if (opts.mouse && ['contextmenu','dblclick','auxclick','clicks','down','drag','wheel','hover','pinch','history','into','gesture'].some(key => opts[key] !== undefined)) throw new MalformedOperation('mouse cannot be combined with another input mode');
+  if (opts.pinch !== undefined) pinchArguments(opts.pinch);
+  if (opts.into) intoArguments(opts.into);
+  if (opts.seconds != null && !Number.isFinite(opts.seconds)) throw new MalformedOperation('mediasession: expected finite seconds');
+  if (opts.mediaSession === 'seekto' && !(Number.isFinite(opts.seconds) && opts.seconds >= 0)) throw new MalformedOperation('mediasession: seekto needs finite nonnegative seconds');
+  // The mouse's forms (#107): one button form at a time, each at its middle or `at`, the modifiers held through it.
+  const button = ['mouse', 'contextmenu', 'auxclick', 'dblclick', 'clicks'].filter((k) => opts[k] !== undefined && opts[k] !== false);
+  if (button.length > 1) throw new MalformedOperation(`tap: one of mouse, dblclick, contextmenu, auxclick and clicks at a time, not ${button.join(' and ')}`);
+  if (opts.clicks !== undefined && ![1, 2, 3].includes(opts.clicks)) throw new MalformedOperation('tap … clicks: 1, 2 or 3');
+  if (opts.at !== undefined && (opts.hover || opts.history !== undefined || opts.drop || opts.into)) throw new MalformedOperation('at is a point on a press, a click (mouse, dblclick, contextmenu, auxclick, clicks), a wheel, a contact, a pinch or a drag');
+  if (opts.at !== undefined && (!Array.isArray(opts.at) || opts.at.length !== 2 || !opts.at.every(Number.isFinite))) throw new MalformedOperation('tap at needs two finite numbers');
+  const modifiers = opts.modifiers ?? opts.drag?.modifiers;
+  if (modifiers !== undefined && !String(modifiers).split('+').filter(Boolean).every(k => ['Shift', 'Control', 'Alt', 'Meta'].includes(k))) throw new MalformedOperation(`tap … modifiers: ${modifiers} is not Shift, Control, Alt and Meta joined by +`);
+  if (modifiers !== undefined && (opts.hover || opts.history !== undefined || opts.into || opts.drop || opts.pinch !== undefined)) throw new MalformedOperation('modifiers are held through a press, a click, a wheel, a contact or a drag');
+  return button;
 }
 
 /** What of a `tap` this carrier cannot deliver as a hand's (#107), or null. AppKit and Chrome carry every form;

@@ -979,7 +979,10 @@ impl<D: DataSource> Runner<D> {
         outcome: Outcome,
         elapsed_ms: Option<u64>,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
-        self.arrived(|r| r.fulfill_now(ticket, outcome, elapsed_ms))
+        let answering = std::mem::replace(&mut self.churn.answering, true);
+        let out = self.arrived(|r| r.fulfill_now(ticket, outcome, elapsed_ms));
+        self.churn.answering = answering;
+        out
     }
 
     fn fulfill_now(

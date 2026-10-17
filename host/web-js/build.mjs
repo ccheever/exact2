@@ -170,7 +170,7 @@ const gpuSurfaces = existsSync(gpuLib) ? [...readFileSync(gpuLib, 'utf8').matchA
 // changed (module.mjs `fresh`; `cargo run`'s own check costs ~0.4 s an edit),
 // or as the one another checkout of this machine built from these sources.
 const compiler = webCompiler();
-const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
+const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, '--app', appDir, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
 compiler.done();
 for (const f of ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js', 'persist.js', 'modes.js', 'beat.js', 'regions.js']) cpSync(resolve(here, f), resolve(gen, f));
@@ -440,6 +440,8 @@ cpSync(resolve(here, 'notify.js'), resolve(gen, 'notify.js'));
 cpSync(resolve(here, 'sounds.js'), resolve(gen, 'sounds.js'));
 cpSync(resolve(here, 'wakelock.js'), resolve(gen, 'wakelock.js'));
 cpSync(resolve(here, 'transport.js'), resolve(gen, 'transport.js'));
+cpSync(resolve(here, 'clockin.js'), resolve(gen, 'clockin.js'));
+cpSync(resolve(here, 'midi.js'), resolve(gen, 'midi.js'));
 // The server bundle a JavaScript render runs (render.mjs), one script per VM context.
 writeFileSync(resolve(gen, 'main-server.js'), [
   `import app${rust ? ', { sources }' : ''} from './app.js';`,
@@ -534,7 +536,15 @@ if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')]
     seen.add(id);
     return (getModuleInfo(id)?.importers ?? []).some(parent => fromData(parent, getModuleInfo, seen));
   };
+  // The entry leads with V8's explicit compile hint (LLP 1071 §7, generated
+  // code at scale): Chrome compiles every function in it eagerly, and a
+  // module it fetches (not `--inline`'s) as it streams in, on a background
+  // thread, not each on the main thread at its first call, as a large
+  // app's mount calls most of them (the Bluesky
+  // clone's release page: runtime up at 1.7–1.9 s, 0.5 s with it; ~23 MB
+  // more heap). Other browsers read a comment.
   const built = await b.write({ dir: out, format: 'esm', minify: true, comments: false, entryFileNames: 'app.js', chunkFileNames: '[name]-[hash].js',
+    postBanner: (chunk) => chunk.isEntry ? '//# allFunctionsCalledOnLoad' : undefined,
     ...(devReload && ts ? { manualChunks: (id, { getModuleInfo }) => fromData(id, getModuleInfo) ? 'dev-data' : undefined } : {}) });
   if (devReload && ts) for (const chunk of built.output.filter(file => file.type === 'chunk' && Object.keys(file.modules).includes(appTs))) {
     devLogic.push(['typescript', createHash('sha256').update(readFileSync(resolve(out, chunk.fileName))).digest('hex')]);

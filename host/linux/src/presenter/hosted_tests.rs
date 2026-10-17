@@ -191,15 +191,22 @@ fn keyboard(p: &mut Presenter<()>) -> Option<(i32, i32)> {
     last
 }
 
-/// Whether anything but the field's fill shows inside `name`'s content box.
+/// Whether anything but the field's fill shows inside `name`'s content box:
+/// the fill is the container's at its start, beside the text.
 fn inked(p: &mut Presenter<()>, name: &str) -> bool {
-    let (x, y, w, h) = p.rect_of(id(p, name)).unwrap();
+    let (x, y, _, h) = p.rect_of(id(p, name)).unwrap();
+    let c = {
+        let k = p.host().kernel();
+        k.node(id(p, name)).unwrap().field_content_rect().unwrap()
+    };
     let pixmap = p.frame();
+    let fill = pixmap
+        .pixel((x + 8.0) as u32, (y + h / 2.0) as u32)
+        .unwrap();
     let mut inked = false;
-    for row in (y + 8.0) as u32..(y + h - 8.0) as u32 {
-        for col in (x + 10.0) as u32..(x + w - 10.0) as u32 {
-            let c = pixmap.pixel(col, row).unwrap();
-            inked |= (c.red(), c.green(), c.blue()) != (255, 255, 255);
+    for row in (y + c.y) as u32..(y + c.y + c.height) as u32 {
+        for col in (x + c.x) as u32..(x + c.x + c.width) as u32 {
+            inked |= pixmap.pixel(col, row).unwrap() != fill;
         }
     }
     inked
@@ -213,12 +220,12 @@ fn a_hosted_field_is_measured_by_the_shell_during_layout() {
         shell.asked.load(Ordering::Relaxed) > 0,
         "the boot layout asked the shell's field"
     );
-    // Twenty characters of 8 px and a line of 20, in the container's own
-    // insets (7 above and below, 9 each side); a textarea's three rows.
+    // Twenty characters of 8 px and a line of 20, in Material's filled
+    // field (16 in on every side, 56 tall at least); a textarea's three rows.
     let (_, _, w, h) = p.rect_of(id(&p, "name")).unwrap();
-    assert_eq!((w, h), (160.0 + 18.0, 20.0 + 14.0));
+    assert_eq!((w, h), (160.0 + 32.0, 56.0));
     let (_, _, w, h) = p.rect_of(id(&p, "notes")).unwrap();
-    assert_eq!((w, h), (160.0 + 18.0, 60.0 + 14.0));
+    assert_eq!((w, h), (160.0 + 32.0, 60.0 + 32.0));
     // The device's font scale is the field's own font's too: 16 by 1.5.
     let device = Device {
         night: false,
@@ -231,11 +238,12 @@ fn a_hosted_field_is_measured_by_the_shell_during_layout() {
         high_contrast: false,
         touch: true,
         touch_slop: 8.0,
+        dates: String::new(),
     };
     assert_eq!(p.set_device(&device), None);
     settle(&mut p);
     let (_, _, w, h) = p.rect_of(id(&p, "name")).unwrap();
-    assert_eq!((w, h), (240.0 + 18.0, 30.0 + 14.0));
+    assert_eq!((w, h), (240.0 + 32.0, 30.0 + 32.0));
     assert_eq!(told(&mut p)[0].look[11], 24f32.to_bits() as i32);
 }
 
@@ -257,7 +265,8 @@ fn the_reader_is_told_each_field_its_box_and_its_keyboard() {
     let (x, y, _, _) = p.rect_of(ids[0]).unwrap();
     let name = &fields[0];
     assert_eq!((name.generation, name.flags, name.seq), (0, 1, 0));
-    assert_eq!(name.rect, [x + 9.0, y + 7.0, 160.0, 20.0]);
+    // Under its label (its placeholder): 24 down, 8 above the foot.
+    assert_eq!(name.rect, [x + 16.0, y + 24.0, 160.0, 24.0]);
     assert!(name.clip[2] < 0.0, "no clip: {:?}", name.clip);
     assert_eq!(name.value, "");
     // Enter submits and another field follows; the key says Next.
@@ -284,9 +293,13 @@ fn a_hosted_fields_text_is_the_shells_to_draw() {
     let name = id(&p, "name");
     p.reader_field_edited(name, (0, 1), "hello", (5, 5), 1.0);
     assert_eq!(p.field_text(name), "hello");
+    // The label floats as the field fills, in 150 ms.
+    let _ = p.frame();
+    let now = p.host().now();
+    p.clock(now + 200.);
     assert!(
         !inked(&mut p, "name"),
-        "nothing of the text is painted here"
+        "nothing of the text is painted here, and its label floats above it"
     );
     assert!(!inked(&mut p, "email"), "nor a placeholder's");
 }

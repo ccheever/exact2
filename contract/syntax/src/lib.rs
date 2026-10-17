@@ -25,6 +25,7 @@ pub mod fmt;
 pub mod idioms;
 pub mod inline;
 pub mod lexer;
+mod midi;
 mod notfound;
 pub mod parser;
 mod part;
@@ -40,6 +41,7 @@ pub use inline::{
     Instance, Owner,
 };
 pub use lexer::{Lexer, Token, TokenKind};
+pub use midi::MidiStep;
 pub use notfound::implicit_notfound;
 pub use parser::{is_launch, parse, parse_source, parse_source_all, same_launch, SyntaxError};
 pub use sequence::Sequence;
@@ -169,6 +171,11 @@ pub const HOST_COMMANDS: &[&str] = &[
     "playSound",
     "playSounds",
     "stopSounds",
+    // @ref LLP 1125 D6, D7 — `requestMIDIAccess()` and `sendMIDI(output,
+    // data, at=)`: the runner keeps the MIDI queue and answers `exactMIDI()`,
+    // so every host skips them as the runner's own.
+    "requestMIDIAccess",
+    "sendMIDI",
 ];
 
 /// A written type as the author writes it: `Item[]`, `option<number>`.

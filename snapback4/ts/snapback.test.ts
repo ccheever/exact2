@@ -456,12 +456,12 @@ test('a sync after a write settles it while other sources sync at once; send is 
   await db.sync();
 
   // A query's `require … else CODE`, thrown as the driver throws it: the
-  // code is failure(x).reason, under the closed code `error`, and leads the
-  // message.
+  // code is failure(x).reason, under the closed code `error`; the message
+  // stays suitable for rendering directly.
   const read = await db.read('leads', {}, Date.now());
   expect(read.denied?.code).toBe('NOT_LEAD');
   const error = refused(read.denied!);
-  expect([error.message.startsWith('NOT_LEAD: '), (error as { code?: string }).code, failureCode(error), failureReason(error)]).toEqual([true, 'NOT_LEAD', 'error', 'NOT_LEAD']);
+  expect([error.message, (error as { code?: string }).code, failureCode(error), failureReason(error)]).toEqual([read.denied!.message, 'NOT_LEAD', 'error', 'NOT_LEAD']);
   await expect(db.readAll('leads', {}, Date.now())).rejects.toMatchObject({ reason: 'NOT_LEAD' });
   const optional = await db.readOptional('leads', {}, Date.now(), ['NOT_LEAD']);
   expect(optional.data).toBeNull();
@@ -479,7 +479,7 @@ test('a sync after a write settles it while other sources sync at once; send is 
   finally { Object.defineProperty(Error.prototype, 'name', frozen); }
   const never = await open('olive', join(scratch, 'olive'), 'http://127.0.0.1:9');
   const unreached = await never.read('inbox', {}, Date.now()).catch(e => e as Error);
-  expect([unreached.message.startsWith('E_OFFLINE: '), failureCode(unreached)]).toEqual([true, 'offline']);
+  expect([(unreached as Error & {code: string}).code, failureCode(unreached)]).toEqual(['E_OFFLINE', 'offline']);
   await never.close();
   await db.close();
 }, 120_000);
@@ -620,7 +620,7 @@ test('sources share a page\'s partition: concurrent opens, rounds that wait thei
   expect((await b.outcome(written.id)).state).toBe('sent');
 
   // A partition belongs to one viewer: another needs its own name.
-  await expect(openErin('frank')).rejects.toThrow(/E_PARTITION_VIEWER/);
+  await expect(openErin('frank')).rejects.toMatchObject({code: 'E_PARTITION_VIEWER'});
 
   // Closing one client leaves the partition to the other; the last lets it go.
   await a.close();
@@ -657,8 +657,8 @@ test('a query over an online only table is the server\'s to answer, and says so 
     const unreached = await gina.read('myDrafts', {}, Date.now());
     expect(unreached.data).toBeUndefined();
     expect(unreached.denied?.code).toBe('E_OFFLINE');
-    await expect(gina.readAll('myDrafts', {}, Date.now())).rejects.toThrow(/E_OFFLINE/);
-    await expect(gina.readOptional('myDrafts', {}, Date.now(), ['E_OFFLINE'])).rejects.toThrow(/E_OFFLINE/);
+    await expect(gina.readAll('myDrafts', {}, Date.now())).rejects.toMatchObject({code: 'E_OFFLINE'});
+    await expect(gina.readOptional('myDrafts', {}, Date.now(), ['E_OFFLINE'])).rejects.toMatchObject({code: 'E_OFFLINE'});
     expect(Array.isArray((await gina.read('inbox', {}, Date.now())).data)).toBe(true);
   });
   await gina.close();
@@ -667,8 +667,8 @@ test('a query over an online only table is the server\'s to answer, and says so 
 test('a partition that has never synced, offline, refuses reads and writes with E_OFFLINE', async () => {
   const ivy = await open('ivy', join(scratch, 'ivy'));
   await offline(async () => {
-    await expect(ivy.read('inbox', {}, Date.now())).rejects.toThrow(/E_OFFLINE/);
-    await expect(ivy.write('send', { body: 'too soon' }, Date.now())).rejects.toThrow(/E_OFFLINE/);
+    await expect(ivy.read('inbox', {}, Date.now())).rejects.toMatchObject({code: 'E_OFFLINE'});
+    await expect(ivy.write('send', { body: 'too soon' }, Date.now())).rejects.toMatchObject({code: 'E_OFFLINE'});
   });
   // Back online, the next read opens it.
   expect((await ivy.read('inbox', {}, Date.now())).data).toBeDefined();
@@ -936,6 +936,57 @@ test('at bake (a native module that is not available) open refuses with code bak
   expect(calls).toEqual([]);
 }, 60_000);
 
+test('device guest sessions persist and bind a partition after public auth discovery', async () => {
+  const values = new Map<string, string>();
+  const store = {get: (key: string) => values.get(key) ?? null, set: (key: string, value: string) => {values.set(key, value);}, forget: (key: string) => {values.delete(key);}};
+  const options = {app: 'test.exact.guest', name: 'guest', origin, storage: storage(join(scratch, 'guest-device')),
+    auth: {store, key: 'session', now: Date.now()}, wasm: `file://${wasm}`};
+  const db = await Snapback.open(options);
+  try {
+    expect(await db.authConfig()).toMatchObject({guests: true, password: true, development: true});
+    expect(db.session).toBeNull();
+    const entered = await db.guest();
+    expect(entered).toMatchObject({ok: true, session: {kind: 'guest'}});
+    expect(await db.read('inbox', {}, Date.now())).toMatchObject({data: expect.any(Array)});
+    expect(db.isOpen).toBe(true);
+    const sibling = await Snapback.open(options);
+    expect(sibling.session?.principal).toBe(db.session?.principal);
+    await sibling.close();
+    await expect(db.guest()).rejects.toMatchObject({code: 'E_AUTH'});
+    await db.logout();
+    expect(store.get('session')).toBeNull();
+  } finally {await db.close();}
+});
+
+test('public device auth discovery preserves expired storage and fences an external account change', async () => {
+  const values = new Map<string, string>();
+  const store = {get: (key: string) => values.get(key) ?? null, set: (key: string, value: string) => {values.set(key, value);}, forget: (key: string) => {values.delete(key);}};
+  const expired = JSON.stringify({principal: 'guest:old', kind: 'guest', token: 'old', expiresAt: 5});
+  const config = {guests: true, password: true, development: false};
+  const originalFetch = globalThis.fetch;
+  let externalChange = false;
+  const headers: {auth: string | null; persona: string | null}[] = [];
+  globalThis.fetch = (async (_input, init) => {
+    const sent = new Headers(init?.headers);
+    headers.push({auth: sent.get('authorization'), persona: sent.get('x-snapback-persona')});
+    await Promise.resolve();
+    if (externalChange) store.set('session', 'external replacement');
+    return Response.json(config);
+  }) as typeof fetch;
+  const db = await Snapback.open({app: 'test.exact.guest', name: 'discovery', origin: 'http://discovery.test',
+    storage: storage(join(scratch, 'discovery')), auth: {store, key: 'session', now: 10}, wasm: `file://${wasm}`,
+    headers: () => ({Authorization: 'Bearer supplied', 'X-Snapback-Persona': 'alice'})});
+  try {
+    store.set('session', expired);
+    expect(await db.authConfig()).toEqual(config);
+    expect(store.get('session')).toBe(expired);
+    expect(headers[0]).toEqual({auth: null, persona: null});
+    externalChange = true;
+    await expect(db.authConfig()).rejects.toMatchObject({code: 'E_STALE'});
+    expect(store.get('session')).toBe('external replacement');
+  } finally {globalThis.fetch = originalFetch; await db.close();}
+});
+
 test('password accounts on serve: signup, reopen, refresh, login, logout and isolated safe partitions', async () => {
   const project = join(scratch, 'password-server'), deployed = join(project, 'production');
   mkdirSync(join(project, 'snapback'), { recursive: true });
@@ -967,7 +1018,7 @@ test('password accounts on serve: signup, reopen, refresh, login, logout and iso
       auth: { store, key: 'session', now: Date.now() }, wasm: `file://${wasm}` };
     let db = await Snapback.open(options);
     expect(db.session).toBeNull();
-    await expect(db.read('inbox', {}, Date.now())).rejects.toThrow(/E_AUTH/);
+    await expect(db.read('inbox', {}, Date.now())).rejects.toMatchObject({code: 'E_AUTH'});
     const signed = await db.signup('alice@example.com', 'correct-horse-battery-staple');
     if (!signed.ok) throw new Error(JSON.stringify(signed.why));
     const principal = signed.session.principal, token = signed.session.token;
@@ -1055,8 +1106,8 @@ test('password accounts on serve: signup, reopen, refresh, login, logout and iso
       const queuedSync = db.sync().catch(error => error);
       await db.logout();
       expect((await db.login('bob@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
-      await expect(staleAlice.download('not-even-fetched')).rejects.toThrow(/E_AUTH/);
-      await expect(staleAlice.upload(new Uint8Array([1]))).rejects.toThrow(/E_AUTH/);
+      await expect(staleAlice.download('not-even-fetched')).rejects.toMatchObject({code: 'E_AUTH'});
+      await expect(staleAlice.upload(new Uint8Array([1]))).rejects.toMatchObject({code: 'E_AUTH'});
       release();
       expect((await reading as { code: string }).code).toBe('E_STALE');
       expect((await syncing as { code: string }).code).toBe('E_STALE');
@@ -1144,11 +1195,11 @@ test('password accounts on serve: signup, reopen, refresh, login, logout and iso
     expect(nativeDevice).toBeUndefined();
     expect(authenticatedSibling.usable).toBe(false);
     expect(headersSibling.usable).toBe(false);
-    await expect(headersSibling.read('myDocuments', {}, Date.now())).rejects.toThrow(/E_STALE/);
-    await expect(authenticatedSibling.read('myDocuments', {}, Date.now())).rejects.toThrow(/E_AUTH/);
+    await expect(headersSibling.read('myDocuments', {}, Date.now())).rejects.toMatchObject({code: 'E_STALE'});
+    await expect(authenticatedSibling.read('myDocuments', {}, Date.now())).rejects.toMatchObject({code: 'E_AUTH'});
     // Same-account login must create a new partition owner, not revive siblings.
     expect((await authOnly.login('alice@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
-    await expect(authenticatedSibling.read('myDocuments', {}, Date.now())).rejects.toThrow(/E_STALE/);
+    await expect(authenticatedSibling.read('myDocuments', {}, Date.now())).rejects.toMatchObject({code: 'E_STALE'});
     await signedIn.close(); await authenticatedSibling.close(); await headersSibling.close();
     expect((await authOnly.send('send', { body: 'unbound logout recovered' }, Date.now())).state).toBe('sent');
     await authOnly.logout(); await authOnly.close();

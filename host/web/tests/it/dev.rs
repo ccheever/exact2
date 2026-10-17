@@ -715,3 +715,56 @@ fn a_running_web_build_applies_a_batch_in_place() {
         .starts_with("{\"live\":\"stale\""));
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// LLP 1121 stage 5, commit 2: a role override's value edit reaches a
+/// running web build as a batch: its role sheet is written again in the
+/// batch (`theme`), which unsaid text and the accent read.
+#[test]
+fn a_running_web_build_takes_a_role_override_edit_in_place() {
+    use exact_runner::design;
+    let dir = scratch("live-role");
+    let view = "component App\n  view\n    column\n      text \"a\" testId=\"text\"\n";
+    let plan = |tamber: &str| {
+        std::fs::write(dir.join("app.tamber"), tamber).unwrap();
+        std::fs::write(dir.join("app.contract"), view).unwrap();
+        contract::compile_path(&dir.join("app.contract")).unwrap()
+    };
+    let a = plan("tamber t\n\ntheme\n  AccentColor = #0a7aff\n  CanvasText = #111111\n");
+    let b = plan("tamber t\n\ntheme\n  AccentColor = #ff0000\n  CanvasText = #222222\n");
+    let batch =
+        design::batch(&design::shape(&a), &design::tokens(&a), &design::tokens(&b)).unwrap();
+    let (mut host, boot) = Host::boot(&a.encode(), NoData, Default::default(), "/").unwrap();
+    assert!(boot.contains("--exact-accent:#0a7aff"), "{boot}");
+    let out = host.apply_live(&batch.json());
+    assert!(out.starts_with("{\"live\":\"applied\""), "{out}");
+    assert!(out.contains(r#"{"op":"theme","css":"#), "{out}");
+    assert!(out.contains("--exact-accent:#ff0000"), "{out}");
+    // Unsaid text reads the sheet's `color`, so the sheet is the edit.
+    assert!(out.contains("--exact-canvas-text:#222222ff"), "{out}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Two web sessions on one thread, each with its own role overrides (LLP
+/// 1121 stage 5): an event on one sends its rows under its own roles, with
+/// no role resolved unbound beside the other (a debug build would assert).
+#[test]
+fn an_event_beside_another_session_crosses_under_its_own_roles() {
+    let dir = scratch("two-sessions");
+    let view = "component App\n  state n = 0\n  action bump\n    n = n + 1\n  view\n    column\n      button press=bump testId=\"bump\"\n        text `${n}` color=\"#ff0000\" testId=\"count\"\n";
+    let plan = |tamber: &str| {
+        std::fs::write(dir.join("app.tamber"), tamber).unwrap();
+        std::fs::write(dir.join("app.contract"), view).unwrap();
+        contract::compile_path(&dir.join("app.contract")).unwrap()
+    };
+    let a = plan("tamber t\n\ntheme\n  CanvasText = #111111\n");
+    let b = plan("tamber t\n\ntheme\n  CanvasText = #222222\n");
+    let (mut first, _) = Host::boot(&a.encode(), NoData, Default::default(), "/").unwrap();
+    let (_second, _) = Host::boot(&b.encode(), NoData, Default::default(), "/").unwrap();
+    let bump = {
+        let k = first.runner().kernel();
+        k.node_by_key(k.find_by_test_id("bump")[0]).unwrap().id
+    };
+    let out = first.dispatch(bump, exact_runner::Event::Press);
+    assert!(out.contains("\"1\""), "{out}");
+    let _ = std::fs::remove_dir_all(dir);
+}

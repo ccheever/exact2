@@ -19,6 +19,7 @@ mod android {
             .placed(baked::TYPESCRIPT_PLACEMENT)
     }
     include!(concat!(env!("OUT_DIR"), "/logic.rs"));
+    include!(concat!(env!("OUT_DIR"), "/hatches.rs"));
 
-    exact_linux::canvas_jni!(super::AppData);
+    exact_linux::canvas_jni!(super::AppData, hatches = crate::android::exact_hatches());
 }

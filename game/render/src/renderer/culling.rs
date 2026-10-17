@@ -2,7 +2,8 @@
 //! @ref llp/1046.003-game-engine-as-built.explainer.md#culling-and-environment-lighting-2026-09-23
 use super::*;
 use crate::cull::{
-    Group, CAPSULE, GROUP_WORDS, KEEP_ALL, PLAIN, RECORD_WORDS, SKIN_WORDS, SORTED_CHUNKS, UNSORTED,
+    Group, CAPSULE, EXEMPT, GROUP_WORDS, KEEP_ALL, PLAIN, RECORD_WORDS, SKIN_WORDS, SORTED_CHUNKS,
+    UNSORTED,
 };
 
 impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
@@ -13,12 +14,19 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         frame: &FrameInput<'_>,
         cascades: Option<&Cascades>,
         custom: &[crate::hooks::CustomMaterial],
+        size: (u32, u32),
     ) {
         self.cull_groups(frame, cascades.map_or(0, |c| c.count), custom);
         self.local_groups();
+        // Last frame's camera lists occlude only when they name this frame's
+        // items, drawn as they were: no new setup, no level of detail changed,
+        // nothing fading (a dithered occluder hides what shows through it).
+        let mut lists = std::mem::take(&mut self.cull_drew) && !self.lights.fading;
         if self.cull.stale() || self.locals_stale() {
+            lists = false;
             self.write_cull_setup();
         } else if std::mem::take(&mut self.levels.changed) {
+            lists = false;
             let hidden = &self.levels.hidden;
             self.cull.hide_records(&self.queue, hidden);
             for local in &mut self.local_culls {
@@ -29,8 +37,36 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
         self.levels.changed = false;
         self.local_views();
+        self.occluding = false;
         if self.cull.direct || self.cull.groups.is_empty() {
             return;
+        }
+        self.occluding = lists && self.slot_list.len() >= self.occlusion_items;
+        if self.occluding {
+            let occlusion = self.occlusion.get_or_insert_with(|| {
+                crate::occlusion::Occlusion::new(&self.device, &self.pipelines.scene_layout)
+            });
+            // Groups of closed convex primitives the camera drew occlude.
+            let (groups, batches, meshes) = (&self.cull.groups, &self.batches, &self.meshes);
+            let models = &self.model_batches;
+            let occluders = groups.iter().enumerate().filter_map(|(index, group)| {
+                let batch = &batches[group.batch];
+                let mesh = &meshes[batch.mesh.0];
+                let model = models.get(group.batch).copied().flatten().is_some();
+                (group.flags & 1 != 0
+                    && group.flags & (EXEMPT | KEEP_ALL) == 0
+                    && !model
+                    && mesh.inscribed > 0.0)
+                    .then_some((index, mesh.inscribed, mesh.reach, mesh.boxed))
+            });
+            occlusion.prepare(
+                &self.device,
+                &self.queue,
+                size,
+                frame.proj * frame.view,
+                frame.camera_position,
+                occluders,
+            );
         }
         self.cull.bind(
             &self.device,
@@ -40,6 +76,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             &self.slots.raw,
             &self.attachment_matrices.raw,
             self.models.skinning.as_ref().map(|s| &s.palette.raw),
+            self.occlusion
+                .as_ref()
+                .filter(|_| self.occluding)
+                .and_then(|o| o.pyramid()),
         );
         if self.culled_key.0 != self.cull.compacted.raw || self.culled_key.1 != self.cull.window {
             self.rebind_culled();
@@ -53,6 +93,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             &self.queue,
             &views[..1 + count],
             self.slot_list.len() as u32,
+            self.occluding,
         );
     }
 
@@ -95,7 +136,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     KEEP_ALL
                 } else {
                     0
-                };
+                }
+                | if batch.viewmodel { EXEMPT } else { 0 };
             for (range, mirrored) in self.winding_ranges(index, frame) {
                 groups.push(Group {
                     batch: index,

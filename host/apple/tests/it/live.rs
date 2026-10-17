@@ -62,3 +62,43 @@ fn a_running_build_applies_a_batch_in_place() {
         .apply_live(&batch.json())
         .starts_with("{\"live\":\"stale\""));
 }
+
+/// LLP 1121 stage 5, commit 2: a role override's value edit reaches a
+/// running build as a batch. The presenter gets its new role table (its
+/// tint: `AccentColor`) and text that resolves an overridden role,
+/// unsaid text's `CanvasText` included, is re-presented in place.
+#[test]
+fn a_running_build_takes_a_role_override_edit_in_place() {
+    let dir = std::env::temp_dir().join(format!("exact-apple-live-role-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let view = "component App\n  view\n    column\n      text \"a\" testId=\"text\"\n";
+    let plan = |tamber: &str| {
+        std::fs::write(dir.join("app.tamber"), tamber).unwrap();
+        std::fs::write(dir.join("app.contract"), view).unwrap();
+        contract::compile_path(&dir.join("app.contract")).unwrap()
+    };
+    let a = plan("tamber t\n\ntheme\n  AccentColor = #0a7aff\n  CanvasText = #111111\n");
+    let b = plan("tamber t\n\ntheme\n  AccentColor = #ff0000\n  CanvasText = #222222\n");
+    let _ = std::fs::remove_dir_all(&dir);
+    let batch =
+        design::batch(&design::shape(&a), &design::tokens(&a), &design::tokens(&b)).unwrap();
+    let (mut host, boot) = Host::boot(
+        &a.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    assert!(boot.contains(r#""AccentColor":[10,122,255,255]"#), "{boot}");
+    assert!(boot.contains(r#""text_color":[17,17,17,255]"#), "{boot}");
+    let out = host.apply_live(&batch.json());
+    assert!(out.starts_with("{\"live\":\"applied\""), "{out}");
+    assert!(
+        out.contains(
+            r#"{"op":"roles","roles":{"CanvasText":[34,34,34,255],"AccentColor":[255,0,0,255]}}"#
+        ),
+        "{out}"
+    );
+    assert!(out.contains(r#""text_color":[34,34,34,255]"#), "{out}");
+}

@@ -230,8 +230,22 @@ class Natives(
         e.node.endRecording()
     }
 
+    /** The node id of the element whose view is [view] or holds it ([ExactTamber]'s place), or null (main thread). */
+    fun place(view: View): Int? {
+        var v: View? = view
+        while (v != null && v !== this) {
+            byView[v]?.let { return it.id }
+            v = v.parent as? View
+        }
+        return null
+    }
+
     /** The node op 28 draws for [id] (main thread). */
     fun node(id: Int): RenderNode? = elements[id]?.node
+
+    /** A view the app's Kotlin hatches host at a node (kind 5, LLP 1115.001.000 D4), made for this layer's
+     * activity: each element its own. */
+    var hatched: ((Int, Context) -> View?)? = null
 
     /** Every element's node, for a row recorded on another thread: one map shared until an element comes or goes. */
     private var nodes: Map<Int, RenderNode>? = null
@@ -384,7 +398,7 @@ class Natives(
     }
 
     private fun unpark(e: Element) {
-        val view = obtain(e.kind, JSONObject(e.wanted)) ?: return
+        val view = obtain(e.kind, JSONObject(e.wanted), e.id) ?: return
         if (view.parent == null) addView(view, LayoutParams(1, 1))
         e.view = view
         e.parked = false; waiting--
@@ -407,7 +421,8 @@ class Natives(
         for (e in gone) { e.rows.remove(0); if (e.rows.isEmpty()) release(e) }
     }
 
-    private fun obtain(kind: Int, json: JSONObject): View? = when (kind) {
+    private fun obtain(kind: Int, json: JSONObject, id: Int = 0): View? = when (kind) {
+        5 -> hatched?.invoke(id, context)?.also { (it.parent as? android.view.ViewGroup)?.removeView(it) }
         3 -> if (buffered && !refused) View(context) else TextureView(context).apply { isOpaque = false }
         0 -> videoPool.removeLastOrNull() ?: TextureView(context).apply { isOpaque = false }
         1 -> webPool.removeLastOrNull()?.apply { onResume() } ?: WebView(context).apply {
@@ -427,7 +442,7 @@ class Natives(
 
     private fun create(id: Int, kind: Int, props: String): Element? {
         val json = JSONObject(props)
-        val view = obtain(kind, json) ?: return null
+        val view = obtain(kind, json, id) ?: return null
         if (view.parent == null) addView(view, LayoutParams(1, 1))
         val e = Element(id, kind, view, RenderNode("exact native"))
         if (kind == 2) e.module = json.optString("module")
@@ -476,6 +491,15 @@ class Natives(
                     val web = e.view as WebView
                     if (src.startsWith("http:") || src.startsWith("https:")) web.loadUrl(src) else web.loadUrl(Uri.fromFile(file(src)).toString())
                 }
+            }
+            // A hatch gave the node another view.
+            5 -> if (old != null && old.optInt("gen") != json.optInt("gen")) {
+                val view = obtain(5, json, e.id) ?: return
+                byView.remove(e.view); removeView(e.view)
+                e.view = view
+                if (view.parent == null) addView(view, LayoutParams(1, 1))
+                byView[view] = e
+                if (e.w > 0 && e.h > 0) place(e)
             }
             else -> modules[e.module]?.update(e.view, moduleProps(json))
         }

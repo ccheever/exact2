@@ -1,7 +1,7 @@
 # LLP 1125: A transport, MIDI, and the small pieces apps hand-roll
 
 **Type:** RFC
-**Status:** Accepted r2, 2026-10-16, by the orchestrator under Charlie's instruction of that day ("once happy with it, go ahead and implement"). r1 (`404863b35`) was reviewed blind by three families, each asked for direction and fundamentals only: GPT-6 Astra (max), Grok 4.7 (xhigh) and Muse Wonder Full 1.0 (xhigh), all RIGHT DIRECTION WITH CHANGES (`llp/reviews/1125-a-transport-midi-and-the-small-pieces.{astra,grok,muse}.md`). r2 takes their findings as §R records.
+**Status:** Built, stages 1–5, 2026-10-16 (each stage's "As built" below; every stage's diff reviewed by Astra and Grok before it landed; open edge cases in `QUEUE.md`). Accepted r2, 2026-10-16, by the orchestrator under Charlie's instruction of that day ("once happy with it, go ahead and implement"). r1 (`404863b35`) was reviewed blind by three families, each asked for direction and fundamentals only: GPT-6 Astra (max), Grok 4.7 (xhigh) and Muse Wonder Full 1.0 (xhigh), all RIGHT DIRECTION WITH CHANGES (`llp/reviews/1125-a-transport-midi-and-the-small-pieces.{astra,grok,muse}.md`). r2 takes their findings as §R records.
 **Systems:** Contract compiler (a `sequence` declaration; `sendMIDI`, `requestMIDIAccess`; `midimessage`, `midiinputs`; `wakelock`; `playbackRate=` and `pan=` on hits; `share`'s `files=`), Plan (`sequences`; use bits), Runner (new `runner/src/transport.rs` beside `sound.rs`; the voice bound; `exactTransport()` and `exactMIDI()`; a MIDI queue and record; clock ticks as an input), JS target (`host/web-js/sounds.js` and a transport twin), the sound arm (`host/apple/soundarm/`, `host/web/sound-glue.js`: rate, pan, capacity), a new MIDI arm (Apple `ExactMIDI`, web `midi-glue.js`), the wake lock on each host, Share (`runner/src/share.rs`, `Share.swift`), the agent (`state.transport`, `state.midi`, `state.wakelock`; test steps), `runner/src/device.rs` (one grant row)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-16
@@ -769,3 +769,441 @@ otherwise.
   clock in stage 4. A plan whose sequence has haptics and no declared sound
   sends its haptic ops through the sound batch, which the Apple bake's
   sound arm need not load for; that path was not driven.
+
+## As built (stage 3, 2026-10-16)
+
+D6–D8, MIDI steps, track `offset` and `clockOut=` (D2, D7), as written,
+except where this says otherwise; clock in (D9) stays refused
+(`lower-sequence-clock`). The orchestrator's fifteen rulings for the stage
+are binding and two of them amend the text:
+
+- **D8, "each mounted handler hears it in that one commit":** each
+  listening element hears a message in a commit of its own, in tree order, at
+  the same instant (as `beforeunload` is heard). A refusal in one does not
+  stop the next, nor the next message (a note-off still arrives).
+- **D1, "`ExactMIDI`, linking CoreMIDI only when used":** Apple's MIDI is a
+  loaded arm, `libexact_midi.dylib` (the `ExactMIDI` framework on iOS), as the
+  sound arm is, carried by use: reading `exactMIDI`, `sendMIDI` or
+  `requestMIDIAccess`, a `midimessage` handler, or `play` with `clockOut=`
+  (the bake's `loads` names `midi`). A sequence's notes alone load nothing:
+  without access no note is sent.
+
+- **Compiler.** `requestMIDIAccess()` and `sendMIDI(output, data, at=)` are
+  host commands the runner keeps (`type-request-midi-access`,
+  `type-send-midi`, which holds a literal `data` to MIDI 1.0); `midimessage`
+  is an event whose action may take `MIDIMessageEvent {input, data,
+  timeStamp, beat}`; `midiinputs=[…]` is the kernel prop `midiInputs` (269),
+  newline-joined (`onMIDIMessage`, `midiInputs` are refused with these
+  names); `exactMIDI` is a runner-owned source whose fields and port fields
+  the bake checks (`bake-midi-field`); the grant row `device.midi` maps to
+  `Permissions-Policy: midi` and asks for nothing on Apple. Contract has no
+  hex literals, so an app writes `[144, 60, 100]`.
+- **Runner** (`runner/src/midi.rs`, `runner/src/runner/midi.rs`). One queue
+  of timed messages, a sequence's notes and ticks included; a message is
+  *handed* once `at − 50 ≤ t`, a rule rather than a host's report, and a
+  retraction takes back only what is not handed. At most 1,024 wait;
+  note-offs, Stop and ticks are exempt. Ports merge: one seen stays listed as
+  `disconnected` for the session. A host's report re-answers the `exactMIDI`
+  readers in one commit. On a seek clock (the driver, a test) a request is
+  answered by the runner from the drive's `prefer midi.*` (granted unless it
+  names a state) in a commit of its own, as `exactTransport`'s answer is;
+  on a live clock it is a `request` op to the host. Without the grant the
+  state is `denied` and the request is journaled by name. Input deliveries
+  coalesce Control Change, pitch bend and both pressures within one delivery,
+  never across a note or transport message of the same input and channel;
+  `e.beat` is −1 only while stopped (an app reads `exactTransport().state`
+  to tell a count-in's negative beats apart).
+- **Sequence.** A step whose `note` is not −1 on a track with an `output` is
+  a note-on (`0x90 | channel`) and a note-off `duration` beats later. An edit
+  at `t` takes back the waiting messages whose step is at or after `t`, but a
+  note-off whose note-on was handed stays; a stop takes back every waiting
+  one and moves such a note-off to the later of `t` and its note-on; a second
+  note-on of one output, channel and note moves the earlier note's waiting
+  note-off to it, sent first. A track's `offset` shifts its samples', notes'
+  and haptics' times, never which hits a window holds: at the arming an
+  output before the commit plays at it, at an edit it is skipped (it played
+  already), on a live clock one past at a fill is late. Clock out ticks on
+  the beats `k/24` from the arming's (the count-in's included), sends Start
+  before the first tick at a beat ≥ 0, Stop at a stop no earlier than the
+  last tick handed, Stop then Start at a key restart, and Stop at the end
+  (`ended=`, whose waiting note-offs stay). Ticks are counted in
+  `state.midi.clock`, not listed.
+- **Rules beyond the text and the rulings** (each the simplest deterministic
+  one, in the module's comment):
+  - An edit's MIDI starts 50 ms after it: a note due within the hold counts
+    as played, since re-issuing it would double a note already handed.
+  - Retraction is keyed by the step's time, not the output's, for voices,
+    haptics and MIDI alike, so an unchanged positive offset loses nothing at
+    an edit. An edit of `offset` itself may play a step twice or not at all
+    within the change's size: a declared limit (rulings #8).
+  - An overlap moves only a waiting note-off; a handed one is left.
+  - Start is sent only once the clock reaches a beat ≥ 0, and Stop only
+    after a Start. A `clockOut` changed while playing stops the old output's
+    clock; the new one starts with Start before its next tick at or after
+    beat 0. Clock out above 1,000 ticks a second (a tempo over 2,500) is
+    dropped and journaled.
+  - A step's MIDI fields are checked only when `note` is not −1 (whole
+    0–127, velocity 1–127, channel 0–15, duration above 0) and a track whose
+    `offset` is beyond ±500 ms is dropped, each journaled; notes the value
+    cannot send (no access, an output not connected) are journaled once per
+    value read and skipped.
+  - Any channel message that is not continuous bounds its channel's
+    coalescing; any system message bounds its input's.
+  - `tap midi`'s bytes may hold several messages, one delivery, so a drive
+    coalesces as an arm's delivery does.
+  - A dev reload ends the queue as a stop does, then hands every other
+    waiting note-off at once.
+  - `state.midi` (and the JS target's midi.js) is there for a plan that uses
+    MIDI or declares a sequence (`uses::keeps_midi`).
+  - The journal's lines avoid the word "refused", which the differential
+    driver reads as a refused commit.
+- **JS target** (`host/web-js/midi.js`): the runner's rules line for line;
+  `onMIDI` registers listeners as the view is built, `Sounds.midiApply`
+  applies the commit's MIDI commands after the voice table's, and the grants,
+  which come with the data module and may land after the first frame, ask
+  the readers again when they do. Conformance found two of sounds.js's own:
+  it now applies only its three commands and says `state.sounds` only for a
+  plan that declares a sound, as the runner does.
+- **Hosts.** Every host takes a `{"op":"midi","boot"?,"ops":[send, retract,
+  open, request]}` batch op and hands back the ports or one delivery of
+  input through one export, `exact_midi`. Apple: CoreMIDI on the arm's own
+  thread and run loop, made at the first request (no CoreMIDI client before
+  it: `prompt`), ports by `kMIDIPropertyUniqueID`, sends held on that thread
+  and sent with `MIDISendEventList` in host time (never `MIDIFlushOutput`),
+  inputs stamped from the packet, a 3 s watchdog while a port is in use and
+  re-enumeration at the foreground; tvOS is `unavailable`. Web:
+  midi-glue.js for both targets, `granted` without asking when the
+  permission holds, held sends on the page's timer (late ones counted),
+  input batched per frame. Linux and Windows keep the record; off the agent a
+  request finds `unavailable`. No MIDI loads under the agent.
+- **The driver.** `prefer midi.state|inputs|outputs`, `tap midi "<input>"
+  <hex…>`, and the test steps `prefer midi.…` (a step beyond the RFC: a
+  test needs ports), `tap midi …` and `expect midi sent|missing "<output>"
+  <hex…> [at N]`, a byte two hex digits rebuilt from the tokens that touch.
+- **Consumer.** The metronome gains a MIDI output picker (a `select` of
+  `exactMIDI().outputs`), "Send MIDI clock", and General MIDI percussion notes
+  on channel 10 for the clicks (wood blocks 76, 77) and the drums (36, 38, 42,
+  39) when an output is chosen; it grants `device.midi` and gains a Linux host
+  so conformance can drive MIDI on all three runners.
+- **Measured.** Conformance `midi` (ports, a request, `sendMIDI`'s `at=`, a
+  late and a malformed one, notes on a connected and a missing output, clock
+  out, a tempo and an offset edit, a key restart, the gate's stop, `ended=`,
+  a coalesced delivery heard by two elements, an output pulled): 35 of 35
+  steps equal on wasm, JS and Linux, journal lines and `state.midi` included;
+  `transport` 34/34, `sounds` 33/33, `gates` 19/19, `frames` 9/9, `clock`
+  10/10 still equal. The metronome's eight tests pass on the web, macOS, the
+  iOS 27 simulator and Linux. The macOS loopback XCTest (virtual endpoints)
+  passes: a send arrives on its time and never early, a retraction holds, an
+  input is stamped right, a replugged source keeps its id; a probe measured a
+  send 0.06 ms after its `at`.
+- **After review** (Astra, Grok; round 1): a `reload` command ends the
+  queue as a stop does, every waiting note-off handed at once, in the runner
+  and the JS twin; a host that replaces its runner (a boot, a new
+  generation) first ends the old runner's voices and notes and sends that
+  batch before the new boot's, and a boot or a session's end settles what
+  the output still holds: a note-off or Stop goes now, the rest is let go
+  (Apple's arm, midi-glue.js). A note-on due within the hold takes no
+  waiting place, so a full queue never blocks a note that is due (a fill
+  blocked at it had woken at its own time forever). No tick goes before the
+  last Stop's time, so a restart's Start reaches the device after the old
+  clock's Stop; a waiting Start an edit takes back is sent again. Apple: the
+  setup notifications enumerate on the arm's thread, where every other
+  change to the ports runs; the receive block only copies messages into a
+  preallocated lock-free ring (`midiarm/midi_ring.h`) that the arm's thread
+  drains; inputs a listener opened before the request are listened to once
+  it is granted. The JS twin answers `exactTransport` before `exactMIDI` at
+  one time, as the runner does (conformance `midi-order`), and a listener's
+  refusal is `tap midi`'s refusal there too. midi-glue.js journals a refused
+  request as `access denied`.
+  Round 2: a fill a full queue blocks wakes when the blocked output can take
+  a place (its track's offset counted), never again where it stood; a
+  runner ended for its replacement takes the host's clock first; only the
+  clock's own Start, taken back, is sent again; a note-off or Stop sent at
+  teardown is stamped no earlier than its note-on or the output's last
+  message; Apple's input ring keeps its last 1,024 places for notes and
+  transport messages.
+  Round 3: a teardown note-off is stamped no earlier than the latest
+  note-on of its note handed, whichever was handed last; a note-on the
+  runner takes back after Apple's arm or midi-glue.js handed it (the
+  runner's clock behind theirs) is ended by a note-off at once, after it;
+  an edit fills from where a full queue parked the fill when that is
+  before its time, hits timed by the segment each falls in, and takes for
+  handed (the within-hold skip) only what a fill issued, by beat.
+  After the rounds (the orchestrator): a parked note's note-off is timed
+  by the segment its end beat falls in, not the newest. Still open, both
+  found by the last confirmation and left by the three-round rule
+  (`QUEUE.md`): Apple's arm and midi-glue.js keep about a second of handed
+  note-on ids, so a retraction delayed past that leaves its note sounding;
+  and an edit at the very beat a full queue parked the fill keeps that
+  beat's skip, so a note already retracted there is not issued again.
+- **Not done here.** No real device or IAC bus was available, so nothing was
+  sent to hardware from the Mac, and Chrome's Web MIDI was not tried by
+  hand. The watchdog and iOS foreground re-enumeration are not exercised by a
+  test. The Lean semantics were not run (not installed); the corpus's
+  `send-midi` agrees between the runner and the JS target. euxy's port has
+  not yet deleted its scheduler or `MidiManager.swift`.
+
+## As built (stage 4, 2026-10-16)
+
+D9 as written, with the orchestrator's fourteen rulings for the stage
+(binding), except where this says otherwise.
+
+- **Compiler.** `clock=` lowers as plan code; `lower-sequence-clock` is
+  gone. `bpm=` is required unless `clock=` is given, and an omitted one is
+  120: the prior a follower plays at until it has heard 13 ticks (rulings
+  #2). `expect sound … by clock` parses, and the test step `tap midi "<in>"
+  clock <bpm> <ms>` reaches the driver.
+- **Runner** (`runner/src/transport/clock.rs`). A sequence with `clock=` is
+  `waiting` until Start: no segment, no fill. The follower keeps the last 48
+  tick stamps and estimates `60000·(n−1)/(span·24)` on a packet-leading
+  tick once 13 are in the window (euxy's estimator, no throttle); a stamp
+  earlier than the last, or 500 ms after it, empties the window. Position
+  counts ticks (rulings #11): Start puts `from` at the tick it predicts
+  next, else at its own stamp (rulings #1); Continue resumes at Song
+  Position since the last Stop, else at the held beat, else 0, with no
+  count-in (rulings #12). Each run of ticks ends in an anchor. Hits are
+  issued under one segment to 100 ms past the delivery (more by a track's
+  negative offset), and between deliveries nothing fills (a full queue's
+  wake aside). Stop silences as D4 does and leaves the sequence `waiting`,
+  reason `clock`, still following (rulings #3). `clockOut=` is ignored and
+  journaled (rulings #4); a changed `clock=` restarts as a key does
+  (rulings #13); nothing times out a lost clock (rulings #14). Deliveries
+  are the existing `{"messages":…}` input call (rulings #8): the followed
+  input's Clock, Start, Continue, Stop and Song Position go to the
+  transport first, in arrival order, then the delivery is coalesced and
+  dispatched as before, Start, Continue, Stop and Song Position still heard
+  as `midimessage` with `e.beat` read after (rulings #9). The `open` op
+  carries `"clock":[ids]`, and the followed input is opened with or without
+  a listener. `exactTransport` says `clock: "midi"`, its tempo rounded to
+  0.1 and published again only on rulings #7's terms; while waiting it
+  shows the device's tempo. `state.transport.follow` shows the input, the
+  ticks, the window, the estimate, the ticks since Start and the held beat.
+- **Deviation, rulings #5.** A new anchor that moves any revocable hit (from
+  50 ms past the delivery, more by a negative offset, to where hits are
+  issued) by more than 2 ms becomes the segment and takes back the whole
+  band (`by: clock`), not only from the first beat that drifts; one within
+  2 ms everywhere is kept out, the hits issued under the segment they were.
+  With deliveries 50 ms apart nothing is revocable (the lookahead is the
+  batch plus the hold), so re-anchoring then only moves later hits; it
+  takes hits back when a delivery comes sooner (Start and Stop at once,
+  single ticks).
+- **After review** (Astra, Grok; round 1): the band starts strictly after
+  the hold's edge, so a note due exactly 50 ms out, handed already, is
+  neither taken back nor queued again. Following, the transport keeps the
+  hits it issued by `(beat, track, step)`, and a refill
+  issues none of those again: a hit kept within the hold at one re-anchor
+  belongs to an older segment, whose beats the next anchor's band need not
+  order, and was otherwise issued twice. A refill starts at the first beat
+  taken back when an older segment put it before the band. Apple's hub
+  numbers its drains, so a tick's delayed drain armed before a drain at
+  once does nothing and the ticks after it wait their own 50 ms. A
+  sequence that followed a clock and stopped (its gate, the background,
+  its end) answers `clock: "internal"` again.
+  Round 2: only a re-anchor's cut excludes its edge; Start and Continue
+  while playing take back the hits from their delivery's time, its own
+  included. The hits kept are let go by position, not age: once the ticks
+  counted pass a hit's beat by one, and no hit more than a beat behind them
+  is issued, so a clock that stalls and comes back plays no beat twice.
+- **Rules beyond the text and the rulings** (each the simplest
+  deterministic one, in the module's comment):
+  - Start's predicted tick is never before Start's own stamp; Start again
+    while playing takes back (`clock`) what was issued for later and starts
+    over at `from`.
+  - Stop silences at the delivery's runner time, not at its stamp: what the
+    output already played cannot be taken back.
+  - A gap empties the window but keeps the last estimate.
+  - Following, `e.beat` reads the one segment hits are issued under (the
+    clock's segments do not join), and is −1 while waiting.
+  - An edit while following starts no segment (`bpm=` is the prior); while
+    waiting it only keeps the new value. An edit, or Start again, in the
+    hold after a re-anchor can play a hit at that boundary twice or not at
+    all within the drift: a declared limit.
+  - A message from an input no element hears is dropped unrecorded, so a
+    clock-only input's transport messages reach the transport and not
+    `state.midi.received`.
+  - A key or clock restart starts a new follower, its window empty.
+  - `tap midi`'s clock form is `{"input","clock":[[stamp, byte],…]}` (Song
+    Position `[stamp, 242, lsb, msb]`), stamps rising from the follower's
+    last tick to now, refused by name without a follower (`tap midi: no
+    sequence follows "<in>" (clock=)`); its byte form needs no listener for
+    the followed input. The CLI's `tap midi` takes a quoted input.
+  - Journal lines: `sequence S waits for clock from IN`, `sequence S: clock
+    start|continue at T, beat B`, `sequence S re-anchored: beat B at T, bpm
+    N`, `sequence S: song position ignored while playing`, `sequence S:
+    clock out ignored: it follows IN`, and `sounds|midi|haptics retracted:
+    N (clock)`.
+- **JS target** (`host/web-js/clockin.js`, `transport.js`, `midi.js`,
+  `sounds.js`): the runner's rules line for line; rt.js and
+  `runner/src/agent.rs` unchanged.
+- **Hosts.** Apple's arm passes Timing Clock on (Active Sensing still
+  dropped at the receive block); the hub keeps a tick only from an input
+  some session follows and delivers it only to that session, ticks alone
+  at most 50 ms after the oldest, anything else at once with the ticks
+  ahead (`main.async`). midi-glue.js does the same, the rest at the next
+  frame. Linux, Windows and the wasm host: no change.
+- **The driver** (rulings #10). `tap midi "<input>" clock <bpm> <ms>`
+  expands in `scripts/agent-keys.mjs` (`clockSlices`) into 50 ms slices,
+  each `clock` to its end and one delivery of its ticks; a tempo whose tick
+  is a whole number of milliseconds keeps every stamp exact.
+- **Consumer.** The metronome gains "Follow clock", a `select` of
+  `exactMIDI().inputs`: following, it shows "Waiting for clock" until
+  Start and the device's tempo in the stepper's place.
+- **Measured.** Runner tests (`runner/src/transport/tests/clock.rs`, 9):
+  the window, Start from rest and with a running clock, Stop, Continue and
+  Song Position, a count-in landing on tick 96, a tempo change taking hits
+  back with none within the hold moving, ±1 ms jitter moving nothing,
+  `ended=` at the predicted end, a key and an input restart, clock out
+  ignored, what is dispatched, and the same deliveries into fresh runners
+  giving the same voices, MIDI, journal, answer and `state` (one advance
+  or seventy across a lost clock). Conformance `midi-clock`: 31 of 31 steps
+  equal on wasm, JS and Linux; `transport` 44/44, `midi` 36/36,
+  `midi-order` 8/8, `sounds` 33/33, `gates` 19/19, `frames` 9/9, `clock`
+  10/10 still equal. The metronome's nine tests pass on the web, macOS, the
+  iOS 27 simulator and Linux. The macOS loopback XCTest passes: ticks stamped from their packets
+  within 0.5 ms, ticks alone more than 40 ms apart and never more than
+  75 ms late, Start within 10 ms with its ticks ahead, no Active Sensing,
+  and no tick from an input not followed. midi-glue.test.mjs covers the
+  web's batching.
+- **Not done here.** The bar, euxy following a real OP–XY's clock through
+  a count-in and a take, was not run: no device. The first downbeat from a
+  device whose clock was not already running is late by the delivery's
+  latency (declared). The Lean semantics were not run (not installed);
+  `contract-difftest`'s tests pass. Clock thru (sending clock while
+  following one) is deferred (`rules/DEFERRED.md`).
+
+## As built (stage 5, 2026-10-16)
+
+D12 as written, except where this says otherwise.
+
+- **Compiler.** `share` takes `files=`, a list of strings, beside
+  `title=`, `text=` and `url=`; one of `text`, `url` and `files` is
+  required. A literal entry is an `app:/` path or a non-empty `"#id"`, and
+  a literal `files=[]` is refused (`type-share-argument`, three new reject
+  fixtures). Lowering orders the arguments `(title, text, url, files)`, so
+  every host's `share` now has four. A literal `"#id"` that no element of
+  the whole expanded view carries is `lower-share-picture`; where any
+  element's id is computed, a node is not expanded, or a `markdown` draws
+  elements of its own, the check stands back and the runner refuses a
+  missing id when the share runs.
+- **Runner** (`runner/src/share.rs`). One rule on every host, before the
+  agent's hold: an `app:/` entry must be a plain app path that the app's
+  `fs.read` grant covers (`covered`, as `saveFile` checks it; LLP 1069.008
+  D3), and an `#id` must name an element in the kernel now (`no element
+  with id "card"`). What a host cannot share is a `Reach`, refused by name
+  before the hold too, since the host would refuse it for real: the web's
+  pictures, Android's files. The present reply carries the files in order,
+  `{"path":…}` or `{"id":…,"view":N}`; the hold's summary gains `files`
+  (always present, `[]` when none).
+- **Page facts.** `exactPage()` gains `canShareFiles` (bit 8) and
+  `canSharePictures` (bit 9). iOS and macOS: both true (tvOS: false). The
+  web: `canShareFiles` is `navigator.canShare({files})` for a one-byte
+  `text/plain` File, read once; `canSharePictures` is false. Linux and
+  Android: false. Under the agent both are true on every native host, as
+  `canShare` is (the substitute answers there); on the web `canShareFiles`
+  is true and `canSharePictures` false, since the web refuses a picture
+  under the agent as well. `prefer can-share-files` and
+  `prefer can-share-pictures` set them on every host.
+- **Apple** (`Share.swift`). A path goes as a copy the library makes
+  (`shareFile`, `host/apple/src/picker.rs`), read as `readFile` reads it:
+  `fs.read` admitted by the grant parser, every component opened relative
+  to the roots' descriptors with `O_NOFOLLOW`, a regular file only; a link
+  anywhere in the path is refused (`… Too many levels of symbolic links`).
+  A picture is `ShareSheet.picture(of:)`: on iOS
+  `UIGraphicsImageRenderer` at the view's `displayScale`, drawing with
+  `drawHierarchy(afterScreenUpdates: false)` on screen and `layer.render`
+  off it; on macOS `bitmapImageRepForCachingDisplay` and `cacheDisplay`,
+  at the window's backing scale. Entry `n` is written as `n/<name>` (the
+  file's last segment, or `<id>.png`) in a fresh temporary directory, so
+  two entries whose names come out alike stay two files; the directory is
+  removed when the sheet reports its outcome or fails to present. A picture
+  is journaled `share: picture of #card: W×H px, N bytes`; a node with no
+  view or no area is `share: refused: #card is not drawn`.
+- **Deviation: `EXACT_DEVICE=real` now reaches `share` on Apple.** The
+  session asked the runner with `agent` set to agent mode, so a real sheet
+  could not be seen under the driver; it now sends `PageFacts.substituted`,
+  which LLP 1069.007 D8 already defines.
+- **Web.** The runner (wasm glue) or `files.js` (JS target) rules; then
+  `picker-glue.js`'s `share` reads each file (a picked File, else the app's
+  store) into a `File` named by its last segment and typed by its
+  extension, and calls `navigator.share` when `navigator.canShare` takes
+  them, else `share: refused: this browser cannot share these files`. A
+  share without files still calls `navigator.share` synchronously in the
+  dispatch.
+- **Deviation: the web reads files after the press.** Reading the store is
+  asynchronous, so `navigator.share` runs after awaits, inside the press's
+  transient activation rather than synchronously in it. Chromium keeps
+  activation for about five seconds; a browser whose window is shorter, or
+  a large file, gets `share: refused: NotAllowedError`. Chromium's
+  `canShare` also refuses types outside its share list (JSON among them),
+  so Fieldnotes' backup is refused there by name.
+- **Ruling: Android refuses files** (`share: refused: files are not
+  carried to Android's share sheet yet`). Carrying them needs a
+  `FileProvider` in the Canvas host's manifest, the presenter's app roots
+  mapped to content URIs, and a picture from the Canvas renderer rather than
+  a platform view: not a contained change. Text and links still go to the
+  Sharesheet. Desktop Linux refuses `unavailable` as before.
+- **Consumers.** Metronome: a tempo card (`id="card"`: the tempo and the
+  pattern) and **Share as image**, `share(title=, text=, files=["#card"])`,
+  shown where `canSharePictures` holds. Fieldnotes: **Share backup file…**
+  beside Export, `files=["app:/data/backups/fieldnotes.json"]`, where
+  `canShareFiles` holds.
+- **Tests.** `runner/src/share.rs` (files alone, strings, the JSON
+  door's list); `contract/cli/tests/it/share.rs` (the four-argument order;
+  Apple presents a picture by its view and a granted path in order; the
+  web refuses the picture, under the agent too; an ungranted path is
+  refused everywhere; the hold records the entries; the JSON reply; the
+  compile-time `#id`); `host/web-js/files.test.js` (the JS twin's hold and
+  refusals; `picker-glue.js` with a fake navigator: typed Files, `shared`,
+  `dismissed`, `NotAllowedError`, `canShare` false, no store);
+  `host/web/agent.test.mjs` (bits 8 and 9, `canShare({files})`);
+  `ShareMacTests`/`ShareIOSTests.testPicture` (a red node drawn to a PNG of
+  its points times the display's scale, red at its centre; no area, no
+  picture).
+- **Measured.** Driven under the agent: Metronome on macOS, the iOS 27
+  simulator and the web (`prefer can-share-pictures true` then the button:
+  the web's refusal by name); Fieldnotes on the web (the hold lists
+  `files: ["app:/data/backups/fieldnotes.json"]`). With `EXACT_DEVICE=real`
+  (on the simulator through `SIMCTL_CHILD_EXACT_DEVICE`): macOS drew the
+  card at 139×94 px (a scale-1 window), the iOS simulator at 497×339 px
+  (3×), and both presented with no refusal.
+- **Not done here.** No one picked an activity in a real sheet, so the
+  outcome lines of a file share were not seen; the window screenshots do not
+  include the sheet. A real browser's `navigator.share({files})` was not
+  run (the glue was tested with a fake navigator). A scratch directory
+  whose sheet is still open when the app quits stays in the temporary
+  directory until the system clears it. euxy's `ShareCard.swift` was not
+  touched (its port is outside this repo). The wasm glue's share path
+  (`host/web/glue.js`) was tested through the runner's JSON door, not
+  driven in a page. `contract-difftest quick` was not run: Lean is not
+  installed on this machine.
+- **After review** (Astra, Grok). Apple shared the URL `appFile` joined,
+  which follows a link, so `fs.read app:/data` could put a file outside
+  the grant on the sheet; it now shares the confined copy above (tests: a
+  leaf link, an ancestor link, and a file replaced by a link before the
+  read, in `picker.rs`; driven on macOS: a backup swapped for a link while
+  the app ran was refused). The web reads through the app's IndexedDB
+  store, keyed by the normalised path, which has no links to follow. The
+  runner's `covered` read a grant line by whitespace, so `fs.read
+  "app:/data/a b"` admitted nothing in Rust while the browser admitted it;
+  it now parses each line with `exact_grants` and asks `permits`, which
+  `saveFile` shares (pinned against the browser's form: `save_file.rs`
+  checks the parsed JSON byte for byte, and `files.test.js` runs the real
+  `coversPath` over it). Two pictures whose ids sanitise alike
+  (`#card.one`, `#card-one`) wrote one file; each entry now has its own
+  folder.
+- **After review round 2.** The share's copy reopened the roots by name,
+  following a link at or above a root; the roots' handles are now pinned
+  when storage is configured (`set_roots`) and a share reads only through
+  them (test: a data root swapped for a link after pinning still yields
+  the pinned tree's file). A grant declaration with any line the parser
+  refuses now admits nothing, in the runner as in the browser (parity
+  pinned on both sides). The copy runs on the main thread, so it is
+  bounded: a file over 64 MB (`SHARE_COPY_MAX`) is refused by name
+  (`larger than the 64 MB a share copies`), and one that grows past the
+  bound while copied is refused and its copy removed.
+- **After review round 3.** The pinned handles were one per process, so
+  in the sample host's two sessions (LLP 1031) the second's storage
+  replaced the first's and a share in the first read the second's tree.
+  They are now kept per app, by the roots' paths, and a share looks up the
+  roots of its own session's app (test: two pinned trees, each share reads
+  its own; roots never pinned have no files).

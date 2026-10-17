@@ -10,6 +10,12 @@ macro_rules! piece {
     };
 }
 const FRAME: &str = piece!("frame");
+pub(crate) const OCCLUSION: &str = piece!("occlusion");
+
+/// The occlusion pass's depth-only vertex shader (occlusion.rs).
+pub(crate) fn occluder_source() -> String {
+    [FRAME, TRANSFORM, piece!("occluder")].concat()
+}
 const TRANSFORM: &str = piece!("transform");
 const SHADOW_SAMPLE: &str = piece!("shadow_sample");
 const NO_SHADOW_SAMPLE: &str = piece!("no_shadow_sample");
@@ -578,7 +584,7 @@ impl Pipelines {
     }
 }
 
-fn vertex_layout() -> [Option<wgpu::VertexBufferLayout<'static>>; 1] {
+pub(crate) fn vertex_layout() -> [Option<wgpu::VertexBufferLayout<'static>>; 1] {
     const ATTRIBUTES: [wgpu::VertexAttribute; 4] =
         wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Float32x4];
     [Some(wgpu::VertexBufferLayout {

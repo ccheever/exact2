@@ -32,12 +32,14 @@ mod mode;
 mod root_font;
 mod shown;
 mod sounds;
+mod tamber;
 mod theme;
 pub use event::{
     ActionBinding, ActionBindingError, ActionBindingRefusal, ControlValue, Event, KeyModifiers,
     KeyboardEvent, ScrollEvent,
 };
 pub use live::{LiveApplied, LiveRefusal};
+pub use tamber::{Color as ColorKind, Kind, Place, Tamber, Token};
 mod canvas2d;
 pub use canvas2d::{
     engine as canvas_engine, CanvasEngine, CanvasList, DrawReply, DrawRequest, Drawn, Geometry,
@@ -47,6 +49,7 @@ mod carry;
 mod checkpoint;
 mod collection;
 mod source;
+mod tabs;
 pub use source::{
     Announce, BackgroundState, DataError, DataSource, InFlight, Interrupt, Native, NativeCall,
     NativeHandler, Overlaid, PreloadWake, Target, Write, BACKGROUND,
@@ -81,6 +84,7 @@ pub use lists::{ListTextPolicy, ListTextPosition};
 mod settlement;
 mod sockets;
 pub use sockets::{SocketReader, SocketState};
+pub mod midi;
 mod split;
 mod surface_record;
 mod time;
@@ -368,6 +372,10 @@ pub struct Runner<D: DataSource> {
     design: Option<String>,
     /// A development build, admitting live batches ([`Runner::admit_live`], from its compat).
     live: bool,
+    /// What a binding was told of this plan's tokens (a name it lacks), each said once (LLP 1121 D12).
+    tamber_said: Vec<String>,
+    /// How many times a token's value moved (`set_tokens`): a binding's input.
+    design_moves: u64,
     /// Its role overrides, its own (LLP 1121 stage 5; [`Runner::roles`]).
     roles: exact_kernel::style::roles::Installed,
     /// The session the owner's token names (LLP 1094 D4).
@@ -478,6 +486,8 @@ pub struct Runner<D: DataSource> {
     /// Whether fresh answers of store-reading resources are kept for the
     /// next boot: only for a source that may not be ready at boot.
     keeping: kept::Keeping,
+    /// Resources asked again and again with new arguments (a development build's warning).
+    churn: query::Churn,
     poisoned: bool,
     /// Evaluate every site on every update (the incremental update's
     /// reference; `set_full_evaluation`).
@@ -525,6 +535,8 @@ pub struct Runner<D: DataSource> {
     sounds: crate::sound::Sounds,
     /// The transport (LLP 1125 D3): the sequence playing and its record.
     transport: crate::transport::Transport,
+    /// MIDI (LLP 1125 D6–D8): the ports, the queue and what inputs delivered.
+    midi: crate::midi::Midi,
     /// The app's `setRootFontSize` over the host's size (LLP 1069.000 D3).
     root_font: root_font::RootFont,
     fonts: std::rc::Rc<std::cell::RefCell<crate::bridge::RuntimeFonts>>,
@@ -634,6 +646,7 @@ impl<D: DataSource> Runner<D> {
                 .filter(|(s, _)| s.owner.is_none())
                 .map(|(s, v)| (self.plan.str(s.name).to_string(), v.clone()))
                 .collect(),
+            panels: self.carry_panels(),
             resources: self
                 .plan
                 .resources
@@ -814,6 +827,7 @@ impl<D: DataSource> Runner<D> {
             strings: vm::intern(&plan),
             failed_mut: vec![None; plan.mutations.len()],
             transport: crate::transport::Transport::new(&plan),
+            midi: crate::runner::midi::queue(&plan, &data),
             plan,
             inspection_digest: std::cell::OnceCell::new(),
             action_binding_origin: std::rc::Rc::new(()),
@@ -830,6 +844,8 @@ impl<D: DataSource> Runner<D> {
             reorder_kept: Default::default(),
             design: None,
             live: false,
+            tamber_said: Vec::new(),
+            design_moves: 0,
             roles: exact_kernel::style::roles::Installed::new(roles.clone()),
             reorder_session: None,
             dropping_from: None,
@@ -885,6 +901,7 @@ impl<D: DataSource> Runner<D> {
             stale: Vec::new(),
             awaiting: Vec::new(),
             keeping: Default::default(),
+            churn: Default::default(),
             delivery,
             viewport,
             page: Default::default(),
@@ -1038,6 +1055,7 @@ impl<D: DataSource> Runner<D> {
         runner.transport_stood();
         // First frame.
         let mut ids = std::mem::take(&mut runner.ids);
+        ids.tabs.carried = carried.map(|c| c.panels.clone()).unwrap_or_default();
         let (tree, ops, surfaces, notes, shown) = {
             let mut u = Update::new(runner.env(&[], &[]), &runner.sites, &mut ids);
             u.fonts = Some(runner.fonts.clone());
@@ -1159,7 +1177,7 @@ impl<D: DataSource> Runner<D> {
 
     /// Same immutable plan as a targeted node read. No work until an inspector
     /// requests identity; a replacement runner owns a fresh cache.
-    pub(crate) fn inspection_digest(&self) -> &str {
+    pub fn inspection_digest(&self) -> &str {
         self.inspection_digest.get_or_init(|| {
             use sha2::{Digest, Sha256};
             use std::fmt::Write;
@@ -1383,7 +1401,8 @@ impl<D: DataSource> Runner<D> {
         self.poisoned
     }
     fn apply(&mut self, mut ops: Vec<exact_kernel::Op>) -> Result<CommitReceipt, RunnerError> {
-        // The queued patches' colours stay kept until this commit marks them.
+        let _roles = self.bind_roles(); // Its own (LLP 1121 stage 5).
+                                        // The queued patches' colours stay kept until this commit marks them.
         let (mut prefix, _queued) = self.take_reorder_ops();
         if !prefix.is_empty() {
             prefix.append(&mut ops);

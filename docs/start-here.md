@@ -10,23 +10,23 @@ The only required reading; the rest is lookup.
 2. **Leave the rest unsaid:** controls, bars, type and dark mode are the platform's, and so
    are a `list`'s rows: its children are rows, so draw no separator and no press. A
    colour or size names a role (`-exact-secondary-label`, `font="-exact-footnote"`; `bun
-   <exact2>/scripts/no-tells.mjs .` lists literals). The one colour you write is the
-   accent, on the view's root node: a system colour
-   (`main accent-color="-exact-system-teal"`) or a `light-dark(light, dark)` pair. A brand is an `app.tamber`; a colour names a role or
+   <exact2>/scripts/no-tells.mjs .` lists literals). Leave the accent unsaid: it is the
+   platform's blue, and a filled button keeps its white label (`check` reports a pale
+   accent's low contrast). A brand is an `app.tamber`; a colour names a role or
    one of its tokens (`recipes/tamber.md`). A card is `-exact-secondary-background`
-   (`-exact-secondary-grouped-background` on a grouped page). White text on a prominent
-   button fails on green, mint, teal, cyan, yellow, orange (`check` refuses it;
-   `RoundButton` tints them).
+   (`-exact-secondary-grouped-background` on a grouped page).
 3. **Design your content:** a focal point (big type, a fill, a shape), a hierarchy in
    rows, an empty state with its next step; inset-grouped is for settings and forms.
    `use X from "exact:content"` draws them; the card gives each one's call (`none` for an option):
    - `RoundButton`: Start, Stop. `AnswerTile`: a choice; `status` is `"idle"`, `"selected"`,
      `"correct"`, `"wrong"` or `"dimmed"`. `SummaryCard`: the one number, shown once
-   - `RingProgress`, `StatBar`, `RowText`, `Badge` a status, `DoneMark`; `EmptyState` over your `button`
+   - `RingProgress`, `StatBar`, `RowText`, `Badge` a status, `DoneMark` done or not; `EmptyState` over your `button`
 4. **Compose as the platform does:** a row pushes its detail; create and edit are sheets; a
    phone gets one column, a wide window two (`responsive-columns`). Tabs (a sidebar) and a
    list whose rows push (beside its detail) need no code; one number and its buttons: a
-   centred column (`max-width=420`).
+   centred column (`max-width=420`). The rows of a list the person deletes from swipe to
+   delete and open a menu on a long press (`list-detail`, `contract vocab swipe`).
+   `haptic("selection")` marks a choice in your own control, `haptic("success")` a task done.
 
 ## The workflow
 
@@ -42,6 +42,7 @@ driver, generated operations and device. The origin defaults to 4400.
 `bun exact.mjs snapback` wires an existing app. With an existing schema, the
 untouched greeting becomes a typed query and mutation explorer with `--online`.
 `snapback --port <n>` records an ignored local backend selection.
+At bake, `.exact/backend-origin` overrides `app.ts`'s `origin` constant.
 `EXACT_BACKEND_ORIGIN` or `test web --backend <url>` selects the origin and matching
 grant at bake time without editing authored source or tests. Password sign-in, stored sessions and refresh with Contract time are
 in [the adapter guide](../snapback4/README.md#personas-and-password-accounts).
@@ -51,6 +52,11 @@ grants. A computed origin or grants declaration needs an explicit edit.
 After upgrading Snapback4, run `bun exact.mjs snapback --rebuild`.
 `bun exact.mjs update` also rebuilds a mounted device after updating Exact.
 Custom mounts: add `--artifact-only` to rebuild without rewiring.
+`app.json`'s `typescript.sources` are virtual import mounts: `./backend/api.ts`
+resolves through `backend` to `../snapback/generated/api.ts`, and
+`./snapback4/snapback.ts` resolves through `snapback4` to the selected adapter.
+These directories need not exist inside the app. A healthy `snapback --rebuild`
+prints the resolved mappings and exits successfully.
 The device's embedded `snapback4.engine` section records its identity;
 `assets/snapback4.wasm.json` is derived diagnostic output.
 `snapback`, `contract build`, `test web` and `agent web` refuse a stale device;
@@ -71,12 +77,15 @@ want checked or captured is a test's end; a drive takes any others (`resize`, `p
 Create seam types once with `bun exact.mjs contract types app.contract -o app.contract.d.ts`.
 `contract build` refreshes that declaration after a successful compile and reports
 the change on stderr. `contract types --check app.contract` checks freshness without writing.
-Keep scratch files in `.exact/` (any other new file makes the build stale).
+Keep scratch files in `.exact/`. Scratch files there and a test-only `seed.json`
+do not make the build stale. The backend selection `.exact/backend-origin` and
+any JSON file imported by `app.ts` remain build inputs.
 
 `agent ios` is the app as a person sees it, UIKit's bars included, with screenshots a pixel a
 point (`--scale 3`: the device's): no other simulator tool is needed. `--touch platform` makes
 each tap a real touch, which opens UIKit's menus and reaches a native module's own controls: drive
-with it to compare a port's screens with the original's ([recipe](recipes/ios-driving.md)).
+with it to compare a port's screens with the original's ([recipe](recipes/ios-driving.md)); porting
+a React Native app, read [its pitfalls](agent-pitfalls.md#porting-a-react-native-app) first.
 `--timing platform` gives UIKit its own timing, and `ios --release` builds
 what ships (`--prebuild --release` early: its first build is minutes; `EXACT_UPDATE_TRUST=production
 bun exact.mjs agent ios …` drives it).
@@ -250,6 +259,16 @@ Each test opens empty app storage; backend rows survive tests and runs unless
 test. This uses `POST /dev/reset` (Snapback4 **0.4.29**, `dev` only).
 `fresh "seed.json"` then seeds it with `[{"table": …, "row": {…}}]`, from a path
 relative to the test file. A server lacking reset fails the test.
+Each seed row includes a stable 26-character Crockford base32 `id` (digits
+and capital letters except I, L, O and U); the scaffold supplies these ids.
+Tables with `insert <- deny` are commonly role rosters provisioned outside the
+app: bare `fresh` removes them too, so privileged operations will refuse.
+Use `fresh "seed.json"` and seed those roster rows for each test. A `--snapback`
+scaffold writes sample roster rows (or copies the backend's `seed.json`);
+review their persona, role and field values before using them.
+The runner warns when the drive epoch differs from the backend clock by more
+than a day, including an explicitly chosen epoch. `epoch now` follows real time;
+an intentional clock test must arrange both clocks.
 
 Server ids are unique, not ordered. Sort by time; tests can reach rows by text
 or position (`each t, i in tasks key=t.id`, ``testId=`task-${i}` ``).
@@ -301,6 +320,7 @@ Start from the nearest pattern, a tested app with what the recipes teach. Open a
 |a settings form|`grouped-form`|
 |a write that may be refused|`after-a-write`|
 |a count 1–99|`contract vocab stepper`|
+|a chat that opens at its newest message|`chat-thread`|
 |SQLite, grants|`files-and-grants`|
 |another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
 |a view only Swift can draw|`native-views`|

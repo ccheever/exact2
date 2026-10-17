@@ -196,7 +196,8 @@ extension Agent {
     /// presentation and its close policy, and the transition's phase.
     func stateSections() -> [String: Any] {
         let vp = presenter.viewport
-        var focus: [String: Any] = ["logical": NSNull(), "editor": NSNull(), "responder": NSNull(), "pending": NSNull()]
+        var focus: [String: Any] = ["logical": NSNull(), "editor": NSNull(), "responder": NSNull(), "pending": NSNull(),
+                                    "native": NSNull(), "events": ResignTrace.events]
         let responding = presenter.views.values
             .filter { $0.isFirstResponder || $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true }
             .min { $0.id < $1.id }
@@ -205,6 +206,10 @@ extension Agent {
             if node.field != nil || node.textArea != nil { focus["editor"] = Int(node.id) }
             let responder: UIResponder = node.textArea ?? node.field ?? node
             focus["responder"] = String(describing: Swift.type(of: responder))
+        }
+        // The native editor UIKit holds as first responder, by its token (`ResignTrace`)
+        if let node = responding, let editor: UIView = node.textArea ?? node.field, editor.isFirstResponder {
+            focus["native"] = ResignTrace.token(editor)
         }
         if let pending = presenter.pendingFocusObservation {
             focus["pending"] = pending

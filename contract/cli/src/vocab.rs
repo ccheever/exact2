@@ -541,6 +541,12 @@ fn prop_type(p: PropId) -> String {
     format!("{:?}", tags::prop_ty(p)).to_lowercase()
 }
 
+/// What a long press (a right click) opens: the menu `contextPopover` names.
+const CONTEXTMENU: &str = "a long press on iOS, a right click elsewhere: `contextmenu=aim(id)` notes which item it was and `contextPopover=\"<menu id>\"` names the `popover=\"auto\" role=\"menu\"` column it opens (iOS: a UIMenu over the item). See `contract vocab menu`; a test opens it with `tap \"<testId>\" contextmenu`";
+
+/// HTML's capitalization hint, said for the fields that want other than sentences.
+const AUTOCAPITALIZE: &str = "`words` for a person's name, `none` for a username or a code; unsaid is sentences (an email, URL or password field is never capitalized)";
+
 /// What `metadata=` takes (LLP 1098 D1): the Media Session's record.
 const METADATA: &str = "MediaMetadata(title=, artist=, album=, artwork=), each a string";
 
@@ -616,7 +622,12 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
                 doc["accepts"] = accepts.into();
             }
         }
-        AttrTarget::Handler(event) => doc["event"] = (*event).into(),
+        AttrTarget::Handler(event) => {
+            doc["event"] = (*event).into();
+            if name == "contextmenu" {
+                doc["note"] = CONTEXTMENU.into();
+            }
+        }
         AttrTarget::Surface => {}
         AttrTarget::MediaMetadata => {
             doc["type"] = METADATA.into();
@@ -625,6 +636,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if let Some(only) = only_on(name) {
         doc["only"] = only.into();
+    }
+    if name == "autocapitalize" {
+        doc["note"] = AUTOCAPITALIZE.into();
     }
     if name == "accept" {
         doc["note"] = "On input type=file, omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into();
@@ -768,6 +782,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
                 // LLP 1115.000 D14.5: a presentation default is the platform's, said per host.
                 return vec![line, vocab::BUTTON_DEFAULT_NOTE.into()];
             }
+            if name == "autocapitalize" {
+                return vec![line, AUTOCAPITALIZE.into()];
+            }
             if name == "accept" {
                 return vec![line, "on input type=file: omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into()];
             }
@@ -775,6 +792,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
         }
         AttrTarget::InvertedBoolProp(p) => {
             vec![format!("prop {}, bool, set to the inverse", p.name())]
+        }
+        AttrTarget::Handler(event) if name == "contextmenu" => {
+            vec![format!("event {event}"), CONTEXTMENU.into()]
         }
         AttrTarget::Handler(event) => vec![format!("event {event}")],
         AttrTarget::Surface => vec!["a canvas's surface binding: surface=name(args)".into()],

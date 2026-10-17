@@ -295,6 +295,24 @@ impl Navigation {
     }
 }
 
+impl<D: exact_runner::DataSource> crate::Host<D> {
+    pub(crate) fn neutral_dialog_invoker(&self, view: ViewId) -> bool {
+        let kernel = self.kernel();
+        kernel
+            .node(view)
+            .and_then(|node| exact_kernel::Invocation::of(kernel, &node))
+            .filter(|invocation| dialog_command(invocation.action))
+            .and_then(|invocation| kernel.node_by_key(invocation.target))
+            .is_some_and(|n| {
+                crate::presenter::top::shape::neutral_alert(kernel, n.id, &|id| {
+                    self.runner()
+                        .handlers_of(id)
+                        .contains(&exact_plan::EventKind::Press)
+                })
+            })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -345,23 +363,5 @@ mod tests {
         );
         assert_eq!(survivor(&shown, |_| false), None);
         assert_eq!(survivor(&[], |_| true), None);
-    }
-}
-
-impl<D: exact_runner::DataSource> crate::Host<D> {
-    pub(crate) fn neutral_dialog_invoker(&self, view: ViewId) -> bool {
-        let kernel = self.kernel();
-        kernel
-            .node(view)
-            .and_then(|node| exact_kernel::Invocation::of(kernel, &node))
-            .filter(|invocation| dialog_command(invocation.action))
-            .and_then(|invocation| kernel.node_by_key(invocation.target))
-            .is_some_and(|n| {
-                crate::presenter::top::shape::neutral_alert(kernel, n.id, &|id| {
-                    self.runner()
-                        .handlers_of(id)
-                        .contains(&exact_plan::EventKind::Press)
-                })
-            })
     }
 }

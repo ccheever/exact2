@@ -495,6 +495,7 @@ fn the_largest_font_scale_clips_neither_bar() {
         high_contrast: false,
         touch: true,
         touch_slop: 8.0,
+        dates: String::new(),
     };
     assert_eq!(p.set_device(&device), None);
     assert_eq!(p.fit_window(), None);

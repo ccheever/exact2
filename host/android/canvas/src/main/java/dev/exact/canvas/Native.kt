@@ -20,7 +20,7 @@ object Native {
      * with them, and again on the host's thread whenever one changes. */
     @JvmStatic external fun configure(
         night: Boolean, fontScale: Float, locale: String, rtl: Boolean, hour24: Boolean, noAnimations: Boolean,
-        boldText: Boolean, highContrast: Boolean, touch: Boolean, touchSlop: Float,
+        boldText: Boolean, highContrast: Boolean, touch: Boolean, touchSlop: Float, dates: String,
     )
     /** The device's colours ([Palette], LLP 1115.001 D4): Material 3's colour roles as the reader resolved them for
      * this device, twelve under the light scheme and then the same twelve under the dark one, ARGB. Before [start],
@@ -164,10 +164,18 @@ object Native {
     /** The answer to request [id] (the share sheet's: `shared` or `dismissed`, or why it could not be shown), or null
      * when it was cancelled. On the host's thread. */
     @JvmStatic external fun answer(id: Int, answer: String?)
+    /** What the app's Kotlin hatches ask, for node [node] or 0 for their module (LLP 1115.001.000 D4; the kinds are
+     * `hatches::reader::act`'s): its answer, a ticket for a registration, -1 when refused. */
+    @JvmStatic external fun hatchAct(node: Int, kind: Int, text: String?): Long
     /** One request of the agent API (LLP 1012), a JSON line as UTF-8, and its answer the same way: the Linux
      * host's own handler (`host/linux/src/canvas/agent.rs`), on the host's thread. From the first one the host's turns
      * run at the driver's clock, which only a `clock` request moves. [AgentDrive] calls it for a driver over adb. */
     @JvmStatic external fun agent(line: ByteArray): ByteArray
+    /** What an [ExactTamber] asks (LLP 1121 D12), on the host's thread: `{"view": id or 0, "names": [..]}`, answered
+     * `{"inputs": "<u64>", "colors": {name: ARGB or null}}`, each colour as exact2 paints it at that view (its pinned
+     * modes, its scheme), null for a name the design lacks; `inputs` moves when anything the answer read does. A
+     * view that is no live node, or a name that is no string, is answered `{"error": ...}`. */
+    @JvmStatic external fun tamber(request: String): String
     /** Run the calling thread on the cores outside the slowest cluster; whether it was set. */
     @JvmStatic external fun fastCores(): Boolean
     /** An ADPF hint session over [tids] (this process's threads), [targetNs] their work's target. */

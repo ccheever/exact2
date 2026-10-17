@@ -30,6 +30,7 @@ mod geometry;
 mod history;
 use history::RetainedReceipt;
 mod intrinsic;
+pub(crate) use intrinsic::apply_projection;
 mod row_memo;
 mod sticky;
 mod trim;

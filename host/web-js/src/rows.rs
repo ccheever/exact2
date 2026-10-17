@@ -122,8 +122,8 @@ impl Em<'_> {
         let kind = NodeType::from_wire(row.node_type).ok_or("unknown node type")?;
         // @ref LLP 1115.002 D6 — a metric the binding may name is its value
         // in the web's column before the row's own map sees it.
-        let metric =
-            style::metric_map(plan, plan.code(b.expr)).map(|m| format!("()=>({m})(({f})())"));
+        let metric = style::metric_map(plan, plan.code(b.expr))
+            .map(|m| format!("()=>{}(({f})())", self.uses.share('m', m)));
         let f = metric.as_deref().unwrap_or(f);
         // A list on a corner is the elliptical radius no row holds, which
         // the browser would draw: refused whole, as the kernel refuses it.
@@ -131,7 +131,10 @@ impl Em<'_> {
             && style::literal(plan, plan.code(b.expr)).is_none())
         .then(|| {
             self.uses.rt("say");
-            format!("()=>({})(({f})())", style::corner_list(id))
+            format!(
+                "()=>{}(({f})())",
+                self.uses.share('m', style::corner_list(id))
+            )
         });
         let f = corner.as_deref().unwrap_or(f);
         if let Some((_, name)) = exact_web::host::template::attribute_rows(kind)
@@ -166,6 +169,23 @@ impl Em<'_> {
             return Ok(());
         }
         let refuse = |why: &str| Err(format!("node {i}: {why} is not in the JS target"));
+        // @ref LLP 1077 D13 — a bound colour may name a system colour, which
+        // the literal path resolved in the kernel. And a CSS-text row that
+        // may name one inside it. The plan's colour map: one module constant
+        // every such site shares.
+        use exact_kernel::StyleCodec as C;
+        let cm = matches!(
+            id.codec(),
+            C::ColorValue
+                | C::KeywordColor
+                | C::Paint
+                | C::BackgroundImage
+                | C::MaskImage
+                | C::BoxShadow
+                | C::TextShadow
+                | C::Filter
+        )
+        .then(|| self.uses.constant("$cm", || style::color_map(plan)));
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
         let one = |name: &str, map: Option<String>| vec![(name.to_string(), String::new(), map)];
         let writes: Vec<(String, String, Option<String>)> = match id {
@@ -188,7 +208,7 @@ impl Em<'_> {
                 if id == StyleId::TextStrokeColor {
                     return Ok(());
                 }
-                one("-webkit-text-stroke", Some(style::color_map(plan)))
+                one("-webkit-text-stroke", Some(self.uses.constant("$cm", || style::color_map(plan))))
             }
             // @ref LLP 1077 D8 — 0 is `none`, as css.rs writes it.
             StyleId::Perspective => one(
@@ -315,19 +335,11 @@ impl Em<'_> {
                 .map_err(|x| format!("node {i}: {x}"))?
                 .into_iter()
                 .map(|w| {
-                    // @ref LLP 1077 D13 — a bound colour may name a system
-                    // colour, which the literal path resolved in the kernel.
-                    // And a CSS-text row that may name one inside it.
-                    use exact_kernel::StyleCodec as C;
-                    let colors = matches!(
-                        id.codec(),
-                        C::ColorValue | C::KeywordColor | C::Paint | C::BackgroundImage | C::MaskImage | C::BoxShadow | C::TextShadow | C::Filter
-                    );
                     // Composed with the row's own map (`accent-color` has one).
-                    let map = match w.map {
-                        Some(m) if colors => Some(format!("v=>({m})(({})(v))", style::color_map(plan))),
-                        Some(m) => Some(m.to_string()),
-                        None => colors.then(|| style::color_map(plan)),
+                    let map = match (w.map, &cm) {
+                        (Some(m), Some(cm)) => Some(format!("v=>({m})({cm}(v))")),
+                        (Some(m), None) => Some(m.to_string()),
+                        (None, cm) => cm.clone(),
                     };
                     // A computed image the native hosts refuse is dropped
                     // here too, and journaled as they journal it, so the web
@@ -834,7 +846,8 @@ mod tests {
     };
 
     /// A bound `filter` (LLP 1095 D1) is written through the colour map:
-    /// the emitted binding wraps its value in `color_map(plan)`, which turns
+    /// the emitted binding wraps its value in `color_map(plan)`, a module
+    /// constant every colour site shares (`$cm`), which turns
     /// a role into its CSS, an admitted `-exact-platform-color()` literal into its
     /// fallback, and refuses one the plan does not hold.
     #[test]
@@ -861,8 +874,20 @@ mod tests {
             "the plan admits the literal"
         );
         assert!(
-            js.contains(&format!(",\"filter\",\"\",()=>({map})(blank((")),
+            js.contains(&format!("const $cm={map};\n"))
+                && js.contains(",\"filter\",\"\",()=>($cm)(blank(("),
             "the bound filter is not mapped:\n{js}"
+        );
+        // One constant, however many sites; none where no site maps a colour.
+        assert_eq!(js.matches("const $cm=").count(), 1);
+        let plain = contract::compile(
+            "component App\n  state on = false\n  view\n    text \"Plain\" opacity=(on ? 0.5 : 1)\n",
+        )
+        .unwrap();
+        let plain = crate::emit::emit(&plain, false, false).unwrap().js;
+        assert!(
+            plain.contains("\"opacity\"") && !plain.contains("$cm"),
+            "{plain}"
         );
         assert_eq!(
             run(

@@ -367,3 +367,15 @@ fn a_grouped_list_is_a_list_whose_appearance_is_auto() {
     assert!(grouped.has(Capability::GroupedLists));
     assert_eq!(grouped.to_string(), "grouped_lists");
 }
+
+/// LLP 1115.001.000 D2: a date or time control, which on Android links
+/// Compose Material 3 for its picker.
+#[test]
+fn dates_are_a_date_or_time_control() {
+    for kind in ["date", "time", "datetime-local"] {
+        let plan = format!("component A\n  view\n    input type=\"{kind}\" value=\"\"\n");
+        assert!(used(&plan).has(Capability::Dates), "{kind}");
+    }
+    assert!(!used("component A\n  view\n    input value=\"\"\n").has(Capability::Dates));
+    assert!(!used("component A\n  view\n    input type=\"file\"\n").has(Capability::Dates));
+}

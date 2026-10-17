@@ -584,6 +584,12 @@ fn a_mutations_clauses_may_continue_on_indented_lines() {
     assert_eq!(edited.then.as_ref().map(|t| &*t.0), Some("followEdit"));
     assert!(saved.queue);
     assert_eq!(saved.refreshes.len(), 2);
+    let err = parse(
+        "component A\n  mutation m as shape Ok refreshes board feed\n  view\n    text \"a\"\n",
+    )
+    .unwrap_err();
+    assert_eq!(err.id, "syntax-expected-newline");
+    assert!(err.message.contains("refreshes board, feed"), "{err:?}");
     assert_eq!(saved.then.as_ref().map(|t| &*t.0), Some("reload"));
     assert_eq!(a.states[0].name, "n");
     // Out of order, the continued line is named.

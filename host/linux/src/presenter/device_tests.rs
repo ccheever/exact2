@@ -32,6 +32,7 @@ fn phone() -> Device {
         high_contrast: false,
         touch: true,
         touch_slop: 8.0,
+        dates: String::new(),
     }
 }
 
@@ -133,4 +134,68 @@ fn the_devices_locale_is_the_viewers_place() {
     // Carried, with no door yet: the direction, the clock, bold text.
     let device = p.device().unwrap();
     assert!(device.hour24 && !device.rtl && !device.bold_text);
+}
+
+/// How an en-US phone on a 12-hour clock writes dates, as its shell tells it.
+const US_DATES: &str = "MMM d, y\nh:mm a\nh:mm:ss a\nMMM d, y, h:mm a\nMMM d, y, h:mm:ss a\nAM\nPM\n0\nJan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec\nJanuary\nFebruary\nMarch\nApril\nMay\nJune\nJuly\nAugust\nSeptember\nOctober\nNovember\nDecember\nJan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec\nJanuary\nFebruary\nMarch\nApril\nMay\nJune\nJuly\nAugust\nSeptember\nOctober\nNovember\nDecember\nMon\nTue\nWed\nThu\nFri\nSat\nSun\nMonday\nTuesday\nWednesday\nThursday\nFriday\nSaturday\nSunday\nBC\nAD";
+
+#[test]
+fn a_date_control_is_materials_field_and_fits_the_value_as_the_device_writes_it() {
+    let source = "component App\n  view\n    row\n      input type=\"date\" value=\"2026-10-16\" testId=\"day\"\n";
+    let mut p = boot(source);
+    let size = |p: &Presenter<()>| {
+        let kernel = p.host().kernel();
+        let frame = kernel
+            .node_by_key(kernel.find_by_test_id("day")[0])
+            .unwrap()
+            .frame;
+        (frame.width, frame.height)
+    };
+    let text = |p: &Presenter<()>, s: &str| {
+        let style = exact_kernel::StyleProps::default();
+        let spec = crate::paint::text_spec(&style, s);
+        p.text.borrow_mut().paragraph(&spec, None).width
+    };
+    // Told nothing, the field fits HTML's value; 56 points tall either way.
+    assert!(p.set_device(&phone()).is_none());
+    let iso = size(&p);
+    assert_eq!(iso.1, crate::paint::material::HEIGHT);
+    let us = Device {
+        dates: US_DATES.into(),
+        ..phone()
+    };
+    assert!(p.set_device(&us).is_none());
+    let written = size(&p);
+    assert_eq!(written.1, crate::paint::material::HEIGHT);
+    // The widest month's date and the trailing icon.
+    let widest = ["May 28, 2000", "Sep 28, 2000", "Dec 28, 2000"]
+        .map(|s| text(&p, s))
+        .into_iter()
+        .fold(0f32, f32::max);
+    assert!(written.0 >= (widest + crate::paint::material::WITH_ICON).floor());
+    assert_ne!(written, iso);
+    // A telling of nothing returns to HTML's value.
+    assert!(p.set_device(&phone()).is_none());
+    assert_eq!(size(&p), iso);
+}
+
+#[test]
+fn a_fields_placeholder_is_its_label_and_floats_as_it_fills() {
+    let source = "component App\n  state day = \"\"\n  action setDay(value)\n    day = value\n  view\n    row\n      input type=\"date\" value=day change=setDay placeholder=\"Due\" testId=\"day\"\n";
+    let mut p = boot(source);
+    let day = {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id("day")[0]).unwrap().id
+    };
+    p.clock(1000.);
+    let resting = p.frame().data().to_vec();
+    assert!(!p.needs_animation_frame(), "an empty field's label rests");
+    // A value floats it, over 150 ms, and then asks for no frame.
+    p.set_control_value(day, "2026-10-23").unwrap();
+    let _ = p.frame();
+    assert!(p.needs_animation_frame(), "the label is floating");
+    p.clock(1200.);
+    let floated = p.frame().data().to_vec();
+    assert!(!p.needs_animation_frame(), "and has floated");
+    assert_ne!(resting, floated);
 }

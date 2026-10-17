@@ -106,6 +106,28 @@ test('a live batch sets each tuple rule on its base, and a stale one asks for th
   expect(dim.style.map.get('--x-ink')).toBe('#111111ff');
 });
 
+// LLP 1121 stage 5: a role override's property is set in each tuple's rule,
+// and the tint's (`root`) in the theme's own `:root` rule alone, so a tuple
+// rule on a boundary does not mask an authored accent above it.
+test('a live batch sets a role override, the tint in the theme rule', async () => {
+  const document = createDocument();
+  const rule = (selectorText, own = {}) => ({ selectorText, style: { map: new Map(Object.entries(own)), setProperty(p, v) { this.map.set(p, v); }, getPropertyValue(p) { return this.map.get(p) ?? ''; } } });
+  const theme = rule(':root', { '--exact-accent': '#0a7affff', '--exact-canvas-text': '#111111ff' }), root = rule(':root,[data-x-modes=""]');
+  document.styleSheets = [{ cssRules: [theme, root] }];
+  Object.assign(globalThis, { document, __exactRender: true });
+  const { modes } = await import('./modes.js');
+  modes([], {}, [], {}, [], {}, 'd0', 's0');
+  const design = globalThis.exact.design;
+  const tokens = [
+    { name: 'CanvasText', value: '#222222ff', slices: [], prop: '--exact-canvas-text', css: ['#222222ff'] },
+    { name: 'AccentColor', value: '#ff0000ff', slices: [], prop: '--exact-accent', css: ['#ff0000ff'], root: true },
+  ];
+  expect(design({ kind: 'tamber-batch', structure: 's0', base: 'd0', design: 'd1', tokens }).live).toBe('applied');
+  expect(root.style.map.get('--exact-canvas-text')).toBe('#222222ff');
+  expect(theme.style.map.get('--exact-accent')).toBe('#ff0000ff');
+  expect(root.style.map.has('--exact-accent')).toBe(false);
+});
+
 // A development build with no axes gives its boundaries the empty tuple,
 // whose rule declares every token there (a token naming the accent then
 // resolves in the boundary's own accent).

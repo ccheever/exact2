@@ -604,9 +604,10 @@ test('page facts: the platform off the agent, the drive\'s values under it (LLP 
   real.onChange(() => {});
   expect(listened).toEqual(['visibilitychange', 'online', 'offline', 'focus', 'blur']);
   const agent = pageReporter(true, new Proxy({}, {get(_, name) { if (name === 'devicePixelRatio') return 2; throw new Error('agent read the platform'); }})); // the display's scale alone is the page's own under the agent too: no drive value stands in for it (LLP 1115.000 D10.3)
-  expect(agent.bits()).toBe(4 | 8 | 32); // the drive navigated to the page: `navigate` (bits 5–6: 1)
-  agent.prefer({ 'visibility-state': 'hidden', online: false, 'can-open-files': false, 'has-focus': false }); expect(agent.bits()).toBe(1 | 2 | 4 | 16 | 32); agent.prefer({ 'has-focus': 'true' });
-  expect(agent.bits()).toBe(1 | 2 | 4 | 32);
+  expect(agent.bits()).toBe(4 | 8 | 32 | 256); // the drive navigated to the page: `navigate` (bits 5–6: 1); files in a share, never a picture (LLP 1125 D12)
+  agent.prefer({ 'visibility-state': 'hidden', online: false, 'can-open-files': false, 'has-focus': false }); expect(agent.bits()).toBe(1 | 2 | 4 | 16 | 32 | 256); agent.prefer({ 'has-focus': 'true' });
+  expect(agent.bits()).toBe(1 | 2 | 4 | 32 | 256); agent.prefer({ 'can-share-files': false, 'can-share-pictures': true }); expect(agent.bits()).toBe(1 | 2 | 4 | 32 | 512); agent.prefer({ 'can-share-files': true, 'can-share-pictures': false });
+  const asked = [], sharing = pageReporter(false, { ...platform, File: class { constructor(_, name, { type }) { asked.push([name, type]); } }, navigator: { onLine: true, share() {}, canShare: d => d.files.length === 1 } }); expect(sharing.bits()).toBe(4 | 32 | 256); expect(asked).toEqual([['a.txt', 'text/plain']]); // files in a share where `navigator.canShare({files})` takes a small text file (LLP 1125 D12)
   expect(() => agent.prefer({ online: 'maybe', 'can-share': false })).toThrow('prefer: online');
   expect(agent.read()['can-share']).toBe(true); expect(agent.read()['display-scale']).toBe(2); expect(real.displayScale()).toBe(1); agent.prefer({ 'display-scale': 2 }); expect(() => agent.prefer({ 'display-scale': 3 })).toThrow("prefer: display-scale: 3: the page's is 2");
   agent.onChange(() => { throw new Error('agent listened to the platform'); });
@@ -987,8 +988,8 @@ test('module replacement waits for requests, rechecks supersession; the dev loop
     f.log = line => lines.push(line);
     f.setInputReady = value => { f.inputReady = value; };
     f.wasm.exact_boot_module = (...args) => { swaps++; flag = args[3]; return '{"ops":[],"timers":true}'; };
-    // An app that always has a request out (LLP 1007 §6): it never drains.
-    if (result === 'pending') f.inflight.add(new Promise(() => {}));
+    // An app that always has a request out, here a read and a write; the write is named when let go.
+    if (result === 'pending') f.inflight.add(new Promise(() => {})).add(Object.assign(new Promise(() => {}), { write: 'POST https://api.test/like' }));
     const candidate = {realm:{id:1},receipt:new Uint8Array([1]),letGo};
     const update = f.boot(new Uint8Array([1]), null, () => current, candidate);
     const outcome = update.then(value => ({value}), error => ({error}));
@@ -1011,7 +1012,7 @@ test('module replacement waits for requests, rechecks supersession; the dev loop
       expect(flag).toBe(letGo ? 1 : 0);
       expect(f.activeModule).toBe(candidate);
       expect(f.inflight.size).toBe(0);
-      expect(lines.filter(l => l.startsWith('module replacement'))).toEqual(result === 'pending' ? ['module replacement let go of 1 request still in flight after 1000 ms'] : []);
+      expect(lines.filter(l => l.startsWith('module replacement'))).toEqual(result === 'pending' ? ['module replacement let go of 2 requests still in flight after 1000 ms; aborted writes the server may or may not have seen: POST https://api.test/like'] : []);
     }
   }
 });

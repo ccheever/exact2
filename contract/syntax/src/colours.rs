@@ -37,4 +37,8 @@ pub struct DesignSource {
     pub text: String,
     /// Its source id, as a span names the file it is in.
     pub source_id: u32,
+    /// The app beside it has code that can name a token outside its views
+    /// (an `app.ts`, a Rust data crate, declared native modules or hatches):
+    /// the driver's half of `names_tokens_outside_views` (LLP 1121 D7).
+    pub bindable: bool,
 }

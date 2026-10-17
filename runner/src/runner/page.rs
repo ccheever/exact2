@@ -43,6 +43,21 @@ impl<D: DataSource> Runner<D> {
         result
     }
 
+    /// Whether an `exactPage` resource reads `field`: one whose shape names
+    /// it, or one that is no record (refused, but asked again on every
+    /// change). A host watches what no resource reads only if it wants to.
+    pub fn reads_page_field(&self, field: &str) -> bool {
+        self.plan.resources.iter().any(|r| {
+            let ty = self.plan.type_(r.ty);
+            self.plan.str(r.source) == SOURCE
+                && (ty.kind != TypeKind::Record
+                    || ty
+                        .fields
+                        .iter()
+                        .any(|f| self.plan.str(self.plan.field(f).name) == field))
+        })
+    }
+
     /// Whether resource `i`'s shape names a field `previous` answered
     /// otherwise; a shape that is no record is asked again, to be refused.
     fn page_reads_changed(&self, i: usize, previous: Page) -> bool {

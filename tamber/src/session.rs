@@ -6,11 +6,11 @@
 //! every write; this owns none.
 //!
 //! `live` is judged by the edit's closure (D13, stage 4): the design's shape
-//! (axes, dials, the tokens with their kinds and roles) unchanged, no role
-//! override's value changed (the hosts take their role tables at boot), and
-//! the app's synthetic tokens (Contract rows' expressions over tokens,
-//! folded with the design) re-folded with it, their new values in the
-//! answer. Kinds substituted at build (durations, easings) wait for stage 6.
+//! (axes, dials, the tokens with their kinds and roles: an override gained
+//! or lost) unchanged, and the app's synthetic tokens (Contract rows'
+//! expressions over tokens, folded with the design) re-folded with it,
+//! their new values in the answer. A role override's value is live (stage
+//! 5). Kinds substituted at build (durations, easings) wait for stage 6.
 
 use crate::edit::{self, Op};
 use crate::{Diagnostic, Folding, Vocab};
@@ -127,16 +127,10 @@ pub fn plan(
                 })
             })
         });
+        // A role override's value is live (LLP 1121 stage 5): each build
+        // sets its session's overrides from the batch and re-presents them.
+        // Gaining or losing one moves the shape.
         let tokens = changed_tokens(before.as_ref(), after.as_ref());
-        // A role override's value is the hosts' at boot: a change reaches
-        // it, directly or through what it names, only by a rebuild.
-        structure |= tokens.iter().any(|t| {
-            [&before, &after].iter().any(|f| {
-                f.as_ref()
-                    .and_then(|f| f.tokens.iter().find(|c| c.name == *t))
-                    .is_some_and(|c| c.role.is_some())
-            })
-        });
         for t in tokens {
             match t.strip_prefix('~').and_then(|i| i.parse::<usize>().ok()) {
                 Some(i) => {

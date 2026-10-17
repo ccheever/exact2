@@ -338,8 +338,12 @@ impl Batch {
     }
 
     /// `{"op":"theme","css":…}`: the theme's `:root` rule (LLP 1095 D4), at
-    /// a boot whose plan has one.
+    /// a boot whose plan has one (none for an empty rule), and after a live
+    /// edit moves the roles (LLP 1121 stage 5).
     pub fn theme(&mut self, css: &str) {
+        if css.is_empty() {
+            return;
+        }
         let mut s = String::from("{\"op\":\"theme\",\"css\":");
         quote(css, &mut s);
         s.push('}');
@@ -803,6 +807,26 @@ impl Batch {
         }
         s.push_str("]}");
         self.ops.push(s);
+    }
+
+    /// This batch's ops, for another batch to carry (`Host::ending`).
+    pub(crate) fn into_ops(self) -> Vec<String> {
+        self.ops
+    }
+
+    /// The runner's timed outputs since the last take (LLP 1096 D7, LLP
+    /// 1125 D7): the voice table's `sound` op and the MIDI queue's `midi`
+    /// op; at a `boot`, the files to decode and whether MIDI's arm loads.
+    pub fn timed<D: exact_runner::DataSource>(
+        &mut self,
+        runner: &mut exact_runner::Runner<D>,
+        boot: bool,
+    ) {
+        self.sound(runner.take_sounds(), boot.then(|| runner.plan()));
+        let uses = boot && exact_runner::uses::uses_midi(runner.plan());
+        if let Some(op) = exact_runner::midi::batch_op(&runner.take_midi(), uses) {
+            self.ops.push(op);
+        }
     }
 
     /// `{"op":"destroy","id":…}`.

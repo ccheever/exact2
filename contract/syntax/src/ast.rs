@@ -471,6 +471,13 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// MIDI's steps (LLP 1125 §4): `prefer midi.…`, `tap midi`, `expect midi`.
+    Midi {
+        /// Which.
+        step: crate::MidiStep,
+        /// Where.
+        span: Span,
+    },
 }
 /// Which input a `tap` step gives: the driver's `tap` forms (LLP 1012).
 #[derive(Debug, Clone, PartialEq)]
@@ -1401,6 +1408,7 @@ impl Step {
             | Step::ExpectText { span, .. }
             | Step::ExpectState { span, .. }
             | Step::ExpectSound { span, .. }
+            | Step::Midi { span, .. }
             | Step::ExpectMediaSession { span, .. }
             | Step::ExpectMediaSessionAction { span, .. } => *span,
         }

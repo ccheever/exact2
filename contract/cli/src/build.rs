@@ -135,7 +135,8 @@ pub(super) fn run(args: &[String]) -> ExitCode {
     // declarations for builds that never requested TypeScript.
     let declaration = format!("{input}.d.ts");
     if Path::new(&declaration).is_file() {
-        let types = match contract::typescript(&plan) {
+        let exports = contract::design_exports(Path::new(&input));
+        let types = match contract::typescript_exporting(&plan, exports.as_deref()) {
             Ok(types) => types,
             Err(message) => return report(&error("contract-types", message, Some(input)), json, 1),
         };

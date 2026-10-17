@@ -458,20 +458,3 @@ fn text_width_requires_a_known_width_constraint() {
     let src = "style Growing\n  flex-basis=\"3rem\"\ncomponent App\n  view\n    row width=\"20rem\"\n      text \"Mon\" width=48 class=Growing\n";
     assert_eq!(warned(src), []);
 }
-
-/// The Clock-style part has three authored 80 px circles, one per tint branch.
-/// Keep these diagnostics explicit when a test exercises a different warning.
-pub(super) fn without_round_button_widths(
-    warnings: Vec<contract::CompileError>,
-) -> Vec<contract::CompileError> {
-    let (widths, other): (Vec<_>, Vec<_>) = warnings.into_iter().partition(|w| {
-        w.id == "lower-text-px-width"
-            && w.file.as_deref() == Some(std::path::Path::new("exact:content"))
-    });
-    assert_eq!(
-        widths.iter().map(|w| w.span.line).collect::<Vec<_>>(),
-        [219, 224, 229]
-    );
-    assert!(widths.iter().all(|w| w.is_warning()));
-    other
-}

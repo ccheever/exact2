@@ -1,14 +1,15 @@
 //! The page's facts that are not media features: whether any of it can be
 //! seen (the Page Visibility API), whether the device believes it is online
 //! (`navigator.onLine`), whether a share sheet exists
-//! (`navigator.share`), and whether the document pickers do
+//! (`navigator.share`), whether it takes files and an element's picture
+//! (LLP 1125 D12), and whether the document pickers do
 //! (`showOpenFilePicker`: studio diary R31, where a picker that closes with
 //! nothing cannot say whether the person cancelled or the browser has
 //! none), whether the page's window has the system's focus
 //! (`document.hasFocus()`, #114), and how the browser loaded the page
 //! (Navigation Timing's `type`). The host observes them; the app reads them
 //! by field name from one reserved source.
-//! @ref LLP 1069.000 D2; LLP 1069.003 D5; LLP 1069.010 D2
+//! @ref LLP 1069.000 D2; LLP 1069.003 D5; LLP 1069.010 D2; LLP 1125 D12
 
 use exact_plan::Value;
 
@@ -19,6 +20,8 @@ pub const FIELDS: &[&str] = &[
     "visibilityState",
     "onLine",
     "canShare",
+    "canShareFiles",
+    "canSharePictures",
     "canOpenFiles",
     "hasFocus",
     "navigationType",
@@ -41,6 +44,12 @@ pub struct Page {
     pub on_line: bool,
     /// `typeof navigator.share === "function"` (LLP 1069.003 D5).
     pub can_share: bool,
+    /// `share(files=[…])` takes `app:/` files: Apple's sheets, and a
+    /// browser whose `navigator.canShare({files})` is true (LLP 1125 D12).
+    pub can_share_files: bool,
+    /// `share(files=["#id"])` takes an element's picture: iOS and macOS,
+    /// never the web (LLP 1125 D12).
+    pub can_share_pictures: bool,
     /// `typeof showOpenFilePicker === "function"`: `showOpenFilePicker` and
     /// `showDirectoryPicker` open a document in place, where without them
     /// they refuse with `cancel` (LLP 1069.010 D2; a Mac and an iPhone
@@ -66,6 +75,8 @@ impl Default for Page {
             hidden: false,
             on_line: true,
             can_share: false,
+            can_share_files: false,
+            can_share_pictures: false,
             can_open_files: false,
             has_focus: true,
             navigation: 0,
@@ -77,8 +88,9 @@ impl Default for Page {
 impl Page {
     /// The hosts' wire form: bit 0 hidden, bit 1 offline, bit 2 can share,
     /// bit 3 can open files, bit 4 without focus, bits 5–6 the navigation
-    /// type, bit 7 about to be suspended; other bits are ignored. Zero is visible, online, focused, no
-    /// share sheet, no pickers, no navigation.
+    /// type, bit 7 about to be suspended, bit 8 shares files, bit 9 shares
+    /// an element's picture; other bits are ignored. Zero is visible,
+    /// online, focused, no share sheet, no pickers, no navigation.
     pub fn from_bits(bits: u32) -> Self {
         Self {
             hidden: bits & 1 != 0,
@@ -88,6 +100,8 @@ impl Page {
             has_focus: bits & 16 == 0,
             navigation: ((bits >> 5) & 3) as u8,
             suspended: bits & 128 != 0,
+            can_share_files: bits & 256 != 0,
+            can_share_pictures: bits & 512 != 0,
         }
     }
 
@@ -100,6 +114,8 @@ impl Page {
             | (u32::from(!self.has_focus) << 4)
             | (u32::from(self.navigation & 3) << 5)
             | (u32::from(self.suspended) << 7)
+            | (u32::from(self.can_share_files) << 8)
+            | (u32::from(self.can_share_pictures) << 9)
     }
 
     /// How the browser loaded the page, the web's word, or `""` in a
@@ -123,6 +139,8 @@ impl Page {
             "visibilityState" => Some(Value::str(self.visibility_state())),
             "onLine" => Some(Value::Bool(self.on_line)),
             "canShare" => Some(Value::Bool(self.can_share)),
+            "canShareFiles" => Some(Value::Bool(self.can_share_files)),
+            "canSharePictures" => Some(Value::Bool(self.can_share_pictures)),
             "canOpenFiles" => Some(Value::Bool(self.can_open_files)),
             "hasFocus" => Some(Value::Bool(self.has_focus)),
             "navigationType" => Some(Value::str(self.navigation_type())),
@@ -138,12 +156,15 @@ mod tests {
     #[test]
     fn bits_round_trip_and_zero_is_the_default() {
         assert_eq!(Page::from_bits(0), Page::default());
-        for bits in 0..256 {
+        for bits in 0..1024 {
             assert_eq!(Page::from_bits(bits).bits(), bits);
         }
         let page = Page::from_bits(0b1111);
         assert!(page.hidden && !page.on_line && page.can_share && page.can_open_files);
         assert!(!Page::from_bits(0b111).can_open_files);
+        let files = Page::from_bits(256);
+        assert!(files.can_share_files && !files.can_share_pictures && !files.can_share);
+        assert!(Page::from_bits(512).can_share_pictures);
         assert_eq!(
             Page::from_bits(2 << 5).field("navigationType"),
             Some(exact_plan::Value::str("reload"))

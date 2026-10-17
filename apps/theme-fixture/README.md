@@ -13,3 +13,7 @@ three previews pin Light, Dim and Black beside it.
 
 On the web's JS target each token that varies by the axis is a custom
 property, declared per tuple by `[data-x-modes]` rules (LLP 1121 D7).
+
+It also builds for the wasm target (`web/`, LLP 1122 T2b), so the wasm dev
+loop serves it with its design (`bun host/web/dev.mjs --app theme-fixture
+--wasm`): the build channel, pins, scrubs and inspect run there in tests.

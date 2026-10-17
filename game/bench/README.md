@@ -278,6 +278,74 @@ SurfaceFlinger time is about 100 ms/s higher, on little cores at the same cycles
 The battery was full on USB power and the Pixel 5 has no power rails, so power was
 not measured; the GPU's clock was not readable without root.
 
+Then, at 64,000 cubes, Exact's CPU fell to 567 ms/s and 0.52 Gcycles/s (from 664 and
+0.61): a query's row guards release their lease inline (`exact_game::storage`), a
+transform page that changed at its last hash is written unhashed for its next seven
+checks (`render/src/world/upload.rs`), and changed pages are written straight into
+the queue's staging memory instead of a scratch vector first (`Feed::feed_to`).
+80,000 cubes went from 54.3 to 56.1 frames a second. GPU timestamps at 80,000 put
+the forward pass at 16.6 ms and the cull at 2.35 ms (its `test` dispatch 1.74, `scan`
+0.45, `scatter` 0.16). Of the forward pass, shading is about 5 ms (a shader returning
+the albedo takes 11.5) and the rest is vertices, rasterization and the per-tile MSAA
+clear and resolve; the sRGB encode, the radiance cube's sample, the material
+varyings and the pose's interpolation each measured at 0.5 to 1 ms. The driver
+offers no lazily allocated memory and no `VK_EXT_multisampled_render_to_single_sampled`,
+so the 4× MSAA targets take memory whatever they are flagged; a ring of five buffers
+saves 10 MB and collapses 80,000 cubes to 26 frames a second.
+
+**256,000 cubes**, the same evening: three.js in the WebView 16.9 frames a second by
+gfxinfo (14.1 by its page's own clock), Exact 26.8 before this work and 30.6
+after it (2.2 times the page's own rate, 1.8 times gfxinfo's); at 64,000, 59.8,
+and at 80,000, 57.0. GPU timestamps at 256,000 had put two thirds of the forward
+pass (27.4 ms) on cubes nothing showed, and a frame's CPU work (two 60 Hz ticks
+of 256,000 moving entities and their uploads, 20 ms) past one display frame, so
+frames never came closer than two apart. What changed:
+
+- Occlusion culling (`render/README.md`, "Occlusion"): the camera draws 42,000
+  cubes of the 140,000 in view; forward 17.2 ms, occluder pass 4.7, cull 9.1.
+  Drawn without shrinking its occluders it draws 18,000 and reaches 35.0 frames
+  a second, but drops far cubes seen through cracks narrower than its texels
+  (269 of 632,000 pixels in `effects::occlusion_leaves_a_turned_grid_as_it_was`).
+- A transform upload is written in runs of 2 MiB (`world.rs` `RUN_PAGES`): a
+  10 MB staging buffer was allocated alone each tick, its pages faulted in and
+  zeroed by the kernel (15% of the render thread) and freed after the frame (11%).
+- A turn that overran its display frame is followed at once, not at the next
+  vsync (`Owner.kt`), and a display frame the GPU holds no room for runs its
+  ticks (`Surface::advance`): 30 to 33.4 frames a second.
+- The bench's tick iterates `query().iter()`, the engine's borrowed form.
+
+Tried and left: posing each instance once in the cull for the vertex shader (the
+forward pass stayed 27 ms: its vertex work overlaps its pixels on this GPU, and
+the cull grew 3.5 ms), a compact dimensions buffer for the cull (no measurable
+change), dropping the chunk sort on occluding frames (31 to 29 frames a second),
+and reading the pyramid at 4 × 4 texels (34,000 cubes drawn, the cull 2.2 ms
+slower).
+
+### Tablet — cubes on an iPad Pro 12.9" (M1), 2026-10-16
+
+Exact's native game (`bun host/apple/build.mjs --device`, a development build:
+optimized, no LTO) against three.js in a full-screen `WKWebView`
+(`game/twins/three/ios`), both at the panel's 2732×2048 with 4× MSAA, iPadOS 27.2,
+on USB power. Frames per second are the surfaces the display showed, counted from
+Instruments' Display instrument over 6 s after 6 s of warm-up. Core Animation FPS
+undercounts Exact: its canvas's layer goes to the display directly, which that
+instrument does not see, and it reports 60 where the display showed 120.
+
+| N | Exact | three.js instanced, WKWebView |
+|---|---|---|
+| 2,000 | 118.8 | 59.8 |
+| 64,000 | 119.6 | 59.9 |
+| 128,000 | 114.1 | 48.8 |
+| 256,000 | 79.0 | 31.3 |
+| 384,000 | 60.0 | 23.1 |
+| 512,000 | 44.5 | 18.3 |
+
+Exact draws at the panel's 120 Hz; WebKit holds a page's `requestAnimationFrame` near
+60 (its private preference for full rate had no effect on iPadOS 27). At every size
+Exact shows about 2.4 times as many frames, and it holds 60 to six times the cubes.
+three.js's own page clock agreed with the display's count to within 1 fps; its
+instance matrices take 12.5 ms of JavaScript a frame at 256,000.
+
 #### Sitting #2 — landmark re-score, 2026-09-18T20-36-09-882Z
 
 All 15 attempts satisfy the existing input/focus validity rules; all are provisional

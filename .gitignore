@@ -43,3 +43,12 @@ game/bench/results/*.json.gz
 
 # Expose: the OpenRouter key a developer bakes into their own build (build.rs writes it).
 apps/expose/local.ts
+# SwiftPM's scratch directory, which a `swift build` with an empty
+# `--scratch-path` writes into the repository root (c2457b87d removed one).
+/out/
+/.buildSystem_debug
+/.lock
+/CACHEDIR.TAG
+/debug
+/manifest.pif
+/workspace-state.json

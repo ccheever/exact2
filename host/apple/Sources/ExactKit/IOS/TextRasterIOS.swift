@@ -44,6 +44,11 @@ final class TextRasterizer {
     static let concurrency = max(2, min(4, ProcessInfo.processInfo.activeProcessorCount / 2))
     private static let maxInFlight = concurrency * 2
     private static let maximumBytes: CGFloat = 16 * 1024 * 1024
+    /// The most text (UTF-16 units) a changed paragraph paints on the main
+    /// thread to replace its old words at once: a paragraph's worth. A
+    /// longer one, which a short box may clip to a few of its lines, keeps
+    /// the worker path, as every line of it is laid out to paint.
+    private static let urgentWords = 1_000
     var inFlight: Int { working.count }
     var hasRoom: Bool { working.count < Self.maxInFlight }
 
@@ -112,7 +117,14 @@ final class TextRasterizer {
         guard node.canRasterText else { return true }
         let key = key(node)
         let visible = node.presenter?.textUrgentRect(node) ?? .zero
-        let missingPixels = node.textRaster == nil || !node.textRasterFrame.contains(visible) || now
+        // A whole paragraph's pixels of other words are none of this text's:
+        // an urgent paint replaces them now, rather than a worker a frame
+        // later. A tall paragraph's bands, a long text and a shadowed one
+        // (each line a blurred layer) keep the worker path.
+        let otherWords = key.clip == nil && node.textRasterSpec != key.spec
+            && key.spec.shadow == nil && !key.spec.runs.contains { $0.shadow != nil }
+            && key.spec.runs.reduce(0) { $0 + $1.text.utf16.count } <= Self.urgentWords
+        let missingPixels = node.textRaster == nil || !node.textRasterFrame.contains(visible) || now || otherWords
         if node.textRasterKey == key && (node.textRasterReady || !urgent || !missingPixels) { return true }
         let firstPixels = urgent && missingPixels
         let pending = working.last { $0.node === node }
@@ -123,7 +135,12 @@ final class TextRasterizer {
             node.showTextRaster(image, for: key)
             return true
         }
-        if firstPixels, let pending, pending.key == key, take(pending) { return true }
+        // A finished worker for this key shows only if the node still asks
+        // for it: the key a batch's change cleared is asked for again first
+        if firstPixels, let pending, pending.key == key {
+            node.textRasterKey = key; node.textRasterReady = false
+            if take(pending), node.textRasterReady { return true }
+        }
         guard firstPixels || hasRoom else { return false }
         let measured = engine.measuredBreaks(key.spec, width: key.box.width)
         let paragraph = measured == nil ? node.paragraphLayout() : nil
@@ -263,7 +280,7 @@ extension NodeView {
             setNeedsDisplay()
             return
         }
-        textRaster = result.image; textRasterFrame = result.covered; textRasterScale = key.scale
+        textRaster = result.image; textRasterFrame = result.covered; textRasterScale = key.scale; textRasterSpec = key.spec
         textRasterReady = true; textRasterFailed = false
         // The ink layer never animates (`InkLayer`), so no transaction of
         // its own: a worker's result published between frames commits with
@@ -284,7 +301,7 @@ extension NodeView {
     }
     func dropTextRaster() {
         textRasterLayer?.dropTextCast(); textRasterLayer?.removeFromSuperlayer(); textRasterLayer = nil
-        textRaster = nil; textRasterKey = nil; textRasterReady = false; textRasterFailed = false
+        textRaster = nil; textRasterKey = nil; textRasterReady = false; textRasterFailed = false; textRasterSpec = nil
     }
 }
 
@@ -416,6 +433,20 @@ extension Presenter {
     /// Paint motion's colour reaches the screen with its value (LLP 1062
     /// D6): a paragraph whose presented colour a batch changed is painted
     /// as the batch ends, where it shows, not on a worker a frame later.
+    /// The paragraphs a batch gave new words (`changedText`) show them in
+    /// the batch's frame, where they show (LLP 1116.005 D4), as UIKit draws a
+    /// label's new text in the commit that sets it, never the old words a
+    /// frame longer while a worker paints.
+    func paintChangedText() {
+        guard !changedText.isEmpty else { return }
+        let ids = changedText
+        changedText = []
+        for id in ids {
+            guard let node = views[id], node.canRasterText, !node.bounds.isEmpty, textIsVisible(node) else { continue }
+            textRasters.ensure(node, urgent: true)
+        }
+    }
+
     func paintPresentedText() {
         guard !presentedText.isEmpty else { return }
         let ids = presentedText

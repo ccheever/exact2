@@ -29,6 +29,18 @@ export function textOf(nodes, node, live = false) {
   return runs.length ? runs.join('') : node.props.value;
 }
 
+/** For a target no view carries: the tab panels never opened, whose contents do not exist until their tab is first
+ * selected (LLP 1075.003 §3.7), each with the step that selects it. Nothing is opened for the drive. */
+export function unopenedHint(nodes) {
+  const panels = nodes.filter((n) => n.unopened);
+  if (!panels.length) return '';
+  const named = panels.map((p) => {
+    const tab = nodes.find((n) => n.props.accessibilityRole === 'tab' && p.props.id != null && n.props.accessibilityControls === p.props.id);
+    return `${p.props.testId ?? p.props.id ?? `#${p.id}`}${tab ? ` (\`tap ${tab.props.testId ?? tab.id}\`)` : ''}`;
+  });
+  return `; not yet opened: ${named.join(', ')}, a tab whose views exist once it is first selected`;
+}
+
 /** The node a test's target names in a tree: a covered screen's copy only when no active one carries it (shop F16). */
 const targetNode = (nodes, target) => { const matches = nodes.filter((n) => n.props.testId === target); return matches.find((m) => !m.inactive) ?? matches[0]; };
 
@@ -40,14 +52,14 @@ export function textExpectation(nodes, target, value) {
   const runs = [];
   if (n && n.props.text == null && got !== n.props.value) for (let i = nodes.indexOf(n) + 1; i < nodes.length && nodes[i].depth > n.depth; i++) if (nodes[i].props.text != null) runs.push(nodes[i].props.text);
   const parts = runs.length > 1 ? ` (joined from its descendants: ${runs.map((r) => JSON.stringify(r)).join(' + ')}; to assert one, give that text its own testId)` : '';
-  if (got !== value) return { message: `text of "${target}" is ${n ? JSON.stringify(got) : 'absent (no view carries that testId)'}, expected ${JSON.stringify(value)}${parts}` };
+  if (got !== value) return { message: `text of "${target}" is ${n ? JSON.stringify(got) : `absent (no view carries that testId${unopenedHint(nodes)})`}, expected ${JSON.stringify(value)}${parts}` };
   return n.unshown ? { message: `text of "${target}" is ${JSON.stringify(got)}, but ${n.unshown}`, unshown: true } : null;
 }
 
 /** `expect tree <present|missing> <target>`, as `textExpectation`: a node present in the tree that the shipped app does not show is not present. */
 export function treeExpectation(nodes, target, present) {
   const n = targetNode(nodes, target);
-  if (!!n !== present) return { message: `expected testId "${target}" ${present ? 'present' : 'absent'}, it was ${n ? 'present' : 'absent'}` };
+  if (!!n !== present) return { message: `expected testId "${target}" ${present ? 'present' : 'absent'}, it was ${n ? 'present' : `absent${unopenedHint(nodes)}`}` };
   return present && n.unshown ? { message: `testId "${target}" is in the tree, but ${n.unshown}`, unshown: true } : null;
 }
 
@@ -177,6 +189,24 @@ export async function backendHead(origin, ms = 1000) {
     return Number.isInteger(changes?.seq) ? changes.seq : null;
   } catch { return null; }
 }
+export async function backendClock(origin, ms = 1000) {
+  try {
+    const response = await fetch(`${origin}/dev/status`, {signal: AbortSignal.timeout(ms)});
+    const status = response.ok ? await response.json() : null;
+    return typeof status?.storeId === 'string' && Number.isFinite(status.now) ? status.now : null;
+  } catch { return null; }
+}
+export function backendClockNote(epoch, now, origin) {
+  if (!Number.isFinite(epoch) || !Number.isFinite(now) || Math.abs(epoch - now) <= 86_400_000) return null;
+  return `drive epoch ${new Date(epoch).toISOString()} differs from the backend clock at ${origin} (${new Date(now).toISOString()}) by more than a day; deadlines, ages and windows use different clocks. Write \`epoch now\` to follow real time, or set both clocks deliberately.`;
+}
+
+export function rosterRefusalNote(reset, schema, refusals) {
+  if (!reset || reset.seed != null || !refusals?.size || !/^[ \t]+insert[ \t]*<-[ \t]*deny[ \t]*(?:--[^\n]*)?\r?$/m.test(schema)) return null;
+  const authorization = /\b(?:E_RULE|E_AUTH|E_PERMISSION|E_FORBIDDEN|FORBIDDEN|DENIED|NOT_(?:OWNER|ADMIN|MANAGER|MEMBER|STAFF|AUTHORIZED|ALLOWED))\b/;
+  if (![...refusals.values()].every(why => authorization.test(why))) return null;
+  return `possible cause: every privileged operation refused after \`fresh\`: seed roster tables. Authorization refusals: ${[...refusals.values()].map(why => authorization.exec(why)[0]).join(', ')}. Bare \`fresh\` removed the insert <- deny rows; use \`fresh "seed.json"\` with [{"table":"…","row":{…}}], resolved from the test file’s directory.`;
+}
 // @ref LLP 1086 D13 — `fresh` (the author's ruling of 2026-10-12, via the sb4 app farm): a test file's per-test reset.
 /** Before a test opens, each snapback4 dev server the app fetches is emptied through its development door, `POST
  * /dev/reset` (dev only: the app's tables and derived data emptied; a body of `[{table, row}]` seeds it after; it answers
@@ -205,7 +235,7 @@ export function freshRows(file, seed) {
   if (seed == null) return null;
   const path = resolve(dirname(resolve(file)), seed);
   let rows; try { rows = JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`fresh ${JSON.stringify(seed)}: ${path}: ${e.code === 'ENOENT' ? 'no such file' : e.message}`); }
-  if (!Array.isArray(rows) || rows.some((r) => typeof r?.table !== 'string' || r.row === null || typeof r.row !== 'object')) throw new Error(`fresh ${JSON.stringify(seed)}: ${path} is not a list of {"table": "…", "row": {…}}`);
+  if (!Array.isArray(rows) || rows.some((r) => typeof r?.table !== 'string' || r.row === null || Array.isArray(r.row) || typeof r.row !== 'object')) throw new Error(`fresh ${JSON.stringify(seed)}: ${path} is not a list of {"table": "…", "row": {…}}`);
   return rows;
 }
 /** The note a failed test gets when the backend held commits as it began: from before the run, from earlier tests. */
@@ -253,12 +283,20 @@ const replyNote = (name, why) => `mutation ${name}'s reply was refused: ${why}; 
  * after each op with the op's name, and with `end` when the drive ends. The web reads after each input; a native
  * carrier, whose reads could be slow, at the end; both at a read before the clock first moved. Advice only: bounded,
  * and never fails a drive. */
-export function driveNotes(s, { host, storage }) {
+export function driveNotes(s, { host, storage, origins = [] }) {
   const INPUTS = ['tap', 'type', 'clock'], READS = ['tree', 'screenshot', 'layout'];
   const said = new Set(), note = (key, text) => { if (!said.has(key)) { said.add(key); console.error(`note: ${text}`); } };
   const bounded = (p, ms) => Promise.race([p.catch(() => null), new Promise((done) => setTimeout(() => done(null), ms))]);
-  let peek = 0, probes = 0, clocked = false, replies = 0;
+  let peek = 0, probes = 0, clocked = false, replies = 0, checkedClock = false;
   return async (op) => {
+    if (!checkedClock) {
+      checkedClock = true;
+      const clocks = await Promise.all(origins.map(origin => backendClock(origin)));
+      for (const [i, origin] of origins.entries()) {
+        const warning = backendClockNote(s.launchFacts?.epoch, clocks[i], origin);
+        if (warning) note(`clock ${origin}`, warning);
+      }
+    }
     const end = op === 'end', early = READS.includes(op) && !clocked && !said.has('early');
     if (op === 'clock') clocked = true;
     if (!(end || early || (host === 'web' && INPUTS.includes(op)))) return;
@@ -325,8 +363,12 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   // A fetch prefix outside every grant fails nothing (sb4 farm wave 4, lane 070: an origin moved in app.ts only).
   const granted = host === 'web' && !url ? fetchOrigins(resolve(webDist ?? defaultWebDist())) : [];
   // The Snapback dev servers the tests share, and each one's head before the first test (`backendHead`).
-  const shared = host === 'web' && !url && mountsSnapback(resolveApp(app)) ? loopbackOrigins(resolve(webDist ?? defaultWebDist())) : [];
+  const snapback = Object.values(resolveApp(app).manifest?.typescript?.sources ?? {}).some(p => /(?:^|\/)snapback4\/(?:ts|online)\/?$/.test(p));
+  const shared = host === 'web' && !url && snapback ? loopbackOrigins(resolve(webDist ?? defaultWebDist())) : [];
   const atStart = await Promise.all(shared.map((o) => backendHead(o)));
+  const clocks = await Promise.all(shared.map(o => backendClock(o)));
+  let schema = '';
+  try { schema = readFileSync(resolve(resolveApp(app).dir, '../snapback/schema.q'), 'utf8'); } catch { /* No schema beside this app. */ }
   // What `fresh` resets: every loopback origin the app's web build fetches (its net.fetch grants).
   const backends = url ? [] : loopbackOrigins(resolve(webDist ?? defaultWebDist()));
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
@@ -377,10 +419,13 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // A zone or locale the driver refuses fails this test at its line, not the run. `epoch now` is read here, once
     // a test, so a `reload` relaunches from the same date on every host. `facts.epoch` is the date at the clock's zero
     // of the launch now running: a `reload` moves it on by the virtual time that launch reached (LLP 1116.009 D1).
-    const fixedDate = facts.epoch == null;
     try { facts.epoch = launchFacts({ ...facts, env: env ?? {} }).epoch; } catch (e) {
       results.push({ name: t.name, failures: [`${t.name}: ${lines.length ? `line ${lines.join(', ')}` : "the drive's launch flags"}: ${e.message}`] });
       continue;
+    }
+    for (const [i, origin] of shared.entries()) {
+      const warning = backendClockNote(facts.epoch, clocks[i], origin);
+      if (warning) notes.push(warning);
     }
     // `fresh`: the backend emptied (and seeded) before the app opens; a refusal fails this test at its line.
     if (reset) try { await resetBackends(backends, freshRows(file, reset.seed)); } catch (e) {
@@ -506,6 +551,9 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
                 : st.modifiers ? { modifiers: st.modifiers } : undefined;
               delivered(await s.tap(st.target, opts)); input = st.line; break;
             }
+            // MIDI (LLP 1125 §4): the ports a request finds, and a message from an input now.
+            case 'prefer-midi': { const r = await s.op({ op: 'prefer', midi: { ...(st.state ? { state: st.state } : {}), ...(st.inputs ? { inputs: st.inputs } : {}), ...(st.outputs ? { outputs: st.outputs } : {}) } }); if (r?.error) throw new Error(r.error); await s.clock('settle'); break; }
+            case 'tap-midi': delivered(await s.tap(null, { midi: st.clock ? { input: st.input, clock: st.clock } : { input: st.input, data: st.data } })); input = st.line; break;
             case 'drag': {
               const drag = { ...(st.to != null ? { to: st.to, ...(st.at ? { at: st.at } : {}) } : { dx: st.dx, dy: st.dy }), ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) };
               if (st.during?.length) drag.during = st.during.map((op) => () => duringOp(s, op));
@@ -597,6 +645,18 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               }
               break;
             }
+            // The MIDI queue's record (LLP 1125 D5): a message to that output, not taken back, at `at` when given.
+            case 'expect-midi': {
+              const midi = (await s.state(undefined, undefined, false, false, { midi: 'all' })).midi;
+              if (!midi) { failures.push(`${at}: the app keeps no MIDI queue (no sequence, no sendMIDI, exactMIDI or midimessage)`); break; }
+              const hex = st.data.map((b) => b.toString(16).padStart(2, '0')).join(' '), said = `"${st.output}" ${hex}${st.at != null ? ` at ${st.at}` : ''}`;
+              const found = midi.sent.some((m) => m.output === st.output && m.data === hex && m.state !== 'retracted' && (st.at == null || m.at === st.at));
+              if (found !== st.present) {
+                const of = midi.sent.filter((m) => m.output === st.output).slice(-8).map((m) => `#${m.id} ${m.data} at ${m.at} ${m.state}${m.by ? ` by ${m.by}` : ''}`);
+                failures.push(`${at}: expected ${st.present ? 'a' : 'no'} message to ${said}; ${of.length ? `its messages: ${of.join('; ')}` : `nothing was queued for it (access ${midi.state}, outputs ${midi.outputs.map((o) => o.id).join(', ') || 'none'})`}`);
+              }
+              break;
+            }
             // The media session the host reports (LLP 1098 D10): a field, the owner by its testId, or an offered action.
             case 'expect-mediasession': {
               const ms = (await s.state()).mediaSession;
@@ -623,6 +683,10 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       // A failed test shows what the data module logged, the last lines of it (sb4 farm wave 7, E1: 093 rendered
       // values into the view to see them; `logs` had them all along). Advice only.
       if (failures.length && closedAt == null) try {
+        const state = await s.state();
+        const mutations = new Map(Object.entries(state.mutationFailures ?? {}).map(([name, failure]) => [name, `${failure.code}: ${failure.message}`]));
+        const refusal = rosterRefusalNote(reset, schema, mutations.size ? mutations : refusedReplies((await s.op({op: 'logs', since: 0}))?.lines));
+        if (refusal) notes.push(refusal);
         const logs = await Promise.race([s.logs(), new Promise((done) => setTimeout(() => done(null), 3000))]);
         const said = (logs?.host ?? []).filter((l) => /^console\.\w+: /.test(l));
         if (said.length) notes.push(`the data module logged${said.length > 8 ? ` (the last 8 of ${said.length})` : ''}: ${said.slice(-8).join(' | ')}`);
@@ -632,8 +696,6 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       await s.close().catch((e) => { if (closedAt == null) throw e; });
     }
     if (failures.length && !reset) shared.forEach((o, i) => { if (heads[i] > 0 && atStart[i] != null) notes.push(sharedBackendNote(o, atStart[i], heads[i] - atStart[i])); });
-    // The README says `epoch now` (sb4 farm wave 7, E1: 013 found it only in prose).
-    if (failures.length && fixedDate && atStart.some((h) => h != null)) notes.push('this test ran on the fixed date 2026-01-01T00:00:00Z while snapback4 dev keeps real time: if what failed reads a time (a deadline, an age, a window), the server\'s and the app\'s disagree; write `epoch now` at the top of the test file (snapback4/README.md, "Time")');
     results.push({ name: t.name, failures, notes, ...(shots.length ? { shots } : {}), ...(end ? { end } : {}), ...(end?.keep ? { store } : {}) });
     if (base && !end?.keep) rmSync(resolve(base, store), { recursive: true, force: true });
   }

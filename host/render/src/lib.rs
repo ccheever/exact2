@@ -328,7 +328,7 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
     let (document, handlers) = match settled_tree {
         Some(settled) => settled,
         None => {
-            let booted = Runner::boot_checkpoint(
+            let mut booted = Runner::boot_checkpoint(
                 plan.clone(),
                 Anonymous::new(data()),
                 Kernel::with_monospace_on_demand(),
@@ -339,6 +339,9 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
                 location,
             )
             .map_err(|e| format!("boot from the checkpoint: {e:?}"))?;
+            booted
+                .build_every_tab()
+                .map_err(|e| format!("boot from the checkpoint: {e:?}"))?;
             (
                 project(&booted).map_err(|e| e.to_string())?,
                 booted.handlers(),
@@ -448,6 +451,11 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
         ),
         Err(e) => return Err(format!("boot: {e:?}")),
     };
+    // A rendered page holds every tab panel, which the JS target adopts at
+    // boot, building every one (LLP 1075.003 §9.14).
+    runner
+        .build_every_tab()
+        .map_err(|e| format!("boot: {e:?}"))?;
     // The boot document, before any answer: a route's `paint=boot`
     // (LLP 1048.005).
     if let Some(on_boot) = on_boot {

@@ -588,3 +588,67 @@ fn types_check_is_read_only_and_build_reports_only_changed_declarations() {
             .success()
     );
 }
+
+/// LLP 1121 D12 (stage 5 commit 4): a data module returning one of the
+/// design's colour tokens checks, and one returning a name the design lacks
+/// fails `tsc` (the stage 5 gate line).
+#[test]
+#[ignore = "async lane: typechecks the design's token union with tsc; bun scripts/async.mjs runs it"]
+fn a_data_module_returning_an_unknown_token_fails_tsc() {
+    let dir = std::env::temp_dir().join(format!("exact-types-tokens-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  brand = #c8102e\n  surface.card = #ffffff\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    column background-color=\"surface.card\"\n      text \"a\" color=\"brand\"\n",
+    )
+    .unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let fixture = Fixture::new();
+    fixture.write("app.contract.d.ts", &contract::typescript(&plan).unwrap());
+    let module = |token: &str| {
+        format!("import type {{ ColorToken }} from './app.contract';\nexport const badge = (): ColorToken => {token};\n")
+    };
+    let output = fixture.check(&module("\"surface.card\""));
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = fixture.check(&module("\"surface.nonesuch\""));
+    assert!(!output.status.success(), "an unknown token passed tsc");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("error TS"));
+}
+
+#[test]
+fn mutation_source_types_follow_compiled_sends_in_imported_and_inlined_actions() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "composer.contract",
+        "component Composer\n  props\n    post: action\n  state taps = 0\n  action activate\n    taps = taps + 1\n    post()\n  view\n    button \"Post\" press=activate\n",
+    );
+    fixture.write(
+        "app.contract",
+        "use Composer from \"./composer.contract\"\ncomponent App\n  resource status = status() as shape bool\n  mutation posted as shape bool\n  mutation changed as shape bool\n  action post\n    send posted = post-note()\n  action change\n    send changed = change-note()\n  view\n    column\n      Composer(post=post)\n      Composer(post=post)\n      button \"Change\" press=change\n",
+    );
+    let plan = contract::compile_path(&fixture.0.join("app.contract")).unwrap();
+    let declarations = contract::typescript(&plan).unwrap();
+    assert!(
+        declarations.contains("export type MutationSource = \"change-note\" | \"post-note\";"),
+        "{declarations}"
+    );
+    let plan = contract::compile(
+        "component App\n  resource ready = status() as shape bool\n  view\n    text \"Ready\"\n",
+    )
+    .unwrap();
+    assert!(contract::typescript(&plan)
+        .unwrap()
+        .contains("export type MutationSource = never;"));
+}

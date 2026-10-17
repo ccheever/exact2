@@ -6,9 +6,10 @@ import { createInterface } from 'node:readline';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cargoReproducibilityFlags, developmentBuildEnv, readBuilds, resolveApp, rustPolicy } from './app.mjs';
+import { channelOrigin } from './origin.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -49,7 +50,7 @@ export function prepareRustBundle(app, platform, target, env) {
       if(existsSync(blob))bytes=readFileSync(blob);
     }
     if(!bytes) {
-      const origin=app.manifest.deploy?.channels?.[head.stream.channel] ?? app.origin;
+      const origin=channelOrigin(app.manifest,head.stream.channel) ?? app.origin;
       if(!origin)throw new Error('Rust companion blobs unavailable locally; provide EXACT_RUST_BUNDLE or configure the signed origin');
       const url=new URL(`.exact/blobs/${card.sha256}`,origin.endsWith('/')?origin:origin+'/');
       const code=`const r=await fetch(process.argv[1],{redirect:'error',signal:AbortSignal.timeout(30000)});if(!r.ok)throw new Error('Rust blob HTTP '+r.status);const limit=Number(process.argv[2]);let n=0;for await(const b of r.body){n+=b.length;if(n>limit)throw new Error('Rust blob exceeds bound');process.stdout.write(b);}`;
@@ -133,6 +134,22 @@ function fileHash(path) {
   fileHashes.set(path, { stamp, hash: value });
   return value;
 }
+/** The digest of the source the app's Rust module compiles from: its local
+ * crates (the data crate the binary embeds among them), the workspace's
+ * Cargo.toml and Cargo.lock, and the compiler. The Contract is not Rust
+ * source: a plan's sources are checked by shape. A binary records it
+ * (`EXACT_NATIVE_SOURCE`, `Swappable::with_native`) and every Rust receipt
+ * carries it, so a module built from what the binary already compiled runs
+ * natively. Paths are relative to the workspace: checkouts agree. */
+let compiler = null;
+export function nativeSource(app, env = developmentBuildEnv()) {
+  if (!app.manifest || !rustPackage(app)) return null;
+  const files = rustClosure(app, env).files.filter(path => !path.endsWith('.contract') && path !== resolve(app.dir, 'app.json'));
+  compiler ??= run(app, 'rustc', ['-vV'], env);
+  const digest = createHash('sha256').update('exact native source 1\0').update(compiler);
+  for (const path of files) digest.update(relative(app.workspace, path)).update('\0').update(fileHash(path)).update('\0');
+  return digest.digest('hex');
+}
 export function rustInputDigest(paths, observations = null) {
   const digest = createHash('sha256');
   for (const path of paths) {
@@ -142,29 +159,39 @@ export function rustInputDigest(paths, observations = null) {
   }
   return digest.digest('hex');
 }
-function compile(app, target, env, profile) {
+/** Each target's loadable logic artifact, from one Cargo build: Cargo
+ * compiles the targets in parallel, where two invocations would take turns
+ * on the target directory's lock. */
+function compile(app, targets, env, profile) {
   const packageName = rustPackage(app);
   // A module's bytes must not depend on where it was built: a cold deploy's
   // cache is a new directory each time. Code generated under OUT_DIR records
   // its path, and a Mach-O library names itself by its output path.
   const modules = resolve(app.target,'rust-modules');
   const flags = (env.CARGO_ENCODED_RUSTFLAGS?.split('\x1f') ?? env.RUSTFLAGS?.trim().split(/\s+/) ?? []).filter(Boolean);
-  flags.push(`--remap-path-prefix=${modules}=/rust-modules`, ...(target.includes('apple') ? ['-Clink-arg=-Wl,-install_name,@rpath/app.module.dylib'] : []));
-  const moduleEnv = {...env,CARGO_TARGET_DIR:modules,CARGO_ENCODED_RUSTFLAGS:flags.join('\x1f')};
-  delete moduleEnv.RUSTFLAGS;
+  flags.push(`--remap-path-prefix=${modules}=/rust-modules`);
+  const moduleEnv = {...env,CARGO_TARGET_DIR:modules};
+  delete moduleEnv.RUSTFLAGS; delete moduleEnv.CARGO_ENCODED_RUSTFLAGS;
+  // Per-target flags, so one build serves every target: the install name is
+  // an Apple link argument the Wasm link does not take.
+  for (const target of targets) {
+    moduleEnv[`CARGO_TARGET_${target.toUpperCase().replaceAll('-','_')}_RUSTFLAGS`] = [...flags, ...(target.includes('apple') ? ['-Clink-arg=-Wl,-install_name,@rpath/app.module.dylib'] : [])].join(' ');
+  }
   // Out-of-tree apps need no custom Cargo profile just to opt in. Keep their
   // ordinary host builds untouched: these defaults apply only to this module.
   if (profile === 'logic-dev' && !/^\s*\[\s*profile\s*\.\s*["']?logic-dev["']?\s*\]/m.test(readFileSync(resolve(app.workspace,'Cargo.toml'),'utf8'))) {
     profile='dev';
     for (const [key,value] of Object.entries({OPT_LEVEL:'1',DEBUG:'0',INCREMENTAL:'true',PANIC:'abort'})) moduleEnv[`CARGO_PROFILE_DEV_${key}`] ??= value;
   }
-  const messages = run(app, 'cargo', ['build', ...cargoReproducibilityFlags(app), '--lib', '-p', packageName, '--target', target, '--profile', profile, '--message-format=json'], moduleEnv)
+  const messages = run(app, 'cargo', ['build', ...cargoReproducibilityFlags(app), '--lib', '-p', packageName, ...targets.flatMap(t => ['--target', t]), '--profile', profile, '--message-format=json'], moduleEnv)
     .split('\n').filter(Boolean).map(line => JSON.parse(line));
   for (const m of messages) if (m.reason === 'compiler-message' && m.message.rendered) process.stderr.write(m.message.rendered);
-  const artifact = messages.findLast(m => m.reason === 'compiler-artifact' && m.target.crate_types.includes('cdylib') && m.target.src_path && m.filenames.some(f => /\.(wasm|dylib|so|dll)$/.test(f)));
-  const path = artifact?.filenames.find(f => /\.(wasm|dylib|so|dll)$/.test(f));
-  if (!path) throw new Error(`${packageName}: Cargo emitted no loadable logic artifact`);
-  return path;
+  const loadable = messages.filter(m => m.reason === 'compiler-artifact' && m.target.crate_types.includes('cdylib') && m.target.src_path).flatMap(m => m.filenames).filter(f => /\.(wasm|dylib|so|dll)$/.test(f));
+  return targets.map(target => {
+    const path = loadable.findLast(f => f.includes(`/${target}/`));
+    if (!path) throw new Error(`${packageName}: Cargo emitted no loadable logic artifact for ${target}`);
+    return path;
+  });
 }
 function rustGrants(compat) {
   const scope=compat?.inputs?.rustGrants, ceiling=compat?.inputs?.grantCeiling;
@@ -176,7 +203,7 @@ function rustGrants(compat) {
 export function rustReceipt(app, compat, plan, module, target, executor) {
   const extension = executor === 'tiered' ? 'bin' : executor === 'wasm' ? 'wasm' : target.includes('apple') ? 'dylib' : target.includes('windows') ? 'dll' : 'so';
   return { version: 1, kind: 'rust', abi: 3, appId: app.id, grants: rustGrants(compat), target, executor,
-    plan: rustCard('app.plan', plan), module: rustCard(`app.module.${extension}`, module) };
+    source: nativeSource(app), plan: rustCard('app.plan', plan), module: rustCard(`app.module.${extension}`, module) };
 }
 
 /** One compiler/baker process per producer. Requests are private file paths;
@@ -265,10 +292,10 @@ export function publishedSignature(fresh, published, env = process.env) {
 /** The last modules each app compiled in this process, with their inputs' key. */
 const compiledModules = new Map();
 function compileModules(app, env, profile, nativeTarget) {
-  const wasm = readFileSync(compile(app, 'wasm32-unknown-unknown', env, profile));
+  const [wasmPath, nativePath] = compile(app, ['wasm32-unknown-unknown', ...(nativeTarget ? [nativeTarget] : [])], env, profile);
+  const wasm = readFileSync(wasmPath);
   let native = null;
   if (nativeTarget) {
-    const nativePath = compile(app, nativeTarget, env, profile);
     if (nativeTarget.includes('apple')) {
       const identity = env.EXACT_RUST_SIGN_IDENTITY ?? (env.EXACT_UPDATE_TRUST === 'production' ? null : '-');
       if (!identity) throw new Error('macOS production Rust modules require EXACT_RUST_SIGN_IDENTITY matching the host team; select rust.prod="wasm" to use interpreted updates');

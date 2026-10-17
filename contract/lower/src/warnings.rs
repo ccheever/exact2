@@ -1219,7 +1219,7 @@ fn one_scheme(
             s.name.clone(),
         ))
     });
-    let why = "The one authored colour is the accent: a role, or one `light-dark(light, dark)` pair on `accent-color`. A forced `color-scheme` is no repair: the app then has no dark mode (docs/contract-for-agents.md, \"Colours: say a role, not a value\")";
+    let why = "Leave the accent unsaid (the platform's; a brand is an `app.tamber`), or write it as a role or one `light-dark(light, dark)` pair on `accent-color`. A forced `color-scheme` is no repair: the app then has no dark mode (docs/contract-for-agents.md, \"Colours: say a role, not a value\")";
     // `#fff` on `color` stays; `#fff`, `#eee` on `background-color` stay.
     let shown = |s: &Site| {
         let mut shown: Vec<String> = s.colours.iter().take(3).map(|c| format!("`{c}`")).collect();

@@ -46,8 +46,13 @@ export function devSignal(name, initial, type, declared, router = false) {
   // The launch locale must reach newly added initializers before language().
   const cp = dev(), kept = name === '#locale' ? null : cp?.slots?.find(s => s[0] === name);
   const value = kept && (router || shape(kept[1], declared)) ? (router ? carryRouter(decode(kept[2]), launchLocation()) : decode(kept[2])) : initial;
-  const out = sig(value, type, type === "s" ? name : undefined); out.n.devName = name; out.n.devType = declared; return out;
+  const out = sig(value, type, type === "s" ? name : undefined); out.n.devName = name; out.n.devType = declared;
+  if (name.includes('@')) { Panels.live.add(out); Panels.used.add(name); }
+  return out;
 }
+/** A tab panel's state, `slot@panel`, made when the panel is built (emit's `owned`; LLP 1075.003 §9.14): the capture
+ * (dev.mjs) takes each live one, and what the last reload carried for a panel not built since. */
+const Panels = globalThis.__exactDevPanels = { live: new Set(), used: new Set(), left: () => (dev()?.slots ?? []).filter(s => s[0].includes('@') && !Panels.used.has(s[0])) };
 
 /** A settled resource carried only for the same source, arguments and type. */
 export function devResource(name, source, args, initial, initialArgs, type, placeholder, declared, elseRow = false) {

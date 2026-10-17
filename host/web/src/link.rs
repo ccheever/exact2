@@ -177,12 +177,16 @@ impl Linked {
     /// The capabilities registered here.
     pub fn uses(&self) -> Uses {
         // A grouped list is its authored nodes on the web, and the browser
-        // does its own I/O and plays CSS's transitions: nothing to link for
-        // any of them (LLP 1047.001 D2).
+        // does its own I/O and plays CSS's transitions (LLP 1047.001 D2); its
+        // numerals roll in the runtime's text (LLP 1077 D15), and its date
+        // and time controls are its own pickers (LLP 1115.001.000 D2):
+        // nothing to link for any of them.
         let mut uses = Uses::NONE
             .with(Capability::GroupedLists)
             .with(Capability::Io)
-            .with(Capability::Transitions);
+            .with(Capability::Transitions)
+            .with(Capability::Numerals)
+            .with(Capability::Dates);
         if self.markup.is_some() {
             uses = uses.with(Capability::Markdown);
         }
@@ -366,6 +370,17 @@ mod tests {
         );
         let plain = contract::compile("component A\n  view\n    text \"b\"\n").unwrap();
         assert!(Host::boot(&plain.encode(), (), Default::default(), "/").is_ok());
+        // A date control is the browser's own picker: the core boots it.
+        let date = contract::compile("component A\n  state d = \"\"\n  action pick(v)\n    d = v\n  view\n    input type=\"date\" value=d input=pick aria-label=\"Day\"\n").unwrap();
+        assert!(exact_runner::uses(&date).has(exact_runner::Capability::Dates));
+        assert!(Host::boot(&date.encode(), (), Default::default(), "/").is_ok());
+        // So are rolling numerals: the runtime's own text.
+        let rolls = contract::compile(
+            "component A\n  view\n    text \"1,234\" -exact-content-transition=\"numeric\"\n",
+        )
+        .unwrap();
+        assert!(exact_runner::uses(&rolls).has(exact_runner::Capability::Numerals));
+        assert!(Host::boot(&rolls.encode(), (), Default::default(), "/").is_ok());
         // LLP 1078 D3: a segment length is linked by use; the fold's fields are the core's.
         let segments = contract::compile(
             "component A\n  view\n    column width=\"env(viewport-segment-width 0 0)\"\n",

@@ -4,7 +4,7 @@
 use super::*;
 use crate::sequence::Sequence;
 
-const BODY: &str = "a sequence body is one `play(tracks, bpm=…)`: the tracks, then `bpm=`, `from=`, `countIn=` and `ended=` by name";
+const BODY: &str = "a sequence body is one `play(tracks, bpm=…)`: the tracks, then `bpm=` (or `clock=`), `from=`, `countIn=`, `clockOut=` and `ended=` by name";
 
 impl Parser {
     /// `mount`, or a gate: `when cond [key=expr]`, or `key=expr` alone

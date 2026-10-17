@@ -344,10 +344,10 @@ fn lifetime_and_authored_rows() {
     assert!(p.resize(320., 640.).is_none());
     p.frame();
     assert_eq!(p.rect_of(dialog).unwrap().2, 250.);
-    let very_long = std::iter::repeat(
+    let very_long = std::iter::repeat_n(
         "This complete confirmation title remains readable while its actions stay reachable.",
+        24,
     )
-    .take(24)
     .collect::<Vec<_>>()
     .join(" ");
     ops(

@@ -7,6 +7,40 @@ import { dirname, resolve } from 'node:path';
 import { Cdp, chromium, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort } from './agent-launch.mjs';
 import { PassThrough } from 'node:stream';
 
+test('drive clock warnings compare explicit and default epochs with the actual backend clock', async () => {
+  const {backendClock, backendClockNote, driveNotes} = await import('./agent-test.mjs');
+  const epoch = Date.parse('2026-01-01T00:00:00Z');
+  expect(backendClockNote(epoch, epoch + 86_400_000, 'http://backend')).toBe(null);
+  expect(backendClockNote(epoch, epoch - 86_400_001, 'http://backend')).toContain('differs from the backend clock');
+  expect(backendClockNote(epoch, null, 'http://backend')).toBe(null);
+  const server = Bun.serve({port:0,fetch:()=>Response.json({storeId:'test',now:epoch + 86_400_001})});
+  const say = console.error, warnings = [];
+  try {
+    expect(await backendClock(server.url.origin)).toBe(epoch + 86_400_001);
+    console.error = line => warnings.push(line);
+    const notes = driveNotes({launchFacts:{epoch}}, {host:'web',storage:'test',origins:[server.url.origin]});
+    await notes('state'); await notes('state');
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toContain('differs from the backend clock');
+  }
+  finally { console.error = say; server.stop(true); }
+});
+
+test('bare fresh refusals explain roster seeding only when a deny-insert roster exists', async () => {
+  const {rosterRefusalNote} = await import('./agent-test.mjs');
+  const schema = 'table owners:\n  person: principal\n  insert <- deny\n';
+  const refused = new Map([['approve','NOT_OWNER: no owner']]);
+  expect(rosterRefusalNote({},schema,refused)).toContain('every privileged operation refused after `fresh`: seed roster tables');
+  expect(rosterRefusalNote({seed:'seed.json'},schema,refused)).toBe(null);
+  expect(rosterRefusalNote(null,schema,refused)).toBe(null);
+  expect(rosterRefusalNote({},schema,new Map())).toBe(null);
+  expect(rosterRefusalNote({},'table owners:\n    person: principal\n    insert <- deny -- roster\n',refused)).toContain('seed roster tables');
+  expect(rosterRefusalNote({},'table owners:\r\n    insert <- deny -- roster\r\n',refused)).toContain('seed roster tables');
+  expect(rosterRefusalNote({},'',refused)).toBe(null);
+  expect(rosterRefusalNote({},schema,new Map([['approve','invalid reply shape']]))).toBe(null);
+  expect(rosterRefusalNote({},schema,new Map([['approve','E_OFFLINE: offline']]))).toBe(null);
+});
+
 test('CDP reports transport closure once to event waiters without a pending request', () => {
   for (const [stream, event, reason] of [
     ['output', 'end', 'the DevTools pipe closed'],

@@ -55,6 +55,9 @@
 //        the window toolbar Exact installed (LLP 1075.003.000 §3.7)
 // 208  module_will_quit(module, ctx, done)            size ≥ 216; macOS:
 //        the quit's work (LLP 1069.010 Q4); done(ctx) once, from any thread
+// 216  module_tamber(module)                         size ≥ 224; nullable:
+//        after a batch that moved what a binding reads (LLP 1121 D12), the
+//        module asks its places again (ExactTamber.swift)
 //
 //   event(ctx, nonce, kind, bytes, len)          kind: EventKind 0–8 — press,
 //     change, hover, focus, blur, key, submit, load, message; change, key and
@@ -141,6 +144,8 @@ private final class NativeTable {
     var tickHatch: HatchTickFn?
     /// The quit's work (macOS), in a table of 216 bytes or more.
     var willQuit: WillQuitFn?
+    /// The bindings' moved inputs (LLP 1121 D12), in one of 224 or more.
+    var tamber: ModuleDestroyFn?
     var agentInput: SetFn?
     var focusTarget: ViewFn?
 
@@ -216,6 +221,7 @@ private final class NativeTable {
         }
         if size >= 208 { loaded.tickHatch = pointer(200).map { unsafeBitCast($0, to: HatchTickFn.self) } }
         if size >= 216 { loaded.willQuit = pointer(208).map { unsafeBitCast($0, to: WillQuitFn.self) } }
+        if size >= 224 { loaded.tamber = pointer(216).map { unsafeBitCast($0, to: ModuleDestroyFn.self) } }
         return .success(loaded)
     }
 }
@@ -678,6 +684,13 @@ final class NativeViews {
         guard !quitAsked else { return }
         quitAsked = true
         askQuit()
+    }
+
+    /// After a batch: the module asks the places it observes again, when it
+    /// has the entry (LLP 1121 D12). Main thread.
+    func tamberMoved() {
+        guard let instance, case .success(let table)? = NativeProcess.table, let tamber = table.tamber else { return }
+        tamber(instance)
     }
 
     private func askQuit() {
@@ -1231,9 +1244,16 @@ extension NativeViews {
     fileprivate func contain(_ entry: NativeEntry, table: NativeTable, retry: Bool = true, insert: () -> Void = {}) {
         guard let handle = entry.handle, let made = table.platformController?(handle), let owner = entry.owner else { return insert() }
         let screen = Unmanaged<UIViewController>.fromOpaque(made).takeUnretainedValue()
-        var responder: UIResponder? = owner
-        while let next = responder, !(next is UIViewController) { responder = next.next }
-        guard let parent = responder as? UIViewController else {
+        // A node in a route is its route controller's, which the route may
+        // not have yet: one built with its tab or pushed with this node
+        // (LLP 1075.003 §9.14). Until it has, no controller above holds it.
+        var responder: UIResponder? = owner, route: NodeView?
+        while let next = responder, !(next is UIViewController) {
+            if route == nil, let node = next as? NodeView, node.props["navigationKey"] != nil, node.props["navigationBack"] == nil { route = node }
+            responder = next.next
+        }
+        let found = responder as? UIViewController
+        guard let parent = route.map({ route in (found as? RouteController).flatMap { $0.node === route ? $0 : nil } }) ?? found else {
             insert()
             guard retry, let presenter = owner.presenter else { return log("\(entry.name) #\(entry.id): a screen with no controller to hold it") }
             presenter.afterBatch { [weak self, weak entry] in
@@ -1253,6 +1273,15 @@ extension NativeViews {
         if adds { screen.didMove(toParent: parent) }
         entry.screen = screen
         if adds { log("\(entry.name) #\(entry.id): a screen in \(type(of: parent))") }
+    }
+
+    /// A route's controller has loaded its view: each screen made in the
+    /// route before then, waiting for a controller, is contained now.
+    func routeLoaded(_ route: NodeView) {
+        guard case .success(let table)? = NativeProcess.table else { return }
+        for entry in entries.values where entry.screen == nil && entry.owner?.isDescendant(of: route) == true {
+            contain(entry, table: table, retry: false)
+        }
     }
 
     /// A screen's view leaves with its controller, in UIKit's order; a plain

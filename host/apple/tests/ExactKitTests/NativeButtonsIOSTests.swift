@@ -40,6 +40,24 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertEqual(button.accessibilityLabel, "Go", "without an authored name the face names the control")
     }
 
+    /// A native button in what a native bar stands for (an adopted tablist)
+    /// has no UIButton while the host hides that box, and has one again as
+    /// soon as the box shows, though the bar's cover is still `whole`: the
+    /// cover leaves only when the navigation next reports covers.
+    func testAButtonUnderABarsCoverHasAControlWhileItsBoxShows() throws {
+        let p = presenter(box(1) + native(2) + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]],
+                          faces: [2: face("Second")])
+        XCTAssertNotNil(p.controls.controls[2])
+        let list = try XCTUnwrap(p.views[1])
+        p.navigation.covers[1] = .whole
+        list.isHidden = true
+        p.controls.sync()
+        XCTAssertNil(p.controls.controls[2], "the bar's item stands for it")
+        list.isHidden = false
+        p.controls.syncShown()
+        XCTAssertNotNil(try button(p, 2), "shown again, it is UIKit's button before the cover leaves")
+    }
+
     func testAncestorARIAUnavailabilityReachesButtonAndRefreshes() throws {
         let p = presenter(box(1, ["accessibilityRole": "group", "accessibilityDisabled": "true"])
                           + native(2, ["testId": "nested"])

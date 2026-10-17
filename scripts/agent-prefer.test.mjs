@@ -15,6 +15,12 @@ test('a near spelling of a fact is that fact', () => {
   expect(preferGroups({ segments: '2x1', gap: '40' }).fold).toEqual({ cols: 2, rows: 1, gap: 40 });
 });
 
+test('the midi group names what a request finds and the ports by name (LLP 1125 §4)', () => {
+  expect(preferGroups({ 'midi.state': 'granted', 'midi.outputs': 'OP-XY, IAC', 'midi.inputs': 'keys' }).midi).toEqual({ state: 'granted', outputs: ['OP-XY', 'IAC'], inputs: ['keys'] });
+  expect(preferGroups({ 'midi.outputs': '' }).midi).toEqual({ outputs: [] });
+  expect(() => preferGroups({ 'midi.state': 'maybe' })).toThrow(MalformedOperation);
+});
+
 test('an unknown fact or a value it does not take is refused naming what is expected', () => {
   for (const facts of [{ 'prefers-color-scheme': 'banana' }, { theme: 'dark' }, { 'has-focus': undefined }]) expect(() => preferGroups(facts)).toThrow(MalformedOperation);
   expect(() => preferGroups({ 'color-scheme': 'blue' })).toThrow(/^prefer: prefers-color-scheme blue: expected .*prefers-color-scheme dark\|light/);

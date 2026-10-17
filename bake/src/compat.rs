@@ -220,6 +220,7 @@ fn commands_digest() -> String {
             "closeNotification" | "stopSounds" => "1",
             "playSounds" => "1:4|5|6",
             "playSound" => "6",
+            "sendMIDI" => "3",
             "scrollIntoView" => "4|7",
             "saveFile" => "3|4",
             _ => "positional",
@@ -265,7 +266,7 @@ fn compatibility_with_trust(
     let (channel, origin) = if binary_only {
         (String::new(), None)
     } else {
-        manifest.channel()
+        manifest.channel()?
     };
     if trust == "production"
         && (store != "0" || origin.is_some())
@@ -361,7 +362,10 @@ fn compatibility_with_trust(
         // without the executor refuses the build; a change is a new cohort.
         "typescriptPlacement": manifest.placement("typescript", platform)?,
         "rustPlacement": manifest.placement("rust", platform)?,
-        "dataCrate": data_crate(app_dir)?,
+        // A binary that replaces its Rust module binds the module's ABI,
+        // target and grants above, never the source it was first built
+        // from: an edit there is an update, not a new cohort (LLP 1029.000 §7).
+        "dataCrate": if rust_mode == "off" { data_crate(app_dir)? } else { Value::Null },
         // Each shader's reflected interface digest (LLP 1030 D8) — entry
         // points, bindings, layouts, inputs, outputs, overrides, never the
         // text — so a colour edit does not move the id and a binding edit
@@ -709,6 +713,7 @@ mod tests {
                     "closeNotification" | "stopSounds" => "1",
                     "playSounds" => "1:4|5|6",
                     "playSound" => "6",
+                    "sendMIDI" => "3",
                     "scrollIntoView" => list_shape,
                     "saveFile" => "3|4",
                     _ => "positional",
@@ -1180,6 +1185,37 @@ mod tests {
             );
             ids.push(receipt.id);
         }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_replaceable_rust_module_keeps_its_source_out_of_the_cohort() {
+        let dir = app("rust-source");
+        std::fs::create_dir_all(dir.join("data/src")).unwrap();
+        let mut manifest = Manifest::read(&dir).unwrap();
+        let id = |manifest: &Manifest, source: &str| {
+            std::fs::write(dir.join("data/src/lib.rs"), source).unwrap();
+            let receipt = compatibility_with_trust(
+                &dir,
+                "macos",
+                "aarch64-apple-darwin",
+                manifest,
+                Some(""),
+                "production",
+            )
+            .unwrap();
+            (receipt.id, receipt.inputs["dataCrate"].clone())
+        };
+        manifest.json["deploy"] = serde_json::json!({"signing":{"key":"k","keys":{"k":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}}});
+        manifest.json["rust"] =
+            serde_json::json!({"mode":"native","module":{"package":"app-logic"}});
+        let (before, data) = id(&manifest, "pub const A: u8 = 1;");
+        assert!(data.is_null(), "{data}");
+        assert_eq!(id(&manifest, "pub const A: u8 = 2;").0, before);
+        manifest.json["rust"] = serde_json::json!({"mode":"off","module":{"package":"app-logic"}});
+        let (off, data) = id(&manifest, "pub const A: u8 = 1;");
+        assert!(!data.is_null());
+        assert_ne!(id(&manifest, "pub const A: u8 = 2;").0, off);
         let _ = std::fs::remove_dir_all(dir);
     }
 

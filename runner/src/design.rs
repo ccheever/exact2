@@ -57,7 +57,8 @@ pub fn structure(plan: &Plan) -> String {
 }
 
 /// The digest of `plan`'s design shape: its axes, and each theme row's name,
-/// role (with a role override's value) and slice count. A batch is for one
+/// role and slice count: which tokens override which role, not with what
+/// (an override's value is a live edit, LLP 1121 stage 5). A batch is for one
 /// shape: the JS target's build and a wasm or native build of the same
 /// sources share it, though their plans differ (LLP 1122 D4's one stream
 /// for every copy).
@@ -73,14 +74,8 @@ pub fn shape(plan: &Plan) -> String {
     }
     text("");
     for row in &plan.theme {
-        let role = plan.str(row.role);
         text(plan.str(row.name));
-        text(role);
-        text(if role.is_empty() {
-            ""
-        } else {
-            plan.str(row.value)
-        });
+        text(plan.str(row.role));
         text(&row.slices.len.to_string());
     }
     hex(&bytes)

@@ -159,14 +159,24 @@ Hosts.saveFile = (...args) => {
 };
 
 // ---------------------------------------------------------------- share (share.rs)
-Hosts.share = (title, text, url) => {
+Hosts.share = (title, text, url, files) => {
   const refuse = why => say(`share: refused: ${why}`);
-  if (text == null && url == null) return refuse('needs text= or url=');
+  files ??= [];
+  if (!Array.isArray(files) || files.some(f => typeof f !== 'string')) return refuse('files= is a list of strings');
+  if (text == null && url == null && !files.length) return refuse('needs text=, url= or files=');
   if (url != null && !/^https?:\/\/[^/?#\s]\S*$/i.test(url)) return refuse('url is not an absolute http: or https: URL');
+  // `files=` (LLP 1125 D12): app:/ files behind `fs.read`; a picture of an element is refused on the web.
+  for (const f of files) {
+    if (f.startsWith('#')) return refuse('a picture of an element is not available on the web');
+    const rest = f.startsWith('app:/') ? f.slice(5).split('/') : [];
+    if (rest.length < 2 || rest.some(p => !p || p === '.' || p === '..' || p.includes('\0'))) return refuse(`${f} is neither an app:/ file nor an element's #id`);
+    if (!coversPath(appGrantSet(), 'fs.read', f)) return refuse(`${f} is outside the app's fs.read grants`);
+  }
   // The pressed node anchors the sheet (the press's own event, in whose commit commands run).
   const source = globalThis.event?.currentTarget, anchor = source instanceof Element ? viewId(source) : null;
-  if (clock.agent) return hold('share', null, { title: title ?? null, text: text ?? null, url: url ?? null, anchor }, (_, req) => { say(req.choice === 'shared' ? 'share: shared' : 'share: dismissed'); });
+  if (clock.agent) return hold('share', null, { title: title ?? null, text: text ?? null, url: url ?? null, files, anchor }, (_, req) => { say(req.choice === 'shared' ? 'share: shared' : 'share: dismissed'); });
   if (typeof navigator.share !== 'function') return refuse('unavailable');
+  if (files.length) return void counted(glue().then(m => m.share({ title, text, url }, files.map(path => ({ path })))).then(say));
   navigator.share(Object.fromEntries(Object.entries({ title, text, url }).filter(([, v]) => v != null)))
     .then(() => 'share: shared', e => e?.name === 'AbortError' ? 'share: dismissed' : `share: refused: ${e?.name ?? e}`).then(say);
 };

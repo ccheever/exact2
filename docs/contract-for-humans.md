@@ -1535,7 +1535,8 @@ Do not replace virtual time with sleeps.
 For diagnosis, use `build --json`, `symbols --name <name>`, and
 `build -o /tmp/app.plan --map`, which writes `/tmp/app.plan.map.json`. The
 development source map connects node layout
-to declarations, component calls, and style origins. Then drive the actual app:
+to declarations, component calls, and style origins, and says each source's
+SHA-256 as compiled (`sources`), so a reader can tell a file moved since. Then drive the actual app:
 
 ```sh
 bun scripts/agent.mjs web tree state logs "screenshot /tmp/app.png"
@@ -1552,7 +1553,13 @@ dry run, which expects a committed tree (or `--dirty`); publication uses `--yes`
 an origin, a signing key, and the configured signed streams. Read
 [LLP 1030.000](../llp/1030.000-dev-server-as-deployer.rfc.md) before changing
 trust or publishing. Writing Contract does not require inventing a deployment
-service.
+service. To share an iOS app through AppDrop, add `"appdrop": {}` under
+`deploy`: a deploy whose table has an iOS binary row builds the unsigned `.ipa`
+after the streams and publishes it to AppDrop. The first one creates the link
+and writes it to `deploy.appdrop.url`; commit that, and the install page offers
+it for iOS. Later ones publish the link's next version (`$APPDROP_MANAGE_KEY`,
+or the key the appdrop CLI saved, authorizes it). Bundle-only changes go over
+the air and never reach AppDrop.
 
 ## Where to go next
 

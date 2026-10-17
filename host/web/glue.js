@@ -19,7 +19,7 @@ const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, agent
   wasm(name, bytes) { if (!wasm) return null; new Uint8Array(memory.buffer, wasm.exact_in(bytes.length), bytes.length).set(bytes); return JSON.parse(readOut(wasm[name](bytes.length))); } });
 const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
 const presence = presenceLoader(loadAfterPaint, root, batch => applyBatch(batch), log); // -exact-exit-animation and -exact-layout-transition, after paint at first use (LLP 1063)
-let mediaModule, mediaAttaching = new Set(), soundModule, soundOut, imageHold, geometry = null, resizes = null, intersects = null; // the voice table's output (sound-glue.js, LLP 1096 D7); animated images held to the agent's clock (image-glue.js, LLP 1011.000); geometry reads (geometry-glue.js, LLP 1051.000 D4); the element resize event (resize-glue.js)
+let mediaModule, mediaAttaching = new Set(), soundModule, soundOut, midiModule, midiOut, imageHold, geometry = null, resizes = null, intersects = null; // the voice table's output (sound-glue.js, LLP 1096 D7); animated images held to the agent's clock (image-glue.js, LLP 1011.000); geometry reads (geometry-glue.js, LLP 1051.000 D4); the element resize event (resize-glue.js)
 let wakeLock = null; const holdWake = () => (wakeLock ??= loadAfterPaint('./wakelock-glue.js', 'wakeLockGlue')).then(w => w.hold(w.holders(root).length > 0, log)); // LLP 1125 D11: loaded at the first `wakelock`, then asked after each batch
 function syncMedia(el, set = {}, clear = []) {
   if (!(el instanceof HTMLMediaElement)) return;
@@ -616,7 +616,7 @@ function apply(batch) {
       case "language": if (op.lang) document.documentElement.lang = op.lang; document.documentElement.dir = op.dir; break; // a plan with no strings table names no language: the page keeps the manifest's (LLP 1115.000 D4.6) // a plan with no strings table names no language: the page keeps the manifest's (LLP 1115.000 D4.6)
       case "head": pageTitle(op.title ?? null); (headGlue ??= loadAfterPaint('./document-glue.js', 'documentHead')).then(head => head(op)); break; // the title at once: the head's, else the route's (LLP 1115.000 D4.1)
       case "router": navigation.apply(op); break;
-      case "sound": if (!agentMode) (soundModule ??= new Promise(r => requestAnimationFrame(r)).then(() => loadAfterPaint('./sound-glue.js', 'installSound')).then(install => install({ files: op.files ?? [], log, origin: () => t0 }))).then(s => { soundOut = s; if (op.files && op.files !== s.files) s.reset(op.files); s.ops(op.ops); }).catch(console.error); break; // LLP 1096 D7: the voice table's ops, after first paint; never under the agent, whose clock is virtual (D10)
+      case "sound": if (!agentMode) (soundModule ??= new Promise(r => requestAnimationFrame(r)).then(() => loadAfterPaint('./sound-glue.js', 'installSound')).then(install => install({ files: op.files ?? [], log, origin: () => t0 }))).then(s => { soundOut = s; if (op.files && op.files !== s.files) s.reset(op.files); s.ops(op.ops); }).catch(console.error); break; // LLP 1096 D7: the voice table's ops, after first paint; never under the agent, whose clock is virtual (D10) case "midi": if (!agentMode) (midiModule ??= new Promise(r => requestAnimationFrame(r)).then(() => loadAfterPaint('./midi-glue.js', 'installMidi')).then(install => install({ log, origin: () => t0, deliver: m => { if (wasm?.exact_midi) applyBatch(JSON.parse(readOut(wasm.exact_midi(writeIn(JSON.stringify(m)))))); } }))).then(m => { midiOut = m; m.ops(op.ops, op.boot); }).catch(console.error); break; // LLP 1125 D7: the MIDI queue's ops and the ports, after first paint; never under the agent, whose runner answers a request itself
       case "create": {
         // Canvas overlays use a div; data-surface is the host-owned drawing leaf.
         const el = page?.adopting?.get(op.id) ?? (op.ns ? document.createElementNS(op.ns, op.tag) : document.createElement(op.tag === "canvas" ? "div" : op.tag)); // an adopted document's element (LLP 1048.000 D6); SVG in its namespace (LLP 1055 D4)
@@ -753,7 +753,7 @@ function apply(batch) {
         p = httpHelpers().then(({ request }) => request(op, host))
           .then(r => safelyFulfill(requestIncarnation, op.ticket, r.kind, r.status, r.headers, r.body, performance.now() - started))
           .catch(error => safelyFulfill(requestIncarnation, op.ticket, 1, 0, "", encoder.encode(String(error)), performance.now() - started));
-        track(Promise.race([p, opened]), op.ticket); p.finally(() => { forgettable.delete(controller); controllers.delete(controller); });
+        const counted = Promise.race([p, opened]); if (!/^(GET|HEAD)$/i.test(op.method) && /^https?:/i.test(op.url)) counted.write = `${op.method} ${op.url}`; track(counted, op.ticket); p.finally(() => { forgettable.delete(controller); controllers.delete(controller); });
         break;
       }
       case "command": { if (op.name === "relaunch") { location.reload(); break; }
@@ -804,18 +804,20 @@ function apply(batch) {
         else if (/^show(OpenFile|Directory|SaveFile)Picker$/.test(op.name)) { // LLP 1069.010 D2: the runner rules; a browser without the picker refuses
           const [id, second] = op.args ?? [], r = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: op.name, id, multiple: second === true, suggestedName: typeof second === "string" ? second : undefined, agent: agentMode, available: op.name === "showSaveFilePicker" || typeof globalThis[op.name] === "function" }))))); if (r.present || r.view != null) { const p = documentsGlue().then(m => m.show(r, op.name)); inflight.add(p); p.finally(() => inflight.delete(p)); } }
         else if (op.name === "share") {
-          // LLP 1069.003: the runner rules (refused, or held for the agent, D6);
-          // else the browser's sheet, started inside the input dispatch while
-          // activation is live (D4). The outcome is a journal line (D2).
-          const [title, text, url] = op.args ?? [], ruling = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: "share", title, text, url, source: op.source, agent: agentMode })))));
+          // LLP 1069.003: the runner rules (refused, or held for the agent, D6;
+          // a picture of an element refused on the web, LLP 1125 D12); else the
+          // browser's sheet, started inside the input dispatch while activation
+          // is live (D4); files are read first (picker-glue.js). The outcome is a journal line (D2).
+          const [title, text, url, files] = op.args ?? [], ruling = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: "share", title, text, url, files, source: op.source, agent: agentMode, web: true })))));
           if (ruling.present && typeof navigator.share !== "function") log("share: refused: unavailable");
+          else if (ruling.present && ruling.files?.length) { const p = picker().then(m => m.share({ title, text, url }, ruling.files)).then(log); inflight.add(p); p.finally(() => inflight.delete(p)); }
           else if (ruling.present) navigator.share(Object.fromEntries(Object.entries({ title, text, url }).filter(([, v]) => v != null)))
             .then(() => "share: shared", e => e?.name === "AbortError" ? "share: dismissed" : `share: refused: ${e?.name ?? e}`).then(log);
         }
         else if (op.name === "showNotification" || op.name === "closeNotification") { // the runner rules (refused, or listed for the agent: runner/src/notify.rs); notify-glue.js posts
           const [title, body, tag, showTrigger, navigateTo] = op.args ?? [], close = op.name === "closeNotification", ruling = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify(close ? { command: op.name, tag: title, agent: agentMode } : { command: op.name, title, body, tag, showTrigger, navigate: navigateTo, agent: agentMode })))));
           if (ruling.present) (notifyModule ??= loadAfterPaint('./notify-glue.js', 'notifications')).then(n => close ? n.close(title) : n.show({ title, body, tag, showTrigger, navigate: navigateTo }, log, href => navigate(readOut(wasm.exact_location_of(writeIn(href)))))); }
-        else if (!/^(playSound|playSounds|stopSounds)$/.test(op.name)) console.warn(`exact: unknown command ${op.name}`); // the voice table's are the runner's own, played from its `sound` op (LLP 1096 D7)
+        else if (!/^(playSound|playSounds|stopSounds|sendMIDI|requestMIDIAccess)$/.test(op.name)) console.warn(`exact: unknown command ${op.name}`); // the voice table's and the MIDI queue's are the runner's own, played from its `sound` and `midi` ops (LLP 1096 D7, LLP 1125 D7)
         break;
       }
       case "destroy": {
@@ -1123,7 +1125,7 @@ function agentReply(request) {
         const overlap = Math.max(0, innerHeight - (globalThis.visualViewport?.height ?? innerHeight));
         const policy = document.querySelector("[interactiveWidget]")?.getAttribute("interactiveWidget") ?? "resizes-visual";
         st.keyboard = { visible: overlap > 0, overlap: r2(overlap), policy, interactive: false };
-        st.navigation = navigation.observation(root); st.window = { title: document.title }; if (page) st.adopted = page.adopted === true; if (st.sounds && soundOut) st.sounds.output = soundOut.state(); // LLP 1048.000 D6; LLP 1096 D10 (a page that plays)
+        st.navigation = navigation.observation(root); st.window = { title: document.title }; if (page) st.adopted = page.adopted === true; if (st.sounds && soundOut) st.sounds.output = soundOut.state(); if (st.midi && midiOut) st.midi.output = midiOut.state(); // LLP 1048.000 D6; LLP 1096 D10 (a page that plays)
         const wake = globalThis.exact.wakeLockGlue; if (wake) { const by = wake.holders(root).map(idOf); st.wakelock = { held: by.length > 0, by }; } // LLP 1125 D11: what this page shows holds it (a split's list beside its detail, the routes under a sheet), which the runner cannot see; the JS target's agent.js reads the same
         // The drive's app storage (trivia F7): none unless it names a scratch store, as storage-environment.js's `storageKey`.
         const store = new URL(performance.getEntriesByType?.("navigation")[0]?.name ?? location.href).searchParams.get("storage");
@@ -1141,7 +1143,7 @@ function agentReply(request) {
         if (request.agree) return tagged({ clock: reply.clock, viewport: reply.viewport, agreement: { unavailable: "not implemented: app drives run the JS target" } }); else if (request.native && reply.node) { delete reply.nodes; reply.node.native.subviews = { unavailable: "the DOM is the tree; layout <target> names the element" }; } // @ref LLP 1080.001 D1, D2
         return tagged(reply);
       }
-      case "prefer": { if (request.faults) return loadAfterPaint('./faults.js', 'faults').then(m => tagged(m.faultOp(request.faults))); // LLP 1103 D3: a fetch fault, a form of `prefer`
+      case "midi": case "prefer": { if (request.faults) return loadAfterPaint('./faults.js', 'faults').then(m => tagged(m.faultOp(request.faults))); /* LLP 1103 D3: a fetch fault, a form of `prefer` */ if (request.op === "midi" || request.midi) { if (!wasm.exact_midi) return { error: "midi: this build has no MIDI export" }; const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_midi(writeIn(JSON.stringify(request)))))); return batch.error != null ? { error: batch.error } : tagged({ midi: true }); } // @ref LLP 1125 §4: the agent's MIDI ports and a message from one are the runner's
         // @ref LLP 1069.000 D6 — the page group; the driver sets media through CDP. @ref LLP 1078 D7 — the fold group: an empty one re-reads the browser (the driver's CDP override), a filled one is the substitute.
         if (Object.entries(request.mode ?? {}).some(p => p.some(x => /[,=]/.test(String(x))))) return { malformed: true, error: 'prefer mode: an axis or value holds no `,` or `=`' }; const pins = Object.entries(request.mode ?? {}).map(([a, v]) => `${a}=${v}`).join(","), checked = request.mode ? JSON.parse(readOut(wasm.exact_set_mode(writeIn(`?${pins}`)))) : null; if (checked?.error) return { error: `prefer mode: ${checked.error}` }; try { if (request.page) pageFacts.prefer(request.page); if (request.fold) preferFold(Object.keys(request.fold).length ? request.fold : null); } catch (e) { return { error: e.message, ...(e.malformed === true ? { malformed: true } : {}) }; }
         pageChanged(); foldChanged(); const modes = request.mode ? JSON.parse(readOut(wasm.exact_set_mode(writeIn(pins || "?")))) : null; if (pins) applyBatch(modes); if (modes?.error) return { error: `prefer mode: ${modes.error}` }; // @ref LLP 1121 D13 — the mode group: checked before any fact is set, the runner's `setMode`s in one commit after the rest
@@ -1293,9 +1295,9 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   // A replacement lets the current executor finish its answers first. The dev loop's waits a moment, then swaps
   // anyway, as an app may always have a request out: what is still out is let go as a plan restart lets it go,
   // and the new runner asks again for what it has not settled (LLP 1007 §6). An update refuses instead.
-  let left = 0;
+  let left = [];
   if (module) {
-    if (!(await waitForInflight(performance.now() + (module.letGo ? REPLACE_SETTLE_MS : SETTLE_DEADLINE_MS)))) { if (!module.letGo) throw new Error('module replacement waits for in-flight requests to settle; retry the update'); left = waiting().length; }
+    if (!(await waitForInflight(performance.now() + (module.letGo ? REPLACE_SETTLE_MS : SETTLE_DEADLINE_MS)))) { if (!module.letGo) throw new Error('module replacement waits for in-flight requests to settle; retry the update'); left = waiting(); }
     if (!current() || request !== bootAttempt) return null;
   }
   const launch = encoder.encode(launchLocation()); if (wasm.exact_set_launch) { const [epoch, offset] = reportTime(now()); wasm.exact_set_launch(epoch, offset, writeIn(reportPlace())); } // @ref LLP 1038 D5; then the date and place the boot's first settle reads (LLP 1027.000.000)
@@ -1306,6 +1308,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
     const payload = new Uint8Array(plan.length + module.receipt.length + id.length);
     payload.set(plan); payload.set(module.receipt, plan.length); payload.set(id, plan.length + module.receipt.length);
     ptr = wasm.exact_in(payload.length); new Uint8Array(memory.buffer, ptr, payload.length).set(payload);
+    if (module.letGo) left = waiting(); // what this swap lets go, read at the swap: the stage load above yields
     len = wasm.exact_boot_module(plan.length, module.receipt.length, id.length, module.letGo ? 1 : 0);
   } else if (bytes) {
     ptr = wasm.exact_in(bytes.length + launch.length);
@@ -1320,7 +1323,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   const batch = JSON.parse(readOut(len));
   if (batch.error) throw new Error(batch.error);
   frameSampler?.reset(); // a new runner numbers its transactions afresh (LLP 1079 D3)
-  if (module) { activeModule?.realm?.dispose(); activeModule = module; setInputReady(true); if (left) log(`module replacement let go of ${left} request${left === 1 ? '' : 's'} still in flight after ${REPLACE_SETTLE_MS} ms`); }
+  if (module) { activeModule?.realm?.dispose(); activeModule = module; setInputReady(true); if (left.length) { const writes = left.filter(p => p.write).map(p => p.write); log(`module replacement let go of ${left.length} request${left.length === 1 ? '' : 's'} still in flight after ${REPLACE_SETTLE_MS} ms${writes.length ? `; aborted writes the server may or may not have seen: ${writes.join(', ')}` : ''}`); } }
   navigation.reset(batch.ops.find(op => op.op === "router"));
   const oldAssets = devAssets;
   devAssets = assets;

@@ -188,7 +188,7 @@ extension ControlHost {
         // leaves it red, as it leaves a swipe action's; an accent written on the button itself, and a colour
         // written on its title, win (LLP 1115: what the author writes wins).
         let destructive = owner.props["destructive"] == "true" && !owner.wrote("accent_color")
-        let accent = destructive ? UIColor.systemRed : accent
+        let accent = destructive ? UIColor.systemRed : Self.platformAccent(owner, accent, in: button.traitCollection)
         let written = NativeButtonIOS.Written(
             face: face, accent: accent, destructive: destructive, enabled: !owner.disabled,
             label: owner.authoredLabel ?? face.title, testId: owner.props["testId"],
@@ -220,6 +220,21 @@ extension ControlHost {
             button.isGlass = glass
             owner.syncGlassSlot()
         }
+    }
+
+    /// A system accent (`-exact-system-teal`) as UIKit's own dynamic colour,
+    /// where it resolves in the button's traits as the node draws it (a
+    /// subtree's forced scheme keeps the node's resolution): under Increase
+    /// Contrast a filled style draws UIKit's system colour at its
+    /// high-contrast value, and darkens a fixed colour once more, so the
+    /// resolved value read darker than a hand-built button (LLP 1116.019 D3).
+    static func platformAccent(_ owner: NodeView, _ resolved: UIColor?, in traits: UITraitCollection) -> UIColor? {
+        guard let resolved, let system = SystemColor.native(owner.style["accent_color"]) else { return resolved }
+        var a: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0), b = a
+        guard system.resolvedColor(with: traits).getRed(&a.0, green: &a.1, blue: &a.2, alpha: &a.3),
+              resolved.getRed(&b.0, green: &b.1, blue: &b.2, alpha: &b.3) else { return resolved }
+        let near = abs(a.0 - b.0) < 0.01 && abs(a.1 - b.1) < 0.01 && abs(a.2 - b.2) < 0.01 && abs(a.3 - b.3) < 0.01
+        return near ? system : resolved
     }
 
     /// What the agent's `layout` says of a native button (D10).

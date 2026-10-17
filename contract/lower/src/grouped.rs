@@ -15,7 +15,11 @@
 //! most 704 points wide). What stays written here is the sheet's structure:
 //! which box is a flex row, which part grows, a separator's overlap.
 
+mod actions;
+mod inputs;
 mod messages;
+
+use inputs::{column_row, field_beside_label, field_kind, hidden, switch, text_field, Field};
 
 use crate::{err, LowerError};
 use contract_syntax::{Attr, Expr, Node, Span};
@@ -45,6 +49,7 @@ const BODY: &str = "-exact-body";
 const SUBHEADLINE: &str = "-exact-subheadline";
 
 use crate::metrics::grouped as metric;
+use actions::{action_cell, disclosure};
 
 /// The style a grouped list's attributes ask for: `None` for any other
 /// element. `appearance` must be a literal (it decides what the node is),
@@ -760,6 +765,16 @@ fn row(node: &Node, separated: bool) -> Node {
         by_flag(attrs, "disabled", TERTIARY, ink, span)
     };
     let label = || Expr::Str(LABEL.into(), span);
+    // @ref LLP 1116.019 D6 — a `button` row that is an action cell (a title,
+    // a symbol before it at most, nothing at its trailing edge) is in the
+    // platform's action ink: the tint in UIKit's list, as SwiftUI's
+    // `List { Button }` and a hand-built action cell draw it. The kernel
+    // reads the same shape (`GroupedRow::action`).
+    let ink = if tag == "button" && action_cell(children) {
+        mv("action-color", span)
+    } else {
+        label()
+    };
     // A destructive `button` row's shape, where the platform's form shows
     // its push button: the button's height, its title at the button's
     // padding and no wider than its words, and `appearance`, which is how a
@@ -875,6 +890,10 @@ fn row(node: &Node, separated: bool) -> Node {
         });
     let row_height = mv("row-min-height", span);
     let row_end = mv("row-padding-end", span);
+    // A label beside a field: the row wraps, so where both do not fit (the
+    // accessibility text sizes) the field goes under the label, as in a
+    // SwiftUI `Form`, rather than squeezing the label to nothing.
+    let field = field_beside_label(children);
     let mut sheet = vec![
         s("display", "flex", span),
         s("flex-direction", "row", span),
@@ -904,9 +923,12 @@ fn row(node: &Node, separated: bool) -> Node {
         m("border-bottom-color", "separator", span),
         n("margin-bottom", if separated { -1.0 } else { 0.0 }, span),
         s("font-size", BODY, span),
-        attr("color", tint(label()), span),
+        attr("color", tint(ink), span),
         s("text-align", "left", span),
     ];
+    if field.is_some() {
+        sheet.push(s("flex-wrap", "wrap", span));
+    }
     if destructive {
         sheet.extend([
             button("padding-left", "button-padding-start", unset()),
@@ -939,7 +961,7 @@ fn row(node: &Node, separated: bool) -> Node {
     let shown: Vec<&Node> = children.iter().filter(|c| !hidden(c)).collect();
     let last = shown.len().saturating_sub(1);
     let mut at_shown = 0;
-    let parts = children
+    let parts: Vec<Node> = children
         .iter()
         .map(|child| {
             let i = if hidden(child) {
@@ -953,6 +975,7 @@ fn row(node: &Node, separated: bool) -> Node {
                 last,
                 stack,
                 lines,
+                field,
                 tint: &tint,
                 grow: &title_grow,
             };
@@ -976,7 +999,7 @@ fn row(node: &Node, separated: bool) -> Node {
         tag: tag.clone(),
         positional: positional.clone(),
         attrs: rows,
-        children: parts,
+        children: parts.iter().map(disclosure).collect(),
         span: *span,
         instance: *instance,
     }
@@ -993,6 +1016,8 @@ struct Place<'a> {
     stack: bool,
     /// Whether a stack of lines here takes the cell's margins (`stacks`).
     lines: bool,
+    /// The field beside the row's label, if it is such a row.
+    field: Option<Field>,
     /// The row's ink over a colour: its destructive or disabled one.
     tint: &'a dyn Fn(Expr) -> Expr,
     /// The title's `flex-grow`.
@@ -1022,6 +1047,7 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         last,
         stack,
         lines,
+        field,
         tint,
         grow: title_grow,
     } = at;
@@ -1146,21 +1172,38 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
             let choose = |c: &Expr, a: Expr, b: Expr| {
                 Expr::Ternary(Box::new(c.clone()), Box::new(a), Box::new(b), at)
             };
+            // Beside a field the title keeps its words' width, and the row
+            // wraps instead (`field_beside_label`).
+            let squeeze = || field.is_none().then(|| n("min-width", 0.0, at));
             let (sheet, next) = match texts.clone() {
                 Count::Known(count) => (
                     if count == 0 {
-                        vec![attr("flex-grow", grow(true), at), n("min-width", 0.0, at)]
+                        [Some(attr("flex-grow", grow(true), at)), squeeze()]
+                            .into_iter()
+                            .flatten()
+                            .collect()
                     } else {
                         vec![attr("color", colour(false), at)]
                     },
                     Count::Known(count + 1),
                 ),
                 Count::Cond(c, a, b) => (
-                    vec![
-                        attr("flex-grow", choose(&c, grow(a == 0), grow(b == 0)), at),
-                        n("min-width", 0.0, at),
-                        attr("color", choose(&c, colour(a == 0), colour(b == 0)), at),
-                    ],
+                    [
+                        Some(attr(
+                            "flex-grow",
+                            choose(&c, grow(a == 0), grow(b == 0)),
+                            at,
+                        )),
+                        squeeze(),
+                        Some(attr(
+                            "color",
+                            choose(&c, colour(a == 0), colour(b == 0)),
+                            at,
+                        )),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .collect(),
                     Count::Cond(c, a + 1, b + 1),
                 ),
             };
@@ -1183,8 +1226,24 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         ("input", _) if i == last && switch(child) => {
             with(child, vec![m("-exact-control-size", "switch-size", at)])
         }
-        ("input", _) if texts.low() >= 1 && text_field(child) => {
-            with(child, vec![m("text-align", "field-align", at)])
+        // A text field beside its label is 8rem at the far edge, so the
+        // fields of a section line up and the label, the author's `flex=1`
+        // one too, keeps the rest; 8rem and a short label fit on one line up
+        // to the largest size before the accessibility ones, and past it the
+        // row wraps the field under the label. A date or time keeps its own
+        // width. Under the label either is as narrow as the line.
+        ("input", _) if texts.low() >= 1 && text_field(child) => with(
+            child,
+            vec![
+                m("text-align", "field-align", at),
+                n("flex-grow", 0.0, at),
+                n("flex-shrink", 1.0, at),
+                s("flex-basis", "8rem", at),
+                n("min-width", 0.0, at),
+            ],
+        ),
+        ("input", _) if texts.low() >= 1 && field_kind(child) == Some(Field::Date) => {
+            with(child, vec![n("min-width", 0.0, at)])
         }
         ("column", _) if stack => subtitle(child),
         _ if !stack && stacks(child) => {
@@ -1204,44 +1263,6 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         }
         _ => child.clone(),
     }
-}
-
-/// An `input`'s literal `type`, lowercased; `text` when it has none.
-fn input_type(node: &Node) -> Option<String> {
-    let Node::Element { attrs, .. } = node else {
-        return None;
-    };
-    match attrs.iter().rev().find(|a| a.name == "type") {
-        Some(a) => match &a.value {
-            Expr::Str(v, _) => Some(v.to_ascii_lowercase()),
-            _ => None,
-        },
-        None => Some("text".into()),
-    }
-}
-
-/// Whether an `input` is a switch: a checkbox written with HTML's word
-/// `switch`, or `role="switch"` (LLP 1069.001 D1, D3).
-fn switch(node: &Node) -> bool {
-    input_type(node).as_deref() == Some("checkbox")
-        && matches!(node, Node::Element { tag, positional, attrs, .. }
-            if positional.iter().any(|word| contract_syntax::is_input_switch(tag, word))
-                || attrs.iter().any(|a| a.name == "role"
-                    && matches!(&a.value, Expr::Str(v, _) if v == "switch")))
-}
-
-/// Whether an `input` is a field of text: one line a person types into.
-fn text_field(node: &Node) -> bool {
-    matches!(
-        input_type(node).as_deref(),
-        Some("text" | "email" | "url" | "tel" | "password" | "number")
-    )
-}
-
-/// Whether an element is written `display="none"`.
-fn hidden(node: &Node) -> bool {
-    matches!(node, Node::Element { attrs, .. }
-        if attrs.iter().rev().find(|a| a.name == "display").is_some_and(|a| matches!(&a.value, Expr::Str(v, _) if v == "none")))
 }
 
 /// Whether a row's parts are a leading symbol, one `column` of one or two
@@ -1304,15 +1325,6 @@ fn text_lines(nodes: &[Node]) -> Option<(usize, usize)> {
         }
         _ => None,
     })
-}
-
-/// Whether a row lays out as a column: a `column`, or a row whose authored
-/// `flex-direction` is a literal column; a `button`'s parts stay a row.
-fn column_row(tag: &str, attrs: &[Attr]) -> bool {
-    match attrs.iter().rev().find(|a| a.name == "flex-direction") {
-        Some(a) => matches!(&a.value, Expr::Str(v, _) if v.starts_with("column")),
-        None => tag == "column",
-    }
 }
 
 /// Whether a row's part is lines stacked in the row: a shown element that

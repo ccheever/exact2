@@ -81,36 +81,6 @@ impl<D: DataSource> Runner<D> {
     pub fn inactive(&self, id: ViewId) -> bool {
         inactive(self.kernel(), id)
     }
-
-    /// The tabpanels a navigation root leaves unselected, in tree order:
-    /// the tabs other than the selected one, not the covered routes of a
-    /// stack. A host that shows each tab in a container of its own builds
-    /// one of these when it is first selected (LLP 1075.003 §3.7).
-    pub fn unselected_tabs(&self) -> Vec<ViewId> {
-        let kernel = self.kernel();
-        let node = |id: ViewId| {
-            kernel
-                .node(id)
-                .map(|n| (n.node_type, n.props, n.children()))
-        };
-        let mut out = Vec::new();
-        let mut stack: Vec<ViewId> = self.roots().into_iter().rev().collect();
-        while let Some(id) = stack.pop() {
-            let Some(at) = node(id) else {
-                continue;
-            };
-            if at.1.str(PropId::NavigationBack).is_some() {
-                let panels = tab_panels(&node, &at.2);
-                out.extend(
-                    unselected(&node, &at)
-                        .into_iter()
-                        .filter(|off| panels.contains(off)),
-                );
-            }
-            stack.extend(at.2.iter().rev());
-        }
-        out
-    }
 }
 
 pub(crate) fn inactive(kernel: &Kernel, id: ViewId) -> bool {
@@ -347,7 +317,7 @@ fn under_a_sheet<'a>(
 /// A navigation root's tabpanels, in tab order: those its own tablist's
 /// tabs name with `aria-controls` (the browser's `panelsOf`; the Linux
 /// host's `tab_panels`). A tablist inside a route is that route's.
-fn tab_panels<'a>(
+pub(crate) fn tab_panels<'a>(
     node: &impl Fn(ViewId) -> Option<HeadNode<'a>>,
     children: &[ViewId],
 ) -> Vec<ViewId> {

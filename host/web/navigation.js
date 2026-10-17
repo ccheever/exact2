@@ -21,7 +21,7 @@ const tabsOf = nav => {
   }
   return [null, []];
 };
-const panelsOf = nav => tabsOf(nav)[1];
+export const panelsOf = nav => tabsOf(nav)[1];
 const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? panels.map(routesIn) : [nav ? routesIn(nav) : []]; };
 // @ref LLP 1115.002 D4, LLP 1116.004 D1.2 — the shared list/outer-press rule;
 // WIDE is the web's presentation threshold, not a different navigation rule.
@@ -925,23 +925,25 @@ export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventL
 // @ref LLP 1069.000 D2 — the page's facts as `exact_set_page` takes them: bit 0 `document.visibilityState == "hidden"`, bit 1
 // `!navigator.onLine`, bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5), bit 3 `typeof showOpenFilePicker ===
 // "function"` (LLP 1069.010 D2; studio diary R31), bit 4 `!document.hasFocus()` (#114), told again at the window's `focus` and `blur`,
-// bits 5–6 Navigation Timing's `type` (runner/src/page.rs `NAVIGATION_TYPES`; a prerender's is `navigate`). Under the agent the drive's values stand in (visible, online, a share sheet, the pickers, focus, a `navigate`: LLP 1069.000 D6), set by `prefer`'s `page` group; the machine is never read, but for the display's scale (below).
+// bits 5–6 Navigation Timing's `type` (runner/src/page.rs `NAVIGATION_TYPES`; a prerender's is `navigate`), bit 8 `navigator.canShare({files})` for a
+// small text file, and bit 9 a picture of an element in a share, which the web never takes and only `prefer` sets (LLP 1125 D12). Under the agent the drive's values stand in (visible, online, a share sheet, the pickers, focus, a `navigate`: LLP 1069.000 D6), set by `prefer`'s `page` group; the machine is never read, but for the display's scale (below).
 export function pageReporter(agent, platform = globalThis) {
-  const facts = { "visibility-state": "visible", online: true, "can-share": true, "can-open-files": true, "has-focus": true, "root-font-size": 16 };
+  const facts = { "visibility-state": "visible", online: true, "can-share": true, "can-share-files": true, "can-share-pictures": false, "can-open-files": true, "has-focus": true, "root-font-size": 16 };
+  let sharesFiles; const canShareFiles = () => sharesFiles ??= (() => { try { return typeof platform.navigator.canShare === "function" && platform.navigator.canShare({ files: [new platform.File([""], "a.txt", { type: "text/plain" })] }) === true; } catch { return false; } })();
   // @ref LLP 1069.000 D3 — the root font size: the document element's computed `font-size`, the browser's setting
   // unless a page sets it; under the agent the drive sets it on the element (`prefer root-font-size`). The app's own
   // size (`appRootFontSize`) is set over it and read past.
   const rootFontSize = () => agent ? facts["root-font-size"] : beneathApp(platform, () => parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16), displayScale = () => platform.devicePixelRatio > 0 ? platform.devicePixelRatio : 1; // @ref LLP 1115.000 D10.3 — the display's scale is the page's own `devicePixelRatio`, read under the agent too: the drive sets it through the browser's emulation (`prefer display-scale`), never by a substitute, and a zoom fires `resize`, which tells it again
   const loaded = agent ? "" : platform.performance?.getEntriesByType?.("navigation")?.[0]?.type;
   const navigationType = ["reload", "back_forward"].includes(loaded) ? loaded : "navigate";
-  const read = () => agent ? { ...facts, "navigation-type": navigationType } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function", "can-open-files": typeof platform.showOpenFilePicker === "function", "has-focus": typeof platform.document.hasFocus !== "function" || platform.document.hasFocus(), "navigation-type": navigationType };
-  const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0) | (f["can-open-files"] ? 8 : 0) | (f["has-focus"] ? 0 : 16) | (["navigate", "reload", "back_forward"].indexOf(f["navigation-type"]) + 1) << 5; };
+  const read = () => agent ? { ...facts, "navigation-type": navigationType } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function", "can-share-files": canShareFiles(), "can-share-pictures": false, "can-open-files": typeof platform.showOpenFilePicker === "function", "has-focus": typeof platform.document.hasFocus !== "function" || platform.document.hasFocus(), "navigation-type": navigationType };
+  const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0) | (f["can-open-files"] ? 8 : 0) | (f["has-focus"] ? 0 : 16) | (f["can-share-files"] ? 256 : 0) | (f["can-share-pictures"] ? 512 : 0) | (["navigate", "reload", "back_forward"].indexOf(f["navigation-type"]) + 1) << 5; };
   const prefer = (page) => {
     const next = { ...facts };
     for (const [name, raw] of Object.entries(page ?? {})) {
       const value = String(raw);
       if (name === "visibility-state" && (value === "visible" || value === "hidden")) next[name] = value;
-      else if ((name === "online" || name === "can-share" || name === "can-open-files" || name === "has-focus") && (value === "true" || value === "false")) next[name] = value === "true";
+      else if ((name === "online" || name === "can-share" || name === "can-share-files" || name === "can-share-pictures" || name === "can-open-files" || name === "has-focus") && (value === "true" || value === "false")) next[name] = value === "true";
       else if (name === "root-font-size" && Number(value) > 0 && Number.isFinite(Number(value))) next[name] = Number(value); else if (name === "display-scale" && Number(value) > 0 && Number.isFinite(Number(value))) { if (Math.abs(displayScale() - Number(value)) > 0.01) throw new Error(`prefer: display-scale: ${value}: the page's is ${displayScale()}, which the browser sets (its own emulation, or the device)`); }
       else throw Object.assign(new Error(`prefer: ${name}: ${value} is not a page fact this host sets`), name === "keyboard-navigation" ? {} : { malformed: true }); // keyboard-navigation is a real page fact this host does not set: a refusal
     }

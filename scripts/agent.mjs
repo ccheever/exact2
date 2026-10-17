@@ -40,8 +40,8 @@ import { fileURLToPath } from 'node:url';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { pageAim, namedRefusal } from './agent-aim.mjs'; import { checkOp } from './agent-check.mjs';
 import { dragArguments, dragTap, duringAllowed, duringOp } from './agent-drag.mjs';
-import { driveNotes, runTests, nodeNamed, targetsIn, refuseDisabled, reloadWeb, fetchOrigins, faultRequest } from './agent-test.mjs';
-import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pinchArguments, intoArguments, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, pointerGap, chordModifiers, withChordModifiers, heldForClick } from './agent-keys.mjs';
+import { driveNotes, runTests, nodeNamed, targetsIn, unopenedHint, refuseDisabled, reloadWeb, fetchOrigins, loopbackOrigins, faultRequest } from './agent-test.mjs';
+import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pinchArguments, intoArguments, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, tapArguments, pointerGap, chordModifiers, withChordModifiers, heldForClick, clockSlices } from './agent-keys.mjs';
 import { jsonLines, hangup } from './agent-wire.mjs';
 export { jsonLines, hangup };
 export { MalformedOperation, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
@@ -733,7 +733,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
     let canvasContact = false;
     return {
       host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state, plan,
-      touches, touch, crashes,
+      touches, touch, crashes, udid: dev.udid,
       ask, reveal: (id) => ask({ op: 'reveal', id }),
       async input(id, kind, opts) {
         if (kind === 'key') {
@@ -857,6 +857,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   const sourceMaps = sourceMapReaders(mapLocator ? [mapLocator] : carrier.host !== 'web' ? baked() : []);
   const s = {
     carrier,
+    launchFacts: facts,
     host: carrier.host,
     /** The sample host's sessions by label, and which one the next request goes to (`s.session = "b"`). */
     sessions: carrier.sessions ?? null,
@@ -959,7 +960,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const nodes = t?.nodes ?? (await s.op({op:'tree'})).nodes;
       const matches = byId ? nodes.filter((n) => n.id === Number(target)) : nodes.filter((n) => n.props.testId === target);
       const node = matches.find((n) => !n.inactive) ?? matches[0] ?? (byId || !named ? undefined : nodeNamed(nodes, String(target)) ?? undefined);
-      if (!node && required) throw new Error(`no view matches ${target} by testId, label or text${targetsIn(nodes)}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)${await s.inFlight()}`);
+      if (!node && required) throw new Error(`no view matches ${target} by testId, label or text${targetsIn(nodes)}${unopenedHint(nodes)}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)${await s.inFlight()}`);
       return node;
     },
     /** For a miss: the requests still in flight, whose answers may bring the view (authoring bench: a drive's first op ran before a stored list loaded). */
@@ -987,22 +988,10 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     // canvas taps and held down/move/up contacts remain fingers (LLP 1015.000).
     async tap(target, opts = {}) {
       if (holdOf(target)) { if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`); return s.answer('tap', target, opts.choice); }
-      if (opts.wheel !== undefined && ![opts.wheel?.[0], opts.wheel?.[1]].every(Number.isFinite)) throw new MalformedOperation('wheel: expected two finite deltas');
-      if (opts.drag) dragArguments(opts.drag);
-      if (opts.mouse && ['contextmenu','dblclick','auxclick','clicks','down','drag','wheel','hover','pinch','history','into','gesture'].some(key => opts[key] !== undefined)) throw new MalformedOperation('mouse cannot be combined with another input mode');
-      if (opts.pinch !== undefined) pinchArguments(opts.pinch);
-      if (opts.into) intoArguments(opts.into);
-      if (opts.seconds != null && !Number.isFinite(opts.seconds)) throw new MalformedOperation('mediasession: expected finite seconds');
-      if (opts.mediaSession === 'seekto' && !(Number.isFinite(opts.seconds) && opts.seconds >= 0)) throw new MalformedOperation('mediasession: seekto needs finite nonnegative seconds');
-      // The mouse's forms (#107): one button form at a time, each at its middle or `at`, the modifiers held through it.
-      const button = ['mouse', 'contextmenu', 'auxclick', 'dblclick', 'clicks'].filter((k) => opts[k] !== undefined && opts[k] !== false);
-      if (button.length > 1) throw new MalformedOperation(`tap: one of mouse, dblclick, contextmenu, auxclick and clicks at a time, not ${button.join(' and ')}`);
-      if (opts.clicks !== undefined && ![1, 2, 3].includes(opts.clicks)) throw new MalformedOperation('tap … clicks: 1, 2 or 3');
-      if (opts.at !== undefined && (opts.hover || opts.history !== undefined || opts.drop || opts.into)) throw new MalformedOperation('at is a point on a press, a click (mouse, dblclick, contextmenu, auxclick, clicks), a wheel, a contact, a pinch or a drag');
-      if (opts.at !== undefined && (!Array.isArray(opts.at) || opts.at.length !== 2 || !opts.at.every(Number.isFinite))) throw new MalformedOperation('tap at needs two finite numbers');
-      const modifiers = opts.modifiers ?? opts.drag?.modifiers;
-      if (modifiers !== undefined && !String(modifiers).split('+').filter(Boolean).every(k => ['Shift', 'Control', 'Alt', 'Meta'].includes(k))) throw new MalformedOperation(`tap … modifiers: ${modifiers} is not Shift, Control, Alt and Meta joined by +`);
-      if (modifiers !== undefined && (opts.hover || opts.history !== undefined || opts.into || opts.drop || opts.pinch !== undefined)) throw new MalformedOperation('modifiers are held through a press, a click, a wheel, a contact or a drag');
+      const button = tapArguments(opts);
+      // `tap midi "<input>" clock <bpm> <ms>` (LLP 1125 D9): a slice at a time, the clock moved to its end, then its ticks delivered.
+      if (opts.midi?.clock) { let r = {}, prev = 0; for (const { to, ticks } of clockSlices(opts.midi.clock)) { await s.clock(`+${to - prev}`); prev = to; r = await s.op({ op: 'midi', input: opts.midi.input, clock: ticks.map(k => [s.now - to + k, 0xF8]) }); if (r?.error) break; } return s.landed({ ...r, delivery: 'substituted', carrier: host, mode: timing }); }
+      if (opts.midi) return s.landed({ ...await s.op({ op: 'midi', ...opts.midi }), delivery: 'substituted', carrier: host, mode: timing }); // a MIDI input's message (LLP 1125 §4): the runner's input, the arm absent
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       let node, part = await partTap({ s, host, touch }, target, opts); if (part) return part; // `tap <node>/<part>` (agent-inspect.mjs)
       try { node = await s.target(target, true); }
@@ -1244,10 +1233,13 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       return r.closed ? r : s.landed(r);
     },
     async back() { if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`); const r = await carrier.ask({ op: 'tap', back: true }); if (r.error) throw Object.assign(new Error(r.error), { reply: r }); return s.landed({ ...r, carrier: host }); }, // the platform's Back (LLP 1116.006 D4): an open dialog's cancel, else the top sheet's dismissal, else the pushed route popped; the wire's `tap` with `back`
-    /** The device facts by their web names (LLP 1061 D5; LLP 1069.000 D6), grouped on the wire as LLP 1069.007 D2 groups them. `media`: `{"prefers-reduced-motion": "reduce"}`, `"prefers-reduced-transparency"` likewise, `"prefers-contrast": "more"|"less"|"custom"|"no-preference"`, `"prefers-color-scheme": "dark"|"light"` (the system's; an app's `setScheme` still wins). `page`: `"visibility-state": "visible"|"hidden"`, `online`, `can-share`, `can-open-files` and `has-focus` `"true"|"false"`, `"root-font-size"` in px (what `rem` follows). `fold` (LLP 1078 D7): `posture folded|continuous`, `segments <cols>x<rows>`, `gap <points>` — a host without a fold splits its viewport evenly with the gap centred on each divider; a host with a real fold refuses ("the device decides"). Unnamed facts stay. The reply is what the host now reports, by group. */
+    /** The device facts by their web names (LLP 1061 D5; LLP 1069.000 D6), grouped on the wire as LLP 1069.007 D2 groups them. `media`: `{"prefers-reduced-motion": "reduce"}`, `"prefers-reduced-transparency"` likewise, `"prefers-contrast": "more"|"less"|"custom"|"no-preference"`, `"prefers-color-scheme": "dark"|"light"` (the system's; an app's `setScheme` still wins). `page`: `"visibility-state": "visible"|"hidden"`, `online`, `can-share`, `can-share-files`, `can-share-pictures`, `can-open-files` and `has-focus` `"true"|"false"`, `"root-font-size"` in px (what `rem` follows). `fold` (LLP 1078 D7): `posture folded|continuous`, `segments <cols>x<rows>`, `gap <points>` — a host without a fold splits its viewport evenly with the gap centred on each divider; a host with a real fold refuses ("the device decides"). Unnamed facts stay. The reply is what the host now reports, by group. */
     async prefer(facts) {
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
-      const { media, page, fold, mode } = preferGroups(facts);
+      const { media, page, fold, mode, midi } = preferGroups(facts);
+      // The midi group is the runner's (LLP 1125 §4), asked on its own; alone, its reply is the answer.
+      const midiReply = Object.keys(midi).length ? await s.op({ op: 'prefer', midi }) : null;
+      if (midiReply && ![media, page, fold, mode].some(g => Object.keys(g).length)) return midiReply;
       if (carrier.prefer) return s.tagged(await carrier.prefer(media, page, fold, mode));
       return s.op(preferOp(media, page, fold, mode));
     },
@@ -1431,7 +1423,7 @@ export async function main(argv, injected = {}) {
           }
           // Every other form, strictly (#107): the contact's phases (LLP 1035.003 D1) read as `tap move …`, `tap hold`,
           // `tap up`, `tap cancel` only while a contact is down; with none down those words are targets like any other.
-          else { const [target, { phase, ...opts }] = tapWords(args, !!s.contact); r = target === null ? await s.pointer(phase, opts) : await s.tap(target, opts); }
+          else { const [target, { phase, ...opts }] = tapWords(args, !!s.contact); r = target === null && !opts.midi ? await s.pointer(phase, opts) : await s.tap(target, opts); }
           break;
         case 'clock': r = await s.clock(args.join(' ') || 'settle'); break; case 'sample': { const n = args.map(Number); if (!n.length || n.length % 2 || n.some(v => !Number.isFinite(v))) throw new MalformedOperation('sample <x> <y> [<x> <y> …]: view points; layout <target> gives a node\'s frame'); r = await s.op({ op: 'sample', points: n.flatMap((v, i) => i % 2 ? [] : [[v, n[i + 1]]]) }); break; }
         case 'resize': r = await s.resize(...resizeArguments(args.join(''))); break;
@@ -1445,7 +1437,7 @@ export async function main(argv, injected = {}) {
       return [op, r];
   };
   // What the replies leave out, on stderr, which a --json reader's stdout never carries (agent-test.mjs `driveNotes`).
-  const notes = driveNotes(s, { host, storage: flags.storage });
+  const notes = driveNotes(s, { host, storage: flags.storage, origins: flags.url ? [] : loopbackOrigins(resolve(flags.webDist ?? defaultWebDist())) });
   try {
     for (const [k, line] of ops.entries()) {
       at = k + 1;

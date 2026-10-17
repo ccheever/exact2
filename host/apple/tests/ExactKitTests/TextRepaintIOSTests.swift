@@ -96,5 +96,25 @@ final class TextRepaintIOSTests: XCTestCase {
         XCTAssertNotEqual(pixels(page, countAfter), countBefore, "the count's pixels are its new text's")
         if let key = count.textRasterKey { XCTAssertEqual(key.spec.runs.map(\.text).joined(), "0 in all") }
     }
+
+    /// The commit that changes a text shows its new words, in the frame that
+    /// shows the commit's other changes: never the old words for a frame
+    /// while a worker paints the new ones (Lexy's sign-in steps showed the
+    /// new step's symbol and buttons under the old step's title for a frame).
+    func testAChangedTextIsPaintedInTheCommitThatChangesIt() throws {
+        let session = try booted()
+        let p = session.presenter
+        let count = try node("count")
+        p.paintVisibleText()
+        spin(0.2)
+        XCTAssertEqual(count.textRasterKey?.spec.runs.map(\.text).joined(), "3 in all")
+        XCTAssertTrue(count.textRasterReady, "'3 in all' is painted before Reset")
+
+        // No turn of the run loop between the commit and the check: what the
+        // commit leaves is what its frame shows.
+        _ = Agent(session: session).tap(["id": Int(try node("reset").id)])
+        XCTAssertEqual(count.textRasterKey?.spec.runs.map(\.text).joined(), "0 in all", "the count's raster is its new text's")
+        XCTAssertTrue(count.textRasterReady, "and painted, not waiting on a worker")
+    }
 }
 #endif

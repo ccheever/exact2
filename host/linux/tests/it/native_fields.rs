@@ -1,12 +1,15 @@
-//! LLP 1104 D6–D7: host chrome and focus, never compiled default rows.
-use exact_kernel::{Appearance, Frame, StyleMask, ViewId};
+//! LLP 1104 D6–D7: host chrome and focus, never compiled default rows. Off
+//! the neutral look the field is Material's filled text field (LLP
+//! 1115.001.000 D6).
+use exact_kernel::style::roles;
+use exact_kernel::{Appearance, ColorValue, Frame, StyleMask, ViewId};
 use exact_linux::{presenter::PainterChoice, Presenter};
 
 fn boot() -> Presenter<()> {
     let plan = contract::compile(
         r##"component App
   view
-    column width=400 height=800 background-color="#202020" color="#33aa55" font-size=20
+    column width=400 height=1600 background-color="#202020" color="#33aa55" font-size=20
       input width=100 height=30 testId="native" accent-color="#ff0000"
       input width=100 height=30 disabled=true value="Disabled" testId="disabled"
       input width=100 height=30 appearance="none" testId="bare"
@@ -30,7 +33,8 @@ fn boot() -> Presenter<()> {
     let (p, err) = Presenter::boot_with(
         &plan.encode(),
         (),
-        (400., 800.),
+        // Tall enough that no field shrinks below its own height.
+        (400., 1600.),
         1.,
         std::path::PathBuf::new(),
         PainterChoice::Cpu,
@@ -69,12 +73,13 @@ fn native_geometry_uses_chrome_and_stops_ancestor_typography() {
         assert_eq!(n.style.appearance, Appearance::Auto);
         assert!(!n.style.mask.has(exact_kernel::StyleId::BackgroundColor));
         assert_eq!(n.style.opacity, 1.0, "disabled is host paint");
-        assert_eq!((n.frame.width, n.frame.height), (118.0, 44.0));
+        // Material's 16 points in on every side.
+        assert_eq!((n.frame.width, n.frame.height), (132.0, 62.0));
         assert_eq!(
             n.field_content_rect(),
             Some(Frame {
-                x: 9.0,
-                y: 7.0,
+                x: 16.0,
+                y: 16.0,
                 width: 100.0,
                 height: 30.0
             })
@@ -83,12 +88,12 @@ fn native_geometry_uses_chrome_and_stops_ancestor_typography() {
         assert_eq!(n.text_color().resolve(false).g(), 0);
     }
     let padded = k.node(id(&p, "padded")).unwrap();
-    assert_eq!((padded.frame.width, padded.frame.height), (124.0, 50.0));
-    assert_eq!(padded.field_content_rect().unwrap().x, 12.0);
-    assert_eq!(padded.field_content_rect().unwrap().y, 10.0);
+    assert_eq!((padded.frame.width, padded.frame.height), (138.0, 68.0));
+    assert_eq!(padded.field_content_rect().unwrap().x, 19.0);
+    assert_eq!(padded.field_content_rect().unwrap().y, 19.0);
     let area = k.node(id(&p, "area")).unwrap();
     let content = area.field_content_rect().unwrap();
-    assert_eq!(area.frame.height, content.height + 14.0);
+    assert_eq!(area.frame.height, content.height + 32.0);
     assert_eq!(content.width, 100.0);
     for name in ["bare", "authored"] {
         let n = k.node(id(&p, name)).unwrap();
@@ -97,38 +102,70 @@ fn native_geometry_uses_chrome_and_stops_ancestor_typography() {
     }
 }
 
+/// A role's colour under a scheme, as eight-bit RGBA.
+fn role(name: &str, dark: bool) -> [u8; 4] {
+    let c = ColorValue::Role(roles::role(name).unwrap()).resolve(dark);
+    [c.r(), c.g(), c.b(), c.a()]
+}
+
+/// `top` over an opaque `under`, as the painter blends it (to within one).
+fn over(top: [u8; 4], under: [u8; 4]) -> [u8; 4] {
+    let a = top[3] as f32 / 255.0;
+    let mix = |t: u8, u: u8| (t as f32 * a + u as f32 * (1.0 - a)).round() as u8;
+    [
+        mix(top[0], under[0]),
+        mix(top[1], under[1]),
+        mix(top[2], under[2]),
+        255,
+    ]
+}
+
+fn near(a: [u8; 4], b: [u8; 4]) -> bool {
+    (0..4).all(|i| a[i].abs_diff(b[i]) <= 1)
+}
+
 #[test]
-fn native_paint_keeps_disabled_fill_and_treats_border_and_ink() {
+fn native_paint_is_materials_filled_field() {
     let mut p = boot();
-    for (dark, border, fill) in [
-        (false, [198, 198, 200, 255], [255, 255, 255, 255]),
-        (true, [72, 72, 74, 255], [28, 28, 30, 255]),
-    ] {
+    let page = [32, 32, 32, 255];
+    let h = frame(&p, "native").height as u32;
+    for dark in [false, true] {
         p.set_system_scheme(dark);
-        assert_eq!(pixel(&mut p, "native", 50, 0), border);
+        let fill = over(role("Field", dark), page);
         assert_eq!(pixel(&mut p, "native", 50, 4), fill);
-        assert_eq!(
-            pixel(&mut p, "native", 0, 0),
-            [32, 32, 32, 255],
-            "rounded corner"
-        );
-        assert_eq!(pixel(&mut p, "disabled", 50, 4), fill);
-        let disabled = pixel(&mut p, "disabled", 50, 0);
-        for i in 0..3 {
-            assert_eq!(disabled[i], ((border[i] as u16 + fill[i] as u16) / 2) as u8);
-        }
-        assert_eq!(pixel(&mut p, "bare", 50, 4), [32, 32, 32, 255]);
+        assert_eq!(pixel(&mut p, "native", 0, 0), page, "a rounded top corner");
+        assert_ne!(pixel(&mut p, "native", 0, h - 1), page, "a square foot");
+        // The indicator: one point of `onSurfaceVariant` along the foot.
+        let line = over(role("-exact-secondary-label", dark), fill);
+        assert!(near(pixel(&mut p, "native", 50, h - 1), line));
+        assert_eq!(pixel(&mut p, "native", 50, h - 2), fill);
+        // Disabled: `onSurface` at 4 % for the container, its foot at 38 %.
+        let off = over(look_fade(role("CanvasText", dark), 0.04), page);
+        assert!(near(pixel(&mut p, "disabled", 50, 4), off));
+        assert!(near(
+            pixel(&mut p, "disabled", 50, h - 1),
+            over(role("GrayText", dark), off)
+        ));
+        assert_eq!(pixel(&mut p, "bare", 50, 4), page);
         assert_eq!(pixel(&mut p, "authored", 50, 4), [0, 0, 255, 255]);
     }
     p.set_system_scheme(false);
     let native = id(&p, "native");
     p.tap(native).unwrap();
-    assert_eq!(pixel(&mut p, "native", 50, 0), [255, 0, 0, 255]);
+    // Focused: two points of the accent (its `accent-color`) along the foot, no ring.
+    assert_eq!(pixel(&mut p, "native", 50, h - 1), [255, 0, 0, 255]);
+    assert_eq!(pixel(&mut p, "native", 50, h - 2), [255, 0, 0, 255]);
+    assert_ne!(pixel(&mut p, "native", 50, 0), [255, 0, 0, 255]);
     // An empty field's caret begins at the published content rect.
     let f = frame(&p, "native");
     let shot = p.frame();
-    let c = shot.pixel(f.x as u32 + 9, f.y as u32 + 20).unwrap();
+    let c = shot.pixel(f.x as u32 + 16, f.y as u32 + 30).unwrap();
     assert_eq!([c.red(), c.green(), c.blue()], [0, 0, 0]);
+}
+
+fn look_fade(mut c: [u8; 4], alpha: f32) -> [u8; 4] {
+    c[3] = (c[3] as f32 * alpha).round() as u8;
+    c
 }
 
 #[test]
@@ -140,18 +177,20 @@ fn focused_bare_fields_ring_the_outer_box() {
     }
 }
 
-/// `outline="none"` takes the painted ring off a focused field, bare or
-/// native, single-line or not; a field without it keeps the ring.
+/// `outline="none"` takes the painted ring off a focused bare field; a
+/// field without it keeps the ring. Material's field has no ring either way:
+/// its focus is its indicator, which `outline` does not reach.
 #[test]
 fn outline_none_paints_no_ring_on_a_focused_field() {
     let mut p = boot();
+    // The accent over the box's top edge, where a ring is and no indicator.
     let ring = |p: &mut Presenter<()>, name: &str| {
         p.tap(id(p, name)).unwrap();
         assert_eq!(p.focus(), Some(id(p, name)), "{name} takes the focus");
         let f = frame(p, name);
         let shot = p.frame();
         (0..f.width as u32 + 4)
-            .flat_map(|x| (0..f.height as u32 + 4).map(move |y| (x, y)))
+            .flat_map(|x| (0..4).map(move |y| (x, y)))
             .filter_map(|(x, y)| {
                 shot.pixel(
                     (f.x as u32 + x).saturating_sub(2),
@@ -160,13 +199,20 @@ fn outline_none_paints_no_ring_on_a_focused_field() {
             })
             .any(|c| [c.red(), c.green(), c.blue()] == [0, 0x75, 0xff])
     };
-    for (kept, quiet) in [
-        ("bare", "bare-quiet"),
-        ("email", "native-quiet"),
-        ("area", "area-quiet"),
-    ] {
-        assert!(ring(&mut p, kept), "{kept} keeps its ring");
-        assert!(!ring(&mut p, quiet), "{quiet} paints no ring");
+    assert!(ring(&mut p, "bare"), "bare keeps its ring");
+    assert!(!ring(&mut p, "bare-quiet"), "bare-quiet paints no ring");
+    for name in ["email", "native-quiet", "area", "area-quiet"] {
+        assert!(!ring(&mut p, name), "{name} is Material's: no ring");
+        let f = frame(&p, name);
+        let shot = p.frame();
+        let foot = shot
+            .pixel(f.x as u32 + 50, (f.y + f.height) as u32 - 1)
+            .unwrap();
+        assert_eq!(
+            [foot.red(), foot.green(), foot.blue()],
+            [0, 0x75, 0xff],
+            "{name}'s indicator"
+        );
     }
 }
 
@@ -195,15 +241,16 @@ fn native_value_under_white_ancestor_uses_host_font_and_visible_ink() {
 #[test]
 fn disabled_native_ink_dims_but_authored_color_wins() {
     let mut p = boot();
-    for (name, darkest) in [("disabled", 127), ("disabled-authored", 0)] {
+    // Material's disabled text is `onSurface` at 38 %: never the full ink.
+    for (name, dimmed) in [("disabled", true), ("disabled-authored", false)] {
         let f = frame(&p, name);
         let shot = p.frame();
-        let red = (9..109)
-            .flat_map(|x| (8..36).map(move |y| (x, y)))
+        let red = (16..116)
+            .flat_map(|x| (16..46).map(move |y| (x, y)))
             .map(|(x, y)| shot.pixel(f.x as u32 + x, f.y as u32 + y).unwrap().red())
             .min()
             .unwrap();
-        assert_eq!(red, darkest, "{name}");
+        assert_eq!(red > 0, dimmed, "{name}: {red}");
     }
 }
 

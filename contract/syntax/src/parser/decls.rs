@@ -32,6 +32,15 @@ impl Parser {
                 }
             }
         }
+        if !refreshes.is_empty()
+            && matches!(self.peek_kind(), TokenKind::Ident(word)
+                if !matches!(word.as_str(), "queue" | "refreshes" | "then"))
+        {
+            return self.err(
+                "syntax-expected-newline",
+                "separate refreshed resources with commas: `refreshes board, feed`",
+            );
+        }
         let then = if self.clause_ahead("then", &mut continued) {
             let then_span = self.next().span;
             Some(self.named_ident(then_span).map(|name| (name, then_span))?)

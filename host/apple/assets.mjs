@@ -297,11 +297,16 @@ export function signingOrder(bundle, compat = null, identity = null) {
     if (!card.name.startsWith('rust/')) throw new Error(`Mach-O asset ${card.name}: move code to host.macos.resources before releasing`);
     preserved.set(path, card.sha256);
   }
-  if (embedded?.gpu) preserved.set(resolve(bundle, 'Contents/MacOS/libexact_gpu.dylib'), embedded.gpu.sha256);
-  for (const [name, card] of Object.entries(embedded?.gpuModules ?? {}))
-    preserved.set(resolve(bundle, 'Contents/MacOS', `libexact_gpu_${name.replaceAll('-', '_')}.dylib`), card.sha256);
+  // GPU cards name the code digest, signature left out (codeDigest).
+  const gpu = new Set();
+  const gpuCards = [...(embedded?.gpu ? [['libexact_gpu.dylib', embedded.gpu]] : []),
+    ...Object.entries(embedded?.gpuModules ?? {}).map(([name, card]) => [`libexact_gpu_${name.replaceAll('-', '_')}.dylib`, card])];
+  for (const [file, card] of gpuCards) {
+    const path = resolve(bundle, 'Contents/MacOS', file);
+    gpu.add(path); preserved.set(path, card.sha256);
+  }
   for (const [path, digest] of preserved) {
-    if (!existsSync(path) || createHash('sha256').update(readFileSync(path)).digest('hex') !== digest)
+    if (!existsSync(path) || (gpu.has(path) ? codeDigest(readFileSync(path)) : createHash('sha256').update(readFileSync(path)).digest('hex')) !== digest)
       throw new Error(`baked code ${path}: digest differs; rebuild before signing`);
     run('codesign', ['--verify', '--strict', ...(identity && identity !== '-' ? ['-R', `=certificate leaf = H"${identity}"`] : []), path], { stdio: 'ignore' });
   }
@@ -528,6 +533,29 @@ export function wrapFramework(frameworks, loose, name, app, platform = 'iPhoneOS
     CFBundlePackageType: 'FMWK', CFBundleVersion: process.env.EXACT_BUILD_NUMBER ?? '1', CFBundleShortVersionString: process.env.EXACT_VERSION ?? '0.1.0',
     CFBundleSupportedPlatforms: [platform], MinimumOSVersion: app.manifest.host?.ios?.minimumOS ?? '17.0',
   }));
+}
+
+/** The bake's GPU digest (bake/src/receipt.rs, `code_digest`): the bytes, less a signed 64-bit
+ *  Mach-O's code signature and the three sizes that follow it, so a re-signer (AppDrop) keeps it. */
+export function codeDigest(bytes) {
+  const word = (at) => at + 4 <= bytes.length ? bytes.readUInt32LE(at) : null;
+  const code = () => {
+    if (word(0) !== 0xfeedfacf || word(16) === null) return null;
+    let at = 32, signature = null;
+    const zero = [];
+    for (let i = 0; i < word(16); i++) {
+      const cmd = word(at), size = word(at + 4);
+      if (cmd === null || size === null) return null;
+      if (cmd === 0x1d) { signature = word(at + 8); zero.push([at + 12, 4]); }
+      else if (cmd === 0x19 && bytes.subarray(at + 8, at + 24).equals(Buffer.from('__LINKEDIT\0\0\0\0\0\0', 'latin1'))) zero.push([at + 32, 8], [at + 48, 8]);
+      at += Math.max(size, 8);
+    }
+    if (signature === null || signature > bytes.length) return null;
+    const out = Buffer.from(bytes.subarray(0, signature));
+    for (const [z, len] of zero) { if (z + len > out.length) return null; out.fill(0, z, z + len); }
+    return out;
+  };
+  return createHash('sha256').update(code() ?? bytes).digest('hex');
 }
 
 export function signedGpuProduct(product, { identity = '-', framework = null, app, platform = 'iPhoneOS', hardened = false } = {}) {

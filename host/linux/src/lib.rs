@@ -73,6 +73,7 @@ mod placement;
 pub mod presenter;
 pub mod raster;
 mod surfaces;
+mod tamber;
 pub mod teardown;
 pub mod text;
 #[cfg(any(target_os = "android", test))]

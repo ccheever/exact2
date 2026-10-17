@@ -182,6 +182,8 @@ mod slot;
 mod stream;
 #[path = "canvas/surface.rs"]
 mod surface;
+#[path = "canvas/tamber.rs"]
+mod tamber;
 pub use picture::Picture;
 use picture::WeakPicture;
 pub use stream::drawing;
@@ -1063,6 +1065,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         compat: &'static str,
         size: (u32, u32),
         scale: f32,
+        hatches: Option<crate::hatches::Install>,
     ) -> Result<CanvasHost<D>, String> {
         let started = std::time::Instant::now();
         let origin_ns = monotonic_ns();
@@ -1101,7 +1104,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             palette.tell();
         }
         let mut config = crate::app::Config::from_env_static(plan, compat);
-        config.scale = scale;
+        (config.scale, config.hatches) = (scale, hatches);
         let (mut p, error) = crate::app::boot_presenter_with_painter::<D>(
             &mut config,
             viewport,
@@ -1250,12 +1253,15 @@ impl<D: DataSource + Default> CanvasHost<D> {
             }
             p.poll_update();
             p.run_commands(D::default);
+            p.hatch_turn();
         }
-        if p.host().wants_frames() {
+        // The presenter's clock: the runner's frame tasks and timers, and
+        // the hatches' tickets and `after`s.
+        if p.wants_frames() {
             if let Some(e) = p.animation_frame(now) {
                 eprintln!("exact: {e}");
             }
-        } else if p.timer_or_scroll_due_ms().is_some_and(|due| due <= now) {
+        } else if p.timer_due_ms().is_some_and(|due| due <= now) {
             if let Some(e) = p.advance(now) {
                 eprintln!("exact: {e}");
             }
@@ -1370,7 +1376,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.p.dirty()
             || self.p.scroll_end_due().is_some_and(|due| due <= self.now())
             || self.p.needs_animation_frame()
-            || self.p.host().wants_frames()
+            || self.p.wants_frames()
+            // An act a hatch's moment queued runs at the next turn.
+            || self.p.hatch_in_flight() > 0
             || self.surfaces
     }
 
@@ -1460,7 +1468,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if (self.painted_once && !self.lead) || self.owed_surfaces {
             return Some(0.0);
         }
-        let timer = (self.p.timer_or_scroll_due_ms()).map(|due| (due - self.now()).max(0.0));
+        let timer = (self.p.timer_due_ms()).map(|due| (due - self.now()).max(0.0));
         self.settle_due(timer)
     }
 

@@ -142,6 +142,14 @@ pub const DEVICES: &[Device] = &[
         keeps_no_answers: true,
         ..ROW
     },
+    // @ref LLP 1125 D6 — Web MIDI's permission and policy feature. Apple asks
+    // for nothing, so no usage key; tvOS has no CoreMIDI (`unavailable`).
+    Device {
+        name: "midi",
+        web: Some("midi"),
+        tvos: false,
+        ..ROW
+    },
 ];
 
 /// One `device.<name> <key>` line.
@@ -281,11 +289,11 @@ mod tests {
     fn the_policy_allows_what_is_granted_and_denies_the_rest() {
         assert_eq!(
             permissions_policy("device.microphone p\ndevice.speech-recognition q"),
-            "microphone=(self), camera=(), geolocation=()"
+            "microphone=(self), camera=(), geolocation=(), midi=()"
         );
         assert_eq!(
             permissions_policy(""),
-            "microphone=(), camera=(), geolocation=()"
+            "microphone=(), camera=(), geolocation=(), midi=()"
         );
     }
 }

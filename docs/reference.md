@@ -921,6 +921,55 @@ when the app goes to the background (`exactTransport().reason` is
 that last played, how far its hits are issued (`issuedTo`), its last 16 tempo
 segments, and its last 64 haptics with their states.
 
+**Clock in** (`play(…, clock="<input id>")`, LLP 1125 D9) follows a MIDI
+input's clock. The input's ticks, Start, Continue, Stop and Song Position
+reach the runner with their arm timestamps in its ordinary input deliveries:
+ticks alone at most 50 ms after the oldest, anything else at once with the
+ticks ahead of it. The runner takes the tempo from the last 48 tick stamps,
+counts the position in ticks, and issues hits only to 100 ms past each
+delivery (the batch plus the 50 ms hold), so a hit is timed from the newest
+estimate; a new tempo or phase that moves a hit not yet within the hold by
+more than 2 ms takes the hits back (`by clock`) and issues them again. The
+record is a function of the deliveries, so a replay of them is the same take.
+Only the followed input's ticks are passed on (Apple's hub and midi-glue.js
+drop the rest, and Active Sensing always); nothing ends a lost clock but the
+hits running out. `state.transport.follow` shows the input, the ticks heard,
+the window, the estimate, the ticks since Start and where Stop held it.
+
+**MIDI** (`exactMIDI()`, `requestMIDIAccess()`, `sendMIDI`, a step's note and
+`clockOut=`, `midimessage`; LLP 1125 D6–D8) needs the grant `device.midi` on
+every host. The runner keeps one queue for every message, a sequence's notes and
+clock ticks included, and a host hands each to its output 50 ms before it is due
+and holds it until then: CoreMIDI could take it early and flush, but
+`MIDIFlushOutput` empties the whole destination and Chromium has no
+`MIDIOutput.clear()`. So an edit or a stop takes back what is held, and a note
+already handed gets its note-off (a stop moves it to the stop). At most 1,024
+messages wait; note-offs, Stop and ticks are never refused. Per host:
+
+- **Apple** (macOS 14, iOS 17): a loaded arm, `libexact_midi.dylib` (the
+  `ExactMIDI` framework on iOS), built only for a plan that uses MIDI. CoreMIDI
+  runs on the arm's own thread and run loop, made at the first
+  `requestMIDIAccess()` (no prompt: the state is `prompt` until then), so its
+  notifications arrive and a cold MIDIServer never blocks the main thread. Port
+  ids are `kMIDIPropertyUniqueID`, so a replugged device keeps its id; sends
+  hold on the arm's thread (a main-thread stall does not delay them) and go out
+  with `MIDISendEventList` stamped in host time; inputs are stamped from the
+  packet's own time. It enumerates again when the app comes to the foreground
+  and on a 3 s watchdog while a port is in use. tvOS: `unavailable`.
+- **Web**: Web MIDI through midi-glue.js, loaded after the first frame for a
+  plan that uses MIDI; `granted` without asking when the permission already
+  holds; held sends on the page's timer, so a main-thread stall over 50 ms makes
+  those messages late (a declared limit, counted in `state.midi.output.late`).
+  WebKit, and so every iOS browser, is `unavailable`. SysEx is never asked for.
+- **Linux, Windows**: the record; a request finds `unavailable`.
+
+Under the driver nothing is sent: `prefer midi.*` names the ports a request
+finds, `tap midi` delivers a message (`tap midi "<input>" clock <bpm> <ms>`
+its clock, a 50 ms slice at a time), and `state.midi` is the record — the ports,
+the inputs the listeners open, how many messages wait, the last 64 queued with
+their states (`waiting`, `handed`, `retracted` and why), the last 64 heard with
+their beat, and clock out's tick count.
+
 ### Media session
 
 An `audio` or `video` with `metadata=MediaMetadata(…)` claims the platform's
@@ -1135,8 +1184,11 @@ and does not accept signed-delivery generation tokens.
 For a module client's `build.rs`, depend on `exact-js-bake` and call
 `exact_js_bake::build(Path::new(".."), "web")` (or `"macos"` / `"ios"`). This writes the
 paired artifacts, `compat.json`, and `module.rs` constants (`APP`, `GRANTS`,
-`REVISION`) into `OUT_DIR`. Set the participating platforms' `deploy.store` entries to
-`"0"` in `app.json`: signed module delivery is not implemented.
+`REVISION`) into `OUT_DIR`, and on Apple `host.rs`, the host entry its `deploy.store`
+names. With a store (`"A"`), a signed update carries the module pair under
+`typescript/` (`app.module.json`, `app.hbc`); it needs the binary's TypeScript runtime
+and exactly its grants. An app with both a TypeScript and a Rust module still sets its
+`deploy.store` entries to `"0"`: signed delivery of both is not implemented.
 
 The web crate links `exact-js-web`, not Hermes. Include the generated constants
 and artifacts, then use the host macro's factory and paired-artifact arguments:
@@ -1292,6 +1344,21 @@ behaviour, not for measuring the display. A view animated on the wall clock
 (`UIView.animate`, a display link) is not on the agent's: `clock +N` leaves it
 where it was, and only `clock +N real` lets it run, so a splash drawn from
 `frames` or `after` is the one a drive can step past.
+
+**The design's tokens** (LLP 1121 D12). A native view draws in the design's
+colours by name: `ExactTamber(view).color(.surfaceCard)` on Apple (the view a
+module made, or one inside it; in the process, a view under any node, or
+`ExactTamber(session:)` for a screen of the host's own), a `UIColor` or
+`NSColor` that resolves the scheme, contrast and elevation it is drawn in;
+`ExactTamber(view).color("surface.card")` on Android, a `Color` int resolved
+for the view's scheme. Each reads its place's app tuple: a view under an
+`-exact-mode` pin answers that mode. `observe { … }` runs after each batch that
+moved what the place reads (a `setMode`, a pin above it, a live edit, the
+scheme, the root font size), so re-apply a colour kept in a layer there. A
+name the design lacks answers the fallback (`color(_:fallback:)`) and is
+logged once. `bun exact.mjs tamber gen swift .` writes the names
+(`.exact/tamber/tamber.swift`, never committed), which a module's build
+compiles in. `apps/tamber-host` is the sample.
 
 **Whose window.** `window.window` is nil unless the embedder set
 `session.hatchesOwnWindow`, and `app.application` unless it set
@@ -1563,6 +1630,16 @@ leave Wasm running. This mode adds the interpreter and both artifact variants;
 explicit `native` avoids that interpreter. The usual dev/prod overrides apply,
 but `tiered` is unavailable on iOS/web. Update Lab opts in for macOS development;
 `auto` defaults are unchanged. Both variants still compile before publication.
+
+A binary runs its own compiled data crate until an update replaces it, and only a
+module that differs from that code is interpreted. The build records the digest of
+the source the module compiles from (`nativeSource` in `scripts/rust.mjs`: the
+module's local crates, the workspace's `Cargo.toml` and `Cargo.lock`, and the
+compiler) and every Rust receipt carries it as `source`. A candidate whose
+`source` is the binary's own becomes the native data source again
+(`Swappable::with_native`). On iOS an update that changes the Rust runs
+interpreted until a binary built from that source is installed; an update that
+changes only the Contract or TypeScript leaves the Rust native.
 
 The repository's app entries use `contract::rust_entry` to select a concrete
 factory at bake time. A custom host adapter must do the same (and depend on

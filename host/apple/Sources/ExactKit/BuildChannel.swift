@@ -142,9 +142,11 @@ extension ExactApp {
         let kind = frame["kind"] as? String ?? ""
         guard kind == "pin" else { connection.report(["kind": "unsupported", "what": kind]); return }
         let (pin, refused) = BuildPin.parse(frame["pin"])
-        if let refused { connection.report(["kind": "unsupported", "what": "pin", "detail": refused]); return }
+        // A refusal names the pin's revision (1.3): the server binds it to that pin.
+        let revision = (frame["revision"] as? NSNumber)?.intValue
+        if let refused { connection.report(["kind": "unsupported", "what": "pin", "detail": refused, "revision": revision.map { $0 as Any } ?? NSNull()]); return }
+        BuildChannel.revision = revision
         self.pin(pin)
-        BuildChannel.revision = (frame["revision"] as? NSNumber)?.intValue
         scheduleStatus()
     }
 
@@ -177,7 +179,7 @@ extension ExactApp {
         let modes = first.map { $0.runtime.setModes([:], check: true).modes ?? [:] }
         let body: [String: Any] = ["kind": "status", "scheme": dark ? "dark" : "light", "contrast": DisplayPreferences.contrast,
                                    "mode": modes ?? NSNull(), "rootFontSize": first.flatMap(renderedRootFontSize) ?? PageFacts.rootFontSize,
-                                   "plan": connection.plan ?? NSNull(), "design": BuildChannel.design ?? NSNull(), "revision": BuildChannel.revision ?? NSNull()]
+                                   "plan": connection.plan ?? NSNull(), "design": BuildChannel.design ?? NSNull(), "revision": BuildChannel.revision.map { $0 as Any } ?? NSNull()]
         if let last = BuildChannel.lastStatus, last.nonce == nonce, last.body.isEqual(to: body) { return }
         BuildChannel.lastStatus = (nonce, body as NSDictionary)
         connection.report(body)
@@ -230,7 +232,7 @@ extension ExactApp {
             }
             session.apply(session.runtime.setModes(mode))
         }
-        if let refused { connection?.report(["kind": "unsupported", "what": "pin.mode", "detail": refused]) }
+        if let refused { connection?.report(["kind": "unsupported", "what": "pin.mode", "detail": refused, "revision": BuildChannel.revision.map { $0 as Any } ?? NSNull()]) }
     }
 
     /// A session (or scene) that boots under a pin takes the whole of it,

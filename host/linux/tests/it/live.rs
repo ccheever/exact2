@@ -60,3 +60,85 @@ fn a_running_build_paints_a_batch_in_place() {
     assert_eq!(p.apply_live(&back.json()), None);
     assert_eq!(at(&mut p).0, [0x11, 0x11, 0x11]);
 }
+
+/// LLP 1121 stage 5, commit 2: a role override's value edit reaches a
+/// running build as a batch, and what was painted from the role (the
+/// accent, which a row keeps as the role and paint resolves) is painted
+/// again from the session's new overrides.
+#[test]
+fn a_running_build_repaints_a_role_override_edit_in_place() {
+    let dir = std::env::temp_dir().join(format!("exact-linux-live-role-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let view = "component App\n  view\n    column width=200 height=100\n      box width=40 height=20 background-color=\"AccentColor\" testId=\"swatch\"\n";
+    let plan = |tamber: &str| {
+        std::fs::write(dir.join("app.tamber"), tamber).unwrap();
+        std::fs::write(dir.join("app.contract"), view).unwrap();
+        contract::compile_path(&dir.join("app.contract")).unwrap()
+    };
+    let a = plan("tamber t\n\ntheme\n  AccentColor = #0a7aff\n");
+    let b = plan("tamber t\n\ntheme\n  AccentColor = #ff0000\n");
+    let _ = std::fs::remove_dir_all(&dir);
+    let batch =
+        design::batch(&design::shape(&a), &design::tokens(&a), &design::tokens(&b)).unwrap();
+    let (mut p, err) = Presenter::boot_with(
+        &a.encode(),
+        (),
+        (200., 100.),
+        1.,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(err.is_none(), "{err:?}");
+    let swatch = {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id("swatch")[0]).unwrap().id
+    };
+    let at = |p: &mut Presenter<()>| {
+        let f = p.host().kernel().node(swatch).unwrap().frame;
+        let shot = p.frame();
+        let c = shot.pixel(f.x as u32 + 5, f.y as u32 + 5).unwrap();
+        [c.red(), c.green(), c.blue()]
+    };
+    assert_eq!(at(&mut p), [0x0a, 0x7a, 0xff]);
+    assert_eq!(p.apply_live(&batch.json()), None);
+    assert_eq!(at(&mut p), [0xff, 0, 0]);
+}
+
+/// A reload under a role's transition (LLP 1121 stage 5): the candidate
+/// adopts its paint under its own roles while the running session still
+/// lives on the thread, so nothing resolves unbound beside it.
+#[test]
+fn a_reload_adopts_its_paint_under_its_own_roles() {
+    let dir = std::env::temp_dir().join(format!("exact-linux-live-reload-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let view = "component App\n  view\n    column width=200 height=100\n      box width=40 height=20 background-color=\"AccentColor\" transition=\"background-color 1s\" testId=\"swatch\"\n";
+    let plan = |tamber: &str| {
+        std::fs::write(dir.join("app.tamber"), tamber).unwrap();
+        std::fs::write(dir.join("app.contract"), view).unwrap();
+        contract::compile_path(&dir.join("app.contract")).unwrap()
+    };
+    let a = plan("tamber t\n\ntheme\n  AccentColor = #0a7aff\n");
+    let b = plan("tamber t\n\ntheme\n  AccentColor = #ff0000\n");
+    let _ = std::fs::remove_dir_all(&dir);
+    let (mut p, err) = Presenter::boot_with(
+        &a.encode(),
+        (),
+        (200., 100.),
+        1.,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(err.is_none(), "{err:?}");
+    let _ = p.frame();
+    assert_eq!(p.reload(&b.encode(), ()).unwrap(), None);
+    let swatch = {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id("swatch")[0]).unwrap().id
+    };
+    let f = p.host().kernel().node(swatch).unwrap().frame;
+    let shot = p.frame();
+    let c = shot.pixel(f.x as u32 + 5, f.y as u32 + 5).unwrap();
+    assert_eq!([c.red(), c.green(), c.blue()], [0xff, 0, 0]);
+}

@@ -389,7 +389,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertEqual([rgb.0, rgb.1, rgb.2].map { Int(($0 * 255).rounded()) }, [0x38, 0x38, 0xf5])
         let home = try XCTUnwrap(tabs.viewControllers?[0] as? UINavigationController)
         let second = try XCTUnwrap(tabs.viewControllers?[1] as? UINavigationController)
-        XCTAssertEqual(second.viewControllers.count, 1, "another tab's stack is built too")
+        XCTAssertEqual(second.viewControllers.count, 0, "another tab is built when first selected (LLP 1075.003 §9.14)")
 
         // A pushed screen in Home.
         try tapNode(session, "detail")
@@ -730,8 +730,8 @@ final class NavigationTabsIOSTests: XCTestCase {
     /// With the module loaded, a module view is made as its node is, in the
     /// batch that mounts its route: a screen is contained once that batch
     /// is applied, when the route has its controller. On a tab not yet
-    /// selected that is the batch that first selects it
-    /// (host/apple/src/unopened.rs): until then the route holds nothing.
+    /// selected that is the batch that first selects it, which builds the
+    /// tab (LLP 1075.003 §3.7): until then the tab has no route.
     func testAScreenMadeWithItsRouteIsContainedOnceTheRouteMounts() throws {
         let session = try fixture("tabs-screen", module: true)
         defer { NativeViews.uninstallTable() }
@@ -740,11 +740,12 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
         spin(0.3)
         let navigation = session.presenter.navigation
-        let route = try XCTUnwrap(navigation.tabPanels.last.flatMap { navigation.tabNavigations[$0] }?.viewControllers.first)
-        XCTAssertTrue(route.children.isEmpty, "the other tab waits for its first selection")
+        let other = try XCTUnwrap(navigation.tabPanels.last.flatMap { navigation.tabNavigations[$0] })
+        XCTAssertTrue(other.viewControllers.isEmpty, "the other tab waits for its first selection")
         let tabs = try XCTUnwrap(navigation.tabController)
         tapTab(tabs, tabs.viewControllers!.count - 1)
-        until("the screen is contained") { route.children.count == 1 }
+        until("the screen is contained") { other.viewControllers.first?.children.count == 1 }
+        let route = try XCTUnwrap(other.viewControllers.first)
         XCTAssertTrue(route.children.first?.view.isDescendant(of: route.view) == true)
     }
 

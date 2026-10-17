@@ -4,6 +4,7 @@
 // EXACT_LOOPBACK=1) binds 127.0.0.1 only.
 // Usage: bun host/web/serve.mjs [port=8765] [--loopback]
 import { createServer } from 'node:http';
+import { createServer as createSocketServer } from 'node:net';
 import { brotliCompress, constants as zlib, gzip } from 'node:zlib';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -916,6 +917,28 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 /** A dev loop its launcher started stops when that process is gone, however it ended: `EXACT_LAUNCHER_PID` names
  * it (an app's `exact.mjs`, or the JS loop for the resident producers it starts). A SIGKILL forwards no signal, and
  * an orphaned server keeps its port (chat and onboarding F20). Without the variable a loop runs until stopped. */
+/** A dev loop answers on IPv6's loopback too, the same port: `localhost`
+ * resolves to [::1] first, and the design tool frames the page as
+ * localhost (another site than the tool's 127.0.0.1). Each connection
+ * there is the HTTP server's own. Resolves once it listens, or when there
+ * is no IPv6; rejects (EADDRINUSE) when another server holds the port
+ * there, which a localhost URL would reach instead. */
+export function alsoOnIPv6Loopback(server, port) {
+  const six = createSocketServer((socket) => server.emit('connection', socket));
+  server.on('close', () => six.close());
+  return new Promise((ok, fail) => {
+    six.once('error', (e) => (e.code === 'EADDRINUSE' ? fail(e) : ok(null)));
+    six.listen(port, '::1', () => ok(six));
+  });
+}
+
+/** Whether `port` is free on IPv6's loopback too (no IPv6: yes). */
+export const freeOnIPv6Loopback = (port) => new Promise((ok) => {
+  const t = createSocketServer();
+  t.once('error', (e) => ok(e.code !== 'EADDRINUSE'));
+  t.listen(port, '::1', () => t.close(() => ok(true)));
+});
+
 export function watchLauncher(stop, pid = Number(process.env.EXACT_LAUNCHER_PID)) {
   if (!Number.isInteger(pid) || pid <= 1) return null;
   const timer = setInterval(() => { try { process.kill(pid, 0); } catch (e) { if (e.code === 'ESRCH') { clearInterval(timer); stop(); } } }, 1000);

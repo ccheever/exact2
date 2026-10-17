@@ -435,12 +435,16 @@ fn a_refused_candidate_and_a_nested_boot_leave_the_live_sessions_roles() {
     };
     let canvas_text = exact_kernel::style::roles::role("CanvasText").unwrap();
     let fixed = |text: &str| Some(exact_kernel::ColorValue::Fixed(Color::parse(text).unwrap()));
+    // What resolves outside any host's scope: the thread's newest installed
+    // session's, read under it (several live here, which is no guess).
+    let now = || {
+        let installed = exact_kernel::style::roles::installed().unwrap_or_default();
+        let _bound = exact_kernel::style::roles::bind(&installed);
+        exact_kernel::style::roles::overridden(canvas_text)
+    };
     let live = run("#010101");
     drop(run("#020202"));
-    assert_eq!(
-        exact_kernel::style::roles::overridden(canvas_text),
-        fixed("#010101")
-    );
+    assert_eq!(now(), fixed("#010101"));
     let other = {
         let _scope = live.bind_roles();
         let other = run("#030303");
@@ -450,12 +454,8 @@ fn a_refused_candidate_and_a_nested_boot_leave_the_live_sessions_roles() {
         );
         other
     };
-    assert_eq!(
-        exact_kernel::style::roles::overridden(canvas_text),
-        fixed("#030303")
-    );
+    assert_eq!(now(), fixed("#030303"));
     drop(other);
-    let now = || exact_kernel::style::roles::overridden(canvas_text);
     assert_eq!(now(), fixed("#010101"));
     // Two candidates refused, the first first (Apple's `applyTogether`).
     let (one, two) = (run("#040404"), run("#050505"));
@@ -464,4 +464,37 @@ fn a_refused_candidate_and_a_nested_boot_leave_the_live_sessions_roles() {
     drop(two);
     assert_eq!(now(), fixed("#010101"));
     drop(live);
+}
+
+/// A role resolved with no session bound while two live on the thread is a
+/// host path that forgot to bind: a debug build asserts (LLP 1121 stage 5),
+/// naming the call site; with one session, or bound, it is that one's.
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "no session bound while several live on this thread")]
+fn an_unbound_resolve_beside_another_session_asserts() {
+    let run = |canvas: &str| {
+        Runner::boot(
+            contract::compile(&format!(
+                "theme\n  CanvasText = \"{canvas}\"\n\ncomponent App\n  view\n    text \"a\"\n"
+            ))
+            .unwrap(),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    };
+    let canvas_text = exact_kernel::style::roles::role("CanvasText").unwrap();
+    let first = run("#010101");
+    assert!(exact_kernel::style::roles::overridden(canvas_text).is_some());
+    let second = run("#020202");
+    {
+        let _bound = first.bind_roles();
+        assert!(exact_kernel::style::roles::overridden(canvas_text).is_some());
+    }
+    // The bind a host path forgot.
+    let _ = exact_kernel::style::roles::overridden(canvas_text);
+    drop((first, second));
 }

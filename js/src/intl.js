@@ -20,16 +20,23 @@
 // the mode.
 (function (global) {
   "use strict";
-  var Native = global.Intl && global.Intl.NumberFormat, hasCompact, roundsEven;
+  var Native = global.Intl && global.Intl.NumberFormat, hasCompact, roundsEven, probed = false;
   if (!Native) return;
   // One formatter answers both: an engine without compact formats 1000
-  // in full, and one that rounds to even prints 0.125 as `0.12`.
-  try {
-    var probe = new Native("en-US", { notation: "compact", maximumFractionDigits: 2 });
-    hasCompact = probe.format(1000) === "1K";
-    roundsEven = probe.format(0.125) === "0.12";
-  } catch (e) { return; }
-  if (hasCompact && !roundsEven) return;
+  // in full, and one that rounds to even prints 0.125 as `0.12`; one that
+  // refuses it is left alone. It is made at the first number formatted,
+  // not as the prelude runs: Apple's engine reads every locale's name and
+  // makes an NSNumberFormatter for it, which an app that formats no number
+  // should not keep.
+  function probe() {
+    if (probed) return;
+    probed = true;
+    try {
+      var formatter = new Native("en-US", { notation: "compact", maximumFractionDigits: 2 });
+      hasCompact = formatter.format(1000) === "1K";
+      roundsEven = formatter.format(0.125) === "0.12";
+    } catch (e) { hasCompact = true; roundsEven = false; }
+  }
   var MODES = ["ceil", "floor", "expand", "trunc", "halfCeil", "halfFloor", "halfExpand", "halfTrunc", "halfEven"];
   function modeOf(options) {
     var mode = options == null || options.roundingMode === undefined ? "halfExpand" : String(options.roundingMode);
@@ -217,8 +224,8 @@
       return function (n) { return self.parts(n).map(function (p) { return p.value; }).join(""); };
     },
   });
-  if (roundsEven) {
-    var bind = Object.getOwnPropertyDescriptor(Native.prototype, "format").get, resolve = Native.prototype.resolvedOptions;
+  var bind = (Object.getOwnPropertyDescriptor(Native.prototype, "format") || {}).get, resolve = Native.prototype.resolvedOptions;
+  if (bind) {
     // The digits the engine prints: significant digits; or fraction digits,
     // of the percent for a percent and of the mantissa in scientific
     // notation (which the engine prints only for a decimal). Compact with
@@ -257,20 +264,25 @@
     Object.defineProperty(Native.prototype, "format", {
       configurable: true,
       get: function () {
-        var bound = bind.call(this), s = stateOf(this), self = this;
+        probe();
+        var bound = bind.call(this);
+        if (!roundsEven) return bound;
+        var s = stateOf(this), self = this;
         return s.format || (s.format = function (n) { return bound(roundFor(self, s, n)); });
       },
     });
     Object.defineProperty(Native.prototype, "resolvedOptions", {
       writable: true, configurable: true,
       value: function resolvedOptions() {
+        probe();
         var r = resolve.call(this);
-        r.roundingMode = stateOf(this).mode;
+        if (roundsEven) r.roundingMode = stateOf(this).mode;
         return r;
       },
     });
   }
   function NumberFormat(locales, options) {
+    probe();
     if (!hasCompact && options && options.notation === "compact") return new Compact(locales, options);
     var format = new.target ? Reflect.construct(Native, [locales, options], new.target) : Native(locales, options);
     if (roundsEven) stateOf(format).mode = modeOf(options);
@@ -283,6 +295,7 @@
   Object.defineProperty(Number.prototype, "toLocaleString", {
     writable: true, configurable: true,
     value: function toLocaleString(locales, options) {
+      probe();
       if (!hasCompact && options && options.notation === "compact") return new Compact(locales, options).format(Number(this));
       if (roundsEven) return new NumberFormat(locales, options).format(Number.prototype.valueOf.call(this));
       return toLocale.call(this, locales, options);

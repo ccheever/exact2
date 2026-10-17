@@ -586,7 +586,7 @@ reading. Nothing that isn't HTML is added by it.
   app-owned audio thread. Take: none offered; waived by that instruction.
   Still out: on-demand decoding, web pictures of an element, QR in exact2,
   SysEx, Bluetooth MIDI pairing, MIDI 2.0, Continue and Song Position out,
-  Ableton Link, swing, Linux, Windows and Android output, synthesis (LLP 1125
+  clock thru (sending clock while following one), Ableton Link, swing, Linux, Windows and Android output, synthesis (LLP 1125
   §8).
 - **Expanded (LLP 1098; admitted by the orchestrator under Charlie's
   2026-10-04 delegation, "make decisions without me"):** the media session,
@@ -998,6 +998,17 @@ identity or profile for a consumer that re-signs it (AppDrop). Unblocks handing
 an app to AppDrop without a stub profile; refused for apps with GPU modules,
 whose baked digests a re-signer would break. No AppDrop adapter is added; the
 distributable IPA and EAS/AppDrop adapter above stay deferred otherwise.
+
+**AppDrop lane, 2026-10-14 (Eliot; Charlie's waiver or a take still owed):**
+`deploy.appdrop` makes an iOS binary row of `exact deploy --yes` build the
+`--archive --unsigned` `.ipa` against the stream's release record and publish it
+to AppDrop (creating the link the first time, writing it to app.json), and the
+install page offers the link.
+Unblocks sending one install link whose app stays current: bundles over the
+air, binaries through AppDrop. It lifts the `--unsigned` waiver's GPU refusal:
+a GPU card's digest leaves out a Mach-O's code signature (`code_digest`), so a
+re-signer keeps it and a code change still breaks it. The EAS adapter, signed
+distribution IPAs and automatic provisioning stay deferred.
 
 **Admitted (Charlie, 2026-10-12, issue-fix ruling 5; take waived):**
 "intersect=: admit now — intersect=action {isIntersecting, intersectionRatio},

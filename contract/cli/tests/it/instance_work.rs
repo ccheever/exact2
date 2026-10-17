@@ -400,3 +400,52 @@ component App
     assert_eq!(tinted["walked"], 10);
     assert_eq!(tinted["truncated"], false);
 }
+
+/// LLP 1079 D3: measuring begun after boot, at a release build's first ask,
+/// reports in a batch trailer only the transactions after it, and a second
+/// ask moves nothing.
+#[test]
+fn work_measured_from_the_first_ask_reports_only_the_transactions_after_it() {
+    let mut r = boot(
+        r#"
+component App
+  state tick = 0
+  action step
+    tick = tick + 1
+  view
+    text `${tick}` testId="tick"
+"#,
+    );
+    for _ in 0..5 {
+        r.act("step", vec![]).unwrap();
+    }
+    assert_eq!(r.seq_range(), None, "nothing is reported while unmeasured");
+    let perf = |r: &Runner<Rows>| exact_runner::agent::handle(r, r#"{"op":"perf"}"#);
+    r.measure_later(None);
+    assert!(
+        perf(&r).contains("not measured until first asked"),
+        "{}",
+        perf(&r)
+    );
+    r.measure_later(Some(r#"{"inputs":{"trust":"production"}}"#));
+    assert!(perf(&r).contains("production trust"), "{}", perf(&r));
+    r.measure_later(None);
+    let asked = r.seq();
+    r.measure_from_now(None, false);
+    assert_eq!(
+        r.seq_range(),
+        None,
+        "the unmeasured transactions are not reported"
+    );
+    r.act("step", vec![]).unwrap();
+    assert_eq!(r.seq_range(), Some((asked + 1, r.seq())));
+    assert!(perf(&r).contains("\"sites\""), "{}", perf(&r));
+    r.act("step", vec![]).unwrap();
+    let reported = r.seq() - 1;
+    r.measure_from_now(None, false);
+    assert_eq!(
+        r.seq_range(),
+        Some((reported + 1, r.seq())),
+        "a second ask keeps the cursor"
+    );
+}

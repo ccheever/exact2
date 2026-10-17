@@ -1248,3 +1248,83 @@ fn clock_settle_does_not_wait_for_a_sequence_s_fill() {
     assert_eq!(haptics.len(), 6, "a beat every 500 ms to 3000: {s}");
     assert_eq!(haptics[4]["state"], serde_json::json!("played"));
 }
+
+/// A date or time control's picker is held for the agent on every host
+/// (LLP 1115.001.000 D1): `type @date <value>` chooses, `tap @date clear`
+/// empties it, `tap @date cancel` leaves it, and a value not of its kind
+/// is refused before the hold is spent.
+#[test]
+fn a_date_picker_is_held_for_the_agent_and_answered_by_kind() {
+    let plan = contract::compile(
+        "component App\n  state day = \"2026-10-16\"\n  action setDay(value)\n    day = value\n  view\n    column width=300 height=300\n      input type=\"date\" value=day change=setDay testId=\"day\"\n      text day testId=\"shown\" height=20\n",
+    )
+    .unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+    let day = {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id("day")[0]).unwrap().id
+    };
+    let value = |p: &Presenter<()>| {
+        let k = p.host().kernel();
+        let n = k.node(day).unwrap();
+        n.props
+            .str(exact_kernel::PropId::Value)
+            .unwrap_or("")
+            .to_owned()
+    };
+    let hold = |p: &mut Presenter<()>| {
+        handle(p, &format!(r#"{{"op":"tap","id":{day}}}"#));
+        let state = json(handle(p, r#"{"op":"state"}"#));
+        let held = state["pending"][0].clone();
+        assert_eq!(held["device"]["capability"], "date", "{state}");
+        held
+    };
+    let held = hold(&mut p);
+    assert_eq!(held["device"]["args"]["value"], "2026-10-16");
+    let t = held["ticket"].as_u64().unwrap();
+    // A second press while it is held holds no second.
+    handle(&mut p, &format!(r#"{{"op":"tap","id":{day}}}"#));
+    let state = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert_eq!(state["pending"].as_array().unwrap().len(), 1, "{state}");
+    let wrong = handle(
+        &mut p,
+        &format!(r#"{{"op":"type","ticket":{t},"text":"23/10/2026"}}"#),
+    );
+    assert!(wrong.contains("such as 2026-10-23"), "{wrong}");
+    handle(
+        &mut p,
+        &format!(r#"{{"op":"type","ticket":{t},"text":"2026-10-23"}}"#),
+    );
+    p.run_commands(|| ());
+    assert_eq!(value(&p), "2026-10-23");
+    let t = hold(&mut p)["ticket"].as_u64().unwrap();
+    handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","ticket":{t},"choice":"cancel"}}"#),
+    );
+    assert_eq!(value(&p), "2026-10-23");
+    let t = hold(&mut p)["ticket"].as_u64().unwrap();
+    handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","ticket":{t},"choice":"clear"}}"#),
+    );
+    p.run_commands(|| ());
+    assert_eq!(value(&p), "");
+    // A row given another item while its picker is held retires the hold.
+    hold(&mut p);
+    p.picks_renewed(&[day]);
+    let state = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert!(
+        state["pending"].as_array().is_none_or(|a| a.is_empty()),
+        "{state}"
+    );
+}

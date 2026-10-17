@@ -13,10 +13,11 @@
 // simulator (`DEVELOPER_DIR`, `EXACT_SIM`), and the bundles built first:
 // `bun host/apple/build.mjs --ios duo-lab` (and `--ios --host` for the host
 // fixture). Without the Duo it prints `duo: unsupported — …` and the smoke
-// exits 0, the convention for a missing carrier. Rotation is not driven: this
-// beta's simulator ignores CoreDevice orientation on the Duo (LLP 1008 §9).
-// `--only insets,kbar,lab,host` runs the named legs; the keyboard checks run
-// only when a probe shows a software keyboard on this simulator.
+// exits 0, the convention for a missing carrier. The device is turned by the
+// same helper (CoreDevice's orientation commands do not turn the Duo, LLP 1008
+// §9): the suite starts it upright, and the rotate leg turns it at three poses.
+// `--only insets,kbar,lab,host,rotate` runs the named legs; the keyboard checks
+// run only when a probe shows a software keyboard on this simulator.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -44,6 +45,23 @@ const POSES = [['open', 180], ['book', 130], ['half', 90], ['closed', 0]];
 const folded = (deg) => deg === 130 || deg === 90;
 const RECORDED = { inner: { w: 951, h: 669 }, cover: { w: 466, h: 678 } };
 const SEGMENTS = [[0, 0, 455.5, 669], [495.5, 0, 455.5, 669]];
+// The inner panel turned on its side: the same division across the panel's other axis
+const STACKED = [[0, 0, 669, 455.5], [0, 495.5, 669, 455.5]];
+// The device turned right, upside down, left and upright again, the helper's names and CoreDevice's,
+// and what UIKit reports at each on either panel (the scene's interface orientation, its screen and
+// safe area, top right bottom left; measured against a plain UIKit app, 2026-10-15, and in duo-lab,
+// 2026-10-16). An iPhone app does not turn upside down: on the cover panel that turn keeps the last.
+const TURNS = [['landscape-right', 'landscapeRight'], ['pud', 'portraitUpsideDown'], ['landscape-left', 'landscapeLeft'], ['portrait', 'portrait']];
+const TURNED = {
+  inner: {
+    'landscape-right': ['portraitUpsideDown', 669, 951, [82, 0, 34, 0]], pud: ['landscapeRight', 951, 669, [0, 84, 34, 0]],
+    'landscape-left': ['portrait', 669, 951, [82, 0, 34, 0]], portrait: ['landscapeLeft', 951, 669, [0, 84, 34, 0]],
+  },
+  cover: {
+    'landscape-right': ['landscapeLeft', 678, 466, [0, 84, 34, 0]], pud: ['landscapeLeft', 678, 466, [0, 84, 34, 0]],
+    'landscape-left': ['landscapeRight', 678, 466, [0, 0, 34, 84]], portrait: ['portrait', 466, 678, [0, 84, 34, 0]],
+  },
+};
 const after = (deg) => POSES[(POSES.findIndex((p) => p[1] === deg) + 1) % POSES.length][1];
 
 /** The suite. `open` is the smoke's session opener; `check` records a failure. Returns 'unsupported' when there is no Duo to drive. */
@@ -61,7 +79,7 @@ async function suite({ open: openSession, check: record }, reset) {
   // The phase a check runs in, and the first failure's since the last screenshot, which names it
   let where = 'start', failedAt = null, shots = 0;
   const check = (ok, what) => { if (!ok) { console.log('  FAIL ' + what); failedAt ??= where; } return record(ok, what); };
-  const only = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1].split(',') : null; // insets, kbar, lab, host
+  const only = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1].split(',') : null; // insets, kbar, lab, host, rotate
   const leg = (name) => !only || only.includes(name);
   const pick = process.env.EXACT_SIM;
   const version = (d) => Number(/iOS-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
@@ -88,6 +106,19 @@ async function suite({ open: openSession, check: record }, reset) {
     const r = spawnSync('xcrun', ['simctl', 'spawn', udid, helper, 'set', String(deg)], { encoding: 'utf8' });
     check(r.status === 0, `hinge ${deg}: ${r.stderr || r.stdout}`);
   };
+  /** Turn the device (`TURNS`' helper name) and wait, over 50 reads, for CoreDevice to report it turned. A failure in session `s` before the turn is photographed first. */
+  const orient = async (turn, s) => {
+    if (s) await shot(s);
+    const r = spawnSync('xcrun', ['simctl', 'spawn', udid, helper, 'orient', turn], { encoding: 'utf8' });
+    if (!check(r.status === 0, `orient ${turn}: ${r.stderr || r.stdout}`)) return;
+    const want = TURNS.find(([name]) => name === turn)[1];
+    let now;
+    for (let i = 0; i < 50 && now !== want; i++) {
+      if (i > 0) await sleep(100);
+      now = /Current Device Orientation:\s*(\w+)/.exec(spawnSync('xcrun', ['devicectl', 'device', 'orientation', 'get', '-d', udid], { encoding: 'utf8' }).stdout)?.[1];
+    }
+    check(now === want, `the device turned ${turn} and CoreDevice reports ${now}`);
+  };
   /** Settle the app's clock; a settle that gives up is a failure naming why. */
   const settle = async (s) => {
     await sleep(300);
@@ -96,7 +127,7 @@ async function suite({ open: openSession, check: record }, reset) {
     await sleep(200);
   };
   /** One app screenshot when a check failed since the last call, named for the phase it failed in. A session's
-   * `tap`, `type` and `close` and a pose call it first, so the picture is of the failing state. An error taking
+   * `tap`, `type` and `close`, a pose and a turn call it first, so the picture is of the failing state. An error taking
    * it is printed, never a failure. */
   const shot = async (s) => {
     if (failedAt === null) return;
@@ -108,6 +139,7 @@ async function suite({ open: openSession, check: record }, reset) {
   /** A session whose state-changing operations take a failure's screenshot first (`shot`). */
   const open = async (options) => {
     const s = await openSession(options);
+    keyboardGone = false; // a new launch has its keyboard again
     for (const op of ['tap', 'type', 'close']) {
       const run = s[op].bind(s);
       s[op] = async (...args) => { await shot(s); return run(...args); };
@@ -137,15 +169,18 @@ async function suite({ open: openSession, check: record }, reset) {
     check(!missed.length, `the hinge moved to ${deg}° and the session missed it: ${missed.join(', ')}`);
     await settle(s);
   };
+  /** Whether the record applies, from the first open layout of a session that fills its panel (the host's
+   * sessions each take a part of it): the inner panel at its recorded size. */
+  const applies = (l) => {
+    if (recorded !== null || !l.screen || l.viewport.w !== l.screen.w || l.viewport.h !== l.screen.h) return;
+    recorded = l.viewport.w === RECORDED.inner.w && l.viewport.h === RECORDED.inner.h;
+    if (!recorded) console.log(`duo: the inner panel reports ${l.viewport.w}×${l.viewport.h}, not the recorded ${RECORDED.inner.w}×${RECORDED.inner.h} (screen orientation ${l.screen?.orientation ?? 'unknown'}): panel sizes and segments are checked against what the device reports`);
+  };
   /** The facts at a pose: layout and state, one line printed. */
   const facts = async (s, tag) => {
     const l = await s.layout();
     const st = await s.state();
-    // Judged by a session that fills its panel (the host's sessions each take a part of it)
-    if (recorded === null && l.screen && l.viewport.w === l.screen.w && l.viewport.h === l.screen.h) {
-      recorded = l.viewport.w === RECORDED.inner.w && l.viewport.h === RECORDED.inner.h;
-      if (!recorded) console.log(`duo: the inner panel reports ${l.viewport.w}×${l.viewport.h}, not the recorded ${RECORDED.inner.w}×${RECORDED.inner.h} (screen orientation ${l.screen?.orientation ?? 'unknown'}; CoreDevice cannot rotate the Duo, LLP 1008 §9): panel sizes and segments are checked against what the device reports`);
-    }
+    applies(l);
     console.log(`  ${tag}: viewport ${l.viewport.w}×${l.viewport.h} screen ${l.screen?.w}×${l.screen?.h}@${l.screen?.scale} at ${l.screen?.x},${l.screen?.y} insets t${l.env['safe-area-inset-top']} r${l.env['safe-area-inset-right']} b${l.env['safe-area-inset-bottom']} l${l.env['safe-area-inset-left']} kb${l.env['keyboard-inset-height']} posture ${l.env['device-posture']} segments ${l.env['horizontal-viewport-segments']}×${l.env['vertical-viewport-segments']} ${JSON.stringify(l.env['viewport-segments'])}`);
     return { l, st };
   };
@@ -182,6 +217,50 @@ async function suite({ open: openSession, check: record }, reset) {
     check(k.reached, `${tag}: the keyboard went down (keyboard-inset-height ${k.l.env['keyboard-inset-height']})`);
     return k.l;
   };
+  // A fold between the panels with an editor focused: UIKit's keyboard machinery resigns the editor as the scene moves
+  // to the other display and makes it first responder again, but now and then never does, in a plain UIKit app as in
+  // Exact (QUEUE: "A fold that switches panels can end the editing"). The agent's `focus.events` show it: one
+  // resignation of that native editor by UIKit's keyboard machinery and nothing else. Only that is UIKit's drop; the
+  // smoke then taps the editor, the same native editor must take the focus, and the fold's checks run. After such a
+  // drop UIKit shows no software keyboard in that app again until it is launched anew, a plain UIKit app's neither, so
+  // when UIKit reports no keyboard the keyboard checks are unsupported (`keyboardGone`) until one shows or the next
+  // launch. Every other loss fails.
+  let keyboardGone = false;
+  /** Before a fold: the editor `target` (a test id) holding the app's focus slot `slot`, natively, its token and the
+   * last focus event's number. */
+  const editing = async (s, slot, target) => {
+    const { slots, focus } = await s.state();
+    const node = byTestId(await s.tree(), target)?.id;
+    return { slot, target, node, native: focus.native, seq: focus.events.at(-1)?.seq ?? 0,
+      focused: node != null && slots[slot] === true && focus.editor === node && focus.native != null };
+  };
+  /** Whether nothing but UIKit's keyboard machinery resigning the editor of `before`, once, happened to the editors since `before` (state `st`). */
+  const clean = (st, before) => {
+    const since = st.focus.events.filter((e) => e.seq > before.seq);
+    return since.length === 0 || (since.length === 1 && since[0].kind === 'resign' && since[0].by === 'uikit-keyboards' && since[0].node === before.node && since[0].token === before.native);
+  };
+  /** After a fold from `from` to `to`: whether the editor of `before` holds the focus again, waiting up to 2 s for UIKit
+   * to give it back, and on a panel switch whose focus UIKit dropped, after tapping it. */
+  const held = async (s, tag, from, to, before) => {
+    const has = (st) => st.slots[before.slot] === true && st.focus.editor === before.node && st.focus.native === before.native;
+    let st;
+    for (let i = 0; i < 20; i++) { if (i > 0) await sleep(100); st = await s.state(); if (has(st)) return true; }
+    if ((from === 0) === (to === 0)) return false;
+    const since = st.focus.events.filter((e) => e.seq > before.seq);
+    const dropped = since.length === 1 && since[0].kind === 'resign' && since[0].by === 'uikit-keyboards'
+      && since[0].node === before.node && since[0].token === before.native && st.focus.native == null && st.slots[before.slot] === false;
+    if (!check(dropped, `${tag}: the editor lost the focus at the panel switch, and not as UIKit drops it (one resignation of the same native editor by UIKit's keyboard machinery): ${JSON.stringify({ before, since, focus: st.focus, slot: st.slots[before.slot] })}`)) return false;
+    await down(s, tag);
+    console.log(`  ${tag}: UIKit did not give the editor back after the panel switch; tapped it again`);
+    await s.tap(before.target);
+    for (let i = 0; i < 20; i++) { if (i > 0) await sleep(100); st = await s.state(); if (has(st)) break; }
+    if (!has(st) || !check(clean(st, before), `${tag}: nothing but UIKit's resignation happened to the editor while it was given the focus again: ${JSON.stringify(st.focus.events.filter((e) => e.seq > before.seq))}`)) return false;
+    if (softKeyboard && !(await keyboard(s, true)).reached && (await s.state()).keyboard.visible === false) {
+      keyboardGone = true;
+      console.log(`  ${tag}: UIKit shows no keyboard in this app after dropping its focus; the keyboard checks are unsupported until one shows or the next launch`);
+    }
+    return true;
+  };
   const eachPose = async (s, name, body, dismiss) => {
     for (const [tag, deg] of POSES) {
       where = `${name}-${tag}`;
@@ -192,6 +271,36 @@ async function suite({ open: openSession, check: record }, reset) {
     }
     where = `${name}-reopened`;
     await pose(s, 180); // closed to open in a live session, checked
+  };
+  /** The Fold screen's facts and panes at a pose (`chosen`: the detail selected before). */
+  const foldScreen = async (s, l, tag, deg, chosen) => {
+    const t = await s.tree();
+    const two = folded(deg);
+    const text = (id) => byTestId(t, id)?.props.text;
+    check(text('fact-posture') === (two ? 'folded' : 'continuous'), `${tag}: fact-posture is ${text('fact-posture')}, expected ${two ? 'folded' : 'continuous'}`);
+    // The segments: the record's two (side by side, or one above the other on the inner panel turned on
+    // its side), or what the device reports (two rects inside the viewport, one row or one column, the band
+    // between them empty).
+    const segs = Array.isArray(l.env['viewport-segments']) ? l.env['viewport-segments'] : null;
+    const h = l.env['horizontal-viewport-segments'], v = l.env['vertical-viewport-segments'];
+    if (recorded) {
+      const across = l.viewport.w > l.viewport.h, want = !two ? [] : across ? SEGMENTS : STACKED, grid = !two ? '1×1' : across ? '2×1' : '1×2';
+      check(`${h}×${v}` === grid && JSON.stringify(segs) === JSON.stringify(want), `${tag}: layout.env reports segments ${h}×${v} ${JSON.stringify(segs)}, expected ${grid} ${JSON.stringify(want)}`);
+    } else if (two) {
+      const [a, b] = segs ?? [];
+      const sideBySide = a && b && near(a[1], b[1]) && a[0] + a[2] < b[0] + 0.01, stacked = a && b && near(a[0], b[0]) && a[1] + a[3] < b[1] + 0.01;
+      check(segs?.length === 2 && (sideBySide || stacked) && h * v === 2 && (sideBySide ? h === 2 : v === 2) && [a, b].every((r) => r[0] >= 0 && r[1] >= 0 && r[0] + r[2] <= l.viewport.w + 0.01 && r[1] + r[3] <= l.viewport.h + 0.01), `${tag}: layout.env reports two segments inside ${JSON.stringify(l.viewport)} with a band between: ${h}×${v} ${JSON.stringify(segs)}`);
+    } else check(h === 1 && v === 1 && segs?.length === 0, `${tag}: layout.env reports one segment: ${h}×${v} ${JSON.stringify(segs)}`);
+    check(text('fact-h') === String(h) && text('fact-v') === String(v), `${tag}: the screen prints ${text('fact-h')}×${text('fact-v')}, layout.env ${h}×${v}`);
+    check(text('fact-size') === `${l.viewport.w}×${l.viewport.h}`, `${tag}: fact-size ${text('fact-size')} vs layout ${l.viewport.w}×${l.viewport.h}`);
+    check(l.env['device-posture'] === (two ? 'folded' : 'continuous'), `${tag}: layout.env reports posture ${l.env['device-posture']}`);
+    // The panes sit exactly on the two rects, whichever axis the device splits
+    // (across: each pane the viewport's height; down: each the viewport's width).
+    const list = box(l, 'pane-list'), detail = box(l, 'pane-detail');
+    const on = (pane, r, full) => pane && near(pane.x, r[0]) && near(pane.y, r[1]) && near(pane.w, full ? l.viewport.w : r[2]) && near(pane.h, full ? r[3] : l.viewport.h);
+    if (segs?.length === 2 && (h === 2 || v === 2)) check(on(list, segs[0], v === 2) && on(detail, segs[1], v === 2), `${tag}: the panes sit on the segments ${JSON.stringify(segs)} (${h}×${v}): list ${JSON.stringify(list)} detail ${JSON.stringify(detail)}`);
+    else check(list && detail && near(list.w, l.viewport.w) && near(detail.w, l.viewport.w) && detail.y >= list.y + list.h - 0.01, `${tag}: one pane, the list above the detail: list ${JSON.stringify(list)} detail ${JSON.stringify(detail)}`);
+    check(text('detail-title') === chosen, `${tag}: the selection survived: ${text('detail-title')} (was ${chosen})`);
   };
   // The insets fixture serves its leg and the keyboard probe, which the legs that type need
   const probe = leg('insets') || leg('kbar') || leg('lab');
@@ -208,7 +317,8 @@ async function suite({ open: openSession, check: record }, reset) {
   const sdk = JSON.parse(readFileSync(resolve(labBundle, 'receipt.json'), 'utf8')).sdk ?? '';
   const sdkVersion = Number(/iPhoneSimulator(\d+\.\d+)\.sdk/.exec(sdk)?.[1] ?? 0);
   if (!check(sdkVersion >= 27.1, `duo: the duo-lab bundle was built with ${sdk || 'an unknown SDK'}; the fold needs the iOS 27.1 SDK — DEVELOPER_DIR=<Xcode 27.1> bun host/apple/build.mjs --ios duo-lab`)) return;
-  reset.hinge = () => hinge(180); // leave the simulator open, whatever happens
+  reset.hinge = () => { spawnSync('xcrun', ['simctl', 'spawn', udid, helper, 'orient', 'portrait']); hinge(180); }; // leave the simulator upright and open, whatever happens
+  await orient('portrait'); // the record is the device upright
   // Whether this simulator shows a software keyboard at all. The simulator's state
   // is what counts, and it moves under a run: a Device Hub window sets the device's
   // own keyboard preference — `com.apple.keyboard.preferences`
@@ -258,9 +368,14 @@ async function suite({ open: openSession, check: record }, reset) {
     else if (m.set) console.log(`duo keyboard: unsupported — the software keyboard is minimized on this simulator; clear it (xcrun simctl spawn ${udid} defaults delete com.apple.keyboard.preferences AutomaticMinimizationEnabled) or boot a fresh device; the keyboard checks are not run`);
     else { softKeyboard = true; console.log('duo keyboard: no software keyboard rose and the device\'s keyboard preference is not minimized — treated as a host failure; the keyboard checks run'); }
   }
-  /** A keyboard that should have risen: true to check it (and fail), false when the device's keyboard preference turned minimized since the run began. */
-  const rose = (kb, tag) => {
-    if (!softKeyboard) return false;
+  /** Whether a software keyboard is expected now: this simulator shows one, and UIKit has not dropped this app's (its own state saying no keyboard) since the keyboard's inset `kb` was last positive. */
+  const expected = async (s, kb) => {
+    if (keyboardGone && (kb > 0 || (await s.state()).keyboard.visible !== false)) keyboardGone = false;
+    return softKeyboard && !keyboardGone;
+  };
+  /** A keyboard that should have risen: true to check it (and fail), false when the device's keyboard preference turned minimized since the run began, or while UIKit shows no keyboard in this app after dropping its focus (`keyboardGone`). */
+  const rose = async (s, kb, tag) => {
+    if (!(await expected(s, kb))) return false;
     if (kb > 0) return true;
     const m = minimized();
     if (m.set) {
@@ -286,17 +401,20 @@ async function suite({ open: openSession, check: record }, reset) {
         check(st.slots.note === typed && st.slots.focused === true, `${tag}: typing focused the field ${JSON.stringify(st.slots)}`);
         check(l2.viewport.h === l.viewport.h, `${tag}: the layout viewport does not change for a keyboard (${l2.viewport.h} vs ${l.viewport.h})`);
         const note = box(l2, 'note');
-        if (rose(kb, tag)) {
+        if (await rose(s, kb, tag)) {
           check(kb > 100, `${tag}: the software keyboard rose: keyboard-inset-height ${kb}`);
           check(kb > 0 && note.y + note.h <= l2.viewport.h - kb + 0.01 && note.y < noteBefore.y, `${tag}: the field is revealed above the keyboard ${JSON.stringify(note)} kb ${kb} (was ${JSON.stringify(noteBefore)})`);
         }
         // Fold while editing: focus and text survive the panel switch, the new panel is covered.
         const next = after(deg);
+        const before = await editing(s, 'focused', 'note');
+        check(before.focused, `${tag}: the field holds the focus natively before the fold ${JSON.stringify(before)}`);
         await pose(s, next);
+        const back = await held(s, `${tag}→${next}°`, deg, next, before);
         ({ l: l2 } = await keyboard(s, true));
         const st2 = await s.state(), kb2 = l2.env['keyboard-inset-height'];
-        check(st2.slots.note === typed && st2.slots.focused === true, `${tag}: focus and text survive a fold to ${next}° ${JSON.stringify(st2.slots)}`);
-        if (rose(kb2, `${tag}→${next}°`)) check(kb2 > 0, `${tag}→${next}°: the keyboard is up on the new panel (keyboard-inset-height ${kb2})`);
+        check(st2.slots.note === typed && back && st2.slots.focused === true && st2.focus.editor === before.node && st2.focus.native === before.native && clean(st2, before), `${tag}: focus and text survive a fold to ${next}° ${JSON.stringify(st2.slots)}`);
+        if (await rose(s, kb2, `${tag}→${next}°`)) check(kb2 > 0, `${tag}→${next}°: the keyboard is up on the new panel (keyboard-inset-height ${kb2})`);
         coverChecks(l2, `${tag}→${next}° while editing`, next);
         await pose(s, deg);
         await s.tap('dismiss');
@@ -316,10 +434,13 @@ async function suite({ open: openSession, check: record }, reset) {
         check(fact0 && fact0.width === l.viewport.w && fact0.height === l.viewport.h, `${tag}: the viewport fact ${JSON.stringify(fact0)} is the layout's ${JSON.stringify(l.viewport)}`);
         const bar0 = box(l, 'bar'), bottom0 = l.env['safe-area-inset-bottom'];
         check(bar0 && near(bar0.y + bar0.h, l.viewport.h - bottom0), `${tag}: the bar sits on the bottom inset ${JSON.stringify(bar0)} in ${l.viewport.h} inset ${bottom0}`);
-        await s.type('note', 'hi');
+        const typed = `hi ${tag}`;
+        await s.type('note', typed);
         let { l: l2 } = await keyboard(s, true);
         const kb = l2.env['keyboard-inset-height'], bar = box(l2, 'bar');
-        if (rose(kb, tag)) {
+        const before = await editing(s, 'focused', 'note');
+        check(before.focused && (await s.state()).slots.note === typed, `${tag}: typing focused the note natively ${JSON.stringify(before)}`);
+        if (await rose(s, kb, tag)) {
           check(kb > 100, `${tag}: the software keyboard rose: keyboard-inset-height ${kb}`);
           check(near(l2.viewport.h, l.viewport.h - kb) && box(l2, 'root').h === l2.viewport.h, `${tag}: the layout viewport ends at the keyboard ${JSON.stringify(l2.viewport)} (was ${JSON.stringify(l.viewport)}, kb ${kb})`);
           check(l2.env['safe-area-inset-bottom'] === 0, `${tag}: the bottom inset is the keyboard's while it is up`);
@@ -328,9 +449,11 @@ async function suite({ open: openSession, check: record }, reset) {
         // Fold with the keyboard up: the bar still ends where the viewport does on the new panel.
         const next = after(deg);
         await pose(s, next);
+        const back = await held(s, `${tag}→${next}°`, deg, next, before);
         ({ l: l2 } = await keyboard(s, true));
-        const barF = box(l2, 'bar'), kbF = l2.env['keyboard-inset-height'];
-        if (rose(kbF, `${tag}→${next}°`)) check(kbF > 0 && barF && near(barF.y + barF.h, l2.viewport.h) && box(l2, 'root').h === l2.viewport.h, `${tag}→${next}°: the bar ends at the viewport's bottom with the keyboard ${kbF} ${JSON.stringify(barF)} in ${JSON.stringify(l2.viewport)}`);
+        const barF = box(l2, 'bar'), kbF = l2.env['keyboard-inset-height'], stF = await s.state();
+        check(stF.slots.note === typed && back && stF.slots.focused === true && stF.focus.editor === before.node && stF.focus.native === before.native && clean(stF, before), `${tag}→${next}°: the note's text and focus survive the fold ${JSON.stringify(stF.slots)}`);
+        if (await rose(s, kbF, `${tag}→${next}°`)) check(kbF > 0 && barF && near(barF.y + barF.h, l2.viewport.h) && box(l2, 'root').h === l2.viewport.h, `${tag}→${next}°: the bar ends at the viewport's bottom with the keyboard ${kbF} ${JSON.stringify(barF)} in ${JSON.stringify(l2.viewport)}`);
         await pose(s, deg);
         await s.tap('dismiss');
         const l3 = await down(s, tag);
@@ -350,33 +473,7 @@ async function suite({ open: openSession, check: record }, reset) {
       await s.tap('item-2'); await settle(s);
       const chosen = byTestId(await s.tree(), 'detail-title')?.props.text;
       check(typeof chosen === 'string' && chosen.length > 0, `item-2 selected a detail: ${chosen}`);
-      await eachPose(s, 'fold', async ({ l }, tag, deg) => {
-        const t = await s.tree();
-        const two = folded(deg);
-        const text = (id) => byTestId(t, id)?.props.text;
-        check(text('fact-posture') === (two ? 'folded' : 'continuous'), `${tag}: fact-posture is ${text('fact-posture')}, expected ${two ? 'folded' : 'continuous'}`);
-        // The segments: the record's two side by side, or what the device reports (two
-        // rects inside the viewport, one row or one column, the band between them empty).
-        const segs = Array.isArray(l.env['viewport-segments']) ? l.env['viewport-segments'] : null;
-        const h = l.env['horizontal-viewport-segments'], v = l.env['vertical-viewport-segments'];
-        if (recorded) {
-          check(h === (two ? 2 : 1) && v === 1 && JSON.stringify(segs) === JSON.stringify(two ? SEGMENTS : []), `${tag}: layout.env reports segments ${h}×${v} ${JSON.stringify(segs)}, expected ${two ? '2×1 ' + JSON.stringify(SEGMENTS) : '1×1 []'}`);
-        } else if (two) {
-          const [a, b] = segs ?? [];
-          const sideBySide = a && b && near(a[1], b[1]) && a[0] + a[2] < b[0] + 0.01, stacked = a && b && near(a[0], b[0]) && a[1] + a[3] < b[1] + 0.01;
-          check(segs?.length === 2 && (sideBySide || stacked) && h * v === 2 && (sideBySide ? h === 2 : v === 2) && [a, b].every((r) => r[0] >= 0 && r[1] >= 0 && r[0] + r[2] <= l.viewport.w + 0.01 && r[1] + r[3] <= l.viewport.h + 0.01), `${tag}: layout.env reports two segments inside ${JSON.stringify(l.viewport)} with a band between: ${h}×${v} ${JSON.stringify(segs)}`);
-        } else check(h === 1 && v === 1 && segs?.length === 0, `${tag}: layout.env reports one segment: ${h}×${v} ${JSON.stringify(segs)}`);
-        check(text('fact-h') === String(h) && text('fact-v') === String(v), `${tag}: the screen prints ${text('fact-h')}×${text('fact-v')}, layout.env ${h}×${v}`);
-        check(text('fact-size') === `${l.viewport.w}×${l.viewport.h}`, `${tag}: fact-size ${text('fact-size')} vs layout ${l.viewport.w}×${l.viewport.h}`);
-        check(l.env['device-posture'] === (two ? 'folded' : 'continuous'), `${tag}: layout.env reports posture ${l.env['device-posture']}`);
-        // The panes sit exactly on the two rects, whichever axis the device splits
-        // (across: each pane the viewport's height; down: each the viewport's width).
-        const list = box(l, 'pane-list'), detail = box(l, 'pane-detail');
-        const on = (pane, r, full) => pane && near(pane.x, r[0]) && near(pane.y, r[1]) && near(pane.w, full ? l.viewport.w : r[2]) && near(pane.h, full ? r[3] : l.viewport.h);
-        if (segs?.length === 2 && (h === 2 || v === 2)) check(on(list, segs[0], v === 2) && on(detail, segs[1], v === 2), `${tag}: the panes sit on the segments ${JSON.stringify(segs)} (${h}×${v}): list ${JSON.stringify(list)} detail ${JSON.stringify(detail)}`);
-        else check(list && detail && near(list.w, l.viewport.w) && near(detail.w, l.viewport.w) && detail.y >= list.y + list.h - 0.01, `${tag}: one pane, the list above the detail: list ${JSON.stringify(list)} detail ${JSON.stringify(detail)}`);
-        check(text('detail-title') === chosen, `${tag}: the selection survived the fold: ${text('detail-title')} (was ${chosen})`);
-      });
+      await eachPose(s, 'fold', ({ l }, tag, deg) => foldScreen(s, l, tag, deg, chosen));
       // Images: a virtualized list of image rows, folded mid-scroll, twice.
       await s.tap('tab-images'); await settle(s);
       check(byTestId(await s.tree(), 'screen-images') != null, 'the Images tab opened');
@@ -431,22 +528,25 @@ async function suite({ open: openSession, check: record }, reset) {
         await s.type('note-title-input', title);
         let { l } = await keyboard(s, true);
         const kb = l.env['keyboard-inset-height'];
-        if (rose(kb, tag)) check(kb > 100, `${tag}: the keyboard rose under the sheet (${kb})`);
+        if (await rose(s, kb, tag)) check(kb > 100, `${tag}: the keyboard rose under the sheet (${kb})`);
         await s.type('note-textarea', draft);
         await keyboard(s, true);
         // The sheet's height springs to the shortened viewport: read it settled, in the same layout as the viewport
         await settle(s);
         l = await s.layout();
         const sheet = box(l, 'note-sheet');
-        check(sheet && near(sheet.y + sheet.h, l.viewport.h) && (!softKeyboard || l.env['keyboard-inset-height'] > 0), `${tag}: the sheet sits on the keyboard-shortened viewport ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)} kb ${l.env['keyboard-inset-height']}`);
+        check(sheet && near(sheet.y + sheet.h, l.viewport.h) && (!(await expected(s, l.env['keyboard-inset-height'])) || l.env['keyboard-inset-height'] > 0), `${tag}: the sheet sits on the keyboard-shortened viewport ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)} kb ${l.env['keyboard-inset-height']}`);
         const next = after(deg);
+        const before = await editing(s, 'noteFocused', 'note-textarea');
+        check(before.focused, `${tag}: the textarea holds the focus natively before the fold ${JSON.stringify(before)}`);
         await pose(s, next);
+        const back = await held(s, `${tag}→${next}°`, deg, next, before);
         ({ l } = await keyboard(s, true));
         t = await s.tree();
         const st = await s.state(), kbF = l.env['keyboard-inset-height'];
         check(byTestId(t, 'screen-note') != null && byTestId(t, 'note-sheet') != null, `${tag}→${next}°: the pushed screen and its sheet survived the fold`);
-        check(st.slots.title === title && st.slots.draft === draft && st.slots.noteFocused === true, `${tag}→${next}°: the title, the draft and the focus survived ${JSON.stringify({ title: st.slots.title, draft: st.slots.draft, noteFocused: st.slots.noteFocused })}`);
-        if (rose(kbF, `${tag}→${next}°`)) check(kbF > 0, `${tag}→${next}°: the keyboard is up under the sheet (${kbF})`);
+        check(st.slots.title === title && st.slots.draft === draft && back && st.slots.noteFocused === true && st.focus.editor === before.node && st.focus.native === before.native && clean(st, before), `${tag}→${next}°: the title, the draft and the focus survived ${JSON.stringify({ title: st.slots.title, draft: st.slots.draft, noteFocused: st.slots.noteFocused })}`);
+        if (await rose(s, kbF, `${tag}→${next}°`)) check(kbF > 0, `${tag}→${next}°: the keyboard is up under the sheet (${kbF})`);
         check(near((box(l, 'note-sheet')?.y ?? 0) + (box(l, 'note-sheet')?.h ?? 0), l.viewport.h), `${tag}→${next}°: the sheet still ends at the viewport ${JSON.stringify(box(l, 'note-sheet'))} in ${JSON.stringify(l.viewport)}`);
         // Back across the reverse fold with the pushed screen and its sheet up
         await pose(s, deg);
@@ -478,4 +578,39 @@ async function suite({ open: openSession, check: record }, reset) {
       });
     } catch (e) { check(false, `host: ${e.message}`); } finally { await s?.close(); }
   }
+
+  // 5. Rotation: open, at 130° and closed, the device turned right, upside down, left and upright again. The
+  // session reports UIKit's orientation, panel and safe area at each turn, and the Fold screen's panes follow
+  // the segments, which run down the inner panel turned on its side.
+  if (leg('rotate')) {
+    const s = await open({ host: 'ios', app: 'duo-lab' });
+    try {
+      where = 'rotate';
+      await pose(s, 180);
+      applies(await s.layout());
+      await s.tap('item-2'); await settle(s);
+      const chosen = byTestId(await s.tree(), 'detail-title')?.props.text;
+      check(typeof chosen === 'string' && chosen.length > 0, `${where}: item-2 selected a detail: ${chosen}`);
+      for (const [tag, deg] of [['open', 180], ['book', 130], ['closed', 0]]) {
+        where = `rotate-${tag}`;
+        await pose(s, deg);
+        for (const [turn] of TURNS) {
+          where = `rotate-${tag}-${turn}`;
+          await orient(turn, s);
+          const [orientation, w, h, insets] = TURNED[deg === 0 ? 'cover' : 'inner'][turn];
+          // The scene turned: its interface orientation, and the record's panel when it applies
+          const there = (l) => l.screen?.orientation === orientation && (!recorded || (l.viewport.w === w && l.viewport.h === h));
+          let l;
+          for (let i = 0; i < 50 && !(l && there(l)); i++) { if (i > 0) await sleep(100); l = await s.layout(); }
+          await settle(s);
+          l = await s.layout();
+          const safe = ['top', 'right', 'bottom', 'left'].map((edge) => l.env[`safe-area-inset-${edge}`]);
+          check(there(l) && l.screen.w === l.viewport.w && l.screen.h === l.viewport.h, `${where}: the session turned with the device: ${l.screen?.orientation} ${l.viewport.w}×${l.viewport.h} on ${l.screen?.w}×${l.screen?.h}, expected ${orientation}${recorded ? ` ${w}×${h}` : ''}`);
+          if (recorded) check(JSON.stringify(safe) === JSON.stringify(insets), `${where}: the safe area is UIKit's ${insets.join(' ')}, not ${safe.join(' ')}`);
+          await foldScreen(s, l, where, deg, chosen);
+        }
+      }
+    } catch (e) { check(false, `${where}: ${e.message}`); } finally { await orient('portrait', s); await s.close(); }
+  }
+
 }

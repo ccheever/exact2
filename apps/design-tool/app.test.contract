@@ -416,6 +416,10 @@ test "the canvas frames the dev loop's page at the size chosen, and says how to 
   clock data
   expect tree has "canvas-frame"
   expect tree has "canvas-open"
+  // Framed as localhost: another site than the tool's, its own process;
+  // opened in a tab as the dev loop prints it.
+  expect state hello.frame == "http://localhost:8765"
+  expect state hello.page == "http://127.0.0.1:8765"
   expect tree missing "no-app"
   type "canvas-size" "tablet"
   expect state canvasSize == "tablet"
@@ -446,10 +450,23 @@ test "the canvas frames only a loopback origin: another host, a path, or the too
   reload
   clock data
   expect tree has "no-app"
+  request POST "/__stub/page" {"page": "http://localhost:7740"} as ada
+  reload
+  clock data
+  expect tree has "no-app"
+  request POST "/__stub/page" {"page": "http://127.0.0.1:07740"} as ada
+  reload
+  clock data
+  expect tree has "no-app"
+  request POST "/__stub/page" {"page": "http://[::1]:7740"} as ada
+  reload
+  clock data
+  expect tree has "no-app"
   request POST "/__stub/page" {"page": "http://[::1]:8765"} as ada
   reload
   clock data
   expect tree has "canvas-frame"
+  expect state hello.frame == "http://localhost:8765"
   request POST "/__stub/page" {"page": null} as ada
 
 test "builds: each with its effective facts from its status; a pin on one shows pinning until its status reaches the pin's revision, and only that build moves"
@@ -756,3 +773,159 @@ test "the pin form offers the app's own axes whichever file is open, and retypin
   tap "save-name"
   expect state person == "Grace"
   expect tree missing "rename-note"
+
+test "the inspector: inspect mode on the builds, a selection's source and rows, the token rung on the branch that won, a link for an inherited colour, a style's row read-only, and the token's impact"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  expect tree has "no-selection"
+  tap "inspect-toggle"
+  clock data
+  expect text "inspect-result" == "Inspecting on 1 build(s): click a view in one. ios-1 cannot inspect."
+  // Its own command moves the toggle, no event needed.
+  expect text "inspect-toggle" == "Stop inspecting"
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": [{"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}]} as ada
+  clock +1
+  clock data
+  expect text "selection-source" == "card.contract:4 · Card"
+  expect text "selection-build" == "web-1 · Dark · dark-style=dim"
+  expect tree missing "selection-stale"
+  expect text "selrow-source-background-color" == "set here (own)"
+  expect text "selrow-edit-background-color" == "Edit surface.card"
+  expect text "selrow-source-color" == "inherited from #1"
+  expect text "selrow-link-color" == "Open text.primary"
+  expect text "selrow-reason-color" == "inherited from #1: the token is that node's to edit"
+  expect tree missing "selrow-edit-padding"
+  expect text "selrow-reason-padding" == "a style's row (Panel): comes with template editing (T5)"
+  // The token rung: its cell in the app's design, on the branch the
+  // selected copy shows (Dark, Dim), and its impact.
+  tap "selrow-edit-background-color"
+  clock data
+  expect state file == ""
+  expect state selToken == "surface.card"
+  expect state selColumn == "2-dark"
+  clock +1
+  clock data
+  expect text "impact-count" == "surface.card: read at 2 source site(s), statically (not a count of mounted copies)"
+  tap "impact-outline"
+  clock data
+  expect text "impact-outlined" == "Sent surface.card's 2 site(s) to web-1; a build in inspect mode on that plan outlines them."
+  // The page leaves inspect mode itself: the selection is no longer
+  // current (no edit offered), and the tool no longer inspects.
+  request POST "/__stub/event" {"event": "selected", "build": "web-1", "selected": null} as ada
+  clock +1
+  clock data
+  expect text "selection-stale" == "No longer current: its page left inspect mode. Select it again to edit from here."
+  expect tree missing "selrow-edit-background-color"
+  expect tree missing "selrow-link-color"
+  expect text "inspect-toggle" == "Inspect"
+  request POST "/__stub/restart" {} as ada
+
+test "the inspector places a light copy on the light column, and a build whose scheme is not known, or that went, offers no edit"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}, {"id": "web-2", "host": "web", "capabilities": ["pin", "inspect"], "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "compact"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App", "chain": []}, "rows": [{"name": "background_color", "value": "#f1f3f5ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  // Light: the under-dark axis is its default there; density is compact.
+  expect text "selection-build" == "web-1 · Light · density=compact"
+  tap "selrow-edit-background-color"
+  clock data
+  expect state selColumn == "1-light"
+  // A build that has not reported: its scheme is not known, no edit.
+  request POST "/__stub/event" {"event": "selection", "build": "web-2", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App", "chain": []}, "rows": [{"name": "background_color", "value": "#f1f3f5ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  expect text "selection-stale" == "No longer current: the scheme it is shown in is not known. Select it again to edit from here."
+  expect tree missing "selrow-edit-background-color"
+  // The build goes: no longer current.
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  expect text "selection-stale" == "No longer current: its build is gone. Select it again to edit from here."
+  request POST "/__stub/restart" {} as ada
+
+test "a selection stays stale once its build reloads, its mode moves or it runs a new plan, even back to the same facts; a trimmed report without its scheme offers no edit"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App", "chain": []}, "rows": [{"name": "border_radius_top_left", "value": "8px", "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "a length, not a token"}}, {"name": "color_scheme", "value": "normal", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "no token"}}, {"name": "background_color", "value": "#f1f3f5ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  expect text "selrow-edit-background-color" == "Edit surface.card"
+  expect text "selrow-source-color-scheme" == "initial"
+  expect text "selrow-source-border-top-left-radius" == "set here (own)"
+  // A reload: the build registers again (no status), then reports the same
+  // facts, both in one answer. Another document: still not current.
+  request POST "/__stub/event" {"events": [{"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": null, "pin": null, "pinRevision": 0}]}, {"event": "build-status", "build": {"id": "web-1", "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 0}}}]} as ada
+  clock +1
+  clock data
+  expect text "selection-stale" == "No longer current: its build has moved on (a reload, a pin, a mode, a new status). Select it again to edit from here."
+  expect tree missing "selrow-edit-background-color"
+  // Selected again: current. The app moves its mode: not current.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App", "chain": []}, "rows": [{"name": "color_scheme", "value": "normal", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "no token"}}, {"name": "background_color", "value": "#f1f3f5ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  expect text "selrow-edit-background-color" == "Edit surface.card"
+  request POST "/__stub/event" {"event": "build-status", "build": {"id": "web-1", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"density": "compact"}, "rootFontSize": 16, "revision": 0}}} as ada
+  clock +1
+  clock data
+  expect text "selection-stale" == "No longer current: its build has moved on (a reload, a pin, a mode, a new status). Select it again to edit from here."
+  // Selected again; the build runs a new plan, its status the same: not current.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App", "chain": []}, "rows": [{"name": "border_radius_top_left", "value": "8px", "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "a length, not a token"}}, {"name": "color_scheme", "value": "normal", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "no token"}}, {"name": "background_color", "value": "#f1f3f5ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  expect text "selrow-edit-background-color" == "Edit surface.card"
+  request POST "/__stub/event" {"event": "build-status", "build": {"id": "web-1", "plan": "g2", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"density": "compact"}, "rootFontSize": 16, "revision": 0}}} as ada
+  clock +1
+  clock data
+  expect text "selection-stale" == "No longer current: its build has moved on (a reload, a pin, a mode, a new status). Select it again to edit from here."
+  // A report trimmed of its `color-scheme` row: the scheme is not known.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": true, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App", "chain": []}, "rows": [{"name": "background_color", "value": "#f1f3f5ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  expect text "selection-stale" == "No longer current: the scheme it is shown in is not known. Select it again to edit from here."
+  expect tree missing "selrow-edit-background-color"
+  // A copy whose modes the design has no column for: not placed, no edit.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "spacious"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App", "chain": []}, "rows": [{"name": "border_radius_top_left", "value": "8px", "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "a length, not a token"}}, {"name": "color_scheme", "value": "normal", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "no token"}}, {"name": "background_color", "value": "#f1f3f5ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  expect text "selection-stale" == "No longer current: its modes are not a column of the app's design. Select it again to edit from here."
+  expect tree missing "selrow-edit-background-color"
+  request POST "/__stub/restart" {} as ada
+
+test "a cell the inspector opens after the design's axes were reordered is refused, not put on another tuple"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  type "file" "brand.tamber"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}]} as ada
+  clock +1
+  clock data
+  expect text "selection-build" == "web-1 · Dark · dark-style=dim"
+  // The axes move before the app's design is read again: the column the
+  // selection names is another tuple there.
+  request POST "/__stub/reverse-axes" {} as ada
+  tap "selrow-edit-background-color"
+  clock data
+  clock +1
+  clock data
+  expect state file == ""
+  expect text "branch-moved" == "The design's axes changed since that copy was selected, so this column is another branch now: select it again."
+  expect tree missing "branch"
+  request POST "/__stub/restart" {} as ada

@@ -30,13 +30,24 @@ impl Painter {
         self.row_refuse();
         let native = node.style.appearance != exact_kernel::Appearance::None;
         let disabled = node.props.bool(PropId::Disabled) == Some(true);
-        let field_shape = native.then(|| self.text_field_chrome(node, surface, disabled, ts));
+        let focused = walk.scene.focus == Some(node.id);
+        let field_shape = native.then(|| self.text_field_chrome(node, surface, focused, ts));
+        // Material's field shows its focus by its indicator, not a ring.
+        let ringed = focused
+            && !node.style.mask.has(exact_kernel::StyleId::OutlineStyle)
+            && (!native || look::neutral());
         let content = if let Some(c) = node.field_content_rect() {
             (rect.0 + c.x, rect.1 + c.y, c.width, c.height)
         } else {
             content
         };
-        let focused = walk.scene.focus == Some(node.id);
+        // Typed text its bound value has not replaced (LLP 1069.001 D4).
+        let value = control::choice(node, walk.scene.chosen.get(&node.id))
+            .unwrap_or_else(|| node.props.str(PropId::Value).unwrap_or(""));
+        // Material's field floats its placeholder as its label (`material.rs`).
+        let labelled = native
+            && !look::neutral()
+            && self.field_label(node, surface, focused, value.is_empty(), ts);
         if hosted {
             let within = [content.0 - rect.0, content.1 - rect.1, content.2, content.3];
             self.field_content.insert(node.id, within);
@@ -45,20 +56,19 @@ impl Painter {
                 self.backend
                     .native(node.id, field, &Shape::rect(content), ts, "");
             }
-            if focused && !node.style.mask.has(exact_kernel::StyleId::OutlineStyle) {
+            if ringed {
                 let accent = control::ring(node, self.dark);
                 self.field_ring(field_shape.as_ref().unwrap_or(outer), accent, ts);
             }
             return;
         }
-        // Typed text its bound value has not replaced (LLP 1069.001 D4).
-        let value = control::choice(node, walk.scene.chosen.get(&node.id))
-            .unwrap_or_else(|| node.props.str(PropId::Value).unwrap_or(""));
         let placeholder = value.is_empty();
         // A password is masked, one bullet a character, as the web and
         // Apple's secure fields draw it.
         let masked;
-        let shown = if placeholder {
+        let shown = if labelled && placeholder {
+            ""
+        } else if placeholder {
             node.props.str(PropId::Placeholder).unwrap_or("")
         } else if node.props.str(PropId::Type) == Some("password") {
             masked = "\u{2022}".repeat(value.chars().count());
@@ -85,16 +95,13 @@ impl Painter {
             } else {
                 (content.3 - paragraph.height) / 2.0
             };
-        // The neutral look's field (LLP 1115.000 D17) names its inks by
-        // role: the placeholder's, and the grey of a disabled one.
-        let neutral = native && look::neutral();
+        // The field names its inks by role: the placeholder's, and the grey
+        // of a disabled one (the neutral look's, LLP 1115.000 D17, and
+        // Material's `onSurfaceVariant` and `onSurface` at 38 %).
         let mut ink = if placeholder {
             // An authored `::placeholder` colour, its alpha its own (LLP 1104 D3).
-            control::authored_placeholder(node.style, self.dark).unwrap_or(if neutral {
-                look::role("-exact-placeholder", self.dark)
-            } else {
-                [0x75, 0x75, 0x75, 0xff]
-            })
+            control::authored_placeholder(node.style, self.dark)
+                .unwrap_or_else(|| look::role("-exact-placeholder", self.dark))
         } else {
             presented_color(walk, node)
                 .unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)))
@@ -107,11 +114,7 @@ impl Painter {
                 exact_kernel::StyleId::TextColor
             })
         {
-            ink = if neutral {
-                look::role("GrayText", self.dark)
-            } else {
-                control::disabled_field_ink(ink, self.dark)
-            };
+            ink = look::role("GrayText", self.dark);
         }
         // The focused field's selection (x2apps codeedit #2).
         let field = caret::FieldText {
@@ -159,7 +162,7 @@ impl Painter {
             let at_end = || exact_runner::FieldSelection::at_end(value);
             self.field_caret(&field, caret, selection.unwrap_or_else(at_end), ts);
             // LLP 1104 D6: `outline: none` (the row's one value) draws no ring.
-            if !node.style.mask.has(exact_kernel::StyleId::OutlineStyle) {
+            if ringed {
                 let accent = control::ring(node, self.dark);
                 self.field_ring(field_shape.as_ref().unwrap_or(outer), accent, ts);
             }

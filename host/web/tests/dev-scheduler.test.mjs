@@ -209,7 +209,7 @@ test('dev edits clear only their own errors while unrelated failures stay visibl
     console:{error(){}},location:{origin:'http://localhost',href:'http://localhost/',search:''},
     EventSource:class {constructor(){stream=this;}},
     document:{body:{appendChild(el){overlay=el;return el;}},createElement(){return {remove(){overlay=null;}};},querySelector(){return null;}},
-    navigator:{sendBeacon(){}},requestAnimationFrame:callback=>callback(),crypto,
+    navigator:{sendBeacon(){}},requestAnimationFrame:callback=>callback(),crypto,addEventListener(){}, // inspect mode's capture gate (LLP 1122 T2b)
     matchMedia:()=>({matches:false,addEventListener(){}}), // the build channel's facts (LLP 1122 D4)
     localStorage:{getItem:()=>'1',setItem(){}}, // the "Open in native" link was put away; the overlay is all this page shows
     fetch:async url=>new Response(url.endsWith('app.plan')?plan:JSON.stringify(envelope)),
@@ -250,6 +250,57 @@ test('dev edits clear only their own errors while unrelated failures stay visibl
   assert.match(text(),/runtime refusal/);assert.doesNotMatch(text(),/carry refusal/);
   await edited();assert.equal(text(),'');
 });
+test('the wasm page sends its build-channel reports one at a time, in order, and none across a reconnect', async () => {
+  // The server binds a refusal to the status after it (LLP 1122 D4): a slow
+  // refusal still reaches it first. Each post is "delivered" when its delay
+  // ends; a register answers when the test lets it.
+  let stream, delivered=[], held=new Map();
+  const slow={'pin.contrast':150};
+  const context={TextEncoder,TextDecoder,URL,URLSearchParams,AbortController,AbortSignal,Response,setTimeout,clearTimeout,performance,crypto,Event,
+    console:{error(){}},location:{origin:'http://localhost',href:'http://localhost/',search:'?agent=1'},
+    EventSource:class {constructor(){stream=this;}},
+    addEventListener(){},dispatchEvent(){},sessionStorage:{getItem:()=>null,setItem(){},removeItem(){}},
+    document:{body:{appendChild:el=>el},head:{appendChild:el=>el},createElement:()=>({remove(){}}),getElementById:()=>null,querySelector:()=>null,
+      documentElement:{style:{fontSize:'',getPropertyValue:()=>'',setProperty(){},removeProperty(){}}}},
+    getComputedStyle:()=>({colorScheme:'light dark',fontSize:'16px'}),
+    navigator:{sendBeacon(){}},requestAnimationFrame:callback=>callback(),
+    matchMedia:()=>({matches:false,addEventListener(){}}),localStorage:{getItem:()=>'1',setItem(){}},
+    fetch:async (url,init)=>{
+      const body=JSON.parse(init?.body??'{}');
+      if(body.kind==='register'){await new Promise(ok=>held.set(body.nonce,ok));delivered.push(body);return new Response(JSON.stringify({ok:true}));}
+      await new Promise(ok=>setTimeout(ok,slow[body.what]??0));
+      delivered.push(body);return new Response('{}');
+    },
+    exact:{ready:Promise.resolve(),designDigest:'d'.repeat(64),compat:{inputs:{app:'fixture'}}},
+  };
+  runInNewContext(readFileSync(new URL('../dev.js',import.meta.url),'utf8'),context);
+  const send=message=>stream.onmessage({data:JSON.stringify(message)});
+  const until=async (ok,ms=3000)=>{const end=Date.now()+ms;while(!ok()){if(Date.now()>end)throw new Error(`reports: ${JSON.stringify(delivered)}`);await new Promise(r=>setTimeout(r,5));}};
+  const sent=nonce=>delivered.filter(b=>b.nonce===nonce&&b.kind!=='register').map(b=>b.kind==='status'?`status@${b.revision}`:`${b.kind} ${b.what}@${b.revision}`);
+  // (a) A pin the page cannot hold all of: its refusal is slow, and the
+  // status after it still goes after it.
+  send({hello:1,nonce:'n1',ready:false});
+  await until(()=>held.has('n1'));held.get('n1')();
+  await until(()=>sent('n1').length===1);
+  send({kind:'pin',revision:1,pin:{contrast:'more'}});
+  await until(()=>sent('n1').length===3);
+  assert.deepEqual(sent('n1'),['status@null','unsupported pin.contrast@1','status@1']);
+  // (b) Reports made on a stream whose registration has not answered, which
+  // a reconnect then replaces, are not sent: not on the old stream, nor the
+  // new one's.
+  send({hello:1,nonce:'n2',ready:false});
+  await until(()=>held.has('n2'));
+  send({kind:'pin',revision:2,pin:{contrast:'more'}});
+  await new Promise(r=>setTimeout(r,20));
+  send({hello:1,nonce:'n3',ready:false});
+  await until(()=>held.has('n3'));
+  held.get('n2')();held.get('n3')();
+  await until(()=>sent('n3').length>=1);
+  await new Promise(r=>setTimeout(r,250));
+  assert.deepEqual(sent('n2'),[],'nothing made on the replaced stream is sent');
+  assert.deepEqual(sent('n3'),['status@2'],'the new stream sends its own status, and no report made before it');
+});
+
 test('dev startup rebuilds changed Rust even when the app identity still matches', async () => {
   const dir=mkdtempSync(join(tmpdir(),'exact-dev-startup-'));
   try {

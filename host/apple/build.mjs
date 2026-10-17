@@ -408,7 +408,7 @@ export const infoPlist = (app, device = false, { executable = executableName(app
     const exported = exportedTypes(app);
     if (exported.length) dict.UTExportedTypeDeclarations = exported;
   }
-  Object.assign(dict, openingLinks(app, 'ios', development));
+  Object.assign(dict, openingLinks(app, 'ios', development), updateActivation(app));
   Object.assign(dict, usageKeys(reach));
   Object.assign(dict, icon);
   Object.assign(dict, distribution, orientationKeys(app.manifest.orientation));
@@ -575,9 +575,11 @@ export const macInfoPlist = (app, { development = null, icon = {}, reach = null 
   // without `file_handlers`: File ▸ New Window needs no document type. Always written, so
   // absence, `auto` and an explicit `navigate-existing` are one plist.
   ExactLaunchMode: launchMode(app),
+  ...updateActivation(app),
   ...openingLinks(app, 'macos', development),
 });
 
+const updateActivation = (app) => app.manifest.deploy?.activate ? { ExactUpdateActivate: app.manifest.deploy.activate } : {}; // `deploy.activate`, for ExactUpdates
 /** The build receipt (LLP 1030 D2): what this binary was actually built from and with — the toolchain, the SDK, the identity and profile, the entitlements as signed — written beside it, never committed, so "what did this binary contain" is answered by a file. */
 export function receipt(app, fields) {
   const version = (cmd, args) => (read(cmd, args).stdout ?? '').trim().split('\n')[0];
@@ -647,8 +649,6 @@ async function main(args) {
   const modules = app.modulesFor(ios ? 'ios' : 'macos');
   const gpuCrate = app.crate('gpu');
   const hasGpu = app.hasGpu;
-  // The bake names each GPU module's digest, checked at load: a re-signer's bytes would be refused.
-  if (unsigned && (hasGpu || gpuModules(app.manifest).length)) throw new Error(`--unsigned: ${app.name} has GPU modules, whose baked digests a re-signer would break; archive it signed (EXACT_IDENTITY and EXACT_PROFILE)`);
   let ph, prof;
   const sha1 = unsigned ? '-' : device ? (() => {
     ph = ipa ? null : phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined, { tv });
@@ -952,7 +952,7 @@ async function main(args) {
   const reaches = buildReceipt.graph.loads;
   const settled = production && level === '0' && Array.isArray(reaches);
   const carries = (module) => !settled || reaches.includes(module);
-  const leftOut = settled ? ['canvas', 'svg', 'video', 'web', 'sound'].filter((module) => !reaches.includes(module)) : [];
+  const leftOut = settled ? ['canvas', 'svg', 'video', 'web', 'sound', 'midi'].filter((module) => !reaches.includes(module)) : [];
   if (leftOut.length) console.log(`host/apple: the plan cannot change (production, store level 0) and reaches no ${leftOut.join(', ')} module: left out of this build`);
   const canvasGpu = metal && carries('canvas');
   const lateCrates = fixedPlan && !embedOnly ? [...(carries('svg') ? ['exact-svg-raster'] : []), ...(canvasGpu ? ['exact-canvas-vello'] : [])] : [];
@@ -1031,6 +1031,11 @@ async function main(args) {
     const soundArgs = [...webArgs.map(value => value === 'ExactWebArm' ? 'ExactSoundArm' : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? sound('SoundArm.swift') : value === webBuilt ? soundBuilt : value === 'WebKit' ? 'AVFoundation' : value), '-import-objc-header', sound('sound_render.h'), ...objects];
     arms.push(arm(soundArgs, [sound('SoundArm.swift'), sound('sound_render.c'), sound('sound_engine.m'), sound('sound_render.h')], soundBuilt));
   }
+  // The MIDI arm (LLP 1125 D6): CoreMIDI on a thread of its own; tvOS has none.
+  const hasMidi = !tv && carries('midi'), midiBuilt = resolve(webBuildDir, 'libexact_midi.dylib'), midiSource = resolve(root, 'host/apple/midiarm/MIDIArm.swift'), midiRing = resolve(root, 'host/apple/midiarm/midi_ring.h');
+  if (hasMidi) arms.push(arm(webArgs.map(value => value === 'ExactWebArm' ? 'ExactMIDIArm' : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? midiSource : value === webBuilt ? midiBuilt : value === 'WebKit' ? 'CoreMIDI' : value).concat(['-import-objc-header', midiRing]), [midiSource, midiRing], midiBuilt));
+  // The loose arms, each where the build carries it: [carried, built, load name, its framework on iOS].
+  const looseArms = [[hasWeb, webBuilt, webLoadName, 'ExactWeb'], [hasVideo, videoBuilt, videoLoadName, 'ExactVideo'], [hasSound, soundBuilt, soundLoadName, 'ExactSound'], [hasMidi, midiBuilt, 'libexact_midi.dylib', 'ExactMIDI']];
   // @ref LLP 1024 D3/D8.4 — the app's one module artifact, only when the app
   // has modules (the GPU gate): the host's table glue and the app's own
   // `modules/apple/*.swift`, one dylib under one load name. A release build
@@ -1040,7 +1045,9 @@ async function main(args) {
   // from app.json `data` beside the glue (built, never committed).
   const dataKeys = resolve(linkRoot, `ExactDataKeys-${app.id}.swift`);
   if (modules.apple.length) writeDataKeys(app, dataKeys, ios ? 'ios' : 'macos');
-  const moduleSources = modules.apple.length ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), dataKeys, ...snapshot.copies] : [];
+  // @ref LLP 1121 D12 — the token names `bun exact.mjs tamber gen swift` wrote (never committed).
+  const tamberNames = resolve(app.dir, '.exact/tamber/tamber.swift');
+  const moduleSources = modules.apple.length ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(root, 'host/apple/modules/ExactTamber.swift'), ...(existsSync(tamberNames) ? [tamberNames] : []), dataKeys, ...snapshot.copies] : [];
   const modulesBuilt = moduleSources.length ? resolve(webBuildDir, modulesLoadName) : null;
   // The slice of each `modules/apple/*.xcframework` for this build, read
   // from the xcframework's own Info.plist (`AvailableLibraries`: platform,
@@ -1210,14 +1217,8 @@ async function main(args) {
     rmSync(gpuDest, { force: true });
     if (hasGpu) copyFileSync(resolve(libDir, dylib), gpuDest);
     for (const m of moduleDylibs) { rmSync(resolve(binDir, m.load), { force: true }); copyFileSync(resolve(libDir, m.built), resolve(binDir, m.load)); }
-    const loaded = [...(hasWeb ? [webLoadName] : []), ...(hasVideo ? [videoLoadName] : []), ...(hasSvg ? [svgLoadName] : []), ...(hasSound ? [soundLoadName] : [])];
-    const webDest = resolve(binDir, webLoadName);
-    rmSync(webDest, { force: true });
-    if (hasWeb) copyFileSync(webBuilt, webDest);
-    rmSync(resolve(binDir, videoLoadName), { force: true });
-    if (hasVideo) copyFileSync(videoBuilt, resolve(binDir, videoLoadName));
-    rmSync(resolve(binDir, soundLoadName), { force: true });
-    if (hasSound) copyFileSync(soundBuilt, resolve(binDir, soundLoadName));
+    const loaded = [...looseArms.filter(([has]) => has).map(([, , name]) => name), ...(hasSvg ? [svgLoadName] : [])];
+    for (const [has, built, name] of looseArms) { rmSync(resolve(binDir, name), { force: true }); if (has) copyFileSync(built, resolve(binDir, name)); }
     rmSync(resolve(binDir, modulesLoadName), { force: true });
     if (modulesBuilt) copyFileSync(modulesBuilt, resolve(binDir, modulesLoadName));
     rmSync(resolve(binDir, svgLoadName), { force: true });
@@ -1244,7 +1245,7 @@ async function main(args) {
     rmSync(resolve(binDir, '_CodeSignature'), { recursive: true, force: true });
     const assetKeys = appleAssets(app, binDir, { platform: 'macos', kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc }, expected: buildReceipt.binary.metadata.appleAssetCatalogs ?? [] });
     writeFileSync(resolve(binDir, `${paths.executable}-Info.plist`), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...rosterKeys, ...assetKeys, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
-    if (hasWeb) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', webDest], { stdio: 'ignore' });
+    if (hasWeb) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, webLoadName)], { stdio: 'ignore' });
     if (modulesBuilt) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, modulesLoadName)], { stdio: 'ignore' });
     if (hasSvg) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, svgLoadName)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', '--identifier', app.id, bin], { stdio: 'ignore' });
@@ -1312,9 +1313,7 @@ async function main(args) {
   writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: appleReach, icon: assetKeys, distribution: { ...rosterKeys, ...(ipa ? distributionKeys(sdkName) : {}), ...buildInfo(app, { root, archive: !!ipa, production: production || distribution, ...stampSdk }) }, tv }));
   writeUsageStrings(appleReach, bundle);
   copyAppleGpuProducts(libDir, resolve(bundle, 'Frameworks'), gpuArtifacts, !!ipa);
-  if (hasWeb) copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
-  if (hasVideo) copyFileSync(videoBuilt, resolve(bundle, 'Frameworks', videoLoadName));
-  if (hasSound) copyFileSync(soundBuilt, resolve(bundle, 'Frameworks', soundLoadName));
+  for (const [has, built, name] of looseArms) if (has) copyFileSync(built, resolve(bundle, 'Frameworks', name));
   if (modulesBuilt) copyFileSync(modulesBuilt, resolve(bundle, 'Frameworks', modulesLoadName));
   if (hasSvg) copyFileSync(svgBuilt, resolve(bundle, 'Frameworks', svgLoadName));
   if (svgFilterBuilt) copyFileSync(svgFilterBuilt, resolve(bundle, svgFilterLibraryName));
@@ -1352,7 +1351,7 @@ async function main(args) {
       entitlements: readFileSync(ent, 'utf8'), gpu: hasGpu ? dylib : null, development: host ? null : development });
     writeFileSync(resolve(assembled, 'receipt.json'), ipa ? shippedReceipt(whole) : whole);
     if (ipa) { mkdirSync(dirname(ipa), { recursive: true }); writeFileSync(`${ipa.replace(/\.ipa$/, '')}.receipt.json`, whole); }
-    if (ipa) for (const [loose, name] of [[webLoadName, 'ExactWeb'], [videoLoadName, 'ExactVideo'], [soundLoadName, 'ExactSound'], [modulesLoadName, 'ExactModules'], [svgLoadName, 'ExactSvg'], [canvasGpuLoadName, 'ExactCanvasGpu']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app, tv ? 'AppleTVOS' : 'iPhoneOS');
+    if (ipa) for (const [loose, name] of [...looseArms.map(([, , load, framework]) => [load, framework]), [modulesLoadName, 'ExactModules'], [svgLoadName, 'ExactSvg'], [canvasGpuLoadName, 'ExactCanvasGpu']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app, tv ? 'AppleTVOS' : 'iPhoneOS');
     for (const f of readdirSync(resolve(assembled, 'Frameworks')).filter(f => !gpuArtifacts.some(m => f === (ipa ? `${m.framework}.framework` : m.load)))) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
     if (ipa) assertArchiveFrameworks(resolve(assembled, 'Frameworks'));
     run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), assembled], { stdio: 'ignore' });
@@ -1404,7 +1403,7 @@ async function test(args) {
   // The fixtures tests boot (scripts/fixtures), compiled at this commit and named in `env` as `<prefix>_<KEY>_PLAN`:
   // a plan carries the kernel schema's digest, so one compiled once and kept in a test goes stale.
   const compileFixtures = (env, dir, prefix) => {
-    for (const [name, key] of [['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE'], ['inline-frame', 'INLINE_FRAME'], ['fieldless', 'FIELDLESS'], ['web-documents', 'WEB_DOCUMENTS'], ['tab-owner', 'TAB_OWNER'], ['grouped-list-reveal', 'GROUPED_REVEAL']]) {
+    for (const [name, key] of [['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE'], ['inline-frame', 'INLINE_FRAME'], ['fieldless', 'FIELDLESS'], ['web-documents', 'WEB_DOCUMENTS'], ['tab-owner', 'TAB_OWNER'], ['grouped-list-reveal', 'GROUPED_REVEAL'], ['due-now', 'DUE_NOW']]) {
       const plan = env[`${prefix}_${key}_PLAN`] = resolve(dir, `${name}.plan`);
       run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', resolve(root, `scripts/fixtures/${name}.contract`), '-o', plan]);
     }
@@ -1443,6 +1442,7 @@ async function test(args) {
       '-module-cache-path', resolve(armDir, 'cache'), ...sources, ...frameworks.flatMap(f => ['-framework', f]), '-target', ios ? iosTriple : `${macTriple}14.0`, '-o', out]), out);
     const named = ios ? 'TEST_RUNNER_' : '';
     env[`${named}EXACT_VIDEO_DYLIB`] = arm('ExactVideoArm', ['VideoArm.swift', 'NowPlaying.swift'].map(f => resolve(root, 'host/apple/videoarm', f)), ['AVKit', 'MediaPlayer']);
+    if (!ios) env.EXACT_MIDI_DYLIB = arm('ExactMIDIArm', [resolve(root, 'host/apple/midiarm/MIDIArm.swift'), '-import-objc-header', resolve(root, 'host/apple/midiarm/midi_ring.h')], ['CoreMIDI']); // MIDITests' loopback
     env[`${named}EXACT_TEST_WEB_MODULE`] = arm('ExactWebArm', [resolve(root, 'host/apple/webarm/WebArm.swift'), '-D', 'EXACT_DEVELOPMENT'], ['WebKit']);
     // The GPU module goes to its own tests alone: loaded, every canvas draws on the GPU (xctest.mjs).
     const modules = resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), 'apple-modules');
@@ -1475,7 +1475,7 @@ async function test(args) {
       'build', resolve(source, 'app.contract'), '-o', env.TEST_RUNNER_EXACT_FIXTURE_PLAN]);
     env.TEST_RUNNER_EXACT_FIXTURE_MODULE = resolve(fixtureDir, 'libexact_modules.dylib');
     runApple('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules',
-      '-module-cache-path', resolve(fixtureDir, 'cache'), resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(fixtureDir, 'ExactDataKeys.swift'),
+      '-module-cache-path', resolve(fixtureDir, 'cache'), resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(root, 'host/apple/modules/ExactTamber.swift'), resolve(fixtureDir, 'ExactDataKeys.swift'),
       ...fixture.modules.apple, '-target', iosTriple, '-o', env.TEST_RUNNER_EXACT_FIXTURE_MODULE]);
     compileFixtures(env, fixtureDir, 'TEST_RUNNER_EXACT');
     if (process.env.EXACT_REQUIRED) env.TEST_RUNNER_EXACT_REQUIRED = process.env.EXACT_REQUIRED;

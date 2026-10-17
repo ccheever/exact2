@@ -219,8 +219,9 @@ impl Manifest {
     /// of `deploy.channels`; else `prod`) and its origin (`deploy.channels.
     /// <channel>`, else `app.origin`): where the binary's update store checks
     /// (LLP 1030.000 D4). A stream is `(channel, compatibility id)`; the
-    /// channel is not part of the id.
-    pub fn channel(&self) -> (String, Option<String>) {
+    /// channel is not part of the id. The origin `"appdrop"` is AppDrop's
+    /// origin for the signing key (`appdrop_origin`).
+    pub fn channel(&self) -> Result<(String, Option<String>), String> {
         let deploy = self.json.get("deploy");
         let channels = deploy
             .and_then(|d| d.get("channels"))
@@ -244,12 +245,54 @@ impl Manifest {
                     .and_then(|v| v.as_str())
             })
             .map(str::to_string);
-        (channel, origin)
+        let origin = match origin.as_deref() {
+            Some("appdrop") => Some(self.appdrop_origin()?),
+            _ => origin,
+        };
+        Ok((channel, origin))
+    }
+
+    /// AppDrop's update origin for this app: `<base>/u/<key id>`, the key id
+    /// being the first 32 hex digits of the sha256 of the raw public key
+    /// `deploy.signing.key` names (or the only one in `deploy.signing.keys`).
+    /// Only that key's holder can publish there, and no account is needed.
+    /// The base is `https://appdrop.app` unless `EXACT_APPDROP_ORIGIN` names
+    /// another (a local AppDrop, for testing). Matches `scripts/origin.mjs`.
+    pub fn appdrop_origin(&self) -> Result<String, String> {
+        use sha2::{Digest, Sha256};
+        let keys = self.keys()?;
+        let keys = keys.as_object().filter(|keys| !keys.is_empty()).ok_or(
+            "the origin \"appdrop\" is named after the update key: add deploy.signing.keys",
+        )?;
+        let named = self
+            .json
+            .pointer("/deploy/signing/key")
+            .and_then(|v| v.as_str());
+        let key = match named {
+            Some(id) => keys.get(id).ok_or_else(|| {
+                format!("deploy.signing.key names {id:?}, which deploy.signing.keys lacks")
+            })?,
+            None if keys.len() == 1 => keys.values().next().unwrap(),
+            None => {
+                return Err(
+                    "the origin \"appdrop\" needs deploy.signing.key to pick one of deploy.signing.keys"
+                        .into(),
+                )
+            }
+        };
+        let raw = base64_decode(key.as_str().unwrap_or_default())
+            .ok_or("deploy.signing.keys must be base64")?;
+        let digest = Sha256::digest(&raw);
+        let id: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
+        let base =
+            std::env::var("EXACT_APPDROP_ORIGIN").unwrap_or_else(|_| "https://appdrop.app".into());
+        Ok(format!("{}/u/{id}", base.trim_end_matches('/')))
     }
 
     /// `deploy.activate` (LLP 1030.000 D4): when a staged bundle applies —
-    /// `next-launch` (the default; `deliveryActivate` applies it sooner) or
-    /// `app-decides` (only `deliveryActivate` does). Policy, not identity:
+    /// `next-launch` (the default; `deliveryActivate` applies it sooner),
+    /// `app-decides` (only `deliveryActivate` does) or `immediate` (as soon
+    /// as a check stages it). Policy, not identity:
     /// it rides beside the id, never in it.
     pub fn activate(&self) -> String {
         self.json
@@ -271,6 +314,23 @@ impl Manifest {
             .unwrap_or(if platform == "web" { "0" } else { "A" })
             .to_string()
     }
+}
+
+/// Standard base64 with padding, as `keys` validated it.
+fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut bits = 0u32;
+    let mut count = 0;
+    let mut out = Vec::new();
+    for byte in text.trim_end_matches('=').bytes() {
+        bits = bits << 6 | ALPHABET.iter().position(|&c| c == byte)? as u32;
+        count += 6;
+        if count >= 8 {
+            count -= 8;
+            out.push((bits >> count) as u8);
+        }
+    }
+    Some(out)
 }
 
 // Depth 2 is global (platform overrides and the module declaration), depth
@@ -426,5 +486,40 @@ mod placement_tests {
             .contains("typescript.sources"));
         let unknown = manifest(serde_json::json!({"typescript": {"elsewhere": 1}}));
         assert!(unknown.placement("typescript", "ios").is_err());
+    }
+}
+
+#[cfg(test)]
+mod appdrop_tests {
+    use super::Manifest;
+
+    fn manifest(json: serde_json::Value) -> Manifest {
+        Manifest {
+            json,
+            id: "test.app".into(),
+            name: "Test".into(),
+            declared: true,
+        }
+    }
+
+    /// "appdrop" names AppDrop's origin for the signing key; the build and
+    /// `scripts/origin.mjs` must agree on the key id.
+    #[test]
+    fn appdrop_is_named_after_the_signing_key() {
+        let m = manifest(serde_json::json!({"deploy": {
+            "channels": {"dogfood": "appdrop"},
+            "signing": {"key": "shelf", "keys": {"shelf": "/dF36/m50wjVH0iDogmQB4FTDF6bx+qwAyD0seHMV70="}},
+        }}));
+        let (channel, origin) = m.channel().unwrap();
+        assert_eq!(channel, "dogfood");
+        assert!(origin
+            .unwrap()
+            .ends_with("/u/832cad2da443ed7c9e8948f16e5b137d"));
+        let unsigned =
+            manifest(serde_json::json!({"deploy": {"channels": {"dogfood": "appdrop"}}}));
+        assert!(unsigned
+            .channel()
+            .unwrap_err()
+            .contains("deploy.signing.keys"));
     }
 }

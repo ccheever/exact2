@@ -46,7 +46,7 @@ final class AgentCheckIOSTests: XCTestCase {
         let session = ExactApp.shared.makeSession(label: "agent-check-row")
         self.session = session
         let p = session.presenter
-        var face = ButtonFace(); face.title = "Prominent"; face.style = "bordered-prominent"
+        var face = ButtonFace(); face.title = "Prominent"; face.style = "bordered-prominent"; face.ios = "borderedProminent"; face.iosBefore26 = "borderedProminent"
         p.buttonFace = { _ in face }
         let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
         let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
@@ -74,6 +74,7 @@ final class AgentCheckIOSTests: XCTestCase {
         let title = try XCTUnwrap(items.first { $0["text"] as? String == "Prominent" }, "the title is observed: \(items)")
         XCTAssertEqual(title["label"] as? Bool, true, "a control's label, not the row's text: \(title)")
         XCTAssertEqual(title["of"] as? Int, 3, "of the button, not of row 99: \(title)")
+        XCTAssertEqual(title["onAccent"] as? Bool, true, "UIKit's ink on the accent's fill (LLP 1116.019 D3): \(title)")
     }
 
     /// LLP 1116.008 D7: a `select` is UIKit's pop-up button, its value the button's title, drawn in the

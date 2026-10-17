@@ -13,7 +13,9 @@ const USAGE: &str = "usage:
   contract tamber ir <app dir | app.contract | file.tamber> [-o <tamber.json>]
   contract tamber fmt <app dir | app.contract | file.tamber> [--check]
   contract tamber serve --stdio <app dir>   (the design's one writer, tamber/1 over JSON lines)
+  contract tamber gen ts|rust <app dir | app.contract | file.tamber> [-o <dir>]   (bindings, in the app's .exact/tamber/)
   contract tamber import shadcn|tailwind <stylesheet> | dtcg <file or dir> | astryx <resolved json> [--app <app dir>] [--prefix <prefix>]   (a proposal, as JSON)
+  contract tamber export dtcg <app dir | app.contract | file.tamber> [-o <file>]   (DTCG 2025.10; its baseline kept in .exact/)
   (a flag may come before the path or after it)";
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -22,6 +24,12 @@ pub fn run(args: &[String]) -> ExitCode {
     }
     if args.first().is_some_and(|a| a == "import") {
         return crate::tamber_import::run(&args[1..]);
+    }
+    if args.first().is_some_and(|a| a == "gen") {
+        return crate::tamber_gen::run(&args[1..]);
+    }
+    if args.first().is_some_and(|a| a == "export") {
+        return crate::tamber_export::run(&args[1..]);
     }
     if matches!(args, [] | [_]) || args.iter().any(|a| a == "--help" || a == "-h") {
         let help = args.iter().any(|a| a == "--help" || a == "-h");
