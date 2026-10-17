@@ -132,6 +132,22 @@ final class HoverFollowsLayoutMacTests: XCTestCase {
         XCTAssertEqual(p.pointerHeld, node.id, "the hold still owns its eventual pointerup")
     }
 
+    /// The pointer coming into the page over a node that hears `pointermove`:
+    /// the enter is the node's move, as a move there is. An enter has no
+    /// `subtype` to read, and reading it raised.
+    func testAnEnterOverANodeThatHearsPointerMoveIsItsMove() throws {
+        let p = rows()
+        let b = try XCTUnwrap(p.views[3])
+        b.handlers = ["hover", "pointermove"]
+        var heard: [String] = []
+        p.onPointer = { id, kind, sample in heard.append("\(id) \(kind) \(sample.type) \(sample.buttons)") }
+        let enter = try XCTUnwrap(NSEvent.enterExitEvent(with: .mouseEntered, location: b.convert(NSPoint(x: 10, y: 10), to: nil),
+            modifierFlags: [], timestamp: 0, windowNumber: window!.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+        p.viewport.mouseEntered(with: enter)
+        p.flushHoverMove()
+        XCTAssertEqual(heard, ["3 move mouse 0"])
+    }
+
     func testVisibleOverflowChildIsTheHitAndHoverTargetOutsideParentBounds() {
         _ = NSApplication.shared
         let p = Presenter()
