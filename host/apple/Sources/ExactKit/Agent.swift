@@ -797,8 +797,8 @@ public final class Agent {
     /// was; platform timing leaves the wait to `clock settle`, but for a
     /// chosen alert button's press, which still lands before the reply.
     func completingInput(_ reply: [String: Any]) -> [String: Any] {
-        if !ExactEnv.agentFreezes, reply["error"] == nil { awaitChosenPress() }
-        guard ExactEnv.agentFreezes, reply["error"] == nil, !awaitModalTransitions() else { return reply }
+        let settled = reply["error"] != nil || (ExactEnv.agentFreezes ? awaitModalTransitions() : awaitChosenPress())
+        guard !settled else { return reply }
         var out = reply
         out["settled"] = false
         out["reason"] = "transition"

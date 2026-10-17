@@ -755,7 +755,8 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         settle { !p.menus.inTransition && controller.presentedViewController is UIAlertController }
         XCTAssertEqual(p.menus.activate(try node(session, "clear-confirm-clear")), true)
         XCTAssertTrue(p.menus.choosing)
-        XCTAssertTrue(session.agentInstance.awaitChosenPress())
+        // The input's reply waits for it, and says it settled.
+        XCTAssertNil(session.agentInstance.completingInput(["tapped": 3])["settled"])
         XCTAssertFalse(p.menus.choosing)
         XCTAssertTrue(try counts(session).hasPrefix("count 0"), "the press has landed")
     }
