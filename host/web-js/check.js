@@ -101,6 +101,12 @@ export function observe(views, inactive = () => false) {
   };
   const fixed = (el, upTo) => { for (let e = el; e && e !== upTo; e = e.parentElement) if (/^(fixed|sticky)$/.test(getComputedStyle(e).position)) return true; return false; };
   const scrolls = (e) => /^(auto|scroll)$/.test(getComputedStyle(e).overflowY) && e.scrollHeight > e.clientHeight + 1;
+  // What keeps a box's sideways overflow its own: a box that clips on x, or one that scrolls sideways on purpose (an authored
+  // `overflow-x`, or the shorthand's first value). A vertical scroller's x is `auto` only because CSS computes `visible`
+  // beside `auto` so (CSS Overflow 3 §3.1), and a native host neither scrolls nor clips there as a person would scroll to it:
+  // UIKit's vertical scroll view cuts it at the screen's edge (LLP 1116.020 D4; round 18's focus-timer and trivia-quiz).
+  const holdsX = (e, s = getComputedStyle(e)) => /^(hidden|clip)$/.test(s.overflowX)
+    || (/^(auto|scroll)$/.test(s.overflowX) && (/^(auto|scroll)$/.test(authored(e, 'overflow-x').trim()) || /^(auto|scroll)(\s|$)/.test(authored(e, 'overflow').trim())));
   // A box whose written percentage width fits its parent, and whose own padding and border (content-box sizing) push it past
   // the parent's content edge (LLP 1116.009 D5; focus-timer and recipe-finder, round 11: `width="100%"` with padding clipped
   // the phone's right side while `check` said nothing, the scroller around it holding the overflow). The cause is judged, not
@@ -161,25 +167,25 @@ export function observe(views, inactive = () => false) {
       continue;
     }
     const o = opacity(el);
-    // Past the viewport's sides, nothing scrolling it back nor clipping it: the outermost such view only.
-    let held = false;
+    // Past the viewport's sides, nothing scrolling it back sideways nor clipping it: the outermost such view only. Where it
+    // stands with a vertical scroller back at its sideways start, as a native host never moves it (a reveal moves it in Chrome).
+    let held = false, sx = 0;
     for (let e = el.parentElement; e && e.id !== 'exact-root'; e = e.parentElement) {
-      if (out.has(e)) { held = true; break; }
-      const s = getComputedStyle(e);
-      if (s.overflowX !== 'visible') { held = true; break; }
+      if (out.has(e) || holdsX(e)) { held = true; break; }
+      sx += e.scrollLeft;
     }
-    const past = Math.max(b.right - W, -b.left);
+    const past = Math.max(b.right + sx - W, -(b.left + sx));
     if (!held && past > 1 && !fixed(el)) { item.outX = r2(past); out.add(el); }
     // A flex or grid item past its container's sides, within the viewport (LLP 1116.007 D3: tip-splitter's fifth radio at 320 px,
     // an option wider than its row, poking out of its card): the container neither scrolling nor clipping it, nor any ancestor
     // it lies beyond, nor transformed or placed out of flow. Past the viewport it is the finding above.
     const parent = el.parentElement, ps = parent && parent.id !== 'exact-root' ? getComputedStyle(parent) : null;
-    if (!item.outX && ps && /^(inline-)?(flex|grid)$/.test(ps.display) && ps.overflowX === 'visible' && !/^(absolute|fixed)$/.test(cs.position) && cs.transform === 'none') {
+    if (!item.outX && ps && /^(inline-)?(flex|grid)$/.test(ps.display) && !holdsX(parent, ps) && !/^(absolute|fixed)$/.test(cs.position) && cs.transform === 'none') {
       const pb = parent.getBoundingClientRect(), left = pb.left + parent.clientLeft, spill = Math.max(b.right - (left + parent.clientWidth), left - b.left);
       let beyond = false;
       for (let e = parent.parentElement; e && e.id !== 'exact-root' && !beyond; e = e.parentElement) {
         if (out.has(e)) beyond = true;
-        else if (getComputedStyle(e).overflowX !== 'visible') { const a = e.getBoundingClientRect(), l = a.left + e.clientLeft; beyond = b.right > l + e.clientWidth + 0.5 || b.left < l - 0.5; }
+        else if (holdsX(e)) { const a = e.getBoundingClientRect(), l = a.left + e.clientLeft; beyond = b.right > l + e.clientWidth + 0.5 || b.left < l - 0.5; }
       }
       if (spill > 1.5 && !beyond && !fixed(el)) { item.spill = { by: viewOf(parent), dx: r2(spill) }; out.add(el); }
     }

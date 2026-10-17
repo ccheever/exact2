@@ -254,8 +254,12 @@ extension Agent {
                     control(n, into: &item)
                     if item["control"] != nil, let c = cover(n, b), c["kind"] as? String == "offscreen" { item["cover"] = c; items.append(item) }
                 }
-                // What scrolls sideways or clips keeps its children's overflow its own.
-                if n.scroll?.scrollsX == true || n.clipsToBounds || n.clipBox != nil { heldBelow = true }
+                // What scrolls sideways or clips keeps its children's overflow its own. A scroll view does so only where its
+                // author wrote its `overflow-x`: a vertical one's x is `auto` by CSS's rule, and UIKit neither pans nor shows
+                // what runs past its side, which the screen's edge cuts (LLP 1116.020 D4; round 18's focus-timer and
+                // trivia-quiz). The web's `holdsX` (host/web-js/check.js).
+                let sideways = n.scroll == nil || n.style["written"]?.array?.contains(.string("overflow_x")) == true
+                if sideways && (n.scroll?.scrollsX == true || n.clipsToBounds || n.clipBox != nil) { heldBelow = true }
             } else if let label = v as? UILabel {
                 nativeLabel(label, alpha: a, into: &items)
                 return
