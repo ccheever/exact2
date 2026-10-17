@@ -7,6 +7,7 @@ use super::*;
 
 impl<D: DataSource> Presenter<D> {
     /// A native module may only answer for the node allocation its painted view represents.
+    #[cfg(any(target_os = "android", test))]
     pub(crate) fn reader_module_event(
         &mut self,
         id: ViewId,
