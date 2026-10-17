@@ -359,10 +359,22 @@ platforms UIKit covers are in-tree surfaces: tvOS (Doug Lowder's port,
 visionOS when someone ports it. Each is a variant of the iOS presenter, not a
 new one: shared Swift admits it beside `os(iOS)`, Rust cfgs beside
 `target_os = "ios"`, and its own code compiles into its own binary alone.
-Unblocks Caltrain on an Apple TV. watchOS, which has no UIKit, stays out. A
+Unblocks Caltrain on an Apple TV. watchOS, which has no UIKit, stays out (reversed
+2026-10-17, below). A
 platform with its own UI stack (Amazon's Vega OS) is a host outside this
 repository, on the plan, runner and agent seams; its RFC is owed. The take is
 waived.
+
+**Expanded (Charlie, 2026-10-17, LLP 1126 §7: "reopen yes"; "admit watchos
+now. let's try to hit full apple platform support for launch"):** system
+surfaces and watchOS are in-tree. An app's widgets, Live Activities and
+complications are entries of the one app, drawn on Apple by a SwiftUI
+renderer whose snapshot driver WidgetKit archives (LLP 1126). watchOS is an
+Apple platform like the others; it has no UIKit presenter, so its app is
+drawn by that renderer's live driver. Unblocks an app's content outside its
+window (the Home Screen, the Lock Screen, StandBy, CarPlay, HomeView, the
+Mac) and Exact apps on the watch. Templates (CarPlay apps, controls) await
+their own RFC. The take is waived.
 
 **Admitted (Charlie, 2026-10-06: "this is pretty great. commit and push this
 and document that TUI is now an officially supported platform for Exact2";

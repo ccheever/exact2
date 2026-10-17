@@ -1,12 +1,28 @@
 # LLP 1126: System surfaces — an app's views outside its window
 
 **Type:** RFC (a decision brief: each decision carries a proposed answer; nothing here is built until Charlie has read it)
-**Status:** Draft r2, 2026-10-17. r1 was reviewed blind, on direction only, by Claude Fable 5.1 (xhigh), GPT-6 Astra (max) and Grok 4.7 (xhigh); all three READY WITH CHANGES (`llp/reviews/1126-system-surfaces.{fable,astra,grok}.md`). Muse Wonder was asked for and unavailable (its quota exhausted until 2026-10-19). r2 takes their foundational findings; §R lists each and where it went. Proposed from outside the working set: what it amends is §9, and each amendment needs Charlie's ruling. Not in `llp/current/`, which holds 15 of 15.
+**Status:** Draft r2, 2026-10-17. r1 was reviewed blind, on direction only, by Claude Fable 5.1 (xhigh), GPT-6 Astra (max) and Grok 4.7 (xhigh); all three READY WITH CHANGES (`llp/reviews/1126-system-surfaces.{fable,astra,grok}.md`). Muse Wonder was asked for and unavailable (its quota exhausted until 2026-10-19). r2 takes their foundational findings; §R lists each and where it went. Charlie ruled questions 1 to 3 on 2026-10-17 (§0); questions 4 and 5 wait for a panel, 6 to 9 are open. Not in `llp/current/`, which holds 15 of 15.
 **Systems:** a new SwiftUI renderer in the Apple host (`host/apple/Sources`), a presenter-free session composition (`ExactKit`'s `ExactSession`), the app manifest (`scripts/app.schema.json`), the bake and the schema's admission columns (`contract/cli`, `kernel/tables/schema.json`), the envelope's plans (LLP 1031 D1), the store and the update store across processes (`update/src/store.rs`, LLP 1018), the Apple build's packaging (`host/apple/build.mjs`), the agent (`scripts/agent.mjs`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-17 (r1, r2)
 **Implementer:** none yet. Stage 0 (§5) is a set of probes with kill lines; a spec follows a ruling.
 **Related:** LLP 1115 (write the web, ship the platform); LLP 1101 D1–D2 (the terminal entry and its admission profile: the shape D2 takes); LLP 1031 D1 (the deferred `plans` map, whose trigger D2 pulls) and D4 (session snapshots); LLP 1030 D3a (compatibility id) and its extension row; LLP 1018 (the store); LLP 1047 and 1047.001 (link by use); LLP 1035.006 §11.10; `rules/DEFERRED.md` §Surfaces, §Components, the notifications entry; LLP 1038 (a location is a URL); LLP 1024 and 1067.000 (native modules); LLP 1112 and 1113 (pictures; settled); LLP 1016.002 (push invalidates, the answer stays a pull); LLP 1069 (the Expo survey: `expo-widgets` missing); LLP 1124 (host extensions, a different sense of "extension")
+
+## 0. Rulings
+
+Charlie, 2026-10-17, on §7:
+
+- **Question 1, the shape:** "rec seems ok".
+- **Question 2, LLP 1035.006 §11.10:** "reopen yes". Recorded in
+  `rules/DEFERRED.md` §Surfaces and in LLP 1035.006 §11.10; the take is
+  waived.
+- **Question 3, watchOS:** "admit watchos now. let's try to hit full apple
+  platform support for launch". watchOS is admitted (`rules/DEFERRED.md`
+  §Surfaces). D10 and §5 now plan the watch with the other platforms: its
+  bring-up starts beside stage 0, complications come with the snapshot
+  driver, and the live driver and the watch app are a stage of their own,
+  not a conditional one.
+- **Questions 4 and 5:** waiting for a panel (Astra, Grok, Fable).
 
 ## Summary
 
@@ -66,10 +82,10 @@ only what the iPhone's extension draws.
 - **Ports.** LLP 1069's survey lists `expo-widgets` (widgets and Live
   Activities) as missing. An app moving from Expo that has a widget cannot
   come.
-- **The watch.** `rules/DEFERRED.md` keeps watchOS out because it has no
-  UIKit presenter (it has UIKit's value types, not `UIView`). Its UI
-  framework is SwiftUI. This RFC makes the renderer that answer needs, and
-  leaves admitting watchOS to its own ruling (D10).
+- **The watch.** watchOS was kept out because it has no UIKit presenter (it
+  has UIKit's value types, not `UIView`). Its UI framework is SwiftUI, and
+  this RFC makes the renderer that answer needs; watchOS is now admitted
+  (§0, D10).
 
 ## 2. What exists
 
@@ -384,11 +400,11 @@ most Live Activities are for (a delivery, a flight, a score), and
 nothing (LLP 1030.000 D6): the app registers its token with its own backend,
 which sends; the 4 KB limit applies there. Admitting that is §7, question 5.
 
-### D10 — The watch is its own ruling: complications first, then the live driver
+### D10 — The watch: bring-up beside stage 0, complications with the snapshot driver, then the live driver
 
-Anything that runs on the watch needs a watchOS binary: complications and
-the watch's own Smart Stack widgets come from a widget extension inside a
-watchOS app. That costs, before any renderer:
+watchOS is admitted (§0). Anything that runs on the watch needs a watchOS
+binary: complications and the watch's own Smart Stack widgets come from a
+widget extension inside a watchOS app. That costs, before any renderer:
 
 - Rust's watchOS targets, Tier 3 (nightly with `-Zbuild-std`); older watches
   need `arm64_32`, whose `usize` is 32 bits;
@@ -403,8 +419,11 @@ watchOS app. That costs, before any renderer:
 What reaches the wrist without any of that comes with stage 2: the iPhone's
 Live Activities in the Smart Stack.
 
-If watchOS is admitted, complications come first, by the snapshot driver;
-the live driver and the watch app come second. The live driver keeps one
+The bring-up (the toolchain, the presenter-free composition on watchOS, a
+watchOS app that boots a session and draws a complication) starts beside
+stage 0, since it shares nothing with stage 0's probes but their results.
+Complications then come with the snapshot driver; the live driver and the
+watch app follow. The live driver keeps one
 observable model per node, updated from the runner's batches, places frames
 with a custom `Layout` (no archive restricts it), and puts the platform's
 controls, scrolling and navigation at the leaves (`Picker` on the Digital
@@ -477,9 +496,17 @@ yes; §7, question 8 asks for it.
 2. **Live Activities and interactive widgets**: D7's intents and D9, updated
    by the running app. The watch's Smart Stack and the Mac's menu bar mirror
    them.
-3. **A Mac app's own widgets**, by the same driver.
-4. **watchOS**, if Charlie admits it (D10): complications, then the live
-   driver and the watch app. visionOS widgets wait for a visionOS port.
+3. **The other WidgetKit binaries**: a Mac app's own widgets, and the
+   watch's complications and Smart Stack widgets, by the same driver.
+   visionOS widgets come with the visionOS port (`rules/DEFERRED.md`
+   §Surfaces admits it "when someone ports it"; full Apple support for
+   launch, §0, asks for that port).
+4. **The live driver and the watch app** (D10).
+
+**W. watchOS bring-up**, beside stages 0 and 1: Rust's watchOS targets, the
+presenter-free composition compiled for watchOS, and a watchOS app that boots
+a session and shows a complication drawn by stage 1's driver as soon as it
+exists.
 
 Templates (D11) and Android (D13) are their own RFCs.
 
@@ -504,12 +531,10 @@ Templates (D11) and Android (D13) are their own RFCs.
 
 ## 7. Questions for Charlie
 
-1. **The shape.** Three questions per surface; one SwiftUI renderer for
-   Apple's snapshots; templates and Android separate. Proposed: yes.
-2. **LLP 1035.006 §11.10.** Reopen it for snapshot surfaces drawn by the
-   iPhone's extension (stages 1 and 2) and the Mac's (stage 3). Proposed: yes,
-   with a take or a waiver under `rules/DEFERRED.md`.
-3. **watchOS.** Decide at stage 4, with stages 1 to 3 measured. Proposed: yes.
+1. **The shape.** Ruled (§0): yes.
+2. **LLP 1035.006 §11.10.** Ruled (§0): reopened; the take is waived.
+3. **watchOS.** Ruled (§0): admitted now; full Apple platform support for
+   launch.
 4. **The word.** "Surface" already names a Canvas surface (`ExactSurfaces`)
    and a platform (`rules/DEFERRED.md` §Surfaces); LLP 1124 uses "extension".
    A name for these entries is wanted before the manifest has a key.
@@ -552,10 +577,11 @@ Templates (D11) and Android (D13) are their own RFCs.
 - LLP 1030's extension row: an extension takes the app's bundle, in the
   app's cohort (D8).
 - LLP 1031 D1: the `plans` map's trigger is pulled (D2).
-- LLP 1035.006 §11.10: reopened for snapshot surfaces (§7, question 2).
+- LLP 1035.006 §11.10: reopened (done, 2026-10-17).
 - `kernel/tables/schema.json`: a `snapshot` admission column (D2).
-- `rules/DEFERRED.md`: §Surfaces at stage 4 (watchOS); the notifications
-  entry's push refusal only if question 5 admits Live Activity pushes.
+- `rules/DEFERRED.md`: §Surfaces admits system surfaces and watchOS (done,
+  2026-10-17); the notifications entry's push refusal only if question 5
+  admits Live Activity pushes.
   §Components is unchanged (D6 uses HTML's elements).
 
 ## R. Round 1: what r2 took
@@ -563,7 +589,7 @@ Templates (D11) and Android (D13) are their own RFCs.
 | Finding | From | r2 |
 |---|---|---|
 | Class alone does not decide the renderer or the packaging; separate execution, drawer and binary | Astra, Grok, Fable | Summary, D1, §3's binary column |
-| Watch complications need a watchOS binary; stage 3 decided watchOS early; "reaches the wrist" is not "runs on it" | Fable, Grok, Astra | D10, §1, §3, §5 (stage 4) |
+| Watch complications need a watchOS binary; stage 3 decided watchOS early; "reaches the wrist" is not "runs on it" | Fable, Grok, Astra | D10, §1, §3, §5 (then stage 4; since §0, stage 3 and track W) |
 | visionOS widgets need a visionOS binary; immersive spaces are RealityKit; ornaments are islands | Grok, Astra, Fable | §3, D12, §5 |
 | D8 needs a cross-process owner: the update store's exclusive lock, LLP 1031 D4's snapshots, two writers | Astra, Fable, Grok | D8: the app owns updates, immutable generations, a counter and a re-ask |
 | One cohort per app, decided, not probed; amends LLP 1030's extension row | Fable | D8, §9 |
