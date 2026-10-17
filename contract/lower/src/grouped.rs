@@ -596,11 +596,10 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
     if let Some(corner) = corner.filter(|_| !cardless) {
         group.push(m("border-radius", corner, span));
     }
-    // Every row draws the separator under it and overlaps the next by its
-    // width; the group clips the last one away (`row`). Where a platform's
-    // separator stands between two rows and takes no height from either
-    // (the Mac's), the rows are that far apart and the separator is drawn
-    // in the gap; no row elsewhere.
+    // Every row draws the separator under it and overlaps the next by its width; the group
+    // clips the last one away (`row`). Where a platform's separator stands between two rows
+    // and takes no height from either (the Mac's), the rows are that far apart and the
+    // separator is drawn in the gap; no row elsewhere.
     if !cardless {
         group.push(m("row-gap", "separator-gap", span));
     }
