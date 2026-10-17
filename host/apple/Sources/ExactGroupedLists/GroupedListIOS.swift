@@ -993,7 +993,13 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             carriedOrder.append(id)
         }
         guard let place = carried[id] else { return }
-        let height = cellHeight(id, row: place.frame.height)
+        // At its layout x on the cell's grid, at the size it is drawn at
+        // home. Its children keep their places in it: carried and put back
+        // in every batch, a row placed afresh in the cell would place them
+        // twice a batch.
+        let drawn = row.grid.map { CGRect(x: PixelGrid.round($0.layout.minX, scale: host.presenter.gridScale), y: 0, width: $0.drawn.width, height: $0.drawn.height) }
+            ?? CGRect(origin: CGPoint(x: place.frame.minX, y: 0), size: place.frame.size)
+        let height = cellHeight(id, row: drawn.height)
         // Never invalidated here: a cell is configured inside the data
         // source's update; `mount` lays the list out after it.
         if cell.height != height { cell.height = height; resized = true }
@@ -1007,7 +1013,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             // cell comes back, so the pump paints it (`refreshVisibleText`).
             host.presenter.requestTextPublication()
         }
-        row.frame = CGRect(origin: CGPoint(x: place.frame.minX, y: 0), size: place.frame.size)
+        row.frame = drawn
     }
 
     /// A custom row's cell height for a row box `height` tall: less the

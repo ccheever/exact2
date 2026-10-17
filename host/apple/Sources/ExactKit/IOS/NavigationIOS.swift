@@ -150,6 +150,7 @@ final class RouteController: UIViewController {
     func mount() {
         loadViewIfNeeded()
         if node.superview !== view { view.addSubview(node) }
+        host?.presenter.regrid(node) // from the controller's view, a grid origin of its own
     }
     // A button can remove a route before UIKit starts its pop. Preserve its
     // outgoing pixels for that transition; an interactive pop uses live views.
@@ -307,6 +308,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             guard let parent = owner == container?.id ? container : presenter.views[owner] else { continue }
             for (index, node) in ids.compactMap({ presenter.views[$0] }).enumerated() where presenter.views[node.id] === node {
                 parent.container.insertSubview(node, at: index)
+                presenter.regrid(node)
             }
         }
     }
@@ -656,6 +658,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             guard let parent = owner == root.id ? root : presenter.views[owner] else { continue }
             for (index, node) in ids.compactMap({ presenter.views[$0] }).enumerated() where presenter.views[node.id] === node {
                 parent.container.insertSubview(node, at: index)
+                presenter.regrid(node)
             }
         }
     }

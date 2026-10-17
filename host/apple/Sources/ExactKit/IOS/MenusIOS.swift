@@ -735,7 +735,11 @@ final class MenuHost {
         pop.isHidden = true
         if presenter?.views[pop.id] === pop, let parent = entry.parent {
             parent.insertSubview(pop, at: min(entry.index, parent.subviews.count))
-            pop.center = entry.center
+            presenter?.regrid(pop) // a frame op while it was up was placed from the top layer
+            // Its centre as it was, its origin on a whole pixel at its size now.
+            let s = presenter?.gridScale ?? 1, size = pop.bounds.size
+            pop.center = CGPoint(x: PixelGrid.round(entry.center.x - size.width / 2, scale: s) + size.width / 2,
+                                 y: PixelGrid.round(entry.center.y - size.height / 2, scale: s) + size.height / 2)
         } else {
             pop.removeFromSuperview()
         }

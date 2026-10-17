@@ -419,7 +419,10 @@ extension NodeView {
         if isNativeTextControl {
             area.frame = bounds
             if let r = kernelContentBox {
-                area.textContainerInset = UIEdgeInsets(top: r.minY, left: r.minX, bottom: max(0, bounds.height - r.maxY), right: max(0, bounds.width - r.maxX))
+                // Layout's inset less what the drawn box lost to the pixel
+                // grid, so the text keeps layout's width (`PixelGridIOS.swift`).
+                area.textContainerInset = UIEdgeInsets(top: r.minY, left: r.minX, bottom: max(0, layoutBounds.height - r.maxY) + bounds.height - layoutBounds.height,
+                                                       right: max(0, layoutBounds.width - r.maxX) + bounds.width - layoutBounds.width)
             }
         } else { area.frame = contentBox() }
         #endif

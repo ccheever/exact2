@@ -691,6 +691,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// materials remain background siblings of the authored children. A
     /// glass group is innermost (`GlassGroup.swift`).
     package var container: UIView { glassGroupView?.contentView ?? baseContainer }
+    /// Where layout put this box and where it is drawn (`PixelGridIOS.swift`).
+    package var grid: GridPlace?
 
     /// The canvas this node is painted through, if any: the nearest canvas
     /// above whose overlay holds it.
@@ -1302,7 +1304,11 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// there), never less than the box (or the port UIKit's insets leave, `scrollFloor`).
     func fitScroll() {
         guard let sv = scroll else { return }
-        let size = CGSize(width: sv.scrollsX ? max(content.width, sv.bounds.width) : sv.bounds.width, height: sv.scrollsY ? max(content.height, scrollFloor(sv)) : sv.bounds.height)
+        // Ending where its last edge is drawn, from this box's place on the
+        // pixel grid, so the furthest offset is a whole pixel and reaches it (`PixelGridIOS.swift`).
+        let s = presenter?.gridScale ?? 1, o = grid?.origin ?? .zero
+        let size = CGSize(width: sv.scrollsX ? max(PixelGrid.length(content.width, from: o, vertical: false, scale: s), sv.bounds.width) : sv.bounds.width,
+                          height: sv.scrollsY ? max(PixelGrid.length(content.height, from: o, vertical: true, scale: s), scrollFloor(sv)) : sv.bounds.height)
         if sv.contentSize != size { sv.contentSize = size }
         // Forced bounce on a carousel's computed y traps Mac wheel input; one travels a quarter of its width or lays a
         // row (itself, or a child wider than the port), and a page a few points too wide keeps its bounce.

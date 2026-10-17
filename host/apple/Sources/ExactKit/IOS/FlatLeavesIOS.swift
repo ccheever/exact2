@@ -30,7 +30,9 @@ final class FlatLeaf {
     var style: NodeStyle
     /// Its paint, read from `style` on the owner thread (LLP 1072 stage 4).
     var paint: FlatPaint
-    var frame = CGRect.zero
+    /// Its frame drawn, on the device's pixel grid, and as layout sent it
+    /// (`PixelGridIOS.swift`).
+    var frame = CGRect.zero, layout = CGRect.zero
     /// Its content box and padding as layout sent them (`fieldContent`),
     /// kept for the view it becomes: a leaf paints only its fill.
     var content: (box: CGRect, padding: [CGFloat?]?)?
@@ -196,7 +198,7 @@ final class FlatLeaves {
               parent.canvasAbove == nil, parent.surface == nil else { return }
         if order[parent.id] == nil { order[parent.id] = parent.container.subviews.compactMap { ($0 as? NodeView)?.id } }
         let leaf = FlatLeaf(id: id, style: view.style, paint: flat)
-        leaf.frame = view.frame
+        leaf.layout = view.grid?.layout ?? view.frame
         leaf.content = view.kernelContentBox.map { ($0, view.kernelPadding) }
         leaf.opacity = Float(view.alpha)
         leaf.parent = parent.id
@@ -205,7 +207,7 @@ final class FlatLeaves {
         view.removeFromSuperview()
         leaves[id] = leaf
         made += 1
-        frame(id, leaf.frame)
+        frame(id, leaf.layout)
         leaf.layer.opacity = leaf.opacity
     }
 
@@ -216,12 +218,30 @@ final class FlatLeaves {
 
     func frame(_ id: UInt32, _ rect: CGRect) {
         guard let leaf = leaves[id] else { return }
-        leaf.frame = rect
+        leaf.layout = rect
+        let drawn = place(leaf).drawn
+        leaf.frame = drawn
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        leaf.layer.bounds = CGRect(origin: .zero, size: rect.size)
-        leaf.layer.position = rect.origin
+        leaf.layer.bounds = CGRect(origin: .zero, size: drawn.size)
+        leaf.layer.position = drawn.origin
         CATransaction.commit()
         paint(leaf)
+    }
+    private func place(_ leaf: FlatLeaf) -> GridPlace {
+        let origin = leaf.parent.flatMap { presenter.views[$0]?.grid?.origin } ?? .zero
+        return PixelGrid.place(leaf.layout, in: origin, scale: presenter.gridScale(under: origin))
+    }
+    /// Every parent's leaves drawn again (a new display's grid).
+    func regridAll(where admits: (NodeView) -> Bool) {
+        for parent in order.keys { if let v = presenter.views[parent], admits(v) { regrid(parent: v) } }
+    }
+    /// `parent`'s leaves drawn again from its origin, where that moves them.
+    func regrid(parent: NodeView) {
+        for id in order[parent.id] ?? [] {
+            guard let leaf = leaves[id], place(leaf).drawn != leaf.frame else { continue }
+            frame(id, leaf.layout)
+            touch(leaf)
+        }
     }
     private func touch(_ leaf: FlatLeaf) { if let p = leaf.parent { dirty.insert(p) } }
     func opacity(_ id: UInt32, _ value: Float) {
@@ -296,6 +316,7 @@ final class FlatLeaves {
         }
         order[parent.id] = ids
         for id in flat { leaves[id]?.parent = parent.id }
+        regrid(parent: parent)
         guard Self.parents.contains(parent.kind), parent.scroll == nil, parent.overlay == nil,
               parent.canvasAbove == nil, parent.surface == nil else { return flat }
         dirty.insert(parent.id)
@@ -404,7 +425,9 @@ final class FlatLeaves {
         let view = NodeView(id: id, kind: "view", presenter: presenter)
         view.applyStyle(style ?? leaf.style)
         view.applyProps(set: [:], clear: [])
-        view.frame = leaf.frame
+        let placed = place(leaf)
+        view.frame = placed.drawn
+        view.grid = placed
         if let content = leaf.content { view.applyKernelContentBox(content.box, padding: content.padding) }
         view.alpha = CGFloat(leaf.opacity)
         presenter.views[id] = view

@@ -76,7 +76,7 @@ extension NodeView {
     func paragraphBox() -> CGRect {
         let box = contentBox()
         guard let record = columnRecord, let first = record.fragments.first else { return box }
-        let width = record.columns.isEmpty ? first.rect.width - (bounds.width - box.width) : first.rect.width
+        let width = record.columns.isEmpty ? first.rect.width - (layoutBounds.width - box.width) : first.rect.width
         return CGRect(x: box.minX, y: box.minY, width: max(0, width), height: 1e7)
     }
 

@@ -15,12 +15,31 @@ extension NodeView {
     /// Native fields keep their published editor box for field layout (LLP
     /// 1104 D5) and read their padding rows. Other content uses the published
     /// box, or the bounds of a box sent none.
+    /// The bounds at the size layout gave: a box drawn on the pixel grid
+    /// can be up to a device pixel smaller or larger (`PixelGridIOS.swift`),
+    /// and its text wraps at layout's width, not the drawn one.
+    package var layoutBounds: CGRect {
+        #if os(iOS) || os(tvOS)
+        CGRect(origin: bounds.origin, size: grid?.layout.size ?? bounds.size)
+        #else
+        bounds
+        #endif
+    }
+    /// The frame layout sent, where the drawn one is on the pixel grid.
+    package var laidOutFrame: CGRect {
+        #if os(iOS) || os(tvOS)
+        grid?.layout ?? frame
+        #else
+        frame
+        #endif
+    }
+
     func contentBox() -> CGRect {
         if !isNativeTextControl {
-            return kernelContentBox?.offsetBy(dx: bounds.minX, dy: bounds.minY) ?? bounds
+            return kernelContentBox?.offsetBy(dx: bounds.minX, dy: bounds.minY) ?? layoutBounds
         }
         let uniform = number("border_width")
-        return bounds.insetBy(
+        return layoutBounds.insetBy(
             left: number("border_width_left", uniform) + number("padding_left"),
             top: number("border_width_top", uniform) + number("padding_top"),
             right: number("border_width_right", uniform) + number("padding_right"),

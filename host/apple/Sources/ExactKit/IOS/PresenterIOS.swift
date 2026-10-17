@@ -19,6 +19,8 @@ package final class Presenter {
     /// sync last looked, those applied after a batch among them: their lists
     /// redraw separators by them
     private var geometryApplied: [UInt32] = []
+    /// Views whose drawn origin a batch moved (`PixelGridIOS.swift`).
+    var gridMoved: [NodeView] = []
     /// What the native projections show changed outside a batch (a subtree's appearance or
     /// size traits, geometry applied after the batch, as a flight's landing is).
     /// Run the projection steps an empty batch used to run, once, on the next
@@ -949,7 +951,7 @@ package final class Presenter {
                 if let gone, !modals.retainsRemovedView(gone) { gone.removeFromSuperview() }
             case .roots:
                 root.subviews.forEach { $0.removeFromSuperview() }
-                accent.attach(op.ids.compactMap { views[UInt32($0)] }) { for r in $0 { root.addSubview(r) } }
+                accent.attach(op.ids.compactMap { views[UInt32($0)] }) { for r in $0 { root.addSubview(r); regrid(r) } }
             case .frame, .content, .fieldContent:
                 if flats.isFlat(id) {
                     if kind == .frame { flats.frame(id, CGRect(x: op.x, y: op.y, width: op.w, height: op.h)) }
@@ -979,7 +981,10 @@ package final class Presenter {
             default: break
             }
         }
+        regridMoved()
         flats.flush()
+        // A view the flush promoted and mounted may have moved its children.
+        while !gridMoved.isEmpty { regridMoved(); flats.flush() }
         fitDocument()
         paintCanvas()
         let first = root.subviews.first as? NodeView
@@ -1081,7 +1086,7 @@ package final class Presenter {
             let wasHere = child.superview === container
             container.insertSubview(child, at: i)
             if wasHere { current = container.subviews }
-            else { current.insert(child, at: i) }
+            else { current.insert(child, at: i); regrid(child) }
         }
         flats.mounted(parent.id)
         if parent === navigation.container { navigation.placeOwner() }
@@ -1120,21 +1125,7 @@ package final class Presenter {
         if op.op == .frame || op.op == .fieldContent { geometryApplied.append(id) }
         switch op.op {
         case .frame:
-            // A frame is set untransformed (UIKit's `frame` is undefined
-            // under a transform); the presentation goes back on after.
-            v.transform = .identity
-            v.frame = CGRect(x: op.x, y: op.y, width: op.w, height: op.h)
-            v.textRasterGeometryChanged()
-            v.scroll?.frame = v.bounds
-            if v.fieldWaits, op.w > 0 || op.h > 0 { v.makeWaitingField() } // its box laid out (MenuHost.waitingFields)
-            v.layoutField()
-            v.layoutTextArea()
-            v.metal?.frame = v.bounds
-            v.overlay?.frame = v.bounds
-            v.web?.frame = v.bounds
-            v.fitScroll()
-            v.applyTransform()
-            menus.framed(v)
+            applyFrame(v, CGRect(x: op.x, y: op.y, width: op.w, height: op.h))
         case .content:
             v.content = CGSize(width: op.w, height: op.h)
             v.fitScroll()

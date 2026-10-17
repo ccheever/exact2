@@ -123,7 +123,9 @@ extension Presenter {
     func flightFrame(_ op: BatchOp) -> Bool {
         guard op.op == .frame, let f = flights[op.id], f.view != nil else { return false }
         f.geometry = op
-        f.slot?.frame = CGRect(x: op.x, y: op.y, width: op.w, height: op.h)
+        // Layout's new size for what is placed in it while it flies (`layoutBounds`).
+        f.view?.grid?.layout = CGRect(x: op.x, y: op.y, width: op.w, height: op.h)
+        if let slot = f.slot { slot.frame = PixelGrid.place(CGRect(x: op.x, y: op.y, width: op.w, height: op.h), in: gridOrigin(above: slot), scale: gridScale).drawn }
         return true
     }
 
@@ -163,7 +165,8 @@ extension Presenter {
         f.clip?.removeFromSuperview()
         let op = f.geometry ?? {
             var op = BatchOp(op: .frame, nodeID: f.id)
-            op.x = slot.frame.minX; op.y = slot.frame.minY; op.w = slot.frame.width; op.h = slot.frame.height
+            let r = view.grid?.layout ?? slot.frame // layout's, not the drawn one the slot took
+            op.x = r.minX; op.y = r.minY; op.w = r.width; op.h = r.height
             return op
         }()
         applyGeometry(op)
