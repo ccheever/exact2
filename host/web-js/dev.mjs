@@ -12,8 +12,9 @@
 // `host/web/dev.mjs --wasm` is the resident wasm loop (a plan restarts in
 // place in ~20 ms, state carried).
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createServer, request } from 'node:http';
-import { copyFileSync, existsSync, lstatSync, readFileSync, renameSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, readFileSync, realpathSync, renameSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { acceptsHTML, appDocumentPath, webRequestURL } from '../../scripts/origin.mjs';
 import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/agent-launch.mjs';
@@ -46,6 +47,15 @@ function devDesign(stage) {
   try { return JSON.parse(readFileSync(resolve(stage, '.gen', 'dev-design.json'), 'utf8')); } catch { return null; }
 }
 
+/** The SHA-256 of the design file a build in `dir` was compiled from, as
+ * its source map records it (LLP 1122 D5), or null. */
+function mapDesignSource(app, dir) {
+  try {
+    const file = realpathSync(designPath(app.dir));
+    return JSON.parse(readFileSync(resolve(dir, 'app.plan.map.json'), 'utf8')).sources?.find((s) => { try { return realpathSync(s.file) === file; } catch { return false; } })?.sha256 ?? null;
+  } catch { return null; }
+}
+
 /** One build of `app` into `dist` through a stage under the app's ignored
  * target/ (as the wasm build stages); resolves to null or the build's
  * errors (what the JS target refused, or a compile error). `keep(design,
@@ -70,12 +80,12 @@ function build(app, dist, keep = () => false, compiler = null) {
       if (types) console.log(types);
       if (code !== 0) { rmSync(stage, { recursive: true, force: true }); return done({ packages, error: log.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l) && !compilerWarnings(l).length).slice(-12).join('\n') || `build exited ${code}` }); }
       const logic = readFileSync(resolve(stage, '.exact-dev-logic.json'), 'utf8').trim();
-      const design = devDesign(stage);
-      if (keep(design, logic)) { rmSync(stage, { recursive: true, force: true }); return done({ error: null, logic, packages, design, kept: true, warnings: compilerWarnings(log) }); }
+      const design = devDesign(stage), designSource = mapDesignSource(app, stage);
+      if (keep(design, logic)) { rmSync(stage, { recursive: true, force: true }); return done({ error: null, logic, packages, design, designSource, kept: true, warnings: compilerWarnings(log) }); }
       writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
         manifestSha256: appManifestDigest(app), files: buildFileCards(stage) }) + '\n');
       replaceBuild(stage, dist);
-      done({ error: null, logic, packages, design, warnings: compilerWarnings(log) });
+      done({ error: null, logic, packages, design, designSource, warnings: compilerWarnings(log) });
     });
   });
 }
@@ -107,6 +117,28 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // A first build that fails (a refusal or a compile error) serves its
   // errors in the page and builds again at the next edit.
   let built = await build(app, dist), error = built.error, logicRevision = built.logic ?? '';
+  // The page's own plan's source map (LLP 1122 T2b, the JS target), kept
+  // after each build by that plan's digest (the SHA-256 of dist's app.plan,
+  // which the page says as `planDigest` and the map must name), the 8 last:
+  // a selection on the page is joined to it, and an outline drawn from it.
+  const pageMaps = new Map();
+  const keepPageMap = () => {
+    try {
+      const digest = createHash('sha256').update(readFileSync(resolve(dist, 'app.plan'))).digest('hex'), bytes = readFileSync(resolve(dist, 'app.plan.map.json'));
+      if (JSON.parse(bytes).digest !== digest) return;
+      pageMaps.delete(digest); pageMaps.set(digest, bytes);
+      for (const old of [...pageMaps.keys()].slice(0, Math.max(0, pageMaps.size - 8))) pageMaps.delete(old);
+    } catch { /* no map: a selection on that plan is read-only */ }
+  };
+  // (What dist serves, built now or kept from before a failed build.)
+  keepPageMap();
+  // The design the builds run now, with the SHA-256 of the design file's
+  // bytes it was compiled from (LLP 1122 D5: an inspected token's edit is
+  // offered only while they are the file's): a value-only edit's, or a
+  // build's (a native on the resident producer may keep its plan and take
+  // it as a batch); null at start, for the plan's own design (the join
+  // reads the map's).
+  let served = null;
   // The compiler's warnings (LLP 1116.004 D7) when they change, not again at each save that leaves them.
   let warned = '';
   const warn = (warnings) => {
@@ -243,12 +275,14 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     if (fast && toolFresh()) {
       designing = true;
       let next;
-      try { next = existsSync(file) ? await designOf(readFileSync(file, 'utf8')) : { error: 'no design' }; } catch (e) { next = { error: e.message }; } finally { designing = false; }
+      let text = null;
+      try { next = existsSync(file) ? await designOf(text = readFileSync(file, 'utf8')) : { error: 'no design' }; } catch (e) { next = { error: e.message }; } finally { designing = false; }
       // The loop stopped while it read: no build follows.
       if (stopping) return;
       if (!next.error && sameShape(design, next)) {
         const from = scrubbed ?? design;
         design = next;
+        served = { digest: design.digest ?? null, source: createHash('sha256').update(text).digest('hex') };
         const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
         if (scrubbed && released) { scrubbed = null; aside = null; released = false; }
         if (scrubbed) aside = committed; else snapshot = committed;
@@ -293,6 +327,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       // What it put in dist is published, though: new module code reloads
       // the pages, which take the design from the snapshot.
       if (!built.error && !built.kept) {
+        keepPageMap();
         logicRevision = built.logic;
         pending.set(++seq, at);
         push({ reload: seq, revision: logicRevision });
@@ -317,6 +352,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     else if (built.kept) {
       const tokens = built.design.tokens.filter((t, i) => !same(t, from.tokens[i]));
       design = built.design;
+      served = { digest: design.digest ?? null, source: built.designSource };
       const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
       // While a scrub previews the pages stay on it: this changes only what
       // its end restores. A released scrub's build goes from it, and ends it.
@@ -335,6 +371,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       // A reload ends a scrub's preview: the pages boot the committed design.
       scrubbed = null; aside = null; released = false;
       const next = built.design ?? null;
+      keepPageMap();
       // The page reloads; a native build on the resident producer, whose
       // plan this edit may leave as it was (an accent's companion rules are
       // the JS target's own), takes the values as a batch when the design's
@@ -342,6 +379,10 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       const shaped = from && next && from.shape === next.shape && from.tokens.length === next.tokens.length && next.tokens.every((tk, i) => tk.name === from.tokens[i].name);
       design = next;
       snapshot = shaped ? { kind: 'tamber-snapshot', structure: next.shape, base: null, design: next.digest, tokens: next.tokens } : null;
+      // A native build on the resident producer keeps its plan and takes
+      // this design as a batch only when its shape held: then it is served,
+      // from the bytes compiled; else no build runs it but on its own plan.
+      served = shaped ? { digest: next.digest ?? null, source: built.designSource } : null;
       const changedTokens = shaped ? next.tokens.filter((tk, i) => !same(tk, from.tokens[i])) : [];
       if (changedTokens.length) tamber?.channel.broadcast(framed({ kind: 'tamber-batch', structure: next.shape, base: from.digest, design: next.digest, tokens: changedTokens }));
       logicRevision = built.logic;
@@ -422,10 +463,10 @@ if(restored){const restoredSeq=Number(restored.dataset.seq);console.info('exact 
 const ready=()=>globalThis.exact?Promise.resolve(globalThis.exact.ready):new Promise(ok=>{const t=setInterval(()=>{if(globalThis.exact){clearInterval(t);Promise.resolve(globalThis.exact.ready).then(ok)}},2)});
 let liveQ=Promise.resolve();const live=m=>{liveQ=liveQ.then(async()=>{const x=await ready().then(()=>globalThis.exact),was=x?.designDigest;const out=x?.design?.(m);if(out?.live==='stale'){const r=await fetch('/__dev/design',{cache:'no-store'});if(r.status===200)x.design(await r.json())}if(x?.designDigest!==was&&ch.nonce)status()}).catch(e=>console.error('exact dev:',e))};
 const ch={nonce:null,registered:null,revision:null,before:null,told:null},bid=(async()=>{const fresh=()=>'web-js-'+crypto.getRandomValues(new Uint32Array(2)).join('');let i;try{i=sessionStorage.getItem('exact.dev.build')}catch{return fresh()}const t=typeof BroadcastChannel==='function'?new BroadcastChannel('exact.dev.build'):null;if(i&&t){const mine=i;if(await new Promise(done=>{t.onmessage=e=>{if(e.data==='taken:'+mine)done(true)};t.postMessage('who:'+mine);setTimeout(()=>done(false),60)}))i=null}i??=fresh();if(t){const own=i;t.onmessage=e=>{if(e.data==='who:'+own)t.postMessage('taken:'+own)}}try{sessionStorage.setItem('exact.dev.build',i)}catch{}return i})(),post=(n,b,ms)=>fetch('/__dev/report',{method:'POST',body:JSON.stringify({nonce:n,...b}),...(ms?{signal:AbortSignal.timeout(ms)}:{})}),rep=b=>{const{nonce:n,registered:r}=ch;if(!n)return Promise.resolve();if(ch.queue?.n!==n)ch.queue={n,tail:Promise.resolve()};const q=ch.queue;return q.tail=q.tail.then(async()=>{if(!(await r)||ch.nonce!==n||ch.registered!==r)return;await post(n,b,10000).catch(()=>{})})};
-const facts=()=>{const s=getComputedStyle(document.documentElement),cs=s.colorScheme,x=globalThis.exact;return{kind:'status',scheme:/dark/.test(cs)&&!/light/.test(cs)?'dark':/light/.test(cs)&&!/dark/.test(cs)?'light':x?.systemScheme??(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'),contrast:matchMedia('(prefers-contrast: more)').matches?'more':matchMedia('(prefers-contrast: less)').matches?'less':'no-preference',mode:x?.modes?.read?.()??null,rootFontSize:parseFloat(s.fontSize),plan:null,design:x?.designDigest??null,revision:ch.revision}},status=()=>{const b=facts();ch.told=JSON.stringify(b);rep(b)};for(const q of['(prefers-color-scheme: dark)','(prefers-contrast: more)','(prefers-contrast: less)'])matchMedia(q).addEventListener?.('change',()=>{if(ch.nonce)status()});
+const facts=()=>{const s=getComputedStyle(document.documentElement),cs=s.colorScheme,x=globalThis.exact;return{kind:'status',scheme:/dark/.test(cs)&&!/light/.test(cs)?'dark':/light/.test(cs)&&!/dark/.test(cs)?'light':x?.systemScheme??(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'),contrast:matchMedia('(prefers-contrast: more)').matches?'more':matchMedia('(prefers-contrast: less)').matches?'less':'no-preference',mode:x?.modes?.read?.()??null,rootFontSize:parseFloat(s.fontSize),plan:null,planDigest:x?.plan??null,design:x?.designDigest??null,revision:ch.revision}},status=()=>{const b=facts();ch.told=JSON.stringify(b);rep(b)};for(const q of['(prefers-color-scheme: dark)','(prefers-contrast: more)','(prefers-contrast: less)'])matchMedia(q).addEventListener?.('change',()=>{if(ch.nonce)status()});
 let due=false;const moved=()=>{if(due||!ch.nonce)return;due=true;setTimeout(()=>{due=false;const b=facts();if(JSON.stringify(b)!==ch.told){ch.told=JSON.stringify(b);rep(b)}},0)},seen=new MutationObserver(moved);seen.observe(document.documentElement,{attributes:true,attributeFilter:['style','data-x-modes']});seen.observe(document.head,{childList:true,subtree:true,characterData:true});
 const pin=m=>{liveQ=liveQ.then(async()=>{await ready();const r=document.documentElement.style,p=m.pin,x=globalThis.exact;ch.before??={fontSize:r.fontSize,hostFont:r.getPropertyValue('--exact-host-font-size'),mode:x?.modes?.read?.()??{}};const sh=document.getElementById('exact-dev-pin')??document.head.appendChild(Object.assign(document.createElement('style'),{id:'exact-dev-pin'}));sh.textContent=p?.scheme?':root{color-scheme:'+p.scheme+'}':'';if((x.systemScheme??null)!==(p?.scheme??null)){x.systemScheme=p?.scheme??null;dispatchEvent(new Event('resize'))}r.fontSize=p?.rootFontSize?p.rootFontSize+'px':ch.before.fontSize;if(p?.rootFontSize)r.setProperty('--exact-host-font-size',r.fontSize);else if(ch.before.hostFont)r.setProperty('--exact-host-font-size',ch.before.hostFont);else r.removeProperty('--exact-host-font-size');const mode=Object.entries({...ch.before.mode,...(p?.mode??{})});if(mode.length&&x?.modes?.set){const why=x.modes.set(mode);if(why){rep({kind:'unsupported',what:'pin.mode',detail:why,revision:m.revision});x.modes.set(Object.entries(ch.before.mode))}}if(p?.contrast)rep({kind:'unsupported',what:'pin.contrast',detail:"a web page cannot pin the browser's contrast",revision:m.revision});if(!p)ch.before=null;ch.revision=m.revision;status()}).catch(e=>console.error('exact dev:',e))};
-es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='inspect'||m.kind==='outline'||m.kind==='hold'){rep({kind:'unsupported',what:m.kind});return}if(m.nonce&&m.nonce!==ch.nonce){const n=ch.nonce=m.nonce;ch.registered=ready().then(async()=>(await post(n,{kind:'register',id:await bid,host:'web-js',capabilities:['pin'],plan:null,design:globalThis.exact?.designDigest??null})).ok).catch(()=>false);status()}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
+es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='inspect'||m.kind==='outline'||m.kind==='hold'){rep({kind:'unsupported',what:m.kind});return}if(m.nonce&&m.nonce!==ch.nonce){const n=ch.nonce=m.nonce;ch.registered=ready().then(async()=>(await post(n,{kind:'register',id:await bid,host:'web-js',capabilities:['pin'],plan:null,planDigest:globalThis.exact?.plan??null,design:globalThis.exact?.designDigest??null})).ok).catch(()=>false);status()}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
   const checkpoints = new Map();
   /** A scrub's design: the compiler's, with its text in place of the design file's; written nowhere. */
   const scrubDesign = designOf;
@@ -501,7 +542,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
       await new Promise((ok) => setTimeout(ok, 250));
     }
   };
-  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, page: `http://127.0.0.1:${port}`, sourceMap: (digest) => residentMaps.get(digest ?? residentPlan) ?? null, scrub: { preview: scrubPreview, restore: scrubRestore, released: () => { released = scrubbed != null; } } }) : null;
+  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, page: `http://127.0.0.1:${port}`, sourceMap: (digest) => (digest ? residentMaps.get(digest) ?? pageMaps.get(digest) : residentMaps.get(residentPlan)) ?? null, designServed: () => (scrubbed ? null : served), scrub: { preview: scrubPreview, restore: scrubRestore, released: () => { released = scrubbed != null; } } }) : null;
   // A polled stream (Linux, the resident loop's relay) is told the design to run.
   tamber?.channel.greet(() => snapshot && notice(snapshot));
   const server = createServer(async (req, res) => {

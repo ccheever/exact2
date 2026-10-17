@@ -724,7 +724,7 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-canvas-dist-'));
   const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
-  let tool, other;
+  let tool, other, driving = true, saidPlan = null;
   try {
     const base = `http://127.0.0.1:${port}`;
     const devSaid = lines(dev);
@@ -734,6 +734,16 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     other = await polledBuild(base, 'linux-1');
     // A build's report reaches the tool on its long poll.
     const wait = Array.from({ length: 2 }, () => ['clock +2000 real', 'clock data']).flat();
+    // The frame's build says the plan it runs (LLP 1122 T2b, the JS target), read while the drive has it open.
+    saidPlan = (async () => {
+      while (driving) {
+        const listed = await fetch(`${TOOL_ORIGIN}/__tamber/token`).then(r => r.json()).then(({ token }) => fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).then(r => r.json()).catch(() => null);
+        const page = listed?.ok?.builds?.find(b => b.host === 'web-js' && b.planDigest);
+        if (page) return page.planDigest;
+        await Bun.sleep(300);
+      }
+      return null;
+    })();
     const replies = await drive(url, `design-tool-canvas-${process.pid}`, ['type name Ada', 'tap save-name', 'clock data', 'tree canvas', 'layout', 'type canvas-size tablet', 'layout', 'type canvas-size desktop', 'layout', 'clock +2000 real',
       ...wait, 'state',
       // Dark and Black pinned on the other build only.
@@ -770,6 +780,11 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     const builds = states[0].resources.changes.builds;
     const frame = builds.find(b => b.host === 'web-js');
     expect(frame).toMatchObject({ pin: '', caughtUp: true });
+    // It said the plan it runs: dist's app.plan, whose map the loop keeps.
+    driving = false;
+    const plan = createHash('sha256').update(readFileSync(join(dist, 'app.plan'))).digest('hex');
+    expect(await saidPlan).toBe(plan);
+    expect(JSON.parse(readFileSync(join(dist, 'app.plan.map.json'), 'utf8')).digest).toBe(plan);
     expect(['light', 'dark']).toContain(frame.scheme);
     expect(builds.find(b => b.id === 'linux-1')).toMatchObject({ host: 'linux', scheme: 'light', mode: 'dark-style=dim', pin: '' });
     expect(states[1].slots.pinned).toMatchObject({ ok: true, note: 'Pinned on 1 build(s).' });
@@ -795,6 +810,9 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     expect(closed - pinnedAt).toBeGreaterThan(36_000);
     expect(other.frames.filter(f => !f.pin && f.at > pinnedAt && f.at < closed)).toEqual([]);
   } finally {
+    // The poll beside the drive ends before the tool goes.
+    driving = false;
+    await saidPlan?.catch(() => null);
     await other?.stop();
     if (tool) await stop(tool);
     await stop(dev);
