@@ -238,11 +238,32 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         postDelayed(held, android.view.ViewConfiguration.getLongPressTimeout().toLong())
     }
 
+    private var moduleTap = 0
+    private var moduleSerial = 0
+    private var moduleX = 0f
+    private var moduleY = 0f
+    private var moduleDownX = 0f
+    private var moduleDownY = 0f
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         // A touch that scrolls is the reader's and exact2 hears no more of it; any other goes on to exact2.
-        if (started && scrolling.touch(e)) { hold(null); return true }
+        if (started && scrolling.touch(e)) { moduleTap = 0; moduleSerial++; hold(null); return true }
         val down = e.actionMasked == MotionEvent.ACTION_DOWN
+        if (down) { moduleTap = 0; moduleSerial++; moduleDownX = e.x; moduleDownY = e.y }
+        if (e.actionMasked == MotionEvent.ACTION_MOVE && (Math.abs(e.x - moduleDownX) > slop || Math.abs(e.y - moduleDownY) > slop)) {
+            moduleTap = 0; moduleSerial++
+        }
+        if (e.actionMasked == MotionEvent.ACTION_UP && moduleTap != 0) {
+            val id = moduleTap
+            moduleTap = 0; moduleSerial++
+            hold(null)
+            if (natives?.click(id, moduleX, moduleY) == true) {
+                forward(3, e.x, e.y, e.getToolType(0), -1L)
+                return true
+            }
+        }
+        if (e.actionMasked == MotionEvent.ACTION_CANCEL || e.actionMasked == MotionEvent.ACTION_UP) { moduleTap = 0; moduleSerial++ }
         // A touch in a hosted text field's box is held for the field, and is the field's own once exact2 says the
         // field is what is under it ([Fields], LLP 1115.001 D8): exact2 hears of the focus, not of the touch.
         val hosted = fields
@@ -261,7 +282,16 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         }
         if (action == 1) Exact.touched = e.eventTime
         forward(action, e.x, e.y, e.getToolType(0), -1L)
-        if (down && started) under(e.x, e.y) {}
+        if (down && started) {
+            val serial = moduleSerial
+            under(e.x, e.y) { words ->
+                val at = 3 + 11 * words.getOrElse(1) { 0 }
+                if (serial == moduleSerial && words.size >= at + 5) {
+                    moduleTap = words[at]
+                    moduleX = Float.fromBits(words[at + 1]); moduleY = Float.fromBits(words[at + 2])
+                }
+            }
+        }
         return true
     }
 

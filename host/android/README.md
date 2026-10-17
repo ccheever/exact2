@@ -441,6 +441,15 @@ under `ExactHatch`, gives its `due` pickers titles, no weekends and a 24-hour cl
 turns on exact2's clock and stops at a tap. `bun scripts/exact.mjs hatch <word> <app>` writes the class for an app
 with an `android/` crate.
 
+An app's optional native module views (LLP 1024) live in the same `modules/android` source directory. Define
+`class exact.app.Modules : dev.exact.canvas.NativeModules` with a `modules: Map<String, NativeModule>` roster;
+the APK resolves it only at the first module view. Each module creates and updates its real Android `View`.
+`events(view, emit)` binds before its first update; call `emit("change", value)` or `emit("input", value)` with
+string values, `emit("message", payload)` with the guest message, `emit("load", "")`, or `emit("press", "")`.
+Retired bindings and events for an old node allocation are ignored. A module button receives `performClick()`
+for an unscrolled tap, at its painted position so a platform popup can anchor to it. Native drags, arbitrary
+pointer forwarding and zero-size service modules are not implemented by this button seam.
+
 ## Text fields (LLP 1115.001 D8)
 
 Each `input` of a text type and each `textarea` is the framework's own `android.widget.EditText` (`Fields.kt`), with

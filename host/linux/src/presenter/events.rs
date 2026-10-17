@@ -6,6 +6,40 @@
 use super::*;
 
 impl<D: DataSource> Presenter<D> {
+    /// A native module may only answer for the node allocation its painted view represents.
+    pub(crate) fn reader_module_event(
+        &mut self,
+        id: ViewId,
+        key: exact_kernel::NodeKey,
+        kind: &str,
+        payload: String,
+        now_ms: f64,
+    ) -> bool {
+        let valid = self
+            .host
+            .kernel()
+            .node(id)
+            .is_some_and(|node| node.node_type == NodeType::NativeView && node.key == key);
+        if !valid {
+            return false;
+        }
+        let event = match kind {
+            "press" => Event::Press,
+            "change" => Event::Change(payload.into()),
+            "input" => Event::Input(payload.into()),
+            "load" => Event::Load,
+            "message" => Event::Message(payload),
+            _ => return false,
+        };
+        if let Some(error) = self.host.dispatch_at(id, event, now_ms) {
+            eprintln!("exact: native module: {error}");
+        }
+        if let Some(error) = self.after_commit() {
+            eprintln!("exact: native module: {error}");
+        }
+        true
+    }
+
     /// A restart with carried state (a dev reload, a delivered update)
     /// replaces the tree. Focus follows the focused node's place in the
     /// runner's tree — its index among its siblings at each level, and its
