@@ -613,14 +613,8 @@ impl<'a> Checker<'a> {
                     "length" | "number" | "box-shadow" | "text-shadow" | "duration" | "easing"
                     | "type" | "family",
                 ) => {}
-                Some("icon") => {
-                    self.at(
-                        &t.name,
-                        "tamber-stage",
-                        "icon tokens (D10) arrive in stage 9",
-                    );
-                    continue;
-                }
+                // An icon under `theme` is the icons check's to refuse.
+                Some("icon") => continue,
                 Some(other) => {
                     self.at(&t.name, "tamber-syntax", format!("`{other}` is not a kind"));
                     continue;

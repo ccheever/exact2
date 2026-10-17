@@ -1,0 +1,9 @@
+tamber icons
+
+theme
+  ink = #000000
+
+icons
+  icon.reply = icon(sf "bubble.left", material "chat_bubble", svg "icons/reply.svg")
+  icon.share: icon = icon(sf "square.and.arrow.up")
+  icon.flag = icon(svg "icons/material/flag.svg")

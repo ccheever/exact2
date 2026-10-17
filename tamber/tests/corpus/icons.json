@@ -1,0 +1,17 @@
+{
+  "format": 1,
+  "digest": "38f740254c313ac5",
+  "name": "icons",
+  "tuples": 1,
+  "axes": [],
+  "dials": [],
+  "tokens": [
+    {"name": "ink", "kind": "color", "role": null, "values": ["#000000ff"], "entries": null, "dials": [], "fallback": ["#000000ff", "#000000ff"]}
+  ],
+  "exports": null,
+  "icons": [
+    {"name": "icon.reply", "sf": "bubble.left", "material": "chat_bubble", "svg": "icons/reply.svg"},
+    {"name": "icon.share", "sf": "square.and.arrow.up", "material": null, "svg": null},
+    {"name": "icon.flag", "sf": null, "material": null, "svg": "icons/material/flag.svg"}
+  ]
+}

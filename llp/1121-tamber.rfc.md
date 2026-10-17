@@ -2864,3 +2864,17 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   a family token's stack, a tuple's leading under a pin, Bold Text on a system and a named family, a
   live value edit, and the refusals); `tamber/tests/it/edit.rs` (live versus rebuild);
   `tamber/tests/it/pair.rs` (`tamber-type-fixed`); the crate's corpus `type`, `refuse-type`.
+
+### Stage 6, commit F1: the icons block (D10; stage 9's, brought forward)
+
+- **The crate** (`tamber/src/icon.rs`) reads an `icons` block's tokens, each
+  `icon(sf "…", material "…", svg "…")`: an `sf` name (lowercase, digits, dots), a `material`
+  name (lowercase, digits, underscores), an `svg` path under the app's `assets/` (no `..`, ending
+  `.svg`), each at most once, an `sf` or an `svg` among them (a `material` name alone draws
+  nothing). Its name is unique among the design's tokens and icons (`tamber-duplicate`); a kind
+  written is `icon`; no `when` (`tamber-icon-axis`); an icon under `theme` is refused, pointing at
+  `icons`. What the SVG holds and which shipped target needs which source are the build's (F2).
+- **The IR** carries `icons`, when the design has any, each its sources; `resolve` answers an
+  icon's, the same in every tuple. An operation writes no icon (the design tool edits none yet);
+  an icon's change is retained shape, so `propose` classes it `rebuild`.
+- **The wire** (`tamber/1.9`): the IR's `icons` and `resolve`'s icon tuples.

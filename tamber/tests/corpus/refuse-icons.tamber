@@ -1,0 +1,20 @@
+tamber icons
+
+axes
+  density = regular | compact
+
+theme
+  ink = #000000
+  icon.theme = icon(sf "star")
+
+icons
+  ink = icon(sf "star")
+  icon.dup = icon(sf "star")
+  icon.dup = icon(sf "star.fill")
+  icon.kind: color = icon(sf "star")
+  icon.varies = icon(sf "star")
+    when density=compact: icon(sf "star.fill")
+  icon.material = icon(material "star")
+  icon.parent = icon(svg "../star.svg")
+  icon.key = icon(png "star.png")
+  icon.bare = star

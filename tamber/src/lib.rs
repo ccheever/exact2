@@ -17,6 +17,7 @@ pub mod export;
 mod fmt;
 mod fold;
 pub mod history;
+mod icon;
 pub mod import;
 mod ir;
 mod lex;
@@ -31,6 +32,7 @@ pub use check::{Checked, MAX_TUPLES};
 pub use edit::{apply, apply_all, undo, Edited, Op, WhenLine};
 pub use fmt::format;
 pub use fold::{Folded, Half, Host};
+pub use icon::Icon;
 pub use ir::FORMAT;
 pub use measure::{Kind, Length, Value};
 pub use session::{plan, Class, Planned, Refused, Retention, Synthetic};
@@ -133,6 +135,8 @@ pub struct Folding {
     pub design: Design,
     /// Its tokens, in declaration order.
     pub tokens: Vec<Checked>,
+    /// Its icon tokens, in declaration order (D10).
+    pub icons: Vec<Icon>,
     /// How many full app tuples its axes make.
     pub tuples: usize,
     /// What the author should know and the build does not refuse: a pair
@@ -151,7 +155,29 @@ pub fn check(src: &str, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
 /// Check and fold a design already parsed, or built by a caller: the
 /// compiler's inline `theme` (LLP 1095 D4) and its synthetic tokens (D3).
 pub fn check_design(design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
-    let (tokens, tuples, dials) = check::check(&design, vocab)?;
+    let (icons, mut refused) = icon::check(&design.icons, &design.tokens);
+    // An icon under `theme` is refused by the icons check alone.
+    let stripped;
+    let colours = if design.tokens.iter().any(icon::misplaced) {
+        let mut d = design.clone();
+        d.tokens.retain(|t| !icon::misplaced(t));
+        stripped = d;
+        &stripped
+    } else {
+        &design
+    };
+    let (tokens, tuples, dials) = match check::check(colours, vocab) {
+        Ok(checked) if refused.is_empty() => checked,
+        Ok(_) => {
+            refused.sort_by_key(|d| (d.line, d.col));
+            return Err(refused);
+        }
+        Err(mut errors) => {
+            errors.append(&mut refused);
+            errors.sort_by_key(|d| (d.line, d.col));
+            return Err(errors);
+        }
+    };
     let fallbacks = tokens
         .iter()
         .map(|t| match t.values.first()? {
@@ -164,6 +190,7 @@ pub fn check_design(design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagno
     Ok(Folding {
         design,
         tokens,
+        icons,
         tuples,
         warnings,
         fallbacks,

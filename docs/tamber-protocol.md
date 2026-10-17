@@ -58,6 +58,8 @@ on macOS and Linux.
   `type` and `family` kinds and `resolve`'s type and family tuples. A transaction that changes the
   longhands a type token writes, or a type token's or family token's family, is `rebuild`; one that
   changes only a type token's style, weight, size or line height is `live`.
+  Stage 6 F added under the same version: the IR's `icons` and `resolve`'s icon tuples. A
+  transaction or `propose` that changes an icon is `rebuild`; an operation does not write one.
 
 ## Where it runs
 
@@ -178,7 +180,9 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
   - the tokens, each with its `kind` (`color`, `length` or `number`, *1.5*: written, or inferred from
     its value; `box-shadow` or `text-shadow`, *1.8*, always written; `duration` or `easing`, *1.9*, written or inferred; `type` or `family`, *1.9*, written or inferred), its folded `values` per tuple, `entries`, the `dials` it depends on and its
     `fallback` (a length's or number's is its default tuple's value, twice);
-  - `exports`.
+  - `exports`;
+  - `icons` (*1.9*), when the design has any: each `{name, sf, material, svg}`, its sources as
+    written, null where unwritten (D10).
 
   The IR has no `when` lines. A token's source lines come from `explain`.
 - `files`;
@@ -217,6 +221,7 @@ tuple:
 - **A type** (*1.9*) is `{modes, value, kind: "type", style, weight, size, leading, family}`: each
   longhand as the token writes it, null for one it leaves unsaid (`size` always written). **A
   family** is `{modes, value, kind: "family", family}`, the stack as CSS writes it.
+- **An icon** (*1.9*) is `{modes, kind: "icon", sf, material, svg}`, the same in every tuple.
 - **A shadow** (*1.8*) is `{modes, value, kind: "box-shadow" | "text-shadow", shadows}`: each shadow
   `{inset, lengths, color}`, its lengths in px (offset x, offset y, then blur and spread when
   written) and its colour's folded CSS (null for a text shadow's `currentcolor`).

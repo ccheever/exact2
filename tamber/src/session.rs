@@ -351,6 +351,13 @@ fn changed_tokens(before: Option<&Folding>, after: Option<&Folding>) -> Vec<Stri
 /// (one naming a custom property); not another value.
 fn shape(f: &Folding, retention: Option<&Retention>, vocab: &Vocab) -> String {
     let mut s = String::new();
+    // An icon's sources are the plan's table and the asset set (D10).
+    for i in &f.icons {
+        s.push_str(&format!(
+            "icon {} {:?} {:?} {:?}\n",
+            i.name, i.sf, i.material, i.svg
+        ));
+    }
     for a in &f.design.axes {
         s.push_str(&format!(
             "axis {} {:?} {}\n",

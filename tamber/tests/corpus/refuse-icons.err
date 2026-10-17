@@ -1,0 +1,9 @@
+8:3: tamber-kind: `icon.theme`: an icon token is declared under `icons`
+11:3: tamber-duplicate: `ink` is declared twice
+13:3: tamber-duplicate: `icon.dup` is declared twice
+14:3: tamber-kind: `icon.kind`: an `icons` block holds icon tokens
+15:3: tamber-icon-axis: `icon.varies`: an icon has one source per platform, so no `when` (vary the row's symbol instead)
+17:19: tamber-kind: an icon has an `sf` or an `svg` source: a `material` name is an annotation, which no host draws
+18:17: tamber-kind: `../star.svg`: an SVG is a `.svg` file under the app's `assets/`, by its path there (`icons/reply.svg`)
+19:14: tamber-kind: `png`: an icon's sources are `sf`, `material` and `svg`
+20:15: tamber-kind: an icon is `icon(sf "…", material "…", svg "…")`
