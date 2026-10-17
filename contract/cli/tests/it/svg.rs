@@ -219,6 +219,94 @@ fn attribute_lengths_refuse_deferred_units_and_functions() {
 }
 
 #[test]
+fn attribute_lengths_keep_split_tokens() {
+    let mut failures = Vec::new();
+    for (value, expected) in [
+        ("`1e${n}px`", "1e2px"),
+        ("`2e${n}`", "2e2"),
+        ("`2E${n}`", "2E2"),
+        ("`2p${\"x\"}`", "2px"),
+        ("`${\"2p\"}x`", "2px"),
+        ("`2p${suffix}`", "2px"),
+        ("`${prefix}x`", "2px"),
+        ("(\"2p\" + \"x\")", "2px"),
+        ("(\"2\" + \"p\" + \"x\")", "2px"),
+    ] {
+        let src = format!("component A\n  state n = 2\n  state prefix = \"2p\"\n  state suffix = \"x\"\n  view\n    svg\n      line testId=\"line\" x1={value}\n");
+        if let Err(e) = contract::compile(&src) {
+            failures.push(format!("{value}: {e}"));
+            continue;
+        }
+        let r = boot(&src);
+        let k = r.kernel();
+        let line = k.node_by_key(k.find_by_test_id("line")[0]).unwrap();
+        assert_eq!(line.props.str(PropId::X1), Some(expected));
+        assert!(exact_kernel::svg::Length::parse(expected).is_some());
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn attribute_lengths_check_match_arms() {
+    for value in [
+        "match choice { case some(v) => \"2em\", case none => \"0\" }",
+        "match choice { case some(v) => \"0\", case none => \"2ex\" }",
+    ] {
+        let src = format!("component A\n  state choice: option<number> = some(1)\n  view\n    svg\n      line x1=({value})\n");
+        assert!(refused(&src).contains("lower-svg-length"));
+    }
+}
+
+#[test]
+fn attribute_lengths_check_shared_derive_bodies() {
+    let src = "component A\n  state suffix = \"px\"\n  view\n    svg\n      Child(suffix=suffix)\ncomponent Child\n  props\n    suffix: string\n  derive unit = suffix\n  derive twice = (unit == unit ? \"2em\" : \"1px\")\n  view\n    line x1=twice\n";
+    assert!(refused(src).contains("lower-svg-length"));
+}
+
+#[test]
+fn attribute_lengths_check_concatenated_literals() {
+    let mut failures = Vec::new();
+    for value in [
+        "(\"2\" + \"em\")",
+        "(\"2e\" + \"m\")",
+        "(\"2\" + \"e\" + \"x\")",
+        "(\"cal\" + \"c(1px)\")",
+        "`2e${\"m\"}`",
+        "`${\"2e\"}x`",
+    ] {
+        let src = format!("component A\n  view\n    svg\n      line x1={value}\n");
+        match contract::compile(&src) {
+            Ok(_) => failures.push(format!("compiled: {value}")),
+            Err(e) => assert!(e.to_string().contains("lower-svg-length"), "{value}: {e}"),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn attribute_lengths_preserve_marker_keywords() {
+    let mut failures = Vec::new();
+    for (attr, words) in [
+        ("refX", ["left", "center", "right"]),
+        ("refY", ["top", "center", "bottom"]),
+    ] {
+        for word in words {
+            for value in [
+                format!("\"{word}\""),
+                format!("(\"\" + (on ? \"{word}\" : \"{word}\"))"),
+                format!("`${{on ? \"{word}\" : \"{word}\"}}`"),
+            ] {
+                let src = format!("component A\n  state on = true\n  view\n    svg\n      marker {attr}={value}\n");
+                if let Err(e) = contract::compile(&src) {
+                    failures.push(format!("{attr}={value}: {e}"));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
 fn refusals_are_named() {
     let svg = |body: &str| {
         format!("component A\n  state n = 0\n  action go\n    n = 1\n  view\n    svg width=10 height=10\n      {body}\n")

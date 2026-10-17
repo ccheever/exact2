@@ -10,7 +10,7 @@
 //! and handles no events (its `svg` is the one hit and accessibility box).
 
 use crate::{err, tags, LowerError, Lowerer};
-use contract_syntax::{Attr, Expr, File, Span, TemplatePart};
+use contract_syntax::{Attr, BinOp, Expr, File, Span, TemplatePart};
 use exact_motion::animation::LONGHANDS;
 use exact_motion::{Animation, Animations, Keyframes, Property};
 
@@ -924,29 +924,100 @@ fn exit_ends(value: &Expr) -> Result<(), LowerError> {
     }
 }
 
-// These props bypass CSS length resolution. Check literal text even inside
-// templates and conditional branches; a bound value still needs a runtime check.
-fn check_length(name: &str, value: &Expr) -> Result<(), LowerError> {
+// These props bypass CSS length resolution. A NUL marks unknown text so
+// interpolation and concatenation cannot turn a partial token into a refusal.
+fn length_text(value: &Expr) -> String {
     match value {
-        Expr::Str(text, span) => check_length_text(name, text, *span),
-        Expr::Template(parts, span) => {
-            for part in parts {
-                match part {
-                    TemplatePart::Text(text) => check_length_text(name, text, *span)?,
-                    TemplatePart::Expr(value) => check_length(name, value)?,
+        Expr::Str(text, _) => text.clone(),
+        Expr::Number(n, _) => exact_num::Shortest(*n).to_string(),
+        Expr::Template(parts, _) => parts
+            .iter()
+            .map(|part| match part {
+                TemplatePart::Text(text) => text.clone(),
+                TemplatePart::Expr(value) => length_text(value),
+            })
+            .collect(),
+        Expr::Binary(BinOp::Add, a, b, _) => crate::keyframes::constant(value, &[])
+            .unwrap_or_else(|| length_text(a) + &length_text(b)),
+        Expr::Let { body, .. } | Expr::Typed(body, ..) => length_text(body),
+        _ => "\0".into(),
+    }
+}
+
+fn check_length(name: &str, value: &Expr) -> Result<(), LowerError> {
+    check_length_fragment(name, value, false, false)
+}
+
+fn check_length_fragment(
+    name: &str,
+    value: &Expr,
+    open_start: bool,
+    open_end: bool,
+) -> Result<(), LowerError> {
+    let mut text = length_text(value);
+    if open_start {
+        text.insert(0, '\0');
+    }
+    if open_end {
+        text.push('\0');
+    }
+    check_length_text(name, &text, value.span())?;
+    check_length_choices(name, value, open_start, open_end)
+}
+
+// Check each possible result without enumerating combinations of independent
+// choices. In a concatenation, a branch's boundary tokens may be incomplete.
+fn check_length_choices(
+    name: &str,
+    value: &Expr,
+    open_start: bool,
+    open_end: bool,
+) -> Result<(), LowerError> {
+    match value {
+        Expr::Ternary(_, yes, no, _)
+        | Expr::Match {
+            some: yes,
+            none: no,
+            ..
+        } => {
+            check_length_fragment(name, yes, open_start, open_end)?;
+            check_length_fragment(name, no, open_start, open_end)
+        }
+        Expr::Let { body, .. } | Expr::Typed(body, ..) => {
+            check_length_choices(name, body, open_start, open_end)
+        }
+        Expr::Template(parts, _) => {
+            for (i, part) in parts.iter().enumerate() {
+                if let TemplatePart::Expr(value) = part {
+                    check_length_choices(
+                        name,
+                        value,
+                        open_start || i > 0,
+                        open_end || i + 1 < parts.len(),
+                    )?;
                 }
             }
             Ok(())
         }
-        Expr::Ternary(_, yes, no, _) => {
-            check_length(name, yes)?;
-            check_length(name, no)
+        Expr::Binary(BinOp::Add, a, b, _) => {
+            check_length_choices(name, a, open_start, true)?;
+            check_length_choices(name, b, true, open_end)
         }
         _ => Ok(()),
     }
 }
 
 fn check_length_text(name: &str, text: &str, span: Span) -> Result<(), LowerError> {
+    use exact_kernel::svg::Length;
+
+    let keywords: &[&str] = match name {
+        "refX" => &["left", "center", "right"],
+        "refY" => &["top", "center", "bottom"],
+        _ => &[],
+    };
+    if keywords.contains(&text.trim()) {
+        return Ok(());
+    }
     let refuse = |value: &str| {
         err(
             "lower-svg-length",
@@ -966,9 +1037,21 @@ fn check_length_text(name: &str, text: &str, span: Span) -> Result<(), LowerErro
             .trim_end_matches(|c: char| c.is_ascii_alphabetic())
             .len();
         let unit = &word[start..];
-        // Probe the kernel's unit grammar, including a template's `${n}px`
-        // suffix. Scientific notation's exponent stays in the numeric prefix.
-        if !unit.is_empty() && exact_kernel::svg::Length::parse(&format!("1{unit}")).is_none() {
+        if matches!(unit, "e" | "E") && exact_num::parse_f64(&word[..start]).is_ok() {
+            continue;
+        }
+        // `${prefix}x` may finish `px`, but no admitted unit ends in `em`.
+        // A token ending at an unknown interpolation has no known suffix.
+        if start > 0
+            && word.as_bytes()[start - 1] == 0
+            && (Length::ABSOLUTE_UNITS
+                .iter()
+                .any(|(known, _)| known.ends_with(&unit.to_ascii_lowercase()))
+                || keywords.iter().any(|known| known.ends_with(unit)))
+        {
+            continue;
+        }
+        if !unit.is_empty() && Length::parse(&format!("1{unit}")).is_none() {
             return refuse(unit);
         }
     }

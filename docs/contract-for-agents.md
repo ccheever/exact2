@@ -2269,8 +2269,11 @@ SVG attribute-only lengths accept user units (unitless), `px`, `in`, `cm`, `mm`,
 `fx`/`fy`/`fr`, marker `markerWidth`/`markerHeight`/`refX`/`refY`, and each item
 of SVG text/tspan `x`/`y`/`dx`/`dy`. Relative units and function text such as
 `calc()`, `env()` and `var()` are refused in literals and literal template parts
-(LLP 1055.000 D4). Bound values must use the same units; they are not checked
-at compile time.
+(LLP 1055.000 D4). Literal concatenations are checked together; an incomplete
+fragment that could finish an accepted unit is left to runtime. Literal choices in
+conditionals, matches and inlined derives are checked too. Bound values must use
+the same units. Marker `refX` also accepts `left`/`center`/`right`, and `refY`
+accepts `top`/`center`/`bottom`; native hosts currently place these keywords at 0.
 `foreignObject` compiles and renders on the web; native hosts refuse it at run
 time, so position a box over the `svg` there. Canvas 2D calls
 live in a data module, and GPU/game surfaces in their optional module. A
