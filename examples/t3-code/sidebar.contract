@@ -71,15 +71,20 @@ component Sidebar
     // The list's scroll offset, which a row-action sweep clamps the pointer to.
     scrollY: number
   // The row a right-click named, for its context popover (ThreadMenu, DraftMenu): the row's `contextmenu` runs first.
+  // `target` is what the press landed on: the row, or a focusable control in it (Unpin, Snooze, Discard draft), which
+  // answers the press itself and opens the same popover, as Chromium focuses the control and its event reaches the row.
   state menuThread = ""
   state menuDraft = ""
-  action threadMenu(id: string)
+  action threadMenu(id: string, target: string)
     menuThread = id
     // Chromium focuses the reference's row on a right press (Sidebar.tsx:1759-1760, 1924-1925). Writing it is the
     // author's choice, and LLP 1115.000 D7 keeps a focus an action set over D7.1's default.
-    focus(`thread-${id}`)
-  action draftMenu(id: string)
+    focus(target)
+  action draftMenu(id: string, target: string)
     menuDraft = id
+    // Chromium focuses the reference's draft row on a right press (Sidebar.tsx:872-873). Writing it is the
+    // author's choice, and LLP 1115.000 D7 keeps a focus an action set over D7.1's default.
+    focus(target)
   view
     column width=width height="100%" flex-shrink=0 box-sizing="border-box" background-color=(data.look.themed ? data.look.sidebar : "light-dark(#f9f9f9, #030303)") border-right-style="solid" border-right-width=1 border-color=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #141414)") position="relative" testId="sidebar" id="sidebar" data-paint=`${(data.look.themed ? "sidebar" : "")} ${(data.look.themed ? "border" : "")}` data-pick=((data.look.themed ? "sidebar" : "") != "" ? (data.look.themed ? "sidebar" : "") : ((data.look.themed ? "border" : "") != "" ? (data.look.themed ? "border" : "") : ""))
       ThreadMenu(threads=data.threads, owner=menuThread, run=run)
