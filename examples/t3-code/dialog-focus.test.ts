@@ -116,7 +116,7 @@ describe('dialog focus lifecycle uses the actual previous focus', () => {
     ['PR checkout', 'app-overlays.contract', 'pr-checkout-dialog', 'shell.prCheckout.open', 'R9CheckoutDialog', 'r9-connect.contract', '"pr-checkout-dialog"', 'pr-checkout-input', 'git-pr-close'],
     ['Device setup', 'app-overlays.contract', 'device-setup', 'shell.panel.deviceSetup', 'R4DeviceDialog', 'r4-surfaces.contract', '"device-setup"', 'device-setup-step-0', 'surface-setup-close'],
     ['Legacy rename', 'legacy-sidebar.contract', 'legacy-rename-project', '(data.legacy.dialog == "rename-project")', 'LegacyDialogFrame', 'legacy-sidebar.contract', 'label', 'legacy-project-title', 'legacy-dialog-close'],
-    ['Legacy grouping', 'legacy-sidebar.contract', 'legacy-grouping', '(data.legacy.dialog == "grouping")', 'LegacyDialogFrame', 'legacy-sidebar.contract', 'label', 'legacy-grouping-cancel', 'legacy-dialog-close'],
+    ['Legacy grouping', 'legacy-sidebar.contract', 'legacy-grouping', '(data.legacy.dialog == "grouping")', 'LegacyDialogFrame', 'legacy-sidebar.contract', 'label', 'legacy-grouping-rule', 'legacy-dialog-close'],
     ['Welcome', 'app-overlays.contract', 'welcome-dialog', 'welcome.show', 'WelcomeWizard', 'pages-welcome.contract', '"welcome-dialog"', 'welcome-step-1', 'welcomeFinish'],
     ['ChatGPT plan', 'app-settings.contract', 'chatgpt-plan-dialog', '(data.chatgptPlan.length > 0)', 'ChatGptPlanDialog', 'codex-setup.contract', '"chatgpt-plan-dialog"', 'chatgpt-plan-usage-button', 'setup:chatgpt-plan-ack'],
     ['Pairing reveal', 'connections-network-dialogs.contract', 'pairing-reveal-dialog', 'net.reveal.open', 'PairingRevealDialog', 'connections-network-dialogs.contract', '"pairing-reveal-dialog"', 'pairing-reveal-value', 'pairing-reveal-close'],
