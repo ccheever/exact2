@@ -747,7 +747,7 @@ import UIKit
 
 /// When the hatches connect (\`${scope}.isNew\`), and when ${scope === 'app' ? 'a fact changes' : 'its size or safe area changes'}.
 func ${scope}Hatch(_ ${scope}: ${type}) {
-    ${scope === 'app' ? '// app.owns(appearance: "what you set app-wide")' : '// window.owns(recognizer: added, "what it does", surface: true)'}
+    ${scope === 'app' ? '// app.owns(appearance: "what you set app-wide")\n    // The root node\'s data-* words, each declared in app.json `data`: app.data[.booted] for data-booted.' : '// window.owns(recognizer: added, "what it does", surface: true)'}
 }
 
 /// ${scope === 'app' ? 'The session is ending or reloading' : 'The session is leaving the window'}: undo what the hatch set.
@@ -792,7 +792,7 @@ export function elementEnded(e) {
       mark(main, '// exact:hatches', `import * as ${camel}Hatch from './${file}';\nhatches[${JSON.stringify(word)}] = ${camel}Hatch;`, 'import it and call its element and elementEnded from yours');
     } else {
       write(resolve(mod, file), `// The ${scope} hatch on the web (LLP 1075.003.000.001 §2.1). Yours to edit.
-// ${scope === 'app' ? 'The page is the app\'s own: its facts (`a.prefersColorScheme`, `a.visibilityState`, …) are the ones Contract sees.' : 'The page\'s window; `w.frame` is its inner size. Reach the global as `globalThis` in a file that exports `window`.'}
+// ${scope === 'app' ? 'The page is the app\'s own: its facts (`a.prefersColorScheme`, `a.visibilityState`, …) are the ones Contract sees;\n// `a.data` holds the root node\'s data-* words, each declared in app.json `data`.' :'The page\'s window; `w.frame` is its inner size. Reach the global as `globalThis` in a file that exports `window`.'}
 
 /** When the page module connects (\`isNew\`), and when ${scope === 'app' ? 'a fact changes' : 'its size changes'}. */
 export function built(${scope[0]}) {
@@ -944,8 +944,15 @@ class Hatches : ExactHatches() {
     else manifest.hatches = { ...(had ?? {}), [word]: [...new Set([...(had?.[word] ?? []), ...platforms])] };
     writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
   }
+  // The app hatch reads state only through the root's data-* words, and a word app.json `data` lacks fails the bake.
+  const declare = scope === 'app' && !Array.isArray(manifest.data);
+  if (declare) {
+    manifest.data = [];
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+  }
   say(`${scope === 'element' ? `hatch="${word}"` : `the ${scope} hatch`} for ${platforms.join(', ')}${wrote.length ? `:\n  wrote ${wrote.map(f => f.slice(dir.length + 1)).join('\n  wrote ')}` : ': its files were already there'}`);
   if (scope === 'element') say(`  app.json hatches: ${JSON.stringify(manifest.hatches)}\n  mark a node in app.contract: column hatch="${word}"`);
+  if (scope === 'app') say(`  app.json data: ${JSON.stringify(manifest.data)}${declare ? ' (added)' : ''}: name each data-* word on the root that the hatch reads ("booted" for data-booted); Swift reads it as app.data[.booted]`);
   for (const line of todo) say(`  to do, in ${line}`);
   return { wrote, todo, platforms };
 }
