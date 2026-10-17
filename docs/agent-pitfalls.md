@@ -458,8 +458,8 @@ what the screenshot shows. (euxy port against its Expo original, judged screen b
 screen, 2026-10-16.)
 
 - **Compare each screen with its reference, not by eye:** `"screenshot .exact/x.png compare
-  ref/x.png"` names the box that grew, a card's size in the reference and a wrong colour, by
-  node and source line ([iOS driving](recipes/ios-driving.md)).
+  ref/x.png"` names each differing region's node and source line, a box's size measured in
+  both pictures, and a wrong colour ([iOS driving](recipes/ios-driving.md)).
 
 - **Rows with a `minHeight`, or boxes with a `height` and padding, come out taller.**
   `padding="13px 16px" min-height=24` made

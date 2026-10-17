@@ -30,15 +30,14 @@ const read = (cmd, args, opts = {}) => { useXcode(); return spawnSync(cmd, args,
 
 /** A window capture the app drew (`path`, in `r`'s scale) with what other processes draw on the display put in from
  *  the simulator's own screenshot: the software keyboard, from its top (`r.keyboard.windowTop`) down (round 9: "blank
- *  keyboard region"), the status bar, its top `r.statusBar` points (then `statusBar: true`; `statusBarHeight` either
- *  way), and the home indicator, its bottom `r.homeIndicator` points (then `homeIndicatorDrawn`) (the euxy port, FRICTION 5: a window capture
+ *  keyboard region"), and the status bar, its top `r.statusBar` points (the euxy port, FRICTION 5: a window capture
  *  then compares with a `simctl io` reference, as the device shows it — `xcrun simctl status_bar <udid> override
  *  --time 9:41` sets what it shows). Only those rows are taken, so the picture stays the app's; what could not be
  *  done is said in `note`, and the picture is left as it was. Returns `r`. */
 export function withDisplay(r, path, udid) {
-  const top = r.keyboard?.windowTop, bar = r.statusBar, home = r.homeIndicator, scale = r.scale, keyboard = top != null;
+  const top = r.keyboard?.windowTop, bar = r.statusBar, scale = r.scale, keyboard = top != null;
   const fail = (why) => {
-    if (bar > 0) { r.statusBar = false; r.statusBarHeight = bar; }
+    if (bar > 0) r.statusBar = false;
     r.note = r.keyboard?.visible ? `the software keyboard is up: it is not in the capture (${why}), and the app above it may be shortened (state shows keyboard.top)` : `the status bar is not in the capture (${why})`;
     return r;
   };
@@ -52,8 +51,7 @@ export function withDisplay(r, path, udid) {
     const app = decodePng(readFileSync(path)), display = decodePng(readFileSync(shot));
     if (app.width !== display.width || app.height !== display.height) return fail(`the display is ${display.width}x${display.height}, the capture ${app.width}x${app.height}`);
     const row = (points) => Math.max(0, Math.min(app.height, Math.round(points * scale))) * app.width * 4;
-    if (bar > 0) { app.data.set(display.data.subarray(0, row(bar)), 0); r.statusBar = true; r.statusBarHeight = bar; }
-    if (home > 0 && !keyboard) { app.data.set(display.data.subarray(row(r.h - home)), row(r.h - home)); r.homeIndicatorDrawn = true; }
+    if (bar > 0) { app.data.set(display.data.subarray(0, row(bar)), 0); r.statusBar = true; }
     if (keyboard) app.data.set(display.data.subarray(row(top)), row(top));
     writeFileSync(path, encodePng(app));
     if (keyboard) {

@@ -185,127 +185,86 @@ const compared = async (ref, screen, w = 120, h = 200, options) => {
   const A = grid(picture(w, h, ref), w, h), B = grid(picture(w, h, screen), w, h);
   return { A, B, result: compareGrids(A, B, options) };
 };
-const reported = async (result, nodes, A, B) => (await import('./agent-compare.mjs')).report(result, nodes, { reference: 'r', diff: 'd', A, B });
+const reported = async (A, B, result, nodes = []) => {
+  const { report, boxDiffs } = await import('./agent-compare.mjs');
+  return report(result, nodes, { reference: 'r', diff: 'd', boxes: boxDiffs(A, B, result, nodes) });
+};
 const page = { id: 1, type: 'View', depth: 0, x: 0, y: 0, w: 120, h: 200 };
+const box = (r) => [r.screen.x, r.screen.y, r.screen.w, r.screen.h];
 
-test('compare: content moved down is one shift, in the box that grew, with its height measured in the reference', async () => {
-  // A 20-pt key at y=30 grows to 28: the bars below it sit 8 pt lower.
-  const { A, B, result } = await compared([[10, 30, 30, 20], [10, 90, 100, 6], [10, 130, 60, 6]], [[10, 30, 30, 28], [10, 98, 100, 6], [10, 138, 60, 6]]);
-  assert.deepEqual(result.changes.map((c) => c.to - c.from), [8]);
-  assert.equal(result.regions.length, 0);
-  assert.ok(result.alignedMatch > 0.999 && result.match < 0.99, `${result.match} → ${result.alignedMatch}`);
-  const text = await reported(result, [{ id: 2, type: 'View', testId: 'key', depth: 3, x: 10, y: 30, w: 30, h: 28 }, page], A, B);
-  assert.match(text, /shift {2}from y≈\d+ down: 8 pt lower than the reference; key \[10,30 30×28\] is 30×28, 30×20 in the reference/);
+test('compare: what one picture has and the other lacks is a region, both ways', async () => {
+  // Content only the screen has.
+  const added = await compared([], [[30, 60, 60, 60]]);
+  assert.deepEqual(added.result.regions.map(box), [[30, 60, 60, 60]]);
+  // Four bars in the reference, three here: the fourth is a region, with the reference's colour.
+  const bars = (n) => Array.from({ length: n }, (_, k) => [10, 30 + 30 * k, 100, 10]);
+  const deleted = await compared(bars(4), bars(3));
+  assert.deepEqual(deleted.result.regions.map(box), [[10, 120, 100, 10]]);
+  const text = await reported(deleted.A, deleted.B, deleted.result, [page]);
+  assert.match(text, /1 \[10,120 100×10\] \(1000 pt²\) under View \[0,0 120×200\]: here #fff, in the reference #222/);
+  assert.doesNotMatch(text, /sits/);
 });
 
-test('compare: a gap that widened is named by the boxes either side; a page is never given a size it was not measured at', async () => {
-  const { A, B, result } = await compared([[10, 30, 50, 10], [10, 60, 50, 10]], [[10, 30, 50, 10], [10, 66, 50, 10]]);
-  const text = await reported(result, [page, { id: 2, type: 'Text', text: 'Note', depth: 2, x: 10, y: 30, w: 50, h: 10 }, { id: 3, type: 'Text', text: 'Track', depth: 2, x: 10, y: 66, w: 50, h: 10 }], A, B);
-  assert.match(text, /the space between Text "Note" \[10,30 50×10\] and Text "Track" \[10,66 50×10\] is 6 pt wider than the reference's/);
-  // The children unknown: the page holds the change, but its size in the reference is not what it is less the move.
-  const alone = await reported(result, [page], A, B);
-  assert.doesNotMatch(alone, /120×194|in the reference \(/);
-  assert.match(alone, /6 pt lower than the reference/);
-});
-
-test('compare: a whole screen moved is a shift from the top, never "nothing differs"', async () => {
-  const { A, B, result } = await compared([[10, 30, 40, 10], [10, 70, 60, 10], [10, 110, 30, 10]], [[10, 38, 40, 10], [10, 78, 60, 10], [10, 118, 30, 10]]);
-  const text = await reported(result, [], A, B);
-  assert.match(text, /shift {2}from the top down: 8 pt lower than the reference/);
-  assert.doesNotMatch(text, /nothing differs/);
-});
-
-test('compare: content only the screen has is a region, whatever the alignment could skip', async () => {
-  const { A, B, result } = await compared([], [[30, 60, 60, 60]]);
-  assert.equal(result.changes.filter((c) => Math.abs(c.to - c.from) >= 2).length, 0);
-  assert.ok(result.alignedMatch < 0.9);
-  assert.deepEqual([result.regions[0].screen.x, result.regions[0].screen.y, result.regions[0].screen.w, result.regions[0].screen.h], [30, 60, 60, 60]);
-  // Between content that did move: the new row is a region beside the shift.
-  const moved = await compared([[10, 30, 100, 6], [10, 60, 100, 6]], [[10, 30, 100, 6], [40, 50, 20, 10], [10, 80, 100, 6]]);
-  // (Its edge cells, a point from what matched, are within the anti-aliasing tolerance.)
-  assert.ok(moved.result.regions.some((r) => r.screen.x <= 41 && r.screen.x + r.screen.w >= 59 && r.screen.y <= 51 && r.screen.y + r.screen.h >= 59), JSON.stringify(moved.result.regions.map((r) => r.screen)));
-});
-
-test('compare: a recoloured row among look-alikes is a colour, not the screen moving', async () => {
+test('compare: a recoloured row among look-alikes is its colours, with no hint', async () => {
   const bars = (first) => [0, 1, 2, 3, 4].map((k) => [10, 30 + 20 * k, 100, 10, k ? [0, 0, 0] : first]);
   const { A, B, result } = await compared(bars([0, 0, 0]), bars([255, 0, 0]));
-  const text = await reported(result, [page], A, B);
-  assert.doesNotMatch(text, /shift/);
-  assert.match(text, /differs \(\d+ pt²\): here #f00, in the reference #000; cause unclear/);
+  const text = await reported(A, B, result);
+  assert.match(text, /1 \[10,30 100×10\] \(1000 pt²\): here #f00, in the reference #000$/m);
 });
 
-test('compare: a box that grew only downward is its measured height, never a sideways move', async () => {
-  const { boxDiffs } = await import('./agent-compare.mjs');
-  const { A, B, result } = await compared([[10, 40, 30, 16]], [[10, 40, 30, 24]]);
-  const box = { id: 2, type: 'View', testId: 'box', depth: 1, x: 10, y: 40, w: 30, h: 24 };
-  const text = await reported(result, [page, box], A, B);
-  // Its bottom edge moved: a shift whose box was measured, never a sideways run or a screen narrower.
-  assert.doesNotMatch(text, /right of|left of|narrower|wider/);
-  assert.match(text, /box \[10,40 30×24\] is 30×24, 30×16 in the reference/);
-  const [found] = boxDiffs(A, B, result, [page, box]);
-  assert.deepEqual([found.node.testId, found.ref.w, found.ref.h], ['box', 30, 16]);
+test('compare: content moved is a region with a hint where the move is plain; none where it is not', async () => {
+  // A row of uneven marks 4 pt right of the reference's (evenly spaced marks would match at several offsets: no hint).
+  const marks = (dx) => [[20, 6], [30, 4], [44, 8], [60, 5]].map(([x, mw]) => [x + dx, 40, mw, 10]);
+  const moved = await compared(marks(0), marks(4));
+  assert.equal(moved.result.regions.length, 1);
+  assert.deepEqual(moved.result.regions[0].hint, { axis: 'x', d: -4 });
+  assert.match(await reported(moved.A, moved.B, moved.result), /its content sits 4 pt left in the reference/);
+  // A block 8 pt lower here.
+  const lower = await compared([[10, 30, 40, 10], [10, 50, 60, 10]], [[10, 38, 40, 10], [10, 58, 60, 10]]);
+  assert.match(await reported(lower.A, lower.B, lower.result), /its content sits 8 pt higher in the reference/);
+  // A box only here, and nothing like it nearby: no hint.
+  assert.equal((await compared([], [[30, 60, 20, 20]])).result.regions[0].hint, null);
 });
 
-test('compare: a band moved sideways is a horizontal run; a recoloured box is a region with both colours', async () => {
-  const { A, B, result } = await compared([[20, 40, 8, 12], [40, 40, 8, 12], [60, 120, 30, 20, [0, 0, 0]]], [[24, 40, 8, 12], [44, 40, 8, 12], [60, 120, 30, 20, [255, 0, 0]]]);
-  assert.equal(result.changes.length, 0);
-  const moved = result.regions.find((r) => r.screen.y < 60), recoloured = result.regions.find((r) => r.screen.y > 100);
-  assert.deepEqual(moved.runs.map((r) => r.d), [4]);
-  assert.ok(moved.explained > 0.9);
-  assert.deepEqual([recoloured.screen.x, recoloured.screen.y, recoloured.screen.w, recoloured.screen.h], [60, 120, 30, 20]);
-  const text = await reported(result, [], A, B);
-  assert.match(text, /x \d+–\d+: 4 pt right of the reference/);
-  assert.match(text, /differs \(600 pt²\): here #f00, in the reference #000/);
+test('compare: a box is given at its size only where both pictures show all its edges, both sizes measured', async () => {
+  // A 30×16 box grows to 40×24; nothing else moves.
+  const { A, B, result } = await compared([[10, 40, 30, 16]], [[10, 40, 40, 24]]);
+  const node = { id: 2, type: 'View', testId: 'box', depth: 1, x: 10, y: 40, w: 40, h: 24 };
+  const text = await reported(A, B, result, [page, node]);
+  assert.match(text, /box {4}box \[10,40 40×24\]: 30×16 at 10,40 in the reference/);
+  assert.doesNotMatch(text, /40×16|30×24/);
+  // A card centred here, at the left with its own width in the reference.
+  const card = await compared([[10, 50, 100, 60, [30, 30, 30]]], [[20, 50, 90, 60, [30, 30, 30]]]);
+  assert.match(await reported(card.A, card.B, card.result, [{ type: 'View', testId: 'card', depth: 2, x: 20, y: 50, w: 90, h: 60 }]), /card \[20,50 90×60\]: 100×60 at 10,50 in the reference/);
+  // A node with no visible edge (text on white) is never sized.
+  const text2 = await compared([[10, 40, 30, 6]], [[10, 40, 40, 6]]);
+  assert.doesNotMatch(await reported(text2.A, text2.B, text2.result, [{ type: 'View', depth: 1, x: 10, y: 36, w: 50, h: 14 }]), /box {4}/);
 });
 
-test('compare: edges a device pixel apart match; a transparent reference is what a viewer shows; the status bar is left out', async () => {
+test('compare: a region is named by the innermost node under its centre, a shown screen\'s before a covered one\'s', async () => {
+  const { under } = await import('./agent-compare.mjs');
+  const nodes = [page, { id: 2, type: 'View', testId: 'card', depth: 1, x: 10, y: 10, w: 100, h: 60 }, { id: 3, type: 'Text', text: 'Title', depth: 2, x: 20, y: 20, w: 40, h: 10 },
+    { id: 4, type: 'View', testId: 'row', depth: 5, x: 0, y: 100, w: 120, h: 40, inactive: true }, { id: 5, type: 'View', testId: 'sheet', depth: 1, x: 0, y: 90, w: 120, h: 110 }];
+  assert.deepEqual(under(nodes, { x: 30, y: 22, w: 10, h: 6 }).map((n) => n.id), [3]);
+  assert.deepEqual(under(nodes, { x: 70, y: 40, w: 10, h: 6 }).map((n) => n.id), [2]);
+  assert.deepEqual(under(nodes, { x: 50, y: 110, w: 10, h: 10 }).map((n) => n.id), [5]);
+});
+
+test('compare: anti-aliasing and transparency are what a viewer sees; rows not scored are not', async () => {
   const { grid, compareGrids } = await import('./agent-compare.mjs');
   // At 3 pixels a point, a box one pixel wider and lower: anti-aliasing, not a difference.
   const A = grid(picture(100, 100, [[10, 10, 30, 30]], 3), 100, 100), B = grid(picture(100, 100, [[10 + 1 / 3, 10 + 1 / 3, 30, 30]], 3), 100, 100);
-  const same = compareGrids(A, B);
-  assert.equal(same.match, 1);
-  assert.equal(same.regions.length, 0);
+  assert.equal(compareGrids(A, B).regions.length, 0);
   // At 2×, opaque red beside transparent black is pink over white, as the flattened picture is.
   const striped = { width: 40, height: 20, data: new Uint8Array(40 * 20 * 4) };
   for (let i = 0; i < 40 * 20; i++) if (i % 2 === 0) striped.data.set([255, 0, 0, 255], i * 4);
   assert.equal(compareGrids(grid(striped, 20, 10), grid(picture(20, 10, [[0, 0, 20, 10, [255, 128, 128]]]), 20, 10)).match, 1);
-  const C = grid(picture(100, 100, [[0, 0, 100, 8]]), 100, 100), D = grid(picture(100, 100, [[50, 2, 40, 4, [0, 200, 0]]]), 100, 100);
-  assert.equal(compareGrids(C, D, { top: 10 }).match, 1);
-  assert.ok(compareGrids(C, D).match < 1);
-});
-
-test('compare: a visible box is found in the reference by its edges, at its size there', async () => {
-  const { boxDiffs } = await import('./agent-compare.mjs');
-  // A card 100×60 at x=10 in the reference is 90×60 at x=20 here.
-  const { A, B, result } = await compared([[10, 50, 100, 60, [30, 30, 30]]], [[20, 50, 90, 60, [30, 30, 30]]]);
-  const card = { type: 'View', testId: 'card', depth: 2, x: 20, y: 50, w: 90, h: 60 };
-  const [found] = boxDiffs(A, B, result, [card]);
-  assert.equal(found.node, card);
-  assert.deepEqual([found.ref.x, found.ref.w, found.ref.h], [10, 100, 60]);
-});
-
-test('compare: only nodes that paint are named; a covered screen\'s node shows above a sheet, not under it', async () => {
-  const { viewNodes, under } = await import('./agent-compare.mjs');
-  const tree = { nodes: [
-    { id: 1, depth: 0, type: 'View', props: {} },
-    { id: 2, parent: 1, depth: 1, type: 'Text', props: { text: 'Ghost', visibility: 'hidden' } },
-    { id: 3, parent: 1, depth: 1, type: 'Text', props: { text: 'Shown' } },
-    { id: 4, parent: 1, depth: 1, type: 'View', props: { testId: 'scroller' } },
-    { id: 5, parent: 4, depth: 2, type: 'Text', props: { text: 'Scrolled away' } },
-    { id: 6, parent: 1, depth: 1, type: 'View', props: { testId: 'list' }, inactive: true },
-    { id: 7, parent: 6, depth: 2, type: 'View', props: { testId: 'row-top' }, inactive: true },
-    { id: 8, parent: 6, depth: 2, type: 'View', props: { testId: 'row-under' }, inactive: true },
-    { id: 9, parent: 1, depth: 1, type: 'View', props: { testId: 'sheet' } },
-  ] };
-  const layout = { nodes: [{ id: 1, x: 0, y: 0, w: 120, h: 200 }, { id: 2, x: 10, y: 10, w: 40, h: 10 }, { id: 3, x: 10, y: 10, w: 40, h: 10 },
-    { id: 4, x: 0, y: 30, w: 120, h: 20, sy: 0 }, { id: 5, x: 0, y: 60, w: 120, h: 10 },
-    { id: 6, x: 0, y: 80, w: 120, h: 120 }, { id: 7, x: 0, y: 80, w: 120, h: 20 }, { id: 8, x: 0, y: 150, w: 120, h: 20 }, { id: 9, x: 0, y: 110, w: 120, h: 90 }] };
-  const nodes = viewNodes(layout, tree), ids = nodes.map((n) => n.id);
-  assert.ok(!ids.includes(2) && !ids.includes(5) && !ids.includes(8), JSON.stringify(ids));
-  assert.ok(ids.includes(3) && ids.includes(7));
-  assert.deepEqual(under(nodes, { x: 10, y: 10, w: 40, h: 10 }).map((n) => n.id), [3]);
-  // Placed where the window has the viewport (an iPad's split): boxes move with it.
-  assert.equal(viewNodes(layout, tree, [678, 0]).find((n) => n.id === 3).x, 688);
+  // A status bar's clock and a home indicator only the reference has: not scored.
+  const C = grid(picture(100, 100, [[10, 2, 20, 6], [30, 95, 40, 3]]), 100, 100), D = grid(picture(100, 100, [[50, 2, 40, 4, [0, 200, 0]]]), 100, 100);
+  const left = compareGrids(C, D, { top: 10, bottom: 8 });
+  assert.equal(left.match, 1);
+  assert.equal(left.regions.length, 0);
+  assert.ok(compareGrids(C, D).regions.length > 0);
 });
 
 test('compare: the CLI form and the reference are checked before any comparison', async () => {
@@ -318,34 +277,42 @@ test('compare: the CLI form and the reference are checked before any comparison'
   const web = { host: 'web', screenshot() { throw new Error('captured'); } }, mac = { ...web, host: 'macos' };
   for (const [s, args] of [[web, ['compare', 'r.png']], [web, ['x.png', 'compare']], [web, ['x.png', 'window', 'compare', 'r.png']], [mac, ['x.png', 'window', 'compare', 'r.png']], [web, ['x.png', 'compare', 'r.png', 'extra']]])
     assert.throws(() => compareScreenshot(s, args), (e) => e.malformed === true);
-  // One percent short: not one picture a point of it.
-  assert.throws(() => referenceScale({ width: 390, height: 836 }, 390, 844), (e) => e.malformed === true && /under a pixel a point/.test(e.message));
+  // A pixel short on either axis: under a pixel a point, refused before anything is shrunk.
+  for (const [rw, rh, sw, sh] of [[390, 836, 390, 844], [1000, 999, 1000, 1000], [1024, 1365, 1024, 1366]])
+    assert.throws(() => referenceScale({ width: rw, height: rh }, sw, sh), (e) => e.malformed === true && /under a pixel a point/.test(e.message));
   assert.equal(referenceScale({ width: 1206, height: 2622 }, 402, 874), 3);
   const { helpText } = await import('./help.mjs');
   assert.match(helpText('agent'), /screenshot <png> \[over <ms> every <ms>\] \[window\] {2}window: bars/);
-  assert.match(helpText('agent'), /screenshot <png> compare <ref\.png>/);
+  assert.match(helpText('agent'), /screenshot <png> compare <ref>/);
+  assert.match(helpText('agent'), /\(a select, date or checkbox: its value\)/);
 });
 
-test('compare on an iOS window: nodes where the window has them, the capture\'s notes said, a missing home indicator left out', async () => {
+test('compare on a capture: nodes where the window has them, its safe area not scored, a scaled viewport refused, its notes said', async () => {
   const { compareOp } = await import('./agent-compare.mjs');
   const { encodePng } = await import('./png.mjs');
   const { mkdtempSync, writeFileSync: write, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const dir = mkdtempSync(resolve(tmpdir(), 'compare-test-'));
   try {
-    // The reference's home indicator (a bar at the bottom) is absent from the capture; a card moved 10 pt right.
+    // The reference's home indicator (a bar at the bottom) is absent from the capture; a card is darker here.
     write(resolve(dir, 'ref.png'), encodePng(picture(120, 200, [[10, 40, 60, 30], [40, 192, 40, 3]], 2)));
-    write(resolve(dir, 'shot.png'), encodePng(picture(120, 200, [[20, 40, 60, 30]], 2)));
-    const s = {
+    write(resolve(dir, 'shot.png'), encodePng(picture(120, 200, [[10, 40, 60, 30, [120, 0, 0]]], 2)));
+    const ios = (space) => ({
       host: 'ios',
-      layout: async () => ({ nodes: [{ id: 1, x: 0, y: 0, w: 60, h: 200 }, { id: 2, x: -658, y: 40, w: 60, h: 30 }], screen: { x: 678, y: 0 } }),
-      tree: async () => ({ nodes: [{ id: 1, depth: 0, type: 'View', props: {} }, { id: 2, parent: 1, depth: 1, type: 'View', props: { testId: 'card' } }] }),
-      op: async () => ({ node: { space: { viewport: { x: 0, y: 0 }, window: { x: 678, y: 0 } } } }),
-    };
-    const r = await compareOp(s, resolve(dir, 'ref.png'), async () => ({ screenshot: resolve(dir, 'shot.png'), w: 120, h: 200, scale: 2, window: true, statusBar: false, statusBarHeight: 10, homeIndicator: 8, note: 'the status bar is not in the capture (simctl io screenshot: failed)' }));
-    assert.match(r.text, /card \[20,40 60×30\]/);
-    assert.match(r.text, /the status bar's 10 pt and the bottom 8 pt \(a home indicator the capture lacks\) left out/);
+      layout: async () => ({ nodes: [{ id: 1, x: 0, y: 0, w: 60, h: 200 }, { id: 2, x: -668, y: 40, w: 60, h: 30 }] }),
+      tree: async () => ({ nodes: [{ id: 1, depth: 0, type: 'View', props: {} }, { id: 2, depth: 1, type: 'View', props: { testId: 'card' } }] }),
+      op: async () => ({ node: { space } }),
+    });
+    const shot = { screenshot: resolve(dir, 'shot.png'), w: 120, h: 200, scale: 2, window: true, statusBar: false, safeArea: { top: 10, bottom: 12 }, note: 'the status bar is not in the capture (simctl io screenshot: failed)' };
+    const r = await compareOp(ios({ viewport: { x: 0, y: 0, w: 60, h: 200 }, window: { x: 678, y: 0, w: 60, h: 200 } }), resolve(dir, 'ref.png'), async () => ({ ...shot }));
+    assert.match(r.text, /under card \[10,40 60×30\]/);
+    assert.match(r.text, /the top 10 \(status bar\) and the bottom 12 \(home indicator\) not scored/);
     assert.match(r.text, /capture: the status bar is not in the capture \(simctl io screenshot: failed\)/);
     assert.doesNotMatch(r.text, /\[40,192/);
+    await assert.rejects(compareOp(ios({ viewport: { x: 0, y: 0, w: 60, h: 200 }, window: { x: 0, y: 0, w: 30, h: 100 } }), resolve(dir, 'ref.png'), async () => ({ ...shot })), (e) => e.malformed === true && /--size/.test(e.message));
+    // macOS: what its viewport capture leaves out, as windows of their own.
+    const mac = { host: 'macos', layout: async () => ({ nodes: [] }), tree: async () => ({ nodes: [] }) };
+    const m = await compareOp(mac, resolve(dir, 'ref.png'), async () => ({ screenshot: resolve(dir, 'shot.png'), w: 120, h: 200, notShown: { windows: ['NSPopover'], see: 'screenshot <png> window' } }));
+    assert.match(m.text, /capture: not in the capture, as windows of their own: NSPopover/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

@@ -776,11 +776,9 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
         const r = await ask({ op: 'screenshot', path, window, ...(film ? { film } : {}) });
         if (r.error) throw new Error(r.error);
         if (!status) delete r.statusBar;
-        // As a device screenshot has it, the home indicator too: the window's bottom safe area (`compare`'s reference).
-        else if (r.window && !film) r.homeIndicator = (await ask({ op: 'layout' })).env?.['safe-area-inset-bottom'] || undefined;
         // The host draws the window itself (with an alert or sheet up, or asked); the keyboard and the status bar are other
         // processes': the display's pixels, the status bar's only when asked (`window status`: a `simctl io` capture, 0.5 s).
-        return (window || r.window === true) && !film && (r.keyboard?.windowTop != null || r.statusBar > 0 || r.homeIndicator > 0) ? withDisplay(r, path, dev.udid) : r;
+        return (window || r.window === true) && !film && (r.keyboard?.windowTop != null || r.statusBar > 0) ? withDisplay(r, path, dev.udid) : r;
       },
       close,
     };

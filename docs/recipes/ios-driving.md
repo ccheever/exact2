@@ -19,8 +19,8 @@ bun exact.mjs agent ios --storage s1 "tap add-item" "clock settle" \
 **Matching a port's screens to the original's screenshots** needs no AXe or `simctl io`: `bun
 exact.mjs agent ios --touch platform … "clock settle" "screenshot .exact/x.png compare ref/x.png"`
 captures as a device does (status bar: `xcrun simctl status_bar <udid> override --time 9:41`) and
-says where they differ, by node: shifts and the box that grew, regions, a box's size in the
-reference (drawn in `x.diff.png`). Each tap is a real touch: it picks from a pull-down menu,
+says where they differ: each region by node, where its content moved, a box measured in both
+(drawn in `x.diff.png`). Each tap is a real touch: it picks from a pull-down menu,
 switches tabs, and reaches a native module's controls. A context menu, a row scrolled out of its
 menu and an alert's buttons take a drive without the flag.
 
