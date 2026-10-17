@@ -25,8 +25,8 @@ root:
 ```sh
 bun install --frozen-lockfile
 export EXACT_APP_DIR="$PWD/examples/t3-code"
-bun examples/t3-code/terminal-host/build.mjs   # the terminal page into assets/ (ignored)
-bun examples/t3-code/tools/stage-runtime/stage-runtime.mjs         # the embedded T3 server into server-runtime/ (ignored; network once)
+bun examples/t3-code/terminal-host/build.mjs                 # the terminal page into assets/ (ignored)
+bun examples/t3-code/tools/stage-runtime/stage-runtime.mjs   # the embedded T3 server into server-runtime/ (ignored; network once)
 bun host/apple/build.mjs t3-code-macos --bundle --run
 ```
 
@@ -37,14 +37,15 @@ stays blank and its status names the load error.
 Generated sources are built, not committed. `tools/generate/generate.mjs` makes them from the
 packages pinned beside it (`tools/generate/package.json` and `bun.lock`, the versions the
 reference locks; network once) and from committed inputs: the Shiki grammar tables
-(`r12-render-grammar*.ts`), the CSS word lists, the Lucide and Pierre icon data
-(`settings-b-lucide.ts`, `pages-icons.contract`, `timeline-files.contract`,
-`timeline-files-tables.ts`, `macos/pierre-icons.tsv`, `assets/composer-icons.json`), the ten icon
-tables (`icons`, `shell-icons`, `sidebar-icons`, `timeline-icons`, `r4-surfaces-icons`,
-`settings-icons`, `provider-icons`, `diff-glyphs`, `editor-icons` and `settings-brands`, each a
-`.contract`, from the Lucide names in `tools/generate/icon-tables.mjs` and the marks in
-`icon-marks.mjs`; their hand-written components are in the `*-kit.contract` files), the morph
-plans (`shell-morph.contract`) and the terminal buffer vectors
+(`src/highlight/grammar*.ts`), the CSS word lists (`src/highlight/css-words.ts`), the Lucide and
+Pierre icon data (`src/settings/settings-b-lucide.ts`, `src/shared/pages-icons.contract`,
+`src/shared/timeline-files.contract` and `timeline-files-tables.ts`, `macos/pierre-icons.tsv`,
+`assets/composer-icons.json`), the ten icon tables (`icons`, `shell-icons`, `sidebar-icons`,
+`timeline-icons`, `panel-icons`, `settings-icons`, `provider-icons`, `diff-glyphs`, `editor-icons`
+and `settings-brands`, each a `.contract` in its feature's folder under `src/`, from the Lucide names
+in `tools/generate/icon-tables.mjs` and the marks in `icon-marks.mjs`; their hand-written
+components are in the `*-kit.contract` files), the morph plans (`src/shell/shell-morph.contract`)
+and the terminal buffer vectors
 (`macos/tests/terminal/vectors.json`, whose expectations are test data committed in
 `gen-vectors.mjs`). The app build runs it before it bakes (`macos/build.rs`);
 run it yourself before the tests and checks below:
@@ -58,7 +59,7 @@ outside the root's members: its build script bakes the whole app on one core for
 exact2's six blocking checks leave it out and the async lane (`scripts/async.mjs`'s
 `t3-code` and `t3-code-clippy` steps) builds, tests and lints it.
 
-The embedded server. `stage-runtime.mjs` downloads the release archive named by
+The embedded server. `tools/stage-runtime/stage-runtime.mjs` downloads the release archive named by
 `server-runtime/runtime-pin.json`, accepts it only when its SHA-256, the release's `SHA256SUMS`
 and the pin agree, checks the signatures of its Mach-O files, runs `t3 --version`, starts it once on
 a scratch home and a lane port, and puts the archive and its manifest beside the pin (`--offline`
@@ -143,7 +144,7 @@ server to come back on the new version and shares that state with Settings › C
   measured reservation at its end (`composer-overlay.ts`); with Chat width Wide or Full
   the context strip's workspace control is the desktop Select.
 - Requests: approvals, single/multiple-choice and free-text questions.
-- Version control in the workspace card (`r4-git-*`): the branch picker (search, create
+- Version control in the workspace card (`src/details/git*`): the branch picker (search, create
   a ref with Enter, check out, "Start from origin"), the git actions quick action and
   menu, the commit dialog (file selection, message, "Commit on new branch"), the
   default-branch confirm, progress with hook output, the 10 s inline success, pull,
@@ -159,7 +160,7 @@ server to come back on the new version and shares that state with Settings › C
   (`command-waits.ts`).
 - Right side: the workspace card (docked beside the chat from 984 pt, a header popover
   below), Changes (branch) and Uncommitted diffs plus per-turn diffs, lineage with
-  merge-back, the surface chooser and a tab bar per thread (`r4-surfaces-*`): Files
+  merge-back, the surface chooser and a tab bar per thread (`src/panel/`): Files
   (the workspace tree with search and expand-all, file previews with breadcrumbs,
   rendered Markdown/CSV and an editor that writes back with `projects.writeFile`; opened
   from Go to file, content search and file chips; its explorer and rendered/source
@@ -174,9 +175,9 @@ server to come back on the new version and shares that state with Settings › C
   attachments) is kept per thread across launches, `saved-panel.ts`, `saved-surfaces.ts`;
   the Diff's preview of a project outside the server's root is asked again at the server's cwd
   as DiffPanel does, `diff-outside-root.ts`), Linked pull requests (rows, Copy link, Open, Watch for changes / Stop
-  watching, Unlink), the Pull request surface (`r5-panels-*`: the thread's or a link's
+  watching, Unlink), the Pull request surface (`pr-surface.ts`, `pr-attachment*`: the thread's or a link's
   pull request in the Pull Requests page's detail panel, opened from the chooser's P, the
-  details card's `#N` rows with "Show N more", and pull request links; `r6-pr-*`: with the
+  details card's `#N` rows with "Show N more", and pull request links; `pr-row*`: with the
   host's detail the row splits into its state glyph, the checks segment and its popover
   (attention and running checks, "Show all", Details links), the tooltip card (state,
   base ← head, checks, files and diff size) and the one action worth taking: Resolve and
@@ -190,7 +191,7 @@ server to come back on the new version and shares that state with Settings › C
   pull request chip, or a hand-off draft's from its branch status, with its tooltip list,
   +N and stack forms, `strip-pr-badge.ts`), sent attachment
   previews (Markdown, table or numbered source, images, Copy contents and Save file;
-  opened from a sent file chip; `r6-media-*`: PDFs in PDFKit, HTML rendered in a sandboxed
+  opened from a sent file chip; `attachment-media*`, `T3MediaPreview.swift`: PDFs in PDFKit, HTML rendered in a sandboxed
   WebKit view that loads its token directory and external hosts as the reference's frame does, or as source coloured by Shiki's html grammar under the
   Pierre themes (`html-syntax.ts`), audio and video in AVKit players, "Unable to
   load audio/video." with Try again) and Device (the "Set up devices" wizard over
@@ -205,9 +206,9 @@ server to come back on the new version and shares that state with Settings › C
   push, the event log), Save screenshot, Float over chat, Close, Power off, 3D / Flat, the
   iPad's Magic Keyboard and Restore 3D view; the focused screen forwards keys (HID usages on
   iOS, key codes and text on Android), `device-session.ts`, `device-tools.ts`,
-  `R7Device*.swift`; the iPhone Duo's hinged 3D viewer on the fixed cover / inner panel feeds with its Fold shape and
+  `T3DeviceClient.swift`, `T3DeviceVideo.swift`, `T3DevicePhone.swift` and their siblings; the iPhone Duo's hinged 3D viewer on the fixed cover / inner panel feeds with its Fold shape and
   Device stance stands, and a foldable emulator's Fold / Unfold over serve-emu's `/api/fold` with its procedural
-  hinged body, `device-duo.ts`, `R9Device*.swift`). Sent videos are 4:3 tiles in the message's media grid;
+  hinged body, `device-duo.ts`, `T3DeviceDuo*.swift`, `T3DeviceFold.swift`). Sent videos are 4:3 tiles in the message's media grid;
   the tile and the video chip open the media dialog, playing.
 - Pages: Pull Requests (list, detail, checks, copy actions), Usage (cost, tokens,
   limits, share bars that follow the selected metric, model dialog, custom model prices and
@@ -258,7 +259,7 @@ active right-panel surface tab (its neighbour becomes active; the last tab close
 on the Pull Requests page the open pull request) before it closes the window. The surface launcher takes the focus when it mounts (`autofocus`), and
 its letters are its rows' `aria-keyshortcuts` (`shell-panels.contract`), which Exact presses before type-to-focus; a Markdown table's Copy
 menu is a window-level popup, placed from the trigger's drawn frame (`T3Measure.swift`),
-that Escape and an outside press close (`r8-keys-table-menu.*`). A global hotkey of another
+that Escape and an outside press close (`table-menu.*`). A global hotkey of another
 app (a launcher holding ⌘1, say) never reaches the window.
 
 Credentials stay in Keychain, scoped to the server origin and environment. The Swift
@@ -745,7 +746,7 @@ click into it keeps the field focused and the row up (F-2, 1 of 1; #688's placeh
   (or the syllable again, on Escape) follows it, as under T3 Code's Chromium page. ⌃C commits the
   syllable alone, and a second ⌃C is the shell's. ⌃L commits it without clearing, as T3 Code
   does: its drawer reads the "Process" key's `key` ("ㅣ"), so a ⌃ chord typed during a terminal
-  composition is no longer re-issued with its Latin letter (R10Connect). A composing syllable is
+  composition is no longer re-issued with its Latin letter (T3LatinChords). A composing syllable is
   not drawn, in the clone as in T3 Code, whose terminal input is a hidden textarea.
 
 Real-input sessions should type IME rows with held keys: orca's zero-dwell press-key can make the
@@ -792,23 +793,35 @@ ancestor that hears them, and `stopPropagation()` stops them).
 
 ## Source and checks
 
+The app root holds what the toolchain reads there: `app.contract`, `app.ts`, `app.json` and the
+Cargo workspace. Every other Contract and TypeScript source is in `src/<feature>/`, and its tests are
+in `tests/<feature>/`: `shell/` (the window's composition, header, toasts, tooltips and keyboard
+dispatch), `sidebar/`, `composer/`, `timeline/` (the transcript, its Markdown and citations),
+`highlight/` (the shared highlighter), `diff/`, `panel/` (the right panel's tabs and surfaces),
+`details/` (the thread details card: Git, the pull request row, project scripts, lineage),
+`pull-requests/`, `usage/`, `pages/` (the empty main view and the welcome wizard), `settings/`,
+`appearance/` (themes and fonts), `connections/` (environments, pairing, This machine, SSH, server
+updates), `browser/`, `terminal/`, `device/`, `palette/`, `providers/`, `media/`, `snapshot/`,
+`client/` (the data source, protocol and event projection) and `shared/` (the dialog trap, menu
+keys, icons and the shapes several features read). `tests/support/` holds the fixtures. A test
+reads a source by its file name through `tests/support/app-files.ts`, so a file name is unique under
+`src/` and `tests/`.
+
 `app.contract` keeps the window's resources, mutations and tasks, the state they read and
 the actions that write it or send (a child component may not own resources or assign root
-state); its view is `T3Window` in `app-window.contract`, which owns the window's view-only
+state); its view is `T3Window` in `src/shell/app-window.contract`, which owns the window's view-only
 state (the sidebar's hover and drag, the title menu, the settings editors' menus, Add
 environment's fields) and lays out the components of `app-main.contract`,
-`app-settings.contract` and `app-overlays.contract`; each takes the root names it reads as
+`app-settings.contract` and `app-overlays.contract` beside it; each takes the root names it reads as
 props of the same names, and an action that writes both sets the window's half and calls the
-root's (`…Root`). Feature areas live in their own files
-(`sidebar-*`, `timeline-*`, `composer-*`, `shell-*`, `pages-*`, `settings-*`,
-`palette*`, `r3-*`), each `.ts` with its Contract view and tests. `client.ts`,
-`protocol.ts`, `domain.ts` and `presentation.ts` own the data source, commands and
-event projection. A labelled `button` or `link` that may mount no text says `title=""`: since
+root's (`…Root`). `src/client/client.ts`, `protocol.ts`, `domain.ts` and `presentation.ts` own the
+data source, commands and event projection. A labelled `button` or `link` that may mount no text says `title=""`: since
 LLP 1115 the Mac host shows the `aria-label` of a button whose mounted, not `aria-hidden` children
 give no text as its help tag, and the reference shows only its own tips (`help-tags.test.ts`
 applies the host's rule to the view tree). `modules/apple/` is the native module; `macos/` holds the bake adapter crate (`t3-code-macos`)
 and the AppKit tests; `tools/` holds the lanes (`github-lane/`, `network-lane/`), the generator
-of the generated sources (`generate/`) and the Shiki comparison. T3's MIT notice is retained in `LICENSE-T3`.
+of the generated sources (`generate/`), the embedded server's staging (`stage-runtime/`) and the
+Shiki comparison. T3's MIT notice is retained in `LICENSE-T3`.
 
 Exact asks an answer again when a topic it watches changes. Since exact2 #183 a change
 that arrives while the snapshot read is in flight lets that read's reply land and then asks
@@ -843,7 +856,7 @@ build above for an integrated check.
 
 The module AppKit/XCTest binaries under `macos/tests/<name>/` build with Exact's
 module facade, the app's generated data keys, every file in `modules/apple/` (the
-`composer`, `menus` and `r5-panels` tests define their own `exactModule`, so they leave
+`composer`, `menus` and `panels-native` tests define their own `exactModule`, so they leave
 out `T3Module.swift` and its `T3Module+<area>.swift` op files; an `extension T3Module` goes in one
 of those op files, never beside other code, or these three binaries do not compile) and the test
 directory's sources, and every one Exact's `host/apple/modules/ExactTamber.swift`.
@@ -857,7 +870,7 @@ T3_DK="$R" bun -e 'import { writeDataKeys } from "./host/apple/data-keys.mjs"; i
 for d in examples/t3-code/macos/tests/*/; do
   n=$(basename "$d"); O="$R/$n"; mkdir -p "$O"
   [ "$n" = timeline-keyboard ] && continue # Actual host regression; separate recipe below.
-  M=$(ls examples/t3-code/modules/apple/*.swift); case $n in composer|menus|r5-panels) M=$(echo "$M" | grep -v /T3Module);; esac
+  M=$(ls examples/t3-code/modules/apple/*.swift); case $n in composer|menus|panels-native) M=$(echo "$M" | grep -v /T3Module);; esac
   T=host/apple/modules/ExactTamber.swift
   xcrun swiftc -swift-version 5 -module-name "T3$(echo $n | tr -d -)Tests" -F "$F" -I "$L" -L "$L" \
     -Xlinker -rpath -Xlinker "$F" -Xlinker -rpath -Xlinker "$L" \
@@ -891,7 +904,7 @@ target/t3-tests/timeline-keyboard-tests
 `mermaid` needs `T3_SERVER` set to a running T3 server's origin (it loads that server's
 Mermaid build into an offscreen web view). The live transport tests skip unless
 `T3_TRANSPORT_PAIRING_FILE` points at a fresh disposable pairing JSON file and
-`T3_TRANSPORT_ORIGIN` names its server; `r3.swift` serves its own loopback WebSocket peer
+`T3_TRANSPORT_ORIGIN` names its server; `reconnect.swift` serves its own loopback WebSocket peer
 for the reconnect policy, stream retries and outdated-host updates. The SSH tests read
 a temporary home, never `~/.ssh`; the live tunnel test skips unless `T3_SSH_COMMAND`
 names an ssh test double, and agent runs of the app read hosts only from `T3_SSH_HOME`.
