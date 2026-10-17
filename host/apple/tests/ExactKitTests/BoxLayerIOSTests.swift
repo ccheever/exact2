@@ -365,6 +365,25 @@ final class BoxLayerIOSTests: XCTestCase {
         XCTAssertNil(padded.imageLayer)
         XCTAssertNotNil(padded.layer.contents, "a radius over a padded content box draws")
 
+        window.layoutIfNeeded(); CATransaction.flush()
+        // UIKit's animated bounds and the pixels must cover the same box throughout a resize.
+        UIView.animate(withDuration: 0.8) {
+            avatar.frame.size = CGSize(width: 160, height: 80)
+            avatar.applyImageLayer()
+        }
+        let viewBounds = try XCTUnwrap((avatar.layer.animation(forKey: "bounds") ?? avatar.layer.animation(forKey: "bounds.size")) as? CABasicAnimation)
+        let pixelsBounds = try XCTUnwrap((sub.animation(forKey: "bounds") ?? sub.animation(forKey: "bounds.size")) as? CABasicAnimation)
+        XCTAssertEqual(pixelsBounds.duration, viewBounds.duration, accuracy: 0.001)
+        XCTAssertEqual(pixelsBounds.keyPath, viewBounds.keyPath)
+        XCTAssertEqual(pixelsBounds.fromValue as? NSValue, viewBounds.fromValue as? NSValue)
+        XCTAssertEqual(sub.bounds.size, avatar.bounds.size)
+        avatar.layer.removeAllAnimations(); sub.removeAllAnimations()
+        UIView.performWithoutAnimation {
+            avatar.frame.size = CGSize(width: 80, height: 80)
+            avatar.applyImageLayer()
+        }
+        XCTAssertNil(sub.animationKeys(), "an ordinary layout must not introduce an implicit animation")
+
         avatar.raster = nil
         XCTAssertNil(avatar.imageLayer, "no pixels outlive the lease")
         XCTAssertNil(sub.superlayer)

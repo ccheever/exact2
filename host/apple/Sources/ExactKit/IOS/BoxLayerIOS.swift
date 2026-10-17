@@ -35,6 +35,15 @@ final class NodeLayer: CALayer {
     }
 }
 
+/// Image geometry uses the same animation context as its owning UIView.
+private final class NodeImageLayer: CALayer {
+    override func action(forKey event: String) -> CAAction? {
+        guard ["bounds", "position", "contentsRect"].contains(event),
+              let view = superlayer?.delegate as? UIView else { return NSNull() }
+        return view.action(for: self, forKey: event) ?? NSNull()
+    }
+}
+
 extension NodeView {
     /// Paint only `draw(_:)` makes: a box Core Animation cannot say, an
     /// image's pixels no sublayer shows, a capture's picture, a paragraph
@@ -64,7 +73,7 @@ extension NodeView {
             // puts it; the view's own bounds and radius clip it.
             CATransaction.begin(); CATransaction.setDisableActions(true)
             defer { CATransaction.commit() }
-            let l = imageLayer ?? CALayer()
+            let l = imageLayer ?? NodeImageLayer()
             if l.superlayer !== layer { imageLayer = l; insertBoxSublayer(l) }
             l.frame = look.image
             l.contentsRect = CGRect(x: 0, y: 0, width: 1, height: 1)
@@ -93,16 +102,19 @@ extension NodeView {
         for (r, mask) in zip(radii, masks) where r > 0 { corners.insert(mask) }
         let unit = CGRect(x: (shown.minX - rect.minX) / rect.width, y: (shown.minY - rect.minY) / rect.height,
                           width: shown.width / rect.width, height: shown.height / rect.height)
-        CATransaction.begin(); CATransaction.setDisableActions(true)
+        let l = imageLayer ?? NodeImageLayer()
+        let mounted = l.superlayer === layer
+        CATransaction.begin()
+        CATransaction.setDisableActions(!mounted || CATransaction.disableActions())
         defer { CATransaction.commit() }
-        let l = imageLayer ?? CALayer()
-        if l.superlayer !== layer {
+        if !mounted {
             // Where `draw(_:)` paints it: under the border and the children.
             imageLayer = l
             insertBoxSublayer(l)
         }
         if l.frame != shown { l.frame = shown }
         if l.contentsRect != unit { l.contentsRect = unit }
+        CATransaction.setDisableActions(true)
         let frame = AnimatedRasters.shared.frame(for: self) ?? bitmap.image
         if (l.contents as AnyObject?) !== frame { l.contents = frame }
         l.applyDynamicRange(hdr: bitmap.isHDR, headroom: bitmap.headroom, limit: style["dynamic_range_limit"]?.string)
