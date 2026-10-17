@@ -66,6 +66,15 @@ theorem boundedTy_some {p : Program} {o : Option Ty} {t : Ty} (h : boundedTy p o
     · simp at h
   · simp at h
 
+/-- `formatNumber`'s literal parameters (`type-format-style`). The
+embedding fills an omitted code with `""`; only non-currency styles take
+that default. `Format.currencies` has the roster's admitted code literals. -/
+def numberFormatArgs : List Expr → Bool
+  | [_, .str style, .str code] =>
+    if style == "currency" then Format.currencies.any (fun c => c.1 == code)
+    else ["compact", "decimal", "percent"].contains style && code == ""
+  | _ => false
+
 mutual
 
 /-- The type of `e`, or `none` when the judgments give it none. -/
@@ -97,7 +106,10 @@ def infer (p : Program) (G : Scope) : Scope → Expr → Option Ty
         | .none => .none
       | .none => .none
     | _ => .none
-  | Γ, .call name args => inferCall p G Γ name args (inferList p G Γ args)
+  | Γ, .call name args =>
+    if name != "formatNumber" || p.fns.any (·.name == name) || numberFormatArgs args then
+      inferCall p G Γ name args (inferList p G Γ args)
+    else .none
   | Γ, .record s .none written =>
     match inferNamed p G Γ written with
     | .some wts =>
@@ -533,7 +545,9 @@ theorem infer_sound {p : Program} {G : Scope} : ∀ {Γ : Scope} (e : Expr) {t :
     · simp at h
   | Γ, .call name args, t, h => by
     simp only [infer] at h
-    exact inferCall_sound name args (fun ts hts => inferList_sound args hts) h
+    split at h
+    · exact inferCall_sound name args (fun ts hts => inferList_sound args hts) h
+    · simp at h
   | Γ, .record s .none written, t, h => by
     simp only [infer] at h
     split at h
@@ -920,5 +934,26 @@ theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
     split at this
     · next ad had => exact ⟨ad, had, by simpa using this⟩
     · simp at this
+
+-- Reduced from the seed-7 `number-styled.contract` mutant, which drops USD from `usd`.
+-- The emitter fills an omitted code with the roster's empty-string default.
+private def numberFormatProgram (args : List Expr) : Program :=
+  { fns := [{ name := "usd", params := [("x", .number), ("s", .string)], ret := .string,
+              body := .call "formatNumber" args }] }
+
+#guard !check (numberFormatProgram [.var "x", .str "currency", .str ""])
+#guard Format.currencies.all fun c =>
+  check (numberFormatProgram [.var "x", .str "currency", .str c.1])
+#guard ["compact", "decimal", "percent"].all fun style =>
+  check (numberFormatProgram [.var "x", .str style, .str ""]) &&
+  !check (numberFormatProgram [.var "x", .str style, .str "USD"])
+#guard !check (numberFormatProgram [.var "x", .str "unknown", .str ""])
+#guard !check (numberFormatProgram [.var "x", .var "s", .str "USD"])
+#guard !check (numberFormatProgram [.var "x", .str "currency", .var "s"])
+#guard ["usd", "XXX", "US"].all fun code =>
+  !check (numberFormatProgram [.var "x", .str "currency", .str code])
+#guard !check (numberFormatProgram [.str "1", .str "currency", .str "USD"])
+#guard !check (numberFormatProgram [.var "x", .str "currency"])
+#guard !check (numberFormatProgram [.var "x", .str "currency", .str "USD", .str "EUR"])
 
 end Contract
