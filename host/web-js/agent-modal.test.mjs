@@ -85,7 +85,7 @@ ${input === 'reveal' ? `        box height=1200
       const before = await browser.layout('below');
       expect(before.node.space.viewport.y).toBeGreaterThan(800);
       expect(await scroll()).toBe(0);
-      // The wasm caller keeps the default refusal, which must not scroll the dialog.
+      // The standalone default keeps its DOM-ancestry refusal; both agents supply inertAncestor.
       expect(await browser.carrier.evaluate(`(async () => {
         const { reveal } = await import('/shared/input-glue.js');
         return reveal(document.querySelector('[data-testid="below"]'), 0).scrolled;

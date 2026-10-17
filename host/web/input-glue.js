@@ -588,7 +588,7 @@ const guestValue = (target) => "value" in target ? (target.type === "password" &
 // takes) — Playwright's actionability scroll, the web's own `scrollIntoView`. A scroll event reaches the app as a
 // person's scroll would. `scrolled` is where the middle moved from and to;
 // a middle already in view moves nothing.
-// The default matches the wasm tap preflight; the JS agent supplies its modal-aware check.
+// Both agents supply their modal-aware inert check; standalone callers default to DOM ancestry.
 export function reveal(el, id, inert = el => el.closest("[inert]")) {
   if (!el?.isConnected) return { error: `no view ${id}` };
   const middle = () => { const b = viewBox(el); return [b.left + b.width / 2, b.top + b.height / 2]; };

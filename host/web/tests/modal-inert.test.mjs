@@ -1,0 +1,150 @@
+import { test, expect } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { chromium } from 'playwright-core';
+import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
+
+const glue = readFileSync(new URL('../glue.js', import.meta.url), 'utf8');
+// Execute the wasm host's actual entry points with only the runner and unrelated
+// presenters stubbed. The browser owns dialog, popover, inert and scrolling behavior.
+const shown = glue.split('exact_geometry: { shown: ')[1].split(', read: ')[0];
+const agentStart = glue.indexOf('function agentReply(');
+const agent = glue.slice(agentStart, glue.indexOf('\n}', agentStart) + 2);
+const props = glue.slice(glue.indexOf('function applyProps('), glue.indexOf('function ensureMessageListener('));
+const html = `<style>dialog { max-height: 240px; overflow: auto; }</style>
+<main id="exact-root">
+  <button id="page" data-match>Page</button>
+  <div id="ancestor">
+    <dialog id="upper" data-match>
+      <button id="inside" data-match>Inside</button>
+      <div inert><button id="inert-child" data-match>Inert</button></div>
+      <div style="display:none"><button id="hidden" data-match>Hidden</button></div>
+      <div id="inner-pop" popover="manual" data-match>Menu</div>
+      <div style="height:1200px"></div>
+      <button id="below" data-match>Below</button>
+    </dialog>
+  </div>
+  <dialog id="lower" data-match>Lower</dialog>
+  <div id="outer-pop" popover="manual" data-match>Outer menu</div>
+  <div inert><dialog id="popover-dialog" popover="manual" data-match>Inert popover</dialog></div>
+</main>
+<script type="module">
+  import * as nav from '/navigation.js';
+  import { reveal } from '/input-glue.js';
+  const { inertAncestor, modalLayers, contextAt, editMenu } = nav;
+  const root = document.getElementById('exact-root');
+  const views = new Map([...root.querySelectorAll('[id]')].map(el => [el.id, el]));
+  const wasm = {}, inputReady = true, tagged = reply => reply, syncMedia = () => {}, syncMarkup = () => {};
+  ${agent}
+  ${props}
+  const shown = ${shown};
+  window.read = () => [...root.querySelectorAll('[data-match]')].filter(el => shown(el.id)).map(el => el.id);
+  window.agent = agentReply;
+  applyProps(views.get('inside'), { contextpopover: 'inner-pop' }, []);
+  window.ready = true;
+</script>`;
+
+async function inBrowser(run) {
+  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path === '/favicon.ico') return new Response(null, { status: 204 });
+    return path === '/' ? new Response(html, { headers: { 'content-type': 'text/html' } })
+      : new Response(Bun.file(new URL('..' + path, import.meta.url)));
+  } });
+  let browser;
+  try {
+    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+    const failed = new Promise((_, reject) => page.on('pageerror', reject));
+    await Promise.race([page.goto(server.url.href).then(() => page.waitForFunction(() => window.ready)), failed]);
+    await run(page);
+  } finally { await browser?.close(); server.stop(true); }
+}
+
+test('wasm shown retains the front modal and later popovers in tree order', () => inBrowser(async page => {
+  const snapshots = await page.evaluate(() => {
+    const el = id => document.getElementById(id), snapshots = { page: read() };
+    el('lower').showModal(); el('outer-pop').showPopover();
+    snapshots.lower = read();
+    el('upper').showModal(); el('inner-pop').showPopover();
+    snapshots.upper = read();
+    el('ancestor').inert = true;
+    snapshots.escape = read();
+    el('inner-pop').inert = true;
+    snapshots.ownInert = read();
+    el('inner-pop').inert = false; el('upper').inert = true;
+    snapshots.inertModal = read();
+    el('upper').inert = false;
+    el('outer-pop').hidePopover(); el('outer-pop').showPopover();
+    el('popover-dialog').showPopover();
+    snapshots.reopened = read();
+    el('ancestor').style.display = 'none';
+    snapshots.hiddenAncestor = read();
+    el('ancestor').style.display = ''; el('upper').close();
+    snapshots.closedUpper = read();
+    el('lower').close();
+    snapshots.closedAll = read();
+    el('lower').addEventListener('beforetoggle', e => e.preventDefault(), { once: true });
+    el('lower').showModal();
+    snapshots.cancelled = read();
+    el('outer-pop').remove();
+    snapshots.removed = read();
+    return snapshots;
+  });
+  expect(snapshots).toEqual({
+    page: ['page'], lower: ['lower', 'outer-pop'],
+    upper: ['upper', 'inside', 'inner-pop', 'below'],
+    escape: ['upper', 'inside', 'inner-pop', 'below'],
+    ownInert: ['upper', 'inside', 'below'], inertModal: [],
+    reopened: ['upper', 'inside', 'inner-pop', 'below', 'outer-pop'],
+    hiddenAncestor: ['outer-pop'], closedUpper: ['lower', 'outer-pop'],
+    closedAll: ['page', 'outer-pop'], cancelled: ['page', 'outer-pop'], removed: ['page'],
+  });
+}));
+
+test('wasm tap accepts modal controls under inert ancestors and refuses inert descendants', () => inBrowser(async page => {
+  const results = await page.evaluate(() => {
+    const el = id => document.getElementById(id), tap = id => agent({ op: 'tap', id });
+    el('upper').showModal(); el('ancestor').inert = true;
+    const results = [tap('inside'), tap('inert-child')];
+    el('inside').style.visibility = 'hidden'; results.push(tap('inside'));
+    el('inside').style.visibility = ''; el('upper').inert = true; results.push(tap('inside'));
+    return results;
+  });
+  expect(results).toEqual([
+    { guest: false }, { handled: true, error: 'view inert-child is hidden or inert' },
+    { handled: true, error: 'view inside is hidden or inert' },
+    { handled: true, error: 'view inside is hidden or inert' },
+  ]);
+}));
+
+test('wasm reveal scrolls a modal control past an inert ancestor', () => inBrowser(async page => {
+  const result = await page.evaluate(() => {
+    const el = id => document.getElementById(id), dialog = el('upper');
+    dialog.showModal(); el('ancestor').inert = true;
+    const before = dialog.scrollTop;
+    el('below').inert = true;
+    const refused = agent({ op: 'reveal', id: 'below' }).scrolled, afterRefusal = dialog.scrollTop;
+    el('below').inert = false;
+    const revealed = agent({ op: 'reveal', id: 'below' }).scrolled;
+    return { before, refused, afterRefusal, revealed, moved: dialog.scrollTop > 0 };
+  });
+  expect(result).toEqual({ before: 0, refused: false, afterRefusal: 0, revealed: true, moved: true });
+}));
+
+test('wasm context popovers escape ancestor inertness but recheck their source before opening', () => inBrowser(async page => {
+  const result = await page.evaluate(async () => {
+    const el = id => document.getElementById(id), source = el('inside'), pop = el('inner-pop');
+    el('upper').showModal(); el('ancestor').inert = true;
+    const menu = async block => {
+      source.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      if (block) source.inert = true;
+      await new Promise(resolve => setTimeout(resolve)); // after contextAt's queued opening
+      return pop.matches(':popover-open');
+    };
+    const opened = await menu(false);
+    if (opened) pop.hidePopover();
+    const revoked = await menu(true), inert = await menu(false);
+    return { opened, revoked, inert };
+  });
+  expect(result).toEqual({ opened: true, revoked: false, inert: false });
+}));
