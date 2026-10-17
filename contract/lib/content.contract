@@ -24,7 +24,11 @@
 // a plain page and on a `-exact-grouped-background` one alike: the
 // secondary background is the grouped page's own grey in the light scheme
 // and the grouped card's white is the plain page's, so a part that cannot
-// know its page takes neither.
+// know its page takes neither. It is as wide as what holds it, in a centred
+// column too, and the number stays on its line, drawn smaller where it would
+// not fit, as UIKit's readouts are (`adjustsFontSizeToFitWidth`): at the
+// largest text size a card that took its content's width ran off both edges
+// of the phone (trivia-quiz, LLP 1116.020 D4).
 // Call: SummaryCard(label="Streak", value="12", detail="days in a row", progress=some(0.4), symbol=some("symbol:star"))
 component SummaryCard
   props
@@ -34,7 +38,7 @@ component SummaryCard
     progress: option<number>
     symbol: option<string>
   view
-    column gap=4 padding=20 border-radius=16 background-color="-exact-tertiary-fill" min-width=0
+    column gap=4 padding=20 border-radius=16 background-color="-exact-tertiary-fill" min-width=0 align-self="stretch"
       row align-items="center" gap=6 min-width=0
         match symbol
           case some(s)
@@ -43,7 +47,8 @@ component SummaryCard
           case none
         text label font="-exact-headline" flex=1 min-width=0 aria-hidden=true
       row flex-wrap="wrap" align-items="baseline" column-gap=10 min-width=0
-        text value font-size="2.75rem" font-variant-numeric="tabular-nums" aria-label=`${label}, ${value}`
+        text value font-size="2.75rem" font-variant-numeric="tabular-nums" white-space="nowrap" -exact-fit="shrink" min-width=0
+          aria-label=`${label}, ${value}`
         text detail font="-exact-subheadline" color="-exact-secondary-label" font-variant-numeric="tabular-nums"
       match progress
         case some(p)
@@ -108,7 +113,9 @@ component RingProgress
 // circle in grey, with `caption` under it: short, a day's name (`""` for
 // none). Several in a `row` are a history. Each is one image to a reader,
 // named by its caption and its state ("Mon, done"), so the caption is what
-// shows, not a sentence for VoiceOver.
+// shows, not a sentence for VoiceOver. The caption keeps its line, drawn
+// smaller where a week of them would not fit at the largest text size
+// (habit-tracker, LLP 1116.020 D4).
 // Call: DoneMark(caption="Mon", done=true)
 component DoneMark
   props
@@ -120,7 +127,8 @@ component DoneMark
       image (done ? "symbol:select-fill" : "symbol:circle") width=26 height=26 object-fit="contain" aria-hidden=true
         -exact-tint-color=(done ? "-exact-system-green" : "-exact-tertiary-label")
       if caption != ""
-        text caption font="-exact-caption1" color="-exact-secondary-label" white-space="nowrap" aria-hidden=true
+        text caption font="-exact-caption1" color="-exact-secondary-label" white-space="nowrap" -exact-fit="shrink"
+          aria-hidden=true
 
 // What a screen with nothing to show says: a symbol, a title, a line saying
 // what to do. An action is the author's `button`, indented under the use. It

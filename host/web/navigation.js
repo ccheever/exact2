@@ -964,6 +964,7 @@ export function appRootFontSize(value, say, platform = globalThis) {
   if (!px && !(share > 0 && Number.isFinite(share))) return say?.(`setRootFontSize(${JSON.stringify(value) ?? ""}) refused: the root font size is a number of px above 0, a percentage of the host's above 0 ("125%"), or "medium"`);
   if (!rule) { rule = doc.createElement("style"); rule.id = APP_ROOT; doc.head.append(rule); }
   rule.textContent = px ? `:root{font-size:${value}px!important}` : `:root{font-size:calc(var(--exact-host-font-size, 100%) * ${ratio})!important}`;
+  refitTexts();
 }
 // @ref LLP 1116.001 D1.4 — `-exact-fit: shrink`. The browser lays the page out, so it picks the scale the kernel would,
 // by the kernel's rule (kernel/src/ layout/fit.rs): the text's min-content width against its room, down to half its
@@ -977,8 +978,9 @@ export function fitText(el) {
   // Layout pixels, through any transform above it (a route sliding in).
   const k = el.getBoundingClientRect().width / el.offsetWidth || 1;
   const inset = px(cs.paddingLeft) + px(cs.paddingRight) + px(cs.borderLeftWidth) + px(cs.borderRightWidth);
-  const content = () => el.getBoundingClientRect().width / k - inset, box = content(), width = el.style.width;
-  el.style.width = "min-content"; const natural = content(); el.style.width = width;
+  const content = () => el.getBoundingClientRect().width / k - inset, box = content(), { width, flexShrink } = el.style;
+  // A flex item that may shrink (`min-width: 0`) would shrink its min-content width back to the room it has.
+  el.style.width = "min-content"; el.style.flexShrink = "0"; const natural = content(); el.style.width = width; el.style.flexShrink = flexShrink;
   // Sized by its text, it has its container's room.
   const up = el.parentElement, ps = up && getComputedStyle(up);
   const room = box + 0.5 < natural || !up ? box : up.clientWidth - px(ps.paddingLeft) - px(ps.paddingRight) - Math.max(0, px(cs.marginLeft)) - Math.max(0, px(cs.marginRight));
