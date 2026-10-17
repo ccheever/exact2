@@ -542,6 +542,25 @@ to 16 points. Under the agent (D4) every popover stays painted, so the
 agent's taps need no host activation here. `ChooserMacTests` is the
 evidence; `<dialog>` stays the session's modal top layer on macOS.
 
+*Amended 2026-10-17 (Charlie's ruling of 2026-10-16,
+`issues/20261016-native-menu-pick-voiceover-old-focus.md`), for now:*
+a chosen item, a chooser's or a button menu's, is pressed inside the item's
+action, as AppKit sends it, before `popUp` returns, not after the menu ends.
+The checks above run there, then the press; the item is still taken once per
+menu. Pressed as `popUp` returned, VoiceOver had been told the menu closed
+and had asked where the focus was before a press that opened a dialog: it
+re-read the page's long draft first. A batch that removes the invoker or an
+ancestor while AppKit tracks the menu (a destroy, a children batch, a root
+replacement; Messages' Discard Changes navigates back) leaves that view in
+the window, hidden and out of the accessibility tree with its subtree, until
+`popUp` returns, and then removes it, as a popover AppKit is still taking
+away is kept (PopoversMac.swift). Closing the menu neither sends VoiceOver
+to the trigger nor gives the focus back when the choice has moved the focus:
+a sheet's field is the first responder of the sheet's window, and the page
+window's still looks unmoved. With no choice left awaiting a turn, what the
+text above says of one (a reset before it, a batch or a new presentation
+cancelling it) no longer arises. iOS is unchanged.
+
 **Flip fallbacks (Charlie, 2026-10-08; implementation slice: Codex,
 2026-10-13).** This amends D2's unconditional clamp and §5's no-flip scope.
 Invoker popovers may name ordered CSS `position-try-fallbacks`: try the base

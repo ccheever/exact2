@@ -648,7 +648,7 @@ package final class Presenter {
     func fitDocument() {
         viewport.invalidateDocumentFit()
         var size = viewport.contentSize
-        for r in root.subviews {
+        for r in root.subviews where !menus.isHeld(r) {
             size.width = max(size.width, r.frame.maxX)
             size.height = max(size.height, r.frame.maxY)
         }
@@ -1125,11 +1125,11 @@ package final class Presenter {
                 tables.children(id, want)
                 let wanted = Set(want.map { ObjectIdentifier($0) })
                 for child in container.subviews where child is NodeView && !wanted.contains(ObjectIdentifier(child)) && !isLeaving(child) {
-                    if let node = child as? NodeView { reparented.insert(node.id) }
+                    if let node = child as? NodeView { reparented.insert(node.id); if menus.holds(node) { continue } }
                     child.removeFromSuperview()
                 }
                 let mounted = want.filter { !dialogs.owns($0) && !menus.owns($0) && !blocks.owns($0) && !tables.owns($0, in: id) && !isFlying($0) }
-                for child in mounted where child.superview !== container {
+                for child in mounted where menus.rejoin(child) || child.superview !== container {
                     reparented.insert(child.id)
                     child.rejoinUnderHold()
                     child.prepareToMount()
@@ -1160,14 +1160,14 @@ package final class Presenter {
                 stickies.forget(id)
                 forgetFlight(id)
                 if endExit(id) { continue }
-                release(id, forget: true)?.removeFromSuperview()
+                if let gone = release(id, forget: true), !menus.holds(gone) { gone.removeFromSuperview() }
             case .roots:
                 dialogs.children(root, op.ids.compactMap { views[UInt32($0)] })
                 menus.children(root, op.ids.compactMap { views[UInt32($0)] })
-                root.subviews.forEach { $0.removeFromSuperview() }
+                for gone in root.subviews where !((gone as? NodeView).map(menus.holds) ?? false) { gone.removeFromSuperview() }
                 for r in op.ids.compactMap({ views[UInt32($0)] }) {
                     if dialogs.owns(r) || menus.owns(r) { continue }
-                    r.prepareToMount()
+                    menus.rejoin(r); r.prepareToMount()
                     root.addSubview(r)
                 }
             case .frame:
@@ -1220,9 +1220,9 @@ package final class Presenter {
         // paints the root element's background over the whole canvas.
         // Unset, the platform's window background (LLP 1115 D2).
         let ground = ThemeRoles.color("background", in: root) ?? ThemeRoles.color("Canvas", in: root, or: .windowBackgroundColor)
-        let color = (root.subviews.first as? NodeView)?.color("background_color", ground) ?? ground
+        let first = root.subviews.first { !menus.isHeld($0) } as? NodeView // a root held under a menu is gone
+        let color = first?.color("background_color", ground) ?? ground
         if viewport.backgroundColor != color { viewport.backgroundColor = color; navigation.groundChanged() }
-        let first = root.subviews.first as? NodeView
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         session?.canvases.cancelMovedControls()
