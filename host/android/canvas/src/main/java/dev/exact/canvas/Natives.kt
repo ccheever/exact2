@@ -83,6 +83,7 @@ class Natives(
         var module: String? = null
         var generation = 0
         var slot = 0
+        var disabled = false
         var eventBinding = 0
         var video: VideoSize? = null
         /** A video whose view still shows another source's last frame (a lent player's): drawn once its own first
@@ -298,6 +299,7 @@ class Natives(
             nodes = null
             if (!e.parked) byView[e.view] = e
         }
+        if (kind == 2) e.disabled = JSONObject(props).optBoolean("disabled")
         e.rows.add(row)
         e.wanted = props
         if (e.w != w || e.h != h) {
@@ -503,9 +505,9 @@ class Natives(
     }
 
     /** A module button under an unscrolled tap. Other native input stays with its dedicated host. */
-    fun click(id: Int, x: Float, y: Float): Boolean {
-        val e = elements[id]?.takeIf { it.kind == 2 && !it.parked } ?: return false
-        if (!e.view.isEnabled || !e.view.isClickable) return false
+    fun click(id: Int, slot: Int, generation: Int, x: Float, y: Float): Boolean {
+        val e = elements[id]?.takeIf { it.kind == 2 && !it.parked && it.slot == slot && it.generation == generation } ?: return false
+        if (e.disabled || !e.view.isEnabled || !e.view.isClickable) return false
         e.view.translationX = x
         e.view.translationY = y
         return e.view.performClick()

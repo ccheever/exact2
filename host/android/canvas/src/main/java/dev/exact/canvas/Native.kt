@@ -55,7 +55,7 @@ object Native {
      * rows are a node the reader can move), its revision, then as float bits its offset (x, y), its farthest offset
      * (x, y) and the box it shows in (x, y, width, height). exact2 tells the reader of each of them from then on
      * ([scrollers]). After the scrollers: the native module button under the point (0: none), then its painted
-     * box x, y, width and height as float bits, in pixels. */
+     * box x, y, width and height as float bits, in pixels, followed by its allocation slot and generation. */
     @JvmStatic external fun under(x: Float, y: Float): IntArray
     /** What exact2 tells the reader of the text fields it hosts (LLP 1115.001 D8), when that is not what this last
      * returned (else null): a count, then for each field, in tree order: its id, its generation (moved on when its
