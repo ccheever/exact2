@@ -82,6 +82,62 @@ test('structural selectors retain the front modal and later popovers, with modal
   }
 }, 30000);
 
+test('dialog modality excludes fullscreen and orders nested or intercepted openings', async () => {
+  const server = Bun.serve({ port: 0, fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path === '/dataset.js') return new Response(Bun.file(new URL('./dataset.js', import.meta.url)));
+    if (path === '/navigation.js') return new Response(Bun.file(new URL('../web/navigation.js', import.meta.url)));
+    return new Response(`<main id="exact-root">
+      <div id="page" data-mood="accent"></div>
+      <video id="video"></video>
+      <dialog id="a" data-mood="accent"></dialog>
+      <dialog id="b" data-mood="accent"></dialog>
+      <div id="p" popover="manual" data-mood="accent"></div>
+    </main>`, { headers: { 'content-type': 'text/html' } });
+  } });
+  let browser;
+  try {
+    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    const page = await browser.newPage();
+    const results = {};
+    for (const scenario of ['fullscreen', 'nested-dialog', 'nested-popover', 'same-target', 'intercepted']) {
+      await page.goto(server.url.href);
+      results[scenario] = await page.evaluate(async scenario => {
+        const { x_querySelectorAll } = await import('/dataset.js');
+        const el = id => document.getElementById(id), a = el('a'), b = el('b');
+        if (scenario === 'fullscreen') {
+          await el('video').requestFullscreen();
+          const result = { matches: x_querySelectorAll('[data-mood~="accent"]'), fullscreen: document.fullscreenElement?.id, modal: el('video').matches(':modal') };
+          await document.exitFullscreen();
+          return result;
+        }
+        if (scenario === 'intercepted') {
+          a.showModal();
+          window.addEventListener('beforetoggle', e => e.stopPropagation(), { capture: true, once: true });
+          b.showModal();
+        } else {
+          a.addEventListener('beforetoggle', () => {
+            if (scenario === 'same-target') a.showModal();
+            if (scenario === 'nested-popover') el('p').showPopover(); else b.showModal();
+          }, { once: true });
+          a.showModal();
+        }
+        return { matches: x_querySelectorAll('[data-mood~="accent"]'), front: document.elementFromPoint(1, 1)?.id };
+      }, scenario);
+    }
+    expect(results).toEqual({
+      fullscreen: { matches: ['page'], fullscreen: 'video', modal: true },
+      'nested-dialog': { matches: ['a'], front: 'a' },
+      'nested-popover': { matches: ['a'], front: 'a' },
+      'same-target': { matches: ['b'], front: 'b' },
+      intercepted: { matches: ['b'], front: 'b' },
+    });
+  } finally {
+    await browser?.close();
+    server.stop(true);
+  }
+}, 30000);
+
 test('unobserved modals rank below observed openings and auto popovers replace their siblings', async () => {
   const server = Bun.serve({ port: 0, fetch(request) {
     const path = new URL(request.url).pathname;

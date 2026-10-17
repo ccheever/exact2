@@ -3,12 +3,19 @@
 import { inertAncestor } from './navigation.js';
 
 const opened = new WeakMap();
+const opening = [];
 let order = 0;
-// Only a hatch's script can open another presentation inside beforetoggle.
-// That reentrant order is not tracked: the outer opening is stamped first
-// but enters the top layer after the inner one.
-globalThis.document?.addEventListener?.('beforetoggle', e => {
-  if (e.newState === 'open' && (e.target.localName === 'dialog' || e.target.hasAttribute('popover'))) opened.set(e.target, ++order);
+// Stamp the inner opening, then its still-dispatching callers, innermost first.
+// An outer target already open aborts its opening, so keeps its existing stamp.
+globalThis.addEventListener?.('beforetoggle', e => {
+  for (let i = opening.length - 1; i >= 0; i--) if (opening[i].eventPhase === Event.NONE) opening.splice(i, 1);
+  if (e.newState !== 'open' || (e.target.localName !== 'dialog' && !e.target.hasAttribute('popover'))) return;
+  opened.set(e.target, ++order);
+  for (let i = opening.length - 1; i >= 0; i--) {
+    const target = opening[i].target;
+    if (!target.matches('dialog:modal,:popover-open')) opened.set(target, ++order);
+  }
+  opening.push(e);
 }, true);
 
 /** The runner's object of strings as one attribute per word; a word the
@@ -27,8 +34,8 @@ export const x_querySelectorAll = selector => {
   const match = /^\[data-([a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*)~="([^"\\\n\r]+)"\]$/.exec(selector);
   if (!match) return [];
   const root = document.getElementById("exact-root");
-  const top = [...document.querySelectorAll(':modal,:popover-open')];
-  const modals = top.filter(el => el.matches(':modal'));
+  const top = [...document.querySelectorAll('dialog:modal,:popover-open')];
+  const modals = top.filter(el => el.matches('dialog:modal'));
   const front = Math.max(0, ...modals.map(el => opened.get(el) ?? 0));
   const live = modals.length ? top.filter(el => (opened.get(el) ?? 0) >= front) : null;
   return [...root.querySelectorAll(selector)].filter(el => {
