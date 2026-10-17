@@ -46,6 +46,11 @@ pub struct Storage<D> {
     /// A scripted drive (`EXACT_AGENT=1`): storage is the scratch store it
     /// names, else none.
     agent: bool,
+    /// Lines for the journal beside the source's own: the first write such a
+    /// drive refuses, as a TypeScript source's prelude says it (LLP 1102 §3.17).
+    logs: Vec<String>,
+    #[cfg(not(target_arch = "wasm32"))]
+    told_agent: bool,
 }
 impl<D> Storage<D> {
     /// Wrap a source without creating storage or starting any thread.
@@ -60,6 +65,9 @@ impl<D> Storage<D> {
             pending: BTreeMap::new(),
             alive: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
             agent: std::env::var("EXACT_AGENT").as_deref() == Ok("1"),
+            logs: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            told_agent: false,
         }
     }
 }
@@ -373,7 +381,9 @@ impl<D: DataSource> DataSource for Storage<D> {
     }
 
     fn take_logs(&mut self) -> Vec<String> {
-        self.source.take_logs()
+        let mut lines = std::mem::take(&mut self.logs);
+        lines.extend(self.source.take_logs());
+        lines
     }
 
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
@@ -389,6 +399,13 @@ impl<D: DataSource> DataSource for Storage<D> {
                 let alive = self.alive.clone();
                 let refused =
                     paths.is_none() && self.agent && !native::independent_storage(&payload);
+                if refused && !self.told_agent && native::writes(&payload) {
+                    self.told_agent = true;
+                    self.logs.push(format!(
+                        "storage refused (agent): {}",
+                        native::AGENT_REFUSAL
+                    ));
+                }
                 Some(Box::new(move || {
                     if !alive.load(std::sync::atomic::Ordering::Acquire) {
                         return Outcome::Failed {
