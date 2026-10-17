@@ -92,13 +92,13 @@ test steps (app.test.contract; every other form: docs/contract-grammar.md)
   size 390x844, epoch, time-zone, locale, seed, before data
 
 ops: a target is a testId, else a view's exact text or label
-  tree [<target>|--ax] · logs · layout [<target>]
+  tree [<target>|--ax] · logs · layout|perf [<target>] · resize <w>x<h> · close · back
   state [<name>]  a view's testId, else a state or resource, dotted: groceries.0.done
   tap <target> [contextmenu|dblclick|hover|drag <dx> <dy>|…] · hold: "tap <t> down" "tap hold <ms>" "tap up"
-  type <target> <text>|key <Name>   (a select, date or checkbox: its value)
+  type <target> <text>|key <Name>   (a select: its value)
   clock data|settle|+<ms> [real]    land what is in flight · end transitions
-  check [dark|both]  what is wrong · screenshot <png> [window] [over <ms> every <ms>|compare <original.png>]
-  prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · back · fail|pass fetch <prefix>
+  check [dark|both]  what is wrong · screenshot <png> [over <ms> every <ms>] [window]  window: bars
+  screenshot <png> compare <ref.png> · prefer <feature> <value> · fail|pass fetch <prefix>
 
 how (snippets compile)
 a second screen, a sheet: A screen is a route, not an `if`; a sheet's root adds `navigationPresentation="modal"`, its Cancel the `id` `navigationBack` names (`pattern list-detail`).

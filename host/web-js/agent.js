@@ -271,6 +271,8 @@ export function install(exact) {
         return { nodes, roots, ...tags(), ...(req.plan && exact.plan ? { planDigest: exact.plan } : {}) };
       }
       case 'layout': {
+        // `picture`: the boxes where a screenshot shows them, a transition under way held at its end (`compare`).
+        if (req.picture) anim.hold();
         // Every view, a zero box too (an empty text, a closed popover), as
         // the wasm host's layout reports them.
         // The viewport, its safe-area environment and a port's scroll offsets, as glue.js's reply.

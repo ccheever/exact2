@@ -879,35 +879,52 @@ named (note pads 8 pt too tall, a share card centred instead of left-aligned,
 a swipe action's text white instead of black), and the UIKit porter, who
 diffed its screenshots with scripts of its own, scored highest. So the
 driver compares, as a form of `screenshot` (a question about the picture,
-not an eleventh operation): `screenshot <png> [window [status]] compare
-<reference.png>` (`compareScreenshot`, `scripts/agent-compare.mjs`).
+not an eleventh operation): `screenshot <png> compare <reference.png>`
+(`compareScreenshot`, `scripts/agent-compare.mjs`). It claims no more than
+the pixels show: a size not measured in the reference is not given, a shift
+that does not clearly beat no shift is not taken, and content on one side
+only is always a region, with "cause unclear" where nothing explains it.
 
-- **The capture.** On an iOS simulator it is always the window with its
-  status bar (`window status`), as a device screenshot is; elsewhere the
-  viewport, or the window with `window`. The reference must have the
-  screen's shape at a pixel a point or more; any other is refused. The
-  comparison runs on a grid of one cell a point, each cell the area mean of
-  the pixels it covers; two cells match when each is within 40 (of 255) in
-  every channel of the other's 3×3 neighbourhood, so anti-aliasing and
-  sub-point offsets do not count. The status bar's rows are left out.
+- **The capture.** On an iOS simulator, the window with its status bar and
+  home indicator from the simulator's own screenshot, as a device
+  screenshot has them (`window status`, which now also composites the
+  window's bottom safe area); the nodes are placed where the window has the
+  viewport (a node's `space.window` less its `space.viewport`, not the
+  screen's origin, which differs on an iPad in Split View). Elsewhere the
+  viewport, the only capture `layout`'s boxes are in: a macOS window
+  capture (title bar, sidebar) is refused. On the web `layout` is read with
+  `picture: true`, which holds a transition under way where the screenshot
+  shows it. The reference must have the screen's shape at a pixel a point
+  or more on each axis. The status bar's rows are left out, and a home
+  indicator's when the capture could not include it; what the capture
+  could not do (its `note`s) follows the report as `capture:` lines.
+- **The grid.** One cell a point, each the area mean of the pixels it
+  covers after flattening on white; two cells match when each is within 40
+  (of 255) in every channel of the other's 3×3 neighbourhood, so
+  anti-aliasing and sub-point offsets do not count.
 - **Shifts.** Each row of the reference is matched to a row of the screen
-  by a Viterbi pass over offsets up to 64 pt that charges for each change
-  of offset; a run of one offset must then leave clearly fewer differing
-  cells than its neighbours' offsets would, or it takes theirs. A change of
-  2 pt or more is reported with where it falls: the smallest box (from
-  `layout` and `tree`, covered screens left out) that holds it and could
-  have grown by it, with its size in both and its look-alike siblings, or
-  the two boxes it falls between, whose gap widened.
-- **Regions.** What the rows' alignment leaves, isolated cells dropped and
-  the rest merged along their bands, the six largest: each with the named
-  nodes under it (testId, else type and text; box; source line), its
-  columns aligned the same way (a run that sits right or left, and the gap
-  or box that moved it), and, where that does not explain it, the fill and
-  ink on each side.
+  by a Viterbi pass over offsets up to 64 pt that charges for each change of
+  offset. Each run of one offset is then judged against no offset, counting
+  the reference cells still differing and the screen cells of rows no
+  reference row claims that no claimed row beside them explains (a stretch
+  of what matched: a box grown, a gap widened): it takes a neighbour's
+  offset when that does about as well, and no offset unless it leaves at
+  most 0.4 of the differences no offset leaves. An offset from the first
+  row is a shift from the top. A change of 2 pt or more is reported with
+  the two boxes it falls between (their space changed by it), else the
+  smallest box holding it whose edges the reference shows, with its
+  measured size there, else "it falls inside" that box, its size not
+  measured.
+- **Regions.** What the alignment leaves, in screen points, the six
+  largest: each with the nodes under it that paint (testId, else type and
+  text; box; source line; a hidden node, one clipped away by an ancestor,
+  and a covered screen's under a sheet left out), its columns aligned and
+  judged the same way, and the fill and ink of what still differs on each
+  side.
 - **Boxes.** A node under a region or a shift whose edges are visible (a
-  fill unlike what is around it, on each side) is found in the reference by
-  those edges; one 2 pt or more wider, taller or across is reported with
-  its size and place there.
+  fill at least 12 unlike what is around it) is found in the reference by
+  those edges; one 2 pt or more wider, taller or across is reported with its
+  size and place there.
 - **The picture.** `<png>.diff.png`: the reference, the screen, and the
   screen faded with what still differs in red, the shifts dashed and the
   regions boxed.
@@ -915,8 +932,8 @@ not an eleventh operation): `screenshot <png> [window [status]] compare
 On the euxy port the four screens the judge marked down came out as the
 judge saw them: the note pads (`pad-65 … is 25×48, 25×40 in the reference
 (and 23 like it)`), the share card (`share-card [36,237 330×452]: in the
-reference 343×471 at 24,237`), the lane editor's values (`x 204–348: 4 pt
+reference 344×470 at 23,237`), the lane editor's values (`x 204–348: 4 pt
 right of the reference; the space between Text "Note" … and note-value … is
-4 pt wider`), and the swipe action (`here #ddd on #f42, in the reference
+4 pt wider`), and the swipe action (`here #fff on #f42, in the reference
 #000 on #f42`). A row a third of a point short (the judge's "rows slightly
 shorter") is under the grid's resolution.

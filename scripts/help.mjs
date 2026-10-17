@@ -144,19 +144,19 @@ Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: head
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
-    body: `Builds if stale, launches, runs each quoted op on the agent's clock, prints replies and closes.
-Without --storage, storage is refused. Chrome starts a named store empty; --keep-storage reopens it.
+    body: `Builds if stale, launches, runs each quoted op on the agent's clock and closes.
+Without --storage, storage is refused; --keep-storage reopens a named store.
 An app's server.ts runs for the drive, its database per --storage.
 Ops      a target is a testId, else a view's exact text or label
-  tree [<target>|--ax] · logs · layout [<target>]
+  tree [<target>|--ax] · logs · layout|perf [<target>] · resize <w>x<h> · close · back
   state [<name>]  a view's testId, else a state or resource, dotted: groceries.0.done
   tap <target> [contextmenu|dblclick|hover|drag <dx> <dy>|…] · hold: "tap <t> down" "tap hold <ms>" "tap up"
-  type <target> <text>|key <Name>   (a select, date or checkbox: its value)
+  type <target> <text>|key <Name>   (a select: its value)
   clock data|settle|+<ms> [real]    land what is in flight · end transitions
-  check [dark|both]  what is wrong · screenshot <png> [window] [over <ms> every <ms>|compare <original.png>]
-  prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · back · fail|pass fetch <prefix>`,
+  check [dark|both]  what is wrong · screenshot <png> [over <ms> every <ms>] [window]  window: bars
+  screenshot <png> compare <ref.png> · prefer <feature> <value> · fail|pass fetch <prefix>`,
     bodyAll: `Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else free. ${NATIVE_PORTS}`,
-    example: 'bun exact.mjs agent web --storage s1 "clock data" tree "tap add" "screenshot .exact/a.png"',
+    example: 'bun exact.mjs agent web --storage s1 tree "tap add" "screenshot .exact/a.png"',
   },
   verify: {
     line: 'build if stale, run app.test.contract, check each screen it reaches light and dark, relaunch once',
