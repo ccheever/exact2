@@ -1203,18 +1203,26 @@ driver then takes a window capture's pixels from the display (`simctl io …
 screenshot`, `devices.mjs` `withDisplay`), as a device screenshot has them:
 `drawHierarchy` draws Liquid Glass and the other backdrop materials only
 roughly (a tab bar's glass left the rows under it legible, an alert's the list
-behind it), and the keyboard is another process's. It reads the display twice
-after the reply and takes it only when the reply said the app was in front
-(active, its scene in front, its window key) with UIKit's motion settled, the
-two reads agree below the status bar, and the app, asked again
-(`{"op":"screenshot","probe":true}`), is still in front at the same epoch,
-incarnation and clock; a launch and such a capture hold the simulator's
-display lock (`simulatorDisplay`), so another drive's app does not come to the
-front between them. Otherwise the picture stays the app's and the reply's
-`pixels: "app"` and `pixelsWhy` say why. The status bar's rows stay the app's
-unless asked for (`window status`); `window app` asks for the app's own
-drawing, as does a capture that strikes through header nodes the bar leaves
-out, which then takes only the keyboard's and the status bar's rows. This distinction landed
+behind it), and the keyboard is another process's. Nothing of the display is
+read unless the reply said the app was in front (active, its scene in front,
+its window key), and nothing is taken unless the app, asked again after the
+reads (`{"op":"screenshot","probe":true}`), still is, at the same epoch,
+incarnation and clock. The display is read three times, the third 400 ms after
+the second, so a caret's blink cannot fall in all three, and it is taken whole
+only when the three agree below the status bar, UIKit's motion had settled, and
+the display matches the app's drawing at the plain points the reply names
+(`opaque`: a 16-point grid less the status bar, the bottom safe area, the
+keyboard and every glass, blur, portal or filtered layer that draws), to within
+2 levels in each 5x5-pixel patch the app drew in one colour: there the two
+matched exactly on euxy's screens, and a notification banner's frosted
+material over the page was 3 or 4 levels off it. A launch and such a capture hold the
+simulator's display lock (`simulatorDisplay`), so another drive's app does not
+come to the front between them. Otherwise the picture stays the app's, with
+the status bar's rows and the keyboard's band taken only where all three reads
+agree on them, and the reply's `pixels: "app"` and `pixelsWhy` say why. The
+status bar's rows stay the app's unless asked for (`window status`); `window
+app` asks for the app's own drawing, as does a capture that strikes through
+header nodes the bar leaves out. This distinction landed
 with LLP 1021 D2's confirmation integration (2026-09-10). The driver's `ios` carrier (`scripts/agent.mjs`
 `openIOS`) installs the bundle, launches it with `simctl launch --console
 --terminate-running-process` and keeps that attached for the app's stdout

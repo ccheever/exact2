@@ -35,31 +35,37 @@ const read = (cmd, args, opts = {}) => { useXcode(); return spawnSync(cmd, args,
  *  status bar, its top `appTop` points, stay the app's when the caller did not ask for it (`r.statusBar` unset; with it
  *  set, `xcrun simctl status_bar <udid> override --time 9:41` sets what it shows).
  *
- *  The display is read twice, after the app answered, and is taken only when it is this picture's moment and this
- *  app's: the app said it was in front (`r.front`: active, its scene in front, its window key) with UIKit's motion
- *  settled (no `r.moving`), the two reads agree below the status bar (nothing moved: no keyboard sliding, no caret
- *  blinking, no glass settling), and `probe` (the app asked again) answers that it is still in front at the same
- *  epoch, incarnation and clock. The caller holds the simulator's display (`simulatorDisplay`), so no other drive's
- *  launch comes in between. Otherwise, or for a capture the agent marked (`r.unshown`, struck-through header nodes) or
- *  asked to keep (`own`), the picture stays the app's, with only the keyboard's rows, from its top
- *  (`r.keyboard.windowTop`) down, and the status bar's taken from the display. `r.pixels` says which (`display` or
+ *  Nothing of the display is read unless the app said it was in front (`r.front`: active, its scene in front, its
+ *  window key), and nothing is taken unless `probe`, the app asked again after the reads, answers that it still is, at
+ *  the same epoch, incarnation and clock. The display is read three times, the last `gap` ms after the second, so a
+ *  caret's blink cannot fall in all three. The whole display is taken when the three agree below the status bar,
+ *  UIKit's motion had settled (no `r.moving`), and at the points the app named (`r.opaque`: drawn by the app itself,
+ *  no glass, keyboard or status bar there) the display shows what the app drew, so no notification banner or other
+ *  overlay lies over it. Otherwise, as for a capture the agent marked (`r.unshown`, struck-through header nodes) or
+ *  asked to keep (`own`), the picture stays the app's, with only the status bar's rows and the keyboard's band, from its
+ *  top (`r.keyboard.windowTop`) down, taken where all three reads agree on them. The caller holds the simulator's
+ *  display (`simulatorDisplay`), so no other drive's launch comes in between. `r.pixels` says which (`display` or
  *  `app`, `r.pixelsWhy` why); what could not be done is said in `note`. Returns `r`. */
-export async function withDisplay(r, path, udid, appTop = 0, { own = false, probe = null } = {}) {
+export async function withDisplay(r, path, udid, appTop = 0, { own = false, probe = null, gap = 400 } = {}) {
   const top = r.keyboard?.windowTop, bar = r.statusBar, scale = r.scale, keyboard = top != null;
   const approximate = (why) => `the picture is the app's own drawing, not the display's (${why}): glass and other backdrop materials in it are approximate`;
   const say = (note) => { r.note = r.note ? `${r.note}; ${note}` : note; };
-  const fail = (why) => {
+  // The app's picture as it was: none of the display in it.
+  const keep = (why) => {
     if (bar > 0) r.statusBar = false;
     r.pixels = 'app'; r.pixelsWhy = why;
-    r.note = r.keyboard?.visible ? `the software keyboard is up: it is not in the capture (${why}), and the app above it may be shortened (state shows keyboard.top)`
-      : bar > 0 ? `the status bar is not in the capture (${why})` : approximate(why);
+    if (r.keyboard?.visible) r.note = `the software keyboard is up: it is not in the capture (${why}), and the app above it may be shortened (state shows keyboard.top)`;
+    else if (bar > 0) r.note = `the status bar is not in the capture (${why})`;
+    else if (!own) say(approximate(why));
     return r;
   };
-  if (!(scale > 0)) return fail('no scale');
+  if (!(scale > 0)) return keep('no scale');
   const front = (said) => said === true ? null : typeof said === 'string' ? said : 'the app did not say it was in front';
+  const away = front(r.front);
+  if (away) return keep(away);
   let why = own ? 'asked for the app\'s own drawing' : r.unshown?.length > 0 ? 'header nodes are struck through in it'
-    : front(r.front) ?? (r.moving ? 'UIKit\'s motion had not settled' : null);
-  if (why && (keyboard ? !(top >= 0) : r.keyboard?.visible && !(bar > 0))) return fail('no keyboard top');
+    : r.moving ? 'UIKit\'s motion had not settled' : null;
+  if (why && !(bar > 0) && !keyboard) return keep(why);
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-kb-'));
   try {
     const capture = (name) => {
@@ -69,34 +75,65 @@ export async function withDisplay(r, path, udid, appTop = 0, { own = false, prob
       return decodePng(readFileSync(shot));
     };
     const display = capture('display.png'), app = decodePng(readFileSync(path));
-    if (app.width !== display.width || app.height !== display.height) return fail(`the display is ${display.width}x${display.height}, the capture ${app.width}x${app.height}`);
+    if (app.width !== display.width || app.height !== display.height) return keep(`the display is ${display.width}x${display.height}, the capture ${app.width}x${app.height}`);
+    const again = capture('again.png');
+    await new Promise((done) => setTimeout(done, gap));
+    const last = capture('last.png');
+    const after = probe ? await probe() : { front: 'the app was not asked again' };
+    const gone = front(after.front) ?? (['epoch', 'incarnation', 'clock'].some((k) => after[k] !== r[k]) ? 'the app changed while the display was read' : null);
+    if (gone) return keep(gone);
     const row = (points) => Math.max(0, Math.min(app.height, Math.round(points * scale))) * app.width * 4;
-    const from = row(bar > 0 ? 0 : appTop), below = row(bar > 0 ? bar : appTop);
-    if (!why) {
-      const again = capture('again.png');
-      if (Buffer.compare(display.data.subarray(below), again.data.subarray(below)) !== 0) why = 'the display changed while it was read';
-    }
-    if (!why) {
-      const after = probe ? await probe() : { front: 'the app was not asked again' };
-      why = front(after.front) ?? (['epoch', 'incarnation', 'clock'].some((k) => after[k] !== r[k]) ? 'the app changed while the display was read' : null);
-    }
+    const agree = (from, to) => [again, last].every((d) => Buffer.compare(display.data.subarray(from, to), d.data.subarray(from, to)) === 0);
+    const from = row(bar > 0 ? 0 : appTop);
+    if (!why && !agree(row(bar > 0 ? bar : appTop))) why = 'the display changed while it was read';
+    if (!why) why = covered(r.opaque, app, display, scale);
     if (!why) app.data.set(display.data.subarray(from), from);
-    else {
-      if (bar > 0) app.data.set(display.data.subarray(0, row(bar)), 0);
-      if (keyboard) app.data.set(display.data.subarray(row(top)), row(top));
-    }
-    if (bar > 0) r.statusBar = true;
+    if (why && bar > 0 && agree(0, row(bar))) app.data.set(display.data.subarray(0, row(bar)), 0);
+    else if (why && bar > 0) r.statusBar = false;
+    const band = keyboard && (!why || agree(row(top)));
+    if (why && band) app.data.set(display.data.subarray(row(top)), row(top));
+    if (bar > 0 && r.statusBar !== false) r.statusBar = true;
     writeFileSync(path, encodePng(app));
     r.pixels = why ? 'app' : 'display';
     if (why) r.pixelsWhy = why;
-    if (keyboard || (!why && r.keyboard?.visible)) {
+    if (band || (!why && r.keyboard?.visible)) {
       r.keyboard.captured = true;
       r.note = `the software keyboard is up and in the capture${why ? ' from keyboard.top down' : ''}, as the simulator draws it; the app above it is shortened`;
-    }
+    } else if (r.keyboard?.visible) r.note = `the software keyboard is up: it is not in the capture (${why}), and the app above it may be shortened (state shows keyboard.top)`;
     if (why && !own) say(approximate(why));
     return r;
-  } catch (e) { return fail(String(e.message ?? e).split('\n')[0]); }
+  } catch (e) { return keep(String(e.message ?? e).split('\n')[0]); }
   finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+/** Why the display is not the app's at the points the app drew itself (`points`, window points), or null: around a
+ *  point whose 5x5 pixels the app drew in one colour (no edge of text or shape) the display's must be within 2 levels of
+ *  it, as they are exactly where nothing lies over the app (measured on the euxy port, light and dark). A notification
+ *  banner's frosted material, 3 or 4 levels off a light page, changes such points; more than 1% of them, or 3, refuse. */
+function covered(points, app, display, scale) {
+  if (!Array.isArray(points) || points.length === 0) return 'the app named no points to check the display against';
+  const at = (png, x, y) => (y * png.width + x) * 4;
+  let checked = 0, differing = 0;
+  for (const [px, py] of points) {
+    const x = Math.round(px * scale), y = Math.round(py * scale);
+    if (x < 2 || y < 2 || x >= app.width - 2 || y >= app.height - 2) continue;
+    const c = at(app, x, y);
+    let flat = true;
+    for (let dy = -2; dy <= 2 && flat; dy++) for (let dx = -2; dx <= 2 && flat; dx++) {
+      const o = at(app, x + dx, y + dy);
+      for (let k = 0; k < 3; k++) if (app.data[o + k] !== app.data[c + k]) flat = false;
+    }
+    if (!flat) continue;
+    checked++;
+    let differs = false;
+    for (let dy = -2; dy <= 2 && !differs; dy++) for (let dx = -2; dx <= 2 && !differs; dx++) {
+      const o = at(display, x + dx, y + dy);
+      for (let k = 0; k < 3; k++) if (Math.abs(display.data[o + k] - app.data[c + k]) > 2) differs = true;
+    }
+    if (differs) differing++;
+  }
+  if (checked === 0) return 'none of the points the app named is a plain colour to check the display against';
+  return differing > Math.max(2, checked / 100) ? `the display differs from the app's drawing at ${differing} of ${checked} plain points (a notification banner or another overlay)` : null;
 }
 
 /** Every available simulator: { udid, name, runtime, state, type } — `type`

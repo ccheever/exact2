@@ -1207,6 +1207,7 @@ extension Agent {
         if wholeWindow { r["window"] = true }
         // Whether the simulator driver may take the display's pixels for this picture (devices.mjs `withDisplay`).
         if wholeWindow { r["front"] = displayFront() }
+        if wholeWindow, let window = vp.window { r["opaque"] = displayOwnPoints(window) }
         if moving { r["moving"] = true }
         #if os(iOS)
         // The status bar is SpringBoard's, never in the window's picture: its height, for the simulator driver to put it in (devices.mjs `withDisplay`).
@@ -1253,6 +1254,49 @@ extension Agent {
         if presenter.viewport.window?.windowScene?.activationState != .foregroundActive { return "the app's scene is not in front" }
         if presenter.viewport.window?.isKeyWindow != true { return "the app's window is not key" }
         return true
+    }
+
+    /// Points of `window`, in its points, where the display must show what
+    /// `drawHierarchy` drew, for the simulator driver's check that nothing of
+    /// another process lies over the app (a notification banner leaves the
+    /// app active and its window key): a 16-point grid, less the status bar,
+    /// the bottom safe area, the keyboard, and each visible layer that draws
+    /// what is behind it (glass, a blur, a portal) or filters what it draws,
+    /// with 12 points around it for a glass edge's light and shadow.
+    func displayOwnPoints(_ window: UIWindow) -> [[Double]] {
+        var skipped: [CGRect] = []
+        // A blur whose radius is unset or 0 (a navigation bar's between
+        // transitions) changes nothing: there the display matched the app's
+        // drawing exactly (euxy's Patterns bar, light and dark).
+        func changes(_ layer: CALayer, _ path: String) -> Bool {
+            ((layer.value(forKey: path) as? [Any]) ?? []).contains { filter in
+                let name = String(describing: filter)
+                guard name.contains("Blur") else { return true }
+                return ((layer.value(forKeyPath: "\(path).\(name).inputRadius") as? NSNumber)?.doubleValue ?? 0) != 0
+            }
+        }
+        func visit(_ layer: CALayer) {
+            guard !layer.isHidden, layer.opacity > 0 else { return }
+            let kind = String(describing: Swift.type(of: layer))
+            // A backdrop that only captures (a scroll edge effect's source) draws nothing.
+            let backdrop = ["Backdrop", "Portal", "SDF", "Glass"].contains(where: kind.contains)
+                && !(kind.contains("Backdrop") && (layer.value(forKey: "captureOnly") as? Bool) == true)
+            if backdrop || changes(layer, "filters") || changes(layer, "backgroundFilters") {
+                skipped.append(layer.convert(layer.bounds, to: window.layer).insetBy(dx: -12, dy: -12))
+                return
+            }
+            layer.sublayers?.forEach(visit)
+        }
+        visit(window.layer)
+        let top = window.safeAreaInsets.top + 4
+        let bottom = min(window.bounds.height - window.safeAreaInsets.bottom, keyboardTopForCheck() ?? .infinity) - 4
+        var points: [[Double]] = []
+        for y in stride(from: top, through: bottom, by: 16) {
+            for x in stride(from: CGFloat(8), through: window.bounds.width - 8, by: 16) where !skipped.contains(where: { $0.contains(CGPoint(x: x, y: y)) }) {
+                points.append([Agent.r2(x), Agent.r2(y)])
+            }
+        }
+        return points
     }
 
     /// What UIKit has presented over the app's window, by what a person calls it: "alert", "action sheet", "menu",
