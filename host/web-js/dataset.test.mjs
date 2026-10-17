@@ -81,3 +81,55 @@ test('structural selectors retain the front modal and later popovers, with modal
     server.stop(true);
   }
 }, 30000);
+
+test('structural selectors follow completed openings and recognize an already-open modal', async () => {
+  const server = Bun.serve({ port: 0, fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path === '/dataset.js') return new Response(Bun.file(new URL('./dataset.js', import.meta.url)));
+    if (path === '/navigation.js') return new Response(Bun.file(new URL('../web/navigation.js', import.meta.url)));
+    return new Response(`<main id="exact-root">
+      <div id="page" data-mood="accent"></div>
+      <dialog id="a" data-mood="accent"></dialog>
+      <dialog id="b" data-mood="accent"></dialog>
+      <div id="pop" popover="manual" data-mood="accent"></div>
+    </main>`, { headers: { 'content-type': 'text/html' } });
+  } });
+  let browser;
+  try {
+    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    const page = await browser.newPage();
+    const results = {};
+    for (const scenario of ['nested-modal', 'nested-modal-unread', 'nested-popover', 'focus-modal', 'late-import', 'missed-event']) {
+      await page.goto(server.url.href);
+      results[scenario] = await page.evaluate(async scenario => {
+        const a = document.getElementById('a'), b = document.getElementById('b'), pop = document.getElementById('pop');
+        const snapshots = [];
+        if (scenario === 'late-import') a.showModal();
+        if (scenario === 'missed-event') document.addEventListener('beforetoggle', e => e.stopImmediatePropagation(), { capture: true, once: true });
+        const { x_querySelectorAll } = await import('/dataset.js');
+        const read = () => x_querySelectorAll('[data-mood~="accent"]');
+        if (scenario.startsWith('nested-')) {
+          a.addEventListener('beforetoggle', () => {
+            if (scenario === 'nested-popover') pop.showPopover(); else b.showModal();
+            if (scenario !== 'nested-modal-unread') snapshots.push(read());
+          }, { once: true });
+        }
+        if (scenario === 'focus-modal') a.addEventListener('focus', () => b.showModal(), { once: true });
+        if (scenario !== 'late-import') a.showModal();
+        snapshots.push(read());
+        return { snapshots, front: document.elementFromPoint(1, 1)?.id };
+      }, scenario);
+    }
+    expect(results).toEqual({
+      'nested-modal': { snapshots: [['b'], ['a']], front: 'a' },
+      'nested-modal-unread': { snapshots: [['a']], front: 'a' },
+      'nested-popover': { snapshots: [['page', 'pop'], ['a']], front: 'a' },
+      'focus-modal': { snapshots: [['b']], front: 'b' },
+      'late-import': { snapshots: [['a']], front: 'a' },
+      'missed-event': { snapshots: [['a']], front: 'a' },
+    });
+  } finally {
+    await browser?.close();
+    server.stop(true);
+  }
+}, 30000);

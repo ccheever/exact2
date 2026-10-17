@@ -2,13 +2,23 @@
 // re-exports it). A read also sees literal attributes emitted with the node.
 import { inertAncestor } from './navigation.js';
 
-// DOM order does not give top-layer order. beforetoggle is synchronous, so
-// an action can read immediately after opening; :modal/:popover-open below
-// discard cancelled openings, closed elements and removed elements.
+// A beforetoggle handler can open another presentation before its own enters
+// the top layer. Finish nested events first, but leave events still dispatching
+// pending: focus handlers run after insertion and can open presentations too.
 const opened = new WeakMap();
+const opening = [];
 let order = 0;
+function completedOpenings() {
+  for (let i = opening.length - 1; i >= 0; i--) {
+    const e = opening[i];
+    if (e.eventPhase !== Event.NONE) continue;
+    if (!e.defaultPrevented && e.target.matches(':modal,:popover-open')) opened.set(e.target, ++order);
+    opening.splice(i, 1);
+  }
+}
 globalThis.document?.addEventListener?.('beforetoggle', e => {
-  if (e.newState === 'open' && (e.target.localName === 'dialog' || e.target.hasAttribute('popover'))) opened.set(e.target, ++order);
+  completedOpenings();
+  if (e.newState === 'open' && (e.target.localName === 'dialog' || e.target.hasAttribute('popover'))) opening.push(e);
 }, true);
 
 /** The runner's object of strings as one attribute per word; a word the
@@ -27,9 +37,14 @@ export const x_querySelectorAll = selector => {
   const match = /^\[data-([a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*)~="([^"\\\n\r]+)"\]$/.exec(selector);
   if (!match) return [];
   const root = document.getElementById("exact-root");
+  completedOpenings();
   const top = [...document.querySelectorAll(':modal,:popover-open')];
-  const front = Math.max(0, ...top.filter(el => el.matches(':modal')).map(el => opened.get(el) ?? 0));
-  const live = front ? top.filter(el => (opened.get(el) ?? 0) >= front) : null;
+  // An opening can precede this module or have its event intercepted. A live
+  // modal must still block page matches even when its event was not observed.
+  for (const el of top) if (!opened.has(el)) opened.set(el, ++order);
+  const modals = top.filter(el => el.matches(':modal'));
+  const front = Math.max(0, ...modals.map(el => opened.get(el)));
+  const live = modals.length ? top.filter(el => opened.get(el) >= front) : null;
   return [...root.querySelectorAll(selector)].filter(el => {
     if (!el.id || inertAncestor(el) || el.closest("[data-exiting]")) return false;
     if (live && !live.some(layer => layer.contains(el))) return false;
