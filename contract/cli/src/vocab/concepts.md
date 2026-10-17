@@ -392,11 +392,14 @@ component App
 More: docs/recipes/persisted-setting.md
 
 ## swipe: a list row's swipe actions
-names: swipe-actions, swipeActions, swipe-to-delete, swipeleft
+names: delete, swipe-actions, swipeActions, swipe-to-delete, swipeleft
 
-The row is a horizontal snap `scroll` naming its content (`swipeContent`) and its trailing
-action (`swipeTrailing`, a button's `id`). On iOS that is UIKit's own swipe action (a full
-swipe performs the first); on the web the row scrolls to show it.
+`delete=action` on a list row is its swipe to delete: a red Delete beside the row, which a
+full swipe performs. On iOS it is UIKit's own swipe action; on the web and the Mac the row
+scrolls to show it. `disabled` beside it keeps that row from deleting, and the row still
+opens. The gesture runs the action: to ask first, the action opens a confirmation (`contract
+vocab confirm`). In tests, `tap "item-Milk-delete"` presses it (the row's `testId` and
+`-delete`).
 
 ```contract
 component App
@@ -404,21 +407,40 @@ component App
   action remove(item: string)
     items = items.filter(i => i != item)
   view
-    column
-      for i in items key=i
-        scroll swipeContent=`row-${i}` swipeTrailing=`delete-${i}` width="100%"
-          overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
-          row width="100%"
-            row id=`row-${i}` width="100%" flex-shrink=0 scroll-snap-align="start" padding="12px 16px"
-              text i
-            button id=`delete-${i}` destructive=true press=remove(i) aria-label=`Delete ${i}` testId=`delete-${i}`
-              flex-shrink=0 scroll-snap-align="start"
-              image "symbol:delete"
+    list appearance="auto" flex=1
+      section
+        for i in items key=i
+          row delete=remove(i) testId=`item-${i}`
+            text i
 ```
 
-- In a grouped list (`list appearance="auto"`), the scroll is a section's row: leave its
-  `width` unsaid and give it `padding-right=0`. To ask first, the action's `press` opens a
-  confirmation (`contract vocab confirm`). In tests, `tap "delete-Milk"` presses it.
+- On a row of a grouped list's `section`, or of a `list` whose rows go down the page;
+  anywhere else it does nothing (warning `lower-delete-row`).
+- Other actions than Delete (Pin, Flag, a leading action) are the long form: a horizontal
+  snap `scroll` naming its content (`swipeContent`) and its actions (`swipeTrailing`,
+  `swipeLeading`: buttons' `id`s, inside the scroll after the content), each button with a
+  `press` and a name. Or put them in the long-press menu (`contract vocab menu`).
+
+```contract
+component App
+  state items = ["Milk", "Eggs"]
+  state pinned = ""
+  action pin(item: string)
+    pinned = item
+  view
+    list appearance="auto" flex=1
+      section
+        for i in items key=i
+          scroll swipeContent="row" swipeTrailing="pin" padding-right=0
+            overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
+            row id="row" width="100%" flex-shrink=0 scroll-snap-align="start" padding-right=16
+              box-sizing="border-box"
+              text i
+            button id="pin" press=pin(i) aria-label="Pin" flex-shrink=0
+              scroll-snap-align="start"
+              image "symbol:pin"
+```
+
 - UIKit draws its swipe actions itself (rounded on iOS 26 and later), whatever you paint.
   To keep painted actions (flush 76-point rectangles of your own colours), write
   `appearance="none"` on every control the row names: on iOS the row then swipes by its own

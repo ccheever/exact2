@@ -3,7 +3,7 @@
 // shows the list beside it by itself, because a row draws the disclosure chevron
 // (`contract vocab navigationSplit`). A row deletes by swipe and opens a menu on a long press
 // (`contract vocab swipe`, `menu`). A smaller app deletes what it doesn't need: the delete
-// (`askRemove`, `remove`, the dialog, the swipe's scroll and button, the menu's Delete), the
+// (`askRemove`, `remove`, the dialog, the row's `delete=`, the menu's Delete), the
 // notes (the shape's field, the title's `enterkeyhint`, the sheet's and the detail's
 // sections), or the lock (the shape's `locked`, `setLock`, `flipLock`, the badge, the switch,
 // the menu's Lock and Delete's reason).
@@ -122,24 +122,18 @@ component App
               list id="items-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
                 section
                   // A title over its notes; the chevron says the row pushes. It only navigates, so it is a link.
-                  // The scroll is UIKit's swipe on iOS: its button, the trailing action (none while locked).
+                  // `delete=` is its swipe to delete (UIKit's on iOS), none while locked: the row still opens.
                   for it in shown key=it.id
-                    scroll swipeContent=`row-${it.id}` swipeTrailing=`swipe-${it.id}` padding-right=0
-                      overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
-                      link id=`row-${it.id}` href=path("item", it.id) contextmenu=aim(it.id) contextPopover="item-menu"
-                        width="100%" flex-shrink=0 scroll-snap-align="start" padding-right=16 box-sizing="border-box"
-                        display="flex" align-items="center" gap=8 testId=`item-${it.id}`
-                        column flex=1 min-width=0 gap=2 padding-top=4 padding-bottom=4
-                          text it.title
-                          if it.notes != ""
-                            text it.notes font="-exact-subheadline" color="-exact-secondary-label" line-clamp=1
-                        // A status is a badge, not coloured text: `some("-exact-system-orange")` for Full.
-                        if it.locked
-                          Badge(label="Locked", tint=none)
-                        image "symbol:forward-chevron"
-                      button id=`swipe-${it.id}` press=askRemove(it.id) destructive=true disabled=it.locked
-                        aria-label="Delete" flex-shrink=0 scroll-snap-align="start" testId=`swipe-${it.id}`
-                        image "symbol:delete"
+                    link href=path("item", it.id) delete=askRemove(it.id) disabled=it.locked contextmenu=aim(it.id)
+                      contextPopover="item-menu" testId=`item-${it.id}`
+                      column flex=1 min-width=0
+                        text it.title
+                        if it.notes != ""
+                          text it.notes line-clamp=1
+                      // A status is a badge, not coloured text: `some("-exact-system-orange")` for Full.
+                      if it.locked
+                        Badge(label="Locked", tint=none)
+                      image "symbol:forward-chevron"
         if e.name == "item"
           column navigationKey=`${e.id}` navigationScroll="item-detail" position="absolute" inset=0
             display="flex" flex-direction="column"

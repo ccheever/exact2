@@ -33,14 +33,8 @@ component Notes
           list id="notes-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
             section
               for n in shown key=n.id
-                scroll swipeContent=`row-${n.id}` swipeTrailing=`delete-${n.id}` padding-right=0
-                  overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
-                  row id=`row-${n.id}` width="100%" flex-shrink=0 scroll-snap-align="start"
-                    padding-right=16 box-sizing="border-box" contextmenu=aim(n.id) contextPopover="menu"
-                    text n.title testId=`note-${n.id}`
-                  button id=`delete-${n.id}` destructive=true press=remove(n.id) aria-label="Delete"
-                    flex-shrink=0 scroll-snap-align="start" testId=`delete-${n.id}`
-                    image "symbol:delete"
+                row delete=remove(n.id) contextmenu=aim(n.id) contextPopover="menu" testId=`note-${n.id}`
+                  text n.title
           column id="menu" popover="auto" role="menu"
             button press=remove(aimed) destructive=true popovertarget="menu" popovertargetaction="hide"
               testId="menu-delete"
@@ -53,16 +47,17 @@ test "search, swipe to delete, delete from the menu"
   type "search" "gro"
   expect tree missing "note-2"
   type "search" ""
-  tap "delete-2"
+  tap "note-2-delete"
   expect tree missing "note-2"
   tap "note-1" contextmenu
   tap "menu-delete"
   expect tree missing "note-1"
 ```
 
-- The swipe is a horizontal snap scroll naming its content and its trailing action (on iOS
-  UIKit's own; a full swipe runs it). In a grouped list: no `width` on the scroll,
-  `padding-right=0` on it, `padding-right=16` on the content.
+- `delete=` on a row is its swipe to delete: a red Delete (on iOS UIKit's own; a full swipe
+  runs it). `disabled` beside it keeps that row from deleting; the row still opens. The
+  gesture runs the action: to ask first, the action opens a confirm. A test taps
+  `"<row testId>-delete"`. Other actions than Delete: `contract vocab swipe`.
 - A filter: a `row role="radiogroup"` of `button role="radio"` above the list
   ([persisted-setting](persisted-setting.md)).
 - One long-press menu serves every row: the row notes which (`aim`), each item acts on `aimed`

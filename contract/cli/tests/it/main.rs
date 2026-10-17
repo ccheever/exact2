@@ -36,6 +36,7 @@ mod compose;
 mod controls;
 mod corpus;
 mod dataset;
+mod delete_rows;
 mod delivery;
 mod diagnostic_edits;
 mod diagnostics;

@@ -731,8 +731,9 @@ screen, 2026-10-16.)
 
 - **There is no `swipeleft` for swipe-to-delete.** A row built from `pan`,
   `panrelease` and `translate` reveals its Delete button, but by hand on every host.
-  Cause: `swiperight` is the reply gesture (a message bubble), not a direction pair;
-  the row whose leading or trailing actions a swipe reveals is a horizontal `scroll`
+  Fix: `delete=remove(item.id)` on the list's row (`contract vocab swipe`). Cause:
+  `swiperight` is the reply gesture (a message bubble), not a direction pair; for
+  actions other than Delete the row a swipe reveals them on is a horizontal `scroll`
   with `scroll-snap-type="x mandatory"`, its content and action buttons as snap
   children, naming them with `swipeContent`, `swipeLeading` and `swipeTrailing` ids,
   which the web scrolls and iOS turns into UIKit's own swipe actions: UIKit's shape

@@ -1252,6 +1252,7 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | `button` (`buttonStyle`, native by default) | `UIButton` |
 | `list appearance="auto" listStyle="inset-grouped"` of `section`s (`header`, rows, `footer`) | `UICollectionView` list, as Settings ([human guide](contract-for-humans.md#choosing-a-native-button)) |
 | `list` with no `appearance`, its rows down the page (each child is a row) | a plain list's cells: UIKit's separators, the cell's grey ground while a row is pressed, the row selected under the screen it pushed. Draw none of it; a border you write on a row is yours and replaces the separator there (`border-bottom="none"`: none), and `appearance="none"` keeps rows of your own (a transcript, a feed of cards). The Mac shows a table, the web and the Linux desktop one line between rows, Android none (LLP 1115.000 D16) |
+| `delete=remove(id)` on either list's row (`disabled` beside it: no delete) | the cell's swipe action Delete, which a full swipe performs (`contract vocab swipe`) |
 | `input type="checkbox" switch` | `UISwitch` |
 | `input type="radio"` (the radios of one `name` are a group) | the SF Symbols circle, filled at its centre when checked, at body size; in a grouped list's row no circle but the row's checkmark, which a tap on the row moves (LLP 1115.000 D13.2) |
 | `input type="range"` (as wide as what holds it; in a `row`, `flex=1 min-width=0` beside its label) | `UISlider` |
@@ -1333,16 +1334,11 @@ column navigationKey=`${e.id}` navigationScroll="inbox-list" position="absolute"
     button press=compose
       text "New Message"
   // Pull to refresh: a `refresh` handler on the scroller; `refreshing` holds the
-  // spinner until the reload settles.
-  scroll id="inbox-list" refresh=reload refreshing=pending(items) flex=1 min-height=0
+  // spinner until the reload settles. A row's `delete=` is its swipe to delete.
+  list id="inbox-list" refresh=reload refreshing=pending(items) flex=1 min-height=0
     for m in items key=m.id
-      // Swipe actions: a horizontal snap scroll naming its content and actions.
-      scroll swipeContent=`item-${m.id}` swipeTrailing=`delete-${m.id}` width="100%" overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
-        row width="100%"
-          button id=`item-${m.id}` press=open(m.id) width="100%" flex-shrink=0 scroll-snap-align="start" text-align="start"
-            text m.title
-          button id=`delete-${m.id}` destructive=true press=remove(m.id) aria-label="Delete" flex-shrink=0 scroll-snap-align="start"
-            image "symbol:delete"
+      button press=open(m.id) delete=remove(m.id)
+        text m.title
 
 // A subtitle: the first text after the heading (UIKit's own on iOS 26).
 column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0 display="flex" flex-direction="column"
@@ -1371,7 +1367,9 @@ A segmented control in the content chooses a value or switches panels: a value
 from two to five (a preset, units, a period, a filter) is a `row role="radiogroup"` of
 `button role="radio" aria-checked=…`, each pressing its value (the web gives it the
 arrow keys and one Tab stop); switching panels, a `row role="tablist"` of text tabs
-outside the header. iOS needs a swipe row's content exactly the scroll's size
+outside the header. A list row's `delete=action` is its swipe to delete, UIKit's on
+iOS (`contract vocab swipe`). Other swipe actions are a hand-written swipe row, whose
+content iOS needs exactly the scroll's size
 ([pitfalls](agent-pitfalls.md), "There is no `swipeleft`"). Its swipe actions
 are UIKit's, drawn by UIKit (rounded on iOS 26 and later) whatever the buttons
 paint; when every control the row names says `appearance="none"`, the paint is

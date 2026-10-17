@@ -138,11 +138,12 @@ test "a row deletes by swipe after asking, and its long-press menu locks it"
   tap "menu-lock"
   clock data
   expect state lib.0 .locked == true
+  expect disabled "item-1-delete"
   tap "item-1" contextmenu
   tap "menu-lock"
   clock data
   expect state lib.0 .locked == false
-  tap "swipe-1"
+  tap "item-1-delete"
   clock settle
   tap "remove-confirm"
   clock settle

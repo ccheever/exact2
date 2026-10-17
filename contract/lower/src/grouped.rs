@@ -21,7 +21,7 @@ mod messages;
 
 use inputs::{column_row, field_beside_label, field_kind, hidden, switch, text_field, Field};
 
-use crate::{err, LowerError};
+use crate::{err, swipe_rows, LowerError};
 use contract_syntax::{Attr, Expr, Node, Span};
 
 /// `listStyle`'s names (D2), UIKit's three list appearances.
@@ -113,7 +113,7 @@ pub(crate) fn style(tag: &str, attrs: &[Attr]) -> Result<Option<&'static str>, L
 /// A sheet row's name mark: the lowering takes marked rows out before an
 /// element's classes and puts them under them (`split`), so a class, like an
 /// attribute, replaces the sheet. No authored name can carry it.
-const MARK: &str = "ua:";
+pub(crate) const MARK: &str = "ua:";
 const BUTTON_CONTEXT: &str = "ua:button-context";
 
 /// Rows and their detail accessories belong to the grouped list's press
@@ -605,9 +605,10 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
         group.push(m("row-gap", "separator-gap", span));
     }
     group.push(s("overflow", "hidden", span));
+    let mut styled = |n: &Node| Ok(swipe_rows::grouped(n, &|n| row(n, !cardless)));
     let body = rows
         .iter()
-        .map(|r| over(r, &mut |node| Ok(row(node, !cardless))))
+        .map(|r| over(r, &mut styled))
         .collect::<Result<Vec<_>, _>>()?;
     let mut out: Vec<Node> = children[..head].iter().map(|h| label(h, false)).collect();
     out.push(Node::Element {

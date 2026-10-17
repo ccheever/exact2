@@ -50,6 +50,9 @@ impl Lowerer<'_> {
         let button_context = grouped::button_context(attrs);
         let (mut sheet, unmarked) = grouped::split(attrs);
         let attrs = unmarked.as_ref().unwrap_or(attrs);
+        // A `delete=` no list row expanded does nothing (`lower-delete-row`).
+        let kept = swipe_rows::stray(attrs);
+        let attrs = kept.as_ref().unwrap_or(attrs);
         let (class_label, mut expanded) = self.class_rows(attrs)?.unzip();
         let button = self.button_appearance(
             tag,
@@ -158,6 +161,8 @@ impl Lowerer<'_> {
         self.check_collection(tag, expanded, children, *span, scope)?;
         // @ref LLP 1115.000 D16 — whether this list's rows are cells.
         let cells = cells::rows(tag, expanded, children, grouped.is_some());
+        // @ref LLP 1116.020 D1 — a cell's `delete=`, its swipe.
+        let swiped = cells.then(|| swipe_rows::cells(children)).flatten();
         // A row list is a flex item of its column like any carousel;
         // CSS's own fix keeps its spacers' extent from widening that
         // column: `min-width: 0`, unless the author set one (LLP 1070
@@ -595,6 +600,8 @@ impl Lowerer<'_> {
         }
         let children = if let Some(sections) = sections {
             std::borrow::Cow::Owned(sections)
+        } else if let Some(rows) = swiped {
+            std::borrow::Cow::Owned(rows)
         } else if let Some(face) = face {
             std::borrow::Cow::Owned(face)
         } else {
