@@ -682,7 +682,10 @@ final class MenuHost {
             pop.center = CGPoint(x: entry.layer.bounds.midX, y: entry.layer.bounds.midY); return
         }
         let anchorView: UIView = source.isNativeButton ? presenter.controls.controls[source.id] ?? source : source
-        let anchor = anchorView.convert(anchorView.bounds, to: entry.layer), size = pop.bounds.size
+        var anchor = anchorView.convert(anchorView.bounds, to: entry.layer)
+        // A bar item's popover opens from the item, not its hidden button (`agentOpen(barItem:)`).
+        if case .success(let (bar, item))? = presenter.navigation.barItem(source) { anchor = bar.convert(item, to: entry.layer) }
+        let size = pop.bounds.size
         let at = PositionArea.origin(PositionArea.of(pop), anchor: anchor, size: size,
                                     margins: PositionArea.margins(of: pop),
                                     fallbacks: pop.style["position_try_fallbacks"]?.string ?? "none",
@@ -800,6 +803,27 @@ final class MenuHost {
             return false
         }
         agentShow(pop, named: name, from: node.id)
+        return true
+    }
+    /// Under the agent's painted popovers and UIKit's bars (`--chrome
+    /// platform`), the tap of a bar item whose button opens a menu: what a
+    /// finger opens is UIKit's pull-down, which no public API opens, so its
+    /// popover opens painted under the bar, as a content invoker's does, and
+    /// `tap <row>` presses a row as the pull-down's action does (LLP
+    /// 1116.020 D6). A confirmation it names presents as the pull-down's
+    /// provider presents it. Nil when the agent shows UIKit's menus instead
+    /// (`--touch platform`: a real touch opens them); false when it opens
+    /// nothing now.
+    func agentOpen(barItem node: NodeView) -> Bool? {
+        guard ExactEnv.agentPaints, let presenter else { return nil }
+        guard eligible(node, inBar: true), let invocation = presenter.invocation(of: node), invocation.opens else { return false }
+        let target = invocation.target
+        if isConfirmation(target) {
+            return openConfirmation(from: nil, popover: target, modal: invocation.action == .showModal, dispatchPress: false)
+        }
+        guard let name = target.props["id"] else { return false }
+        lightDismiss(node)
+        if agentOpen[name] == nil { agentShow(target, named: name, from: node.id) } else { drop(name) }
         return true
     }
     /// Whether a tap on `node` goes through the agent's painted popovers —

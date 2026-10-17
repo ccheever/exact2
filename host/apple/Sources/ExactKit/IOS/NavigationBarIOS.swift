@@ -555,9 +555,14 @@ extension NavigationHost {
             c.barPresses.contains { $0.id == node.id } || c.lifted.map { node === $0 || node.isDescendant(of: $0) } == true
         }) else { return nil }
         // An item whose button only opens a menu is UIKit's pull-down, which
-        // no public API opens and the agent does not paint over the bar.
+        // no public API opens: under the agent's painted popovers it opens
+        // painted (`agentOpen(barItem:)`); under UIKit's menus a real touch opens it.
         if !node.handlers.contains("press"), !node.disabled, presenter.invocation(of: node)?.opensPopover == true {
-            return ["error": "unsupported: bar item #\(id) opens its menu as UIKit's pull-down from the bar, which only a real touch opens: under --touch platform `tap` opens it and `tap <row>` picks a row; under --chrome agent the header is painted and `tap` opens the menu painted (LLP 1021 D4)"]
+            switch presenter.menus.agentOpen(barItem: node) {
+            case true?: return ["tapped": id, "delivery": "host-activation", "native": "bar-pull-down", "menu": "painted"]
+            case false?: return ["error": "bar item #\(id) opens nothing now: its menu's button is ineligible or names no popover"]
+            case nil: return ["error": "unsupported: bar item #\(id) opens its menu as UIKit's pull-down from the bar, which only a real touch opens: under --touch platform `tap` opens it and `tap <row>` picks a row (LLP 1021 D4)"]
+            }
         }
         guard node.handlers.contains("press"), !node.disabled else { return ["error": "bar item #\(id) is disabled or presses nothing"] }
         presenter.press(node.id)
