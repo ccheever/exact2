@@ -35,8 +35,7 @@
 // signed with no profile and no team, for a consumer that re-signs it with
 // its own (AppDrop, a store's resigner). The simulator and phone helpers live
 // in devices.mjs, shared with scripts/agent.mjs, which launches the same bundle.
-// These developer builds explicitly allow unsigned updates. --release (or
-// EXACT_UPDATE_TRUST=production) builds a signed-update-only artifact.
+// These developer builds explicitly allow unsigned updates. --release (or EXACT_UPDATE_TRUST=production) builds a signed-update-only artifact.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -51,6 +50,7 @@ import { writeDataKeys } from './data-keys.mjs';
 import { iosTestRuns, macTests } from './xctest.mjs';
 import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, helperEntitlements, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
 import { keptModules } from './modules.mjs';
+import { quiet, quietFor } from './quiet.mjs';
 import { keptCrates } from './crates.mjs';
 import { appleComposition, assertCapabilityFrameworks, assertLinkedSdk, linksByPlan } from './link.mjs';
 export { appIcon, iosAssets };
@@ -70,8 +70,8 @@ const read = (cmd, args, opts = {}) => spawnSync(cmd, args, { cwd: root, encodin
 const runApple = (cmd, args, opts = {}) => {
   const { cargoMessages = false, ...spawnOptions } = opts;
   const r = spawnSync(cmd, args, { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, ...spawnOptions });
-  if (!cargoMessages) process.stdout.write(r.stdout ?? '');
-  process.stderr.write(r.stderr ?? '');
+  if (!cargoMessages) process.stdout.write(quiet(r.stdout ?? ''));
+  process.stderr.write(quiet(r.stderr ?? ''));
   if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})`);
   refuseMixedTargets(cmd, args, `${r.stdout ?? ''}\n${r.stderr ?? ''}`);
   return r;
@@ -104,7 +104,7 @@ function startApple(cmd, args, log, { authored, ...opts } = {}) {
     if (authored) writeFileSync(log, authored(readFileSync(log, 'utf8')));
     if (repeated && r.status !== 0) return false;
     const output = readFileSync(log, 'utf8');
-    process.stderr.write(output);
+    process.stderr.write(quiet(output));
     if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})`);
     refuseMixedTargets(cmd, args, output);
     return true;
@@ -640,7 +640,7 @@ async function main(args) {
     console.error('--archive needs --device and EXACT_IDENTITY and EXACT_PROFILE (or --unsigned, which needs --archive), and takes neither --run nor --host');
     process.exitCode = 1; return;
   }
-  const app = resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive', '--optimize', '--link'].includes(args[i - 1])));
+  const app = quietFor(resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive', '--optimize', '--link'].includes(args[i - 1]))), root);
   if (args.includes('--prebuild')) { process.exitCode = await (await import('../../scripts/agent-build.mjs')).prebuild(app, args); return; } // LLP 1116.003 D1.2
   const release = appleBuildLock(app);
   const cleanup = [], beside = []; // what to remove, and the steps started beside the build, when it ends

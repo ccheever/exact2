@@ -60,19 +60,22 @@ pub(crate) fn literals(e: &Expr) -> Vec<&str> {
     }
 }
 
-/// A source that is not a role (or `sf/` and a name) is refused with the roles; `e` is already
-/// written with roles (see [`roles`]).
+/// A source that is not a role (or `sf/` and a name) is refused, naming the role one spelling
+/// edit away and where the roles are listed (LLP 1116.021 D3: the hundred roles repeated in every
+/// refusal cost a builder 1.3 KB each time); `e` is already written with roles (see [`roles`]).
 pub(crate) fn check(e: &Expr, span: Span) -> Result<(), LowerError> {
     for source in literals(e) {
         let Some(role) = source.strip_prefix("symbol:") else {
             continue;
         };
         if !role.starts_with("sf/") && symbol_role(role).is_none() {
+            let near = contract_syntax::suggestion(role, SYMBOL_ROLES.iter().copied())
+                .map(|r| format!("did you mean `symbol:{r}`? "))
+                .unwrap_or_default();
             return err(
                 "lower-attr-value",
                 format!(
-                    "symbol `{role}` is not a role; roles: {}; or name any SF Symbol as `symbol:sf/<name>` (`symbol:sf/{}`), drawn on Apple and blank elsewhere, so a tab or button that must show everywhere takes a role",
-                    SYMBOL_ROLES.join(", "),
+                    "symbol `{role}` is not a role; {near}`contract vocab symbol` lists the roles; or name any SF Symbol as `symbol:sf/<name>` (`symbol:sf/{}`), drawn on Apple and blank elsewhere, so a tab or button that must show everywhere takes a role",
                     if role.is_empty() { "star.fill" } else { role }
                 ),
                 span,

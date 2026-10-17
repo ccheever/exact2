@@ -44,6 +44,10 @@ export const WEB_SIZES = [[390, 844], [1280, 900]];
 const SHOWN = 6, WARNINGS = 4; // the findings and build warnings shown; the count says the rest
 const REAL_MS = 4000, REAL_STEP = 250; // the relaunch's bound on real time for its first loads, in steps
 const FIRST = 'first screen', RELAUNCH = 'relaunch';
+// How long a run takes, said when it starts so a builder waits once rather than polling (LLP 1116.021 D3): the app's
+// last run on that host, else these (a run that must build first takes that build's time too).
+const ESTIMATE = { web: 30_000, ios: 60_000 };
+const lastRuns = (app) => { try { return JSON.parse(readFileSync(resolve(app.dir, '.exact', 'verify', 'last.json'), 'utf8')); } catch { return {}; } };
 let ACCEPT = []; // app.json `verify.accept`: findings the app's design accepts, set by main
 const secs = (ms) => `${(ms / 1000).toFixed(1)} s`;
 const firstLine = (text) => String(text ?? '').split('\n').find((l) => l.trim())?.trim() ?? '';
@@ -884,6 +888,8 @@ async function main(argv) {
   // (A test run that holds the port's turn is waited for when the server starts.)
   if (owned && await answering(server.url) && !(await holderOf(server.port))) return refuse(heldLine(server));
 
+  const last = lastRuns(app)[host];
+  console.error(`verify ${host}: about ${Math.round((last ?? ESTIMATE[host]) / 1000)} s${last ? ', as its last run took' : ''}; one report when it ends`);
   const built = host === 'web' ? await webBuild(app) : await iosBuild(app, sim);
   // The build said the compiler's warnings when it ran; the report's own group says them whether it ran or not.
   if (built?.said) { const { compilerWarnings } = await import('./agent-launch.mjs'); built.said = built.said.filter((line) => !compilerWarnings(line).length); }
@@ -969,6 +975,7 @@ async function main(argv) {
   const large = [...firsts.map((runs) => runs.large), ...results.map((t) => t.end?.large), relaunched?.large].filter(Boolean);
   const fixed = await fixedType(app.dir, host);
   const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, large, fixed, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started });
+  writeFileSync(resolve(shots, 'last.json'), JSON.stringify({ ...lastRuns(app), [host]: Date.now() - started }) + '\n');
   if (json) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, failures, end }) => ({ name, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
     const relaunchOut = relaunched && (({ runs, large, ...rest }) => rest)(relaunched);
