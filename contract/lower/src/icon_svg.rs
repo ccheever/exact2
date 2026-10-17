@@ -102,15 +102,24 @@ fn decode(v: &str) -> String {
 /// A property's value on an element: its `style` declaration first, else
 /// its presentation attribute (SVG's cascade).
 fn property(attrs: &[(&str, String)], name: &str) -> Option<String> {
+    // The last declaration wins, an `!important` one over any other.
     let styled = attrs
         .iter()
         .find(|(k, _)| *k == "style")
         .and_then(|(_, s)| {
-            s.split(';').rev().find_map(|d| {
+            let declared = s.split(';').filter_map(|d| {
                 let (k, v) = d.split_once(':')?;
-                (k.trim() == name).then(|| clean(v))
-            })
+                (k.trim() == name).then(|| (v.trim().ends_with("!important"), clean(v)))
+            });
+            declared.fold(
+                None,
+                |won: Option<(bool, String)>, (important, v)| match won {
+                    Some((true, _)) if !important => won,
+                    _ => Some((important, v)),
+                },
+            )
         });
+    let styled = styled.map(|(_, v)| v);
     styled.or_else(|| {
         attrs
             .iter()
@@ -246,6 +255,7 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                 if painted.contains('/')
                     || painted.starts_with("rgba")
                     || painted.starts_with("hsla")
+                    || painted == "transparent"
                     || hex == 4
                     || hex == 8
                 {
@@ -346,6 +356,8 @@ mod tests {
             r#"visibility="hidden""#,
             r##"fill="#ff000080""##,
             r#"fill="rgba(0,0,0,.5)""#,
+            r#"fill="transparent""#,
+            r#"style="opacity:.5 !important; opacity:1""#,
         ] {
             let svg = read(&format!(
                 r#"<svg viewBox="0 0 24 24"><path {hidden} d="M0 0h1"/></svg>"#

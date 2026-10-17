@@ -106,7 +106,8 @@ class Element extends Node {
     for (const cls of (this.getAttribute('class') ?? '').split(/\s+/)) if (this.fonts?.has(cls)) font = fontPx(this.fonts.get(cls), inheritedFont);
     const ownFont = this.style.getPropertyValue('font-size');
     if (ownFont !== '') font = fontPx(ownFont, inheritedFont);
-    if (this.localName === 'img' && this.hasAttribute('data-symbol-source')) this.setAttribute('src', `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='${font}' height='${font}'/%3E`);
+    // (An icon's file, `data-symbol-file`, is shown as written: LLP 1121 D10.)
+    if (this.localName === 'img' && this.hasAttribute('data-symbol-source') && !this.hasAttribute('data-symbol-file')) this.setAttribute('src', `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='${font}' height='${font}'/%3E`);
     // A head is the page's <head>, never an element in the root (as document.rs).
     if (this.localName === 'template') return '';
     let out = `<${this.localName}`;

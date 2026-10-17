@@ -139,7 +139,12 @@ impl Painter {
         let style = node.style;
         let size = style.font_size.max(1.0);
         let natural = (size.round().max(1.0) as u32, size.round().max(1.0) as u32);
-        let Some(rect) = super::object_fit(natural, style.object_fit, content) else {
+        // `fill` keeps a symbol's aspect, as the web's `contain` and Apple do.
+        let fit = match style.object_fit {
+            exact_kernel::ObjectFit::Fill => exact_kernel::ObjectFit::Contain,
+            fit => fit,
+        };
+        let Some(rect) = super::object_fit(natural, fit, content) else {
             return;
         };
         let colour = tint.unwrap_or_else(|| {
