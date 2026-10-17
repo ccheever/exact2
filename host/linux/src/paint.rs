@@ -494,6 +494,7 @@ pub use backend::{Backend, WindowLayer};
 /// The painter: the walk over one backend.
 pub struct Painter {
     pub(crate) window_canvas: Option<ViewId>,
+    pub(crate) direct_canvases: std::collections::BTreeSet<ViewId>,
     pub(crate) alert: Option<alert::Picture>,
     /// The text engine, shared with the kernel's measurer.
     pub text: Shared,
@@ -625,6 +626,7 @@ impl Painter {
     pub fn new(text: Shared, scale: f32, backend: Box<dyn Backend>) -> Painter {
         Painter {
             window_canvas: None,
+            direct_canvases: Default::default(),
             text,
             scale,
             dark: false,

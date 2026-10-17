@@ -54,7 +54,7 @@ impl Painter {
             if content.2 > 0.0 && content.3 > 0.0 {
                 let field = NativeKind::Field;
                 self.backend
-                    .native(node.id, field, &Shape::rect(content), ts, "");
+                    .native(node.id, field, &Shape::rect(content), ts, "", false);
             }
             if ringed {
                 let accent = control::ring(node, self.dark);

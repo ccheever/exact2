@@ -9,7 +9,7 @@ use super::layer::{CLOCK, LAYER_FREE, LAYER_REF, LAYER_SET, TRACKS};
 use super::*;
 
 /// Where the op at `i` ends, or `None` for a malformed stream.
-fn end(b: &[u32], i: usize) -> Option<usize> {
+pub(super) fn end(b: &[u32], i: usize) -> Option<usize> {
     let at = |k: usize| b.get(i + k).map(|v| *v as usize);
     // A path's tagged segments from its count at `p`.
     let path = |p: usize| -> Option<usize> {
@@ -59,6 +59,26 @@ fn end(b: &[u32], i: usize) -> Option<usize> {
     })
 }
 
+/// Retained drawing that samples or contains the world must stay in HWUI.
+pub(super) fn needs_world(b: &[u32]) -> bool {
+    let mut i = 0;
+    while i < b.len() {
+        let Some(j) = end(b, i).filter(|j| *j <= b.len()) else {
+            return true;
+        };
+        match b[i] {
+            BACKDROP => return true,
+            NATIVE if b[i + 2] & 255 == 3 => return true,
+            ROW_BEGIN if needs_world(&b[i + 6..j - 1]) => return true,
+            SLOT_SET if needs_world(&b[i + 3..j]) => return true,
+            LAYER_SET if needs_world(&b[i + 19..j]) => return true,
+            _ => (),
+        }
+        i = j;
+    }
+    false
+}
+
 /// Whether op `op` defines something the reader keeps (rather than draws).
 fn defines(op: u32) -> bool {
     matches!(
@@ -93,6 +113,50 @@ pub fn drawing(b: &[u32]) -> Option<(Vec<u32>, bool)> {
         i = j;
     }
     Some((out, defs))
+}
+
+/// What a frame's recording learns of whether its GPU canvas may be presented directly (op 28's
+/// direct bit): the frame's only canvas, filling the window, with nothing composited into it.
+#[derive(Default)]
+pub(super) struct Direct {
+    /// The window, in points.
+    pub(super) size: (f32, f32),
+    /// Opacity layers open where the recording is.
+    pub(super) isolation: usize,
+    /// Where an eligible canvas's NATIVE op starts in the recording.
+    pub(super) at: Option<usize>,
+    /// GPU canvases recorded.
+    pub(super) surfaces: usize,
+    /// Whether a backdrop filter reads what is under it.
+    pub(super) backdrop: bool,
+}
+
+impl Recorder {
+    pub(super) fn finish_stream(&mut self) -> Result<Pixmap, String> {
+        self.layers_finish();
+        if self.direct.surfaces == 1
+            && !self.direct.backdrop
+            && !self
+                .kept
+                .values()
+                .any(|(ops, _)| needs_world(ops.get(3..).unwrap_or(&[u32::MAX])))
+            && !self.slots.values().any(|ops| needs_world(ops))
+            && !self.layers.needs_world()
+        {
+            if let Some(at) = self.direct.at {
+                self.ops[at + 2] |= 1 << 8;
+            }
+        }
+        let ops = std::mem::take(&mut self.ops);
+        FINISHED.with(|f| {
+            let old = f.borrow_mut().replace(ops);
+            #[cfg(target_os = "android")]
+            agent::kept(old);
+            #[cfg(not(target_os = "android"))]
+            drop(old);
+        });
+        Pixmap::new(1, 1).ok_or_else(|| "placeholder".to_string())
+    }
 }
 
 #[cfg(test)]

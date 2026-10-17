@@ -87,7 +87,7 @@ pub fn carry_length(len: usize) -> Option<u32> {
 
 /// Create the device and the module. Returns 0 on success, 1 on failure
 /// (see [`error`]).
-pub fn load(registry: &'static Registry) -> u32 {
+pub fn load(registry: &'static Registry, artifact: &'static str) -> u32 {
     crate::report_panics();
     let prepared = {
         let mut slot = PREPARED.0.lock().unwrap_or_else(|e| e.into_inner());
@@ -103,6 +103,7 @@ pub fn load(registry: &'static Registry) -> u32 {
     match prepared.unwrap_or_else(create_gpu) {
         Ok(gpu) => {
             let mut module = Module::new(registry);
+            module.cache_artifact = Some(artifact);
             module.set_gpu(gpu);
             MODULE.with(|m| *m.borrow_mut() = Some(module));
             0
@@ -117,6 +118,7 @@ pub fn load(registry: &'static Registry) -> u32 {
 fn create_gpu() -> Result<crate::Gpu, crate::DeviceFailure> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::PRIMARY,
+        flags: crate::device::instance_flags(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     crate::block_on(crate::load_gpu(instance, None))
@@ -203,9 +205,10 @@ pub fn recover() -> String {
 }
 
 /// Load surface ownership only; no adapter is requested.
-pub fn load_headless(registry: &'static Registry) {
+pub fn load_headless(registry: &'static Registry, artifact: &'static str) {
     crate::report_panics();
     let mut module = Module::new(registry);
+    module.cache_artifact = Some(artifact);
     module.set_seekable(true);
     MODULE.with(|m| *m.borrow_mut() = Some(module));
 }
@@ -284,6 +287,7 @@ pub unsafe fn attach(id: u32, window: *mut c_void, width: u32, height: u32) -> u
         return 1;
     };
     let attached = with(|m| {
+        m.join_retired();
         let gpu = m.gpu()?;
         // SAFETY: the caller's contract — the window outlives the surface.
         let target = unsafe {
@@ -514,6 +518,12 @@ pub fn readback(id: u32, width: f32, height: f32, scale: f32, now_ms: f64, out: 
     }
 }
 
+/// Current instance policy: bit 0 promises alpha one; bit 1 requests SDR.
+/// Available before attachment, including for headless canvases.
+pub fn presentation_flags(id: u32) -> u32 {
+    with(|m| m.presentation_flags(id)).unwrap_or(0)
+}
+
 /// Whether a canvas wants raw input.
 pub fn wants_input(id: u32) -> bool {
     with(|m| m.wants_input(id)).unwrap_or(false)
@@ -689,7 +699,7 @@ macro_rules! module {
         /// Create the device. 0 on success.
         #[no_mangle]
         pub extern "C" fn gpu_load() -> u32 {
-            $crate::native::load(&$registry)
+            $crate::native::load(&$registry, concat!(env!("CARGO_PKG_NAME"), "@", env!("CARGO_PKG_VERSION")))
         }
 
         /// Start creating the device on a thread of its own; `gpu_load` takes it.
@@ -725,7 +735,7 @@ macro_rules! module {
 
         /// Load ownership without a GPU.
         #[no_mangle]
-        pub extern "C" fn gpu_load_headless() { $crate::native::load_headless(&$registry); }
+        pub extern "C" fn gpu_load_headless() { $crate::native::load_headless(&$registry, concat!(env!("CARGO_PKG_NAME"), "@", env!("CARGO_PKG_VERSION"))); }
 
         /// Create ownership without a presentation target. Zero means refusal.
         /// # Safety
@@ -959,6 +969,9 @@ macro_rules! module {
         /// Whether a canvas wants raw input.
         #[no_mangle]
         pub extern "C" fn gpu_wants_input(id: u32) -> u32 { u32::from($crate::native::wants_input(id)) }
+        /// Instance policy: bit 0 promises alpha one, bit 1 requests SDR.
+        #[no_mangle]
+        pub extern "C" fn gpu_presentation_flags(id: u32) -> u32 { $crate::native::presentation_flags(id) }
 
         /// Whether a canvas draws above SDR white (LLP 1100 D12b): 1 or 0.
         #[no_mangle]
@@ -1221,7 +1234,7 @@ mod placement_abi_tests {
     crate::module!(REGISTRY);
     #[test]
     fn retiring_each_releases_textures_and_zero_frame_releases_a_capture() {
-        assert_eq!(load(&REGISTRY), 0);
+        assert_eq!(load(&REGISTRY, "test-gpu"), 0);
         let id = create_headless("sign");
         assert_eq!(bind(id, "[]"), 0);
         for _ in 0..3 {
@@ -1258,7 +1271,7 @@ mod placement_abi_tests {
     fn an_untaken_acquired_texture_is_discarded_while_its_surface_exists() {
         #[link(name = "QuartzCore", kind = "framework")]
         extern "C" {}
-        assert_eq!(load(&REGISTRY), 0);
+        assert_eq!(load(&REGISTRY, "test-gpu"), 0);
         // SAFETY: retained layer outlives the module's presentation target.
         let layer: objc2::rc::Retained<objc2::runtime::AnyObject> =
             unsafe { objc2::msg_send![objc2::class!(CAMetalLayer), new] };
@@ -1284,7 +1297,7 @@ mod placement_abi_tests {
     fn presented_device_loss_rebinds_live_layer_and_readback_keeps_its_format() {
         #[link(name = "QuartzCore", kind = "framework")]
         extern "C" {}
-        assert_eq!(load(&REGISTRY), 0);
+        assert_eq!(load(&REGISTRY, "test-gpu"), 0);
         // SAFETY: retained layer outlives the module's presentation target.
         let layer: objc2::rc::Retained<objc2::runtime::AnyObject> =
             unsafe { objc2::msg_send![objc2::class!(CAMetalLayer), new] };
@@ -1336,7 +1349,7 @@ mod placement_abi_tests {
 
     #[test]
     fn replacement_lost_during_preparation_refuses_then_retries() {
-        assert_eq!(load(&REGISTRY), 0);
+        assert_eq!(load(&REGISTRY, "test-gpu"), 0);
         let id = create_headless("sign");
         with(|m| {
             m.agent(id, "lose-on-prepare");
@@ -1354,7 +1367,7 @@ mod placement_abi_tests {
 
     #[test]
     fn recovery_of_a_healthy_device_does_not_prepare_again() {
-        assert_eq!(load(&REGISTRY), 0);
+        assert_eq!(load(&REGISTRY, "test-gpu"), 0);
         let id = create_headless("sign");
         let before = with(|m| m.agent(id, "state")).unwrap();
         assert!(recover().contains("healthy"));
@@ -1364,7 +1377,7 @@ mod placement_abi_tests {
 
     #[test]
     fn destroyed_device_recovers_without_replacing_the_surface_table() {
-        if load(&REGISTRY) != 0 {
+        if load(&REGISTRY, "test-gpu") != 0 {
             // Only an absent adapter skips (and fails under EXACT_REQUIRED); a load failure fails.
             crate::fixture::device_or_skip::<()>(Err(error()));
             return;

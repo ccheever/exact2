@@ -37,6 +37,14 @@ macro_rules! canvas_jni {
             const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
             const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 
+            fn pipeline_cache() {
+                use std::hash::{Hash, Hasher};
+                let mut key = std::collections::hash_map::DefaultHasher::new();
+                // The baked plan includes the GPU artifact’s content digest.
+                PLAN.hash(&mut key);
+                std::env::set_var("EXACT_GPU_CACHE_KEY", format!("{:016x}", key.finish()));
+            }
+
             type Host = $crate::canvas::CanvasHost<$data>;
 
             fn hatches() -> Option<$crate::hatches::Install> {
@@ -128,6 +136,7 @@ macro_rules! canvas_jni {
                 // The reader hosts the app's text fields (LLP 1115.001 D8).
                 $crate::canvas::field::attach(env, scale);
                 let dir = string(env, dir);
+                pipeline_cache();
                 std::env::set_var("HOME", &dir);
                 std::env::set_var("XDG_DATA_HOME", format!("{dir}/data"));
                 std::env::set_var("EXACT_ASSETS", format!("{dir}/app"));
@@ -187,6 +196,7 @@ macro_rules! canvas_jni {
                 $crate::canvas::field::attach(env, scale);
                 // The environment is set here, before any other thread reads it.
                 let dir = string(env, dir);
+                pipeline_cache();
                 std::env::set_var("HOME", &dir);
                 std::env::set_var("XDG_DATA_HOME", format!("{dir}/data"));
                 std::env::set_var("EXACT_ASSETS", format!("{dir}/app"));
@@ -502,9 +512,10 @@ macro_rules! canvas_jni {
                 env: *mut JNIEnv,
                 _class: jclass,
             ) -> jintArray {
-                let fds = with(|h| h.fds()).unwrap_or([-1, -1]);
-                let arr = ((**env).NewIntArray.expect("jni"))(env, 2);
-                ((**env).SetIntArrayRegion.expect("jni"))(env, arr, 0, 2, fds.as_ptr());
+                let mut fds = with(|h| h.fds()).unwrap_or([-1, -1]).to_vec();
+                fds.push(with(|h| h.acquire_fd()).unwrap_or(-1));
+                let arr = ((**env).NewIntArray.expect("jni"))(env, fds.len() as i32);
+                ((**env).SetIntArrayRegion.expect("jni"))(env, arr, 0, fds.len() as i32, fds.as_ptr());
                 arr
             }
 
@@ -807,6 +818,20 @@ macro_rules! canvas_jni {
             }
 
             #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_acquired(
+                _env: *mut JNIEnv, _class: jclass, running: jboolean,
+            ) {
+                with(|h| h.acquired(running != JNI_FALSE));
+            }
+
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_displayFrame(
+                _env: *mut JNIEnv, _class: jclass,
+            ) {
+                with(|h| h.display_frame());
+            }
+
+            #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_canvas_Native_poll(
                 _env: *mut JNIEnv,
                 _class: jclass,
@@ -903,6 +928,13 @@ macro_rules! canvas_jni {
                 view: jint,
             ) -> jlong {
                 $crate::canvas::jni::canvas_frame(view as u32)
+            }
+
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_canvasReady(
+                _env: *mut JNIEnv, _class: jclass, view: jint,
+            ) -> jint {
+                $crate::canvas::jni::window_ready(view as u32)
             }
 
             /// That frame's buffer as a `HardwareBuffer` to wrap, or null.
@@ -1394,4 +1426,9 @@ pub unsafe fn release_window(window: *mut c_void) {
     if !window.is_null() {
         ANativeWindow_release(window);
     }
+}
+
+/// Window readiness published by the presenter, read without running a frame.
+pub fn window_ready(view: u32) -> i32 {
+    crate::surfaces::window_ready(view)
 }

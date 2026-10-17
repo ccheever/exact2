@@ -38,7 +38,7 @@
 //! - `42 BACKDROP n (kind amount)×n x y w h radii×8` — filter what this recording drew so far
 //!   inside that rounded rect, in order: kind 0 blur (local units), 1 saturation (multiplier)
 //!   (replaces the radius-only op 27; an older reader must refuse the new op)
-//! - `28 NATIVE view kind x y w h radii×8 len utf8-json` — a platform element (`paint/native.rs`;
+//! - `28 NATIVE view kind|direct<<8 x y w h radii×8 len utf8-json` — a platform element (`paint/native.rs`;
 //!   kind 0 video, 1 web view, 2 module) shown in that rounded rect: the reader draws the
 //!   platform view's own drawing there
 //! - `40 SHADOW color sigma x y w h radii×8 bx by bw bh bradii×8` — an outer
@@ -56,9 +56,11 @@
 use crate::image::Bitmap;
 use crate::paint::border::{BorderFill, PathOp};
 use crate::paint::{Backend, GradientPaint, Rect4, Shape};
+#[cfg(target_os = "android")]
 use crate::presenter::Presenter;
 use crate::text::{Paragraph, RunPaint, TextEngine};
 use exact_kernel::ViewId;
+#[cfg(target_os = "android")]
 use exact_runner::DataSource;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -118,6 +120,7 @@ const SLOT_SET: u32 = 24;
 /// id and the move (device pixels) of its rows from where they were drawn.
 /// With `EXACT_MOVE_TRACKS=1`, `CLOCK` and `TRACKS` ops may follow: layers of
 /// the last stream whose plays changed since.
+#[cfg(target_os = "android")]
 const SHIFT: u32 = 22;
 
 /// Room (points) left of and above a row's origin in its recording, so what
@@ -135,43 +138,59 @@ static SLOTS: std::sync::LazyLock<bool> =
 /// from the decoded picture, a copy rather than a decode.
 const IDLE_FRAMES: u64 = 10;
 
+#[cfg(target_os = "android")]
 #[path = "canvas/access.rs"]
 mod access;
+#[cfg(target_os = "android")]
 #[path = "canvas/agent.rs"]
 pub mod agent;
 #[path = "canvas/clip.rs"]
 mod clip;
+#[cfg(target_os = "android")]
 #[path = "canvas/colors.rs"]
 mod colors;
+#[cfg(target_os = "android")]
 pub use colors::colors;
+#[cfg(target_os = "android")]
 #[path = "canvas/device.rs"]
 mod device;
+#[cfg(target_os = "android")]
 #[path = "canvas/field.rs"]
 pub mod field;
 #[path = "canvas/glyphs.rs"]
 mod glyphs;
 #[path = "canvas/gradient.rs"]
 mod gradient;
+#[cfg(target_os = "android")]
 #[path = "canvas/input.rs"]
 mod input;
+#[cfg(target_os = "android")]
 pub use device::{configure, window, Told};
+#[cfg(target_os = "android")]
 #[path = "canvas/jni.rs"]
 pub mod jni;
+#[cfg(target_os = "android")]
 #[path = "canvas/journal.rs"]
 mod journal;
+#[cfg(target_os = "android")]
 #[path = "canvas/keys.rs"]
 mod keys;
 #[path = "canvas/layer.rs"]
 mod layer;
+#[cfg(target_os = "android")]
 pub use jni_sys;
 #[path = "canvas/picture.rs"]
 mod picture;
+#[cfg(target_os = "android")]
 #[path = "canvas/reader.rs"]
 mod reader;
+#[cfg(target_os = "android")]
 #[path = "canvas/refine.rs"]
 mod refine;
+#[cfg(target_os = "android")]
 #[path = "canvas/requests.rs"]
 mod requests;
+#[cfg(target_os = "android")]
 #[path = "canvas/scroll.rs"]
 mod scroll;
 #[path = "canvas/shadow.rs"]
@@ -180,12 +199,16 @@ mod shadow;
 mod slot;
 #[path = "canvas/stream.rs"]
 mod stream;
+#[cfg(target_os = "android")]
 #[path = "canvas/surface.rs"]
 mod surface;
+#[cfg(target_os = "android")]
 #[path = "canvas/tamber.rs"]
 mod tamber;
 pub use picture::Picture;
 use picture::WeakPicture;
+#[cfg(target_os = "android")]
+use reader::{monotonic_ns, Section};
 pub use stream::drawing;
 
 thread_local! {
@@ -208,6 +231,7 @@ fn pending() -> std::sync::MutexGuard<'static, std::collections::BTreeMap<u32, P
 /// The recording backend.
 pub struct Recorder {
     scale: f32,
+    direct: stream::Direct,
     ops: Vec<u32>,
     /// The matrix last written into `ops` (points → device pixels).
     matrix: Option<[f32; 6]>,
@@ -285,6 +309,7 @@ impl Recorder {
     pub fn new() -> Recorder {
         Recorder {
             scale: 1.0,
+            direct: stream::Direct::default(),
             ops: Vec::new(),
             matrix: None,
             fonts: HashMap::new(),
@@ -496,7 +521,11 @@ impl Backend for Recorder {
         "canvas"
     }
 
-    fn begin(&mut self, _width: f32, _height: f32, scale: f32) {
+    fn begin(&mut self, width: f32, height: f32, scale: f32) {
+        self.direct = stream::Direct {
+            size: (width, height),
+            ..Default::default()
+        };
         self.scale = scale;
         self.ops.clear();
         self.matrix = None;
@@ -630,6 +659,7 @@ impl Backend for Recorder {
         }
         self.need(bounds);
         self.transform(ts);
+        self.direct.backdrop = true;
         self.ops.push(BACKDROP);
         self.ops.push(filter.0.len() as u32);
         for op in &filter.0 {
@@ -650,16 +680,9 @@ impl Backend for Recorder {
         shape: &Shape,
         ts: Transform,
         props: &str,
+        direct: bool,
     ) {
-        let bounds = clip::map(shape.rect, ts);
-        if self.culled(bounds) {
-            return;
-        }
-        self.need(bounds);
-        self.transform(ts);
-        self.ops.extend([NATIVE, id, kind as u32]);
-        self.rect_radii(shape);
-        self.string(props);
+        self.native_element(id, kind, shape, ts, props, direct);
     }
 
     fn canvas(&mut self, pixels: &Arc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
@@ -736,6 +759,7 @@ impl Backend for Recorder {
     }
 
     fn push_opacity(&mut self, alpha: f32) {
+        self.direct.isolation += 1;
         // A layer's bounds are unknown here: every pending clip applies to it.
         self.need(None);
         self.ops.push(LAYER);
@@ -743,6 +767,7 @@ impl Backend for Recorder {
     }
 
     fn pop_opacity(&mut self) {
+        self.direct.isolation = self.direct.isolation.saturating_sub(1);
         self.ops.push(RESTORE);
         // The restore puts back the reader's matrix from before the layer.
         self.matrix = None;
@@ -900,39 +925,7 @@ impl Backend for Recorder {
     }
 
     fn finish(&mut self) -> Result<Pixmap, String> {
-        self.layers_finish();
-        let ops = std::mem::take(&mut self.ops);
-        FINISHED.with(|f| agent::kept(f.borrow_mut().replace(ops)));
-        Pixmap::new(1, 1).ok_or_else(|| "placeholder".to_string())
-    }
-}
-
-/// `CLOCK_MONOTONIC` now, in nanoseconds: the clock `Instant` and the
-/// reader's frame times both read.
-fn monotonic_ns() -> i64 {
-    let mut t = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: `t` is a valid out pointer for the call's duration.
-    #[allow(unsafe_code)]
-    unsafe {
-        libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut t);
-    }
-    t.tv_sec * 1_000_000_000 + t.tv_nsec
-}
-
-/// An atrace section for the rest of a scope.
-struct Section;
-impl Section {
-    fn begin(name: &'static core::ffi::CStr) -> Section {
-        crate::android::section_begin(name);
-        Section
-    }
-}
-impl Drop for Section {
-    fn drop(&mut self) {
-        crate::android::section_end();
+        self.finish_stream()
     }
 }
 
@@ -960,6 +953,7 @@ fn path_bounds(ops: &[PathOp]) -> Option<Rect4> {
 }
 
 /// The presenter on the Android main thread, painting through [`Recorder`].
+#[cfg(target_os = "android")]
 pub struct CanvasHost<D: DataSource> {
     p: Presenter<D>,
     started: std::time::Instant,
@@ -1042,6 +1036,7 @@ pub struct CanvasHost<D: DataSource> {
     shell: device::Shell,
 }
 
+#[cfg(target_os = "android")]
 struct Painted {
     still: crate::presenter::still::Still,
     scroll: std::collections::BTreeMap<ViewId, (f32, f32)>,
@@ -1050,11 +1045,14 @@ struct Painted {
 
 /// At most this many frames move the last paint before one paints again:
 /// what it leaves stale (boxes, hits, which pictures show) stays this fresh.
+#[cfg(target_os = "android")]
 const MOVES: u32 = 30;
 /// The same, once rows have mounted out of view since the last paint, where
 /// the frame they can first show is not known ([`CanvasHost::unhurried`]).
+#[cfg(target_os = "android")]
 const MOVES_MOUNTED: u32 = 6;
 
+#[cfg(target_os = "android")]
 impl<D: DataSource + Default> CanvasHost<D> {
     /// Boot `D`'s app in a window of `size` pixels at `scale` pixels per
     /// point, with the insets the reader told for it (`device.rs`). Assets
@@ -1096,7 +1094,6 @@ impl<D: DataSource + Default> CanvasHost<D> {
         // A retiring row is rebound to the next item instead of a row built
         // for it (LLP 1078), unless `EXACT_ROW_REUSE=0`.
         crate::app::row_reuse_from_env(true);
-        #[cfg(target_os = "android")]
         crate::surfaces::prepare_gpu(compat);
         // The device's colours, before anything is resolved by a role (D4).
         let palette = colors::palette();
@@ -1114,6 +1111,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             eprintln!("exact: {e}");
         }
         p.set_live_clock(Some(crate::presenter::wall_since(started)));
+        crate::surfaces::acquire_fd();
         // What the reader read of the device, before the first frame (D3.1).
         if let Some(e) = device::configured().and_then(|d| p.set_device(&d)) {
             eprintln!("exact: device: {e}");
@@ -1179,20 +1177,6 @@ impl<D: DataSource + Default> CanvasHost<D> {
         Ok(host)
     }
 
-    /// A reader's `ANativeWindow` of `size` pixels for canvas `view`, alive
-    /// until [`CanvasHost::detach_window`]; whether `view` is a GPU canvas.
-    #[cfg(target_os = "android")]
-    pub fn attach_window(&mut self, view: u32, window: usize, size: (u32, u32)) -> bool {
-        self.surfaces = true;
-        self.p.attach_window(view, window, size)
-    }
-
-    /// The window of canvas `view` is going.
-    #[cfg(target_os = "android")]
-    pub fn detach_window(&mut self, view: u32) {
-        self.p.detach_window(view);
-    }
-
     fn now(&self) -> f64 {
         agent::clock(&self.p).unwrap_or_else(|| self.started.elapsed().as_secs_f64() * 1000.0)
     }
@@ -1214,30 +1198,6 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.p.hold_collections(false);
         if std::mem::take(&mut self.responding) {
             self.p.slice_collections(None, 0.0);
-        }
-        // Every attached GPU canvas (none: at once); a canvas with nothing
-        // new draws nothing.
-        #[cfg(target_os = "android")]
-        {
-            let _s = Section::begin(c"exact surfaces");
-            // GPU canvases follow the tree (made, bound, given their
-            // assets) outside a scroll's frame, as the Linux loop does.
-            // `lead` turns on at the frame after the first paint.
-            // The GPU device still being made (on its own thread, since boot):
-            // the canvases wait a frame rather than this thread waiting for it.
-            self.gpu_waiting = crate::surfaces::gpu_device_pending();
-            if self.borrowed || !self.lead || self.gpu_waiting {
-                // On a booting thread, or the first frame: the canvases come
-                // with the next frame (made then, as a picture arrives after
-                // first content, not before it).
-                self.owed_surfaces = true;
-            } else {
-                self.owed_surfaces = false;
-                if !self.scrolled {
-                    self.p.sync_surfaces();
-                }
-                self.surfaces = self.p.render_surfaces(now);
-            }
         }
         frame
     }
@@ -1281,6 +1241,31 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if !quick && self.p.dirty() {
             self.fit();
         }
+        // Every attached GPU canvas (none: at once); a canvas with nothing
+        // new draws nothing.
+        {
+            let _s = Section::begin(c"exact surfaces");
+            // GPU canvases follow the tree (made, bound, given their
+            // assets) outside a scroll's frame, as the Linux loop does.
+            // `lead` turns on at the frame after the first paint.
+            // The GPU device still being made (on its own thread, since boot):
+            // the canvases wait a frame rather than this thread waiting for it.
+            self.gpu_waiting = crate::surfaces::gpu_device_pending();
+            if self.borrowed || !self.lead || self.gpu_waiting {
+                // On a booting thread, or the first frame: the canvases come
+                // with the next frame (made then, as a picture arrives after
+                // first content, not before it).
+                self.owed_surfaces = true;
+            } else {
+                self.owed_surfaces = false;
+                if !self.scrolled {
+                    self.p.sync_surfaces();
+                }
+                self.surfaces = self.p.render_surfaces(now);
+                self.p.direct_canvases();
+            }
+        }
+
         if let Some(mut shift) = self.shift(now) {
             // A play that changed since the last stream (a row that came
             // into view starts its animations): its layer's tracks go with
@@ -1294,7 +1279,10 @@ impl<D: DataSource + Default> CanvasHost<D> {
             return None;
         }
         let p = &mut self.p;
-        let frame = crate::android::trace(c"exact paint", || p.display_frame())?;
+        let frame = {
+            let _paint = Section::begin(c"exact paint");
+            p.display_frame()
+        }?;
         p.display_complete(&frame);
         if p.module_pending() {
             p.first_pixel();
@@ -1400,6 +1388,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
             self.moves
         }
         .min(self.paint_by.unwrap_or(u32::MAX));
+        if !p.brush.direct_canvases.is_empty() || p.has_window_canvases() {
+            return None;
+        }
         if !p.dirty() || self.force || self.moved >= limit {
             return None;
         }
@@ -1494,6 +1485,7 @@ pub fn pending_pictures() -> Vec<[u32; 3]> {
 }
 
 /// A picture announced by `IMAGE_DEF`, once (premultiplied RGBA rows).
+#[cfg(target_os = "android")]
 fn image(id: u32) -> Option<Picture> {
     pending().remove(&id)
 }

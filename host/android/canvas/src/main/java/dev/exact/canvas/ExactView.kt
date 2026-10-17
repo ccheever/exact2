@@ -174,11 +174,13 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
             started = Native.start(window.first, window.second, resources.displayMetrics.density, dir, live)
         }
         // Executor replies and decoded images wake the main looper; poll drains them. A wake with no turn to take
-        // still owes the next timer (a dev loop's next poll among them).
-        wakes = Wakes(Looper.getMainLooper().queue) {
-            val turn = Native.poll()
-            asking()
-            if (turn) pump() else schedule()
+        // still owes the next timer (a dev loop's next poll among them). The GPU module's acquisitions wake it too.
+        wakes = Wakes(Looper.getMainLooper().queue) { index ->
+            if (index == Wakes.ACQUIRED) Native.acquired(running) else {
+                val turn = Native.poll()
+                asking()
+                if (turn) pump() else schedule()
+            }
         }.also { it.sync() }
         invalidate()
     }
@@ -424,6 +426,8 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         var allQuiet = true
         var move: Owner.Pub? = null
         while (true) {
+            val next = o.queue.peek() ?: break
+            if (next.ops != null && natives?.prepare(next.ops, structure) { post { publish() } } == false) break
             val p = o.queue.poll() ?: break
             any = true
             // The fields first: the stream that came with them draws their nodes.
@@ -806,21 +810,31 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         done.clear()
     }
 
+    private var pendingStream: IntBuffer? = null
     /** A new stream, if exact2 has one: made ready to replay. Whether there was one. */
     private fun take(): Boolean {
-        android.os.Trace.beginSection("exact native frame")
-        val fresh = Native.frame()
-        android.os.Trace.endSection()
+        val stream = pendingStream ?: run {
+            android.os.Trace.beginSection("exact native frame")
+            val fresh = Native.frame()
+            android.os.Trace.endSection()
+            fresh?.order(ByteOrder.LITTLE_ENDIAN)?.asIntBuffer()?.let { b ->
+                val words = IntArray(b.limit()); b.get(words); IntBuffer.wrap(words)
+            }
+        }
+        if (stream != null && natives?.prepare(stream, structure) { post { pump() } } == false) {
+            pendingStream = stream
+            return false
+        }
+        pendingStream = null
         // The fields first: the stream that came with them draws their nodes; a statement may come with none.
         Native.fields()?.let { fields?.told(it) }
         Native.bars()?.let { bars?.told(it) }
         if (accessible) Native.access(accessAgain).also { accessAgain = false }?.let { access?.invoke(it) }
         // exact2 runs on this thread (owner=0): its bindings are checked here, as the owner checks them after a turn.
         Tambers.turned()
-        fresh ?: return false
+        stream ?: return false
         Native.chrome()?.let(chrome)
         val told = Native.scrollers()
-        val stream = fresh.order(ByteOrder.LITTLE_ENDIAN).asIntBuffer()
         moved = stream.limit() > 0 && stream.get(0) == 22
         if (moved) { applyMove(stream); applyMoveTracks(stream) } else applyStream(stream)
         told?.let { scrolling.told(it) }
@@ -915,7 +929,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     }
 
     /** exact2 wants another turn: at the next vsync, ask it, and draw only if the stream changed. */
-    private val turn = android.view.Choreographer.FrameCallback { turnPosted = false; pump() }
+    private val turn = android.view.Choreographer.FrameCallback { turnPosted = false; Native.displayFrame(); pump() }
     private var turnPosted = false
 
     /** While a layer plays: each vsync, sample them and draw a frame (the ticker: nothing is recorded again). */
@@ -1000,7 +1014,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
                 42 -> i += 14 + 2 * b.get(i + 1)
                 40 -> i += 27
                 28 -> {
-                    val id = b.get(i + 1); val kind = b.get(i + 2); val len = b.get(i + 15)
+                    val id = b.get(i + 1); val kind = b.get(i + 2) and 255; val len = b.get(i + 15)
                     val bytes = ByteArray(len)
                     for (k in 0 until len) bytes[k] = (b.get(i + 16 + k / 4) ushr (8 * (k % 4))).toByte()
                     val scale = resources.displayMetrics.density
@@ -1008,7 +1022,8 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
                     if (ingestRow == 0) unrowedSeen.add(id)
                     // A hosted text field (kind 4) is not the stream's to make: exact2 says its fields apart ([Fields]),
                     // and the stream says only that it draws one.
-                    if (kind == 4) fields?.drawn(id) else natives?.ensure(id, kind, w, h, String(bytes), ingestRow)
+                    if (kind == 4) fields?.drawn(id) else natives?.ensure(id, kind, w, h, String(bytes), ingestRow,
+                        b.get(i + 2) and 256 != 0)
                     i += 16 + (len + 3) / 4
                 }
                 26 -> {

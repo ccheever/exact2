@@ -151,6 +151,7 @@ pub trait Backend {
         _shape: &Shape,
         _ts: Transform,
         _props: &str,
+        _direct: bool,
     ) {
     }
     /// Paint a paragraph with its top-left at `origin`.

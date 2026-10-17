@@ -12,7 +12,7 @@ pub enum PainterChoice {
     /// tiny-skia.
     Cpu,
     /// Recorded for Android's Canvas (`canvas.rs`).
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", test))]
     Canvas,
     /// The painter an app registered with [`set_custom_painter`]
     /// (`EXACT_PAINTER=custom`): an experiment's backend kept out of this crate.
@@ -35,7 +35,7 @@ impl PainterChoice {
             Ok("gpu") => PainterChoice::Gpu,
             Ok("cpu") => PainterChoice::Cpu,
             Ok("custom") => PainterChoice::Custom,
-            #[cfg(target_os = "android")]
+            #[cfg(any(target_os = "android", test))]
             Ok("canvas") => PainterChoice::Canvas,
             _ => PainterChoice::Auto,
         }
@@ -102,7 +102,7 @@ impl PainterBoot {
     }
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 fn open_canvas(_: PainterChoice) -> OpenedPainter {
     Ok((
         Box::new(crate::canvas::Recorder::new()),
@@ -125,7 +125,7 @@ pub(super) fn open_backend(
                 .ok_or("EXACT_PAINTER=custom: no painter registered")?;
             Ok((make()?, PainterInfo { name, ..cpu_info() }))
         }
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", test))]
         PainterChoice::Canvas => open_canvas(choice),
         PainterChoice::Gpu | PainterChoice::Auto => match Gpu::new() {
             Ok(g) => {

@@ -455,6 +455,7 @@ open class ExactActivity : Activity() {
 
     /** The launch extras that reach exact2 as its environment, written before its library loads. */
     private fun environment() {
+        android.system.Os.setenv("XDG_CACHE_HOME", cacheDir.absolutePath, true)
         // rows=0: no kept rows, every frame walks every row (exact2's EXACT_ROWS), to compare.
         if (intent.getStringExtra("rows") == "0") android.system.Os.setenv("EXACT_ROWS", "0", true)
         // imgvp=N: keep N viewports of decoded pictures (exact2's EXACT_IMAGE_VIEWPORTS; 12 by default).
