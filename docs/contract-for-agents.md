@@ -163,9 +163,10 @@ macOS, iOS and Linux until one passes `--reset-storage`, and on web Chrome when 
 next drive passes `--keep-storage` (a browser profile served on one port per
 name; a Firefox or WebKit drive starts fresh each time, so a name there lasts
 for the drive, including its `reload`). Without it a drive has no
-app storage: an `app:/` file or SQLite request is refused (`storage is unavailable
-in agent mode unless the drive names a scratch store (--storage <name>)`), so an
-app that keeps its data there does nothing on a write; a chosen document (`doc:/`)
+app storage: an `app:/` file read finds an empty store (code `ENOENT`, as a
+fresh install's first launch does), and a write or SQLite request is refused (`storage
+is unavailable in agent mode unless the drive names a scratch store (--storage
+<name>)`), so an app that keeps its data there does nothing on a write; a chosen document (`doc:/`)
 still opens under its grant. That store, and an authored test's own store, includes
 a data module's `secret.keep`: files in the named scratch tree on Apple and Linux,
 and the page's `localStorage` on the web. Apple native modules use that store's

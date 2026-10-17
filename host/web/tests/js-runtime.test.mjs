@@ -186,7 +186,7 @@ stub('admission.js', 'export const createSecretFacade = () => ({ read: false });
 stub('admission-data.js', 'export const tsGrantSet = {};');
 stub('ts-fetch.js', "export const answering = { call: null }; export const files = { appId: null }; export const SOCKET_AND_FETCH = 'a mutation cannot both send on a socket and fetch';");
 stub('names.js', 'export const sourceTypes = {};');
-stub('storage-environment.js', "export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store';");
+stub('storage-environment.js', "export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store'; export const agentReads = []; export const emptyRead = () => [];");
 // A write lands a task later; a read answers at once: unqueued, it would overtake.
 stub('storage-fs.js', `const files = new Map(); export const createFileSystem = () => ({
   atomicWriteFile: (p, v) => new Promise((ok, no) => setTimeout(() => p.includes('absent/') ? no(Object.assign(new Error('filesystem: No such file'), { code: 'ENOENT' })) : ok(files.set(p, v)), 5)),

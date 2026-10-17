@@ -843,7 +843,7 @@
     agent: "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)",
     unsupported: "storage is unsupported by this host",
   };
-  var toldAgent = false;
+  var toldAgent = false, READS = { readFile: true, readdir: true, stat: true, realpath: true };
   // Rust's error numbers are platform-specific. Never treat Windows access
   // denial (5) as EISDIR, or its 17/39 as Unix EEXIST/ENOTEMPTY.
   var windowsStorage = global.__exact_windows_storage === true;
@@ -901,9 +901,9 @@
     var path = receiver && nativeStorage && receiver === nativeStorage.fs && typeof args[0] === "string" ? args[0] : "";
     try { refused = host(5, path, "") || (receiver ? undefined : "unsupported"); }
     catch (e) { refused = "bake"; } // no filesystem or database effects during bake
-    // A drive with no scratch store is said once in the journal at its first refused read or write, as the web's
-    // (ts-data.js), for the driver's note (LLP 1102 §3.17): a caught read falls back silently, as on a fresh install.
+    // A drive with no scratch store is said once, at its first refused read or write, for the driver's note (LLP 1102 §3.17); a read finds an empty store, as on a fresh install (storage-environment.js `emptyRead`, word for word).
     if (refused === "agent" && !toldAgent) { toldAgent = true; journal("storage refused (agent): " + REFUSED.agent); }
+    if (refused === "agent" && READS[method] && receiver === (nativeStorage && nativeStorage.fs)) return method === "readdir" && /^app:\/(data|cache|tmp)$/.test(args[0]) ? Promise.resolve([]) : Promise.reject(storageError("filesystem: no such file or directory: " + args[0] + " (a drive that names no scratch store reads an empty one; --storage <name> names one)", "ENOENT"));
     if (refused) return Promise.reject(storageError(REFUSED[refused], refused));
     var what = method + (path ? " " + path : "");
     // The bound (D3): refusal is the overload policy (LLP 1041 D2).

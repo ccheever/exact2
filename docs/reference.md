@@ -592,7 +592,8 @@ statements, and batch transactions. Declare grants such as `fs.read app:/data`,
 if no storage grants are declared. Once storage is available, ungranted
 operations reject with `Unavailable` and code `denied`, without loading the
 browser storage adapters. A drive without a scratch store still gets `agent`
-for app-storage operations; `doc:/` handles do not need that store.
+for app-storage writes and SQLite, and `ENOENT` for a file read, as an empty store
+answers; `doc:/` handles do not need that store.
 Generated declarations export Ibex2's `Storage` and related types; Rust sources
 can use the same implementations through `ibex2::host`.
 
@@ -634,12 +635,13 @@ store: files under the named tree on Apple and Linux, `localStorage` in the name
 web profile. Apple native modules receive the same named data, cache and temporary
 roots across launches. A fresh drive clears them; the picker's temporary documents
 alone are cleared on each launch. A drive with no `--storage` refuses app storage (`storage is unavailable
-in agent mode unless the drive names a scratch store (--storage <name>)`) and keeps
+in agent mode unless the drive names a scratch store (--storage <name>)`; a file
+read rejects `ENOENT` instead, as an empty store's) and keeps
 no secrets. The driver's `state.storage` says
 which (`{available: false, code: 'agent', message}` or `{available: true,
 store}`), and the journal says `storage refused (agent): …` the first time
 a read or write is refused (a refused read finds what an empty store would: nothing,
-so a source that catches it falls back silently), which the driver repeats once as a
+code `ENOENT`, so a source that catches it falls back silently), which the driver repeats once as a
 note, after the first op that met it. A Rust module's storage request in such a drive is answered
 with the same message, never refused outright (trivia F7).
 

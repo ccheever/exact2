@@ -1107,10 +1107,11 @@ screen, 2026-10-16.)
   session. (Wave 9, lanes 015/060, 2026-10-12.)
 
 - **An agent drive shows the app's defaults (a mock, an empty store) though
-  the app's files are there.** Cause: without `--storage <name>` every
-  `storage.fs` call in the data module throws "storage is unavailable in agent
-  mode…", and a module that catches a missing config file falls back silently,
-  as it would on a fresh install (the drive says so once, after the first op that
+  the app's files are there.** Cause: without `--storage <name>` the data
+  module reads an empty store (`readFile`, `readdir`, `stat` and `realpath` reject
+  with code `ENOENT`, as for a missing file) and every write throws "storage is
+  unavailable in agent mode…", so a module that catches a missing file falls back
+  silently, as it would on a fresh install (the drive says so once, after the first op that
   met a refusal, a screenshot too: `note: this drive names no --storage, so the
   app's storage was refused …`).
   The installed app's own files are not the drive's: a named scratch store lives
