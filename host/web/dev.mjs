@@ -279,6 +279,12 @@ function pushDesign({ batch, snapshot }) {
   for (const res of clients) res.write(`data: ${frame}\n\n`);
   tamber?.channel.broadcast(JSON.parse(frame));
 }
+/** A scrub's batch and snapshot (`live`, or a compiler's reply) shown, each marked `frame`
+ * (*1.10*): the batch sent when it sets a token, else only the snapshot kept. */
+function scrubShown(live, frame) {
+  const mark = (e) => (e && frame ? { ...e, scrub: frame } : e);
+  if (live.batch?.tokens.length) pushDesign({ batch: mark(live.batch), snapshot: mark(live.snapshot) }); else if (live.snapshot) designSnapshot = mark(live.snapshot);
+}
 /** A scrub's batch and snapshot from design `from` to `to` (LLP 1121 stage
  * 4, commit 6): by the design's shape, since the TypeScript producer's scrub
  * design is unbaked and its plan structure is not the generation's. */
@@ -310,12 +316,12 @@ let moduleScrubbed = null, moduleReleased = false;
 // A scrub previewing: the design the builds run is no committed one, so it
 // certifies no file (LLP 1122 D5's served design).
 let previewing = false;
-async function scrubPreview(texts) {
+async function scrubPreview(texts, frame) {
   previewing = true;
   if (!typescript && portableRust) return { error: 'this app\'s own producer publishes every plan: its design edits reload' };
   const file = relative(app.dir, designPath(app.dir));
   // Texts that leave the design file as it is: the committed design.
-  if (!(file in texts)) { await scrubRestore(); return {}; }
+  if (!(file in texts)) { await scrubRestore(frame); return {}; }
   if (typescript) {
     return scrubAsk((id) => JSON.stringify({ id, scrub: texts[file] }), (reply) => {
       if (!reply.ok) return { error: reply.error ?? 'the producer refused it' };
@@ -323,37 +329,33 @@ async function scrubPreview(texts) {
       const live = from && scrubBatch(from, reply.design);
       if (!live) return { error: 'it changes the design\'s shape: a rebuild applies on release' };
       // A new preview is no released scrub's.
-      moduleScrubbed = reply.design;
-      moduleReleased = false;
-      if (live.batch.tokens.length) pushDesign(live); else designSnapshot = live.snapshot;
+      moduleScrubbed = reply.design; moduleReleased = false;
+      scrubShown(live, frame);
       return {};
     });
   }
   return scrubAsk((id) => `scrub ${id} ${JSON.stringify(texts[file])}`, (reply) => {
     if (reply.error) return { error: reply.error };
-    if (reply.batch) pushDesign(reply); else designSnapshot = reply.snapshot;
+    scrubShown(reply, frame);
     return {};
   });
 }
-/** A scrub's frame patched (tamber-scrub.mjs `patch`): its folded rows set
- * on the committed design, compiling nothing; `{fallback}` when this frame
- * must be compiled instead. */
-async function scrubPatch(values) {
+/** A scrub's frame patched (tamber-scrub.mjs `patch`): its folded rows set on the committed
+ * design, compiling nothing; `{fallback}` when this frame must be compiled instead. */
+async function scrubPatch(values, frame) {
   previewing = true;
   if (!typescript && portableRust) return { error: 'this app\'s own producer publishes every plan: its design edits reload' };
   if (typescript) {
     const next = moduleDesign && patchDesign(moduleDesign, values);
     const live = next && scrubBatch(moduleScrubbed ?? moduleDesign, next);
     if (!live) return { fallback: true };
-    moduleScrubbed = next;
-    moduleReleased = false;
-    if (live.batch.tokens.length) pushDesign(live); else designSnapshot = live.snapshot;
+    moduleScrubbed = next; moduleReleased = false;
+    scrubShown(live, frame);
     return {};
   }
   return scrubAsk((id) => `patch ${id} ${JSON.stringify(values.map(({ name, css }) => [name, css]))}`, (reply) => {
-    if (reply.error) return { error: reply.error };
-    if (reply.fallback) return { fallback: true };
-    if (reply.batch) pushDesign(reply); else designSnapshot = reply.snapshot;
+    if (reply.error || reply.fallback) return reply.error ? { error: reply.error } : { fallback: true };
+    scrubShown(reply, frame);
     return {};
   });
 }
@@ -373,7 +375,6 @@ async function scrubVerify(texts) {
   }
   return scrubAsk((id) => `verify ${id} ${JSON.stringify(texts[file])}`, (reply) => answer(reply.mismatch ?? null));
 }
-/** A scrub ended without its write: every build back on the committed design. */
 /** A scrub being written: the build of what it writes goes from it. */
 async function scrubReleased() {
   previewing = false;
@@ -381,19 +382,18 @@ async function scrubReleased() {
   if (portableRust) return;
   await scrubAsk((id) => `release ${id}`, () => {});
 }
-async function scrubRestore() {
+/** A scrub ended without its write: every build back on the committed design. */
+async function scrubRestore(frame) {
   previewing = false;
   if (typescript) {
     const live = moduleScrubbed && moduleDesign && scrubBatch(moduleScrubbed, moduleDesign);
     moduleScrubbed = null;
     moduleReleased = false;
-    if (live?.batch.tokens.length) pushDesign(live); else if (live) designSnapshot = live.snapshot;
+    if (live) scrubShown(live, frame);
     return;
   }
   if (portableRust) return;
-  await scrubAsk((id) => `restore ${id}`, (reply) => {
-    if (reply.batch) pushDesign(reply); else if (reply.snapshot) designSnapshot = reply.snapshot;
-  });
+  await scrubAsk((id) => `restore ${id}`, (reply) => scrubShown(reply, frame));
 }
 // A revision owns its plan and complete asset namespace. Its process epoch
 // makes a restarted server's seq=1 newer than the previous server's seq=N.

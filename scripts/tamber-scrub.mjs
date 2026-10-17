@@ -40,9 +40,10 @@ export const VERIFY_MS = 150;
  * `{fallback}` when it cannot patch this frame, `{error}` when it cannot
  * show it); `verify(texts)` compiles the frame shown in full and resolves
  * `{mismatch}` when that is not the design it patched;
- * `preview(texts)` shows a scrub's
- * texts on the builds (resolves `{error}` when it cannot); `restore()` sends
- * them the committed design; `released()`, before a release's write, has the
+ * `preview(texts, frame)` shows a scrub's
+ * texts on the builds (resolves `{error}` when it cannot); `restore(frame)`
+ * sends them the committed design; each `frame` (`{id, rev}`) marks the
+ * batch and snapshot it makes; `released()`, before a release's write, has the
  * builds keep the preview until the build of what it writes (a refused
  * write restores); `opened(e)` is told a scrub's first preview,
  * `ended(e)` each end of one that previewed.
@@ -55,6 +56,10 @@ export function scrubSessions({ ask, write, patch = null, verify = null, preview
   // The update previewing now, the latest waiting behind it, when the last
   // started (the pace), and the timer that starts the waiting one.
   let busy = null, waiting = null, started = 0, pacer = null;
+  // Every frame a scrub sends the builds is marked `{id, rev}`, `rev`
+  // rising over every frame (*1.10*): a build drops one of the scrub it
+  // last applied that is not newer, and applies them with no transition.
+  let frames = 0;
   const refused = (status, message) => ({ status, error: { message } });
   const REBUILD = 'a rebuild-class edit has no scrub: it applies on release; send it as a `transaction`';
 
@@ -67,7 +72,7 @@ export function scrubSessions({ ask, write, patch = null, verify = null, preview
     ends++;
     if (waiting) { waiting.done({ ok: { scrub: was.id, ended: reason } }); waiting = null; }
     // One that never previewed changed no build.
-    if (was.shown) { void restore(); ended({ scrub: was.id, client: was.client, reason }); }
+    if (was.shown) { void restore({ id: was.id, rev: ++frames }); ended({ scrub: was.id, client: was.client, reason }); }
     return true;
   };
   const idle = () => {
@@ -92,8 +97,8 @@ export function scrubSessions({ ask, write, patch = null, verify = null, preview
       if (!planned.ok) { failed(id); return planned; }
       if (planned.ok.class !== 'live') { failed(id); return refused(409, REBUILD); }
       open.folded = true;
-      shown = await patch(planned.ok.values ?? [], { scrub: id, rev: open.rev + 1 });
-      if (gone()) { void restore(); return refused(409, 'the scrub ended'); }
+      shown = await patch(planned.ok.values ?? [], { id, rev: ++frames });
+      if (gone()) { void restore({ id, rev: ++frames }); return refused(409, 'the scrub ended'); }
       if (shown?.fallback) shown = null;
     }
     const patched = shown != null;
@@ -103,10 +108,10 @@ export function scrubSessions({ ask, write, patch = null, verify = null, preview
       if (!planned.ok) { failed(id); return planned; }
       if (planned.ok.class !== 'live') { failed(id); return refused(409, REBUILD); }
       // Texts that change nothing preview the committed design.
-      shown = await preview(planned.ok.texts ?? {});
+      shown = await preview(planned.ok.texts ?? {}, { id, rev: ++frames });
     }
     // Ended while it previewed: the committed design again, after it.
-    if (gone()) { void restore(); return refused(409, 'the scrub ended'); }
+    if (gone()) { void restore({ id, rev: ++frames }); return refused(409, 'the scrub ended'); }
     if (shown?.error) { failed(id); return refused(502, `the builds could not preview it: ${shown.error}`); }
     if (!open.shown) opened({ scrub: id, client: open.client });
     open.shown = true;
@@ -190,7 +195,7 @@ export function scrubSessions({ ask, write, patch = null, verify = null, preview
       try { result = await write({ method: 'transaction', client: request.client, files, ops }); } finally { releasing = false; }
       // Refused (a file moved since it opened; `by` names who moved it):
       // nothing written, the builds back on the committed design.
-      if (!result.ok) void restore();
+      if (!result.ok) void restore({ id, rev: ++frames });
       ended({ scrub: id, client: request.client, reason: result.ok ? 'released' : 'refused' });
       return result.ok ? { ok: { ...result.ok, scrub: id } } : result;
     },

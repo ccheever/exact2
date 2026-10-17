@@ -77,7 +77,7 @@ impl<D: DataSource> Runner<D> {
         }
         // @ref LLP 1038 D5 / §8 — distinguish asked sources from compiled boot values.
         self.log(lines::query(&resource, &source));
-        if self.live {
+        if self.live.admitted {
             self.count_churn(i, args, &resource);
         }
         let answer =

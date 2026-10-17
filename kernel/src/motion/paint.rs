@@ -32,6 +32,30 @@ fn appearance(kernel: &Kernel, views: &BTreeMap<u64, bool>, key: NodeKey, sessio
         .unwrap_or(session)
 }
 
+std::thread_local! {
+    static STILL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// While the returned guard lives, a commit's paint changes on this thread
+/// jump to their values with no transition, as a scrub's frame shows (LLP
+/// 1121 D13: the tool drags the value; the frame is a development preview).
+pub fn still() -> impl Drop {
+    struct Still(bool);
+    impl Drop for Still {
+        fn drop(&mut self) {
+            STILL.with(|s| s.set(self.0));
+        }
+    }
+    Still(STILL.with(|s| s.replace(true)))
+}
+
+/// How a sync's changes may move ([`PaintMotion::apply`]).
+#[derive(Clone, Copy)]
+enum Snap {
+    All(bool),
+    Still(bool),
+}
+
 impl PaintMotion {
     /// Whether the node owns this paint property.
     pub fn owns(&self, node: u64, property: Property) -> bool {
@@ -76,7 +100,12 @@ impl PaintMotion {
             |key| appearance(kernel, views, key, session),
             &mut self.owners,
         );
-        self.apply(kernel, sync, engine, false)
+        self.apply(
+            kernel,
+            sync,
+            engine,
+            Snap::Still(STILL.with(std::cell::Cell::get)),
+        )
     }
 
     /// Adopt the tree at boot, after its ordinary motion rows.
@@ -92,7 +121,7 @@ impl PaintMotion {
             |key| appearance(kernel, views, key, session),
             &mut self.owners,
         );
-        self.apply(kernel, sync, engine, false);
+        self.apply(kernel, sync, engine, Snap::Still(false));
     }
 
     fn apply(
@@ -100,8 +129,14 @@ impl PaintMotion {
         kernel: &Kernel,
         mut sync: MotionSync,
         engine: &mut Engine,
-        snap: bool,
+        snap: Snap,
     ) -> Vec<(u64, Property)> {
+        // `All`: every change jumps, an animation's too; `Still`: a
+        // transition does not start or go on, and an animation plays.
+        let (snap, still) = match snap {
+            Snap::All(on) => (on, false),
+            Snap::Still(on) => (false, on),
+        };
         // A side that stays `currentcolor` has no transition of its own:
         // its computed value is still the keyword. A change to or from an
         // explicit colour moves under its row.
@@ -129,8 +164,10 @@ impl PaintMotion {
                     && was.contains(&property)
                     && !engine.is_active(node, property);
                 let changed = before.is_some_and(|i| pending[i].1 != change.value);
-                if owned || animated.contains(&property) || (changed && !snap && !follows) {
-                    if snap || follows {
+                let jumps = still && !animated.contains(&property);
+                if owned || animated.contains(&property) || (changed && !snap && !jumps && !follows)
+                {
+                    if snap || jumps || follows {
                         engine.remove_property(node, property);
                     } else if !owned {
                         if let Some(i) = before {
@@ -215,7 +252,7 @@ impl PaintMotion {
         let views = &self.views;
         let sync =
             kernel.paint_resync(|key| appearance(kernel, views, key, dark), &mut self.owners);
-        Some(self.apply(kernel, sync, engine, first))
+        Some(self.apply(kernel, sync, engine, Snap::All(first)))
     }
 
     /// The platform's colours resolve differently (a host reported new
@@ -237,7 +274,7 @@ impl PaintMotion {
         let views = &self.views;
         let sync =
             kernel.paint_resync(|key| appearance(kernel, views, key, dark), &mut self.owners);
-        Some(self.apply(kernel, sync, engine, first))
+        Some(self.apply(kernel, sync, engine, Snap::All(first)))
     }
 
     /// Report one view's appearance. Its first differing report corrects
@@ -273,7 +310,7 @@ impl PaintMotion {
             |k| appearance(kernel, views, k, session),
             &mut self.owners,
         );
-        let retired = self.apply(kernel, sync, engine, first && !authored);
+        let retired = self.apply(kernel, sync, engine, Snap::All(first && !authored));
         // Dropping a slot drops its dirt; playing keyframes must be marked
         // after the rows so the host presents their corrected colours.
         engine.set_node_dark(node, own, first);

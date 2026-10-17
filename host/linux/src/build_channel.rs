@@ -203,6 +203,21 @@ pub(crate) struct Answer {
     off: bool,
     /// Reports kept for the next tick: a transport failure or a 5xx.
     unsent: Vec<Value>,
+    /// The commands poll was answered: it was held there until a frame came
+    /// or [`WAIT_MS`] passed, so the next tick starts at once.
+    held: bool,
+}
+
+/// A commands poll is held this long (`wait`, *1.10*), until a frame comes:
+/// a frame reaches this build at once, and a report waits at most this
+/// long for the tick that sends it.
+const WAIT_MS: u64 = 250;
+
+impl Answer {
+    /// Whether the next tick may start at once ([`Answer::held`]).
+    pub fn held(&self) -> bool {
+        self.held
+    }
 }
 
 /// A live-table frame, the same JSON the web page's stream carries.
@@ -245,6 +260,7 @@ impl Exchange {
             registered: false,
             off: false,
             unsent: Vec::new(),
+            held: false,
         };
         self.tick(page, &mut answer);
         answer.unsent = std::mem::take(&mut self.reports);
@@ -302,10 +318,15 @@ impl Exchange {
                 }
             }
             if !expired {
-                let url = format!("{commands}?nonce={}&ack={}", encode(&nonce), answer.ack);
+                let url = format!(
+                    "{commands}?nonce={}&ack={}&wait={WAIT_MS}",
+                    encode(&nonce),
+                    answer.ack
+                );
                 match send(&url, None) {
                     // One not read whole keeps the ack: it comes again.
                     Some((200, body)) => {
+                        answer.held = true;
                         if let Some((seq, frames)) = commands_answer(&body) {
                             if seq != answer.ack {
                                 answer.frames.extend(frames);
@@ -507,7 +528,7 @@ mod tests {
                     } else {
                         (403, "{}".into())
                     }
-                } else if path == "/__dev/commands?nonce=n1&ack=0" && polls == 0 {
+                } else if path == "/__dev/commands?nonce=n1&ack=0&wait=250" && polls == 0 {
                     polls += 1;
                     (
                         200,
@@ -515,7 +536,9 @@ mod tests {
                             [{"kind": "pin", "revision": 1, "pin": {"scheme": "dark"}}]})
                         .to_string(),
                     )
-                } else if path == format!("/__dev/commands?nonce=n{hellos}&ack=0") && hellos > 1 {
+                } else if path == format!("/__dev/commands?nonce=n{hellos}&ack=0&wait=250")
+                    && hellos > 1
+                {
                     (200, json!({"seq": 1, "frames": []}).to_string())
                 } else if path.starts_with("/__dev/commands") {
                     (404, "null".into())
@@ -686,6 +709,7 @@ mod tests {
             registered: true,
             off: false,
             unsent: Vec::new(),
+            held: false,
         });
         assert!(link.take_design(), "registered: one catch-up snapshot");
         assert!(!link.take_design());
@@ -885,12 +909,12 @@ mod tests {
         assert_eq!(
             *polls.lock().unwrap(),
             [
-                "nonce=n1&ack=0",
-                "nonce=n1&ack=1",
-                "nonce=n1&ack=1",
-                "nonce=n1&ack=2",
-                "nonce=n1&ack=2",
-                "nonce=n2&ack=0",
+                "nonce=n1&ack=0&wait=250",
+                "nonce=n1&ack=1&wait=250",
+                "nonce=n1&ack=1&wait=250",
+                "nonce=n1&ack=2&wait=250",
+                "nonce=n1&ack=2&wait=250",
+                "nonce=n2&ack=0&wait=250",
             ]
         );
         assert_eq!(link.ack, 1);

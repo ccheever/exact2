@@ -613,13 +613,13 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     patcher.child.stdin.write(`${JSON.stringify({ id, ...request })}\n`);
   });
   /** A scrub's frame patched: `{fallback}` when it must be compiled instead. */
-  async function scrubPatch(values) {
+  async function scrubPatch(values, frame) {
     if (!design) return { fallback: true };
     const base = design, next = await patcherAsk({ key: base.digest, patch: values.map(({ name, css }) => [name, css]) });
     if (!next.tokens || design !== base) return { fallback: true };
     // The committed design's rows, those it patched set again.
     const rows = new Map(next.tokens.map((t) => [t.name, t]));
-    return scrubShow({ ...base, digest: next.digest, tokens: base.tokens.map((t) => rows.get(t.name) ?? t) });
+    return scrubShow({ ...base, digest: next.digest, tokens: base.tokens.map((t) => rows.get(t.name) ?? t) }, frame);
   }
   /** The patched frame shown, against its texts compiled whole: `{mismatch}`
    * naming the first token that differs. */
@@ -636,16 +636,17 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   }
   /** Preview a scrub's texts: a batch from the design the pages run, as a
    * value-only edit sends one, and its snapshot for a page that asks. */
-  async function scrubPreview(texts) {
+  async function scrubPreview(texts, frame) {
     const file = relative(app.dir, designPath(app.dir));
     // Texts that leave the design file as it is: the committed design.
-    if (!(file in texts)) { scrubRestore(); return {}; }
+    if (!(file in texts)) { scrubRestore(frame); return {}; }
     const next = await scrubDesign(texts[file]);
     if (next.error) return next;
-    return scrubShow(next);
+    return scrubShow(next, frame);
   }
-  /** Show a scrub's design `next` on the pages. */
-  function scrubShow(next) {
+  /** Show a scrub's design `next` on the pages, its batch and snapshot
+   * marked `frame` (*1.10*). */
+  function scrubShow(next, frame) {
     const from = scrubbed ?? design;
     if (!from || from.shape !== next.shape || from.tokens.length !== next.tokens.length
       || next.tokens.some((t, i) => t.name !== from.tokens[i].name || String(t.accent) !== String(from.tokens[i].accent))) return { error: 'it changes the design\'s shape: a rebuild applies on release' };
@@ -656,10 +657,10 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     // A new preview is no released scrub's.
     scrubbed = next;
     released = false;
-    snapshot = { kind: 'tamber-snapshot', structure: next.shape, base: null, design: next.digest, tokens: next.tokens };
+    snapshot = { kind: 'tamber-snapshot', structure: next.shape, base: null, design: next.digest, tokens: next.tokens, scrub: frame };
     const tokens = next.tokens.filter((t, i) => !same(t, from.tokens[i]));
     if (tokens.length) {
-      const batch = framed({ kind: 'tamber-batch', structure: next.shape, base: from.digest, design: next.digest, tokens });
+      const batch = framed({ kind: 'tamber-batch', structure: next.shape, base: from.digest, design: next.digest, tokens, scrub: frame });
       push(batch);
       tamber?.channel.broadcast(batch);
     }
@@ -681,17 +682,17 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     return inline ? `\`${inline.name}\` is written inline on this page (${inline.writer ?? 'a font weight, an SVG attribute'})` : null;
   }
   /** A scrub ended without its write: the pages back on the committed design. */
-  function scrubRestore() {
+  function scrubRestore(frame) {
     released = false;
     if (!scrubbed || !design) return;
     const from = scrubbed;
     scrubbed = null;
     // The committed design's snapshot (a page fetching it applies nothing new).
-    snapshot = aside ?? { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
+    snapshot = { ...(aside ?? { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens }), scrub: frame };
     aside = null;
     const tokens = design.tokens.filter((t, i) => !same(t, from.tokens[i]));
     if (!tokens.length) return;
-    const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens });
+    const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens, scrub: frame });
     push(batch);
     tamber?.channel.broadcast(batch);
   }

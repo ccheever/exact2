@@ -42,6 +42,20 @@ pub struct Edit {
     pub design: String,
     /// The tokens it sets.
     pub tokens: Vec<Token>,
+    /// The scrub frame it is, when it is one (*1.10*).
+    pub scrub: Option<Scrub>,
+}
+
+/// A scrub's frame (LLP 1121 D13): the scrub's id and the frame's
+/// revision, rising through the scrub, its end's the highest. A build drops
+/// a frame or snapshot of the scrub it last applied one of whose revision
+/// is not above that one's, and applies a scrub's frames with no transition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Scrub {
+    /// The scrub's id.
+    pub id: String,
+    /// The frame's revision.
+    pub rev: u64,
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -165,6 +179,7 @@ pub fn batch(structure: &str, from: &[Token], to: &[Token]) -> Option<Edit> {
             .filter(|(a, b)| a != b)
             .map(|(_, b)| b.clone())
             .collect(),
+        scrub: None,
     })
 }
 
@@ -178,6 +193,7 @@ pub fn notice(structure: &str, design: &str) -> Edit {
         base: Some(design.to_string()),
         design: design.to_string(),
         tokens: Vec::new(),
+        scrub: None,
     }
 }
 
@@ -188,6 +204,7 @@ pub fn snapshot(structure: &str, tokens: &[Token]) -> Edit {
         base: None,
         design: digest(tokens),
         tokens: tokens.to_vec(),
+        scrub: None,
     }
 }
 
@@ -200,14 +217,17 @@ impl Edit {
             .iter()
             .map(|t| serde_json::json!({"name": t.name, "value": t.value, "slices": t.slices}))
             .collect();
-        serde_json::json!({
+        let mut v = serde_json::json!({
             "kind": if self.base.is_some() { "tamber-batch" } else { "tamber-snapshot" },
             "structure": self.structure,
             "base": self.base,
             "design": self.design,
             "tokens": tokens,
-        })
-        .to_string()
+        });
+        if let Some(s) = &self.scrub {
+            v["scrub"] = serde_json::json!({"id": s.id, "rev": s.rev});
+        }
+        v.to_string()
     }
 
     /// One read off the dev stream; `None` when it is no batch or snapshot.
@@ -239,11 +259,19 @@ impl Edit {
             "tamber-batch" => Some(s("base")?),
             _ => None,
         };
+        // A scrub frame's mark is optional; one malformed is no mark.
+        let scrub = v.get("scrub").and_then(|m| {
+            Some(Scrub {
+                id: m.get("id")?.as_str()?.to_string(),
+                rev: m.get("rev")?.as_u64()?,
+            })
+        });
         Some(Edit {
             structure: s("structure")?,
             base,
             design: s("design")?,
             tokens,
+            scrub,
         })
     }
 }

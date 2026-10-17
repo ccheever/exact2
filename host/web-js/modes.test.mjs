@@ -104,6 +104,17 @@ test('a live batch sets each tuple rule on its base, and a stale one asks for th
   expect(design(batch).live).toBe('stale');
   expect(design({ ...batch, kind: 'tamber-snapshot', base: null, design: 'd2', tokens: [{ ...batch.tokens[0], css: ['#000000ff', '#111111ff'] }] }).live).toBe('applied');
   expect(dim.style.map.get('--x-ink')).toBe('#111111ff');
+  // A scrub's frames (LLP 1121 D13): each applies with transitions off, and
+  // one older than the last of its scrub applied (a snapshot fetched late)
+  // is dropped.
+  const frame = (design, rev, css, more = {}) => ({ ...batch, base: null, kind: 'tamber-snapshot', design, scrub: { id: 'scrub-1', rev }, tokens: [{ ...batch.tokens[0], css }], ...more });
+  expect(design(frame('d3', 2, ['#222222ff', '#333333ff'], { kind: 'tamber-batch', base: 'd2' })).live).toBe('applied');
+  expect(dim.style.map.get('--x-ink')).toBe('#333333ff');
+  expect(document.documentElement.getAttribute('data-x-scrub')).toBe(null);
+  expect(design(frame('d4', 1, ['#444444ff', '#555555ff'])).live).toBe('applied');
+  expect(dim.style.map.get('--x-ink')).toBe('#333333ff');
+  expect(design(frame('d5', 3, ['#666666ff', '#777777ff'])).live).toBe('applied');
+  expect(dim.style.map.get('--x-ink')).toBe('#777777ff');
 });
 
 // Stage 6 C's follow-up: a type token is a property a row it writes; a

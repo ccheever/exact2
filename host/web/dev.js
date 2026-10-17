@@ -277,10 +277,24 @@ if (es) {
     if (!still()) return { live: "structure" };
     if (typeof x.wasm?.exact_design_rows !== "function") return { live: "unsupported" };
     const n = x.wasm.exact_design_rows(x.writeIn(JSON.stringify(frame))), out = JSON.parse(x.readOut(n));
-    if (out.live === "applied") x.send(n);
+    if (out.live === "applied") { if (frame.scrub) unmoving(() => x.send(n)); else x.send(n); }
     if (typeof out.design === "string" && out.design !== x.designDigest) { x.designDigest = out.design; status(); }
     if (out.unsupported) { console.warn("exact dev: the wide colour table is full: a colour was refused, its rows keep their value"); report({ kind: "unsupported", what: "batch", detail: "the wide colour table is full: a colour was refused" }); }
     return out;
+  };
+  // A scrub's frame (LLP 1121 D13) shows with no transition, as the tool
+  // drags it: every transition off while its rows are set and styled, then
+  // back on, with nothing left to move.
+  const unmoving = (apply) => {
+    const root = document.documentElement;
+    if (!document.getElementById("x-scrub-still")) {
+      const sheet = document.createElement("style");
+      sheet.setAttribute("id", "x-scrub-still");
+      sheet.textContent = "[data-x-scrub],[data-x-scrub] *,[data-x-scrub] *::before,[data-x-scrub] *::after{transition:none!important}";
+      document.head.append(sheet);
+    }
+    root.setAttribute("data-x-scrub", "");
+    try { apply(); void root.offsetWidth; } finally { root.removeAttribute("data-x-scrub"); }
   };
   // One at a time, in the stream's order: a snapshot fetched is never older
   // than a batch applied before it.

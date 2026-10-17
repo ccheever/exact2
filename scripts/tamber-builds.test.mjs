@@ -208,6 +208,31 @@ test('a poll\'s answer is kept until acknowledged: a lost response loses no comm
   expect(channel.poll(nonce, 2)).toEqual({ seq: 3, frames: [] });
 });
 
+test('a long poll (`wait`) is held until a frame comes, or its wait passes; a newer one answers the older at once', async () => {
+  const channel = buildChannel();
+  const { nonce } = channel.openPolled();
+  register(channel, nonce, 'linux-1', 'linux');
+  // Its pin frame is queued: answered at once.
+  const first = await channel.waitPoll(nonce, 0, 4000);
+  expect(first.frames).toEqual([{ kind: 'pin', revision: 0, pin: null }]);
+  // Nothing queued: held until the pin comes.
+  const t0 = Date.now();
+  const held = channel.waitPoll(nonce, first.seq, 4000);
+  setTimeout(() => channel.pin('tool', 'linux-1', { scheme: 'dark' }), 30);
+  const second = await held;
+  expect(second.frames).toEqual([{ kind: 'pin', revision: 1, pin: { scheme: 'dark' } }]);
+  expect(Date.now() - t0).toBeLessThan(1000);
+  // Its wait passes: an answer with no frames.
+  expect((await channel.waitPoll(nonce, second.seq, 40)).frames).toEqual([]);
+  // One held per stream: a newer poll answers the older now.
+  const older = channel.waitPoll(nonce, 3, 4000);
+  const newer = channel.waitPoll(nonce, 3, 50);
+  expect((await older).frames).toEqual([]);
+  await newer;
+  // Its stream gone: null at once.
+  expect(await channel.waitPoll('none', 0, 4000)).toBe(null);
+});
+
 test('a polled queue is bounded: one pin queued, live frames collapsed into a notice', () => {
   const channel = buildChannel();
   const { nonce } = channel.openPolled();
@@ -352,12 +377,17 @@ test('the resident loop relays the main loop\'s commands onto its own stream', a
   const channel = buildChannel();
   // The first answer with frames is lost on the way (the connection reset
   // after the server answered): the relay asks again and loses nothing.
-  let lost = false;
-  const main = createServer((req, res) => {
+  // Each poll is a long one (`wait`), held until a frame comes.
+  let lost = false, waits = 0;
+  const main = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
+    if (url.searchParams.has('wait')) waits++;
     if (!lost && url.pathname === '/__dev/commands') {
-      const answer = channel.poll(url.searchParams.get('nonce'), url.searchParams.get('ack'));
+      const answer = await channel.waitPoll(url.searchParams.get('nonce'), url.searchParams.get('ack'), url.searchParams.get('wait'));
       if (answer?.frames.length) { lost = true; res.destroy(); return; }
+      res.writeHead(answer ? 200 : 404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(answer));
+      return;
     }
     serveCommands(channel, url, res);
   });
@@ -372,12 +402,15 @@ test('the resident loop relays the main loop\'s commands onto its own stream', a
   await until(() => frames.at(-1)?.revision === 1);
   // (A pin replaced before it was polled is not sent: only the latest is.)
   expect(lost).toBe(true);
+  expect(waits).toBeGreaterThan(0);
   expect(frames.at(-1)).toEqual({ kind: 'pin', revision: 1, pin: { scheme: 'light' } });
   // The main loop forgets the nonce: the relay ends the device's stream.
   channel.poll('x');
   for (const b of channel.list()) expect(b.id).toBe('ios-sim');
   const realNow = Date.now;
   Date.now = () => realNow() + 60_000;
+  // Swept then: the poll held there is answered with the stream gone.
+  channel.poll('x');
   try { await until(() => ended); } finally { Date.now = realNow; }
   expect(ended).toBe(true);
   relayed.close();

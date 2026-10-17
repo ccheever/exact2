@@ -378,8 +378,8 @@ pub struct Runner<D: DataSource> {
     reorder_kept: exact_kernel::style::wide::Keep,
     /// The design digest a live batch left (LLP 1121 stage 4); `None`: its plan's own.
     design: Option<String>,
-    /// A development build, admitting live batches ([`Runner::admit_live`], from its compat).
-    live: bool,
+    /// A development build admitting live batches ([`Runner::admit_live`]), and its last scrub frame.
+    live: live::Live,
     /// What a binding was told of this plan's tokens (a name it lacks), each said once (LLP 1121 D12).
     tamber_said: Vec<String>,
     /// How many times a token's value moved (`set_tokens`): a binding's input.
@@ -854,7 +854,7 @@ impl<D: DataSource> Runner<D> {
             reorder_ops: Vec::new(),
             reorder_kept: Default::default(),
             design: None,
-            live: false,
+            live: Default::default(),
             tamber_said: Vec::new(),
             design_moves: 0,
             roles: exact_kernel::style::roles::Installed::new(roles.clone()),

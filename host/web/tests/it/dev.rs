@@ -777,6 +777,90 @@ fn a_running_web_build_applies_a_batch_in_place() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// A scrub's frames (LLP 1121 D13, *1.10*): a build applies one newer than
+/// the last of that scrub it applied, drops an older one or its snapshot
+/// (which carries no base), and takes another scrub's frames as they come.
+#[test]
+fn a_running_web_build_drops_a_scrub_frame_older_than_one_it_showed() {
+    use exact_runner::design;
+    let dir = scratch("live-scrub");
+    let view = "component App\n  view\n    column background-color=\"page\"\n      text \"a\" color=\"ink\"\n";
+    let plan = |tamber: &str| {
+        std::fs::write(dir.join("app.tamber"), tamber).unwrap();
+        std::fs::write(dir.join("app.contract"), view).unwrap();
+        contract::compile_path(&dir.join("app.contract")).unwrap()
+    };
+    let a = plan("tamber t\n\ntheme\n  ink = #111111\n  page = #ffffff\n");
+    let b = plan("tamber t\n\ntheme\n  ink = #ff0000\n  page = #ffffff\n");
+    let c = plan("tamber t\n\ntheme\n  ink = #00ff00\n  page = #ffffff\n");
+    let shape = design::shape(&a);
+    let (ta, tb, tc) = (design::tokens(&a), design::tokens(&b), design::tokens(&c));
+    let mark = |mut e: design::Edit, id: &str, rev| {
+        e.scrub = Some(design::Scrub { id: id.into(), rev });
+        e
+    };
+    let (mut host, _) = Host::boot(&a.encode(), NoData, Default::default(), "/").unwrap();
+    let applied =
+        |out: &str| out.starts_with("{\"live\":\"applied\"") && out.contains("\"design\"");
+    let out = host.apply_live(&mark(design::batch(&shape, &ta, &tb).unwrap(), "scrub-1", 2).json());
+    assert!(applied(&out) && out.contains("rgba(255,0,0,1)"), "{out}");
+    // The snapshot of an earlier frame, fetched late: dropped.
+    let out = host.apply_live(&mark(design::snapshot(&shape, &ta), "scrub-1", 1).json());
+    assert!(
+        !out.contains("rgba(17,17,17,1)"),
+        "an older frame is not shown: {out}"
+    );
+    assert_eq!(host.runner().design(), design::digest(&tb));
+    // A newer one is.
+    let out = host.apply_live(&mark(design::batch(&shape, &tb, &tc).unwrap(), "scrub-1", 3).json());
+    assert!(out.contains("rgba(0,255,0,1)"), "{out}");
+    // Another scrub's, whatever its revision.
+    let out = host.apply_live(&mark(design::batch(&shape, &tc, &ta).unwrap(), "scrub-2", 1).json());
+    assert!(out.contains("rgba(17,17,17,1)"), "{out}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A scrub's frame patched (LLP 1121 D13): the committed design with the
+/// folded rows set, as the compile of the same text gives it; a row that
+/// would gain slices is not patched.
+#[test]
+fn a_patched_scrub_frame_is_the_compiled_one() {
+    let dir = scratch("patch");
+    let design = dir.join("app.tamber");
+    let tamber = "tamber t\n\naxes\n  dark-style = dim | black  under scheme=dark\n\ntheme\n  ink = #111111\n  page = light-dark(#ffffff, #151d28)\n    when dark-style=black: #000000\n";
+    std::fs::write(&design, tamber).unwrap();
+    std::fs::write(dir.join("app.contract"), "component App\n  view\n    column background-color=\"page\"\n      text \"a\" color=\"ink\"\n").unwrap();
+    let mut s = Session::new(dir.join("app.contract"), dir.join("out.plan"));
+    s.poll::<NoData>().expect("built").unwrap();
+    let (patched, _) = s
+        .patch(&[
+            ("ink".into(), vec!["#ff0000ff".into(); 2]),
+            (
+                "page".into(),
+                vec![
+                    "light-dark(#ffffffff, #222222ff)".into(),
+                    "light-dark(#ffffffff, #000000ff)".into(),
+                ],
+            ),
+        ])
+        .unwrap()
+        .expect("patched");
+    let edited = tamber
+        .replace("#111111", "#ff0000")
+        .replace("#151d28", "#222222");
+    let (compiled, _) = s.scrub::<NoData>(edited.clone()).unwrap();
+    // The compile shows the same design as the patch: no batch between.
+    assert!(compiled.is_none(), "{compiled:?}");
+    assert!(patched.expect("a batch").tokens.len() == 2);
+    assert_eq!(s.verify::<NoData>(edited).unwrap(), None);
+    // `ink` is one value in every tuple: two would make it vary.
+    assert!(s
+        .patch(&[("ink".into(), vec!["#ff0000ff".into(), "#00ff00ff".into()])])
+        .unwrap()
+        .is_none());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// LLP 1121 stage 5, commit 2: a role override's value edit reaches a
 /// running web build as a batch: its role sheet is written again in the
 /// batch (`theme`), which unsaid text and the accent read.

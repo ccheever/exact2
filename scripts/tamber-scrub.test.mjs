@@ -58,7 +58,7 @@ function patching({ fallback = false, mismatch = false, paceMs = 0, verifyMs = 3
       return { ok: { class: 'live', values: [{ name: 'ink', css: [r.ops[0].value] }], texts: { 'app.tamber': `ink = ${r.ops[0].value}` }, changed: [], synthetic: [], files: r.files } };
     },
     write: async () => ({ ok: { inverse: 'inv-1' } }),
-    patch: async (values, frame) => { seen.starts.push(Date.now()); seen.patches.push([values[0].css[0], frame.rev]); return fallback ? { fallback: true } : {}; },
+    patch: async (values, frame) => { seen.starts.push(Date.now()); seen.patches.push([values[0].css[0], frame.rev, frame.id]); return fallback ? { fallback: true } : {}; },
     verify: async texts => { seen.verified.push(texts['app.tamber']); return mismatch ? { mismatch: 'ink' } : {}; },
     preview: async texts => { seen.previews.push(texts['app.tamber']); return {}; },
     restore: () => { seen.restores++; },
@@ -74,7 +74,7 @@ test('a frame is folded and patched, compiling nothing, and verified once the ge
   await s.update({ client: 'tool', ops: op('#111111'), files: { 'app.tamber': 'd0' } });
   await s.update({ client: 'tool', scrub: 'scrub-1', ops: op('#222222') });
   expect(seen.asks).toEqual(['scrub-fold', 'scrub-fold']);
-  expect(seen.patches).toEqual([['#111111', 1], ['#222222', 2]]);
+  expect(seen.patches).toEqual([['#111111', 1, 'scrub-1'], ['#222222', 2, 'scrub-1']]);
   expect(seen.previews).toEqual([]);
   await new Promise(ok => setTimeout(ok, 80));
   // Only the frame shown last, planned in full and compiled.

@@ -526,3 +526,78 @@ fn shadow_targets_preserve_wide_gamut_and_profiles_are_discrete() {
         }
     }
 }
+
+/// Under `still` (a scrub's frame, LLP 1121 D13) a colour change jumps: no
+/// transition starts, and one under way stops at the new value. Outside it
+/// the next change moves as authored.
+#[test]
+fn a_still_commit_starts_no_transition_and_stops_one_under_way() {
+    let mut k = Kernel::with_monospace();
+    let ops = [
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: patch(&[
+                (StyleId::BackgroundColor, "#ffffff"),
+                (StyleId::Transition, "background-color 1s linear"),
+            ]),
+        },
+        Op::AttachRoot { id: 1 },
+    ];
+    let receipt = k.apply(0, 1, &ops).unwrap();
+    let mut engine = Engine::new();
+    let mut paint = PaintMotion::default();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    paint.adopt(&k, receipt.created.iter().copied(), &mut engine);
+    let node = motion_node(k.node(1).unwrap().key);
+    let mut at = 1;
+    let mut change = |k: &mut Kernel, paint: &mut PaintMotion, engine: &mut Engine, color| {
+        at += 1;
+        let receipt = k
+            .apply(
+                0,
+                at,
+                &[Op::SetStyle {
+                    id: 1,
+                    patch: patch(&[(StyleId::BackgroundColor, color)]),
+                }],
+            )
+            .unwrap();
+        k.motion_sync(&receipt).apply(engine).unwrap();
+        paint.sync(k, &receipt, engine);
+    };
+    // Its first change records the before-change value; the second moves.
+    change(&mut k, &mut paint, &mut engine, "#ffffff");
+    change(&mut k, &mut paint, &mut engine, "#000000");
+    engine.advance(0.5).unwrap();
+    assert!(
+        paint
+            .shown(&engine, node, Property::BackgroundColor)
+            .is_some(),
+        "moving"
+    );
+    {
+        let _still = exact_kernel::motion::still();
+        change(&mut k, &mut paint, &mut engine, "#ff0000");
+        assert_eq!(
+            paint.shown(&engine, node, Property::BackgroundColor),
+            None,
+            "stopped"
+        );
+        change(&mut k, &mut paint, &mut engine, "#00ff00");
+        assert_eq!(
+            paint.shown(&engine, node, Property::BackgroundColor),
+            None,
+            "jumped"
+        );
+    }
+    change(&mut k, &mut paint, &mut engine, "#0000ff");
+    assert_eq!(
+        engine.value(node, Property::BackgroundColor),
+        Some(rgba(0, 255, 0, 1.0)),
+        "moves again, from the value it jumped to"
+    );
+}
