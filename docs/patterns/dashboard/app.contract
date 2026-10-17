@@ -23,6 +23,7 @@ shape Expense
   category: string
   amount: number
   day: string
+  at: number
 
 shape Summary
   spent: number
@@ -83,7 +84,7 @@ component App
     let at = time.epochAtZero + performanceNow()
     now = performanceNow()
     if title.trim() != "" and cost > 0
-      send added = addExpense(title.trim(), category, cost, formatDate(at, time.utcOffset, "iso"))
+      send added = addExpense(title.trim(), category, cost, formatDate(at, time.utcOffset, "iso"), at)
       nav = back(nav)
   view
     main testId="root" navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%"
@@ -117,7 +118,7 @@ component App
                     column padding="20px 20px 10px" border-radius=16 background-color="-exact-secondary-background" testId="recent"
                       text "Recent" role="heading" aria-level=3
                       for x in summary.recent key=x.id
-                        RowText(title=x.title, detail=`${x.category} · ${x.day == today ? "Today" : x.day}`, value=some(money(x.amount)))
+                        RowText(title=x.title, detail=`${x.category} · ${formatDay(x.at, time.epochAtZero + now, time.utcOffset, "day")}`, value=some(money(x.amount)))
         if e.name == "add"
           column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0
             // Cancel, title and Save: three items, so `space-between` centres the title. With two (a Close
