@@ -306,4 +306,33 @@ final class ComposerCitationTests: XCTestCase {
         XCTAssertTrue(fixture.press.isOpen)
         XCTAssertEqual(fixture.press.state["anchor"] as? String, "chip")
     }
+
+    func testAPressedElementSurvivesTheRefreshesItsPressCauses() {
+        // VO-Space selects the chip and opens its details, and each refreshes the chips' elements; AppKit keeps VoiceOver
+        // on a pressed element that survives its press, and a replaced one sent VoiceOver's cursor, then the keyboard
+        // focus, to the 'Scroll to end' pill (exact2 #694).
+        let fixture = CitationFixture("See " + link(quoteHref) + " now ")
+        let before = fixture.press.accessibilityElements
+        XCTAssertEqual(before.count, 2)
+        for element in before {
+            XCTAssertTrue(axPress(element))
+            fixture.base.tick()
+            XCTAssertTrue(zip(fixture.press.accessibilityElements, before).allSatisfy { $0 === $1 }, "the same objects after pressing \(element.accessibilityLabel() ?? "")")
+            fixture.press.close()
+        }
+        let listed = fixture.base.scroller.accessibilityChildren() ?? []
+        XCTAssertTrue(before.allSatisfy { element in listed.contains { $0 as AnyObject === element } })
+        // Typing before the chip moves it: its elements stay, holding the moved chip (their frames follow it).
+        fixture.base.editor.setSelectedRange(NSRange(location: 0, length: 0))
+        fixture.base.editor.insertText("Do ", replacementRange: NSRange(location: 0, length: 0))
+        fixture.base.tick()
+        let moved = fixture.press.accessibilityElements
+        XCTAssertTrue(zip(moved, before).allSatisfy { $0 === $1 })
+        XCTAssertEqual(moved[0].chip, fixture.styler.chips[0])
+        // Removing the chip drops its elements.
+        fixture.base.editor.string = "Do See now "
+        fixture.base.editor.didChangeText()
+        fixture.base.tick()
+        XCTAssertTrue(fixture.press.accessibilityElements.isEmpty)
+    }
 }
