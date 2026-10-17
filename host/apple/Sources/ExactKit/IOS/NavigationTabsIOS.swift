@@ -262,35 +262,36 @@ extension NavigationHost {
     /// The tablist's `accent-color` tints the bar's selected item, as it
     /// tints a control (recipes F20, shop F28); `auto` keeps the system's.
     /// The row is inherited, as in CSS, and reaches the host only on the
-    /// node that sets it: the nearest ancestor that does is read. Resolved
-    /// per appearance, so dark mode follows.
+    /// node that sets it: the nearest ancestor that sets a colour of its
+    /// own (`applyAccentTint`) is read, past any that names the tint
+    /// (`AccentColor`), which leaves the inherited one. Resolved per
+    /// appearance, so dark mode follows.
     func tint(_ list: NodeView) {
         guard let bar = tabController?.tabBar else { return }
+        let ownAccent = { (node: NodeView) in node.style["accent_color"]?.namesTint != true && node.channels("accent_color", dark: false) != nil }
         var view: UIView? = list
-        while let at = view, (at as? NodeView)?.channels("accent_color", dark: false) == nil { view = at.superview }
-        let source = view as? NodeView
-        // An accent that is the app's tint (`AccentColor`) is left for the
-        // bar to inherit, as a hand-built app leaves its bar's. Read from a
-        // view, the tint behind an alert or a menu is already dimmed
-        // (`tintAdjustmentMode`), and the bar would dim it a second time.
-        if case .object(let o)? = source?.style["accent_color"], o["sys"]?.string == "@tint" {
+        while let at = view, !((at as? NodeView).map(ownAccent) ?? false) { view = at.superview }
+        // No such ancestor, or one the bar is inside too: the bar inherits
+        // that tint, as a hand-built app leaves its bar's. Never one read
+        // from a view's `tintColor`: behind an alert or a menu that is
+        // already dimmed (`tintAdjustmentMode`), and the bar would dim it
+        // a second time.
+        guard let source = view as? NodeView, !bar.isDescendant(of: source) else {
             guard tabTint != [] else { return }
             tabTint = []
             bar.tintColor = nil
             return
         }
-        let wanted = [source?.channels("accent_color", dark: false), source?.channels("accent_color", dark: true)]
+        let wanted = [source.channels("accent_color", dark: false), source.channels("accent_color", dark: true)]
         guard wanted != tabTint else { return }
         tabTint = wanted
         // Never `.tintColor` in its place: that is the bar's own tint, this
         // colour, and a tablist whose accent went before the next sync (a
         // style that drops it) resolved it until the stack ran out. The
         // bar's container has the tint the bar would inherit.
-        bar.tintColor = source.map { source in
-            UIColor { [weak source, weak bar] traits in
-                source?.channels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) }
-                    ?? bar?.superview?.tintColor ?? .systemBlue
-            }
+        bar.tintColor = UIColor { [weak source, weak bar] traits in
+            source?.channels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) }
+                ?? bar?.superview?.tintColor ?? .systemBlue
         }
     }
 
