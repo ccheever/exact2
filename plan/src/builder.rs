@@ -374,6 +374,19 @@ impl PlanBuilder {
         self.plan.axes.push(AxesRow { name, values });
     }
 
+    /// An icon token the plan keeps (LLP 1121 D10): its SF Symbol, the
+    /// SVG's viewBox and joined `d`, and the SVG's path, each empty for none.
+    pub fn icon(&mut self, name: &str, sf: &str, view_box: &str, path: &str, svg: &str) {
+        let row = IconsRow {
+            name: self.str(name),
+            sf: self.str(sf),
+            view_box: self.str(view_box),
+            path: self.str(path),
+            svg: self.str(svg),
+        };
+        self.plan.icons.push(row);
+    }
+
     /// An ordered CSS font fallback list (one to 64 members).
     pub fn font_stack(&mut self, members: &[(StackMemberKind, Option<FamiliesId>)]) -> StacksId {
         let start = self.plan.stack_members.len() as u32;

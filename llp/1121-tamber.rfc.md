@@ -2882,3 +2882,28 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   icon's, the same in every tuple. An operation writes no icon (the design tool edits none yet);
   an icon's change is retained shape, so `propose` classes it `rebuild`.
 - **The wire** (`tamber/1.9`): the IR's `icons` and `resolve`'s icon tuples.
+
+### Stage 6, commit F2: icons at build (D10)
+
+- **The SVG** (`contract/lower/src/icon_svg.rs`) is read for its viewBox (its own, or its width and
+  height) and its `<path>`s' `d`, joined as subpaths. One with several fill colours, a stroke, or
+  anything but paths and groups (a gradient, an image, text, a `<circle>`) is no template.
+- **Per target** (`contract/lower/src/icons.rs`): the targets an app ships are `app.json`'s `host`
+  and `deploy.store` keys. Apple's draw an `sf` or a template SVG; any other a template SVG; the
+  web also a file that is no template, as written. Else `tamber-icon-missing: <icon> has no source
+  for <target>`, or `tamber-icon-svg` naming why the file is no one-colour shape and the target.
+- **The source form:** a literal `symbol:icon.reply` is written as
+  `symbol:icon|<sf>|<view_box>|<path>|<svg>`, which hosts read (`exact_kernel::Icon`,
+  `symbol_path`, `apple_symbol_name`), so the plan keeps no icon token for a literal.
+- **The plan's `icons` table** keeps what a computed source may name: every icon when a `symbol:`
+  source is computed, else those a literal named and, in an app that names tokens outside its
+  views, those `exports` keeps. The runner writes a computed `symbol:icon.reply` or
+  `symbol:sf/<name>` (the icon whose `sf` it is) in the same form as it sets the prop.
+- **`symbol:sf/<name>`** that is an icon's `sf` is that icon; else one that is a role's own Apple
+  name is that role, which every host draws (theme2's addition); either is
+  `lower-symbol-alias`, naming what to write. A bare one in an app that ships a target other than
+  Apple's is `lower-symbol-platform`, naming the targets and the icon token to declare.
+- **The break:** stage 6's second, stage 9's brought forward: the plan format digest moves
+  (`icons`, and the `theme.kind` comment for kinds 3 and 4 that D left out), pinned in
+  `plan/tests/format.rs`. Every host needs a new binary; an old one refuses a new plan by the
+  format digest before reading a table (`FormatDigestMismatch`).

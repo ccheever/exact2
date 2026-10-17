@@ -111,10 +111,82 @@ pub(crate) fn symbol_role(arena: &NodeArena, slot: u32) -> Option<&str> {
 }
 
 /// The Apple system symbol a `symbol:` role draws: an `sf/<name>`'s own
-/// name, or a portable role's Apple name; "" for a role with none, which
-/// draws no glyph.
+/// name, an icon token's SF Symbol (LLP 1121 D10), or a portable role's
+/// Apple name; "" for a role with none, which draws no glyph.
 pub fn apple_symbol_name(role: &str) -> &str {
+    if let Some(icon) = Icon::parse(role) {
+        return icon.sf;
+    }
     role.strip_prefix("sf/")
         .or_else(|| crate::generated::symbol(role).map(|s| s.0))
         .unwrap_or("")
+}
+
+/// An icon token's source form, as the build writes it after `symbol:`
+/// (LLP 1121 D10): `icon|<sf>|<view_box>|<path>|<svg>`, each empty for none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Icon<'a> {
+    /// The SF Symbol Apple draws.
+    pub sf: &'a str,
+    /// The SVG's viewBox, `min-x min-y width height`.
+    pub view_box: &'a str,
+    /// Its paths' `d`, drawn as a template (filled); empty for an SVG the
+    /// web draws as the file.
+    pub path: &'a str,
+    /// The SVG's path under `assets/`.
+    pub svg: &'a str,
+}
+
+impl<'a> Icon<'a> {
+    /// The icon a name after `symbol:` is, when it is one.
+    pub fn parse(name: &'a str) -> Option<Icon<'a>> {
+        let mut parts = name.strip_prefix("icon|")?.splitn(4, '|');
+        Some(Icon {
+            sf: parts.next()?,
+            view_box: parts.next()?,
+            path: parts.next()?,
+            svg: parts.next()?,
+        })
+    }
+}
+
+/// A symbol's path for a host that draws paths: the name after `symbol:`
+/// (a role, an icon token's form, or `sf/<name>` that is a role's Apple
+/// name), its `d`, whether that is filled (else stroked), and its viewBox.
+/// `None` for a name no path draws.
+pub fn symbol_path(name: &str) -> Option<(&str, bool, &str)> {
+    if let Some(icon) = Icon::parse(name) {
+        return (!icon.path.is_empty()).then_some((icon.path, true, icon.view_box));
+    }
+    let role = match name.strip_prefix("sf/") {
+        Some(sf) => crate::generated::SYMBOL_ROLES
+            .iter()
+            .copied()
+            .find(|r| crate::generated::symbol(r).is_some_and(|s| s.0 == sf))?,
+        None => name,
+    };
+    crate::generated::symbol(role).map(|(_, d, filled)| (d, filled, "0 0 24 24"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{apple_symbol_name, symbol_path};
+
+    /// LLP 1121 D10: an icon's form, and an SF Symbol that is a role's own
+    /// Apple name, draw everywhere; another SF Symbol only on Apple.
+    #[test]
+    fn an_icon_and_a_roles_apple_name_have_paths() {
+        let icon = "icon|bubble.left|0 -960 960 960|M0 0h1Z|icons/reply.svg";
+        assert_eq!(apple_symbol_name(icon), "bubble.left");
+        assert_eq!(symbol_path(icon), Some(("M0 0h1Z", true, "0 -960 960 960")));
+        assert_eq!(symbol_path("icon||0 0 24 24||icons/two.svg"), None);
+        let back = crate::generated::symbol("back").unwrap();
+        assert_eq!(
+            symbol_path(&format!("sf/{}", back.0)),
+            Some((back.1, back.2, "0 0 24 24"))
+        );
+        assert_eq!(symbol_path("back"), Some((back.1, back.2, "0 0 24 24")));
+        assert_eq!(symbol_path("sf/flag.checkered"), None);
+        assert_eq!(apple_symbol_name("sf/flag.checkered"), "flag.checkered");
+    }
 }

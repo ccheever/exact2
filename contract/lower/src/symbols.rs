@@ -7,20 +7,45 @@ use crate::{err, LowerError};
 use contract_syntax::{Expr, Span};
 use exact_kernel::generated::{symbol_role, SYMBOL_ROLES};
 
-/// The role a literal source names by another spelling (`symbol:gear` is `settings`).
+/// The role whose Apple name an SF Symbol is, exactly (LLP 1121 D10: `symbol:sf/chevron.backward`
+/// draws `back` where no SF Symbol is).
+pub(crate) fn role_by_apple_name(sf: &str) -> Option<&'static str> {
+    SYMBOL_ROLES
+        .iter()
+        .copied()
+        .find(|role| exact_kernel::generated::symbol(role).is_some_and(|s| s.0 == sf))
+}
+
+/// The role a literal source names by another spelling (`symbol:gear` is `settings`), or by its
+/// Apple name as an SF Symbol (`symbol:sf/gearshape`).
 fn role_of(source: &str) -> Option<(&str, &'static str)> {
     let name = source.strip_prefix("symbol:")?;
+    if let Some(sf) = name.strip_prefix("sf/") {
+        return role_by_apple_name(sf).map(|role| (name, role));
+    }
     let role = symbol_role(name).filter(|role| *role != name)?;
     Some((name, role))
 }
 
-/// `e` with each literal source (at the top and in every arm of a choice) written as its role,
-/// or `None` when none changes.
+/// A literal source written as the plan holds it: a role by another spelling as the role, an icon
+/// token (by name, or `sf/<name>` by its `sf`) as its source form (LLP 1121 D10).
+/// An icon whose `sf` a source's SF Symbol is comes before the role whose Apple name it is, as a
+/// host resolves a computed one.
+fn literal(source: &str) -> Option<String> {
+    let name = source.strip_prefix("symbol:")?;
+    if let Some(icon) = crate::icons::named(name) {
+        crate::icons::used(&icon.name);
+        return Some(format!("symbol:{}", icon.form()));
+    }
+    role_of(source).map(|(_, role)| format!("symbol:{role}"))
+}
+
+/// `e` with each literal source (at the top and in every arm of a choice) written as the plan
+/// holds it, or `None` when none changes. A source computed otherwise may name any icon, so
+/// the plan keeps every one.
 pub(crate) fn roles(e: &Expr) -> Option<Expr> {
     match e {
-        Expr::Str(s, span) => {
-            role_of(s).map(|(_, role)| Expr::Str(format!("symbol:{role}"), *span))
-        }
+        Expr::Str(s, span) => literal(s).map(|s| Expr::Str(s, *span)),
         Expr::Ternary(cond, a, b, span) => {
             let (na, nb) = (roles(a), roles(b));
             if na.is_none() && nb.is_none() {
@@ -29,7 +54,10 @@ pub(crate) fn roles(e: &Expr) -> Option<Expr> {
             let arm = |new: Option<Expr>, old: &Expr| Box::new(new.unwrap_or_else(|| old.clone()));
             Some(Expr::Ternary(cond.clone(), arm(na, a), arm(nb, b), *span))
         }
-        _ => None,
+        _ => {
+            crate::icons::computed();
+            None
+        }
     }
 }
 
@@ -38,14 +66,44 @@ pub(crate) fn roles(e: &Expr) -> Option<Expr> {
 /// name, so the next edit finds it by search.
 pub(crate) fn aliases(e: &Expr) -> Vec<LowerError> {
     match e {
-        Expr::Str(s, span) => role_of(s)
-            .map(|(name, role)| LowerError {
+        Expr::Str(s, span) => {
+            let alias = |message| LowerError {
                 id: "lower-symbol-alias",
-                message: format!("symbol `{name}` is the role `{role}`: write `symbol:{role}`"),
+                message,
                 span: *span,
-            })
-            .into_iter()
-            .collect(),
+            };
+            // @ref LLP 1121 D10 — an SF Symbol an icon token names, or one no host but Apple's draws.
+            if let Some(sf) = s.strip_prefix("symbol:sf/") {
+                if let Some(icon) = crate::icons::named(&format!("sf/{sf}")) {
+                    return vec![alias(format!(
+                        "symbol `sf/{sf}` is the icon `{}`: write `symbol:{}`",
+                        icon.name, icon.name
+                    ))];
+                }
+            }
+            if let Some((name, role)) = role_of(s) {
+                return vec![alias(format!(
+                    "symbol `{name}` is the role `{role}`: write `symbol:{role}`"
+                ))];
+            }
+            let Some(sf) = s.strip_prefix("symbol:sf/") else {
+                return Vec::new();
+            };
+            let targets = crate::icons::non_apple_targets();
+            if sf.is_empty() || targets.is_empty() {
+                return Vec::new();
+            }
+            vec![LowerError {
+                id: "lower-symbol-platform",
+                message: format!(
+                    "symbol `sf/{sf}` draws only on Apple, and the app ships {}: declare an icon token with an `svg` for it (`icons` in app.tamber: `icon.{} = icon(sf \"{sf}\", svg \"icons/{sf}.svg\")`) and write `symbol:icon.{}`",
+                    targets.join(", "),
+                    sf.replace('.', "-"),
+                    sf.replace('.', "-")
+                ),
+                span: *span,
+            }]
+        }
         Expr::Ternary(_, a, b, _) => [aliases(a), aliases(b)].concat(),
         _ => Vec::new(),
     }
@@ -68,14 +126,14 @@ pub(crate) fn check(e: &Expr, span: Span) -> Result<(), LowerError> {
         let Some(role) = source.strip_prefix("symbol:") else {
             continue;
         };
-        if !role.starts_with("sf/") && symbol_role(role).is_none() {
+        if !role.starts_with("sf/") && !role.starts_with("icon|") && symbol_role(role).is_none() {
             let near = contract_syntax::suggestion(role, SYMBOL_ROLES.iter().copied())
                 .map(|r| format!("did you mean `symbol:{r}`? "))
                 .unwrap_or_default();
             return err(
                 "lower-attr-value",
                 format!(
-                    "symbol `{role}` is not a role; {near}`contract vocab symbol` lists the roles; or name any SF Symbol as `symbol:sf/<name>` (`symbol:sf/{}`), drawn on Apple and blank elsewhere, so a tab or button that must show everywhere takes a role",
+                    "symbol `{role}` is not a role; {near}`contract vocab symbol` lists the roles; or name any SF Symbol as `symbol:sf/<name>` (`symbol:sf/{}`), drawn on Apple and blank elsewhere, so a tab or button that must show everywhere takes a role or an icon token (`icons` in app.tamber)",
                     if role.is_empty() { "star.fill" } else { role }
                 ),
                 span,

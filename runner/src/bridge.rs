@@ -128,6 +128,42 @@ pub enum BridgeError {
     },
 }
 
+/// @ref LLP 1121 D10 — a computed `symbol:` source naming an icon token, by
+/// its name or (`sf/<name>`) by its SF Symbol, written as the source form a
+/// host reads, as the compiler writes a literal one; any other value as it is.
+pub fn icon_source(plan: &exact_plan::Plan, prop: PropId, value: PropValue) -> PropValue {
+    let PropValue::Str(text) = &value else {
+        return value;
+    };
+    let Some(name) = text
+        .strip_prefix("symbol:")
+        .filter(|_| prop == PropId::ImageSource)
+    else {
+        return value;
+    };
+    let s = |id| plan.strings.get(id as usize).map_or("", String::as_str);
+    let icon = match name.strip_prefix("sf/") {
+        Some(sf) => plan
+            .icons
+            .iter()
+            .find(|i| !sf.is_empty() && s(i.sf.0) == sf),
+        None => plan.icons.iter().find(|i| s(i.name.0) == name),
+    };
+    match icon {
+        Some(i) => PropValue::Str(
+            format!(
+                "symbol:icon|{}|{}|{}|{}",
+                s(i.sf.0),
+                s(i.view_box.0),
+                s(i.path.0),
+                s(i.svg.0)
+            )
+            .into(),
+        ),
+        None => value,
+    }
+}
+
 /// A prop value by the prop's declared kind.
 pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeError> {
     let prop = PropId::from_wire(id).ok_or(BridgeError::UnknownProp(id))?;

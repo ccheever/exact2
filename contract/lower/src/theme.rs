@@ -194,7 +194,9 @@ impl Lowerer<'_> {
         file: &File,
         root: &Component,
         bindable: bool,
+        asset_root: Option<&std::path::Path>,
     ) -> exact_kernel::style::theme::ThemeScope {
+        crate::icons::clear(asset_root);
         AXES.with(|axes| axes.borrow_mut().clear());
         CANDIDATES.with(|c| c.borrow_mut().clear());
         MEASURES.with(|m| m.borrow_mut().clear());
@@ -274,6 +276,21 @@ impl Lowerer<'_> {
                 }
             }
         };
+        // @ref LLP 1121 D10 — the icons' SVGs, and a source per shipped target.
+        let exports = &folding.design.exports;
+        let exported = |name: &str| {
+            bindable
+                && exports
+                    .as_ref()
+                    .is_none_or(|e| e.iter().any(|x| x.value == name))
+        };
+        let refused = crate::icons::declare(
+            &folding.icons,
+            asset_root,
+            &|line, col| self.token_span(&origin, line, col),
+            &exported,
+        );
+        self.errors.extend(refused);
         let mut entries = Vec::new();
         for (i, t) in folding.tokens.iter().enumerate() {
             let Some(value) = t.values.first() else {

@@ -804,14 +804,11 @@ fn symbols_answer_to_apple_names_and_aliases_and_the_plan_carries_the_role() {
         .unwrap_err();
         assert!(error.to_string().contains("not a role"), "{name}: {error}");
     }
-    // `sf/` stays distinct: Apple's name, opaque, and no warning.
+    // `sf/` stays distinct: Apple's name, opaque, no warning (a role's own: tamber_icons).
     let (plan, warnings) =
-        contract::compile_warned("component App\n  view\n    image \"symbol:sf/gearshape\"\n");
-    assert!(plan
-        .unwrap()
-        .strings
-        .iter()
-        .any(|s| s == "symbol:sf/gearshape"));
+        contract::compile_warned("component App\n  view\n    image \"symbol:sf/gearshape.2\"\n");
+    let strings = plan.unwrap().strings;
+    assert!(strings.iter().any(|s| s == "symbol:sf/gearshape.2"));
     assert!(warnings.is_empty(), "{warnings:?}");
 }
 
@@ -825,6 +822,7 @@ fn a_symbol_by_another_spelling_than_its_role_is_named_with_the_role() {
         [
             (SYMBOL_ALIAS.to_string(), 13),
             (SYMBOL_ALIAS.to_string(), 7),
+            (SYMBOL_ALIAS.to_string(), 8), // `sf/trash`: delete's Apple name (LLP 1121 D10)
             (SYMBOL_ALIAS.to_string(), 10)
         ]
     );
@@ -834,7 +832,7 @@ fn a_symbol_by_another_spelling_than_its_role_is_named_with_the_role() {
         "symbol `trash` is the role `delete`: write `symbol:delete`"
     );
     assert_eq!(
-        warnings[2].message,
+        warnings[3].message,
         "symbol `checkmark.circle.fill` is the role `select-fill`: write `symbol:select-fill`"
     );
 }

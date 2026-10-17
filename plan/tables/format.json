@@ -693,7 +693,7 @@
         {
           "name": "kind",
           "codec": "u8",
-          "_comment": "@ref LLP 1121 D3, D7: the token's kind, which rows may name it: 0 a colour, 1 a length (px text, one `rem` or `em`, or a named length), 2 a number. A string row reads an entry of its row's kind; `value` and the slices are its text in that kind."
+          "_comment": "@ref LLP 1121 D3, D7: the token's kind, which rows may name it: 0 a colour, 1 a length (px text, one `rem` or `em`, or a named length), 2 a number, 3 a `box-shadow`, 4 a `text-shadow` (the row's own text, its colours folded). A string row reads an entry of its row's kind; `value` and the slices are its text in that kind."
         },
         {
           "name": "slices",
@@ -722,6 +722,32 @@
         },
         {
           "name": "values",
+          "codec": "str"
+        }
+      ]
+    },
+    {
+      "name": "icons",
+      "_comment": "@ref LLP 1121 D10 (stage 6 F): each icon token the plan keeps, which a computed `symbol:` source may name (`symbol:icon.reply`, or `symbol:sf/<name>` for the icon whose `sf` it is): its SF Symbol (empty for none), the SVG's viewBox and its paths' `d` joined, drawn as a template as a role's path is (empty for a file the web draws as written), and the SVG's path under `assets/` (empty for none). A literal source is written at build as `symbol:icon|<sf>|<view_box>|<path>|<svg>`.",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "sf",
+          "codec": "str"
+        },
+        {
+          "name": "view_box",
+          "codec": "str"
+        },
+        {
+          "name": "path",
+          "codec": "str"
+        },
+        {
+          "name": "svg",
           "codec": "str"
         }
       ]

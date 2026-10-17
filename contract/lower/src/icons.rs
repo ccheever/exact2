@@ -1,0 +1,204 @@
+//! @ref LLP 1121 D10 (stage 6 F) — icon tokens at build. Each icon's SVG is
+//! read ([`crate::icon_svg`]) and each target the app ships is checked to
+//! have a source (`tamber-icon-missing`); a literal `symbol:icon.reply` is
+//! written as the source form every host reads,
+//! `symbol:icon|<sf>|<view_box>|<path>|<svg>`, and the plan's `icons` table
+//! keeps what a computed source may name. `symbol:sf/<name>` names the role
+//! whose Apple name it is, else the icon whose `sf` it is.
+
+use crate::LowerError;
+use contract_syntax::Span;
+use exact_tamber as tamber;
+use std::cell::RefCell;
+use std::path::Path;
+
+/// An icon as the build resolved it.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Resolved {
+    pub name: String,
+    pub sf: String,
+    pub view_box: String,
+    /// Empty when the SVG is no template, which the web draws as the file.
+    pub path: String,
+    pub svg: String,
+}
+
+impl Resolved {
+    /// The source form a host reads, after `symbol:`.
+    pub fn form(&self) -> String {
+        format!(
+            "icon|{}|{}|{}|{}",
+            self.sf, self.view_box, self.path, self.svg
+        )
+    }
+}
+
+thread_local! {
+    /// The design's icons while its views are lowered, and the targets the
+    /// app ships.
+    static ICONS: RefCell<(Vec<Resolved>, Vec<String>)> = const { RefCell::new((Vec::new(), Vec::new())) };
+    /// The icons a literal named, and whether a source was computed (then
+    /// every icon is kept).
+    static USED: RefCell<(Vec<String>, bool)> = const { RefCell::new((Vec::new(), false)) };
+}
+
+/// Whether a target draws SF Symbols.
+fn apple(target: &str) -> bool {
+    matches!(target, "ios" | "macos" | "tvos" | "visionos" | "watchos")
+}
+
+/// The targets `app.json` ships: its `host` and `deploy.store` keys.
+fn targets(root: Option<&Path>) -> Vec<String> {
+    let Some(text) = root.and_then(|r| std::fs::read_to_string(r.join("app.json")).ok()) else {
+        return Vec::new();
+    };
+    let Ok(app) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = Vec::new();
+    for keys in [&app["host"], &app["deploy"]["store"]] {
+        for key in keys.as_object().into_iter().flat_map(|o| o.keys()) {
+            if !out.contains(key) {
+                out.push(key.clone());
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Read each icon's SVG and check each target the app ships (read by
+/// [`clear`]) has a source; `span` places a refusal at the icon's line.
+/// `exported`: whether an icon is kept for code outside the views (D7).
+pub(crate) fn declare(
+    icons: &[tamber::Icon],
+    root: Option<&Path>,
+    span: &dyn Fn(u32, u32) -> Span,
+    exported: &dyn Fn(&str) -> bool,
+) -> Vec<LowerError> {
+    let targets = ICONS.with(|i| i.borrow().1.clone());
+    let (mut out, mut errors) = (Vec::new(), Vec::new());
+    for icon in icons {
+        let at = span(icon.line, icon.col);
+        let refuse = |id: &'static str, message: String| LowerError {
+            id,
+            message,
+            span: at,
+        };
+        let svg = match (&icon.svg, root) {
+            (None, _) => None,
+            (Some(_), None) => {
+                errors.push(refuse("tamber-icon-svg", format!("`{}`: an icon's SVG is under the app's `assets/`; compile this source with `compile_path`", icon.name)));
+                continue;
+            }
+            (Some(file), Some(root)) => {
+                let path = root.join("assets").join(file);
+                match std::fs::read_to_string(&path)
+                    .map_err(|e| e.to_string())
+                    .and_then(|t| crate::icon_svg::read(&t))
+                {
+                    Ok(svg) => Some(svg),
+                    Err(why) => {
+                        errors.push(refuse(
+                            "tamber-icon-svg",
+                            format!("`{}`: `assets/{file}`: {why}", icon.name),
+                        ));
+                        continue;
+                    }
+                }
+            }
+        };
+        for target in &targets {
+            let template = svg.as_ref().is_some_and(|s| s.not_template.is_none());
+            let drawn = (apple(target) && icon.sf.is_some())
+                || template
+                || (target == "web" && svg.is_some());
+            if drawn {
+                continue;
+            }
+            errors.push(match (&svg, &icon.svg) {
+                (Some(s), Some(file)) => refuse(
+                    "tamber-icon-svg",
+                    format!(
+                        "`{}`: `assets/{file}` is no one-colour shape ({}): only the web draws such a file, and the app ships {target}",
+                        icon.name,
+                        s.not_template.as_deref().unwrap_or("")
+                    ),
+                ),
+                _ => refuse(
+                    "tamber-icon-missing",
+                    format!("{} has no source for {target}", icon.name),
+                ),
+            });
+        }
+        let template = svg.as_ref().filter(|s| s.not_template.is_none());
+        out.push(Resolved {
+            name: icon.name.clone(),
+            sf: icon.sf.clone().unwrap_or_default(),
+            view_box: svg.as_ref().map(|s| s.view_box.clone()).unwrap_or_default(),
+            path: template.map(|s| s.path.clone()).unwrap_or_default(),
+            svg: icon.svg.clone().unwrap_or_default(),
+        });
+    }
+    let kept = out
+        .iter()
+        .map(|r| r.name.clone())
+        .filter(|n| exported(n))
+        .collect();
+    ICONS.with(|i| *i.borrow_mut() = (out, targets));
+    USED.with(|u| *u.borrow_mut() = (kept, false));
+    errors
+}
+
+/// Forget the last design's icons, and read the targets the app at `root`
+/// ships, which a bare `symbol:sf/…` is linted against with or without one.
+pub(crate) fn clear(root: Option<&Path>) {
+    ICONS.with(|i| *i.borrow_mut() = (Vec::new(), targets(root)));
+    USED.with(|u| *u.borrow_mut() = (Vec::new(), false));
+}
+
+/// The icon a name after `symbol:` means: `icon.reply` by its name, or
+/// `sf/<name>` by its `sf`.
+pub(crate) fn named(name: &str) -> Option<Resolved> {
+    ICONS.with(|i| {
+        let (icons, _) = &*i.borrow();
+        match name.strip_prefix("sf/") {
+            Some(sf) => icons.iter().find(|r| !sf.is_empty() && r.sf == sf).cloned(),
+            None => icons.iter().find(|r| r.name == name).cloned(),
+        }
+    })
+}
+
+/// A literal named `icon`, which the plan keeps.
+pub(crate) fn used(icon: &str) {
+    USED.with(|u| {
+        let (names, _) = &mut *u.borrow_mut();
+        if !names.iter().any(|n| n == icon) {
+            names.push(icon.to_string());
+        }
+    });
+}
+
+/// A `symbol:` source was computed: a value may name any icon.
+pub(crate) fn computed() {
+    USED.with(|u| u.borrow_mut().1 = true);
+}
+
+/// The targets the app ships that are not Apple's, which draw no SF Symbol.
+pub(crate) fn non_apple_targets() -> Vec<String> {
+    ICONS.with(|i| i.borrow().1.iter().filter(|t| !apple(t)).cloned().collect())
+}
+
+/// The icons the plan keeps: those a literal named or `exports` keeps,
+/// and every one when a source is computed.
+pub(crate) fn kept() -> Vec<Resolved> {
+    let (names, any) = USED.with(|u| u.borrow().clone());
+    ICONS.with(|i| {
+        i.borrow()
+            .0
+            .iter()
+            .filter(|r| any || names.contains(&r.name))
+            .cloned()
+            .collect()
+    })
+}
