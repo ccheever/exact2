@@ -130,6 +130,23 @@ final class NavigationCollapseIOSTests: XCTestCase {
         XCTAssertLessThan(bar.frame.height, expanded, "and the title collapses as the content scrolls")
     }
 
+    /// The agent's `tap <scroller> drag 0 -900` to the end under an expanded
+    /// large title rests at the end, as a finger's drag does once its bounce
+    /// settles: UIKit adds the collapsing title's height to the offset, which
+    /// left the content that far past its end (euxy's Settings, 52 points).
+    func testAnAgentDragToTheEndUnderALargeTitleRestsAtTheEnd() throws {
+        let session = try booted("EXACT_LARGE_TITLE_PLAN", label: "large-title-drag", beforeItsWindow: true)
+        let home = try node(session, "home-scroll"), sv = try XCTUnwrap(home.scroll)
+        let bar = try XCTUnwrap(session.presenter.navigation.primaryNavigation).navigationBar
+        let expanded = bar.frame.height
+        let reply = Agent(session: session).tap(["id": Int(home.id), "scrollDrag": [0.0, -100_000.0]])
+        XCTAssertNil(reply["error"], "\(reply)")
+        spin(0.3)
+        XCTAssertLessThan(bar.frame.height, expanded, "the title collapsed")
+        let end = sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height
+        XCTAssertEqual(sv.contentOffset.y, end, accuracy: 0.5, "at the end, not past it")
+    }
+
     /// LLP 1115.000 D11.1: a route that names no scroller has one all the
     /// same, its first that scrolls vertically, as a hand-built screen's
     /// scroll view is its bar's with nothing written. Right after the header

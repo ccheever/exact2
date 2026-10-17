@@ -282,15 +282,25 @@ extension Agent {
         if let why = offscreen(v, box: CGRect(origin: start, size: .zero), hit: win.hitTest(p, with: nil)) { return ["error": "drag #\(v.id): \(why)"] }
         if let hit = win.hitTest(p, with: nil), let why = obscured(v, at: p, hit: hit) { return ["error": "drag #\(v.id) at (\(Agent.r2(start.x)), \(Agent.r2(start.y))): \(why)"] }
         let scrollsX = (sv as? ScrollView)?.scrollsX ?? false, scrollsY = (sv as? ScrollView)?.scrollsY ?? true
-        let i = sv.adjustedContentInset, o = sv.contentOffset
-        let maxX = max(-i.left, sv.contentSize.width + i.right - sv.bounds.width), maxY = max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height)
-        let to = CGPoint(x: scrollsX ? min(max(o.x - CGFloat(delta[0]), -i.left), maxX) : o.x,
-                         y: scrollsY ? min(max(o.y - CGFloat(delta[1]), -i.top), maxY) : o.y)
+        let inRange = { (p: CGPoint) -> CGPoint in
+            let i = sv.adjustedContentInset
+            let maxX = max(-i.left, sv.contentSize.width + i.right - sv.bounds.width), maxY = max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height)
+            return CGPoint(x: scrollsX ? min(max(p.x, -i.left), maxX) : p.x, y: scrollsY ? min(max(p.y, -i.top), maxY) : p.y)
+        }
+        let o = sv.contentOffset
+        let to = inRange(CGPoint(x: o.x - CGFloat(delta[0]), y: o.y - CGFloat(delta[1])))
         // A drag ends a smooth correction, as a wheel does (LLP 1070.000 §11).
         if let owner = sv.superview as? NodeView, presenter.collections.animating.contains(owner.id) { presenter.collections.animationEnded(owner.id, dragging: true) }
         sv.setContentOffset(to, animated: false)
+        // A large title collapsing as its content moves changes the range
+        // under the lifted finger (UIKit takes the title's height off the top
+        // inset and adds it to the offset), which left the content 52 points
+        // past its end; UIKit's bounce brings it back inside, here at once.
+        win.layoutIfNeeded()
+        let rest = inRange(sv.contentOffset)
+        if rest != sv.contentOffset { sv.setContentOffset(rest, animated: false) }
         presenter.settlePump()
-        return ["tapped": Int(v.id), "at": [Agent.r2(start.x), Agent.r2(start.y)], "scrolledBy": [Agent.r2(to.x - o.x), Agent.r2(to.y - o.y)],
+        return ["tapped": Int(v.id), "at": [Agent.r2(start.x), Agent.r2(start.y)], "scrolledBy": [Agent.r2(sv.contentOffset.x - o.x), Agent.r2(sv.contentOffset.y - o.y)],
                 "delivery": "recognized", "native": "scroll"]
     }
 
