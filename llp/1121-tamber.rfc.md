@@ -2810,3 +2810,48 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   target, which keeps no kernel to see an ancestor's weight (queued).
 - **The kernel schema digest moved again** (the `textStyles` columns and prop 270,
   `fontShorthand`), within stage 6's break window after B's. No host binary shipped between them.
+### Stage 6, commit C: type and family tokens
+
+- **The crate** (`tamber/src/typeface.rs`) folds a `type` token, CSS `font` syntax: `italic` or
+  `oblique`, a weight (a whole number from 1 to 1000, or `bold`), a size (px, `rem`, `em`, a text
+  style, or a length token naming one of those), an optional `/line-height` (a number, a length,
+  `normal`, or a number or length token), and an optional family (a stack, or a family token). It
+  names only what it writes, so `normal` is refused (it says nothing). A `family` token is a stack:
+  each member a quoted name or identifiers, joined `, `; or another family token. A value with more
+  than a size (a line height, a family, a style or weight before it) infers `type`; a stack with a
+  quote or a comma infers `family`; otherwise the kind is written. A type token whose size is px in
+  some tuple is warned of, never refused (`tamber-type-fixed`).
+- **Rows name the token; the kernel reads each one's part.** `font="type.body"` lowers to one row a
+  longhand the token writes, each naming the token, and `fontShorthand` (D12.2), so a text style's
+  weight and leading apply where it writes none and the rows it writes are written rows
+  (`contract/lower/src/type_tokens.rs`). The kernel reads each row's part
+  (`kernel/src/style/theme/typeface.rs`). `font-family="family.mono"` is one row naming the token. The
+  plan numbers the kinds 5 and 6, no new break. A type token in another row, or a family token
+  outside `font-family`, is `tamber-kind`. A choice between tokens (`font=(c ? "type.a" : "type.b")`)
+  lowers the same way. Every token and tuple it may be writes the same longhands, else it is
+  `tamber-type-longhands`.
+- **A family is a stack the plan declares**, as a literal `font-family`'s is. The compiler declares
+  one for each tuple's family. A bound table holds its id (`#12`): the compiler's from its own
+  stacks, the runner's from the plan's by their members (`typeface::family_key`). The runner passes a
+  `font-family` string naming a token to the kernel rather than interning it as a runtime family.
+- **The axis (theme2's ruling):** a type or family token that varies by an app axis is refused on a
+  node with element children, which would inherit its rows (`tamber-inherited-axis`, "write it on the
+  text, not its container"). On a text with none it is read again per tuple, as a colour is: the
+  kernel lets a varying type or family token reach an inherited row. A mode can't rescale a whole
+  subtree's type through a container; boundary re-specification is a later stage's, if an app needs
+  it.
+- **Live and rebuild (the lead's ruling):** an edit that changes only a type token's style, weight,
+  size or line height is live, and each row that names it reads it again. One that changes the
+  longhands it writes, its family, or a family token's stack rebuilds: the session's shape carries
+  them.
+- **Bold Text** applies through D12.3's rule: a type token naming a system family is stepped, an
+  authored weight included, and a family the app names is not.
+- **The JS target** writes a type or family token as the kernel resolves each longhand, a literal,
+  never a property (`measures::inline_tokens`). So one that varies by an app axis, or a bound row that
+  may name one, is refused there (`QUEUE.md`); a development build rebuilds on an edit to one.
+- **The wire** (under `tamber/1.9`, the window's one version): the kinds, and `resolve`'s type and
+  family tuples.
+- **Tests:** `contract/cli/tests/it/tamber_type.rs` (only the named longhands, the style's weight,
+  a family token's stack, a tuple's leading under a pin, Bold Text on a system and a named family, a
+  live value edit, and the refusals); `tamber/tests/it/edit.rs` (live versus rebuild);
+  `tamber/tests/it/pair.rs` (`tamber-type-fixed`); the crate's corpus `type`, `refuse-type`.

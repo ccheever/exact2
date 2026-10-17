@@ -68,6 +68,19 @@ pub fn row(id: StyleId) -> bool {
 /// refused ([`refuse_inline`]).
 pub fn inline_tokens(plan: &Plan) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
+    // A type or family token (stage 6 C) is written as the kernel resolves
+    // its rows, each longhand's part, never a property.
+    for r in plan
+        .theme
+        .iter()
+        .filter(|r| matches!(kind(r), Some(Kind::Type | Kind::Family)))
+    {
+        let writer = match kind(r) {
+            Some(Kind::Type) => "`font`",
+            _ => "`font-family`",
+        };
+        out.push((plan.str(r.name).to_string(), writer.to_string()));
+    }
     for node in &plan.nodes {
         let attributes = exact_kernel::NodeType::from_wire(node.node_type)
             .map_or(&[][..], exact_web::host::template::attribute_rows);
@@ -107,6 +120,27 @@ pub fn inline_tokens(plan: &Plan) -> Vec<(String, String)> {
 /// A token the page writes inline that varies by an app axis: no tuple's
 /// rule can reach it on the JS target, so the build is refused, naming it.
 pub fn refuse_inline(plan: &Plan) -> Result<(), String> {
+    // A type or family token a bound row may name: the target writes no
+    // map from one to each longhand's part (stage 6 C; bindings are G's).
+    let typed: Vec<&str> = plan
+        .theme
+        .iter()
+        .filter(|r| matches!(kind(r), Some(Kind::Type | Kind::Family)))
+        .map(|r| plan.str(r.name))
+        .collect();
+    if !typed.is_empty() {
+        for node in &plan.nodes {
+            for b in node.bindings.iter().map(|b| plan.binding(b)) {
+                let code = plan.code(b.expr);
+                if b.kind == BindingKind::Style
+                    && crate::style::literal(plan, code).is_none()
+                    && crate::style::can_be(plan, code, &|s| typed.contains(&s.trim()))
+                {
+                    return Err("a type or family token chosen at run time is not in the JS target yet (LLP 1121 stage 6 G): name one token in the row".into());
+                }
+            }
+        }
+    }
     for (name, writer) in inline_tokens(plan) {
         let varies = plan
             .theme
@@ -187,8 +221,10 @@ pub fn map(
         .theme
         .iter()
         .filter_map(|r| {
-            let kind = kind(r)
-                .filter(|k| *k != Kind::Color && exact_kernel::style::theme::admits(*k, id))?;
+            let kind = kind(r).filter(|k| {
+                !matches!(k, Kind::Color | Kind::Type | Kind::Family)
+                    && exact_kernel::style::theme::admits(*k, id)
+            })?;
             // An SVG attribute reads no property, and no tuple's rule reaches
             // it: a varying token's name stands there (the JS target does not
             // read one computed into an attribute). Nor does an inherited row

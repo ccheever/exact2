@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "digest": "4ecc08817ce0de1a",
+  "name": "type",
+  "tuples": 2,
+  "axes": [
+    {"name": "density", "values": ["compact", "roomy"], "under": null}
+  ],
+  "dials": [],
+  "tokens": [
+    {"name": "family.text", "kind": "family", "role": null, "values": ["\"InterVariable\", system-ui"], "entries": null, "dials": [], "fallback": ["\"InterVariable\", system-ui", "\"InterVariable\", system-ui"]},
+    {"name": "family.mono", "kind": "family", "role": null, "values": ["ui-monospace"], "entries": null, "dials": [], "fallback": ["ui-monospace", "ui-monospace"]},
+    {"name": "type.body", "kind": "type", "role": null, "values": ["-exact-body/1.35 \"InterVariable\""], "entries": null, "dials": [], "fallback": ["-exact-body/1.35 \"InterVariable\"", "-exact-body/1.35 \"InterVariable\""]},
+    {"name": "type.label", "kind": "type", "role": null, "values": ["600 -exact-subheadline \"InterVariable\", system-ui"], "entries": null, "dials": [], "fallback": ["600 -exact-subheadline \"InterVariable\", system-ui", "600 -exact-subheadline \"InterVariable\", system-ui"]},
+    {"name": "type.title", "kind": "type", "role": null, "values": ["italic 700 1.5rem/32px Georgia, serif"], "entries": null, "dials": [], "fallback": ["italic 700 1.5rem/32px Georgia, serif", "italic 700 1.5rem/32px Georgia, serif"]},
+    {"name": "type.fixed", "kind": "type", "role": null, "values": ["14px/18px ui-monospace"], "entries": null, "dials": [], "fallback": ["14px/18px ui-monospace", "14px/18px ui-monospace"]},
+    {"name": "type.alias", "kind": "type", "role": null, "values": ["-exact-body/1.35 \"InterVariable\""], "entries": null, "dials": [], "fallback": ["-exact-body/1.35 \"InterVariable\"", "-exact-body/1.35 \"InterVariable\""]},
+    {"name": "type.dense", "kind": "type", "role": null, "values": ["-exact-footnote/1.2", "-exact-body/1.5"], "entries": [0, 1], "dials": [], "fallback": ["-exact-footnote/1.2", "-exact-footnote/1.2"]}
+  ],
+  "exports": null
+}

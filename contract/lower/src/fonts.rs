@@ -175,9 +175,26 @@ impl Lowerer<'_> {
             return Ok(Vec::new());
         };
         let mut names = Vec::new();
-        let mut folded = family.value.clone();
-        fold_constant_families(&mut folded);
-        self.family_arms(&folded, &mut |name, _| names.push(name.to_string()))?;
+        // A family token's name is no family (stage 6 C): the families of
+        // its stack, each tuple's, are what the node uses.
+        let mut leaves = Vec::new();
+        crate::theme::leaves(&family.value, &mut Vec::new(), &mut leaves);
+        let tokens: Vec<Vec<String>> = leaves
+            .iter()
+            .filter_map(|e| match e {
+                Expr::Str(text, _) => crate::theme::measure_values(text).map(|(_, v)| v),
+                _ => None,
+            })
+            .collect();
+        if tokens.is_empty() {
+            let mut folded = family.value.clone();
+            fold_constant_families(&mut folded);
+            self.family_arms(&folded, &mut |name, _| names.push(name.to_string()))?;
+        }
+        for stack in tokens.iter().flatten() {
+            let key = exact_kernel::style::theme::typeface::family_key_of(stack);
+            names.extend(key.split(',').map(str::to_string));
+        }
         let italic = match attrs.iter().find(|a| a.name == "font-style") {
             None => Some(false),
             Some(a) => match &a.value {
@@ -253,6 +270,13 @@ impl Lowerer<'_> {
         let mut folded = e.clone();
         fold_constant_families(&mut folded);
         Self::literal_arms(&folded)
+    }
+
+    /// A literal family's stack, declared as `font-family`'s are: `e`, a
+    /// string, becomes the stack's number (stage 6 C's type and family
+    /// tokens).
+    pub(super) fn replace_family(&mut self, e: &mut Expr) -> Result<(), LowerError> {
+        self.replace_arms(e)
     }
 
     fn replace_arms(&mut self, e: &mut Expr) -> Result<(), LowerError> {

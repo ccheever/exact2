@@ -69,6 +69,10 @@ pub(crate) enum Named {
     Easing(String),
     /// A shadow token's value, which only a whole shadow value names.
     Shadow(crate::shadow::Shadows),
+    /// A type token's value, which only a whole type value names.
+    Type(crate::typeface::Type),
+    /// A family token's stack.
+    Family(String),
     /// A colour role no token overrides.
     Role(String),
     /// Nothing the design declares.
@@ -210,8 +214,8 @@ pub(crate) fn color(items: &[Item], names: &mut dyn Names) -> Result<Folded, Fol
 
 pub(crate) fn not_color_kind<T>() -> Result<T, FoldError> {
     fail(
-        "tamber-stage",
-        "type and family tokens arrive with stage 6's commit C",
+        "tamber-kind",
+        "not a colour: a type token is CSS `font` syntax with a size (`-exact-body/1.35 Inter`), a family a stack (`\"Inter\", system-ui`); write its kind (`: type`, `: family`) where it is not inferred",
     )
 }
 
@@ -247,6 +251,12 @@ fn ident(name: &str, names: &mut dyn Names) -> Result<Folded, FoldError> {
             return fail(
                 "tamber-kind",
                 format!("`{name}` is a motion token, not a colour"),
+            )
+        }
+        Named::Type(_) | Named::Family(_) => {
+            return fail(
+                "tamber-kind",
+                format!("`{name}` is a type token, not a colour"),
             )
         }
         Named::Role(r) => return Ok(Folded::Host(Host::Role(r))),

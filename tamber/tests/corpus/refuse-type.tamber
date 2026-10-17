@@ -1,0 +1,10 @@
+tamber refuse_type
+
+theme
+  type.normal = normal -exact-body
+  type.nosize: type = 600 Inter
+  type.weight = 1200 16px
+  type.leading = 16px/x
+  type.family = 16px Inter!
+  family.bad: family = "Inter", 12px
+  type.hair = -exact-hairline/1.2 Inter

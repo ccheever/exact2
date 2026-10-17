@@ -1,0 +1,7 @@
+4:17: tamber-kind: `normal -exact-body`: a type token writes only what it names, so `normal` says nothing; leave the style or weight out, or write the weight as a number
+5:23: tamber-unknown-token: `Inter` is no token or text style
+6:17: tamber-kind: `1200`: a weight is a whole number from 1 to 1000
+7:18: tamber-unknown-token: `x` is no token
+8:17: tamber-kind: `Inter!`: `Inter!` is no family name (quote a name with other characters)
+9:24: tamber-kind: `"Inter", 12px`: `12px` is no family name (quote a name with other characters)
+10:15: tamber-kind: `-exact-hairline` is a named length no font size takes

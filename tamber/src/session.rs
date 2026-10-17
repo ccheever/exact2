@@ -394,11 +394,17 @@ fn shape(f: &Folding, retention: Option<&Retention>, vocab: &Vocab) -> String {
                 _ => false,
             })
             .collect();
+        // And a type token's longhands and family, a family token's stack
+        // (stage 6 C): a font a plan has not declared is a build's, and the
+        // rows a type token writes are lowered (the lead's ruling, D6).
         let whole: Vec<String> = t
             .values
             .iter()
-            .map(|v| v.css())
-            .filter(|c| c.contains("(--"))
+            .filter_map(|v| match v {
+                crate::Value::Type(t) => Some(format!("{:?} {:?}", t.longhands(), t.family)),
+                crate::Value::Family(f) => Some(f.clone()),
+                v => Some(v.css()).filter(|c| c.contains("(--")),
+            })
             .collect();
         s.push_str(&format!(
             "token {name} {} {:?} {} {varies} {accent:?} {whole:?}\n",

@@ -25,6 +25,7 @@ mod motion;
 mod session;
 mod shadow;
 mod syntax;
+mod typeface;
 
 pub use check::{Checked, MAX_TUPLES};
 pub use edit::{apply, apply_all, undo, Edited, Op, WhenLine};
@@ -35,6 +36,7 @@ pub use measure::{Kind, Length, Value};
 pub use session::{plan, Class, Planned, Refused, Retention, Synthetic};
 pub use shadow::{Shadow, Shadows};
 pub use syntax::{parse, At, Axis, Design, Dial, DialKind, Token, When};
+pub use typeface::Type;
 
 /// A refusal, at a line and column of the source.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -134,7 +136,8 @@ pub struct Folding {
     /// How many full app tuples its axes make.
     pub tuples: usize,
     /// What the author should know and the build does not refuse: a pair
-    /// below WCAG's text contrast (`tamber-contrast`, D3).
+    /// below WCAG's text contrast (`tamber-contrast`, D3); a type token in
+    /// px (`tamber-type-fixed`, D6).
     pub warnings: Vec<Diagnostic>,
     fallbacks: Vec<Option<[String; 2]>>,
     dials: Vec<String>,
@@ -156,7 +159,8 @@ pub fn check_design(design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagno
             other => Some([other.css(), other.css()]),
         })
         .collect();
-    let warnings = contrast(&design, &tokens, tuples, vocab);
+    let mut warnings = contrast(&design, &tokens, tuples, vocab);
+    warnings.extend(type_fixed(&design, &tokens));
     Ok(Folding {
         design,
         tokens,
@@ -165,6 +169,29 @@ pub fn check_design(design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagno
         fallbacks,
         dials: dials.iter().map(ir::dial_text).collect(),
     })
+}
+
+/// Each type token whose size is px in some tuple (`tamber-type-fixed`,
+/// D6): the author's choice not to scale with the person's text size,
+/// which the build does not refuse.
+fn type_fixed(design: &Design, tokens: &[Checked]) -> Vec<Diagnostic> {
+    tokens
+        .iter()
+        .zip(&design.tokens)
+        .filter(|(t, _)| {
+            t.values
+                .iter()
+                .any(|v| matches!(v, Value::Type(t) if matches!(t.size, Length::Px(_))))
+        })
+        .map(|(t, declared)| {
+            Diagnostic::new(
+                "tamber-type-fixed",
+                format!("`{}`'s size is px, so it does not follow the person's text size (Dynamic Type, the browser's setting): a text style or `rem` does", t.name),
+                declared.name.line,
+                declared.name.col,
+            )
+        })
+        .collect()
 }
 
 /// WCAG 2's text ratio, below which a declared pair is warned of.

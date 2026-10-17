@@ -898,6 +898,57 @@ fn a_length_or_number_edit_is_live_and_a_kind_change_rebuilds() {
     );
 }
 
+/// Stage 6 C: a type token's style, weight, size or line height changing is
+/// live; the longhands it writes changing, or its family, or a family
+/// token's stack, rebuilds (the lead's ruling, D6).
+#[test]
+fn a_type_value_edit_is_live_and_a_longhand_or_family_change_rebuilds() {
+    let files = vec![(
+        "app.tamber".to_string(),
+        "tamber app\n\ntheme\n  type.body = 600 -exact-body/1.35 \"InterVariable\"\n  family.mono: family = ui-monospace\n".to_string(),
+    )];
+    let none: Vec<(String, bool)> = Vec::new();
+    let synthetic = exact_tamber::Synthetic {
+        file: "app.tamber",
+        exprs: &none,
+        retention: None,
+    };
+    let set = |name: &str, value: &str| {
+        vec![(
+            "app.tamber".to_string(),
+            Op::SetToken {
+                name: name.into(),
+                when: Vec::new(),
+                value: value.into(),
+                at: None,
+                comment: None,
+            },
+        )]
+    };
+    let class = |name: &str, value: &str| {
+        exact_tamber::plan(&files, &set(name, value), &vocab(), false, synthetic)
+            .unwrap()
+            .class
+    };
+    use exact_tamber::Class::{Live, Rebuild};
+    assert_eq!(
+        class("type.body", "700 -exact-headline/1.5 \"InterVariable\""),
+        Live
+    );
+    assert_eq!(class("type.body", "700 18px/22px \"InterVariable\""), Live);
+    assert_eq!(
+        class("type.body", "-exact-body/1.35 \"InterVariable\""),
+        Rebuild,
+        "the weight unsaid"
+    );
+    assert_eq!(
+        class("type.body", "600 -exact-body/1.35 Georgia"),
+        Rebuild,
+        "another family"
+    );
+    assert_eq!(class("family.mono", "monospace"), Rebuild);
+}
+
 /// D7's retention decides the class (theme2's ruling, LLP 1121 stage 5): a
 /// token the plan does not keep moves nothing, one it keeps added, gone or
 /// starting to vary moves its retained shape; `exports` bounds what an app

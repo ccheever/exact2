@@ -610,16 +610,9 @@ impl<'a> Checker<'a> {
                     continue;
                 }
                 Some(
-                    "length" | "number" | "box-shadow" | "text-shadow" | "duration" | "easing",
+                    "length" | "number" | "box-shadow" | "text-shadow" | "duration" | "easing"
+                    | "type" | "family",
                 ) => {}
-                Some("type" | "family") => {
-                    self.at(
-                        &t.name,
-                        "tamber-stage",
-                        "type and family tokens arrive with stage 6's commit C",
-                    );
-                    continue;
-                }
                 Some("icon") => {
                     self.at(
                         &t.name,
@@ -730,7 +723,12 @@ impl<'a> Checker<'a> {
         if std::mem::replace(&mut path[i], true) {
             return Kind::Color;
         }
+        if let Some(k) = crate::typeface::inferred(&t.value.value, self.named_length) {
+            path[i] = false;
+            return k;
+        }
         let Ok(items) = css::parse(&t.value.value) else {
+            path[i] = false;
             return Kind::Color;
         };
         let kind = match items.as_slice() {
@@ -1037,8 +1035,12 @@ impl<'a> Checker<'a> {
         if kind == Kind::Color {
             return self.fold_at(tuple, value).map(Value::Color);
         }
-        // A shadow list's commas are its own: its fold splits the text.
-        let shadow = matches!(kind, Kind::BoxShadow | Kind::TextShadow);
+        // A shadow list's commas are its own, and a family's: their folds
+        // split the text.
+        let shadow = matches!(
+            kind,
+            Kind::BoxShadow | Kind::TextShadow | Kind::Type | Kind::Family
+        );
         let items = match css::parse(&value.value) {
             Ok(items) => items,
             Err(_) if shadow => Vec::new(),
@@ -1060,6 +1062,10 @@ impl<'a> Checker<'a> {
             }
             Kind::Duration => crate::motion::duration(&items, &mut scope).map(Value::Duration),
             Kind::Easing => crate::motion::easing(&items, &mut scope).map(Value::Easing),
+            Kind::Type => {
+                crate::typeface::fold(&value.value, &mut scope, named_length).map(Value::Type)
+            }
+            Kind::Family => crate::typeface::family(&value.value, &mut scope).map(Value::Family),
             _ => measure::number(&items, &mut scope).map(Value::Number),
         };
         match folded {
@@ -1268,6 +1274,8 @@ impl Names for Scope<'_, '_> {
                     Value::Shadow(s) => Named::Shadow(s),
                     Value::Duration(ms) => Named::Duration(ms),
                     Value::Easing(e) => Named::Easing(e),
+                    Value::Type(t) => Named::Type(t),
+                    Value::Family(f) => Named::Family(f),
                 })
                 .ok_or_else(quiet);
         }

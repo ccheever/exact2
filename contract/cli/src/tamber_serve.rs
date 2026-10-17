@@ -807,6 +807,14 @@ impl Server {
                     exact_tamber::Value::Easing(_) => {
                         return json!({"modes": modes, "value": v.css(), "kind": "easing"});
                     }
+                    // A type token's longhands as written (null: unsaid), a
+                    // family's stack (stage 6 C, optional fields under 1.9).
+                    exact_tamber::Value::Type(t) => {
+                        return json!({"modes": modes, "value": v.css(), "kind": "type", "style": t.style, "weight": t.weight, "size": t.size.css(), "leading": t.leading, "family": t.family});
+                    }
+                    exact_tamber::Value::Family(f) => {
+                        return json!({"modes": modes, "value": v.css(), "kind": "family", "family": f});
+                    }
                     exact_tamber::Value::Color(c) => c,
                 };
                 match v {

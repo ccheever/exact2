@@ -426,6 +426,10 @@ impl Lowerer<'_> {
         font: &[FontUse],
         bindings: &mut Vec<BindingsRow>,
     ) -> Result<(), LowerError> {
+        // Type tokens write only their longhands (stage 6 C).
+        if a.name == "font" && self.type_font(a, scope, locals, bindings)? {
+            return Ok(());
+        }
         for (index, row) in rows(&a.name).iter().copied().enumerate() {
             let value = component(&a.value, &a.name, index)?;
             let component = Attr { value, ..a.clone() };

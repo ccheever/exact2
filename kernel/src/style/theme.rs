@@ -11,6 +11,8 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
+pub mod typeface;
+
 /// A plan's theme as a parse reads it: each entry's name (a role's spelling
 /// for an override), the text it stands for, which names no entry, and its
 /// kind. Built once per plan; binding one is a pointer swap.
@@ -48,6 +50,11 @@ pub enum Kind {
     BoxShadow,
     /// A `text-shadow` row's value.
     TextShadow,
+    /// CSS `font` syntax: each `font` longhand reads its part
+    /// ([`typeface::part`]).
+    Type,
+    /// A font stack, `font-family`'s.
+    Family,
 }
 
 impl Kind {
@@ -60,6 +67,8 @@ impl Kind {
             2 => Some(Kind::Number),
             3 => Some(Kind::BoxShadow),
             4 => Some(Kind::TextShadow),
+            5 => Some(Kind::Type),
+            6 => Some(Kind::Family),
             _ => None,
         }
     }
@@ -258,6 +267,8 @@ pub fn admits(kind: Kind, id: crate::StyleId) -> bool {
         Kind::Length => !colour && (id == crate::StyleId::LineHeight || !NUMBER_ROWS.contains(&id)),
         Kind::BoxShadow => id == crate::StyleId::BoxShadow,
         Kind::TextShadow => id == crate::StyleId::TextShadow,
+        Kind::Type => typeface::admits_type(id),
+        Kind::Family => id == crate::StyleId::FontFamily,
     }
 }
 
@@ -274,12 +285,17 @@ pub fn measured(
         return None;
     };
     // An inherited row reads no token that varies (D7), as the compiler
-    // refuses one a literal names.
+    // refuses one a literal names; but type and family, which the compiler
+    // lets vary on a text with no element children to inherit them (stage
+    // 6 C, theme2's ruling), each read again per tuple as a colour is.
     let (kind, value) = measure(text, |kind, varies| {
-        admits(kind, id) && !(varies && id.inherited())
+        admits(kind, id)
+            && (!(varies && id.inherited()) || matches!(kind, Kind::Type | Kind::Family))
     })?;
     Some(match kind {
         Kind::Number => super::StyleValue::Number(exact_num::parse_f64(value.trim()).ok()?),
+        Kind::Type => typeface::part(id, &value)?,
+        Kind::Family => typeface::family(&value)?,
         _ => super::StyleValue::Text(String::from(value).into()),
     })
 }

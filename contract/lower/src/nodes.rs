@@ -374,6 +374,7 @@ impl Lowerer<'_> {
             self.errors.extend(native::refused(tag, a));
         }
         let flex = tags::flex_container(tag, expanded);
+        self.element_children = !children.is_empty();
         for (index, a) in expanded.iter().enumerate() {
             if let Some(e) = flex.and_then(|f| tags::multicol_on_flex(f, a).err()) {
                 self.errors.push(e);

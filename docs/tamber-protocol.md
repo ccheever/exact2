@@ -54,6 +54,10 @@ on macOS and Linux.
   The 1.9 window also takes LLP 1122 T2c's optional fields, marked *1.9*: a build's `planDigest`
   (on `register`, `status` and its record), and source maps by plan, each build joined and
   outlined from its own plan's map.
+  Stage 6 C added under the same version (the window's one version, theme2's ruling): the IR's
+  `type` and `family` kinds and `resolve`'s type and family tuples. A transaction that changes the
+  longhands a type token writes, or a type token's or family token's family, is `rebuild`; one that
+  changes only a type token's style, weight, size or line height is `live`.
 
 ## Where it runs
 
@@ -172,7 +176,7 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
   - `format`, `digest`, `name`, `tuples`;
   - the axes and the dials (with each dial's `range`);
   - the tokens, each with its `kind` (`color`, `length` or `number`, *1.5*: written, or inferred from
-    its value; `box-shadow` or `text-shadow`, *1.8*, always written; `duration` or `easing`, *1.9*, written or inferred), its folded `values` per tuple, `entries`, the `dials` it depends on and its
+    its value; `box-shadow` or `text-shadow`, *1.8*, always written; `duration` or `easing`, *1.9*, written or inferred; `type` or `family`, *1.9*, written or inferred), its folded `values` per tuple, `entries`, the `dials` it depends on and its
     `fallback` (a length's or number's is its default tuple's value, twice);
   - `exports`.
 
@@ -210,6 +214,9 @@ tuple:
 - **A duration** (*1.9*) is `{modes, value, kind: "duration", ms}`; **an easing** is
   `{modes, value, kind: "easing"}`, its `value` the easing as written. A motion token has one tuple's
   value in every tuple (no `when`).
+- **A type** (*1.9*) is `{modes, value, kind: "type", style, weight, size, leading, family}`: each
+  longhand as the token writes it, null for one it leaves unsaid (`size` always written). **A
+  family** is `{modes, value, kind: "family", family}`, the stack as CSS writes it.
 - **A shadow** (*1.8*) is `{modes, value, kind: "box-shadow" | "text-shadow", shadows}`: each shadow
   `{inset, lengths, color}`, its lengths in px (offset x, offset y, then blur and spread when
   written) and its colour's folded CSS (null for a text shadow's `currentcolor`).

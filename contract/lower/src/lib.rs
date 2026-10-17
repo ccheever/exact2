@@ -59,6 +59,7 @@ mod symbols;
 pub mod tags;
 mod theme;
 mod timers;
+mod type_tokens;
 mod values;
 pub mod vocab;
 mod warnings;
@@ -166,6 +167,9 @@ pub(crate) struct Lowerer<'a> {
     /// How many `svg` elements enclose the node being lowered: `text`
     /// inside one is SVG text, outside a box (LLP 1055.000 D11).
     pub(crate) svg_depth: u32,
+    /// The element whose attributes are lowered has element children, which
+    /// inherit its text rows (stage 6 C: no type token that varies there).
+    pub(crate) element_children: bool,
     /// Whether the enclosing element contains its exclusions (LLP 1043.000).
     parent_positioned: bool,
     parent_bounded_column: bool,
@@ -292,6 +296,7 @@ fn lower_with_sites(
             .collect(),
         fn_depth: 0,
         svg_depth: 0,
+        element_children: false,
         parent_positioned: true,
         parent_bounded_column: false,
         button_context: None,
@@ -1012,6 +1017,9 @@ impl<'a> Lowerer<'a> {
             }
             tags::AttrTarget::Styles(rows) => {
                 if rows == [StyleId::FontFamily] {
+                    if self.family_token(a, scope, locals, bindings)? {
+                        return Ok(());
+                    }
                     let stacks = self.family_stacks(&a.value)?;
                     let (code, ty) = self.typed_code(&stacks, scope, locals)?;
                     // Literal families are stack numbers, an empty one `none`.

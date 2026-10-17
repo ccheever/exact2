@@ -137,6 +137,7 @@ mod tamber_motion;
 mod tamber_scheme;
 mod tamber_serve;
 mod tamber_shadows;
+mod tamber_type;
 mod tests_decl;
 mod text_item;
 mod text_px_width;

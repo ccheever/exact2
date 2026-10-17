@@ -3131,6 +3131,13 @@ scheme=fixed`), and `lower-colour-one-scheme` leaves it alone; an unmarked one
 is reported once, at its line in the design. `pair=surface.page` after a
 foreground's value names what it is drawn on (a token or a role);
 `contract tamber check` warns when the two fall below 4.5:1 (`tamber-contrast`).
+A type token is CSS `font` syntax (`type.body = -exact-body/1.35 "InterVariable"`):
+`font="type.body"` writes only the longhands it names, so the text style's own
+weight applies where it names none, and a size in px is warned of
+(`tamber-type-fixed`: it does not follow the person's text size). A family token
+is a stack (`family.text = "InterVariable", system-ui`), named by `font-family`.
+One that varies by a mode goes on the text, not its container
+(`tamber-inherited-axis`); on the JS target it may not vary yet.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (`contract types` declares the design's, so an unknown
 one fails `tsc`), and `bun exact.mjs tamber gen ts|rust .` writes bindings into

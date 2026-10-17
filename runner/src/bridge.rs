@@ -411,43 +411,94 @@ pub fn theme_table_at(plan: &exact_plan::Plan, tuple: u32) -> exact_kernel::styl
                 .collect()
         });
         use exact_kernel::style::theme::Kind;
-        let table = exact_kernel::style::theme::kinded(plan.theme.iter().flat_map(|row| {
-            // A kind this build does not know is no entry: its rows stand.
-            let kind = Kind::of(row.kind);
-            let (name, role) = (plan.str(row.name), plan.str(row.role));
-            let edit = edits.iter().find(|(_, n, ..)| n == name);
-            let value = match (edit, row.slices.len) {
-                (Some((_, _, value, slices)), _) => {
-                    slices.get(tuple as usize).unwrap_or(value).as_str()
-                }
-                (None, 0) => plan.str(row.value),
-                (None, len) => plan
-                    .str(plan.theme_slices[(row.slices.start + tuple.min(len - 1)) as usize].value),
-            };
-            // A tint role stays the role in its row (`ColorValue::themed`).
-            let tint = roles::role(role).is_some_and(roles::tint);
-            // Whether it varies by an app axis, as edited (D7: no inherited
-            // row reads such a length or number).
-            let varies = edit.map_or(row.slices.len > 0, |(_, _, _, slices)| !slices.is_empty());
-            kind.filter(|_| !tint)
-                .map(|kind| (name, value, false, kind, varies))
-                .into_iter()
-                .chain(
-                    (!role.is_empty() && !tint && kind == Some(Kind::Color)).then_some((
-                        role,
-                        value,
-                        true,
-                        Kind::Color,
-                        varies,
-                    )),
-                )
-        }));
+        // A type or family token's family as the plan's stack (stage 6 C):
+        // the compiler declared one for each tuple's.
+        let stacks = plan_stacks(plan);
+        let stack = |family: &str| {
+            let key = exact_kernel::style::theme::typeface::family_key_of(family);
+            stacks.iter().find(|(k, _)| *k == key).map(|(_, id)| *id)
+        };
+        let entries: Vec<_> = plan
+            .theme
+            .iter()
+            .flat_map(|row| {
+                // A kind this build does not know is no entry: its rows stand.
+                let kind = Kind::of(row.kind);
+                let (name, role) = (plan.str(row.name), plan.str(row.role));
+                let edit = edits.iter().find(|(_, n, ..)| n == name);
+                let value = match (edit, row.slices.len) {
+                    (Some((_, _, value, slices)), _) => {
+                        slices.get(tuple as usize).unwrap_or(value).as_str()
+                    }
+                    (None, 0) => plan.str(row.value),
+                    (None, len) => plan.str(
+                        plan.theme_slices[(row.slices.start + tuple.min(len - 1)) as usize].value,
+                    ),
+                };
+                // A tint role stays the role in its row (`ColorValue::themed`).
+                let tint = roles::role(role).is_some_and(roles::tint);
+                // Whether it varies by an app axis, as edited (D7: no inherited
+                // row reads such a length or number).
+                let varies =
+                    edit.map_or(row.slices.len > 0, |(_, _, _, slices)| !slices.is_empty());
+                let value: std::borrow::Cow<str> = match kind {
+                    Some(k @ (Kind::Type | Kind::Family)) => {
+                        exact_kernel::style::theme::typeface::entry(k, value, stack)
+                            .map_or(std::borrow::Cow::Borrowed(value), std::borrow::Cow::Owned)
+                    }
+                    _ => std::borrow::Cow::Borrowed(value),
+                };
+                kind.filter(|_| !tint)
+                    .map(|kind| (name, value.clone(), false, kind, varies))
+                    .into_iter()
+                    .chain(
+                        (!role.is_empty() && !tint && kind == Some(Kind::Color)).then_some((
+                            role,
+                            value,
+                            true,
+                            Kind::Color,
+                            varies,
+                        )),
+                    )
+            })
+            .collect();
+        let table = exact_kernel::style::theme::kinded(
+            entries
+                .iter()
+                .map(|(n, v, r, k, va)| (*n, v.as_ref(), *r, *k, *va)),
+        );
         if tables.len() <= slot {
             tables.resize(slot + 1, None);
         }
         tables[slot] = Some(table.clone());
         table
     })
+}
+
+/// `plan`'s font stacks by their members' key
+/// (`typeface::family_key`), each with its id.
+fn plan_stacks(plan: &exact_plan::Plan) -> Vec<(String, u16)> {
+    plan.stacks
+        .iter()
+        .enumerate()
+        .map(|(id, stack)| {
+            let names: Vec<&str> = stack
+                .members
+                .iter()
+                .map(|m| {
+                    let member = plan.stack_member(m);
+                    match member.family {
+                        Some(f) => plan.str(plan.familie(f).name),
+                        None => member.kind.name(),
+                    }
+                })
+                .collect();
+            (
+                exact_kernel::style::theme::typeface::family_key(names),
+                id as u16,
+            )
+        })
+        .collect()
 }
 
 /// @ref LLP 1095 D4 — the roles `plan`'s theme replaces, for the session
@@ -562,6 +613,21 @@ pub fn set_style(
         {
             let initial = StyleProps::default().font_family;
             return set_style(patch, id, &Value::Number(f64::from(initial)), stacks);
+        }
+        // A type or family token's name, which the kernel reads as the
+        // token's stack (stage 6 C).
+        if value
+            .as_str()
+            .is_some_and(exact_kernel::style::theme::names)
+        {
+            let text = value.as_str().unwrap_or_default();
+            patch
+                .set_dynamic(style, &StyleValue::Text(text.into()))
+                .map_err(|_| BridgeError::StyleKind {
+                    style,
+                    value: value.clone(),
+                })?;
+            return Ok(style);
         }
         let index = match value {
             Value::Number(n) if n.is_finite() && n.fract() == 0.0 && *n >= 0.0 => *n as u32,

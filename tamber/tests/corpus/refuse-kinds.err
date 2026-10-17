@@ -1,5 +1,3 @@
-4:15: tamber-stage: type and family tokens arrive with stage 6's commit C
-5:3: tamber-stage: type and family tokens arrive with stage 6's commit C
-10:3: tamber-syntax: `wobbly` is not a kind
-11:16: tamber-syntax: `rgb(1 2)`: three channels and an optional `/ alpha`
-12:9: tamber-kind: a colour is one value
+8:3: tamber-syntax: `wobbly` is not a kind
+9:16: tamber-syntax: `rgb(1 2)`: three channels and an optional `/ alpha`
+10:9: tamber-kind: a colour is one value

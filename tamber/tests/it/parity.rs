@@ -76,6 +76,28 @@ fn every_corpus_value_parses_in_the_kernel() {
                             .is_ok()
                     }),
                     Kind::Number => text.parse::<f64>().is_ok(),
+                    // Each part in its row, the family as a stack's id
+                    // stands in a bound table (`typeface::entry`).
+                    Kind::Type => exact_kernel::style::theme::typeface::entry(
+                        exact_kernel::style::theme::Kind::Type,
+                        &text,
+                        |_| Some(0),
+                    )
+                    .is_some_and(|entry| {
+                        [
+                            StyleId::FontStyle,
+                            StyleId::FontWeight,
+                            StyleId::FontSize,
+                            StyleId::LineHeight,
+                            StyleId::FontFamily,
+                        ]
+                        .iter()
+                        .all(|row| {
+                            exact_kernel::style::theme::typeface::part(*row, &entry)
+                                .is_none_or(|v| StyleProps::default().set_dynamic(*row, &v).is_ok())
+                        })
+                    }),
+                    Kind::Family => !text.trim().is_empty(),
                     Kind::BoxShadow => exact_kernel::style::BoxShadows::check(&text).is_ok(),
                     Kind::TextShadow => exact_kernel::style::TextShadow::check(&text).is_ok(),
                     // A component of a transition, as the build writes it in.

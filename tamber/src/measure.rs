@@ -27,6 +27,10 @@ pub enum Kind {
     Duration,
     /// An easing in a `transition` or `animation` (stage 6 E).
     Easing,
+    /// CSS `font` syntax on `font` (stage 6 C).
+    Type,
+    /// A font-family stack on `font-family` (stage 6 C).
+    Family,
 }
 
 impl Kind {
@@ -40,6 +44,8 @@ impl Kind {
             Kind::TextShadow => "text-shadow",
             Kind::Duration => "duration",
             Kind::Easing => "easing",
+            Kind::Type => "type",
+            Kind::Family => "family",
         }
     }
 
@@ -53,6 +59,8 @@ impl Kind {
             "text-shadow" => Some(Kind::TextShadow),
             "duration" => Some(Kind::Duration),
             "easing" => Some(Kind::Easing),
+            "type" => Some(Kind::Type),
+            "family" => Some(Kind::Family),
             _ => None,
         }
     }
@@ -99,6 +107,10 @@ pub enum Value {
     Duration(f64),
     /// An easing, as written.
     Easing(String),
+    /// A type token's longhands.
+    Type(crate::typeface::Type),
+    /// A family stack.
+    Family(String),
 }
 
 impl Value {
@@ -112,6 +124,8 @@ impl Value {
             Value::Shadow(_) => Kind::BoxShadow,
             Value::Duration(_) => Kind::Duration,
             Value::Easing(_) => Kind::Easing,
+            Value::Type(_) => Kind::Type,
+            Value::Family(_) => Kind::Family,
         }
     }
 
@@ -124,6 +138,8 @@ impl Value {
             Value::Shadow(s) => s.css(),
             Value::Duration(ms) => format!("{}ms", num(*ms)),
             Value::Easing(e) => e.clone(),
+            Value::Type(t) => t.css(),
+            Value::Family(f) => f.clone(),
         }
     }
 
@@ -214,6 +230,9 @@ pub(crate) fn length(
             Named::Duration(_) | Named::Easing(_) => {
                 fail("tamber-kind", format!("`{name}` is a motion token"))
             }
+            Named::Type(_) | Named::Family(_) => {
+                fail("tamber-kind", format!("`{name}` is a type token"))
+            }
             Named::Color(_) | Named::Role(_) => {
                 fail("tamber-kind", format!("`{name}` is a colour, not a length"))
             }
@@ -263,6 +282,9 @@ pub(crate) fn number(items: &[Item], names: &mut dyn Names) -> Result<f64, FoldE
             ),
             Named::Duration(_) | Named::Easing(_) => {
                 fail("tamber-kind", format!("`{name}` is a motion token"))
+            }
+            Named::Type(_) | Named::Family(_) => {
+                fail("tamber-kind", format!("`{name}` is a type token"))
             }
             Named::Color(_) | Named::Role(_) => {
                 fail("tamber-kind", format!("`{name}` is a colour, not a number"))
@@ -487,6 +509,9 @@ fn operand(item: &Item, text: &str, names: &mut dyn Names) -> Result<Quantity, F
             ),
             Named::Duration(_) | Named::Easing(_) => {
                 fail("tamber-kind", format!("`{name}` is a motion token"))
+            }
+            Named::Type(_) | Named::Family(_) => {
+                fail("tamber-kind", format!("`{name}` is a type token"))
             }
             Named::Color(_) | Named::Role(_) => {
                 fail("tamber-kind", format!("`{name}` is a colour, in `{text}`"))

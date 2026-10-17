@@ -46,6 +46,8 @@ fn kind_code(kind: tamber::Kind) -> Option<u8> {
         tamber::Kind::Number => 2,
         tamber::Kind::BoxShadow => 3,
         tamber::Kind::TextShadow => 4,
+        tamber::Kind::Type => 5,
+        tamber::Kind::Family => 6,
         tamber::Kind::Duration | tamber::Kind::Easing => return None,
     })
 }
@@ -59,6 +61,8 @@ fn kernel_kind(kind: tamber::Kind) -> Option<exact_kernel::style::theme::Kind> {
         tamber::Kind::Number => Kind::Number,
         tamber::Kind::BoxShadow => Kind::BoxShadow,
         tamber::Kind::TextShadow => Kind::TextShadow,
+        tamber::Kind::Type => Kind::Type,
+        tamber::Kind::Family => Kind::Family,
         tamber::Kind::Duration | tamber::Kind::Easing => return None,
     })
 }
@@ -387,29 +391,36 @@ impl Lowerer<'_> {
                 );
             }
         }
+        // A type or family token's family is a stack the plan declares, as
+        // a literal `font-family`'s is, and a bound table holds its id
+        // (stage 6 C).
+        let kernel_values = self.theme_stacks();
         exact_kernel::style::theme::bind(&exact_kernel::style::theme::kinded(
-            self.theme.iter().flat_map(|e| {
-                let tint = e
-                    .role
-                    .as_deref()
-                    .and_then(roles::role)
-                    .is_some_and(roles::tint);
-                let kind = kernel_kind(e.kind);
-                kind.filter(|_| !tint)
-                    .map(|kind| {
-                        (
-                            e.name.as_str(),
-                            e.value.as_str(),
-                            false,
-                            kind,
-                            !e.slices.is_empty(),
-                        )
-                    })
-                    .into_iter()
-                    .chain(e.role.as_deref().filter(|_| !tint).and_then(|r| {
-                        Some((r, e.value.as_str(), true, kind?, !e.slices.is_empty()))
-                    }))
-            }),
+            self.theme
+                .iter()
+                .zip(&kernel_values)
+                .flat_map(|(e, kernel_value)| {
+                    let tint = e
+                        .role
+                        .as_deref()
+                        .and_then(roles::role)
+                        .is_some_and(roles::tint);
+                    let kind = kernel_kind(e.kind);
+                    kind.filter(|_| !tint)
+                        .map(|kind| {
+                            (
+                                e.name.as_str(),
+                                kernel_value.as_str(),
+                                false,
+                                kind,
+                                !e.slices.is_empty(),
+                            )
+                        })
+                        .into_iter()
+                        .chain(e.role.as_deref().filter(|_| !tint).and_then(|r| {
+                            Some((r, kernel_value.as_str(), true, kind?, !e.slices.is_empty()))
+                        }))
+                }),
         ))
     }
 
@@ -583,7 +594,7 @@ impl Lowerer<'_> {
         });
     }
 
-    fn push(&mut self, e: LowerError) {
+    pub(crate) fn push(&mut self, e: LowerError) {
         if !self
             .errors
             .iter()
@@ -885,7 +896,7 @@ pub(crate) fn one_scheme_tokens(file: &File) -> Vec<(String, String, bool)> {
 
 /// The design's length or number token `text` names, while its styles are
 /// lowered: its kind and its distinct values over the app's tuples.
-fn measure_values(text: &str) -> Option<(tamber::Kind, Vec<String>)> {
+pub(crate) fn measure_values(text: &str) -> Option<(tamber::Kind, Vec<String>)> {
     MEASURES.with(|m| {
         m.borrow()
             .iter()
@@ -918,7 +929,11 @@ pub(crate) fn motion_tokens() -> Vec<(String, String)> {
 
 /// What a value may be, through `?:`, `match` and `let` (a `let`'s name
 /// read where its body names it): its leaves.
-fn leaves<'e>(v: &'e Expr, bound: &mut Vec<(&'e str, &'e Expr)>, out: &mut Vec<&'e Expr>) {
+pub(crate) fn leaves<'e>(
+    v: &'e Expr,
+    bound: &mut Vec<(&'e str, &'e Expr)>,
+    out: &mut Vec<&'e Expr>,
+) {
     match v {
         Expr::Ternary(_, yes, no, _) => {
             leaves(yes, bound, out);
@@ -1023,6 +1038,28 @@ pub(crate) fn measure_row(
             return Err(LowerError {
                 id: "tamber-kind",
                 message: format!("`{}=\"{}\"`: `{}` is a motion token, a component of a `transition` or `animation` value (`transition=\"opacity {} ease\"`)", a.name, text.trim(), text.trim(), text.trim()),
+                span,
+            });
+        }
+        // A type token is `font`'s, a family `font-family`'s (stage 6 C),
+        // each lowered there before this check.
+        if let Some((kind @ (tamber::Kind::Type | tamber::Kind::Family), _)) = measure_values(text)
+        {
+            let row = if kind == tamber::Kind::Type {
+                "font"
+            } else {
+                "font-family"
+            };
+            return Err(LowerError {
+                id: "tamber-kind",
+                message: format!(
+                    "`{}=\"{}\"`: `{}` is a {} token, which `{row}` names (`{row}=\"{}\"`)",
+                    a.name,
+                    text.trim(),
+                    text.trim(),
+                    kind.name(),
+                    text.trim()
+                ),
                 span,
             });
         }
