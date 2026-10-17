@@ -18,7 +18,7 @@ The only required reading; the rest is lookup.
 3. **Design your content:** a focal point (big type, a fill, a shape), a hierarchy in
    rows, an empty state with its next step in the list's place. A labelled entry or settings
    form is a grouped list (`grouped-form`), not cards of fields; a focal result (a timer, a
-   converter's answer) stays a centred column (`max-width=420`) or a `SummaryCard`.
+   converter's answer) stays a centred column (`max-width="26.25rem"`) or a `SummaryCard`.
    `use X from "exact:content"` draws them; the card gives each one's call (`none` for an option):
    - `RoundButton`: Start, Stop. `AnswerTile`: a choice; `status` is `"idle"`, `"selected"`,
      `"correct"`, `"wrong"` or `"dimmed"`. `SummaryCard`: the one number, shown once

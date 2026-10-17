@@ -409,7 +409,7 @@ fn text_width_stops_at_positioned_subtrees() {
     cases(&[
         ("box position=\"relative\" width=\"20rem\"\n  box width=48\n    text \"Mon\" position=\"absolute\" left=0 right=0 font-size=\"1rem\"", false),
         ("box width=48\n  box position=\"absolute\" width=\"20rem\"\n    text \"Mon\"", false),
-        ("text \"Mon\" position=\"absolute\" width=48", false),
+        ("text \"Mon\" position=\"absolute\" width=48", true),
     ]);
     let src = "component App\n  view\n    box width=48\n      box position=\"absolute\" width=\"20rem\"\n        text \"Mon\" width=48\n";
     assert_eq!(warned(src), [("lower-text-px-width".into(), 5)]);
@@ -446,15 +446,172 @@ fn text_width_requires_a_known_width_constraint() {
         ("row\n  text \"Mon\" width=48 flex-grow=1", false),
         ("row\n  text \"Mon\" width=48 flex-grow=(on ? 0 : 1)", false),
         ("row\n  text \"Mon\" width=48 flex=\"1 0 auto\"", false),
-        ("text \"Mon\" width=48 min-width=96", false),
+        ("text \"Mon\" width=48 min-width=96", true),
         ("text \"Mon\" width=48 min-width=\"50%\"", false),
-        ("box width=48 min-width=\"4em\" font-size=16\n  text \"Mon\" font-size=\"1rem\"", false),
-        ("text \"Mon\" width=48 max-width=24", false),
-        ("text \"Mon\" width=48 max-width=\"3rem\"", false),
+        ("box width=48 min-width=\"4em\" font-size=16\n  text \"Mon\" font-size=\"1rem\"", true),
+        ("text \"Mon\" width=48 max-width=24", true),
+        ("text \"Mon\" width=48 max-width=\"3rem\"", true),
         ("text \"Mon\" width=48 display=(on ? \"block\" : \"none\")", false),
         ("row\n  text \"Mon\" width=48 flex-grow=0 flex-shrink=0 min-width=0", true),
         ("text \"Mon\" width=48 min-width=24 max-width=96", true),
     ]);
     let src = "style Growing\n  flex-basis=\"3rem\"\ncomponent App\n  view\n    row width=\"20rem\"\n      text \"Mon\" width=48 class=Growing\n";
     assert_eq!(warned(src), []);
+}
+
+#[test]
+fn text_width_proves_a_fixed_ceiling_after_bounds() {
+    cases(&[
+        ("text \"Mon\" max-width=24", true),
+        ("text \"Mon\" width=\"auto\" max-width=24", true),
+        ("text \"Mon\" width=\"3rem\" max-width=24", true),
+        ("text \"Mon\" width=(on ? 48 : 96) max-width=24", true),
+        ("text \"Mon\" max-width=\"3rem\"", false),
+        ("text \"Mon\" min-width=96", false),
+        (
+            "box min-width=\"4em\" font-size=16\n  text \"Mon\" font-size=\"1rem\"",
+            false,
+        ),
+        ("text \"Mon\" min-width=96 max-width=24", true),
+        ("text \"Mon\" width=48 min-width=96 max-width=24", true),
+        (
+            "text \"Mon\" width=48 min-width=96 max-width=\"3rem\"",
+            true,
+        ),
+        ("text \"Mon\" max-width=24 min-width=\"3rem\"", false),
+        ("text \"Mon\" max-width=24 min-width=\"50%\"", false),
+        ("text \"Mon\" max-width=24 min-width=(on ? 0 : 96)", false),
+        (
+            "text \"Mon\" width=48 max-width=(on ? \"3rem\" : \"6rem\")",
+            true,
+        ),
+        (
+            "box max-width=\"4em\" font-size=16\n  text \"Mon\" font-size=\"1rem\"",
+            true,
+        ),
+        (
+            "box max-width=\"4em\" font-size=\"1rem\"\n  text \"Mon\"",
+            false,
+        ),
+    ]);
+    let src = "style Cap\n  max-width=24\ncomponent App\n  view\n    column\n      text \"Mon\" class=Cap\n      text \"Tue\" class=Cap max-width=\"3rem\"\n";
+    assert_eq!(warned(src), [("lower-text-px-width".into(), 6)]);
+}
+
+#[test]
+fn text_width_uses_the_parents_effective_flex_axis() {
+    cases(&[
+        ("row\n  text \"Mon\" width=48 flex=\"none\"", true),
+        ("row\n  text \"Mon\" width=48 flex=\"0 0 auto\"", true),
+        ("row\n  text \"Mon\" width=48 flex=1", false),
+        ("row\n  text \"Mon\" max-width=24 flex=1 min-width=0", true),
+        ("column\n  text \"Mon\" width=48 flex=1", true),
+        ("column\n  text \"Mon\" width=48 flex=(on ? 1 : 2)", true),
+        ("column\n  text \"Mon\" width=48 flex-basis=\"3rem\" flex-grow=1", true),
+        ("box\n  text \"Mon\" width=48 flex=1", true),
+        ("box display=\"grid\"\n  text \"Mon\" width=48 flex=1", true),
+        ("row flex-direction=\"column\"\n  text \"Mon\" width=48 flex=1", true),
+        ("column flex-direction=\"row-reverse\"\n  text \"Mon\" width=48 flex=1", false),
+        ("column flex-direction=\"unset\"\n  text \"Mon\" width=48 flex=1", false),
+        ("row display=\"block\"\n  text \"Mon\" width=48 flex=1", true),
+        ("column display=\"unset\"\n  text \"Mon\" width=48 flex=1", true),
+        ("box display=\"flex\"\n  text \"Mon\" width=48 flex=1", false),
+        ("box display=\"flex\" flex-direction=\"column-reverse\"\n  text \"Mon\" width=48 flex=1", true),
+        ("column flex-direction=(on ? \"row\" : \"column\")\n  text \"Mon\" width=48 flex=1", false),
+        ("column class=(on ? On : Off)\n  text \"Mon\" width=48 flex=1 font-size=\"1rem\"", false),
+    ]);
+    let src = "style Axis\n  flex-direction=\"row\"\ncomponent App\n  view\n    box\n      column class=Axis\n        text \"Mon\" width=48 flex=1\n      column class=Axis flex-direction=\"column\"\n        text \"Tue\" width=48 flex=1\n";
+    assert_eq!(warned(src), [("lower-text-px-width".into(), 9)]);
+}
+
+#[test]
+fn text_width_respects_flex_shorthand_order() {
+    cases(&[
+        (
+            "row\n  text \"Mon\" width=48 flex=1 flex-grow=0 flex-basis=\"auto\"",
+            true,
+        ),
+        (
+            "row\n  text \"Mon\" width=48 flex-grow=0 flex-basis=\"auto\" flex=1",
+            false,
+        ),
+        (
+            "row\n  text \"Mon\" width=48 flex=\"none\" flex-grow=1",
+            false,
+        ),
+        (
+            "row\n  text \"Mon\" width=48 flex-grow=1 flex=\"none\"",
+            true,
+        ),
+        (
+            "row\n  text \"Mon\" width=48 flex=\"none\" flex-basis=\"3rem\"",
+            false,
+        ),
+        (
+            "row\n  text \"Mon\" width=48 flex-basis=\"3rem\" flex=\"none\"",
+            true,
+        ),
+        (
+            "row\n  text \"Mon\" width=48 flex=(on ? 1 : 2) flex-grow=0 flex-basis=\"auto\"",
+            true,
+        ),
+    ]);
+    let src = "style Grow\n  flex=1\nstyle Still\n  flex-grow=0 flex-basis=\"auto\"\ncomponent App\n  view\n    row\n      text \"Mon\" width=48 class=Grow flex-grow=0 flex-basis=\"auto\"\n      text \"Tue\" width=48 class=Still flex=1\n";
+    assert_eq!(warned(src), [("lower-text-px-width".into(), 8)]);
+}
+
+#[test]
+fn text_width_descends_through_uncertain_display() {
+    cases(&[
+        ("text \"Mon\" width=48 display=\"unset\"", true),
+        (
+            "box display=(on ? \"block\" : \"none\")\n  text \"Mon\" width=48",
+            true,
+        ),
+        (
+            "box display=(on ? \"block\" : \"none\")\n  box\n    text \"Mon\" width=48 flex=1",
+            true,
+        ),
+        (
+            "box display=(on ? \"block\" : \"flex\")\n  text \"Mon\" width=48 flex=1",
+            false,
+        ),
+        (
+            "box width=48\n  text \"Mon\" display=(on ? \"block\" : \"none\")",
+            false,
+        ),
+        ("box display=\"none\"\n  text \"Mon\" width=48", false),
+    ]);
+    let src = "component App\n  state on = true\n  view\n    box width=48 display=(on ? \"block\" : \"none\")\n      text \"Mon\" width=48\n";
+    assert_eq!(warned(src), [("lower-text-px-width".into(), 5)]);
+}
+
+#[test]
+fn text_width_diagnoses_absolute_boxes_without_counting_them_in_ancestors() {
+    let src = "component App\n  view\n    row width=48\n      box position=\"absolute\" width=24 flex=1\n        text \"Mon\"\n";
+    assert_eq!(warned(src), [("lower-text-px-width".into(), 4)]);
+}
+
+#[test]
+fn text_width_names_the_bound_to_repair() {
+    for (attrs, bound) in [
+        ("width=48 max-width=24", "max-width"),
+        ("max-width=24", "max-width"),
+        ("width=48 min-width=96", "min-width"),
+        ("min-width=96 max-width=24", "min-width"),
+    ] {
+        let src = format!("component App\n  view\n    text \"Mon\" {attrs}\n");
+        let (compiled, warnings) = contract::compile_warned(&src);
+        assert!(compiled.is_ok(), "{compiled:?}");
+        let warning = warnings
+            .iter()
+            .find(|w| w.id == "lower-text-px-width")
+            .unwrap();
+        assert!(warning.message.contains(&format!("`{bound}`")), "{warning}");
+        let repaired = src
+            .replace("=48", "=\"3rem\"")
+            .replace("=24", "=\"1.5rem\"")
+            .replace("=96", "=\"6rem\"");
+        assert_eq!(warned(&repaired), [], "{repaired}");
+    }
 }

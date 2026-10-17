@@ -146,7 +146,7 @@ component EmptyState
       image symbol width=48 height=48 object-fit="contain" margin-bottom=8 aria-hidden=true
         -exact-tint-color="-exact-secondary-label"
       text title role="heading" aria-level=2
-      text message color="-exact-secondary-label" max-width=360
+      text message color="-exact-secondary-label" max-width="22.5rem"
       row flex-wrap="wrap" justify-content="center" gap=8 margin-top=8
         children
 

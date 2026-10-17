@@ -568,6 +568,7 @@ impl Lowerer<'_> {
                                 | "display"
                                 | "position"
                                 | "flex"
+                                | "flex-direction"
                                 | "flex-basis"
                                 | "flex-grow"
                                 | "popover"
