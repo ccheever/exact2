@@ -1,0 +1,43 @@
+//! The native T3 client: Contract views, TypeScript projections, and an app-local
+//! Swift transport. T3's separately running server owns all agent execution.
+
+mod markdown;
+
+/// Pierre's file-icon tables for the Markdown module (pierre_icons.rs): the build script generates
+/// `pierre-icons.tsv` before this crate compiles (tools/generate/gen-icons.mjs).
+fn pierre_tables() -> &'static str {
+    include_str!("../pierre-icons.tsv")
+}
+
+include!(concat!(env!("OUT_DIR"), "/module.rs"));
+const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
+const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
+const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
+
+type ExactEmbeddedData = markdown::Data<exact_js::Placed<exact_js::Module>>;
+fn embedded_data() -> ExactEmbeddedData {
+    markdown::mixed(
+        exact_js::Module::new(BYTECODE.to_vec(), APP, GRANTS).placed(TYPESCRIPT_PLACEMENT),
+        RUST_PLACEMENT,
+    )
+}
+include!(concat!(env!("OUT_DIR"), "/logic.rs"));
+exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data);
+
+#[cfg(test)]
+mod title_snooze_tests;
+
+#[cfg(test)]
+mod composer_accessibility_tests;
+
+#[cfg(test)]
+mod legacy_sidebar_tests;
+
+#[cfg(test)]
+mod connections_settings_tests;
+
+#[cfg(test)]
+mod timeline_hooks_tests;
+
+#[cfg(test)]
+mod contract_keys_tests;

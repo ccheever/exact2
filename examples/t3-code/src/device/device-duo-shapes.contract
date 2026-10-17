@@ -1,0 +1,17 @@
+// The iPhone Duo's stands and an Android foldable's fold buttons (device-duo.ts).
+// No imports, so device-workspace-shapes.contract can use it.
+shape DuoStand
+  id: string
+  label: string
+  tip: string
+  selected: bool
+  glyph: string
+shape DuoStandGroup
+  id: string
+  label: string
+  stands: DuoStand[]
+shape DeviceFolding
+  kind: string
+  enabled: bool
+  groups: DuoStandGroup[]
+  error: string

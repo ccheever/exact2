@@ -1,0 +1,95 @@
+// The details card's pull request rows, the right panel's
+// "pull-request" surface reference and a sent attachment's preview, as
+// pr-surface.ts and attachment-surface.ts answer them.
+use CodeHighlight from "../timeline/markdown.contract"
+use MarkdownEnv from "../timeline/markdown.contract"
+use MarkdownSource from "../timeline/markdown.contract"
+use MermaidDiagram from "../timeline/markdown.contract"
+use AttachmentUrl from "../timeline/timeline-attachments.contract"
+use PrRowExtra from "../details/pr-row-shapes.contract"
+use MergeAsk from "../details/pr-row-shapes.contract"
+
+shape AttachmentCodeRun
+  id: string
+  text: string
+  syntax: string
+shape AttachmentCodeLine
+  id: string
+  number: string
+  runs: AttachmentCodeRun[]
+shape AttachmentTableRow
+  id: string
+  header: bool
+  cells: AttachmentCodeRun[]
+shape DetailsPrRow
+  key: string
+  label: string
+  tooltip: string
+  icon: string
+  state: string
+  tinted: bool
+  target: string
+  url: string
+  aria: string
+  split: bool
+  checks: string
+  checksCount: string
+  checksAria: string
+  action: string
+  actionTarget: string
+  actionLabel: string
+  actionTooltip: string
+  actionDisabled: bool
+  extra: PrRowExtra
+shape DetailsPrRowList
+  show: bool
+  rows: DetailsPrRow[]
+  rest: DetailsPrRow[]
+  moreLabel: string
+  expanded: bool
+  merge: MergeAsk
+shape PrSurface
+  selected: string
+  number: number
+  label: string
+shape AttachmentSurface
+  id: string
+  // The first crumb: "Attachment", or "Draft" for a composer file chip's preview, which also has Remove from draft and Close.
+  origin: string
+  canRemove: bool
+  canClose: bool
+  name: string
+  size: string
+  preview: string
+  error: string
+  canRender: bool
+  rendered: bool
+  renderLabel: string
+  renderIcon: string
+  showWrap: bool
+  wrap: bool
+  canCopy: bool
+  copyLabel: string
+  copied: bool
+  canSave: bool
+  saving: bool
+  saveLabel: string
+  truncatedNote: string
+  table: AttachmentTableRow[]
+  lines: AttachmentCodeLine[]
+  gutter: number
+  url: string
+  noPreview: string
+  // The rendered Markdown is ChatMarkdown, as Files' (FilesView): app.contract's filesMarkdown
+  // answers markdownSource (kind "attachment"); md, code, diagrams, mdUrls and Copy code's check as the transcript's.
+  markdownSource: MarkdownSource[]
+  md: MarkdownEnv
+  code: CodeHighlight[]
+  diagrams: MermaidDiagram[]
+  mdUrls: AttachmentUrl[]
+  codeCopied: string
+  codeCopyNonce: number
+// A composer file chip's preview (composer-chip-file.ts): open while its draft file is in the open draft.
+shape ComposerFilePreview
+  open: bool
+  file: AttachmentSurface

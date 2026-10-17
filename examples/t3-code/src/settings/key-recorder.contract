@@ -1,0 +1,52 @@
+// The keybinding capture field (KeybindingsSettings.tsx captureKeybinding, projectScriptEditor.tsx; MIT, see
+// LICENSE-T3), Settings › Keybindings' and the project action editor's: a text field that can take the
+// keyboard as it mounts (`autofocus`) and hears every keydown first (`keycapture`), the chord's own default
+// cancelled, so the next chord becomes a T3 binding (`mod+shift+k`) through `capture`; Escape sends "escape", which
+// restores the row's binding, and leaving the field runs `cancel`. It shows `value`, or `prompt` (the placeholder)
+// while that is empty. A modifier alone records nothing
+// (keybindingFromKeyboardEvent). The app's shortcut buttons outside the field do not hear the chord: the field sits
+// in an `aria-modal` row, the window's modal scope while it records (contract-grammar "Shortcuts"). Replaces the
+// native T3KeyRecorder view.
+//
+// The key (shortcutKeyFromEvent): the layout's a–z letter (AZERTY's "a" at KeyQ is "a"); else the punctuation or digit
+// at the physical key (Shift+2's "@" is "2"); else, for a key that types no a–z letter (Korean 2-Set's ㅠ, Option's
+// "å"), the Latin letter at its physical key (resolveEventKeys' letter fallback, as the clone's chords match); else the
+// key's own name. Then normalizeShortcutKeyToken: Escape is "esc", Space "space", F1–F35, arrows and the editing keys
+// by name; anything else records nothing.
+fn recorderLetter(key: string): bool = key.length == 1 and "abcdefghijklmnopqrstuvwxyz".includes(key)
+fn recorderPunct(code: string): string = code == "Backquote" ? "`" : (code == "Backslash" ? "\\" : (code == "BracketLeft" ? "[" : (code == "BracketRight" ? "]" : (code == "Comma" ? "," : (code == "Equal" ? "=" : (code == "Minus" ? "-" : (code == "Period" ? "." : (code == "Quote" ? "'" : (code == "Semicolon" ? ";" : (code == "Slash" ? "/" : ((code.startsWith("Digit") and code.length == 6) ? code.slice(5) : "")))))))))))
+fn recorderKey(key: string, code: string): string = recorderLetter(key.toLowerCase()) ? key.toLowerCase() : (recorderPunct(code) != "" ? recorderPunct(code) : ((code.startsWith("Key") and code.length == 4) ? code.slice(3).toLowerCase() : key.toLowerCase()))
+fn recorderToken(key: string): string = ["", "meta", "control", "ctrl", "shift", "alt", "option"].includes(key) ? "" : (key == " " ? "space" : (key == "escape" ? "esc" : (key.length == 1 ? key : ((key.startsWith("f") and key.length <= 3 and "0123456789".includes(key.slice(1, 2))) ? key : (["arrowup", "arrowdown", "arrowleft", "arrowright", "enter", "tab", "backspace", "delete", "home", "end", "pageup", "pagedown"].includes(key) ? key : "")))))
+fn recorderBinding(key: string, code: string, meta: bool, ctrl: bool, alt: bool, shift: bool): string = recorderToken(recorderKey(key, code)) == "" ? "" : [(meta ? "mod" : ""), (ctrl ? "ctrl" : ""), (alt ? "alt" : ""), (shift ? "shift" : ""), recorderToken(recorderKey(key, code))].filter((part) => part != "").join("+")
+
+component KeyRecorder
+  props
+    prompt: string
+    value: string
+    // False once a chord is recorded and the field still has the focus: Tab then moves the focus on, as the
+    // reference's input lets it; every other key is still taken.
+    recording: bool
+    // Takes the focus as it mounts: Settings' existing binding mounts its field already recording
+    // (autoFocus={isRecording}); the new binding's field waits for a click or Tab.
+    autofocus: bool
+    label: string
+    testId: string // also its `id`, which an opener that keeps the focus moves it to
+    capture: action // the binding, or "escape"
+    cancel: action // the focus left the field
+  // Tab is recorded like any key while recording (its default, the focus moving on, is cancelled with the rest).
+  action keys(k: string, e: KeyboardEvent)
+    if recording or k != "Tab"
+      preventDefault()
+      stopPropagation()
+      if k == "Escape"
+        capture("escape")
+      else if recorderBinding(k, e.code, e.metaKey, e.ctrlKey, e.altKey, e.shiftKey) != ""
+        capture(recorderBinding(k, e.code, e.metaKey, e.ctrlKey, e.altKey, e.shiftKey))
+  // The reference's element: an editable `Input` named "Keybinding for <command>" whose placeholder is the prompt,
+  // so assistive technology meets a text field with that name as the focus lands in it. It stays editable, as the
+  // reference's does: AppKit serves a non-editable field as static text, not a text field. Typing writes nothing,
+  // since every key is taken above.
+  view
+    input id=testId autofocus=autofocus keycapture=keys blur=cancel aria-label=label testId=testId value=value placeholder=prompt autocorrect="off" spellcheck="false" flex=1 min-width=0 height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-family="monospace" font-size="0.8125rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" cursor="text"
+      ::placeholder
+        color="light-dark(#71717b, #818181)"

@@ -1,0 +1,79 @@
+// The device workspace's 3D / Flat presentation, extra rail controls and the
+// Tools drawer (device-tools.ts). No imports, so device-workspace-shapes.contract can use it.
+shape ToolsOption
+  value: string
+  label: string
+  selected: bool
+shape ToolsSwitch
+  id: string
+  label: string
+  checked: bool
+  disabled: bool
+shape ToolsEvent
+  id: string
+  time: string
+  summary: string
+shape ControlsRail
+  view: string
+  ax: string
+  phone: bool
+  streaming: bool
+  phoneDisabled: bool
+  phoneReason: string
+  keyboard: bool
+  keyboardAttached: bool
+  toolsOpen: bool
+  waiting: string
+  rotateDisabled: bool
+  controlsDisabled: bool
+shape ToolsDrawerState
+  open: bool
+  overlay: bool
+  pending: bool
+  error: string
+  loading: bool
+  diagnostics: string
+  ios: bool
+  platformTitle: string
+  foreground: string
+  hasForeground: bool
+  disabled: bool
+  appearance: string
+  textSizeLabel: string
+  textSizeKnown: bool
+  textSizes: ToolsOption[]
+  liquidGlass: string
+  liquidGlassDisabled: bool
+  colorFilterLabel: string
+  colorFilterKnown: bool
+  colorFilters: ToolsOption[]
+  orientations: ToolsOption[]
+  switches: ToolsSwitch[]
+  axOn: bool
+  url: string
+  urlDisabled: bool
+  launch: string
+  launchPlaceholder: string
+  launchDisabled: bool
+  lat: string
+  lng: string
+  locationValid: bool
+  presets: ToolsOption[]
+  permApp: string
+  permPlaceholder: string
+  permDisabled: bool
+  permissionLabel: string
+  permissions: ToolsOption[]
+  push: string
+  pushDisabled: bool
+  pushSendDisabled: bool
+  log: bool
+  logOpen: bool
+  logDevice: string
+  logHost: string
+  eventsEmpty: bool
+  events: ToolsEvent[]
+shape DeviceControls
+  rail: ControlsRail
+  tools: ToolsDrawerState
+  retaining: bool
