@@ -18,6 +18,9 @@ mod emit_tests;
 mod events;
 mod faces;
 mod facts;
+mod measures;
+#[cfg(test)]
+mod measures_tests;
 mod modes;
 #[cfg(test)]
 mod modes_tests;

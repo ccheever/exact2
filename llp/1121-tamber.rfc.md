@@ -2654,3 +2654,53 @@ variance, per-tuple accent flags, and any value carrying a platform `var`.
 channel (queued).
 
 **Stage 5 is closed.**
+### Stage 6, commit B: length and number tokens (B1 `74b1c8541`, B2 the JS target)
+
+- **The crate** folds three kinds (`tamber/src/measure.rs`). A length is px, a bare `0`, one `rem`
+  or `em`, a named length the kernel reads (a text style, `-exact-hairline`, by the schema's
+  spellings: `Vocab::named_lengths`), or `calc()`, `min()`, `max()` or `clamp()` over px and numbers
+  folded to px. A number is a number or such a function over numbers. A kind is written or inferred
+  from the value (§3); a lone name takes its token's or dial's kind; a bare `0` infers a number, so
+  a zero length writes `: length`.
+  - Refused: `rem`/`em` inside a function (`tamber-kind`, naming QUEUE's `rem`/`em` item), a
+    percentage, a unit other than px/rem/em, a length and a number mixed, a length times a length,
+    a colour named where a length is wanted and the reverse. `when` lines vary them per tuple; an
+    axis `under scheme=dark` (`tamber-under-kind`), `scheme=fixed`, `pair=` and a role override stay
+    colours'.
+- **The digest break, stage 6's one** (D7):
+  - the plan's `theme` row gains `kind` (0 colour, 1 length, 2 number; later kinds take later
+    codes), so `FORMAT_DIGEST` moves;
+  - the kernel's `SCHEMA_DIGEST` moves with it, since `set_dynamic`'s generator (`kernel/build.rs`, a
+    codec source the digest hashes) now reads a whole-string length or number token name as its
+    slice's value before the row's codec (`style::theme::measured`). A `rem` token is thus the
+    relative side table's entry, and the runner's `ThemeIndex` keeps the row as it keeps a colour's.
+  - Hosts that move: Apple (iOS, macOS), the wasm web host, Linux, Android's reader, the bake's
+    compat record. The JS target recompiles.
+- **The token beside the row is the runner's index**, as for colours (`runner/src/instance/theme.rs`),
+  not a kernel field; D7's "keeps the token beside it" is met there.
+- **The compiler** (`contract/lower/src/theme.rs`, `measure_row`):
+  - a number token only in `opacity`, `line-height`, `flex-grow`, `font-weight` and
+    `-exact-press-scale`;
+  - a length token in no colour row and no number-only row (`line-height` takes both);
+  - neither, when it varies by an app axis, in an inherited row (`tamber-inherited-axis`: only
+    colours re-select at a mode boundary);
+  - a form the row's codec refuses (a text style off `font-size`) is `tamber-kind` with the kernel's
+    reason.
+  Retention keeps every length and number token when such a row is computed and may be a string.
+- **Live:** a value edit is a live batch; a kind change (written or inferred) is structure, in both
+  the session's shape and the runner's. The kernel lays out for a length: on a 1,000-row list, a
+  `padding` token edit sets 4,000 rows and lays out in 12.9 ms; an `opacity` number edit sets 1,000
+  and only paints, 3.1 ms (debug builds, `contract/cli/tests/it/tamber_measures.rs`).
+- **The JS target** (`host/web-js/src/measures.rs`): a varying length or number token, and in a
+  development build every one, is a custom property whose value per tuple is the literal's CSS (a
+  `rem` stays `rem`, a text style its `rem`, the hairline the sheet's property). It is found by a
+  sentinel the plain projection never writes: px for a length, a fraction in (0, 1) for a number.
+  A number token a `font-weight` names stays inline in a development build, since no fraction is a
+  weight; a live edit of one waits for the rebuild. A bound row's value naming a token maps through
+  one module constant (`$tm`). A release writes a token that does not vary byte for byte as its
+  literal. The clone's `app.js` and `app.css` are identical before and after.
+- **Measured on theme-fixture with the JS loop, by hand:** a length edit arrives in ~0.2 s, a number
+  edit in ~0.05 s, with no reload; a length scrub previews and cancels, with the file untouched.
+- **The wire** (`tamber/1.5`): each IR token's `kind`; `resolve`'s length `{unit, amount}` and number
+  `{amount}`; `uses` over rows of the token's kind. The concrete px of a `rem`, `em` or named
+  length is the build's (`resolve-on`, LLP 1122 T2b).

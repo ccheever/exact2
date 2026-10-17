@@ -283,10 +283,15 @@ fn shape(f: &Folding) -> String {
     for d in &f.design.dials {
         s.push_str(&format!("dial {} {}\n", d.name.value, d.kind.name()));
     }
-    for (t, declared) in f.tokens.iter().zip(&f.design.tokens) {
+    // A token's kind as folded: written or inferred (a value that turns a
+    // length into a colour moves which rows may name it).
+    for t in &f.tokens {
         s.push_str(&format!(
-            "token {} {:?} {:?} {}\n",
-            t.name, declared.kind, t.role, t.fixed
+            "token {} {} {:?} {}\n",
+            t.name,
+            t.kind.name(),
+            t.role,
+            t.fixed
         ));
     }
     s

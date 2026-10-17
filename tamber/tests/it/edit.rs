@@ -846,3 +846,51 @@ fn plan_refolds_the_synthetic_tokens_and_a_lost_one_is_rebuild() {
     );
     assert!(to_profile.is_err() || to_profile.unwrap().class == exact_tamber::Class::Rebuild);
 }
+
+/// LLP 1121 stage 6 B: a length or number value edit is live, as a colour's
+/// is; one that changes the token's kind (written or inferred) is a rebuild,
+/// since it moves which rows may name it.
+#[test]
+fn a_length_or_number_edit_is_live_and_a_kind_change_rebuilds() {
+    let files = vec![(
+        "app.tamber".to_string(),
+        "tamber app\n\naxes\n  density = regular | compact\n\ntheme\n  space.row = 12px\n    when density=compact: 8px\n  opacity.faded: number = 0.5\n  gap = 4px\n".to_string(),
+    )];
+    let none: Vec<(String, bool)> = Vec::new();
+    let synthetic = exact_tamber::Synthetic {
+        file: "app.tamber",
+        exprs: &none,
+    };
+    let set = |name: &str, value: &str| {
+        vec![(
+            "app.tamber".to_string(),
+            Op::SetToken {
+                name: name.into(),
+                when: Vec::new(),
+                value: value.into(),
+                at: None,
+                comment: None,
+            },
+        )]
+    };
+    let plan = |ops: Vec<(String, Op)>| {
+        exact_tamber::plan(&files, &ops, &vocab(), false, synthetic).unwrap()
+    };
+    assert_eq!(
+        plan(set("space.row", "16px")).class,
+        exact_tamber::Class::Live
+    );
+    assert_eq!(
+        plan(set("space.row", "1.25rem")).class,
+        exact_tamber::Class::Live
+    );
+    assert_eq!(
+        plan(set("opacity.faded", "0.75")).class,
+        exact_tamber::Class::Live
+    );
+    // An inferred length becoming a colour moves its kind.
+    assert_eq!(
+        plan(set("gap", "#ffffff")).class,
+        exact_tamber::Class::Rebuild
+    );
+}

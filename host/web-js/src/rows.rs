@@ -125,6 +125,15 @@ impl Em<'_> {
         let metric = style::metric_map(plan, plan.code(b.expr))
             .map(|m| format!("()=>{}(({f})())", self.uses.share('m', m)));
         let f = metric.as_deref().unwrap_or(f);
+        // @ref LLP 1121 D7 — a length or number token a bound value names is
+        // its CSS, or its property's `var()` where the page declares one.
+        let measure = (crate::measures::row(id) && crate::measures::any(plan)).then(|| {
+            let map = self.uses.constant("$tm", || {
+                crate::measures::map(plan, &crate::modes::properties(plan)).unwrap_or_default()
+            });
+            format!("()=>{map}(({f})())")
+        });
+        let f = measure.as_deref().unwrap_or(f);
         // A list on a corner is the elliptical radius no row holds, which
         // the browser would draw: refused whole, as the kernel refuses it.
         let corner = (exact_kernel::style::sides::FAMILIES[8].contains(&id)
