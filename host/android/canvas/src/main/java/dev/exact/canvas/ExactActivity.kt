@@ -511,10 +511,10 @@ open class ExactActivity : Activity() {
             dir.mkdirs()
             for (n in names) copy("$from/$n", File(dir, n))
         }
-        if (assets.list("app").isNullOrEmpty()) return
-        // A new install's tree replaces the old: a file the APK no longer has (a shader a module no longer
-        // names, which the host would register and the module refuse) does not linger.
+        // A new install's tree replaces the old, an empty one included: a file the APK no longer has (a shader a
+        // module no longer names, which the host would register and the module refuse) does not linger.
         to.deleteRecursively()
+        if (assets.list("app").isNullOrEmpty()) return
         copy("app", to)
         done.writeText(stamp)
     }
