@@ -27,6 +27,7 @@ fn main() {
         "src/standard.js",
         "src/prelude.js",
         "src/intl.js",
+        "tests/fixtures/harden-probe.js",
     ] {
         println!("cargo:rerun-if-changed={source}");
     }
@@ -119,6 +120,26 @@ fn main() {
     let leaked_path = out.join("prelude-with-abort-hook.js");
     std::fs::write(&leaked_path, leaked_abort_hooks).expect("write abort-hook fixture prelude");
     compile(&leaked_path, &out.join("prelude-with-abort-hook.hbc"));
+    // The hooks published behind a Proxy whose `get` trap hides them: only a
+    // descriptor read finds them.
+    let hidden_abort_hooks = prelude.replacen(
+        "  delete global.__exact_ibex2_abort_hooks;\n",
+        "  global.__exact_hidden_hooks = new Proxy({ hooks: global.__exact_ibex2_abort_hooks }, { get: function () { return undefined; } });\n  delete global.__exact_ibex2_abort_hooks;\n",
+        1,
+    );
+    let hidden_path = out.join("prelude-with-hidden-abort-hook.js");
+    std::fs::write(&hidden_path, hidden_abort_hooks)
+        .expect("write hidden abort-hook fixture prelude");
+    compile(
+        &hidden_path,
+        &out.join("prelude-with-hidden-abort-hook.hbc"),
+    );
+    let probe = std::fs::read_to_string(manifest.join("tests/fixtures/harden-probe.js"))
+        .expect("harden probe fixture");
+    let probe_path = out.join("prelude-with-harden-probe.js");
+    std::fs::write(&probe_path, prelude.clone() + "\n" + &probe)
+        .expect("write harden probe prelude");
+    compile(&probe_path, &out.join("prelude-with-harden-probe.hbc"));
 
     let rolldown = env::var("EXACT_ROLLDOWN")
         .map(PathBuf::from)

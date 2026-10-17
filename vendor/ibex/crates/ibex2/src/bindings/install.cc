@@ -255,44 +255,6 @@ void set_binding(jsi::Runtime &rt, jsi::Object &target, const char *name,
                      make_host_binding(rt, name, op, state));
 }
 
-// Reads a property's descriptor fields without making a descriptor record.
-// For an own property, __lookupGetter__ and __lookupSetter__ (ECMA-262
-// B.2.2.4, B.2.2.5) return its [[Get]] and [[Set]], and undefined for a data
-// property, whose [[Value]] Reflect.get then reads: [[Get]] stops at the
-// property __lookupGetter__ stopped at, so no getter runs. The walks below
-// read every property of the objects they reach, and a descriptor record for
-// each, with a property name made for every field read, was most of what
-// hardening allocated.
-struct FieldReader {
-  struct Fields {
-    jsi::Value value, get, set;
-  };
-  jsi::Function own_keys, getter, setter, read;
-  explicit FieldReader(jsi::Runtime& rt)
-      : own_keys(reflect_function(rt, "ownKeys")),
-        getter(object_method(rt, "__lookupGetter__")),
-        setter(object_method(rt, "__lookupSetter__")),
-        read(reflect_function(rt, "get")) {}
-  static jsi::Function reflect_function(jsi::Runtime& rt, const char* name) {
-    return rt.global().getPropertyAsObject(rt, "Reflect").getPropertyAsFunction(rt, name);
-  }
-  static jsi::Function object_method(jsi::Runtime& rt, const char* name) {
-    return rt.global().getPropertyAsObject(rt, "Object")
-        .getPropertyAsObject(rt, "prototype").getPropertyAsFunction(rt, name);
-  }
-  // Names and symbols, in one array.
-  jsi::Array keys(jsi::Runtime& rt, const jsi::Object& object) const {
-    return own_keys.call(rt, object).getObject(rt).getArray(rt);
-  }
-  Fields fields(jsi::Runtime& rt, const jsi::Object& object, const jsi::Value& key) const {
-    auto get = getter.callWithThis(rt, object, key);
-    auto set = setter.callWithThis(rt, object, key);
-    if (!get.isUndefined() || !set.isUndefined())
-      return Fields{jsi::Value::undefined(), std::move(get), std::move(set)};
-    return Fields{read.call(rt, object, key), jsi::Value::undefined(), jsi::Value::undefined()};
-  }
-};
-
 // Capture before application code. A later freeze alone is insufficient: an
 // application could replace WeakMap.prototype.set first, then freeze it. Pin
 // descriptors as well as identities so that cannot expose private SQL handles.
@@ -307,14 +269,18 @@ struct Integrity {
   };
   std::vector<std::pair<std::string, jsi::Value>> globals;
   std::vector<Intrinsic> intrinsics;
-  FieldReader reader;
-  jsi::Function descriptor, has_own, prototype, frozen, same;
+  jsi::Function descriptor, own_keys, prototype, frozen, same;
+  // Made once: a PropNameID made from text is a heap allocation, and every
+  // descriptor read takes three.
+  jsi::PropNameID value_name, get_name, set_name;
   bool validated = false;
 
   explicit Integrity(jsi::Runtime& rt)
-      : reader(rt),
-        descriptor(rt.global().getPropertyAsObject(rt, "Object").getPropertyAsFunction(rt, "getOwnPropertyDescriptor")),
-        has_own(FieldReader::object_method(rt, "hasOwnProperty")),
+      : descriptor(rt.global().getPropertyAsObject(rt, "Object").getPropertyAsFunction(rt, "getOwnPropertyDescriptor")),
+        own_keys(rt.global().getPropertyAsObject(rt, "Reflect").getPropertyAsFunction(rt, "ownKeys")),
+        value_name(jsi::PropNameID::forAscii(rt, "value")),
+        get_name(jsi::PropNameID::forAscii(rt, "get")),
+        set_name(jsi::PropNameID::forAscii(rt, "set")),
         prototype(rt.global().getPropertyAsObject(rt, "Object").getPropertyAsFunction(rt, "getPrototypeOf")),
         frozen(rt.global().getPropertyAsObject(rt, "Object").getPropertyAsFunction(rt, "isFrozen")),
         same(rt.global().getPropertyAsObject(rt, "Object").getPropertyAsFunction(rt, "is")) {
@@ -333,18 +299,25 @@ struct Integrity {
     }
   }
 
+  // Names and symbols, in one array.
+  std::vector<jsi::Value> keys(jsi::Runtime& rt, const jsi::Object& object) {
+    std::vector<jsi::Value> result;
+    auto array = own_keys.call(rt, object).getObject(rt).getArray(rt);
+    const size_t count = array.size(rt);
+    result.reserve(count);
+    for (size_t i = 0; i < count; ++i) result.push_back(array.getValueAtIndex(rt, i));
+    return result;
+  }
+
   void capture(jsi::Runtime& rt, jsi::Object object) {
     for (const auto& item : intrinsics)
       if (jsi::Object::strictEquals(rt, object, item.object)) return;
     auto parent = prototype.call(rt, object);
     Intrinsic item{std::move(object), jsi::Value(rt, parent), {}};
-    auto keys = reader.keys(rt, item.object);
-    const size_t count = keys.size(rt);
-    for (size_t i = 0; i < count; ++i) {
-      auto key = keys.getValueAtIndex(rt, i);
-      auto fields = reader.fields(rt, item.object, key);
-      item.properties.push_back(Property{std::move(key), std::move(fields.value),
-          std::move(fields.get), std::move(fields.set)});
+    for (auto& key : keys(rt, item.object)) {
+      auto d = descriptor.call(rt, item.object, key).getObject(rt);
+      item.properties.push_back(Property{std::move(key), d.getProperty(rt, value_name),
+          d.getProperty(rt, get_name), d.getProperty(rt, set_name)});
     }
     intrinsics.push_back(std::move(item));
     if (parent.isObject()) capture(rt, parent.getObject(rt));
@@ -371,13 +344,14 @@ struct Integrity {
     for (const auto& item : intrinsics) {
       if (!frozen.call(rt, item.object).getBool()
           || !equal(rt, prototype.call(rt, item.object), item.prototype)
-          || reader.keys(rt, item.object).size(rt) != item.properties.size()) refuse();
+          || keys(rt, item.object).size() != item.properties.size()) refuse();
       for (const auto& property : item.properties) {
-        if (!has_own.callWithThis(rt, item.object, property.key).getBool()) refuse();
-        auto fields = reader.fields(rt, item.object, property.key);
-        for (const auto& pair : {std::pair<const jsi::Value*, const jsi::Value*>{&fields.value, &property.value},
-                                 {&fields.get, &property.get}, {&fields.set, &property.set}}) {
-          if (!equal(rt, *pair.first, *pair.second)) refuse();
+        auto raw = descriptor.call(rt, item.object, property.key);
+        if (!raw.isObject()) refuse();
+        auto d = raw.getObject(rt);
+        for (const auto& pair : {std::pair<const jsi::PropNameID*, const jsi::Value*>{&value_name, &property.value},
+                                 {&get_name, &property.get}, {&set_name, &property.set}}) {
+          if (!equal(rt, d.getProperty(rt, *pair.first), *pair.second)) refuse();
           if (pair.second->isObject() && !frozen.call(rt, *pair.second).getBool()) refuse();
         }
       }
@@ -394,12 +368,13 @@ struct Integrity {
       if (!jsi::Object::strictEquals(rt, object, item.object)) continue;
       for (auto& property : item.properties) {
         if (!equal(rt, property.key, key)) continue;
-        if (!has_own.callWithThis(rt, item.object, key).getBool())
+        auto raw = descriptor.call(rt, item.object, key);
+        if (!raw.isObject())
           throw jsi::JSError(rt, "trusted intrinsic replacement is absent");
-        auto current = reader.fields(rt, item.object, key);
-        property.value = std::move(current.value);
-        property.get = std::move(current.get);
-        property.set = std::move(current.set);
+        auto current = raw.getObject(rt);
+        property.value = current.getProperty(rt, value_name);
+        property.get = current.getProperty(rt, get_name);
+        property.set = current.getProperty(rt, set_name);
         return;
       }
       throw jsi::JSError(rt, "trusted intrinsic property was not captured");
@@ -413,10 +388,13 @@ struct Integrity {
 // bootstrap runs between install and harden -- so that bootstrap cannot change
 // what the walk sees by replacing Reflect.ownKeys or Set.prototype.
 struct Reachability {
-  FieldReader reader;
-  jsi::Function prototype, set, has, add;
+  jsi::Function own_keys, descriptor, has_own, prototype, set, has, add;
   explicit Reachability(jsi::Runtime& rt)
-      : reader(rt),
+      : own_keys(rt.global().getPropertyAsObject(rt, "Reflect").getPropertyAsFunction(rt, "ownKeys")),
+        descriptor(object_function(rt, "getOwnPropertyDescriptor")),
+        has_own(rt.global().getPropertyAsObject(rt, "Object")
+                    .getPropertyAsObject(rt, "prototype")
+                    .getPropertyAsFunction(rt, "hasOwnProperty")),
         prototype(object_function(rt, "getPrototypeOf")),
         set(rt.global().getPropertyAsFunction(rt, "Set")),
         has(set_method(rt, "has")),
@@ -1250,8 +1228,8 @@ constexpr size_t kMaxReachabilityObjects = size_t{1} << 20;
 // (string and symbol keys), its prototype chain, and transitively every object
 // or function reached through an own property -- a data property's value, or
 // an accessor's getter and setter functions themselves -- plus each reached
-// object's prototype. Descriptor fields are read with the captured
-// FieldReader, so no getter is ever invoked. A Set of
+// object's prototype. Descriptors are read with the captured
+// Object.getOwnPropertyDescriptor, so no getter is ever invoked. A Set of
 // visited objects makes the walk cycle-safe; the explicit stack keeps it off
 // the native stack; kMaxReachabilityObjects bounds it.
 //
@@ -1272,8 +1250,14 @@ void require_unreachable(
     auto seen = walk.set.callAsConstructor(rt).getObject(rt);
     std::vector<jsi::Value> pending;
     size_t edges = 0;
+    // Made once: a jsi::String or PropNameID made from text is a heap
+    // allocation, and the walk reads a field of every property.
+    const auto value_key = jsi::String::createFromAscii(rt, "value");
+    const auto value_name = jsi::PropNameID::forAscii(rt, "value");
+    const auto get_name = jsi::PropNameID::forAscii(rt, "get");
+    const auto set_name = jsi::PropNameID::forAscii(rt, "set");
     auto expand = [&](const jsi::Object& object) {
-      auto keys = walk.reader.keys(rt, object);
+      auto keys = walk.own_keys.call(rt, object).getObject(rt).getArray(rt);
       const size_t count = keys.size(rt);
       for (size_t i = 0; i < count; ++i) {
         if (edges >= max_edges)
@@ -1281,12 +1265,21 @@ void require_unreachable(
               "refusing to harden: the global object graph has too many "
               "edges to prove trusted-bootstrap outputs unreachable");
         ++edges;
-        auto fields = walk.reader.fields(rt, object, keys.getValueAtIndex(rt, i));
-        if (fields.get.isUndefined() && fields.set.isUndefined()) {
-          pending.push_back(std::move(fields.value));
+        auto raw = walk.descriptor.call(rt, object, keys.getValueAtIndex(rt, i));
+        if (!raw.isObject()) continue;
+        auto descriptor = raw.getObject(rt);
+        // Classify by the descriptor record's OWN fields, tested with the
+        // captured hasOwnProperty. `hasProperty` would consult
+        // Object.prototype, where bootstrap can plant a `value` that hides an
+        // accessor's getter. The record is the ordinary object
+        // FromPropertyDescriptor made, whose fields are own data properties
+        // (a data record's `value`, an accessor record's `get` and `set`), so
+        // reading a field the test found runs nothing.
+        if (walk.has_own.callWithThis(rt, descriptor, value_key).getBool()) {
+          pending.push_back(descriptor.getProperty(rt, value_name));
         } else {
-          pending.push_back(std::move(fields.get));
-          pending.push_back(std::move(fields.set));
+          pending.push_back(descriptor.getProperty(rt, get_name));
+          pending.push_back(descriptor.getProperty(rt, set_name));
         }
       }
       if (edges >= max_edges)

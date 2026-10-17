@@ -234,41 +234,46 @@ refresh until upstream has it. Consumers: every native executor's
 `GrantSet::parse` (Apple, Linux, Windows, the render server) and the bake's
 check of a TypeScript module's grants (`js/src/lib.rs`, `Module::inspect`).
 
-## Local patch, upstream-bound: hardening without descriptor records
+## Local patch, upstream-bound: fewer allocations per descriptor read
 
 Hermes keeps every young-generation page a runtime has touched, so what
 hardening allocates between two collections stays in the app's footprint.
-Three walks read every property of the objects they reach, and each made a
-descriptor record per property; the C++ ones also made a string or property
-name per field they read, and the reachability guard a second record for
-each field (`getOwnPropertyDescriptor` on the record). In Exact's runtime
-(898 objects, 2,604 properties) the guard allocated 795 KB, `harden.js`
-470 KB and each of the two intrinsic snapshots 66 KB, 97% of it garbage.
+Three walks read a descriptor for every property of the objects they reach.
+Besides each record, the reachability guard made a string and a second
+record per field it read (`getOwnPropertyDescriptor` on the record), the
+intrinsic snapshot a property name per field, and each walk two key arrays
+and a copy per object. In Exact's runtime (898 objects, 2,604 properties)
+the guard allocated 795 KB, `harden.js` 470 KB and each of the two
+snapshots 66 KB, nearly all of it garbage.
 
-`bindings/install.cc` gains `FieldReader`, which reads a property's fields
-without a record: `Object.prototype.__lookupGetter__` and `__lookupSetter__`
-(ECMA-262 B.2.2.4, B.2.2.5) give an own property's getter and setter, and
-`Reflect.get` reads a property that has neither, stopping where the lookup
-stopped, so no getter runs; `Reflect.ownKeys` gives names and symbols in
-one array. `Reachability` (the guard) and `Integrity` (the snapshot, its
-`require` and `accept_property`) use it; `require` and `accept_property`
-test the key is still own with the captured `hasOwnProperty`, as an absent
-descriptor did. `bindings/harden.js` reads the same way past the global
-object, whose loop keeps its records for `configurable`. Where bootstrap has
-removed `__lookupGetter__`, `__lookupSetter__`, `Function.prototype.call` or
-`bind`, `harden.js` falls back to records; `Integrity` captured after such a
-bootstrap refuses, as it already refuses one without `Reflect`.
+Every walk still reads every property through its captured
+`Object.getOwnPropertyDescriptor`, so a Proxy is read through its
+`getOwnPropertyDescriptor` trap and no getter or `get` trap runs. JSI and
+the pinned Hermes have no native descriptor read. What changed, in
+`bindings/install.cc` and `bindings/harden.js`:
 
-The walks visit what they did: in Exact's runtime the guard and `harden.js`
-each visit 898 objects, `harden.js` 2,488 properties past the global object,
-89 of them accessors, and the guard 3,503 edges, as before; a planted getter
-on the global graph never runs and what it guards is frozen, by records or
-without. After it the guard allocates 165 KB, `harden.js` 198 KB and a
-snapshot 8–10 KB, and capture plus guarded hardening takes 1.25 ms where it
-took 1.94 (median of 41, release `exact-js` on an M-series Mac under load).
-`cargo test -p exact-js --lib --tests` passes, including the reachable
-abort-hook refusal and universal hardening. To go upstream to expo/ibex;
-replay it on a refresh until it is there.
+- Keys come from `Reflect.ownKeys`, names and symbols in one array, one
+  `ownKeys` trap call where a Proxy had two. The guard's is captured with its
+  other readers when `install_with` builds `Reachability`, before bootstrap;
+  the snapshot's and `harden.js`'s are read when they start, as their
+  `getOwnPropertyNames` was, and `harden.js` falls back to names and symbols
+  where bootstrap has removed `Reflect`.
+- The guard tests a record's own `value` with `Object.prototype.hasOwnProperty`
+  (captured with `Reachability`) instead of a second record, then reads that
+  field, or `get` and `set`, from the record: an ordinary object whose fields
+  are own data properties (FromPropertyDescriptor), so the read runs nothing.
+- The guard makes its `value` key and the guard's and snapshot's `value`,
+  `get` and `set` property names once, not per read.
+
+The walks visit what they did: the guard and `harden.js` each visit 898
+objects, `harden.js` 2,488 properties past the global object (89 of them
+accessors), the guard 3,503 edges. After the patch the guard allocates
+374 KB, `harden.js` 396 KB and a snapshot 37–39 KB. `js/src/lib.rs`
+`bootstrap_tests` holds the cases a Proxy could hide: abort hooks behind a
+`get` trap that answers undefined still refuse hardening, and a payload
+behind one ends frozen with everything else descriptors reach
+(`js/tests/fixtures/harden-probe.js`). To go upstream to expo/ibex; replay
+it on a refresh until it is there.
 
 ## Qualification boundaries
 
