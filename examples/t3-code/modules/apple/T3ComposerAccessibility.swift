@@ -51,6 +51,14 @@ class T3ComposerChipElement: NSAccessibilityElement {
         return NSAccessibility.unignoredAncestor(of: container) ?? super.accessibilityParent()
     }
 
+    /// A citation's source link leads to itself. VoiceOver follows a link it pressed (VO-Space) to the link's linked
+    /// elements; with none, it took the element that appeared within about half a second of the press, the 'Scroll to
+    /// end' pill as the press scrolled the timeline off its end, and the keyboard focus followed (measured; a button's
+    /// press, another client's AXPress, or the pill appearing later kept it). The reference keeps VoiceOver on the link.
+    override func accessibilityLinkedUIElements() -> [Any]? {
+        part == .citationLink ? [self] : super.accessibilityLinkedUIElements()
+    }
+
     override func accessibilityFrame() -> NSRect {
         guard let styler, let view = styler.view, let window = view.window, let rect = rect(styler) else { return .zero }
         return window.convertToScreen(view.convert(rect, to: nil))
@@ -153,9 +161,9 @@ enum T3ComposerChipNames {
 
     /// The chips' elements, reusing `previous`'s: a chip's element stays the same object while the chip stays, as an
     /// AppKit view does, its chip, role and label updated in place. A refresh follows every edit and selection, so a
-    /// press that selects its chip refreshes; replaced, the element VoiceOver pressed was gone, VoiceOver re-picked its
-    /// cursor (the 'Scroll to end' pill below the thread) and the keyboard focus followed (exact2 #694). An element
-    /// matches its chip first exactly, then by kind, label, detail and part in text order (an edit before it moved it).
+    /// press that selects its chip refreshes, and a replaced element would leave VoiceOver's cursor on one that is gone.
+    /// An element matches its chip first exactly, then by kind, label, detail and part in text order (an edit before it
+    /// moved it).
     static func elements(_ styler: T3ComposerStyler, view: NSTextView, reusing previous: [T3ComposerChipElement] = []) -> [T3ComposerChipElement] {
         let length = (view.string as NSString).length
         let wanted = styler.chips.filter { $0.end <= length }.flatMap { chip in parts(chip, styler: styler).map { (chip: chip, entry: $0) } }
