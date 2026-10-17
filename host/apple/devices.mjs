@@ -6,7 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { homedir, networkInterfaces, tmpdir } from 'node:os';
 import { createServer as createTCPServer } from 'node:net';
 import { resolve } from 'node:path';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
@@ -219,16 +219,26 @@ export function installedAlready(udid, id, bundle, executable) {
  *  = 1` and minimizes its software keyboard behind it (LLP 1078, "The pushed route's keyboard, found"). Read and
  *  changed through the device's own `defaults` (`simctl spawn`), which cfprefsd answers before it writes the plist.
  *  On a simulator this drive booted (`owned`) the key is cleared and `restore()` puts it back; on any other it is
- *  left as it is and `note` says the keyboard may be hidden. `restore()` is safe to call more than once. */
-export function softwareKeyboard(udid, { owned = false } = {}) {
+ *  left as it is and `note` says the keyboard may be hidden. Before clearing it the drive writes a record under
+ *  `records`, removed only once the key is back: a drive that was killed, or whose write failed, leaves it, and the
+ *  next drive on that simulator puts the key back first, unless the drive that wrote it is still running. */
+export function softwareKeyboard(udid, { owned = false, records = resolve(homedir(), '.cache/exact/simulator-keyboard') } = {}) {
   const defaults = (...args) => read('xcrun', ['simctl', 'spawn', udid, 'defaults', ...args, 'com.apple.keyboard.preferences', 'AutomaticMinimizationEnabled', ...(args[0] === 'write' ? ['-bool', 'true'] : [])], { timeout: 20000 });
+  const record = resolve(records, `${udid}.json`);
+  const putBack = () => { if (defaults('write').status !== 0) return false; rmSync(record, { force: true }); return true; };
+  let left = null;
+  try { left = JSON.parse(readFileSync(record, 'utf8')); } catch {}
+  if (left && !(Number.isInteger(left.pid) && left.pid !== process.pid && pidAlive(left.pid))) putBack();
   const r = defaults('read');
   if (r.status !== 0 || !/^\s*1\s*$/.test(r.stdout ?? '')) return { cleared: false, note: null, restore() {} };
   if (!owned) return { cleared: false, restore() {}, note: `this simulator minimizes its software keyboard (AutomaticMinimizationEnabled = 1, kept since the Mac's keyboard was attached), so a focused field shows none in a screenshot, unlike an iPhone; a simulator the drive boots has it cleared for the drive, or clear it here: xcrun simctl spawn ${udid} defaults delete com.apple.keyboard.preferences AutomaticMinimizationEnabled` };
-  if (defaults('delete').status !== 0) return { cleared: false, note: 'the simulator\'s software keyboard is minimized and could not be shown (simctl spawn defaults delete failed)', restore() {} };
+  mkdirSync(records, { recursive: true });
+  writeFileSync(record, JSON.stringify({ pid: process.pid, value: 1 }));
+  if (defaults('delete').status !== 0) { rmSync(record, { force: true }); return { cleared: false, note: 'the simulator\'s software keyboard is minimized and could not be shown (simctl spawn defaults delete failed)', restore() {} }; }
   let restored = false;
-  return { cleared: true, note: null, restore() { if (!restored) { restored = true; defaults('write'); } } };
+  return { cleared: true, note: null, restore() { if (!restored) restored = putBack(); } };
 }
+const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 /** Crash reports macOS wrote since `since` (ms) for an executable named
  *  `name`, newest first — a simulator app crashes as a Mac process, reported
  *  here. The name is all the file names carry, and every simulator's copy of

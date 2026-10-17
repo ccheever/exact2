@@ -664,7 +664,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
   if (override) plan = override.plan; else refuseBuild('ios', built, a, { sample: hostFixture });
   const dev = simulator(undefined, { app: id, hint: '--sim <udid|name> (or EXACT_SIM)' });
   // A focused field raises the software keyboard, as on the device, on a simulator this drive booted; its setting is
-  // put back when the drive closes, or fails, or the driver exits.
+  // put back when the drive closes, or fails, or the driver exits (a killed drive's, by the next on that simulator).
   const keyboard = softwareKeyboard(dev.udid, { owned: !!dev.bootedHere });
   if (keyboard.note) console.error(`note: ${keyboard.note}`);
   const restore = () => keyboard.restore();

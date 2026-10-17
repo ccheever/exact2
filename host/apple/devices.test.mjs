@@ -81,38 +81,57 @@ test('a simulator is chosen without booting it, and is the drive\'s own only whe
   }
 });
 
-test('a drive shows the software keyboard on a simulator it booted and puts the setting back; on another it only says so', () => {
-  // A fake `xcrun simctl spawn <udid> defaults <verb> …` over one state file: the key's value, absent when deleted.
-  const bin = mkdtempSync(resolve(tmpdir(), 'devices-kb-bin-'));
-  const saved = { PATH: process.env.PATH, DEVELOPER_DIR: process.env.DEVELOPER_DIR }, calls = resolve(bin, 'calls'), state = resolve(bin, 'state');
+test('a drive shows the software keyboard on a simulator it booted and puts the setting back, durably; on another it only says so', () => {
+  // A fake `xcrun simctl spawn <udid> defaults <verb> …` over one state file: the key's value, absent when deleted;
+  // a write fails while FAIL_WRITE is set (the simulator shut down under the drive).
+  const bin = mkdtempSync(resolve(tmpdir(), 'devices-kb-bin-')), records = resolve(bin, 'records'), record = resolve(records, 'U1.json');
+  const saved = { PATH: process.env.PATH, DEVELOPER_DIR: process.env.DEVELOPER_DIR, FAIL_WRITE: process.env.FAIL_WRITE }, calls = resolve(bin, 'calls'), state = resolve(bin, 'state');
   const verbs = () => readFileSync(calls, 'utf8').trim().split('\n').map((l) => l.split(' ')[4]);
+  const value = () => (existsSync(state) ? readFileSync(state, 'utf8').trim() : null);
   try {
-    writeFileSync(resolve(bin, 'xcrun'), `#!/bin/sh\necho "$@" >> '${calls}'\ncase "$5" in\n  read) [ -f '${state}' ] && cat '${state}' || { echo 'does not exist' >&2; exit 1; } ;;\n  delete) rm -f '${state}' ;;\n  write) echo 1 > '${state}' ;;\nesac\n`);
+    writeFileSync(resolve(bin, 'xcrun'), `#!/bin/sh\necho "$@" >> '${calls}'\ncase "$5" in\n  read) [ -f '${state}' ] && cat '${state}' || { echo 'does not exist' >&2; exit 1; } ;;\n  delete) rm -f '${state}' ;;\n  write) [ -n "$FAIL_WRITE" ] && exit 1; echo 1 > '${state}' ;;\nesac\n`);
     chmodSync(resolve(bin, 'xcrun'), 0o755);
     process.env.PATH = `${bin}:${saved.PATH}`;
     process.env.DEVELOPER_DIR ??= '/Applications/Xcode.app/Contents/Developer';
     // No key: nothing to do, nothing to say.
-    const fresh = softwareKeyboard('U1', { owned: true });
+    const fresh = softwareKeyboard('U1', { owned: true, records });
     expect([fresh.cleared, fresh.note]).toEqual([false, null]);
     fresh.restore();
     expect(verbs()).toEqual(['read']);
     // The key, on a simulator another booted: left, and said.
     writeFileSync(state, '1\n');
-    const theirs = softwareKeyboard('U1');
+    const theirs = softwareKeyboard('U1', { records });
     expect(theirs.cleared).toBe(false);
     expect(theirs.note).toMatch(/minimizes its software keyboard .* defaults delete com\.apple\.keyboard\.preferences AutomaticMinimizationEnabled/);
     theirs.restore();
-    expect(readFileSync(state, 'utf8').trim()).toBe('1');
-    // The key, on the drive's own: cleared, then put back once, however many times restore is called.
-    const ours = softwareKeyboard('U1', { owned: true });
-    expect([ours.cleared, ours.note]).toEqual([true, null]);
-    expect(existsSync(state)).toBe(false);
+    expect(value()).toBe('1');
+    // The key, on the drive's own: recorded before it is cleared, put back once, the record gone after.
+    const ours = softwareKeyboard('U1', { owned: true, records });
+    expect([ours.cleared, ours.note, value(), existsSync(record)]).toEqual([true, null, null, true]);
     ours.restore(); ours.restore();
-    expect(readFileSync(state, 'utf8').trim()).toBe('1');
+    expect([value(), existsSync(record)]).toEqual(['1', false]);
     expect(verbs()).toEqual(['read', 'read', 'read', 'delete', 'write']);
+    // A write that fails keeps the record, and a later restore tries again.
+    const failing = softwareKeyboard('U1', { owned: true, records });
+    process.env.FAIL_WRITE = '1';
+    failing.restore();
+    expect([value(), existsSync(record)]).toEqual([null, true]);
+    delete process.env.FAIL_WRITE;
+    failing.restore();
+    expect([value(), existsSync(record)]).toEqual(['1', false]);
+    // A drive killed after clearing it (its record left, its process gone): the next drive on that simulator puts it
+    // back first, whoever booted it; a record of a drive still running is left to that drive.
+    writeFileSync(record, JSON.stringify({ pid: 2 ** 22 + 12345, value: 1 })); rmSync(state);
+    const next = softwareKeyboard('U1', { records });
+    expect([value(), existsSync(record), next.note !== null]).toEqual(['1', false, true]);
+    const live = spawn('sleep', ['30']);
+    try {
+      writeFileSync(record, JSON.stringify({ pid: live.pid, value: 1 })); rmSync(state);
+      softwareKeyboard('U1', { records });
+      expect([value(), existsSync(record)]).toEqual([null, true]);
+    } finally { live.kill(); }
   } finally {
-    process.env.PATH = saved.PATH;
-    if (saved.DEVELOPER_DIR === undefined) delete process.env.DEVELOPER_DIR;
+    for (const k of ['PATH', 'DEVELOPER_DIR', 'FAIL_WRITE']) if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
     rmSync(bin, { recursive: true, force: true });
   }
 });
