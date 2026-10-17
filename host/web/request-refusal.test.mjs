@@ -471,6 +471,7 @@ test('the web matcher consumes the Rust grammar corpus', () => {
     const set = normalized(item.spec);
     expect(!grantError(set), item.spec).toBe(item.ok);
     for (const [url, admitted] of item.fetch ?? []) expect(admitsNetwork(set, url, 'fetch'), `${item.spec}: ${url}`).toBe(admitted);
+    for (const [url, admitted] of item.websocket ?? []) expect(admitsNetwork(set, url, 'websocket'), `${item.spec}: socket ${url}`).toBe(admitted);
     for (const [cap, path, admitted] of item.fs ?? []) expect(coversPath(set, cap, path), `${item.spec}: ${path}`).toBe(admitted);
     for (const [cap, path] of item.nativeFs ?? []) expect(coversPath(set, cap, path), `${item.spec}: inert ${path}`).toBe(false);
   }

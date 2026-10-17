@@ -301,6 +301,8 @@ struct PendingReq {
     keepable: Option<Request>,
     /// An answer that keeps coming (LLP 1016.000): what it has delivered.
     stream: Option<StreamCount>,
+    /// A stream's: the grant line that admits it (`state.streams`).
+    grant: Option<String>,
     /// A topic its resource watches changed while it was in flight: its
     /// reply lands, then the resource is asked again (LLP 1016.002 D4).
     ask_again: bool,

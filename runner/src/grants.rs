@@ -74,6 +74,32 @@ pub fn parse_with(spec: &str, link: GrantsLink) -> Result<Grants<'_>, Vec<String
     }
 }
 
+/// The line that admits a request to `url`, of the app's grants `spec`
+/// narrowed by a source's `scope` (which may only select lines the app
+/// has): the first `net.websocket` line for a `ws:` or `wss:` URL, as every
+/// executor opens one, else the first `net.fetch` line. `state.streams`
+/// names it (LLP 1016.000 D7).
+pub fn admitting<'a>(spec: &'a str, scope: Option<&'a str>, url: &str) -> Option<&'a str> {
+    use exact_grants::{GrantSet, Operation};
+    let origin = exact_grants::origin_of(url).ok()?;
+    let operation = if matches!(origin.scheme.as_str(), "ws" | "wss") {
+        Operation::WebSocket { origin }
+    } else {
+        Operation::Fetch { origin }
+    };
+    let lines = |text: &'a str| text.lines().map(str::trim).filter(|l| !l.is_empty());
+    let mut candidates = lines(scope.unwrap_or(spec));
+    if scope.is_some_and(|scope| lines(scope).any(|l| !lines(spec).any(|a| a == l))) {
+        return None;
+    }
+    candidates.find(|line| {
+        matches!(
+            line.split_whitespace().next(),
+            Some("net.fetch" | "net.websocket")
+        ) && GrantSet::parse(line).is_ok_and(|set| set.permits(&operation))
+    })
+}
+
 /// What a reader says of a set that did not parse, as the native executor
 /// says it: the set grants nothing, and every refusal carries this.
 pub fn refusal(errors: &[String]) -> String {
@@ -186,6 +212,17 @@ fn grant_json(grant: &exact_grants::Grant, out: &mut String) {
             quote(&origin.host, out);
             out.push(',');
             out.push_str(&origin.port.to_string());
+            out.push(']');
+        }
+        Grant::FetchScheme(scheme) | Grant::WebSocketScheme(scheme) => {
+            let kind = match grant {
+                Grant::FetchScheme(_) => "fetch-scheme",
+                _ => "websocket-scheme",
+            };
+            out.push('[');
+            quote(kind, out);
+            out.push(',');
+            quote(scheme, out);
             out.push(']');
         }
         Grant::FsRead(prefix) | Grant::FsWrite(prefix) | Grant::SqliteOpen(prefix) => {
@@ -303,6 +340,42 @@ mod tests {
         );
         assert!(json.contains("line 4: `camelCase`"), "{json}");
         assert!(json.contains("\"seal\":\""), "{json}");
+    }
+
+    #[test]
+    fn a_scheme_line_normalizes_to_its_family_and_scheme_and_names_what_it_admits() {
+        let spec = "net.fetch HTTPS:\nnet.websocket wss://feed.example\nnet.websocket ws:";
+        let json = normalized_json(spec);
+        assert!(json.contains(r#"["fetch-scheme","https"]"#), "{json}");
+        assert!(json.contains(r#"["websocket-scheme","ws"]"#), "{json}");
+        let admitting = |url| super::admitting(spec, None, url);
+        assert_eq!(
+            admitting("https://10.0.0.1:8443/x"),
+            Some("net.fetch HTTPS:")
+        );
+        assert_eq!(
+            admitting("ws://127.0.0.1:3773/ws"),
+            Some("net.websocket ws:")
+        );
+        assert_eq!(
+            admitting("wss://feed.example/s"),
+            Some("net.websocket wss://feed.example")
+        );
+        assert_eq!(admitting("wss://other.example/s"), None);
+        assert_eq!(admitting("http://127.0.0.1/"), None);
+        // A source's scope narrows the lines; one beyond the app's admits nothing.
+        assert_eq!(
+            super::admitting(spec, Some("net.fetch HTTPS:"), "ws://127.0.0.1/"),
+            None
+        );
+        assert_eq!(
+            super::admitting(spec, Some("net.websocket ws:"), "ws://127.0.0.1/"),
+            Some("net.websocket ws:")
+        );
+        assert_eq!(
+            super::admitting(spec, Some("net.websocket ws://a"), "ws://a/"),
+            None
+        );
     }
 
     #[test]

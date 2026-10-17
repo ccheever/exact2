@@ -14,6 +14,18 @@ fn a_socket_grant_is_a_connect_source() {
 }
 
 #[test]
+fn a_scheme_line_is_a_scheme_source() {
+    let policy = csp(
+        "net.fetch HTTP:\nnet.websocket ws:\nnet.websocket wss://feed.test/path",
+        Path::new("/nonexistent"),
+    );
+    assert!(
+        policy.contains("connect-src 'self' http: ws: wss://feed.test;"),
+        "{policy}"
+    );
+}
+
+#[test]
 fn connect_sources_use_app_grants_even_when_a_request_has_a_narrower_source_scope() {
     let policy = csp(
         "net.fetch https://a.test\nnet.fetch https://b.test\nnet.fetch https://c.test",

@@ -974,7 +974,9 @@ makes the folders above it too), or the write fails with `ENOENT`.
 The [human guide's data-module section](contract-for-humans.md#writing-the-data-module)
 has a complete `app.ts`: synchronous, `fetch` and SQLite sources, the grants
 each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https://…'].join('\n')`;
-`net.fetch` takes an `http` or `https` origin, `http://127.0.0.1:8080` too; on iOS
+`net.fetch` takes an `http` or `https` origin, `http://127.0.0.1:8080` too, or a
+whole scheme, `net.fetch https:` (any host and port, for a server the person names
+at run time; `net.websocket` takes `wss:` or `ws:` the same way); on iOS
 cleartext `http` reaches only a local host, and only with `app.json`'s
 `host.ios.localNetworking` set; an `iframe` of `http://` from a named host needs
 `host.macos.appTransportSecurity` or `host.ios.appTransportSecurity` set to

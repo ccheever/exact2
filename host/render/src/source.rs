@@ -4,6 +4,11 @@
 //! be written), no files, no SQLite, no key-value storage — so a render
 //! answers what a new anonymous device would see. A render never configures
 //! storage and never replaces the logic it booted with.
+//!
+//! A scheme-wide line (`net.fetch https:`) is not among them: a request's
+//! route can choose what a source fetches, and on the server nothing stands
+//! between that choice and the operator's own network. Such a source keeps
+//! its placeholder, and the client fetches it after adoption.
 use exact_plan::{Plan, Value};
 use exact_runner::{
     Answer, DataError, DataSource, Dispatch, InFlight, Interrupt, Outcome, Placement, Store, Target,
@@ -22,7 +27,13 @@ impl<D: DataSource> Anonymous<D> {
             .grants()
             .lines()
             .map(str::trim)
-            .filter(|line| line.split_whitespace().next() == Some("net.fetch"))
+            .filter(|line| {
+                let mut words = line.split_whitespace();
+                words.next() == Some("net.fetch")
+                    && words
+                        .next()
+                        .is_some_and(|target| !target.ends_with(':') || target.contains('/'))
+            })
             .collect::<Vec<_>>()
             .join("\n");
         Self { inner, grants }

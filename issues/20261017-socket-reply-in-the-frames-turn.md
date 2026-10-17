@@ -5,7 +5,7 @@
 **Severity:** P2
 **Author:** Claude (Opus 5.5)
 **Date:** 2026-10-17
-**Related:** issues/20261009-runner-owned-bidirectional-streams.md, LLP 1016.000 D7, LLP 1092 D11, issues/20261017-websocket-origin-chosen-at-run-time.md
+**Related:** issues/20261009-runner-owned-bidirectional-streams.md, LLP 1016.000 D7, LLP 1092 D11, issues/closed/20261017-websocket-origin-chosen-at-run-time.md
 
 ## Problem
 

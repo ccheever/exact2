@@ -34,6 +34,10 @@ impl DataSource for Echo {
         unreachable!("the fixture answers through answer_for")
     }
 
+    fn grants(&self) -> &str {
+        "net.fetch https://echo.test\nnet.websocket wss://echo.test\nnet.websocket ws:"
+    }
+
     fn answer_for(
         &mut self,
         target: Target,
@@ -136,6 +140,9 @@ fn a_send_before_open_is_refused_and_after_open_goes_out_once_the_commit_stands(
         state.contains(r#""readyState":1,"bufferedAmount":3,"sent":2"#),
         "{state}"
     );
+    // The line that admitted the socket: `ws:`, since `wss://echo.test` is
+    // another scheme (LLP 1016.000 D7, scheme-wide grants).
+    assert!(state.contains(r#""grant":"net.websocket ws:""#), "{state}");
     assert!(journal(&r).contains("socket send: 2 bytes (feed)"));
     r.socket_published(
         &sends[0],

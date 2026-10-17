@@ -23,6 +23,7 @@ use std::fmt::Write as _;
 mod row;
 mod schedule;
 mod sound;
+mod streams;
 mod transport;
 mod tree;
 
@@ -849,33 +850,8 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
         s.push_str("}}");
     }
-    // Open streams (LLP 1016.000 D5): pending until their first message,
-    // then listed here with what they delivered and what coalesced.
-    s.push_str("],\"streams\":[");
-    for (i, (name, ticket, count)) in runner.streams().iter().enumerate() {
-        if i > 0 {
-            s.push(',');
-        }
-        s.push_str("{\"name\":");
-        quote(name, &mut s);
-        let _ = write!(
-            s,
-            ",\"ticket\":{ticket},\"messages\":{},\"coalesced\":{}",
-            count.messages, count.coalesced
-        );
-        // A two-way socket's state, as the web JS target lists it (D7).
-        if let Some(socket) = count.socket {
-            let _ = write!(
-                s,
-                ",\"readyState\":{},\"bufferedAmount\":{},\"sent\":{}",
-                socket.ready_state,
-                runner.socket_buffered(*ticket, socket.buffered),
-                socket.sent
-            );
-        }
-        s.push('}');
-    }
-    s.push(']');
+    s.push_str("],");
+    streams::state(runner, &mut s);
     // The documents the answers watch (LLP 1069.010.000 D1), whether or not
     // the host can listen for them.
     s.push_str(",\"watches\":[");
