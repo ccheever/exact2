@@ -28,6 +28,7 @@ mod parts;
 mod roles;
 mod rows;
 mod screens;
+mod svg;
 mod title;
 mod width;
 
@@ -155,6 +156,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     launch::launch_identity(root, &checked.file.fns, &mut out);
     width::width_padding(&root.view, &checked.file.styles, &mut out);
     width::text_px_width(&root.view, &checked.file.styles, lowered, &mut out);
+    svg::use_foreign_object(&root.view, &mut out);
     out.extend(
         contract_analyze::read_after_assign(checked)
             .into_iter()

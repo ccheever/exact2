@@ -128,6 +128,7 @@ mod styles;
 mod styles_rows;
 mod surface;
 mod svg;
+mod svg_use_foreign_object;
 mod symbols;
 mod tamber;
 mod tamber_binding;

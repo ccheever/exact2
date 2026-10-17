@@ -835,6 +835,11 @@ screen, 2026-10-16.)
 
 ## Driving and testing
 
+- **A compiler fixture silently tests its helper instead of `App`.** The first
+  component is the root; the name `App` has no special meaning. Put the root
+  before its helpers. (SVG `use` warning's component-expansion test, 2026-10-17;
+  `contract/syntax/src/inline.rs`, `expand_with_sites`.)
+
 - **An alert's action has not run by the next step on iOS.** `tap "remove-confirm"`
   then `clock data` finds nothing removed, though a drive shows the press. Cause:
   UIKit runs an alert button's handler after the alert has gone, a transition the
