@@ -315,7 +315,11 @@ final class T3SettingsNavigation {
         guard routes[route.key]?.value === route else { return }
         ports[route.key]?.value?.detach(); routes.removeValue(forKey: route.key)
     }
-    fileprivate func bind(_ port: T3SettingsHeaderPort, key: String) { ports[key] = PortRef(port); if let route = routes[key]?.value { port.attach(route) } }
+    fileprivate func bind(_ port: T3SettingsHeaderPort, key: String) {
+        if let previous = ports[key]?.value, previous !== port { previous.detach() }
+        ports[key] = PortRef(port)
+        if let route = routes[key]?.value { port.attach(route) }
+    }
     fileprivate func unbind(_ port: T3SettingsHeaderPort, key: String) { if ports[key]?.value === port { ports.removeValue(forKey: key) } }
     fileprivate func isBound(_ port: T3SettingsHeaderPort, key: String) -> Bool { ports[key]?.value === port }
 }
@@ -427,9 +431,8 @@ private final class T3SettingsHeaderPort: ExactNativeInstance {
         }
     }
     private func restoreLeading(_ item: UINavigationItem) {
-        if let saved = previousLeading, owner?.isBound(self, key: key) == true,
-           item.leftBarButtonItems == leadingItems {
-            item.leftBarButtonItems = saved.items
+        if let saved = previousLeading, owner?.isBound(self, key: key) == true {
+            if item.leftBarButtonItems == leadingItems { item.leftBarButtonItems = saved.items }
             if item.hidesBackButton { item.hidesBackButton = saved.hidesBack }
             if !item.leftItemsSupplementBackButton { item.leftItemsSupplementBackButton = saved.supplements }
         }
