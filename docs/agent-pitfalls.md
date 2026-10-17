@@ -1084,9 +1084,9 @@ screen, 2026-10-16.)
 - **An agent drive shows the app's defaults (a mock, an empty store) though
   the app's files are there.** Cause: without `--storage <name>` every
   `storage.fs` call in the data module throws "storage is unavailable in agent
-  mode…", and a module that catches a missing config file falls back silently
-  (the drive says so once on stderr, `note: a data source was refused storage`, on
-  every carrier: beside the op on the web, at the drive's end on a native one).
+  mode…", and a module that catches a missing config file falls back silently,
+  as it would on a fresh install (the drive notes a refused write, `note: a data
+  source's write was refused`, once: in the input's reply, else at its end).
   The installed app's own files are not the drive's: a named scratch store lives
   apart (on iOS under `Library/Caches/exact/<app id>/agent/<name>/data`). Fix:
   `--storage <name>`, and copy the files the drive needs (a config, a saved

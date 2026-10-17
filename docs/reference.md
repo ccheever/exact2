@@ -620,8 +620,9 @@ alone are cleared on each launch. A drive with no `--storage` refuses app storag
 in agent mode unless the drive names a scratch store (--storage <name>)`) and keeps
 no secrets. The driver's `state.storage` says
 which (`{available: false, code: 'agent', message}` or `{available: true,
-store}`), and the web's journal says `storage refused (agent): …` the first time
-a refusal lands. A Rust module's storage request in such a drive is answered
+store}`), and the journal says `storage refused (agent): …` the first time
+a write is refused (a refused read finds what an empty store would: nothing), which
+the driver repeats once as a note. A Rust module's storage request in such a drive is answered
 with the same message, never refused outright (trivia F7).
 
 An answer waits for the storage it awaits, and only that (LLP 1097). Storage
