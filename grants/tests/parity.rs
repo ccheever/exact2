@@ -51,31 +51,36 @@ fn native_and_browser_use_the_same_grant_corpus() {
                     }
                 }
             }
-            if let Some(fetches) = case["fetch"].as_array() {
-                for probe in fetches {
+            for family in ["fetch", "websocket"] {
+                for probe in case[family].as_array().into_iter().flatten() {
                     let url = url::Url::parse(probe[0].as_str().unwrap()).unwrap();
                     let origin = Origin::new(
                         url.scheme(),
                         url.host_str().unwrap(),
                         url.port_or_known_default().unwrap(),
                     );
+                    let theirs =
+                        ibex2::grant::Origin::new(&origin.scheme, &origin.host, origin.port);
+                    let (ours, native_op) = if family == "fetch" {
+                        (
+                            Operation::Fetch { origin },
+                            ibex2::grant::Operation::Fetch { origin: theirs },
+                        )
+                    } else {
+                        (
+                            Operation::WebSocket { origin },
+                            ibex2::grant::Operation::WebSocket { origin: theirs },
+                        )
+                    };
                     assert_eq!(
-                        native.permits(&ibex2::grant::Operation::Fetch {
-                            origin: ibex2::grant::Origin::new(
-                                &origin.scheme,
-                                &origin.host,
-                                origin.port
-                            ),
-                        }),
-                        set.permits(&Operation::Fetch {
-                            origin: origin.clone()
-                        }),
+                        native.permits(&native_op),
+                        set.permits(&ours),
                         "Ibex admission: {spec}: {probe}",
                     );
                     assert_eq!(
-                        set.permits(&Operation::Fetch { origin }),
+                        set.permits(&ours),
                         probe[1].as_bool().unwrap(),
-                        "{spec}: {probe}"
+                        "{spec}: {family} {probe}"
                     );
                 }
             }

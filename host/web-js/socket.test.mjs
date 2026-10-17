@@ -199,7 +199,7 @@ export function answer(name: string, args: any): any {
     const echoed = await until(s => s.resources.feed === 'subscribe|Ack|Ping|8,9|');
     expect(received).toEqual(oracle.messages);
     expect(echoed.resources.other).toBe('open');
-    expect(echoed.streams.find(s => s.name === 'feed')).toMatchObject({ sent: 4, bufferedAmount: 0, coalesced: 0 });
+    expect(echoed.streams.find(s => s.name === 'feed')).toMatchObject({ sent: 4, bufferedAmount: 0, coalesced: 0, grant: `net.websocket ${url}` });
     await browser.tap('twice');
     await browser.clock('settle');
     await until(s => s.resources.feed === 'subscribe|Ack|Ping|8,9|first|second|');

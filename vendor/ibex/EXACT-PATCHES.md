@@ -218,6 +218,22 @@ existing behaviour changes. To go upstream to expo/ibex; replay it on a
 refresh until it is there. Consumer: `host/apple/src/executor_socket.rs`
 (`Core::socket`) and its scripted test.
 
+## Local patch, Exact's grammar: scheme-wide network grants
+
+A `net.fetch` or `net.websocket` line may name a whole scheme as a CSP scheme
+source writes it (`net.fetch http:`, `net.fetch https:`, `net.websocket ws:`,
+`net.websocket wss:`), admitting every host and port of that scheme; any other
+scheme in that form is refused. `crates/ibex2/src/grant.rs` gains
+`Grant::FetchScheme` and `Grant::WebSocketScheme`, their parse
+(`is_scheme_source`) and their admission, with a test; `stdlib/websocket.rs`'s
+admission test opens a socket under one and is refused under the other scheme.
+Exact's own grammar (`grants/src/lib.rs`) has the same change, and the shared
+corpus (`host/web/tests/fixtures/grants.json`, `grants/tests/parity.rs`) holds
+the two grammars and the web matcher to the same answers. Replay it on a
+refresh until upstream has it. Consumers: every native executor's
+`GrantSet::parse` (Apple, Linux, Windows, the render server) and the bake's
+check of a TypeScript module's grants (`js/src/lib.rs`, `Module::inspect`).
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.

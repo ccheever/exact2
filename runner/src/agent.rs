@@ -863,6 +863,10 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
             ",\"ticket\":{ticket},\"messages\":{},\"coalesced\":{}",
             count.messages, count.coalesced
         );
+        if let Some(grant) = runner.stream_grant(*ticket) {
+            s.push_str(",\"grant\":");
+            quote(grant, &mut s);
+        }
         // A two-way socket's state, as the web JS target lists it (D7).
         if let Some(socket) = count.socket {
             let _ = write!(

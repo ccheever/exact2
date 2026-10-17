@@ -517,6 +517,19 @@ on the web and these on Hermes (macOS, iOS, Linux):
 | `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter` or `DisplayNames` (Apple's engine; Linux's is built `--intl`). `Intl.Locale` is the prelude's on every Hermes host (the engine has none): a tag parsed and canonicalized as Chrome does, its options and getters, and `getWeekInfo()` with Chrome's `{firstDay, weekend}` from CLDR's week data, by the tag's region, its `-u-rg-`, or its language's likely region (two-letter languages and a few others; another reads Monday and a Saturday-Sunday weekend), and `-u-fw-`. It has no `maximize`, `minimize` or other `get…()` list, does not canonicalize aliases (`iw` stays `iw`, `en-840` keeps `840`, and its week is then the default, Monday, where Chrome's is `en-US`'s), a formatter given a `Locale` object rather than its string uses the default locale, and `structuredClone` copies a `Locale` as `{}` where Chrome refuses it. Apple's `ja-JP` long date puts a space before the weekday (`10月6日 火曜日`, Chrome `10月6日火曜日`). Apple's engine has no `notation: "compact"`: the prelude formats its short display as Chrome does for a decimal in en, en-GB, en-IN, de, fr, fr-CA, es, es-MX, it, pt, pt-PT, nl, sv, da, nb, fi, pl, ru, uk, cs, tr, ja, zh, zh-TW, ko, hi, he, id, th and vi (and their regions); `compactDisplay: "long"`, another locale or a compact currency is printed in full and said once in the logs. Apple's engine rounds a tie to even and ignores `roundingMode` (`$0.82` for 0.825 dollars, Chrome `$0.83`); the prelude rounds the number first, as Chrome does: from its shortest digits, by the formatter's `roundingMode` (half away from zero unless it names another), which `resolvedOptions()` then reports; a compact it prints in full rounds so too, to its style's digits (`$0.83` for a compact 0.825 dollars). A `unit` keeps the engine's rounding, since that engine converts it to the locale's unit (`0.622mi` for 1 kilometer). Apple's engine has no `formatToParts` |
 | `console` | To the runner's logs after each answer and reply, including refused calls; available through the agent's `logs` on native hosts |
 
+A `net.fetch` line names one origin (`https://api.example.com`), every host
+under one domain (`https://*.example.com`), or a whole scheme, written as CSP
+writes a scheme source: `net.fetch https:` or `net.fetch http:` admits any host
+at any port of that scheme, for a server the person names at run time (a URL
+they type, a local server on a port chosen at launch). `net.websocket` takes an
+origin or `wss:`/`ws:` the same way. A scheme no line names is refused (`wss:`
+does not admit `ws:`). The platform's own refusals still apply: App Transport
+Security refuses cleartext beyond the local network, and a browser refuses
+`ws:` from an `https:` page except to loopback. A render-server page's
+`connect-src` carries the scheme source as written. The render server itself
+doesn't hold a scheme-wide `net.fetch` line: a source that needs one keeps its
+placeholder in the rendered page, and the client fetches it after adoption.
+
 For `fetch` with the default `redirect: "follow"`, native hosts check each
 redirect target against the source's `net.fetch` grants before contacting it.
 The web lets the browser follow and checks only the final response URL. On
@@ -710,7 +723,7 @@ A caller's abort signal maps an `error` with kind `Aborted` while the resource
 is still held. New arguments, `refresh` or the resource leaving the view close
 the stream without further mapper calls;
 `state.pending` lists it until its first message, `state.streams` while it is
-open. The same holds on Hermes, the web's wasm host and the web build (the JS
+open, with `grant`, the grant line that admitted it. The same holds on Hermes, the web's wasm host and the web build (the JS
 target), with one difference: on the web build the stream's `fetch` must be
 made while the answer is asked, before its first `await` (a later one is
 refused, saying so); on Hermes it may follow an `await`.

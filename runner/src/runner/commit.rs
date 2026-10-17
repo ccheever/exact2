@@ -790,6 +790,17 @@ impl<D: DataSource> Runner<D> {
             continuation: request.continuation,
             keepable: keepable.then(|| request.clone()),
             stream: sockets::stream_count(&request),
+            grant: request
+                .stream
+                .then(|| {
+                    crate::grants::admitting(
+                        self.data.grants(),
+                        request.grants.as_deref(),
+                        &request.url,
+                    )
+                })
+                .flatten()
+                .map(str::to_string),
             ask_again: false,
             origin: self.writes.tick(),
             write: match target {
@@ -941,6 +952,13 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .filter_map(|p| Some((self.target_name(p.target), p.ticket, p.stream?)))
             .collect()
+    }
+
+    /// The grant line that admitted stream `ticket`, when one of the app's
+    /// does (`state.streams`).
+    pub fn stream_grant(&self, ticket: u64) -> Option<&str> {
+        let p = self.pending.iter().find(|p| p.ticket == ticket)?;
+        p.grant.as_deref()
     }
 
     /// Whether resource `i` has a stream open that has delivered: it is not
