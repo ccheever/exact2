@@ -42,7 +42,7 @@ name is found where you are, else in the app, and it says which it took. Your
 shell commands have no such help, so keep one directory.
 |`bun exact.mjs …`|What it does|
 |---|---|
-|`contract build app.contract --json`|`[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports.|
+|`contract build app.contract --json`|`[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports and type-checks it.|
 |`verify`, `verify ios`|Builds, runs `app.test.contract`, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time: one report. A clean run on the app's platform is done.|
 |`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; `--keep-storage` reopens saved data.|
 |`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|

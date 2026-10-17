@@ -541,8 +541,23 @@ export function contract(args, env = process.env) {
   if (result.error) throw new Error(`cargo: ${result.error.message} (install rustup from https://rustup.rs)`);
   // A build of an app's `app.contract` refreshes the types its `app.ts` imports (LLP 1116.001 D4.5).
   const input = args[0] === 'build' ? args.slice(1).find((arg, i, rest) => !arg.startsWith('-') && rest[i - 1] !== '-o') : null;
-  if (result.status === 0 && input && basename(input) === 'app.contract') refreshTypes(dirname(resolve(input)), binary);
+  if (result.status === 0 && input && basename(input) === 'app.contract') {
+    refreshTypes(dirname(resolve(input)), binary);
+    return checkTypes(dirname(resolve(input)));
+  }
   return result.status ?? 1;
+}
+
+/** `app.ts` against the plan just built, by the type check every host's build runs (the web JS
+ * target's `--check`), so a TypeScript error surfaces at the build an author runs most, not at an
+ * iOS build. Its report goes to stderr, keeping `--json`'s reply alone on stdout. */
+function checkTypes(dir) {
+  if (!existsSync(resolve(dir, 'app.ts'))) return 0;
+  const out = mkdtempSync(resolve(tmpdir(), 'exact-check-'));
+  try {
+    const r = spawnSync(process.execPath, [resolve(ROOT, 'host/web-js/build.mjs'), basename(dir), '--check', '--out', out], { stdio: ['ignore', 2, 2], env: { ...process.env, EXACT_APP_DIR: dir } });
+    return r.status ?? 1;
+  } finally { rmSync(out, { recursive: true, force: true }); }
 }
 
 /** The types `app.ts` imports, `contract types app.contract -o app.contract.d.ts`, rewritten

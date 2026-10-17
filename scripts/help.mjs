@@ -268,7 +268,8 @@ Ports    none. Runs to completion.`,
     usage: 'bun exact.mjs contract <subcommand> …      (paths from where you run it)',
     common: ['contract build <file> --json · contract vocab <name>…    diagnostics · any tag, property, colour role or recipe (no name: the card)'],
     flags: [],
-    body: `  build <file.contract> [-o <file.plan>] [--json] [--map]   --json: [] or each diagnostic with its range
+    body: `  build <file.contract> [-o <file.plan>] [--json] [--map]   --json: [] or each diagnostic with its range;
+                                          app.contract: app.ts type-checked too, as every host's build does
   types <file.contract> [-o <app.d.ts>]   the types app.ts imports (build app.contract, test, web refresh them)
   vocab [--json] [--all] [<name> …]       no name: the card, what an app writes, in one read (--all: every
                                           tag, attribute, CSS property and function); each name's entry in

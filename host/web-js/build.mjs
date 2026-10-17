@@ -30,7 +30,7 @@ const root = resolve(here, '../..');
 const args = process.argv.slice(2);
 const app = args[0];
 const opt = (name) => { const i = args.indexOf(name); return i < 0 ? null : args[i + 1]; };
-if (!app) { console.error('usage: bun host/web-js/build.mjs <app> [--plan <app.plan> | --contract <file>] [--out <dir>] [--inline] [--render rust|js|none]'); process.exit(2); }
+if (!app) { console.error('usage: bun host/web-js/build.mjs <app> [--plan <app.plan> | --contract <file>] [--out <dir>] [--inline] [--render rust|js|none] [--check]'); process.exit(2); }
 // An app outside this repo is where `EXACT_APP_DIR` says (scripts/app.mjs).
 const appDir = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : resolve(root, 'apps', app);
 const out = resolve(opt('--out') ?? `/tmp/exact-web-js-dist/${app}`);
@@ -58,6 +58,8 @@ const production = args.includes('--production');
 const devReload = args.includes('--dev');
 if (production && devReload) { console.error('--production and --dev are mutually exclusive'); process.exit(2); }
 if (production && !opt('--plan')) { console.error('--production builds over a wasm bake: name its --plan <dist>/app.plan'); process.exit(2); }
+// `--check` (`exact.mjs contract build app.contract`): app.ts's type check alone, saying nothing else.
+const checkOnly = args.includes('--check');
 // The source revision a development build's install pages name, read while
 // it builds: optional, so no git, no repository, or a git held past 5 s (a
 // held index lock) leaves it unknown rather than failing or hanging the build.
@@ -169,8 +171,8 @@ const gpuSurfaces = existsSync(gpuLib) ? [...readFileSync(gpuLib, 'utf8').matchA
 // changed (module.mjs `fresh`; `cargo run`'s own check costs ~0.4 s an edit),
 // or as the one another checkout of this machine built from these sources.
 const compiler = webCompiler();
-const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, '--app', appDir, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
-if (cargo.status !== 0) process.exit(cargo.status ?? 1);
+const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, '--app', appDir, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: checkOnly ? ['ignore', 'ignore', 'pipe'] : 'inherit', encoding: 'utf8', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
+if (cargo.status !== 0) { if (checkOnly) process.stderr.write(cargo.stderr ?? ''); process.exit(cargo.status ?? 1); }
 compiler.done();
 for (const f of ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js', 'persist.js', 'modes.js', 'beat.js', 'regions.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The live table's runtime is the dev loop's build's alone.
@@ -228,6 +230,11 @@ const captured = ts ? await typecheck(!opt('--data')).catch((error) => {
   console.error(`${error.message ?? error}\nerror: ${app}: app.ts failed the type check every host's build runs`);
   process.exit(1);
 }) : null;
+if (checkOnly) {
+  const typeError = await captured?.typed;
+  if (typeError) { console.error(`${String(typeError.message ?? typeError).trimEnd()}\nerror: ${app}: app.ts failed the type check every host's build runs`); process.exit(1); }
+  process.exit(0);
+}
 async function typecheck(checking) {
   const { configure, check, capturedSources, staticFacts } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
   const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
