@@ -5646,6 +5646,7 @@
     ["grouped-button-title-grow", "style", 1, 0, 1, 1],
     ["grouped-button-margin-block", "style", "unset", 10, "unset", "unset"],
     ["grouped-button-align", "style", "unset", "flex-start", "unset", "unset"],
+    ["grouped-title-button-align", "style", "start", "unset", "start", "start"],
     ["control-height", "length", "2.25em"],
     ["control-height-coarse", "length", 44],
     ["control-radius", "length", 8],

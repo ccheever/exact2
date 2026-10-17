@@ -55,6 +55,7 @@ mod function_graph;
 mod geometry;
 mod grouped_list;
 mod grouped_page;
+mod grouped_title;
 mod headings;
 mod height_binding;
 mod inference_order;
