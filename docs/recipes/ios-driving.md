@@ -38,4 +38,4 @@ menu, a row scrolled out of its menu and an alert's buttons take a drive without
   it is the `accessibilityIdentifier`.
 - `tap` and `type` scroll a target out of view, or under a bar or the keyboard, into view first.
 - Without `--touch platform`, `tap <scroll or list> drag 0 -300` scrolls as a finger would, with
-  no fling (past the screen: several strokes); any other drag is refused, naming the flag.
+  no fling, past the screen too; any other drag is refused, naming the flag.

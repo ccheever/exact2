@@ -88,10 +88,16 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   const start = from ? [b.x + from[0], b.y + from[1]] : [b.x + b.w / 2, b.y + b.h / 2], end = [start[0] + dx, start[1] + dy];
   const inside = ([x, y]) => x >= 0 && y >= 0 && x <= vp.w && y <= vp.h;
   if (vp && !(inside(start) && inside(end))) {
-    // A scroller dragged further than the viewport reaches scrolls as far as a person's repeated flicks would
-    // (euxy FRICTION 14): strokes from the same start, each as long as the viewport allows, each lifted.
-    if (inside(start) && ['ScrollView', 'List'].includes(b.type) && !during.length && opts.to === undefined) return strokes(s, target, opts, start, vp);
-    throw new Error(`drag: from (${start}) to (${end}) leaves the viewport (${vp.w} × ${vp.h})`);
+    // A scroller dragged further than the viewport reaches scrolls the whole way (euxy FRICTION 14). On iOS it is the
+    // scroll view's own drag, which a viewport does not bound, under real touches too: XCTest's drag flings at its lift
+    // whatever it holds first (300 pt held 300 ms scrolled 540), so real strokes would not scroll what was asked.
+    // Elsewhere a finger's strokes (`strokes`).
+    if (!(inside(start) && ['ScrollView', 'List'].includes(b.type) && !during.length && opts.to === undefined)) throw new Error(`drag: from (${start}) to (${end}) leaves the viewport (${vp.w} × ${vp.h})`);
+    if (!['ios', 'host-ios'].includes(host)) return strokes(s, target, opts, start, vp);
+    const r = await carrier.ask({ op: 'tap', id: node.id, scrollDrag: [dx, dy], ...(from ? { from: start } : {}) });
+    if (r.error) throw new Error(r.error);
+    const real = carrier.touches ? { note: 'past the screen a drag is the scroll view\'s own (recognized), not a real touch: one ends inside the screen' } : {};
+    return noted(await s.tagged({ ...r, ...real, target, ...(scrolled ? { scrolled } : {}), drag: said, carrier: host, mode: timing }), await reorderNotes(s, mark));
   }
   // Each op runs with input refused; the runner path bounds each one by the gesture.
   const held = (op) => async () => { s.held = target; try { return await op(); } finally { s.held = null; } };
@@ -164,22 +170,33 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   return noted(await s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing }), await reorderNotes(s, mark));
 }
 
-/** A scroller's drag past the viewport (`dragTap`) as strokes that stay in it: each moves (dx, dy) scaled down to
- * end inside it, over the drag's `over` scaled alike, and lifts; the last takes what is left. The reply is the
- * last stroke's, with the whole drag and how many strokes it took. */
+/** The most strokes a drag past the viewport is split into, and how long each but the last rests before it lifts. */
+export const STROKES = { most: 8, rest: 150 };
+
+/** A scroller's drag past the viewport (`dragTap`) on a carrier other than iOS, as strokes that stay in it: each moves (dx, dy) scaled down to
+ * end inside it (a point short of the edge), over the drag's `over` scaled alike. Each but the last rests
+ * `STROKES.rest` ms before it lifts, so it lifts at rest and flings nothing; the last keeps the drag's own hold. Past
+ * `STROKES.most` it is refused before any input. A stroke that fails, lands with an error or is not delivered stops
+ * it, saying which; the reply is the last stroke's, with the whole drag, the strokes, every stroke's note, and the
+ * scrolling summed. */
 async function strokes(s, target, opts, [x, y], vp) {
   const { dx, dy, over = 250 } = opts;
-  // How far along (dx, dy) a stroke from the start stays inside, a point short of the edge.
   const room = Math.min(dx > 0 ? (vp.w - 1 - x) / dx : dx < 0 ? (x - 1) / -dx : 1, dy > 0 ? (vp.h - 1 - y) / dy : dy < 0 ? (y - 1) / -dy : 1);
   if (!(room > 0)) throw new Error(`drag: from (${x},${y}) there is no room to drag toward (${dx}, ${dy}) inside the viewport (${vp.w} × ${vp.h})`);
-  const count = Math.ceil(1 / room), parts = [];
+  const count = Math.ceil(1 / room - 1e-9);
+  if (count > STROKES.most) throw new Error(`drag: (${dx}, ${dy}) from (${x},${y}) is ${count} strokes inside the viewport (${vp.w} × ${vp.h}), past ${STROKES.most}: drag in parts, or from nearer its middle`);
+  const parts = [], notes = [], scrolled = [0, 0];
   for (let i = 0; i < count; i++) {
-    const part = Math.min(room, 1 - room * i);
-    const r = await s.tap(target, { drag: { ...opts, dx: dx * part, dy: dy * part, over: Math.max(1, over * part), press: i ? 0 : opts.press, hold: i === count - 1 ? opts.hold : 0 } });
-    if (r?.error) return r;
+    const part = Math.min(room, 1 - room * i), last = i === count - 1;
+    const r = await s.tap(target, { drag: { ...opts, dx: dx * part, dy: dy * part, over: Math.max(1, over * part), press: i ? 0 : opts.press, hold: last ? opts.hold : STROKES.rest } });
+    const failed = r?.error ?? r?.landError ?? (r?.delivery === 'unsupported' ? r.reason ?? 'not delivered' : null);
+    if (failed) throw Object.assign(new Error(`drag: stroke ${i + 1} of ${count}: ${failed}`), { reply: r });
+    if (r.note) notes.push(r.note);
+    if (Array.isArray(r.scrolledBy)) { scrolled[0] += r.scrolledBy[0]; scrolled[1] += r.scrolledBy[1]; }
     parts.push(r);
   }
-  return { ...parts.at(-1), drag: { ...parts.at(-1).drag, dx, dy }, strokes: count };
+  const r = parts.at(-1);
+  return { ...r, drag: { ...r.drag, dx, dy }, strokes: count, ...(r.scrolledBy ? { scrolledBy: scrolled } : {}), ...(notes.length ? { note: [...new Set(notes)].join('; ') } : {}) };
 }
 
 /** `drag to`'s delta: from the start (`from`, else the middle) to B's middle, or `at` from B's top left. */

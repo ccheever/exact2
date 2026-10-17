@@ -1,7 +1,7 @@
 // `drag`'s reply carries what the host journaled about a reorder during it (LLP 1102 §3.17), and
 // keeps every field of the carrier's reply. `bun test ./scripts/agent-drag.test.mjs`.
 import { test, expect } from 'bun:test';
-import { dragTap } from './agent-drag.mjs';
+import { dragTap, STROKES } from './agent-drag.mjs';
 
 /** A session and carrier whose journal says `lines` during the drag; replies settle a tick later. */
 function drive(lines, { touches = false } = {}) {
@@ -92,19 +92,48 @@ test('an iOS drag with ops during it needs a held finger', async () => {
   expect(d.asked.filter((a) => !Array.isArray(a))).toEqual([]);
 });
 
-// euxy FRICTION 14: `drag 0 -1500` on a scroller was refused for leaving the viewport; it scrolls as several strokes.
-test('a scroller dragged past the viewport scrolls in strokes that stay in it', async () => {
+// euxy FRICTION 14: `drag 0 -1500` on a scroller was refused for leaving the viewport; it scrolls the whole way.
+function strokeDrive(replies = () => ({})) {
   const strokes = [], node = { id: 9, type: 'ScrollView', x: 0, y: 0, w: 400, h: 800 };
   const s = { contact: null, async layout() { return { nodes: [node], viewport: { w: 400, h: 800 } }; },
     async op() { return { lines: [], next: 0 }; },
-    async tap(target, { drag }) { strokes.push([target, drag.dy, drag.over]); return { tapped: 9, drag }; } };
-  const r = await dragTap({ s, carrier: {}, node: { id: 9 }, target: 'list', host: 'ios', timing: 'agent' }, { dx: 0, dy: -1500, over: 300 });
+    async tagged(r) { return r; },
+    async tap(target, { drag }) { strokes.push(drag); return { tapped: 9, drag, ...replies(strokes.length) }; } };
+  const run = (opts, { host = 'web', carrier = {} } = {}) => dragTap({ s, carrier, node: { id: 9 }, target: 'list', host, timing: 'agent' }, opts);
+  return { strokes, node, run };
+}
+
+test('a scroller dragged past the viewport scrolls in strokes that stay in it and lift at rest', async () => {
+  const d = strokeDrive((i) => ({ scrolledBy: [0, i < 4 ? 399 : 303], ...(i === 1 ? { note: 'a write was refused' } : {}) }));
+  const r = await d.run({ dx: 0, dy: -1500, over: 300, hold: 40 });
   // From the middle (400) to a point short of the top, each stroke 399 of the 1,500: three, then what is left.
-  expect(strokes.map(([, dy]) => Math.round(dy))).toEqual([-399, -399, -399, -303]);
-  expect(Math.round(strokes.reduce((sum, [, dy]) => sum + dy, 0))).toBe(-1500);
-  expect(r).toEqual(expect.objectContaining({ strokes: 4, drag: expect.objectContaining({ dx: 0, dy: -1500 }) }));
-  node.type = 'View';
-  await expect(dragTap({ s, carrier: {}, node: { id: 9 }, target: 'box', host: 'ios', timing: 'agent' }, { dx: 0, dy: -1500 })).rejects.toThrow('leaves the viewport');
+  expect(d.strokes.map((k) => Math.round(k.dy))).toEqual([-399, -399, -399, -303]);
+  // Each but the last rests before it lifts (no fling); the last keeps the drag's hold.
+  expect(d.strokes.map((k) => k.hold)).toEqual([STROKES.rest, STROKES.rest, STROKES.rest, 40]);
+  expect(r).toEqual(expect.objectContaining({ strokes: 4, scrolledBy: [0, 1500], note: 'a write was refused', drag: expect.objectContaining({ dx: 0, dy: -1500 }) }));
+});
+
+test('a stroke that fails or lands with an error stops the drag, and too many strokes are refused before any', async () => {
+  const d = strokeDrive((i) => (i === 2 ? { landError: 'the answer failed' } : {}));
+  await expect(d.run({ dx: 0, dy: -1500 })).rejects.toThrow('stroke 2 of 4: the answer failed');
+  expect(d.strokes.length).toBe(2);
+  const far = strokeDrive();
+  await expect(far.run({ dx: 0, dy: -100000 })).rejects.toThrow(`past ${STROKES.most}`);
+  expect(far.strokes).toEqual([]);
+  far.node.type = 'View';
+  await expect(far.run({ dx: 0, dy: -1500 })).rejects.toThrow('leaves the viewport');
+});
+
+test('on iOS a scroller takes the whole drag at once, and under real touches says it was no real touch', async () => {
+  for (const touches of [null, {}]) {
+    const d = strokeDrive(), asked = [];
+    const carrier = { touches, async ask(req) { asked.push(req); return { tapped: 9, scrolledBy: [0, 1500], delivery: 'recognized' }; } };
+    const r = await d.run({ dx: 0, dy: -1500 }, { host: 'ios', carrier });
+    expect(asked).toEqual([{ op: 'tap', id: 9, scrollDrag: [0, -1500] }]);
+    expect(d.strokes).toEqual([]);
+    expect(r.scrolledBy).toEqual([0, 1500]);
+    expect(Boolean(r.note?.includes('not a real touch'))).toBe(!!touches);
+  }
 });
 
 test('drag-to movement depends on layout and fails as a refusal', async () => {
