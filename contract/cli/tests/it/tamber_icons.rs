@@ -252,3 +252,27 @@ fn a_template_of_literals_is_its_literal() {
         plan.strings
     );
 }
+
+/// Review round 1: a nested template of literals folds too, and a template
+/// of literals is linted as its literal.
+#[test]
+fn a_nested_literal_template_folds_and_lints() {
+    let design = "  icon.reply = icon(sf \"bubble.left\", svg \"icons/reply.svg\")\n";
+    let view = "component App\n  view\n    column\n      image `${`symbol:icon.reply`}`\n      Row(symbol=\"flag.checkered\")\n\ncomponent Row\n  props\n    symbol: string\n  view\n    image `symbol:sf/${symbol}`\n";
+    let path = app("nested", "\"ios\": {}, \"web\": {}", design, view);
+    let (plan, warnings) = contract::compile_path_all_warned(&path, false);
+    let (plan, _) = plan.unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(
+        plan.strings
+            .iter()
+            .any(|s| s.starts_with("symbol:icon|bubble.left|")),
+        "{:?}",
+        plan.strings
+    );
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.id == "lower-symbol-platform" && w.message.contains("flag.checkered")),
+        "{warnings:?}"
+    );
+}

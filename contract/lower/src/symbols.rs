@@ -82,6 +82,7 @@ fn constant(parts: &[TemplatePart]) -> Option<String> {
         match part {
             TemplatePart::Text(t) => out.push_str(t),
             TemplatePart::Expr(Expr::Str(s, _)) => out.push_str(s),
+            TemplatePart::Expr(Expr::Template(inner, _)) => out.push_str(&constant(inner)?),
             TemplatePart::Expr(_) => return None,
         }
         Some(out)
@@ -93,6 +94,10 @@ fn constant(parts: &[TemplatePart]) -> Option<String> {
 /// name, so the next edit finds it by search.
 pub(crate) fn aliases(e: &Expr) -> Vec<LowerError> {
     match e {
+        // A template of literals is linted as the literal it folds to.
+        Expr::Template(parts, span) if constant(parts).is_some() => {
+            aliases(&Expr::Str(constant(parts).unwrap_or_default(), *span))
+        }
         Expr::Str(s, span) => {
             let alias = |message| LowerError {
                 id: "lower-symbol-alias",
@@ -149,6 +154,12 @@ pub(crate) fn literals(e: &Expr) -> Vec<&str> {
 /// edit away and where the roles are listed (LLP 1116.021 D3: the hundred roles repeated in every
 /// refusal cost a builder 1.3 KB each time); `e` is already written with roles (see [`roles`]).
 pub(crate) fn check(e: &Expr, span: Span) -> Result<(), LowerError> {
+    // A template of literals is checked as the literal it folds to.
+    if let Expr::Template(parts, at) = e {
+        if let Some(text) = constant(parts) {
+            return check(&Expr::Str(text, *at), span);
+        }
+    }
     for source in literals(e) {
         let Some(role) = source.strip_prefix("symbol:") else {
             continue;
