@@ -200,7 +200,7 @@ export function mobileProviderField(key: string, name: string, value: string) {
 }
 export async function mobileProviderCommand(op: string, key: string, value: string, nativeInput: Native | null | undefined) {
   const account = accounts.get(key);
-  if (!account || account.pending) return { revision: mobileClient.revision, message: 'That sign-in action is no longer available.' };
+  if (!account || account.pending && op !== 'reveal') return { revision: mobileClient.revision, message: 'That sign-in action is no longer available.' };
   const finish = (message = '') => ({ revision: ++mobileClient.revision, message });
   if (op === 'reveal') {
     const email = account.displayedEmail;
