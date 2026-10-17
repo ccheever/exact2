@@ -74,6 +74,31 @@ final class BarReadoutIOSTests: XCTestCase {
         XCTAssertTrue(shape.group?.glyphs.isEmpty ?? true)
     }
 
+    /// With no `aria-label` a readout says the words it shows: a hidden
+    /// text in it is not spoken.
+    func testItsWordsAreTheOnesItShows() throws {
+        let p = route([status(4), text(5, "Connected"), text(6, "Disconnected", style: ["display": "none"])],
+                      kids: [4], more: [["op": "children", "id": 4, "ids": [5, 6]]])
+        let shape = try XCTUnwrap(HeaderShape(route: try XCTUnwrap(p.views[1]), back: nil, projected: true))
+        XCTAssertEqual(shape.trailing.first?.label, "Connected")
+    }
+
+    /// A row of glyphs beside a readout is still the glyph line, the
+    /// readout left out of it; beside a hidden status it is the glyph line
+    /// whole, the status the page's.
+    func testAGlyphLineBesideAReadoutStaysOne() throws {
+        for hidden in [false, true] {
+            let p = route([["op": "create", "id": 4, "kind": "view"],
+                           ["op": "create", "id": 5, "kind": "image", "props": ["imageSource": "symbol:sf/bell.slash", "symbolName": "bell.slash"]],
+                           text(6, "Muted"), text(7, "Live", ["accessibilityRole": "status"], style: hidden ? ["display": "none"] : [:])],
+                          kids: [4], more: [["op": "children", "id": 4, "ids": [5, 6, 7]]])
+            let shape = try XCTUnwrap(HeaderShape(route: try XCTUnwrap(p.views[1]), back: nil, projected: true))
+            XCTAssertEqual(shape.group?.glyphs.map(\.symbol), ["bell.slash", nil], "hidden: \(hidden)")
+            XCTAssertEqual(shape.group?.subtitle, "Muted")
+            XCTAssertEqual(shape.trailing.map(\.id), hidden ? [] : [7])
+        }
+    }
+
     /// A dot alone, named by its `aria-label`, is a readout's whole face,
     /// drawn at the status's own opacity.
     func testADotAloneIsAFaceAtTheReadoutsOpacity() throws {

@@ -50,21 +50,9 @@ final class ReadoutView: UIView {
             guard let node = view.node, let face = ChipFace(node, readout: true, traits: view.traitCollection) else { return }
             view.show(face, view.facts)
         }
-        #if os(tvOS)
-        tintAdjustmentMode = .normal
-        #endif
     }
     required init?(coder: NSCoder) { nil }
 
-    #if os(tvOS)
-    // The item is disabled so focus passes it by (nothing presses a
-    // readout); its face is not dimmed for that.
-    override func tintColorDidChange() {
-        super.tintColorDidChange()
-        if tintAdjustmentMode != .normal { tintAdjustmentMode = .normal }
-        if alpha != 1 { alpha = 1 }
-    }
-    #endif
 
     override var intrinsicContentSize: CGSize {
         let size = stack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
@@ -163,23 +151,19 @@ private final class ReadoutDot: UIView {
 }
 
 extension NavigationHost {
-    /// Whether `node` or a node around it is `aria-hidden` or `inert`.
+    /// Whether `node` is off the accessibility tree as authored: `inert`
+    /// (its own, a logical ancestor's, or behind a modal presentation), or
+    /// `aria-hidden` on it or a logical ancestor (a tabpanel UIKit holds its
+    /// route apart from). The bar's own hiding of the header is `isHidden`,
+    /// which this does not read.
     static func ariaHidden(_ node: NodeView) -> Bool {
-        var at: UIView? = node
-        while let view = at {
-            if let n = view as? NodeView, n.props["inert"] == "true" || n.props["accessibilityElementsHidden"] == "true" { return true }
-            at = view.superview
-        }
-        return false
+        node.inert || node.presenter.map { $0.logicalAncestry(of: node).contains { ($0 as? NodeView)?.props["accessibilityElementsHidden"] == "true" } } == true
     }
 
     /// The bar item of a readout: the route's own, kept across projections.
     func readoutItem(_ i: HeaderShape.Item, _ c: RouteController) -> UIBarButtonItem {
         if let item = c.readouts[i.id] { return item }
         let item = UIBarButtonItem(customView: ReadoutView())
-        #if os(tvOS)
-        item.isEnabled = false // no focus stop where Select does nothing
-        #endif
         c.readouts[i.id] = item
         return item
     }

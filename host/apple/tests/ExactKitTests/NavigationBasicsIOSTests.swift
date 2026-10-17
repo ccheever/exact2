@@ -296,6 +296,21 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertTrue(plain.navigationItem.rightBarButtonItems?.first === item, "the same item")
         XCTAssertTrue(item.customView === view, "the same view")
         XCTAssertEqual(view.accessibilityLabel, "1 composed")
+        // `aria-hidden` on the tabpanel, which UIKit holds the route apart
+        // from, takes the readout off the accessibility tree.
+        let panel = try node(session, "panel-home")
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(panel.id), "set": ["accessibilityElementsHidden": "true"], "clear": []]]))
+        until("hidden by its logical ancestor") { !view.isAccessibilityElement }
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(panel.id), "set": [:], "clear": ["accessibilityElementsHidden"]]]))
+        until("shown again") { view.isAccessibilityElement }
+        // A sibling button kept authored lifts the header only in part; the
+        // agent's tap on the readout still lands on the bar's.
+        let compose = try node(session, "compose-plain")
+        session.presenter.apply(wireBatch([["op": "style", "id": Int(compose.id), "style": ["appearance": "none", "written": ["appearance"]]]]))
+        spin(0.2)
+        XCTAssertTrue(plain.navigationItem.rightBarButtonItems?.contains { $0.customView === view } == true, "still the bar's")
+        let partial = Agent(session: session).tap(["id": Int(try node(session, "readout-text").id)])
+        XCTAssertEqual(partial["native"] as? String, "bar-readout", "\(partial)")
     }
 
     func testARoutePushedWhileTheTablistIsHiddenHidesTheTabBar() throws {

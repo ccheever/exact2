@@ -110,7 +110,7 @@ struct HeaderShape: Equatable {
             menuTitle = menu ? invocation?.target.props["accessibilityLabel"] ?? "" : ""
             self.symbol = symbol
             title = text
-            label = button.props["accessibilityLabel"] ?? face?.label ?? (isReadout ? button.accessibleText : nil)
+            label = button.props["accessibilityLabel"] ?? face?.label ?? (isReadout ? Self.shownWords(button) : nil)
             disabled = button.disabled
             accessibilityDisabled = button.ariaUnavailable
             prominent = ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(face?.style ?? "")
@@ -126,6 +126,14 @@ struct HeaderShape: Equatable {
             } else {
                 tint = nil
             }
+        }
+        /// What a readout says with no `aria-label`: its words that show,
+        /// none `display: none` or `aria-hidden` (the bar's own hiding of the
+        /// header is `isHidden`, not this).
+        static func shownWords(_ node: NodeView) -> String {
+            guard node.style["display"]?.string != "none", node.props["accessibilityElementsHidden"] != "true" else { return "" }
+            if node.isParagraph { return node.accessibleText }
+            return node.container.subviews.compactMap { ($0 as? NodeView).map(shownWords) }.filter { !$0.isEmpty }.joined(separator: " ")
         }
         /// Everything a bar item is made from. A readout's face is not: its
         /// view follows it in place (`showReadouts`).
@@ -195,19 +203,29 @@ struct HeaderShape: Equatable {
             let item = Item(node, readout: true)
             return item.readout == nil ? nil : item
         }
-        leading = rule.leading.filter(projects).compactMap(item)
-        trailing = rule.trailing.filter(projects).compactMap(item)
+        let before = rule.leading.filter(projects).compactMap(item), after = rule.trailing.filter(projects).compactMap(item)
+        // A readout is apart from the title when it has a face to show: one
+        // hidden, or with nothing to draw, is the page's, as the web has it.
+        let drawn = (before + after).filter { $0.readout != nil }.map(\.id)
+        let faced = readouts.filter { drawn.contains($0.id) }
+        #if os(tvOS)
+        // tvOS's bar has no item that focus passes by undimmed: no readout.
+        leading = before.filter { $0.readout == nil }
+        trailing = after.filter { $0.readout == nil }
+        let shownReadouts: [NodeView] = []
+        #else
+        (leading, trailing) = (before, after)
+        let shownReadouts = faced
+        #endif
         self.search = search
         self.segments = segments
-        let group = titleProjects ? HeaderTitle(header: header, heading: heading, tap: tap, apart: rule.items + rule.readouts + [rule.search, rule.segments].compactMap { $0 }) : nil
+        let group = titleProjects ? HeaderTitle(header: header, heading: heading, tap: tap, apart: rule.items + faced + [rule.search, rule.segments].compactMap { $0 }) : nil
         self.group = group
         let tablist = segments.flatMap { HeaderShape.titleTabs($0).isEmpty ? nil : $0 }
         // The title's pressable wrapper goes with the title it holds, unless
         // it holds an opted-out node, which stays where it is.
         let wrapper = titleProjects ? tap.flatMap { tap in authored.contains { $0.isDescendant(of: tap) } ? nil : tap } : nil
-        // A readout is the bar's when it drew something.
-        let drawn = (leading + trailing).filter { $0.readout != nil }.map(\.id)
-        placed = ([heading] + rule.items + readouts.filter { drawn.contains($0.id) } + [search, tablist, wrapper].compactMap { $0 } + (HeaderShape.presented(group, segments: segments)?.placed ?? [])).filter(projects)
+        placed = ([heading] + rule.items + shownReadouts + [search, tablist, wrapper].compactMap { $0 } + (HeaderShape.presented(group, segments: segments)?.placed ?? [])).filter(projects)
     }
 
     /// The tabs of a header's tablist the segmented title shows (§9.8).
@@ -526,14 +544,15 @@ extension NavigationHost {
             guard let nav = c.navigationController, nav.topViewController === c, barShows(nav) else { return false }
             return c.viewIfLoaded?.window != nil
         }
-        guard shown.contains(where: { c in
-            c.barPresses.contains { $0.id == node.id } || c.lifted.map { node === $0 || node.isDescendant(of: $0) } == true
-        }) else { return nil }
-        // A readout the bar shows (§9.15) is tapped as a person taps it: nothing happens.
+        // A readout the bar shows (§9.15) is tapped as a person taps it:
+        // nothing happens. Its header may be lifted whole or only in part.
         if shown.contains(where: { c in c.readouts.keys.contains { id in
             id == node.id || presenter.views[id].map { node.isDescendant(of: $0) } == true } }) {
             return ["tapped": id, "delivery": "host-activation", "native": "bar-readout"]
         }
+        guard shown.contains(where: { c in
+            c.barPresses.contains { $0.id == node.id } || c.lifted.map { node === $0 || node.isDescendant(of: $0) } == true
+        }) else { return nil }
         // An item whose button only opens a menu is UIKit's pull-down, which
         // no public API opens and the agent does not paint over the bar.
         if !node.handlers.contains("press"), !node.disabled, presenter.invocation(of: node)?.opensPopover == true {
