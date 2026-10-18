@@ -376,6 +376,9 @@ component CoreRowView
               MobileAppControl(row=row, pal=pal, busy=busy)
             if row.kind == "number" or row.kind == "text"
               CoreField(value=row.value, rowId=row.id, width=row.width, placeholder=row.placeholder, numeric=(row.kind == "number"), label=row.title, pal=pal, disabled=(busy or row.inert), commit=change(row.id, row.target))
+            if row.kind == "action"
+              button press=change(row.id, "", row.value) disabled=(busy or row.inert or row.disabled) class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" id=`setting-${row.id}` testId=`setting-${row.id}`
+                text row.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text
             if row.kind == "link"
               button press=navigate(row.target) class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" id=`setting-${row.id}` testId=`setting-${row.id}-link` data-paint="input canvas" data-pick="canvas"
                 text row.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text id=`paint-CoreRowView-17-${row.id}` data-paint="text" data-pick="text"

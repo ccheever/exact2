@@ -32,6 +32,7 @@ function setup(options: { viewport?: PreviewViewportSetting; zoom?: number; resi
   const calls: Call[] = [], native: Obj[] = [], requests: Obj[] = [];
   let serial = 0;
   const client = {
+    scopes: ['preview:operate'],
     environmentId: 'local', threadId: 'thread-1', projectId: 'p1', generation: 1, connection: 'connected', ready: true, diffOpen: false, origin: options.origin ?? 'http://127.0.0.1:3773',
     draftKey: 'local:thread-1', presentation: {} as Obj, config: { environment: { capabilities: {} }, keybindings: [] as Obj[] },
     shell: { threads: [{ id: 'thread-1', projectId: 'p1' }], projects: [{ id: 'p1', workspaceRoot: '/p', scripts: [{ previewUrl: 'http://localhost:8080/docs' }] }] },

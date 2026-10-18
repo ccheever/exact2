@@ -220,7 +220,7 @@ describe('A thread with no pull request link draws its branch\'s', () => {
     const { client, native, asks } = laneRig([]);
     fleet.entries.set('gh', { key: 'gh', origin: 'http://127.0.0.1:16523', environmentId: 'env-gh', phase: 'connected', message: '', traceId: '', generation: 3, synchronized: 3, lastEvent: 0,
       subscriptions: {}, config: { environment: { label: 'GitHub lane', capabilities: { pullRequests: true, threadPullRequests: true } }, settings: {} },
-      shell: { projects: [{ id: LANE_PROJECT, title: 'playground', workspaceRoot: '/lane/repos/playground' }], threads: [studio()], sequence: 1 }, scopes: [], error: '', requested: false } as unknown as FleetEntry);
+      shell: { projects: [{ id: LANE_PROJECT, title: 'playground', workspaceRoot: '/lane/repos/playground' }], threads: [studio()], sequence: 1 }, scopes: ['orchestration:read'], error: '', requested: false } as unknown as FleetEntry);
     await syncBranchPullRequests(client, native, NOW);
     expect(asks).toEqual([{ method: 'pullRequests.summary', payload: { projectId: LANE_PROJECT, host: 'github.com', repository: 'octocat/playground', number: 113, fleet: 'gh' } }]);
     expect(defaultRow(client, 'fleet:env-gh:studio')).toMatchObject({ badge: '113', badgeState: 'open' });

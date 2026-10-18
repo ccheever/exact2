@@ -1,4 +1,4 @@
-// The custom model editor, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+// The custom model editor, T3 Code 9c161462c9 (MIT, see LICENSE-T3):
 // apps/web/src/components/settings/customModelEditor.logic.ts (whole), CustomModelEditor.tsx
 // (its draft updates, presets, "Copy from…", Save and Cancel), ProviderModelsSection.tsx:564-587
 // (one editor under the edited row, handleSaveEdit) and ProviderInstanceCard.tsx:168-186
@@ -164,7 +164,8 @@ export function storedCustomModels(_driver: string, entries: readonly CustomMode
 export function deriveProviderModelsForDisplay(input: { liveModels: readonly Obj[] | undefined; customModels: readonly CustomModelDefinition[] }): Obj[] {
   const liveCustom = new Map((input.liveModels ?? []).filter(model => model.isCustom === true).map(model => [str(model.slug), model] as const));
   const serverModels = (input.liveModels ?? []).filter(model => model.isCustom !== true);
-  const customModels = input.customModels.map(entry => ({ slug: entry.slug, name: entry.name, isCustom: true,
+  const serverSlugs = new Set(serverModels.map(model => str(model.slug)));
+  const customModels = input.customModels.filter(entry => !serverSlugs.has(entry.slug)).map(entry => ({ slug: entry.slug, name: entry.name, isCustom: true,
     capabilities: (entry.capabilities ?? liveCustom.get(entry.slug)?.capabilities ?? null) as Json }));
   return [...serverModels, ...customModels];
 }
@@ -226,7 +227,10 @@ export function customModelEditorOp(owner: object, host: CustomModelHost, what: 
     const current = sessions.get(owner);
     if (current?.instanceId === id && current.draft.slug === field) { sessions.delete(owner); return null; } // the pencil toggles (setEditingSlug)
     const instance = obj(obj(obj(host.config.settings).providerInstances)[id]);
-    const entry = readCustomModelEntries(obj(instance.config).customModels).find(candidate => candidate.slug === field);
+    const live = arr(host.config.providers).find(provider => provider.instanceId === id);
+    const builtin = arr(live?.models).find(model => model.slug === field && model.isCustom !== true);
+    const entry = readCustomModelEntries(obj(instance.config).customModels).find(candidate => candidate.slug === field)
+      ?? (builtin ? { slug: str(builtin.slug), name: str(builtin.name) || str(builtin.slug), capabilities: decodeCapabilities(builtin.capabilities) } : undefined);
     if (!entry) return null;
     sessions.set(owner, { instanceId: id, driver: str(instance.driver), open: ++opened, draft: draftFromDefinition(entry), error: '', revs: new Map() });
     return null;

@@ -1,3 +1,4 @@
+import { can } from '../connections/command-permissions';
 import { obj, str, type Json, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
@@ -55,7 +56,7 @@ export async function scopedControls(client: T3Client, native: Native | null | u
     const rows = definitions.filter(item => item.route === route && (!item.when || item.when === (item.key.startsWith('sourceControl') ? `writing-${obj(effective.sourceControlWritingStyle).mode}` : effective.branchNamingMode))).map(item => {
       const [root, field] = item.key.split('.');
       const value = field ? obj(effective[root])[field] : effective[root];
-      return { key: item.key, label: item.label, description: item.description, value: item.text ? str(value) : JSON.stringify(value ?? null), text: item.text === true, overridden: Object.prototype.hasOwnProperty.call(override, root), inheritKey: !field ? root : item.key.endsWith('.mode') ? root : '', inheritLabel: field ? 'Use environment writing settings' : 'Use environment setting', disabled: !client.writable || !(root in settings) || (item.key === 'continueThreadsAfterServerUpdate' && capabilities.threadRestartContinuation !== true) || (item.key === 'enableAgentDeviceAccess' && settings.enableDeviceSupport !== true), choices: (item.choices || []).map(([value, label], index) => ({ id: String(index), label, value, selected: value === JSON.stringify(field ? obj(effective[root])[field] : effective[root]) })) };
+      return { key: item.key, label: item.label, description: item.description, value: item.text ? str(value) : JSON.stringify(value ?? null), text: item.text === true, overridden: Object.prototype.hasOwnProperty.call(override, root), inheritKey: !field ? root : item.key.endsWith('.mode') ? root : '', inheritLabel: field ? 'Use environment writing settings' : 'Use environment setting', disabled: !can(client, 'settings:write') || !(root in settings) || (item.key === 'continueThreadsAfterServerUpdate' && capabilities.threadRestartContinuation !== true) || (item.key === 'enableAgentDeviceAccess' && settings.enableDeviceSupport !== true), choices: (item.choices || []).map(([value, label], index) => ({ id: String(index), label, value, selected: value === JSON.stringify(field ? obj(effective[root])[field] : effective[root]) })) };
     });
     return { ...empty, available: true, rows };
   } catch (error) { return { ...empty, error: error instanceof Error ? error.message : 'Could not load settings.' }; }

@@ -19,6 +19,7 @@ import { openInEditorHere } from '../connections/remote-open'; // remote Open (O
 import { letGo } from '../client/let-go';
 import { markUnread } from '../sidebar/sidebar-commands';
 import { canStopNativeSubagent, canStopWorkflow } from '../details/lineage-workflows';
+import { replaceLinkedPrompt } from '../prompt-links/linked-prompt';
 
 function threadOf(client: T3Client, threadId: string) {
   const thread = client.shell.threads.find(candidate => candidate.id === threadId);
@@ -136,6 +137,7 @@ async function stopWorkflow(client: T3Client, native: Native, subagentId: string
 
 /** Local window actions: clipboard copies with the reference's toasts. */
 export async function shellLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
+  if (op === 'prompt-link-replace') { replaceLinkedPrompt(client, Number(id)); return ''; }
   const copy = async (text: string) => {
     const response = obj(await native.later({ op: 'copyText', text, generation: client.generation }));
     if (response.ok !== true) throw new ClientError('Could not copy to the clipboard.');

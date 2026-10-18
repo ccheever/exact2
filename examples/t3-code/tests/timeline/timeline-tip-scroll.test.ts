@@ -13,7 +13,7 @@ const column = contractComponent('app-main.contract', 'ChatColumn');
 
 /** The chat column's half: its epoch, its `tipArm`, and a scroll report from the transcript. */
 function transcript() {
-  const root: Record<string, unknown> = { tipEpoch: 0, tipArmed: false, firstKey: '', anchor: { owner: '' }, turnsSeen: [] };
+  const root: Record<string, unknown> = { tipEpoch: 0, tipArmed: false, firstKey: '', anchor: { owner: '' }, turnsSeen: [], wheelTop: 0, wheelJump: -1, wheelPending: false, scrolledTop: 0, scrolledMax: 0, scrolledPort: 0 };
   const scope = { citeScrolled: () => {}, restScrolled: () => {}, restGesture: () => {}, frame: () => ({ unavailable: true }), anchorKey: (key?: string) => key ?? '', composerOwner: 'o', commandPending: false, turnIds: [] };
   return {
     root: root as { tipEpoch: number; tipArmed: boolean },

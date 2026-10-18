@@ -20,7 +20,7 @@ export async function gitDetails(client: T3Client, native: Native, input: { stat
 const HIDDEN_BRANCH: CardBranch = { show: false, open: false, label: '', value: '', disabled: true, query: '', refs: [], creatable: '', status: '', empty: '', enterOp: '', enterValue: '',
   originShown: false, originOn: false, count: 0, checkout: [] };
 export const EMPTY_GIT: Awaited<ReturnType<typeof gitDetails>> = {
-  repo: true, initLabel: 'Initialize Git', initPending: false, quickLabel: 'Commit', quickIcon: 'git-commit', quickDisabled: true, quickHint: '',
+  writable: false, repo: true, initLabel: 'Initialize Git', initPending: false, quickLabel: 'Commit', quickIcon: 'git-commit', quickDisabled: true, quickHint: '',
   progress: false, progressStatus: '', progressOutput: '', progressElapsed: '', success: false, successTitle: '', successDescription: '',
   menuDisabled: false, menuOpen: false, menu: [], menuPublish: false, notes: [], dialog: '', dialogFrom: '', sourceMark: 'github', commitBranch: '', commitDefault: false, editing: false,
   files: [], fileCount: 0, selectedCount: 0, allSelected: true, noneSelected: true, someSelected: false, selectedInsertions: 0, selectedDeletions: 0,

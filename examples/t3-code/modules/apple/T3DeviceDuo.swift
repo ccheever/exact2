@@ -3,9 +3,9 @@ import AppKit
 import Foundation
 import simd
 
-/// The iPhone Duo's device-hub protocol (MIT reference, see LICENSE-T3:
+/// The iPhone Duo's device-hub protocol (MIT reference 9c161462c9, see LICENSE-T3:
 /// packages/client-runtime/src/device/stream.ts screenConfigSchema / controlReplySchema,
-/// duoControl.ts createDuoControl / createDuoPinch, duoScene.ts duoRawPoint / duoFrameMatches /
+/// duoControl.ts createDuoControl / createDuoPinch / duoScreenSettled, duoScene.ts duoRawPoint / duoFrameMatches /
 /// duoDisplayKey, duoSnap.ts duoViewSnaps, deviceViewSnap.ts nearestDeviceView). serve-sim's screen
 /// config (`0x82`) gains the hinge fields; a hinge command is `0x10 {requestId, command}` and its
 /// reply `0x90 {requestId, ok, error?}`; an orientation command is the ordinary `0x07` message,
@@ -175,6 +175,13 @@ final class T3DuoPinch {
 }
 
 enum T3Duo {
+    /// duoScreenSettled: the reporting display is the one the fold shows, the cover when closed and
+    /// the inner display otherwise. Stands such as Tent can also rest unsettled on the cover.
+    static func settled(_ screen: T3DeviceClient.Screen) -> Bool {
+        let angle = screen.duo?.hingeAngle ?? (screen.duo?.screenId == 1 ? 0 : 180)
+        return (screen.duo?.screenId == 1) == (angle == 0)
+    }
+
     /// duoRawPoint: hardware mounting is independent of app orientation and the model's orbit.
     static func rawPoint(panel: Int, x: Double, y: Double) -> CGPoint { panel == 1 ? CGPoint(x: x, y: y) : CGPoint(x: y, y: 1 - x) }
 

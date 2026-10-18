@@ -35,9 +35,9 @@ describe('the chat canvas (ChatCanvas, chatCanvasLayout)', () => {
     const canvas = await chatCanvasView(client, native, args());
     // resolveDeviceMiniPlayerSourceSize before the first frame: a 9:19.5 phone, 240 wide (the minimum), not the 320 box.
     expect(canvas.mini).toMatchObject({ show: true, key: 'local\u0000IPHONE', x: 772, top: 52 + 256, width: 240, height: 520, radius: 12, pillInset: 8 });
-    expect([canvas.left, canvas.width, canvas.insetEnd, canvas.overlapsChat]).toEqual([24, 736, 240, false]);
+    expect([canvas.left, canvas.width, canvas.insetEnd, canvas.overlapsChat]).toEqual([48, 712, 216, false]);
     const expected = resolveChatCanvasLayout({ container: { width: 1024, height: 788 }, preview: { key: 'device:local:IPHONE', width: null, position: null, source: resolveDeviceMiniPlayerSourceSize('ios', null), lastInteraction: 'drag' },
-      padding: 20, maxChatWidth: 736, minChatWidth: 640, composerHeight: 172 });
+      padding: 48, maxChatWidth: 736, minChatWidth: 640, composerHeight: 172 });
     expect(expected.frame).toEqual({ x: 772, y: 256, width: 240, height: 520 });
     // A short canvas fits the height above the composer and the player overlaps chat (allows message overlap).
     client.presentation = { frames: { chat: [0, 0, 600, 552], overlay: [0, 400, 600, 100] } };
@@ -54,14 +54,14 @@ describe('the chat canvas (ChatCanvas, chatCanvasLayout)', () => {
     expect([android.mini.radius, android.mini.pillInset]).toEqual([Math.max(12, Math.round(android.mini.height * 0.14)), Math.max(8, Math.round(android.mini.radius * 0.55))]);
   });
 
-  test('a drag moves the store from the frame on screen; the lane stops it 672 from the canvas edge and keeps the stored x', async () => {
+  test('a drag moves the store from the frame on screen; the lane stops it 700 from the canvas edge and keeps the stored x', async () => {
     floatMiniDevice(client, 't1', iphone);
     await chatCanvasView(client, native, args());
     const key = 'device:local:IPHONE';
     const drag = await chatCanvasView(client, native, args({ gesture: `1|${key}|move|-500|-100` }));
     expect(miniStoreOf(client).get('t1')).toMatchObject({ position: { x: 272, y: 156 }, width: null, lastInteraction: 'drag' });
-    expect([drag.mini.x, drag.mini.top]).toEqual([672, 52 + 156]);
-    expect([drag.left, drag.width]).toEqual([20, 640]);
+    expect([drag.mini.x, drag.mini.top]).toEqual([700, 52 + 156]);
+    expect([drag.left, drag.width]).toEqual([48, 640]);
     // Asking again with the same gesture changes nothing; the next move is from the start, not from the last answer.
     expect(await chatCanvasView(client, native, args({ gesture: `1|${key}|move|-500|-100` }))).toEqual(drag);
     await chatCanvasView(client, native, args({ gesture: `1|${key}|move|-10|0` }));

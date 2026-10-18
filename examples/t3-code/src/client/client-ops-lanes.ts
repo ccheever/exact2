@@ -18,6 +18,7 @@ import { settingsBCommand } from '../settings/settings-b-commands';
 import { pagesLocal } from '../pages/pages-commands';
 import { themeLocal } from '../appearance/settings-appearance-editor';
 import { type Native, type Files } from './protocol';
+import { openPromptLink, promptLinkAction } from '../prompt-links/prompt-link-handler';
 
 /** Device-local ops by prefix, each handled by its module. */
 export async function laneOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
@@ -28,6 +29,8 @@ export async function laneOps(this: T3Client, op: string, id: string, value: str
     } else if (op.startsWith('pageslocal:')) { resultMessage = await pagesLocal(this, native, storage, op.slice(11), id, value);
     } else if (op.startsWith('editorlocal:chip-')) { resultMessage = await chipPopoverLocal(this, native, op.slice(12), id, value); // a skill chip's details (composer-chip-popover.ts)
     } else if (op.startsWith('editorlocal:')) { resultMessage = await editorLocal(this, native, op.slice(12), id, value, n);
+    } else if (op === 'shelllocal:prompt-link-open') { resultMessage = await openPromptLink(this, native, storage, value);
+    } else if (op === 'shelllocal:prompt-link-action') { resultMessage = await promptLinkAction(this, native, storage, id);
     } else if (op.startsWith('shelllocal:')) { resultMessage = await shellLocal(this, native, op.slice(11), id, value);
     } else if (op.startsWith('cclocal:')) { resultMessage = await composerLocal(this, native, storage, op.slice(8), id, value);
     } else if (op.startsWith('sidebarlocal:')) { resultMessage = await sidebarLocal(this, native, op.slice(13), id, value);

@@ -16,6 +16,7 @@ type Call = Record<string, unknown>;
 function fakeClient(answers: (request: Call) => unknown, extra: Partial<Record<string, unknown>> = {}) {
   const calls: Call[] = [], rpcs: Call[] = [];
   const client = {
+    scopes: ['filesystem:read'],
     connection: 'connected', origin: 'http://127.0.0.1:16260', threadId: 't1', environmentId: 'env', ready: true, generation: 1,
     projection: { visibleTurnItems: [], messages: [], thread: {} }, shell: { projects: [] },
     restAccess: () => ({ call: async (request: Call) => { calls.push(request); return answers(request); } }),

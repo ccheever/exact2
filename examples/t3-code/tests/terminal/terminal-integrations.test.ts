@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { noteNow } from '../../src/composer/composer-controls';
@@ -41,6 +42,7 @@ describe('terminal context reference ports', () => {
   });
   test('native Add to chat uses the injected snapshot clock without ambient Date access', async () => {
     const client = new T3Client();
+  Object.assign(client, { scopes: [...AUTH_STANDARD_CLIENT_SCOPES], connection: 'connected', configLive: true, shellLive: true, threadLive: true });
     client.environmentId = 'env-clock'; client.threadId = 't1';
     const now = 1791302400123;
     noteNow(client, now);
@@ -124,6 +126,7 @@ const native: Native = { available: true, watch() {}, async later() { return { o
 const storage: Files = { fs: { async mkdir() {}, async atomicWriteFile() {}, async readFile() { return new ArrayBuffer(0); } } };
 function scriptClient(fail = '') {
   const client = new T3Client(), calls: { method: string; payload: Obj }[] = [];
+  Object.assign(client, { scopes: [...AUTH_STANDARD_CLIENT_SCOPES], connection: 'connected', configLive: true, shellLive: true, threadLive: true });
   client.environmentId = 'e'; client.threadId = 't'; client.projectId = 'p';
   Object.assign(client, { loaded: true }); // the saved settings were read: a preview opens only under read defaults
   client.shell = { projects: [{ id: 'p', workspaceRoot: '/repo', scripts: [{ id: 'test', name: 'Test', command: 'bun test', icon: 'play' }, { id: 'build', name: 'Build', command: 'bun build', icon: 'play' }] }], threads: [{ id: 't', projectId: 'p' }], sequence: 0 };

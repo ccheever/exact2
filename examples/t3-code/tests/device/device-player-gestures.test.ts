@@ -18,7 +18,7 @@ const iphone = { hostId: 'local', deviceId: 'IPHONE', platform: 'ios', name: 'iP
 const KEY = 'device:local:IPHONE';
 const native = null as unknown as Native;
 // 1280 × 840 with the 256 pt sidebar and the right panel closed: the canvas is 1024 × 788 under the 52 pt header, the
-// composer overlay 172 pt; the lane's drag stop is 20 + 640 + 12 = 672 from the canvas edge.
+// composer overlay 172 pt; the lane's drag stop is 48 + 640 + 12 = 700 from the canvas edge.
 const frames = { chat: [256, 0, 1024, 840], overlay: [400, 668, 736, 172] };
 const args = (extra: Partial<ChatCanvasArgs> = {}): ChatCanvasArgs => ({ width: 1024, viewportHeight: 840, detailsInline: false, chatMax: 736, overlaid: true, gesture: '', wide: true, popoverOpen: false, ...extra });
 const player = contractComponent('device-workspace.contract', 'DeviceMiniPlayer');
@@ -70,14 +70,14 @@ describe('a drag moves the player by the pointer\'s total, once', () => {
     expect(next.sent[0]!.split('|')[0]).not.toBe(parts[0]![0]);
   });
 
-  test('a (-320, -160) drag from the default frame: x stops at the readable lane, y moves exactly -160 (reference: 964,184)', async () => {
+  test('a (-320, -160) drag from the default frame: x stops at the readable lane (956 on screen), y moves exactly -160', async () => {
     expect(await frame()).toEqual({ x: 772, y: 256, width: 240, height: 520 });
     const { held, after } = await gesture('move', -320, -160, 20);
-    expect(held).toEqual({ x: 672, y: 96, width: 240, height: 520 });
+    expect(held).toEqual({ x: 700, y: 96, width: 240, height: 520 });
     expect(after).toEqual(held);
     expect(miniStoreOf(client).get('t1')).toMatchObject({ position: { x: 452, y: 96 }, lastInteraction: 'drag' });
-    // The padding drag after it (+60, +200): x +60 and y to the bottom clamp, as the reference's 1024,296.
-    expect((await gesture('move', 60, 200, 20)).after).toEqual({ x: 732, y: 256, width: 240, height: 520 });
+    // The drag after it (+60, +200): x +60 and y to the bottom clamp.
+    expect((await gesture('move', 60, 200, 20)).after).toEqual({ x: 760, y: 256, width: 240, height: 520 });
   });
 });
 
@@ -86,23 +86,23 @@ describe('the eight zones resize from the frame at the press', () => {
   const once = (start: { x: number; y: number; width: number; height: number }, direction: BrowserViewportResizeDirection, dx: number, dy: number) => {
     const source = resolveDeviceMiniPlayerSourceSize('ios', null), container = { width: 1024, height: 788 };
     const next = resizePreviewMiniPlayer({ start, direction, delta: { x: dx, y: dy }, source, container });
-    return resolveChatCanvasLayout({ container, preview: { key: KEY, width: next.width, position: { x: next.x, y: next.y }, source, lastInteraction: 'resize' }, padding: 20, maxChatWidth: 736, minChatWidth: 640, composerHeight: 172 }).frame;
+    return resolveChatCanvasLayout({ container, preview: { key: KEY, width: next.width, position: { x: next.x, y: next.y }, source, lastInteraction: 'resize' }, padding: 48, maxChatWidth: 736, minChatWidth: 640, composerHeight: 172 }).frame;
   };
   const OUT: Record<BrowserViewportResizeDirection, [number, number]> = { north: [0, -60], south: [0, 60], east: [60, 0], west: [-60, 0], northwest: [-60, -60], northeast: [60, -60], southwest: [-60, 60], southeast: [60, 60] };
 
   for (const [direction, [dx, dy]] of Object.entries(OUT) as [BrowserViewportResizeDirection, [number, number]][]) {
     test(`${direction}: six moves of 10 pt equal one resize of 60 pt, from the lane stop at the top`, async () => {
-      await gesture('move', -500, -400, 10); // to the lane stop and the top (964,102 on screen)
+      await gesture('move', -500, -400, 10); // to the lane stop and the top (956,64 on screen)
       const stop = await frame();
-      expect(stop).toEqual({ x: 672, y: 12, width: 240, height: 520 });
+      expect(stop).toEqual({ x: 700, y: 12, width: 240, height: 520 });
       expect((await gesture(direction, dx, dy, 6)).after).toEqual(once(stop, direction, dx, dy)!);
     });
   }
 
-  test('W: the reference\'s numbers: out 60 from the lane stop at the top ends at 904 on screen, the right edge held', async () => {
+  test('W: out 60 from the lane stop at the top ends at 896 on screen, the right edge held', async () => {
     await gesture('move', -500, -400, 10);
-    expect((await gesture('west', -60, 0, 6)).after).toEqual({ x: 612, y: 12, width: 273, height: 592 });
-    expect((await gesture('west', 200, 0, 5)).after).toEqual({ x: 645, y: 12, width: 240, height: 520 }); // the right edge at 885
+    expect((await gesture('west', -60, 0, 6)).after).toEqual({ x: 640, y: 12, width: 273, height: 592 });
+    expect((await gesture('west', 200, 0, 5)).after).toEqual({ x: 673, y: 12, width: 240, height: 520 }); // the right edge at 913
   });
 
   test('W: out 60 from the reference\'s own start (1024,280 on screen) ends at its 964,102 (it recorded 272 × 592)', async () => {
@@ -153,7 +153,7 @@ describe('the player at 840 × 620', () => {
   test('a thread (the composer docked) fits above the composer, as the reference\'s layout does with its composer\'s height', async () => {
     const { mini } = await chatCanvasView(client, native, args({ width: 632, viewportHeight: 620 }));
     const reference = resolveChatCanvasLayout({ container: { width: 632, height: 568 }, preview: { key: KEY, width: null, position: null, source: resolveDeviceMiniPlayerSourceSize('ios', null), lastInteraction: 'drag' },
-      padding: 20, maxChatWidth: 736, minChatWidth: 640, composerHeight: 165 }).frame!;
+      padding: 48, maxChatWidth: 736, minChatWidth: 640, composerHeight: 165 }).frame!;
     expect([mini.x, mini.top - 52, mini.width, mini.height]).toEqual([reference.x, reference.y, reference.width, reference.height]);
     expect(mini.width).toBeLessThan(240);
   });

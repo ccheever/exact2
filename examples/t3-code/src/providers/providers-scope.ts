@@ -1,3 +1,4 @@
+import { providerSettingsWritable } from './provider-permissions';
 // Settings › Providers shows one environment at a time, the one the settings scope selector chose
 // (T3 Code 1e2ecbd975, MIT, see LICENSE-T3: apps/web/src/routes/settings.providers.tsx:7-30, "Providers
 // are machine state"; SettingsScopeContext.tsx's `environment`, the connected target with the primary
@@ -6,6 +7,7 @@
 // FleetSetupHost (codex-fleet-host.ts). The page, the Add provider wizard, the ACP Registry search and
 // every action the page sends (sign-in and install, updates, instance writes) read and write the
 // environment the page names in `environment`. Update all stays every connected environment's.
+import { migrateModelPreferences } from './model-preferences';
 import type { T3Client } from '../client/client';
 import type { ProvidersRoute } from '../client/client-ops';
 import { obj, str } from '../client/domain';
@@ -29,11 +31,11 @@ export const NO_ENVIRONMENT = '-';
  * route's own words when there is none. A removed target and a disconnected chosen environment are
  * SettingsScopeBoundary's to explain (settings-core-view.ts), so the page then says nothing.
  */
-export function providersEnvironment(client: T3Client, machine: string, projectKey: string, checkout: string, legacyProjectId: string): { environmentId: string; message: string } {
+export function providersEnvironment(client: T3Client, machine: string, projectKey: string, checkout: string, legacyProjectId: string): { environmentId: string; message: string; projectIds: string[] } {
   const { scope } = settingsScopeOf(client, 'providers', machine, projectKey, checkout, legacyProjectId);
   const environment = scopeRepresentative(scope);
-  if (environment) return { environmentId: environment.environmentId, message: '' };
-  return { environmentId: '', message: scope.kind === 'unavailable' || scope.kind === 'environment' ? '' : 'Connect an environment to set up its providers.' };
+  if (environment) return { environmentId: environment.environmentId, message: '', projectIds: scope.members.filter(member => member.environmentId === environment.environmentId).map(member => str(member.projectId) || str(member.id)).filter(Boolean) };
+  return { projectIds: [], environmentId: '', message: scope.kind === 'unavailable' || scope.kind === 'environment' ? '' : 'Connect an environment to set up its providers.' };
 }
 
 /** A background environment's own transport for its requests and streams; this window's module for the rest (opening a link, copying). */
@@ -75,11 +77,12 @@ async function watchOn(owner: string, host: ProviderHost | null, native: Native,
 export async function scopedProviderPage(client: T3Client, native: Native | null | undefined, args: unknown[]) {
   const selection = String(args[0] || ''), active = args[1] === true, now = Number(args[3]) || 0;
   const chosen = active ? providersEnvironment(client, String(args[4] ?? ''), String(args[5] ?? ''), String(args[6] ?? ''), String(args[7] ?? ''))
-    : { environmentId: client.environmentId, message: '' };
+    : { environmentId: client.environmentId, message: '', projectIds: [] };
   const host = !active || chosen.environmentId ? providersHost(client, chosen.environmentId) : null;
+  if (active && host && providerSettingsWritable(host) && native?.available) void migrateModelPreferences(host, routedNative(host, native)).catch(() => {});
   if (native?.available) await watchOn('page', host, native, active && host ? providerSetupStreams(host, selection) : EMPTY);
   if (!host) return { ...withUpkeep(client, { ...providerPage(offline(client), '', now), message: chosen.message }), environment: NO_ENVIRONMENT };
-  return { ...withUpkeep(host, providerPage(host, selection, now), client), environment: active ? chosen.environmentId : '' };
+  return { ...withUpkeep(host, providerPage(host, selection, now, chosen.projectIds), client), environment: active ? chosen.environmentId : '' };
 }
 
 /** The providerWizard answer on the page's environment (args[10]); the Reconnect ChatGPT picker reads its own target's streams. */
@@ -99,12 +102,12 @@ export function scopedAcpRegistry(client: T3Client, native: Native | null | unde
   return acpRegistry(host, native?.available ? routedNative(host, native) : native, String(args[0] || ''), args[1] === true, configured);
 }
 
-/** A provider command's route to the page's environment (client.command), none for the focused one. */
+/** Route commands to the page's synchronized environment; its RPC boundary checks each operation's permission. */
 export function providersRoute(client: T3Client, environmentId: string): ProvidersRoute | undefined {
   const host = providersHost(client, environmentId);
   if (host === client) return undefined;
   return { host, native: native => routedNative(host, native),
-    requireWrite: () => { if (!host.writable) throw new ClientError(host.ready ? 'Wait for synchronization and check your connection permissions.' : 'Reconnect before making changes.'); } };
+    requireWrite: () => { if (!host.ready) throw new ClientError('Reconnect before making changes.'); } };
 }
 
 /** The page's `upkeep:` ops (args[4] names its environment); Update all and the launch prompt cover every environment. */

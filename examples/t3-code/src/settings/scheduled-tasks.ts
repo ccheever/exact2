@@ -1,4 +1,4 @@
-// Scheduled task logic (MIT reference, see LICENSE-T3; T3 Code 1e2ecbd975:
+// Scheduled task logic (MIT reference, see LICENSE-T3; T3 Code 9c161462c9:
 // apps/web/src/components/settings/scheduledTasksSettings.logic.ts, and scheduleLabel /
 // relativeLabel / statusVariant from ScheduledTasksSettings.tsx). Changes from the
 // reference: `now` is an argument (data sources have no clock,
@@ -7,6 +7,7 @@
 // provider snapshots (`deriveProviderInstanceEntries` read inline); a scope is the plain
 // record below instead of ResolvedSettingsScope.
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { webhookDraft } from './scheduled-webhook';
 import { relativeTimeLabel } from './settings-data';
 
 /** ResolvedSettingsScope, reduced to what matchesScheduledTaskScope reads. */
@@ -60,15 +61,15 @@ const DAY_FIELDS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'fri
 export type Weekdays = Record<(typeof DAY_FIELDS)[number], boolean>;
 const weekdayFields = (days: number[]): Weekdays => Object.fromEntries(DAY_FIELDS.map((day, index) => [day, days.includes(index)])) as Weekdays;
 
-export type TaskDraft = Weekdays & {
-  editingId: string; title: string; prompt: string; enabled: boolean; scheduleMode: 'fixed' | 'interval'; intervalMinutes: string; timeOfDay: string;
+export type TaskDraft = Weekdays & ReturnType<typeof webhookDraft> & {
+  editingId: string; title: string; prompt: string; enabled: boolean; scheduleMode: 'fixed' | 'interval' | 'webhook'; intervalMinutes: string; timeOfDay: string;
   projectId: string; threadId: string; workspaceMode: string; baseRef: string; startFromOrigin: boolean; existingWorktreePath: string; modelKey: string;
   runtimeMode: string; interactionMode: string; baseModelSelection: Obj | null;
 };
 
 /** EMPTY_DRAFT, with the first project of the scope. */
 export function emptyDraft(projectId: string, modelKey = ''): TaskDraft {
-  return { editingId: '', title: '', prompt: '', enabled: true, scheduleMode: 'fixed', intervalMinutes: '15', timeOfDay: '09:00', ...weekdayFields([1, 2, 3, 4, 5]),
+  return { ...webhookDraft(), editingId: '', title: '', prompt: '', enabled: true, scheduleMode: 'fixed', intervalMinutes: '15', timeOfDay: '09:00', ...weekdayFields([1, 2, 3, 4, 5]),
     projectId, threadId: '', workspaceMode: 'worktree', baseRef: 'main', startFromOrigin: true, existingWorktreePath: '', modelKey,
     runtimeMode: 'full-access', interactionMode: 'default', baseModelSelection: null };
 }
@@ -77,8 +78,8 @@ export function taskToDraft(task: Obj): TaskDraft {
   const schedule = obj(task.schedule), workspace = obj(task.workspaceStrategy), selection = obj(task.modelSelection);
   const weekdays = schedule.type === 'fixed_time' && Array.isArray(schedule.weekdays) && schedule.weekdays.length > 0 ? schedule.weekdays.map(Number) : [0, 1, 2, 3, 4, 5, 6];
   return {
-    editingId: str(task.id), title: str(task.title), prompt: str(task.prompt), enabled: task.enabled === true,
-    scheduleMode: schedule.type === 'interval' ? 'interval' : 'fixed',
+    ...webhookDraft(task), editingId: str(task.id), title: str(task.title), prompt: str(task.prompt), enabled: task.enabled === true,
+    scheduleMode: schedule.type === 'interval' ? 'interval' : schedule.type === 'webhook' ? 'webhook' : 'fixed',
     intervalMinutes: schedule.type === 'interval' ? String(Math.max(1, num(schedule.everyMs) / 60000)) : '15',
     timeOfDay: schedule.type === 'fixed_time' ? str(schedule.timeOfDay) : '09:00', ...weekdayFields(weekdays),
     projectId: str(task.projectId), threadId: str(task.threadId), workspaceMode: str(workspace.type, 'worktree'),
@@ -113,6 +114,7 @@ export function scheduledTaskDefaultModel(settings: Obj, project: Obj | null, pr
 }
 
 export function scheduleLabel(schedule: Obj): string {
+  if (schedule.type === 'webhook') return 'On webhook';
   if (schedule.type === 'interval') {
     const minutes = num(schedule.everyMs) / 60000;
     return Number.isInteger(minutes) ? `Every ${minutes} min` : `Every ${Math.round(num(schedule.everyMs) / 1000)} sec`;
@@ -137,7 +139,7 @@ export function relativeLabel(value: unknown, now: number): string {
 
 /** The settings row's status line: "Every 5 min · Next run in 4m", "… · Paused". */
 export function taskStatus(task: Obj, now: number): string {
-  return `${scheduleLabel(obj(task.schedule))} · ${task.enabled === true ? (task.nextRunAt ? `Next run ${relativeLabel(task.nextRunAt, now)}` : 'Not scheduled') : 'Paused'}`;
+  return `${scheduleLabel(obj(task.schedule))} · ${task.enabled === true ? (obj(task.schedule).type === 'webhook' ? 'Listening' : task.nextRunAt ? `Next run ${relativeLabel(task.nextRunAt, now)}` : 'Not scheduled') : 'Paused'}`;
 }
 
 /** ThreadAutomationsPanel's line: the schedule, then " · next …" or " · paused". */

@@ -20,6 +20,7 @@ import { markActionCopied } from '../shell/shell';
 import { composerNow } from '../composer/composer-controls';
 import { parseScopedThreadKey, scopedThreadKey, type ScopedThreadRef } from '../terminal/terminal-ui-state';
 import { activeRef } from '../terminal/terminal-drawer-view';
+import { serverStreamUrl, serverStreamFrame } from './server-browser-runtime';
 import { previewRuntimeTabId } from './browser-state';
 import { BrowserRecordings, type RecordingArtifact, type RecordingBlob, type RecordingHost, type RecordingRecorder, type RecordingStream } from './browser-recording';
 import { isPreviewAnnotationPayload, markAnnotationSend, previewAnnotationLink, savePreviewAnnotation, type PreviewAnnotationPayload } from './browser-annotation';
@@ -312,7 +313,7 @@ export async function artifactLocal(client: T3Client, native: Native, action: st
 }
 
 /** handlePictureInPicture: the floating player takes the tab and the panel closes; again closes the player. */
-function toggleFloat(client: T3Client, state: PanelState, target: CaptureTarget): void {
+export function toggleFloat(client: T3Client, state: PanelState, target: CaptureTarget): void {
   const key = playerThreadKey(client);
   if (!key) return;
   const store = miniStoreOf(client);
@@ -398,10 +399,10 @@ async function insertAnnotationChip(client: T3Client, native: Native, draftKey: 
 
 // ── The floating player's browser source (ThreadPreviewMiniPlayer BrowserMiniPlayer) ─────────────
 export type BrowserMiniView = {
-  show: boolean; key: string; sourceKey: string; tabId: string; runtimeId: string; url: string; profileId: string; environment: string;
+  show: boolean; key: string; sourceKey: string; tabId: string; runtimeId: string; server: boolean; streamUrl: string; url: string; profileId: string; environment: string;
   hasWebContents: boolean; recording: boolean; separateWindow: boolean; width: number; height: number;
 };
-export const emptyBrowserMini = (): BrowserMiniView => ({ show: false, key: '', sourceKey: '', tabId: '', runtimeId: '', url: '', profileId: 'default', environment: '',
+export const emptyBrowserMini = (): BrowserMiniView => ({ show: false, key: '', sourceKey: '', tabId: '', runtimeId: '', server: false, streamUrl: '', url: '', profileId: 'default', environment: '',
   hasWebContents: false, recording: false, separateWindow: false, width: 1280, height: 800 });
 
 /** The page's last laid-out size (resolveFittedBrowserViewport with the fill viewport): its box, else 1280×800. */
@@ -411,7 +412,7 @@ export function browserMiniSourceSize(client: T3Client, runtimeId: string): { wi
 }
 
 /** The tab the floating player shows, unless the panel shows it (shouldRenderPreviewMiniPlayer). */
-export function browserMiniView(client: T3Client, sessions: (ref: ScopedThreadRef) => { serverEpoch: string | null; tabs: Record<string, { url: string; profileId: string }> },
+export function browserMiniView(client: T3Client, sessions: (ref: ScopedThreadRef) => { serverEpoch: string | null; tabs: Record<string, { url: string; profileId: string; server?: boolean }> },
   shownTabId: string | null): BrowserMiniView {
   const tabId = floatingTabOf(client), ref = activeRef(client);
   if (!tabId || !ref || shownTabId === tabId) return emptyBrowserMini();
@@ -419,9 +420,10 @@ export function browserMiniView(client: T3Client, sessions: (ref: ScopedThreadRe
   if (!session) return emptyBrowserMini();
   const runtimeId = previewRuntimeTabId(ref, state.serverEpoch, tabId), tab = report(client, runtimeId), size = browserMiniSourceSize(client, runtimeId);
   const key = previewMiniPlayerSourceKey(browserMiniPlayerSource(tabId));
+  if (session.server) { const frame = serverStreamFrame(client, runtimeId); if (frame.width > 0 && frame.height > 0) { size.width = frame.width; size.height = frame.height; } }
   captureHost(client).miniSize = { key, ...size };
-  return { show: true, key, sourceKey: key, tabId, runtimeId, url: str(tab.url) || session.url, profileId: session.profileId, environment: ref.environmentId,
-    hasWebContents: Object.keys(tab).length > 0, recording: recordingOf(client, ref, tabId, runtimeId), separateWindow: tab.pip === true, ...size };
+  return { show: true, key, sourceKey: key, tabId, runtimeId, server: session.server === true, streamUrl: session.server ? serverStreamUrl(client, runtimeId) : '', url: str(tab.url) || session.url, profileId: session.profileId, environment: ref.environmentId,
+    hasWebContents: session.server === true || Object.keys(tab).length > 0, recording: recordingOf(client, ref, tabId, runtimeId), separateWindow: tab.pip === true, ...size };
 }
 
 /** `surface-browser-mini-*` (id = the floating tab's runtime id): Open in right panel, Pop into separate window, Close. */

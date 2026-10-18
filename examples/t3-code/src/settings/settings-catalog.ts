@@ -1,7 +1,8 @@
-// Reference settingsSearch.ts SETTINGS_SEARCH_ITEMS (served 0.0.46 source revision), one row per item:
+// Reference settingsSearch.ts SETTINGS_SEARCH_ITEMS (9c161462c9), one row per item:
 // [id, title, route, targetId, searchTerms, scope, availability flags]. Keybinding command items are
 // derived from the connected server's keybindings at search time (settings-search.ts).
 export const CATALOG: readonly (readonly [string, string, string, string, string, string, string])[] = [
+  ["cli-command", "t3 command", "general", "", "cli terminal shell path install command line", "", "desktop"],
   ["storage-worktrees", "Worktree cleanup", "storage", "", "disk storage delete deleted archived threads old inactive merged unchanged worktrees retention days project inherit off custom", "project-defaults", ""],
   ["storage-artifacts", "Artifacts and logs", "storage", "", "disk storage browser screenshots captures rotated logs cleanup retention", "environment-defaults", ""],
   ["project-defaults", "Project defaults and overrides", "general", "", "model workspace environments projects inheritance checkout", "project-defaults", ""],

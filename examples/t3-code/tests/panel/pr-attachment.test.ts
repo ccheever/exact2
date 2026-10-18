@@ -31,6 +31,7 @@ function fakeClient(over: Record<string, unknown> = {}) {
   const replies: Record<string, (payload: Record<string, unknown>) => unknown> = {};
   const request = async (method: string, payload: Record<string, unknown>) => { calls.push({ method, payload }); const reply = replies[method]; if (!reply) throw new Error(`no reply for ${method}`); return reply(payload); };
   const client = {
+    scopes: ['filesystem:read'],
     environmentId: 'env', threadId: 't1', projectId: 'p1', ready: true, revision: 0, generation: 1, diffOpen: false, diffText: '', diffError: '', diffLoading: false, origin: 'http://127.0.0.1:14861',
     get draftKey() { return `env:${this.threadId || `new:${this.projectId}`}`; },
     config: { environment: { capabilities: { pullRequests: true, threadPullRequests: true, pullRequestChecks: true } } },

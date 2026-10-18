@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 import { describe, expect, test } from 'bun:test';
 import { activateTerminalPane, openTerminalSurface, removePanelTerminal, splitTerminalSurface } from '../../src/terminal/terminal-panel';
 import { savedPanel, adoptRightPanels } from '../../src/panel/saved-panel';
@@ -40,6 +41,7 @@ import { terminalUiStore } from '../../src/terminal/terminal-ui-state';
 import type { Files, Native } from '../../src/client/protocol';
 function clientFixture() {
   const client = new T3Client();
+  Object.assign(client, { scopes: [...AUTH_STANDARD_CLIENT_SCOPES], connection: 'connected', configLive: true, shellLive: true, threadLive: true });
   client.environmentId = 'env'; client.threadId = 'thread'; client.projectId = 'project';
   client.shell.projects = [{ id: 'project', workspaceRoot: '/repo' }];
   client.shell.threads = [{ id: 'thread', projectId: 'project', worktreePath: '/repo/tree' }];

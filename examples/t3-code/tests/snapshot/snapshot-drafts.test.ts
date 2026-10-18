@@ -5,7 +5,7 @@ import type { Native, Files } from '../../src/client/protocol';
 const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 function fixture() {
   const client = new T3Client();
-  Object.assign(client, { generation: 1, environmentId: 'env', projectId: 'p', threadId: 't', connection: 'connected', configLive: true, shellLive: true, threadLive: true, providerId: 'fixture', modelId: 'fixture-model', scopes: ['orchestration:operate'] });
+  Object.assign(client, { generation: 1, environmentId: 'env', projectId: 'p', threadId: 't', connection: 'connected', configLive: true, shellLive: true, threadLive: true, providerId: 'fixture', modelId: 'fixture-model', scopes: ['orchestration:read', 'orchestration:operate'] });
   client.config = { environment: { capabilities: { serverResolvedCommandContext: true } }, providers: [{ instanceId: 'fixture', enabled: true, installed: true, availability: 'available', auth: { status: 'authenticated' }, models: [{ slug: 'fixture-model' }] }] };
   client.shell = { sequence: 1, projects: [{ id: 'p' }], threads: [{ id: 't', projectId: 'p' }] };
   const calls: Obj[] = [], events: string[] = [];

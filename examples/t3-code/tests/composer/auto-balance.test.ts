@@ -181,7 +181,7 @@ type Setup = { client: T3Client; source: EnvironmentFleet; native: Native; calls
 function setup(machines: FleetEntry[] = [entry('b', 'Studio'), entry('c', 'Build box')], replies: Record<string, unknown> = {}): Setup {
   const client = new T3Client(), source = new EnvironmentFleet(), calls: Obj[] = [], hooks: Setup['hooks'] = {};
   for (const machine of machines) source.entries.set(machine.key, machine);
-  Object.assign(client, { environmentId: 'a', origin: 'http://192.0.2.10:3773', projectId: 'pa', threadId: '', connection: 'connected', configLive: true, shellLive: true,
+  Object.assign(client, { scopes: ['orchestration:read', 'orchestration:operate'], environmentId: 'a', origin: 'http://192.0.2.10:3773', projectId: 'pa', threadId: '', connection: 'connected', configLive: true, shellLive: true,
     config: configFor('Laptop'), providerId: 'codex', modelId: 'gpt-5' });
   client.shell.projects = [{ id: 'pa', workspaceRoot: '/repos/shared', repositoryIdentity: identity }] as never;
   noteNow(client, NOW);

@@ -21,7 +21,7 @@ const rowsOf = (prefix: string, count = 6) => Array.from({ length: count }, (_, 
 /** The chat column over one window: the open thread's rows, a pending command, the end jumps, host commands. */
 function chat() {
   const calls: unknown[][] = [];
-  const state: Env = { firstKey: '', anchors: [], anchor: TimelineAnchor({ owner: '', key: '', offset: 0, top: 0, end: true }), fallbackTop: 0, fallbackJump: -1, turnsSeen: [], turnsOwner: '', tipEpoch: 0, tipArmed: false };
+  const state: Env = { firstKey: '', anchors: [], anchor: TimelineAnchor({ owner: '', key: '', offset: 0, top: 0, end: true }), fallbackTop: 0, fallbackJump: -1, turnsSeen: [], turnsOwner: '', tipEpoch: 0, tipArmed: false, wheelTop: 0, wheelJump: -1, wheelPending: false, scrolledTop: 0, scrolledMax: 0, scrolledPort: 0 };
   const scope: Env = { ...anchorFns, ...minimapFns, TimelineAnchor, min: Math.min, max: Math.max, composerOwner: A, commandPending: false, jumpRequest: 1,
     canvas: { ready: false }, conversationWidth: 1024, rem: 16,
     data: { messages: rowsOf('a'), minimap: [], citing: false, threadId: 't-a', look: { chatMax: 768 } },
@@ -115,7 +115,8 @@ describe('each thread keeps its own place', () => {
     c.switchTo(A, rowsOf('a').filter(row => row.id !== 'a2'));
     expect(c.calls).toEqual([]);
     expect([c.state.fallbackTop, c.state.fallbackJump]).toEqual([1234, c.scope.jumpRequest]);
-    const list = /scrollTop=\(([^)]*)\) id="transcript"/.exec(source('app-main.contract'))![1]!;
+    expect(source('app-main.contract')).toContain('scrollTop=listTop id="transcript"');
+    const list = /derive listTop = (.+)/.exec(source('app-main.contract'))![1]!;
     expect(value(list, { ...c.state, jumpRequest: c.scope.jumpRequest })).toBe(1234);
     expect(value(list, { ...c.state, jumpRequest: (c.scope.jumpRequest as number) + 1 })).toBe(1000000 + (c.scope.jumpRequest as number) + 1);
     // Another thread opening without a jump to the end (a citation, a chip) never inherits that offset.

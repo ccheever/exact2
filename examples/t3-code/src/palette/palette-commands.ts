@@ -1,13 +1,15 @@
+import { sourceControlHost } from '../shared/source-control-hosts';
 // What the palette's rows do on the server (reference CommandPalette.tsx executeItem,
 // handleAddProjectForEnvironment, submitNewProject/useNewProject, submitAddProjectCloneFlow
 // and the Restart agent session action). Each returns how the overlay continues: close,
 // stay, or move to another page with a new query. Failures are toasts, as in the reference.
 import type { T3Client } from '../client/client';
+import { composerPromptLink, copyPromptLink } from '../prompt-links/copy-prompt-link';
 import { applyShell, arr, initialShell, obj, str, type Obj } from '../client/domain';
 import type { Files, Native } from '../client/protocol';
 import { dismissToast, pushToast } from '../shell/toast';
 import { openFileSurface, openSurface } from '../panel/panel-surfaces';
-import { cloneDestination, cloneDirectoryName, flowOf, githubAccount, inferTitle, initialBrowseQuery, normalizeCloneUrl, resolvePath, SOURCE_LABELS } from './palette-add';
+import { cloneDestination, cloneDirectoryName, flowOf, newProjectPublishTargets, inferTitle, initialBrowseQuery, normalizeCloneUrl, resolvePath, SOURCE_LABELS } from './palette-add';
 import { sortedThreads } from './palette';
 import { activeTarget } from './palette-files';
 import { favoriteEditor } from '../shell/keyboard-dispatch';
@@ -61,8 +63,10 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
   const current = client.shell.projects.find(project => project.id === client.projectId);
   const cwd = str(current?.workspaceRoot);
   try {
+    if (op === 'copy-prompt-link') { await copyPromptLink(client, native, composerPromptLink(client, id === 'context')); return done(client); }
     if (op === 'restart-session') return await restartSession(client, native, storage, id);
     if (op === 'open-project') return openProject(client, id);
+    if (op === 'publish-host') { if (newProjectPublishTargets(flow.discovery?.value ?? null).some(target => target.definition.kind === id)) flow.publishKind = id; return stay(client); }
     if (op === 'toggle-publish') { flow.publish = !flow.publish; return stay(client); }
     // ProjectFilePicker / ProjectContentSearchDialog: rightPanelStore.openFile (panel-surfaces.ts); Open Favorite stays the editor.
     if (op === 'open-file') { await openFileSurface(client, native, id, Number(value) || 0); client.revision++; return done(client); }
@@ -97,18 +101,21 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
     if (op === 'new-project') {
       const name = id.trim();
       if (!name) return stay(client);
+      const targets = newProjectPublishTargets(flow.discovery?.value ?? null);
+      const publishTarget = flow.publish ? targets.find(target => target.definition.kind === flow.publishKind) ?? targets[0] : null;
+      if (flow.publish && !publishTarget) throw new Error('No ready host can publish this repository.');
       let created: Obj;
       try { created = await access.request('projects.createNew', { name }, true); }
       catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Could not create the project', description: message(error) }); return stay(client, false, message(error)); }
       const workspaceRoot = str(created.workspaceRoot), commitError = str(created.commitError), projectId = str(created.projectId);
       pushToast(client, commitError ? { kind: 'warning', title: `Created ${name} without a first commit`, description: `${commitError} The project is in ${workspaceRoot}.` }
         : { kind: 'success', title: `Created ${name}`, description: workspaceRoot });
-      if (flow.publish) {
-        const account = githubAccount(flow.discovery?.value ?? null);
+      if (publishTarget) {
+        const target = publishTarget, account = target.owner;
         const folder = workspaceRoot.split('/').filter(Boolean).pop() ?? '';
-        access.request('sourceControl.publishRepository', { cwd: workspaceRoot, provider: 'github', repository: account ? `${account}/${folder}` : folder, visibility: 'private' }, true)
-          .then(result => { pushToast(client, { kind: 'success', title: 'Published to GitHub', description: str(obj(obj(result).repository).nameWithOwner) }); client.revision++; })
-          .catch(error => { if (letGo(error)) return; pushToast(client, { kind: 'error', title: 'Could not create the GitHub repository', description: `${message(error)} Use Publish Repository in the Git menu to try again.` }); client.revision++; });
+        access.request('sourceControl.publishRepository', { cwd: workspaceRoot, provider: target.definition.kind, repository: account ? `${account}/${folder}` : folder, visibility: 'private' }, true)
+          .then(result => { pushToast(client, { kind: 'success', title: `Published to ${target.definition.label}`, description: str(obj(obj(result).repository).nameWithOwner) }); client.revision++; })
+          .catch(error => { if (letGo(error)) return; pushToast(client, { kind: 'error', title: `Could not create the ${target.definition.label} repository`, description: `${message(error)} Use Publish Repository in the Git menu to try again.` }); client.revision++; });
       }
       flow.publish = false;
       try { await refreshShell(client, native); } catch { /* the shell stream catches up */ }
@@ -130,7 +137,7 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
       try { repository = await access.request('sourceControl.lookupRepository', { provider: source, repository: raw }); }
       catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Repository lookup failed', description: message(error) }); return stay(client, false, message(error)); }
       const nameWithOwner = str(repository.nameWithOwner, raw);
-      const remoteUrl = source === 'github' || source === 'forgejo' ? str(repository.url) : str(repository.sshUrl, str(repository.url));
+      const remoteUrl = sourceControlHost(source)?.cloneTransport === 'https' ? str(repository.url) : str(repository.sshUrl, str(repository.url));
       flow.clone = { source, repositoryInput: raw, title: nameWithOwner, description: str(repository.url, remoteUrl), remoteUrl, pinned: cloneDirectoryName(nameWithOwner) };
       return { ...stay(client), page: `${value}/confirm`, query: cloneDestination(parentPath, cloneDirectoryName(nameWithOwner)) };
     }

@@ -1,3 +1,5 @@
+import { threadFindEvent } from '../timeline/thread-find-runtime';
+import { requireRpcPermissions } from '../connections/command-permissions';
 import { snapshotShortcut } from '../snapshot/snapshot-shortcut';
 import { snapshotIdentity, snapshotDefaultProject, snapshotDestinationExists, withoutSnapshot, snapshotNoProjectMessage, snapshotFailureMessage } from '../snapshot/snapshot-adopt';
 import { decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
@@ -172,6 +174,7 @@ export class T3Client {
   raw(native: Native, request: unknown) { return bridgeReply(native, request); }
   async call(native: Native, request: unknown, expected = this.generation, write = false): Promise<Obj> {
     if (this.generation !== expected) throw new ClientError('The connection changed. Refresh before continuing.', 'stale');
+    if (this.connection === 'connected') requireRpcPermissions(this.scopes, request);
     let response;
     // shell-slow.ts "Some requests are slow", with a trace the transport lists while pending (protocol-reader.ts).
     const traced = traceRpc(this, request);
@@ -524,6 +527,7 @@ export class T3Client {
           break;
         }
         through = Math.max(through, seq);
+        if (threadFindEvent(this, entry)) continue;
         if (key === TELEMETRY_KEY) { telemetryEvent(this, entry); samples++; continue; } // settings-a-telemetry.ts
         if (key === WORKTREE_SETUP_KEY) { worktreeSetupEvent(this, entry); continue; } // timeline-worktree.ts
         if (key === VCS_STATUS_KEY) { vcsStatusEvent(this, entry); continue; } // shell-vcs.ts: the workspace card's git status
@@ -590,7 +594,7 @@ export class T3Client {
   }
 
   private requireWrite(): void {
-    if (!this.writable) throw new ClientError(this.connection !== 'connected' ? 'Reconnect before making changes.' : 'Wait for synchronization and check your connection permissions.');
+    if (!this.ready) throw new ClientError(this.connection !== 'connected' ? 'Reconnect before making changes.' : 'Wait for synchronization and check your connection permissions.');
     if (this.pending) throw new ClientError('Resolve the previous operation before sending another.');
   }
   reconcilePending(): boolean {
@@ -940,12 +944,12 @@ export class T3Client {
     if (op === 'delete-archived-thread') delete this.local.drafts[`${this.environmentId}:${id}`];
   }
 
-  async history(native: Native): Promise<void> {
+  async history(native: Native, throughEntryId = ''): Promise<void> {
     if (!this.thread?.hasMore || !this.thread.historyCursor || this.historyLoading) return;
     const epoch = this.threadEpoch, id = this.threadId, cursor = this.thread.historyCursor;
     this.historyLoading = true;
     try {
-      const page = await this.http(native, `/api/orchestration/threads/${encodeURIComponent(id)}/history?cursor=${encodeURIComponent(cursor)}`);
+      const page = await this.http(native, `/api/orchestration/threads/${encodeURIComponent(id)}/history?cursor=${encodeURIComponent(cursor)}${throughEntryId ? `&throughEntryId=${encodeURIComponent(throughEntryId)}` : ''}`);
       if (epoch === this.threadEpoch && id === this.threadId && this.thread?.historyCursor === cursor) this.thread = mergeHistory(this.thread, page);
     } finally { this.historyLoading = false; }
   }

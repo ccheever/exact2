@@ -48,6 +48,7 @@ function fakeModule(handlers: Record<string, (request: Call) => Obj | Promise<Ob
 }
 function fakeClient(tab: Obj = { kind: 'Success', url: 'https://example.com/', title: 'Example' }) {
   return {
+    scopes: ['preview:operate'],
     environmentId: 'local', threadId: 'thread-1', projectId: 'p1', generation: 1, connection: 'connected', ready: true, diffOpen: false, draftKey: threadKey,
     presentation: { browserTabs: { [runtimeId]: tab } } as Obj, config: { environment: { capabilities: {} } }, shell: { threads: [{ id: 'thread-1', projectId: 'p1' }], projects: [] },
     local: { clientSettings: {}, deviceSettings: {}, drafts: {} as Record<string, string>, snapshotDrafts: {} as Record<string, Obj[]> },
@@ -357,7 +358,7 @@ describe('an annotation\'s ⌘↩ at the window (ChatView onSendAnnotation, onSe
   function threadClient(result: Obj) {
     const client = new Client(), scoped = { environmentId: 'env', threadId: 't1' }, tab = previewRuntimeTabId(scoped, 'epoch-1', 'tab-1'), calls: Obj[] = [];
     Object.assign(client, { available: true, generation: 1, connection: 'connected', environmentId: 'env', projectId: 'p1', threadId: 't1', configLive: true, shellLive: true, threadLive: true,
-      scopes: ['orchestration:read', 'orchestration:operate'], config: { environment: { capabilities: { serverResolvedCommandContext: true } } } });
+      scopes: ['orchestration:read', 'orchestration:operate', 'preview:operate'], config: { environment: { capabilities: { serverResolvedCommandContext: true } } } });
     client.shell.projects = [{ id: 'p1', title: 'Fixture', workspaceRoot: '/repo' }];
     client.shell.threads = [{ id: 't1', projectId: 'p1' }];
     client.thread = { projection: { thread: { id: 't1' }, runtimeRequests: [], turnItems: [], runs: [], checkpoints: [] }, sequence: 0, historyCursor: null, hasMore: false, latestLocalTurnOrdinal: null };

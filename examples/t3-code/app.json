@@ -4,6 +4,7 @@
   "short_name": "T3 Code (Exact)",
   "id": "com.exact.t3code.macos",
   "start_url": "/",
+  "protocol_handlers": [{ "protocol": "t3code", "url": "/open?u=%s", "distribution_only": true }],
   "display": "standalone",
   "theme_color": "#fafafa",
   "background_color": "#fafafa",

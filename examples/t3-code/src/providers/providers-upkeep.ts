@@ -1,4 +1,5 @@
-// Provider settings upkeep, T3 Code 1e2ecbd975 (ProviderUpdatesAction 9c161462c9; MIT, see LICENSE-T3): the version advisory
+import { providerWritable } from './provider-permissions';
+// Provider settings upkeep, T3 Code 9c161462c9 (MIT, see LICENSE-T3): the version advisory
 // popover of apps/web/src/components/settings/ProviderInstanceCard.tsx:772-870 (one node for the
 // list row and the editor), providerStatus.ts getProviderVersionAdvisoryPresentation,
 // ProviderSettingsPanel.tsx:723-767 and :1162-1186 (runProviderUpdate, onInstallRecommended,
@@ -61,7 +62,7 @@ const pendingOf = (host: object) => { let set = pendingUpdates.get(host); if (!s
 export function advisoryView(host: UpkeepHost, instanceId: string, provider: Obj | undefined, enabled: boolean, mode: 'list' | 'editor') {
   const compatibility = enabled ? obj(provider?.compatibilityAdvisory) : undefined;
   const presentation = provider ? versionAdvisoryPresentation(provider.versionAdvisory ? obj(provider.versionAdvisory) : undefined, provider.compatibilityAdvisory ? obj(provider.compatibilityAdvisory) : undefined, enabled) : null;
-  const readOnly = !host.writable;
+  const readOnly = !providerWritable(host);
   const hasCompatibilityWarning = compatibility !== undefined && !!str(compatibility.status) && compatibility.status !== 'supported' && compatibility.status !== 'unknown';
   const canInstallRecommended = !readOnly && !!provider && !!str(obj(provider.compatibilityAdvisory).message) && !!str(obj(provider.compatibilityAdvisory).recommendedVersion)
     && obj(provider.versionAdvisory).canInstallVersion === true;
@@ -69,12 +70,15 @@ export function advisoryView(host: UpkeepHost, instanceId: string, provider: Obj
   const hasAction = !!presentation && (presentation.targetVersion ? canInstallRecommended : canRunUpdate);
   const updating = pendingOf(host).has(instanceId) || isProviderUpdateActive(provider);
   const command = presentation?.updateCommand ?? '';
+  const update = obj(provider?.updateState);
+  const progress = updating ? str(update.status === 'queued' || update.status === 'running' ? update.message : '') || 'Starting update' : '';
+  const problem = !updating && (update.status === 'failed' || update.status === 'unchanged') ? str(update.message) : '';
   return {
-    show: presentation !== null, mode, popId: `provider-advisory-${mode}-${instanceId}`, instanceId,
-    label: presentation ? `${presentation.title} — view details` : '', title: presentation?.title ?? '', detail: presentation?.detail ?? '',
+    show: presentation !== null || updating || problem !== '', mode, popId: `provider-advisory-${mode}-${instanceId}`, instanceId,
+    label: `${updating ? 'Updating' : presentation?.title || 'Update status'} — view details`, title: presentation?.title ?? '', detail: presentation?.detail ?? '',
     strong: presentation?.emphasis === 'strong', warning: hasCompatibilityWarning,
     action: !hasAction ? '' : updating ? 'Updating' : presentation!.targetVersion ? `Install ${versionLabel(presentation!.targetVersion)}` : 'Update now',
-    target: presentation?.targetVersion ?? '', updating, command, divider: hasAction && command !== '',
+    target: presentation?.targetVersion ?? '', updating, progress, problem, command, divider: hasAction && command !== '',
   };
 }
 
@@ -135,7 +139,7 @@ export async function runUpdateAll(host: UpkeepHost, targets: readonly UpdateTar
 /** runProviderUpdate: one instance on this environment, "Update now" or "Install <recommended>". */
 export async function runProviderUpdate(host: UpkeepHost, target: UpdateTarget, instanceId: string, targetVersion: string): Promise<void> {
   const provider = arr(host.config.providers).find(candidate => candidate.instanceId === instanceId);
-  if (!provider || !host.writable) return;
+  if (!provider || !providerWritable(host)) return;
   const pending = pendingOf(host);
   if (pending.has(instanceId)) return;
   const view = advisoryView(host, instanceId, provider, provider.enabled !== false, 'editor');
@@ -166,11 +170,12 @@ export function withUpkeep(host: UpkeepHost, page: ReturnType<typeof providerPag
   return {
     // An open custom model editor owns Escape (its Cancel), so Settings' Back gives it up (app-settings.contract).
     ...page, updateAll: updateAllView(all), escapeOwned: editors.some(upkeep => upkeep.modelEditor.length > 0),
-    rows: page.rows.map(row => ({ ...row, update: advisoryView(host, row.id, providerOf(row.id), row.enabled, 'list') })),
+    rows: page.rows.map(row => { const update = advisoryView(host, row.id, providerOf(row.id), row.enabled, 'list');
+      return { ...row, ...(update.progress ? { status: `Updating · ${update.progress}`, dot: '' } : {}), update }; }),
     editors: page.editors.map((editor, index) => {
       const upkeep = editors[index]!, editing = upkeep.modelEditor[0]?.slug ?? '';
       return { ...editor, update: advisoryView(host, editor.id, providerOf(editor.id), editor.enabled, 'editor'), upkeep,
-        models: editor.models.map(model => ({ ...model, editing: model.custom && model.slug === editing })) };
+        models: editor.models.map(model => ({ ...model, editing: model.slug === editing })) };
     }),
   };
 }
@@ -196,12 +201,13 @@ async function copyCommand(host: UpkeepHost, native: Native, instanceId: string)
 
 /** The custom model editor's Save (handleSaveEdit): the edited entry replaces its slug in `config.customModels`, and the editor closes. */
 async function saveCustomModel(host: UpkeepHost, native: Native, instanceId: string, next: ReturnType<typeof customModelEditorOp>): Promise<void> {
-  if (!next || !host.writable) return;
+  if (!next || !providerWritable(host)) return;
   customModelEditorOp(host, host, 'saved', instanceId, '', '');
   try {
     await upsertInstance(host, native, instanceId, (instance, driver) => {
       const config = obj(instance.config);
       const entries = readCustomModelEntries(config.customModels).map(entry => entry.slug === next.slug ? next : entry);
+      if (!entries.some(entry => entry.slug === next.slug)) entries.push(next);
       return { ...instance, config: { ...config, customModels: storedCustomModels(driver, entries) } };
     });
   } catch (error) {

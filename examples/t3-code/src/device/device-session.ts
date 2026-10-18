@@ -13,9 +13,10 @@ import type { T3Client } from '../client/client';
 import { emptyDeviceControls, deviceControls, toolsDrawerCommand, toolsDrawerLocal, type DeviceControls } from './device-tools';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
-import { emptyFolding, deviceFolding, foldingValue, type DeviceFolding } from './device-duo';
+import { emptyFolding, deviceFolding, foldingValues, type DeviceFolding } from './device-duo';
 import { PreviewMiniPlayerStore, previewMiniPlayerSourceKey, type PreviewMiniPlayerSource } from './previewMiniPlayerStore'; // the floating player's per-thread state
 import { letGo } from '../client/let-go';
+import { deviceHubReadiness } from './device-surface';
 import { activeRef } from '../terminal/terminal-drawer-view';
 
 /** The thread a device opens for: ChatView's activeThreadRef, a draft's own id included (allocated when Device opens). */
@@ -110,9 +111,7 @@ export const emptyMini = (): DeviceMini => ({ show: false, key: '', sourceKey: '
 export async function deviceSessionView(client: T3Client, native: Native | null, state: Obj, loaded: boolean, panelKey: string): Promise<DeviceSessionView> {
   const store = storeOf(client), threadId = deviceThreadId(client);
   const device = activeDevice(state, threadId, store.targets.get(panelKey));
-  const statuses = Object.values(obj(state.hostStatuses)).map(status => str(obj(status).status));
-  const hostReady = statuses.includes('ready');
-  const hostBusy = !hostReady && statuses.some(status => status === 'installing' || status === 'starting');
+  const { ready: hostReady, busy: hostBusy } = deviceHubReadiness(state);
   const booting = arr(state.bootingDevices).filter(entry => str(entry.threadId) === threadId).map(entry => str(entry.name));
   const base = { ...emptyDeviceSession(), operationError: store.operationError,
     booting: booting.length ? `Starting ${booting.join(', ')}… This can take a minute.` : '',
@@ -130,7 +129,7 @@ export async function deviceSessionView(client: T3Client, native: Native | null,
       key, name: str(device.name), description: `${hostLabel(state, str(device.hostId))} · ${str(device.version)}`, platform, deviceId: str(device.id), hostId: str(device.hostId),
       screenLabel: platform === 'ios' ? 'iOS Simulator screen' : 'Android Emulator screen',
       alert, stream: controls.retaining && controls.rail.phone ? { ...stream, status: 'streaming' } : stream, controls,
-      folding: deviceFolding(obj(obj(client.presentation.deviceStreams)[key]), platform, controls.rail.phone, obj(obj(client.presentation.deviceStreams)[key]).inputConnected === true),
+      folding: deviceFolding(obj(obj(client.presentation.deviceStreams)[key]), platform, controls.rail.phone, obj(obj(client.presentation.deviceStreams)[key]).inputConnected === true, key),
       rail: { inputConnected: obj(obj(client.presentation.deviceStreams)[key]).inputConnected === true, appearance,
         appearanceLabel: `Switch device to ${next} mode`, appearanceIcon: appearance === 'dark' ? 'sun' : 'moon', appearanceDisabled: controlsDisabled || !appearance,
         textSize: str(settings.textSize), textSizeDisabled: controlsDisabled || !str(settings.textSize),
@@ -278,9 +277,11 @@ export async function deviceSessionLocal(client: T3Client, native: Native, state
     store.targets.set(panelKey, target);
     return 'reopen';
   }
-  if (op === 'duo' || op === 'fold') { // a stand or fold button
-    const device = state ? activeDevice(state, deviceThreadId(client), store.targets.get(panelKey)) : null, next = foldingValue(op, value);
-    if (device && next) await client.restAccess(native).call({ op: 'deviceInput', action: op, key: deviceKey({ hostId: str(device.hostId), id: str(device.id) }), value: next });
+  if (op === 'duo' || op === 'fold') { // a fold shape, stand or fold button
+    const device = state ? activeDevice(state, deviceThreadId(client), store.targets.get(panelKey)) : null;
+    if (!device) return '';
+    const key = deviceKey({ hostId: str(device.hostId), id: str(device.id) });
+    for (const next of foldingValues(op, value, obj(obj(client.presentation.deviceStreams)[key]), key)) await client.restAccess(native).call({ op: 'deviceInput', action: op, key, value: next });
     return '';
   }
   if (op === 'home' || op === 'rotate' || op === 'reconnect' || op === 'back' || op === 'recents') {

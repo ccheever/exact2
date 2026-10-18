@@ -1,3 +1,4 @@
+import { providerWritable } from './provider-permissions';
 // Provider setup streams and commands, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
 // packages/client-runtime/src/state/server.ts:989-1060 (providerAuthState and
 // providerInstallState: one `provider.auth.subscribe` / `provider.install.subscribe`
@@ -141,7 +142,7 @@ async function runInstall(entry: ProviderSetupEntry, label: string, command: () 
  * succeeded from, sends nothing.
  */
 export async function providerSetupOp(host: Host, native: Native, op: string, id: string, token: string, value: string): Promise<void> {
-  if (!host.writable && op !== 'setup:retry') return;
+  if (!providerWritable(host) && op !== 'setup:retry') return;
   const entry = setupOf(host, id), auth = entry.auth.state, interaction = obj(auth?.interaction), install = entry.install.state;
   const once = `${op}|${token}`;
   const current = op.startsWith('setup:install-') ? `${str(install?.phase)}:${str(install?.operationId)}`

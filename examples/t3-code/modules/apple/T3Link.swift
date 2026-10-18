@@ -174,12 +174,12 @@ final class T3Link: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
     }
 
     /// Opens an attach stream (`terminal.attach`, which also starts a shell when none runs).
-    func terminalAttach(payload: [String: Any], receive: @escaping ([Any], @escaping () -> Void) -> Void,
+    func terminalAttach(payload: [String: Any], readOnly: Bool = false, receive: @escaping ([Any], @escaping () -> Void) -> Void,
                         ended: @escaping (T3Failure?, Bool) -> Void, opened: @escaping (String?, T3Failure?) -> Void) {
         withSocket(done: { failure in opened(nil, failure) }) { [self] in
             guard terminalStreams.count < Self.maximumTerminalStreams else { return opened(nil, T3Failure(kind: "Busy", message: "Too many terminals are attached.")) }
             let id = nextID()
-            do { try send(T3Wire.encode(T3Wire.request(id: id, method: "terminal.attach", payload: payload))) } catch { return opened(nil, fail(error)) }
+            do { try send(T3Wire.encode(T3Wire.request(id: id, method: readOnly ? "terminal.observe" : "terminal.attach", payload: payload))) } catch { return opened(nil, fail(error)) }
             terminalStreams[id] = T3TerminalStream(id: id, epoch: epoch, receive: receive, ended: ended)
             opened(id, nil)
         }

@@ -114,7 +114,7 @@ const ORIGIN = 'http://127.0.0.1:16901';
 const config = (os = 'darwin'): Obj => ({ environment: { environmentId: 'env-primary', label: 'This Mac', platform: { os, arch: 'arm64' } } });
 function focusedClient(overrides: Partial<T3Client> = {}): T3Client {
   const client = new T3Client();
-  Object.assign(client, { environmentId: 'env-primary', origin: ORIGIN, connection: 'connected', config: config(), shellLoaded: true, generation: 3,
+  Object.assign(client, { scopes: ['orchestration:read', 'orchestration:operate'], environmentId: 'env-primary', origin: ORIGIN, connection: 'connected', config: config(), shellLoaded: true, generation: 3,
     shell: { ...initialShell(), projects: [{ id: 'p-1', title: 'one', workspaceRoot: '/Users/me/one' }] } }, overrides);
   return client;
 }

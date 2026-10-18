@@ -507,7 +507,7 @@ final class T3AppControl {
     var observeBackend: (AnyObject, URL, @escaping () -> Void) -> Void = { owner, dataRoot, changed in T3LocalBackend.shared.attach(owner, dataRoot: dataRoot, changed: { _ in changed() }) }
     var stopObservingBackend: (AnyObject) -> Void = { T3LocalBackend.shared.detach($0) }
     var activateWindow: () -> Void = { DispatchQueue.main.async { T3AppControl.activateMainWindow() } }
-    var packaged: () -> Bool = { T3LocalPolicy.packaged(resources: Bundle.main.resourceURL) }
+    var packaged: () -> Bool = { T3LocalPolicy.packaged() }
     var log: (String) -> Void = { FileHandle.standardError.write(Data("t3.activation: \($0)\n".utf8)) }
 
     /// DesktopWindow.activate: the app to the front, its window restored and focused. No toast.

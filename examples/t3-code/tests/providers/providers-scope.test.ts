@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // Settings › Providers shows the environment its scope selector chose (found
 // by #312): T3 Code 1e2ecbd975 routes/settings.providers.tsx:7-30. This Mac (the focused
 // connection) has Codex signed in; a second, background environment has not. Before the fix the page
@@ -49,7 +50,7 @@ function servers() {
 /** The second environment as the fleet knows it once its transport synchronized (settings-b-fleet.ts). */
 function background(second: Backend, phase: 'connected' | 'reconnecting' = 'connected', projects: Obj[] = []) {
   fleet.entries.set(KEY, { key: KEY, origin: ORIGIN, environmentId: 'env2', phase, message: '', traceId: '', generation: 3, synchronized: phase === 'connected' ? 3 : -1,
-    lastEvent: 0, subscriptions: {}, config: second.config, shell: { ...initialShell(), projects }, scopes: ['orchestration:read', 'orchestration:operate'], error: '', requested: true });
+    lastEvent: 0, subscriptions: {}, config: second.config, shell: { ...initialShell(), projects }, scopes: [...AUTH_STANDARD_CLIENT_SCOPES], error: '', requested: true });
 }
 /** The providerPage resource's arguments (app.contract): selection, active, revision, clock, then the scope. */
 const page = async (native: Native, files: Parameters<typeof answer>[3], machine: string, extra: string[] = ['', '', '']) =>
@@ -102,7 +103,7 @@ describe('Settings › Providers follows the scope selector', () => {
     expect(obj(await answer('providerWizard', [true, 1, 'claudeAgent', true, 'Work', false, '', 0, 'add', '', 'env2'], null, files, native)).environment).toBe('LAN box');
     await answer('acpRegistry', ['', true, 0, 'env2'], null, files, native);
     expect(native.calls.filter(call => obj(call).method === 'server.searchAcpRegistry').map(call => call.fleet ?? 'focused')).toEqual([KEY]);
-    await answer('providerAdd', ['claudeAgent', 'Work', '', '', '', '', '', '', '', 'env2'], null, files, native);
+    await answer('providerAdd', ['claudeAgent', 'Work', '', '', [], 'env2', []], null, files, native);
     expect(Object.keys(obj(obj(second.config.settings).providerInstances))).toContain('claudeAgent_work');
     expect(native.calls.filter(call => obj(call).method === 'server.updateSettings').map(call => call.fleet ?? 'focused')).toEqual([KEY, KEY]);
   });
@@ -170,7 +171,7 @@ test('provider mutation sources return the complete Change shape without request
     ['providerChange', ['setup:chatgpt-connect', 'codex', '', '', '']],
     ['providerChange', ['setup:auth-start', 'codex', '', '', '']],
     ['providerChange', ['provider-enabled', 'codex', '', 'false', '']],
-    ['providerAdd', ['codex', 'Work', '', '', '', '', '', '', '', '']],
+    ['providerAdd', ['codex', 'Work', '', '', [], '', []]],
     ['command', ['endpoint-default', '', 'tailscale:ip:http', 0]],
   ] satisfies [string, unknown[]][]) {
     const result = obj(await answer(source, args, null, files, null));
@@ -180,4 +181,33 @@ test('provider mutation sources return the complete Change shape without request
     expect(typeof result.message).toBe('string');
     expect(typeof result.revision).toBe('number');
   }
+});
+
+
+test('settings-only fleet sessions save model preferences and project overrides without provider administration', async () => {
+  const { second, native, files } = servers();
+  await answer('snapshot', [], null, files, native);
+  obj(second.config.environment).capabilities = { projectProviderInstanceOverrides: true };
+  background(second);
+  const entry = fleet.entries.get(KEY)!;
+  entry.scopes = ['orchestration:read', 'settings:write'];
+  const view = await page(native, files, 'env2');
+  expect(view).toMatchObject({ writable: false, settingsWritable: true });
+  await answer('providerChange', ['favorite-model', 'codex', 'gpt-6-luna', '', 'env2'], null, files, native);
+  await answer('providerChange', ['provider-model-hide', 'codex', 'gpt-6-luna', 'true', 'env2'], null, files, native);
+  await answer('providerChange', ['provider-enabled', 'codex', '', 'false', 'env2', '["p2"]'], null, files, native);
+  expect(obj(second.config.settings)).toMatchObject({ favorites: [{ provider: 'codex', model: 'gpt-6-luna' }],
+    projectSettingsOverrides: { p2: { providerInstances: { codex: { enabled: false } } } } });
+  expect(native.remote('request').filter(call => call.method === 'server.updateSettings').map(call => obj(call.payload).patch)).toContainEqual({ setModelsHidden: [{ provider: 'codex', model: 'gpt-6-luna', hidden: true }] });
+  const count = native.remote('request').filter(call => call.method === 'server.updateSettings').length;
+  await answer('providerChange', ['provider-enabled', 'codex', '', 'false', 'env2'], null, files, native);
+  expect(native.remote('request').filter(call => call.method === 'server.updateSettings')).toHaveLength(count);
+  expect(obj(obj(obj(second.config.settings).providerInstances).codex).enabled).toBe(true);
+  const catalog = obj(await answer('modelCatalog', ['', '', 0, 'task-model:|env2|codex:gpt-6-luna'], null, files, native));
+  expect(catalog.favoriteWritable).toBe(true);
+  entry.scopes = ['orchestration:read', 'providers:manage'];
+  expect((await page(native, files, 'env2'))).toMatchObject({ writable: true, settingsWritable: false });
+  expect(obj(await answer('modelCatalog', ['', '', 0, 'task-model:|env2|codex:gpt-6-luna'], null, files, native)).favoriteWritable).toBe(false);
+  await answer('providerChange', ['provider-model-hide', 'codex', 'gpt-6-luna', 'false', 'env2'], null, files, native);
+  expect(native.remote('request').filter(call => call.method === 'server.updateSettings')).toHaveLength(count);
 });

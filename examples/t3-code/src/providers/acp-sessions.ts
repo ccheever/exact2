@@ -1,3 +1,4 @@
+import { providerWritable } from './provider-permissions';
 // ACP agent management on a provider's card, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
 // apps/web/src/components/settings/AcpSessionManagementSection.tsx:41-569 (Native sessions: list,
 // Load more, Import, Delete, Log out; Agent providers: list, protocol, base URL, write-only
@@ -53,7 +54,7 @@ export function acpSectionView(host: AcpHost, instanceId: string, provider: Obj 
   if (!provider || provider.driver !== 'acpRegistry') return [];
   const can = acpCapabilities(provider);
   if (!can.canList && !can.canLogout && !can.canConfigureProviders) return [];
-  const projects = acpProjects(host), state = stateOf(host, instanceId, projects), readOnly = !host.writable;
+  const projects = acpProjects(host), state = stateOf(host, instanceId, projects), readOnly = !providerWritable(host);
   const projectOperationPending = state.loading || state.importingSessionId !== null || state.deletingSessionId !== null || state.loadingProviders || state.savingProviderId !== null;
   const projectTitle = str(projects.find(project => project.id === state.projectId)?.title);
   const pickerOptions = projects.map(project => ({ value: str(project.id), label: str(project.title), note: '', selected: project.id === state.projectId }));
@@ -93,7 +94,7 @@ export function acpSectionView(host: AcpHost, instanceId: string, provider: Obj 
 /** The "Continue authentication" block (ProviderInstanceCard.tsx:994-1011); hidden for a read-only session (onAcceptUrlAuth is undefined there). */
 export function urlAuthView(host: AcpHost, provider: Obj | undefined) {
   const action = obj(obj(provider?.auth).action);
-  if (!host.writable || !str(action.elicitationId) || !str(action.url)) return [];
+  if (!providerWritable(host) || !str(action.elicitationId) || !str(action.url)) return [];
   return [{ key: str(action.elicitationId), elicitationId: str(action.elicitationId), url: str(action.url), message: str(action.message) }];
 }
 
@@ -109,7 +110,7 @@ export async function acpOp(host: AcpHost, native: Native, what: string, id: str
   const projects = acpProjects(host), state = stateOf(host, id, projects), projectId = state.projectId;
   const reportFailure = (title: string, error: unknown) => { if (letGo(error)) return; toast({ kind: 'error', title, description: failureMessage(error, 'The ACP operation failed.') }); };
   const call = (method: string, payload: Obj) => host.rpc(native, method, payload, true);
-  const readOnly = !host.writable;
+  const readOnly = !providerWritable(host);
   switch (what) {
     case 'project': {
       if (readOnly || state.loading || state.importingSessionId !== null || state.deletingSessionId !== null || state.loadingProviders || state.savingProviderId !== null) return;
@@ -225,7 +226,7 @@ export async function acpOp(host: AcpHost, native: Native, what: string, id: str
 }
 
 async function loadProviders(host: AcpHost, native: Native, id: string, state: State, reportFailure: (title: string, error: unknown) => void): Promise<void> {
-  if (!host.writable || state.projectId === null || state.loadingProviders) return;
+  if (!providerWritable(host) || state.projectId === null || state.loadingProviders) return;
   state.loadingProviders = true;
   try {
     const result = await host.rpc(native, 'server.listAcpRegistryProviders', { instanceId: id, projectId: state.projectId }, true);

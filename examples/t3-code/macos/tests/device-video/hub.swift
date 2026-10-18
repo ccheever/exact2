@@ -21,6 +21,7 @@ final class Hub {
     var onSocket: ((String, NWConnection) -> Void)?
     /// Answer upgrades with 401, as the proxy does for a spent ticket.
     var refuseSockets = false
+    var admitIosInput = true
 
     init() throws {
         listener = try NWListener(using: .tcp, on: .any)
@@ -57,6 +58,7 @@ final class Hub {
                 let accept = Data(Insecure.SHA1.hash(data: Data((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").utf8))).base64EncodedString()
                 connection.send(content: Data("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: \(accept)\r\n\r\n".utf8), completion: .idempotent)
                 self.sockets.append((path, connection))
+                if self.admitIosInput && path.contains("/helper/ws") { self.push("/helper/ws", Data([0x83])) }
                 self.readFrames(connection, path, Data(buffer[end.upperBound...]))
                 self.onSocket?(path, connection)
                 return

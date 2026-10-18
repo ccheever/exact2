@@ -157,7 +157,7 @@ export function priceTargets(client: Pick<T3Client, 'environmentId' | 'config' |
     aliases: capabilities.usageModelAliases === true && settings ? record<string>(settings.usageModelAliases) : null,
     unavailable: client.connection !== 'connected' || !client.ready ? 'Offline' : !settings ? 'Prices not loaded'
       : capabilities.usagePriceOverrides !== true ? 'Update server to edit prices'
-      : client.scopes.length && !client.scopes.includes('settings:write') ? 'Read-only access' : null,
+      : !client.scopes.includes('settings:write') ? 'Read-only access' : null,
   }];
 }
 

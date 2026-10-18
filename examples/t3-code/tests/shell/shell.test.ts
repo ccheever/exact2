@@ -11,7 +11,7 @@ import type { Files, Native } from '../../src/client/protocol';
 
 const prefs = (extra: Obj = {}) => ({ notificationMode: 'off', inAppNotificationsEnabled: false, confirmThreadArchive: false, confirmThreadDelete: true, confirmThreadUnpin: false, ...extra });
 function fakeClient(extra: Obj = {}): T3Client {
-  return { threadId: '', projectId: '', ready: true, environmentId: 'env', connection: 'connected', shell: { threads: [], projects: [] },
+  return { scopes: ['filesystem:read', 'preview:operate', 'terminal:read', 'terminal:operate'], threadId: '', projectId: '', ready: true, environmentId: 'env', connection: 'connected', shell: { threads: [], projects: [] },
     config: { environment: { capabilities: {} } }, local: { clientSettings: prefs(), deviceSettings: { timestampFormat: '24-hour' } }, ...extra } as unknown as T3Client;
 }
 

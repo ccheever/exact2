@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // Ports of the reference tests for the install-aware update command and the standard scopes
 // (T3 Code MIT, see LICENSE-T3; 1e2ecbd975: apps/web/src/versionSkew.test.ts,
 // apps/web/src/components/ServerUpdateAction.test.tsx, packages/contracts/src/environment.test.ts).
@@ -103,7 +104,7 @@ describe('ServerUpdateAction', () => {
   test('keeps the manual instruction for desktop servers without remote update support', () => {
     expect(desktopManagedOnly({ serverSelfUpdate: 'desktop-managed' })).toBe(true);
     expect(desktopManagedOnly({ serverSelfUpdate: 'desktop-managed', desktopAppUpdate: true })).toBe(false);
-    const host = (capabilities: Obj): ConnectionHost => ({ connection: 'connected', origin: 'http://127.0.0.1:16140', environmentId: 'env-a', statusMessage: '', scopes: [],
+    const host = (capabilities: Obj): ConnectionHost => ({ connection: 'connected', origin: 'http://127.0.0.1:16140', environmentId: 'env-a', statusMessage: '', scopes: [...AUTH_STANDARD_CLIENT_SCOPES],
       config: { environment: { label: 'Box', serverVersion: '0.0.40', capabilities } } });
     const saved = [{ origin: 'http://127.0.0.1:16140', environmentId: 'env-a', label: 'Box', enabled: true }];
     fleet.entries.clear();

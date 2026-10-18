@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // Settings → General's New threads › Model and Text generation model open
 // the composer's ProviderModelPicker (model-catalog.ts) over the settings scope, at T3 Code
 // 1e2ecbd975: ProjectDefaultsSettings.tsx, SettingsPanels.tsx, ModelPickerContent.tsx and
@@ -28,7 +29,7 @@ const pickerOpen = { type: 'identifier', name: 'modelPickerOpen' };
 /** The focused environment ("Studio") with Codex, Claude and Cursor; a Fake transport answers settings reads and writes. */
 function client(settings: Obj = {}) {
   const c = new T3Client();
-  Object.assign(c, { connection: 'connected', configLive: true, shellLive: true, threadLive: true, generation: 1, environmentId: 'env-a', origin: 'http://127.0.0.1:16800', scopes: ['orchestration:read', 'orchestration:operate'] });
+  Object.assign(c, { connection: 'connected', configLive: true, shellLive: true, threadLive: true, generation: 1, environmentId: 'env-a', origin: 'http://127.0.0.1:16800', scopes: [...AUTH_STANDARD_CLIENT_SCOPES] });
   c.config = { environment: { environmentId: 'env-a', label: 'Studio', capabilities }, providers: [codex, claude, cursor],
     keybindings: [binding('1', 'modelPicker.jump.1', pickerOpen), binding('2', 'modelPicker.jump.2', pickerOpen)], settings: { projectSettingsOverrides: {}, ...settings } };
   c.shell = applyShell(initialShell(), { snapshotSequence: 1, projects: [{ id: 'pa', title: 'App', workspaceRoot: '/a/app', repositoryIdentity: { canonicalKey: 'github.com/acme/app' } }], threads: [] });
@@ -51,7 +52,7 @@ class Fake implements Native {
 function entry(key: string, environmentId: string, label: string, providers: Obj[]): FleetEntry {
   const shell = applyShell(initialShell(), { snapshotSequence: 1, projects: [{ id: `p-${environmentId}`, title: 'App', workspaceRoot: `/b/${environmentId}`, repositoryIdentity: { canonicalKey: 'github.com/acme/app' } }], threads: [] });
   return { key, origin: key.split('\n')[0]!, environmentId, phase: 'connected', message: '', traceId: '', generation: 3, synchronized: 3, lastEvent: 0, subscriptions: {},
-    config: { environment: { environmentId, label, capabilities }, providers, settings: { projectSettingsOverrides: {} } }, shell, scopes: [], error: '', requested: true };
+    config: { environment: { environmentId, label, capabilities }, providers, settings: { projectSettingsOverrides: {} } }, shell, scopes: [...AUTH_STANDARD_CLIENT_SCOPES], error: '', requested: true };
 }
 const B = 'http://127.0.0.1:16801\nenv-b';
 beforeEach(() => { fleet.entries.clear(); fleet.saved = []; });

@@ -1,4 +1,4 @@
-// providerSkills.ts and ChatComposer workspace refresh (T3 Code 1e2ecbd975).
+// providerSkills.ts and ChatComposer workspace refresh (T3 Code 9c161462c9).
 // Root Contract actions own the 10-second completion-based retry clock; this
 // module owns snapshot completeness and stale-response/single-flight guards.
 // ChatComposer.tsx:2195-2268: only a pending snapshot (`slashCommandsPending`)
@@ -7,6 +7,11 @@
 // list or the settings change. `wake` counts those changes for the root.
 import { arr, str, type Obj } from '../client/domain';
 
+export const PROVIDER_WORKSPACE_SNAPSHOT_TTL_MS = 5 * 60_000;
+export function hasCurrentProviderWorkspaceSnapshot(provider: Obj | undefined, cwd: string, now: number): boolean {
+  const snapshot = cwd && arr(provider?.workspaceSnapshots).find(entry => str(entry.cwd) === cwd);
+  return !!snapshot && !snapshot.slashCommandsPending && now - Date.parse(str(snapshot.checkedAt)) < PROVIDER_WORKSPACE_SNAPSHOT_TTL_MS;
+}
 export function hasCompleteProviderWorkspaceSnapshot(provider: Obj | undefined, cwd: string): boolean {
   const snapshot = cwd && arr(provider?.workspaceSnapshots).find(entry => str(entry.cwd) === cwd);
   return !!snapshot && !snapshot.slashCommandsPending;
@@ -21,7 +26,7 @@ export type WorkspaceRefresh = { key: string; retry: boolean; wake: number };
 /** What re-runs the reference's refresh effect: the prompt, and the provider list or settings (one object, replaced on change). */
 export type WorkspaceWake = { prompt: string; config: unknown };
 const pendingSnapshot = (provider: Obj, cwd: string) => arr(provider.workspaceSnapshots).some(entry => str(entry.cwd) === cwd && entry.slashCommandsPending === true);
-type Attempt = { key: string; instanceId: string; cwd: string; complete: boolean; observedComplete: boolean; flight: Promise<WorkspaceRefresh> | null };
+type Attempt = { key: string; instanceId: string; cwd: string; complete: boolean; observedComplete: boolean; requestedAt: number | undefined; flight: Promise<WorkspaceRefresh> | null };
 export class WorkspaceDiscovery {
   private attempts = new Map<string, Attempt>();
   private serial = 0;
@@ -29,13 +34,15 @@ export class WorkspaceDiscovery {
   private seen: WorkspaceWake | null = null;
   private wake = 0;
   private shown = true;
+  private now: number | undefined;
 
   /**
    * `shown`: whether ChatComposer is mounted. The reference mounts it on a thread's chat view only, so
    * Settings, the Usage and Pull Requests pages and the welcome stop its refreshes, and mounting it again
    * starts its refs over (a fresh attempt, refreshed at once when the snapshot is incomplete).
    */
-  state(environment: string, generation: number, provider: Obj, cwd: string, wake: WorkspaceWake = { prompt: '', config: provider }, shown = this.shown): WorkspaceReadiness {
+  state(environment: string, generation: number, provider: Obj, cwd: string, wake: WorkspaceWake = { prompt: '', config: provider }, shown = this.shown, now = this.now): WorkspaceReadiness {
+    this.now = now;
     if (this.seen && (this.seen.prompt !== wake.prompt || this.seen.config !== wake.config)) this.wake++;
     this.seen = wake;
     if (shown && !this.shown) this.attempts.clear();
@@ -44,11 +51,12 @@ export class WorkspaceDiscovery {
     if (!shown || !environment || !instanceId || !cwd) { this.selected = undefined; return { key: '', needed: false, timer: false, wake: this.wake }; }
     const base = JSON.stringify([environment, generation, instanceId, cwd]);
     let attempt = this.attempts.get(base);
-    const complete = hasCompleteProviderWorkspaceSnapshot(provider, cwd);
+    const complete = now === undefined ? hasCompleteProviderWorkspaceSnapshot(provider, cwd) : hasCurrentProviderWorkspaceSnapshot(provider, cwd, now);
+    const recent = attempt?.requestedAt !== undefined && now !== undefined && now - attempt.requestedAt < PROVIDER_WORKSPACE_SNAPSHOT_TTL_MS;
     // A reset replaces the attempt, including its key: an older RPC's answer
     // cannot mark the replacement complete or postpone its retry.
-    if (!attempt || (attempt.observedComplete && !complete)) {
-      attempt = { key: JSON.stringify([base, ++this.serial]), instanceId, cwd, complete: false, observedComplete: false, flight: null };
+    if (!attempt || (!recent && ((attempt.observedComplete && !complete) || (attempt.complete && !complete && now !== undefined)))) {
+      attempt = { key: JSON.stringify([base, ++this.serial]), instanceId, cwd, complete: false, observedComplete: false, requestedAt: undefined, flight: null };
       this.attempts.set(base, attempt);
     }
     attempt.observedComplete = complete;
@@ -63,6 +71,7 @@ export class WorkspaceDiscovery {
     // dispatch never sends an old workspace request through the new transport.
     if (!attempt || attempt.key !== key || attempt.complete) return { key, retry: false, wake: this.wake };
     if (attempt.flight) return attempt.flight;
+    attempt.requestedAt = this.now;
     const flight = (async () => {
       let complete = false;
       try {
@@ -72,6 +81,7 @@ export class WorkspaceDiscovery {
       // A config subscription may have supplied a complete snapshot while this
       // call was pending. Never replace that knowledge with an older partial reply.
       attempt.complete = attempt.complete || complete;
+      if (!attempt.complete) attempt.requestedAt = undefined;
       // Changes seen while the request was out do not wake a retry (the
       // reference's effect returns early while its key is claimed).
       return { key, retry: !attempt.complete, wake: this.wake };

@@ -41,7 +41,7 @@ export const SESSION_SLOTS = FLEET_LIMIT + 1;
 const FOCUSED = 'focused';
 
 /** The ops of the focused connection this transport answers (the rest are the module's). */
-const SESSION_OPS = new Set(['status', 'ids', 'connect', 'retry', 'disconnect', 'http', 'uploadAttachment', 'request', 'subscribe', 'unsubscribe', 'events', 'ack',
+const SESSION_OPS = new Set(['status', 'ids', 'connect', 'retry', 'disconnect', 'http', 'previewStreamAccess', 'uploadAttachment', 'request', 'subscribe', 'unsubscribe', 'events', 'ack',
   'readChunk', 'releaseChunk', 'environments', 'connectionPreferences', 'setConnectionPreferences', 'setEnvironmentEnabled', 'forgetEnvironment',
   'pairEnvironment', 'setRoutes', 'prDiff']);
 

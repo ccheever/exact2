@@ -1,3 +1,5 @@
+import { requirePermission } from './command-permissions';
+import { fleet, environmentKey } from './settings-b-fleet';
 // The shared server-update state of every environment (T3 Code MIT, see LICENSE-T3;
 // reference 9c161462c9: packages/client-runtime/src/state/server.ts ServerUpdateState,
 // serverUpdateStateAtom, serverUpdateStateForProgressEvent and updateServer;
@@ -239,7 +241,14 @@ export function awaitServerUpdate(target: ServerUpdateTarget, deps: UpdateDeps, 
 /** The deps over the native module and the client's toasts. */
 export function nativeUpdateDeps(native: Native, client: T3Client | null): UpdateDeps {
   return {
-    start: (key, request) => startUpdateJob(native, key, request),
+    start: (key, request) => {
+      if (client?.connection === 'connected' && key === environmentKey(client.origin, client.environmentId)) requirePermission(client.scopes, 'environment:maintain');
+      else {
+        const entry = fleet.entries.get(key);
+        if (entry?.phase === 'connected') requirePermission(entry.scopes, 'environment:maintain');
+      }
+      return startUpdateJob(native, key, request);
+    },
     copy: async text => { const reply = await bridgeReply(native, { op: 'copyText', text }); if (!reply.ok) throw new Error(reply.error!.message); },
     toast: toast => { if (client) pushToast(client, toast); },
   };

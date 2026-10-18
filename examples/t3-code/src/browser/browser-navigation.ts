@@ -25,7 +25,7 @@ import { browserHistory, formatRelativeTimeLabel, recentUrlLabel } from './brows
 import { discoveredServers, environmentHostname, getConfiguredPreviewUrls, preparedConnection, previewableServers, resolveDiscoveredServerUrl, watchDiscoveredServers } from './browser-targets';
 import {
   FILL_PREVIEW_VIEWPORT, PREVIEW_VIEWPORT_PRESETS, browserResponsiveViewportForToggle, browserViewportSettingKey, commitViewportAndAspectRatio, isValidViewport,
-  normalizeZoomFactor, resizeBrowserViewportFromRail, resizeFreeformViewport, resolveBrowserDeviceViewportArea, resolveBrowserDeviceViewportLayout, resolvePreviewViewport,
+  normalizeZoomFactor, nextZoomLevel, resizeBrowserViewportFromRail, resizeFreeformViewport, resolveBrowserDeviceViewportArea, resolveBrowserDeviceViewportLayout, resolvePreviewViewport,
   runBrowserViewportMutation, zoomLabel, type BrowserViewportResizeDirection,
 } from './browser-viewport';
 import { addBrowserSurface, browserHost, browserTabFavicon, effectiveNav, nativeTabs, openBrowserIn, type NativeTab } from './browser-surface';
@@ -104,7 +104,7 @@ function siteIcon(client: T3Client, url: string): { favicon: string; fallback: s
 }
 
 export function navigationView(client: T3Client, ref: ScopedThreadRef, runtimeId: string, tab: NativeTab | null, snapshot: PreviewSessionSnapshot | null, empty: boolean, at: number): BrowserNavigationView {
-  const state = nav(client), zoom = tabZoom(tab);
+  const state = nav(client), zoom = snapshot?.runtime === 'server' ? normalizeZoomFactor(snapshot.zoomFactor) : tabZoom(tab);
   if (at > 0) state.now = Math.max(state.now, at);
   const now = state.now;
   // ZoomIndicator: a change of the tab's zoom shows the pill; the first value it sees does not.
@@ -114,7 +114,7 @@ export function navigationView(client: T3Client, ref: ScopedThreadRef, runtimeId
   const viewport = viewportOf(snapshot);
   const preset = viewport._tag === 'preset' ? PREVIEW_VIEWPORT_PRESETS.find(candidate => candidate.id === viewport.presetId) : undefined;
   const view: BrowserNavigationView = {
-    ...emptyNavigationView(), zoomFactor: zoom, zoomLabel: zoomLabel(zoom), zoomSerial: state.zoomSerial.get(runtimeId) ?? 0, colorScheme: tabColorScheme(tab),
+    ...emptyNavigationView(), zoomFactor: zoom, zoomLabel: zoomLabel(zoom), zoomSerial: state.zoomSerial.get(runtimeId) ?? 0, colorScheme: snapshot?.runtime === 'server' ? snapshot.colorScheme ?? 'system' : tabColorScheme(tab),
     viewportMode: viewport._tag, viewportWidth: viewport._tag === 'fill' ? 0 : viewport.width, viewportHeight: viewport._tag === 'fill' ? 0 : viewport.height,
     viewportKey: browserViewportSettingKey(viewport), viewportSerial: state.viewportSerial.get(runtimeId) ?? 0, presetId: preset?.id ?? '', presetLabel: preset?.label ?? 'Responsive',
     aspectLocked: viewport._tag !== 'fill' && state.aspectLocked.has(runtimeId), keys: previewKeys(client),
@@ -147,7 +147,7 @@ async function commitViewport(client: T3Client, native: Native, ref: ScopedThrea
   try {
     if (!isValidViewport(setting)) throw new Error('The viewport must be 240 to 3,840 pixels a side and at most 3,840 × 2,160 in area.');
     await commitViewportAndAspectRatio(setting, locked === undefined ? null : locked ? 1 : null, next => runBrowserViewportMutation(runtimeId, async () => {
-      const snapshot = readSnapshot(await client.rpc(native, 'preview.resize', { threadId: ref.threadId, tabId, viewport: next }, true));
+      const snapshot = readSnapshot(await client.rpc(native, 'preview.resize', { threadId: ref.threadId, tabId, viewport: next }));
       if (snapshot) browserHost(client).store.updateServerSnapshot(ref, snapshot);
     }), ratio => { if (locked !== undefined) { if (ratio === null) state.aspectLocked.delete(runtimeId); else state.aspectLocked.add(runtimeId); } });
   } catch (error) {
@@ -180,8 +180,14 @@ export async function navigationLocal(client: T3Client, native: Native, surface:
   const ref = surface.browser ? parseScopedThreadKey(surface.browser.threadKey) : null;
   if (!ref || !surface.browser) return null;
   const tabId = surface.browser.tabId, { runtimeId, tab, snapshot } = effectiveNav(client, ref, tabId), history = browserHistory(client.local);
-  const viewport = viewportOf(snapshot), zoom = tabZoom(tab), locked = nav(client).aspectLocked.has(runtimeId);
+  const viewport = viewportOf(snapshot), zoom = snapshot?.runtime === 'server' ? normalizeZoomFactor(snapshot.zoomFactor) : tabZoom(tab), locked = nav(client).aspectLocked.has(runtimeId);
   const aspect = locked && viewport._tag !== 'fill' ? viewport.width / viewport.height : undefined;
+  if (snapshot?.runtime === 'server' && ['zoom-in', 'zoom-out', 'zoom-reset', 'color-scheme'].includes(op)) {
+    const change = op === 'color-scheme' ? (['system', 'light', 'dark'].includes(value) ? { colorScheme: value } : null)
+      : { zoomFactor: op === 'zoom-reset' ? 1 : nextZoomLevel(zoom, op === 'zoom-in' ? 'in' : 'out') };
+    if (change) { const answer = readSnapshot(await client.rpc(native, 'preview.adjust', { threadId: ref.threadId, tabId, ...change })); if (answer) browserHost(client).store.applyServerSnapshot(ref, answer); }
+    return '';
+  }
   switch (op) {
     case 'open-url': {
       // handleOpenServerUrl (a Recently used row or a Local server): the server's address resolved for this environment; history keeps the requested one.

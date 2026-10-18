@@ -17,16 +17,19 @@ export function letGoAbort(error: unknown): boolean {
   return fields.name === 'FetchError' && fields.kind === 'Aborted';
 }
 
-/** A failure as the native bridge reported it (`{kind, message, uncertain, reason, detail}`). */
+/** A failure as the native bridge reported it (`{kind, message, uncertain, reason, detail, context}`). */
 export class TransportFailure extends Error {
-  constructor(readonly kind: string, message: string, readonly uncertain = false, readonly reason = '', readonly detail = '') {
+  constructor(readonly kind: string, message: string, readonly uncertain = false, readonly reason = '', readonly detail = '', readonly context: Record<string, string> = {}) {
     super(message);
   }
-  json() { return { kind: this.kind, message: this.message, uncertain: this.uncertain, reason: this.reason, detail: this.detail }; }
+  json() { return { kind: this.kind, message: this.message, uncertain: this.uncertain, reason: this.reason, detail: this.detail, ...(Object.keys(this.context).length ? { context: this.context } : {}) }; }
   with(fields: { message?: string; uncertain?: boolean }) {
-    return new TransportFailure(this.kind, fields.message ?? this.message, fields.uncertain ?? this.uncertain, this.reason, this.detail);
+    return new TransportFailure(this.kind, fields.message ?? this.message, fields.uncertain ?? this.uncertain, this.reason, this.detail, this.context);
   }
 }
+
+/** A typed error's context fields a client reads (ProjectReadFileError's failure, operation and the paths it tried). */
+const CONTEXT_FIELDS = ['failure', 'operation', 'cwd', 'relativePath', 'resolvedPath', 'operationPath'];
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown) => typeof value === 'string' ? value : '';
@@ -140,7 +143,8 @@ function typed(value: unknown): TransportFailure {
   if (!message && field('detail')) message = field('detail');
   if (!message && 'cause' in value) message = failure(value.cause).message;
   if (!message || message === 'The server request failed.') message = `The server refused the request (${tag}).`;
-  return new TransportFailure(tag, message, false, field('reason'), field('detail'));
+  const context = tag === 'ProjectReadFileError' ? Object.fromEntries(CONTEXT_FIELDS.filter(key => text(value[key])).map(key => [key, text(value[key])])) : {};
+  return new TransportFailure(tag, message, false, field('reason'), field('detail'), context);
 }
 
 // MARK: Addresses

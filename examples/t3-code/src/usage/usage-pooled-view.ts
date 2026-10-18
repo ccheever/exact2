@@ -1,12 +1,12 @@
-// The pooled Limits view as data for usage-pooled.contract, T3 Code 1e2ecbd975 (MIT, see
+// The pooled Limits view as data for usage-pooled.contract, T3 Code 9c161462c9 (MIT, see
 // LICENSE-T3): apps/web/src/components/usage/UsageLimitsPooled.tsx (UsageLimitsPooled, PoolSection,
 // PoolWindowCard, PoolBar, PoolSegment, LegendRow, SegmentPopover, RedeemableSegmentPopup,
-// AccountAvatar, AccountName, AccountChip, LimitNotices) and UsagePage.tsx (CursorEnableLimits,
-// CursorEnableRow). Changes: Contract has no container query, so the bar's `@2xl/pool` width
+// AccountAvatar, AccountName, AccountChip, LimitNotices), UsageLimits.tsx (UsageLimitsSection's
+// provider filter) and UsagePage.tsx (CursorEnableLimits, CursorEnableRow). Changes: Contract has no container query, so the bar's `@2xl/pool` width
 // (42rem) is worked out here from the page's layout (`poolBarWidth`); the popover's side is the one the reference lands on after its
 // collision flip on an unscrolled page (`popoverSides`: below a bar too near the page's top for the
 // popover, above every other; exact2 #112); every figure and word is otherwise the reference's.
-import { arr, str } from '../client/domain';
+import { arr, str, type Obj } from '../client/domain';
 import { driverMeta } from '../providers/providers-meta';
 import { resolveOfficialAcpRegistryIconUrl } from '../providers/acp-icons';
 import { PACE_LABEL, barColor, formatResetsIn, remainingPercent } from './usage-limits';
@@ -82,15 +82,29 @@ function segmentView(state: UsageState, id: string, account: LimitAccount, windo
   };
 }
 
-/** Everything UsageLimitsPooled draws for the selected environments at the page's limits clock. */
-export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[], layout: { barWidth: number; format: string; md: boolean }) {
-  const now = state.limitsNow;
-  const presentations = new Map<string, LimitPresentation>(selectedConnected(state).map(env => [env.id, { entry: { target: { label: env.label } }, serverConfig: env.config }]));
+/**
+ * UsageLimitsSection: hidden drivers leave both native accounts and hub accounts, so their bars, notices and
+ * external links all drop out together. A hub left with no visible accounts is dropped, not reported as empty.
+ */
+export function withoutDrivers(config: Obj | null, hidden: ReadonlySet<string>): Obj | null {
+  if (hidden.size === 0 || config === null) return config;
+  const visible = (entry: Obj) => !hidden.has(str(entry.driver));
+  return { ...config, providers: arr(config.providers).filter(visible),
+    ...(Array.isArray(config.usageLimitSources) ? { usageLimitSources: arr(config.usageLimitSources).flatMap(source => {
+      const accounts = arr(source.accounts).filter(visible);
+      return accounts.length === 0 && arr(source.accounts).length > 0 ? [] : [{ ...source, accounts }];
+    }) } : {}) };
+}
+
+/** Everything UsageLimitsPooled draws for the selected environments at the page's limits clock, less the hidden drivers. */
+export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[], layout: { barWidth: number; format: string; md: boolean; hiddenDrivers?: ReadonlySet<string> }) {
+  const now = state.limitsNow, hidden = layout.hiddenDrivers ?? new Set<string>();
+  const presentations = new Map<string, LimitPresentation>(selectedConnected(state).map(env => [env.id, { entry: { target: { label: env.label } }, serverConfig: withoutDrivers(env.config, hidden) }]));
   const pools = collectLimitPools(collectLimitAccounts(presentations), now);
   const notices = collectLimitNotices(presentations);
   const links = collectExternalUsageLinks(presentations);
   const selectedStatuses = statuses.filter(status => status.connected && presentations.has(status.environmentId));
-  const cursorEnvironments = cursorKeychainAccessEnvironments(selectedStatuses);
+  const cursorEnvironments = hidden.has('cursor') ? [] : cursorKeychainAccessEnvironments(selectedStatuses);
   const cursorPromptAt = Math.max(pools.findIndex(pool => pool.driver === 'codex'), pools.findIndex(pool => pool.driver === 'claudeAgent')) + 1;
   const wide = layout.barWidth >= POOL_WIDE;
   state.segments = new Map();

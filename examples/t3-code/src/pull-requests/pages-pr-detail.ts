@@ -1,3 +1,4 @@
+import { checkoutCommand, sourceControlHostName } from '../shared/source-control-hosts';
 import { sharedPullRequestSummary } from './pages-pr-shared';
 // The pull request detail panel: pullRequests.detail and
 // .activity read for the selected row, presented as PullRequestDetailPanel's
@@ -16,7 +17,7 @@ import { sharedPullRequestSummary } from './pages-pr-shared';
 // (pages-pr-refresh.ts), Refresh, the live-refresh interval or an arrival — reads while the last
 // detail stays on screen; the activity reads again when the server announced a change, on
 // Refresh, or when the detail's `updatedAt` moved (shouldRefreshPullRequestActivity).
-import { diffSchemeOf, markdownEnv, type ChipView } from '../timeline/message-chips';
+import { diffSchemeOf, markdownEnv, type MarkdownEnv } from '../timeline/message-chips';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
@@ -104,7 +105,7 @@ export function emptyDetail() {
     canEdit: false, canClose: false, canReopen: false, canDraft: false, canReady: false, canMerge: false, canUpdateBranch: false, canReview: false, canLabel: false,
     projectId: '', host: '', hostName: 'GitHub', linkMenu: '', linkOpenLabel: '', code: [] as { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }[],
     // Settings → Appearance code font, size and word wrap for the Markdown.
-    md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [] as ChipView[], runCommands: [] as string[] }, diffScheme: 'red-green',
+    md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [] } as MarkdownEnv, diffScheme: 'red-green',
     // The header's primary control, the More menu, the dialogs, the base branch's mark, the stack.
     actions: emptyActions(),
     // Which hand-off is preparing, whether the pull request can be checked out, whose it is beside a thread.
@@ -264,7 +265,7 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
       view.phase = 'ghost'; view.loading = true; view.ghost = ghostOf(listEntry, now);
       // loadingPullRequestCheckoutCommand: a GitHub reference already names its checkout.
       const identity = obj(client.shell.projects.find(project => project.id === selection.projectId)?.repositoryIdentity);
-      if (identity.provider === 'github' || selection.host.toLowerCase() === 'github.com') view.checkoutCommand = `gh pr checkout ${selection.number}`;
+      view.checkoutCommand = checkoutCommand({ provider: str(identity.provider, selection.host.toLowerCase() === 'github.com' ? 'github' : ''), number: selection.number });
     }
     return view;
   }
@@ -356,10 +357,10 @@ export function presentDetail(view: PrDetailView, detail: Obj, activity: Obj | n
     phase: 'content', loading: false, number: num(detail.number), numberLabel: `#${num(detail.number)}`, title: str(detail.title), repository: str(detail.repository),
     url: str(detail.url), state, stateLabel: STATE_LABELS[state] ?? 'Open', conflict: conflictLabel(detail), author: author.login, authorAvatar: author.avatar, authorInitial: author.initial,
     updated: `updated ${relativeLabel(detail.updatedAt, now)}`, updatedAgo: relativeLabel(detail.updatedAt, now), filesCount: count(num(detail.changedFiles)),
-    checkoutCommand: str(detail.provider, 'github') === 'github' ? `gh pr checkout ${num(detail.number)}` : '', baseBranch: str(detail.baseBranch), headBranch: str(detail.headBranch),
+    checkoutCommand: checkoutCommand(detail), baseBranch: str(detail.baseBranch), headBranch: str(detail.headBranch),
     files: `${count(num(detail.changedFiles))} ${num(detail.changedFiles) === 1 ? 'file' : 'files'}`, additions: `+${count(num(detail.additions))}`, deletions: `-${count(num(detail.deletions))}`,
     checksSummary: summarizeChecks(checks), checksTone: checksTone(checks), projectId: str(detail.projectId), host: hostOf(str(detail.url)),
-    hostName: HOST_NAMES[str(detail.provider)] ?? 'GitHub',
+    hostName: sourceControlHostName(str(detail.provider, 'github')),
     linkMenu: `${str(detail.provider)} ${str(detail.url)}`, linkOpenLabel: openOnHostLabel(str(detail.provider)), // the number's menu (PrLinkMenu)
     activityPending: options.activityPending === true, activityError: options.activityError ?? '',
   });
@@ -413,7 +414,6 @@ export function gitHubPullRequestBrowserUrl(identity: Obj, repository: string, n
   if (!origin && !hostname) return '';
   try { const url = new URL(origin || `https://${hostname}`); url.pathname = `/${path.join('/')}/pull/${number}`; return url.toString(); } catch { return ''; }
 }
-const HOST_NAMES: Record<string, string> = { github: 'GitHub', gitlab: 'GitLab', bitbucket: 'Bitbucket', 'azure-devops': 'Azure DevOps', forgejo: 'Forgejo' };
 const hostOf = (url: string) => { try { return new URL(url).host; } catch { return ''; } };
 
 /** pages:pr-* writes, each against the selected pull request on its host. */

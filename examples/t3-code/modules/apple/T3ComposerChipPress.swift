@@ -148,7 +148,8 @@ final class T3ComposerChipPress {
         var value: [String: Any] = ["act": chip.kind == "context" ? styler.chipKind(chip) : chip.kind, "name": chip.label, "label": styler.displayLabel(chip)]
         if chip.kind == "mention" { value["path"] = chip.detail }
         if let path = styler.contextPath(chip), let slash = path.firstIndex(of: "/") { value["context"] = String(path[path.index(after: slash)...]) }
-        if chip.kind == "citation", let view = styler.view, chip.end <= (view.string as NSString).length { value["link"] = (view.string as NSString).substring(with: chip.range) }
+        if chip.kind == "citation", let view = styler.view, chip.end <= (view.string as NSString).length { value["link"] = (view.string as NSString).substring(with: chip.range)
+            value["start"] = chip.start }
         acted = value
         onChange()
     }
@@ -320,6 +321,7 @@ final class T3ComposerChipPress {
         if chip.kind == "citation", let view = styler.view, chip.end <= (view.string as NSString).length {
             // The chip's source link (its href carries the comment), the popover's anchor and the outside presses.
             value["link"] = (view.string as NSString).substring(with: chip.range)
+            value["start"] = chip.start
             value["anchor"] = anchor
             value["anchorFrame"] = anchor == "source" && !source.isEmpty ? source : trigger
             value["removeOnCancel"] = removeOnCancel

@@ -7,10 +7,11 @@ import type { Native, Files } from '../../src/client/protocol';
 
 // Upstream d1034d62b2: the diff panel opens on Changes (the branch since its base), not Uncommitted.
 const patch = 'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,1 +1,1 @@\n-one\n+two\n';
-function harness() {
+function harness(refused = false) {
   const calls: Obj[] = [];
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = obj(input); calls.push(request);
+    if (request.op === 'request' && request.method === 'review.getDiffPreview' && refused) return { ok: false, generation: 1, error: { kind: 'Server', message: 'Review diff preview cwd must stay within the configured workspace root.', uncertain: false } };
     if (request.op === 'request' && request.method === 'review.getDiffPreview') return { ok: true, generation: 1, value: { cwd: '/repo', sources: [
       { kind: 'working-tree', diff: '', truncated: false }, { kind: 'branch-range', diff: patch, truncated: false }] } };
     return { ok: true, generation: 1, value: {} };
@@ -20,10 +21,10 @@ function harness() {
     async atomicWriteFile(_path, bytes) { saved = new TextDecoder().decode(bytes); } } };
   const client = new T3Client();
   Object.assign(client, { available: true, generation: 1, connection: 'connected', environmentId: 'env', projectId: 'p1', threadId: 't1',
-    configLive: true, shellLive: true, threadLive: true, scopes: ['orchestration:read', 'orchestration:operate'], config: { environment: { capabilities: {} } } });
+    configLive: true, shellLive: true, threadLive: true, scopes: ['orchestration:read', 'orchestration:operate', 'filesystem:read'], config: { environment: { capabilities: {} } } });
   client.shell.projects = [{ id: 'p1', title: 'Fixture', workspaceRoot: '/repo' }];
   client.thread = { projection: { thread: { id: 't1' }, runtimeRequests: [], turnItems: [], runs: [], checkpoints: [] }, sequence: 0, historyCursor: null, hasMore: false, latestLocalTurnOrdinal: null };
-  return { client, command: (op: string, id = '', value = '') => client.command(op, id, value, 0, native, storage) };
+  return { client, calls, command: (op: string, id = '', value = '') => client.command(op, id, value, 0, native, storage) };
 }
 
 describe('Changes is the default diff scope', () => {
@@ -38,4 +39,14 @@ describe('Changes is the default diff scope', () => {
     await command('diff');
     expect(snapshot(client)).toMatchObject({ diffScope: 'branch', diffScopeLabel: 'Changes' });
   });
+});
+
+test('a refused project diff stays at its requested cwd and reports the error without a server-cwd retry', async () => {
+  const { client, calls, command } = harness(true);
+  client.config = { ...client.config, cwd: '/server-root' };
+  await command('diff');
+  const requests = calls.filter(call => call.op === 'request' && call.method === 'review.getDiffPreview');
+  expect(requests).toHaveLength(1);
+  expect(obj(requests[0]!.payload).cwd).toBe('/repo');
+  expect(client.diffError).toContain('configured workspace root');
 });

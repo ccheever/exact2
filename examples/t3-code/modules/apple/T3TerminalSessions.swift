@@ -32,6 +32,7 @@ final class T3TerminalSession {
     var status = "closed", error: String? = nil, version = 0, lifecycleVersion = 0
     var label = "", hasRunningSubprocess = false
     var streamId: String? = nil, attaching = false, failed = false
+    var readOnly = false
     var retained = false
     /// The link the current stream is opening or open on (the stream ends with that link's socket);
     /// nil once it ends or fails to open, so the status's `via` names only a stream the session has.
@@ -95,10 +96,15 @@ final class T3TerminalSessions {
 
     // MARK: Views
 
-    func bind(_ view: T3TerminalView, environment: String, thread: String, terminal: String, cwd: String, worktreePath: String, env: [String: String], providerInstance: String = "") -> T3TerminalSession {
+    func bind(_ view: T3TerminalView, environment: String, thread: String, terminal: String, cwd: String, worktreePath: String, env: [String: String], providerInstance: String = "", readOnly: Bool = false) -> T3TerminalSession {
         let key = Self.key(environment: environment, thread: thread, terminal: terminal)
         let session = sessions[key] ?? T3TerminalSession(key: key, environment: environment, threadId: thread, terminalId: terminal)
         sessions[key] = session
+        if session.readOnly != readOnly {
+            if let id = session.streamId { session.streamLink?.terminalDetach(id) }
+            session.streamId = nil; session.streamLink = nil; session.attaching = false
+        }
+        session.readOnly = readOnly
         session.cwd = cwd; session.worktreePath = worktreePath; session.env = env; session.providerInstance = providerInstance
         session.views.removeAll { $0.view == nil || $0.view === view }
         session.views.append(WeakView(view: view))
@@ -167,7 +173,8 @@ final class T3TerminalSessions {
         if !session.providerInstance.isEmpty { payload["providerInstanceId"] = session.providerInstance }
         // A closed terminal ID may be reused before queued delivery from its old stream drains.
         let key = session.key, generation = session.output.generation
-        link.terminalAttach(payload: payload, receive: { [weak self, weak session] values, acknowledge in
+        if session.readOnly { payload = ["threadId": session.threadId, "terminalId": session.terminalId] }
+        link.terminalAttach(payload: payload, readOnly: session.readOnly, receive: { [weak self, weak session] values, acknowledge in
             DispatchQueue.main.async {
                 if let self, let session, self.sessions[key] === session, session.output.generation == generation {
                     session.chunks += 1
@@ -257,7 +264,7 @@ final class T3TerminalSessions {
     /// The reference's client encodes the input first, so data over the bound is refused before anything
     /// is sent (a 70,000-character paste reads "Schema validation failed").
     func write(_ data: String, to session: T3TerminalSession, from view: T3TerminalView) {
-        guard !data.isEmpty else { return }
+        guard !session.readOnly, !data.isEmpty else { return }
         session.writes += 1
         if data.utf16.count > Self.maxWriteLength {
             session.writeFailures += 1
@@ -278,7 +285,7 @@ final class T3TerminalSessions {
 
     /// onResize → `terminal.resize`, latest-wins while one is in flight (cols 1–1000, rows 1–500).
     func resize(_ session: T3TerminalSession, cols: Int, rows: Int) {
-        guard sessions[session.key] === session, cols > 0, rows > 0 else { return }
+        guard !session.readOnly, sessions[session.key] === session, cols > 0, rows > 0 else { return }
         let size = (cols: min(cols, 1000), rows: min(rows, 500))
         session.desiredSize = size
         if session.resizing { session.pendingSize = size; return }

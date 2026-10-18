@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // The drawer of a draft and of a background environment's thread.
 // T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3) ChatView.tsx: a draft is the active thread under its own
 // `draftThread.threadId`, `toggleTerminalVisibility` opens its `term-1` in the project root, and the mounted drawers
@@ -19,6 +20,7 @@ const native = { available: true } as Native;
 
 function focusedClient() {
   const client = new Client();
+  Object.assign(client, { scopes: [...AUTH_STANDARD_CLIENT_SCOPES], connection: 'connected', configLive: true, shellLive: true, threadLive: true });
   const calls: Call[] = [], retains: string[][] = [];
   client.environmentId = 'env-a'; client.projectId = 'project-a'; client.threadId = '';
   client.shell.projects = [{ id: 'project-a', workspaceRoot: '/a' }];

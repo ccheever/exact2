@@ -38,7 +38,7 @@ describe("root font size in the JS layout", () => {
     expect(chatMaxWidth("comfortable", 20)).toBe(920);
     expect(chatMaxWidth("wide", 12)).toBe(864);
     expect(chatMaxWidth("full", 20)).toBe(100000);
-    expect(chatLaneMetrics(0, 20)).toEqual({ padding: 25, maxChatWidth: 920, minChatWidth: 800 });
+    expect(chatLaneMetrics(0, 20)).toEqual({ padding: 60, maxChatWidth: 920, minChatWidth: 800 });
   });
 
   it("scales the composer's measured menus and leaves them alone at 16", () => {

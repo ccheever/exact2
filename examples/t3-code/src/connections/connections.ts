@@ -28,6 +28,7 @@ import { configInstallation, desktopManagedOnly, manualUpdateCopy, serverUpdateA
 import { gitHubRoutingConnectionKey, routeHttpBaseUrl, savedRoutes, singleRouteKey, type ConnectionRoute } from './connection-routes';
 import { moveSavedRoute, placeRoute, removeSavedRoute, routeCountLabel, routeRows, routesTransportLabel, savedEntry, savedList } from './connection-routes-ops';
 import { letGo } from '../client/let-go';
+import { sessionPermissionRows } from './auth-scope-options';
 
 export interface ConnectionHost {
   connection: string; origin: string; environmentId: string; statusMessage: string; scopes: string[]; config: Obj;
@@ -192,10 +193,10 @@ export function savedRow(source: Source, index: number, ssh: Record<string, SshT
   const selfUpdate = str(capabilities.serverSelfUpdate);
   const lock = !Object.keys(source.config).length || !connected ? 'Connect to this environment to change its icon.'
     : capabilities.environmentIcon !== true ? "This environment's server is too old to keep an icon. Update it to choose one."
-      : source.scopes.length && !source.scopes.includes('settings:write') ? 'Your session on this environment cannot change its settings.' : '';
+      : !source.scopes.includes('settings:write') ? 'Your session on this environment cannot change its settings.' : '';
   const showUpdate = enabled && connected && mismatch !== null;
   // server-update.ts: a running update (the banner's or this row's) shows its progress here instead of the button.
-  const updateLabel = showUpdate && !desktopManagedOnly(capabilities) && !outdated.running
+  const updateLabel = source.scopes.includes('environment:maintain') && showUpdate && !desktopManagedOnly(capabilities) && !outdated.running
     ? serverUpdateActionLabel(selfUpdate, configInstallation(source.config)) : '';
   const kind = Object.keys(source.config).length ? machineKind(source.config) : machineKind({}, source.machine);
   const detected = str(obj(obj(source.config.environment).platform).machine);
@@ -214,6 +215,9 @@ export function savedRow(source: Source, index: number, ssh: Record<string, SshT
     // EnvironmentRoutesList: the route count control and the list under the row.
     routeCount: routeCountLabel(source.routes.length), routesLabel: `Routes to ${source.label}, preferred first`,
     routes: routeRows(source.environmentId, source.routes, source.activeRouteId, connected),
+    permissionsChecked: connected && Object.keys(source.config).length > 0,
+    permissionContext: source.routes.length > 1 ? 'These permissions apply to your active route. Other routes may have different permissions.' : 'These permissions apply to this client’s current connection.',
+    permissions: sessionPermissionRows(source.scopes),
   };
 }
 

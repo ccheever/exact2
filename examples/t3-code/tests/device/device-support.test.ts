@@ -1,6 +1,6 @@
 // T3 Code 1e2ecbd975 (5318d054a5) has no tests for this change; these pin the
 // ported rules: localPlatformsUnavailable (DeviceSetup.tsx, IntegrationsSettings.tsx)
-// and the Integrations row's reveal (platformsRevealed).
+// and the Integrations row's reveal (platformsRevealed, counting remote hosts since d10969557e).
 import { describe, expect, it } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
@@ -39,6 +39,15 @@ describe('Simulator support row (DeviceIntegrationControls platformsRevealed)', 
     expect(simulatorSupportRows(owner, 'env', true, state('starting', [host('local', [true, true])]), 1).length).toBe(1);
     expect(simulatorSupportRows(owner, 'env', false, state('disabled', [host('local', [true, true])]), 1)).toEqual([]);
     expect(simulatorSupportRows(owner, 'env', true, state('starting', [host('local', [true, true])]), 1)).toEqual([]);
+  });
+
+  it('reveals for a ready remote host while this machine idles, and names it', () => {
+    const remote: Obj = { ...state('idle', []), hostStatuses: { ssh: { status: 'ready' } } };
+    remote.hosts = [host('local', [false, true]), { ...host('ssh', [true, false]), label: 'Mac Mini' }];
+    remote.devices = [{ hostId: 'ssh', id: 'iphone', platform: 'ios' }];
+    const [row] = simulatorSupportRows(client(), 'env', true, remote, 1);
+    expect(row.disabled).toBe(false);
+    expect(row.platforms[0]).toMatchObject({ ready: true, message: 'Xcode and iOS Simulator are available on Mac Mini.' });
   });
 
   it('names the inspected environment when several are connected', () => {

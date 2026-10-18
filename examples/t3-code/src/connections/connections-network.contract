@@ -92,7 +92,15 @@ shape NetReveal
   rows: number
   qr: bool
   cells: QrCell[]
+shape PairingScopeOption
+  scope: string
+  title: string
+  description: string
+  index: number
+  readOnly: bool
+
 shape NetworkView
+  scopeOptions: PairingScopeOption[]
   visible: bool
   loading: bool
   networkOn: bool

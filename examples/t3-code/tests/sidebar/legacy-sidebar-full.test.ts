@@ -57,7 +57,7 @@ interface Rig { client: T3Client; native: Native; ops: Obj[]; rpcs: { method: st
 function rig(options: { threads?: Obj[]; projects?: Obj[]; threadId?: string; settings?: Obj; failOpen?: boolean; caps?: Obj; presentation?: Obj; editorApplies?: boolean } = {}): Rig {
   const client = new T3Client(), ops: Obj[] = [], rpcs: { method: string; payload: Obj }[] = [], opened: string[] = [], drafts: string[] = [];
   let ids = 0;
-  Object.assign(client, { loaded: true, connection: 'connected', origin: 'http://127.0.0.1:16562', configLive: true, shellLive: true, threadLive: true, scopes: ['orchestration:operate'], presentation: options.presentation ?? {} });
+  Object.assign(client, { loaded: true, connection: 'connected', origin: 'http://127.0.0.1:16562', configLive: true, shellLive: true, threadLive: true, scopes: ['orchestration:read', 'orchestration:operate'], presentation: options.presentation ?? {} });
   client.environmentId = 'local'; client.threadId = options.threadId ?? 'thread-1'; client.projectId = 'p1';
   client.shell = { projects: options.projects ?? [{ id: 'p1', title: 'App', workspaceRoot: '/work/app', repositoryIdentity: repo, createdAt: at(0), updatedAt: at(0) }], threads: options.threads ?? [thread('thread-1'), thread('thread-2', { pullRequests: linked() })], sequence: 1 };
   client.config = { environment: { label: 'This Mac', capabilities: { pullRequests: true, threadPullRequests: true, threadVisitedTracking: true, serverResolvedCommandContext: true, ...(options.caps ?? {}) } }, settings: {}, providers: [], keybindings: [] };

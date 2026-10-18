@@ -27,13 +27,16 @@ const editOf = (detail: EditingSubject) => obj(obj(detail.capabilities).edit);
  */
 export function canEditPullRequestChangeRequest(detail: EditingSubject): boolean {
   if (editOf(detail).changeRequest !== true) return false;
-  const actions = obj(detail.viewerPermissions).actions;
+  const permissions = obj(detail.viewerPermissions);
+  if (typeof permissions.editChangeRequest === 'boolean') return permissions.editChangeRequest;
+  const actions = permissions.actions;
   return sameLogin(viewerOf(detail), str(obj(detail.author).login) || null) || (Array.isArray(actions) && actions.includes('merge'));
 }
 /** Whether this remark can be rewritten from here. A review's own summary is left out. */
-export function canEditPullRequestComment(detail: EditingSubject, comment: { author?: unknown; kind?: unknown }): boolean {
+export function canEditPullRequestComment(detail: EditingSubject, comment: { author?: unknown; kind?: unknown; canEdit?: unknown }): boolean {
   if (editOf(detail).comment !== true) return false;
   if (comment.kind !== 'issue-comment' && comment.kind !== 'review-comment') return false;
+  if (typeof comment.canEdit === 'boolean') return comment.canEdit;
   const author = comment.author === null || comment.author === undefined ? null : str(obj(comment.author).login) || null;
   return sameLogin(viewerOf(detail), author);
 }

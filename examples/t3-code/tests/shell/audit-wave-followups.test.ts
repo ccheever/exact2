@@ -28,7 +28,7 @@ function harness() {
   const storage: Files = { fs: { async mkdir() {}, async readFile() { throw new Error('missing'); }, async atomicWriteFile() {} } };
   const client = new T3Client();
   Object.assign(client, { available: true, generation: 1, connection: 'connected', environmentId: 'env', projectId: 'p1', threadId: 't1',
-    configLive: true, shellLive: true, threadLive: true, scopes: ['orchestration:read', 'orchestration:operate'],
+    configLive: true, shellLive: true, threadLive: true, scopes: ['orchestration:read', 'orchestration:operate', 'filesystem:read', 'terminal:read', 'terminal:operate', 'preview:operate'],
     config: { environment: { capabilities: { serverResolvedCommandContext: true } } } });
   client.shell.projects = [{ id: 'p1', title: 'Fixture', workspaceRoot: '/repo' }];
   client.shell.threads = [{ id: 't1', projectId: 'p1' }, { id: 't2', projectId: 'p1' }];

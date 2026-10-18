@@ -1,3 +1,4 @@
+import { requireRpcPermissions } from '../connections/command-permissions';
 // Settings › Projects over every environment (T3 Code 1e2ecbd975, MIT, see LICENSE-T3): ProjectSettingsPanel reads
 // useSettingsProjectGroups, the project groups of every environment, and writes each member through its own environment
 // (projectEnvironment.update / .delete with `member.environmentId`, the scoped settings per environment). Project
@@ -52,6 +53,7 @@ export function environmentClient(client: T3Client, environmentId: string, nativ
   if (!entry) throw new ClientError('That environment is no longer connected.');
   const call = async (request: Obj): Promise<Obj> => {
     if (!native?.available) throw new ClientError('That environment is no longer connected.');
+    requireRpcPermissions(entry.scopes, request);
     const generation = entry.generation;
     const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { ...request, generation });
     if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);
@@ -66,6 +68,7 @@ export function environmentClient(client: T3Client, environmentId: string, nativ
     config: { get: () => entry.config, set: (value: Obj) => { entry.config = value; source.revision++; } },
     shell: { get: () => entry.shell, set: (value: FleetEntry['shell']) => { entry.shell = value; source.revision++; } },
     ready: { get: () => true },
+    scopes: { get: () => entry.scopes },
     writable: { get: () => entry.scopes.includes('orchestration:operate') && capabilities().serverResolvedCommandContext === true },
     // T3Client's own reads and writes (`call`, `request`, `http`) go through the environment's transport too.
     call: { value: (_native: Native, value: Obj) => call(value) },

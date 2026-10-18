@@ -19,7 +19,7 @@ export type RestoredSurface =
   | { id: string; kind: 'device'; path: ''; line: 0; device?: DeviceTarget; title?: string }
   | { id: string; kind: 'pull-request'; path: ''; line: 0; pr: PrTarget }
   | { id: string; kind: 'attachment'; path: string; line: 0; attachment: AttachmentMeta };
-export type SurfaceEntry = { id: string; kind: string; path: string; line: number; pr?: unknown; attachment?: unknown; device?: unknown; title?: string; terminal?: unknown };
+export type SurfaceEntry = { id: string; kind: string; path: string; line: number; folderTrail?: unknown; pr?: unknown; attachment?: unknown; device?: unknown; title?: string; terminal?: unknown };
 export const RESTORED_KINDS = new Set(['terminal', 'diff', 'device', 'pull-request', 'attachment']);
 
 /** rightPanelStore's DeviceTabTarget, or nothing when malformed. */
@@ -71,7 +71,7 @@ export function keepRestored(surface: SurfaceEntry): RestoredSurface | null {
 
 /** A saved record's surface fields as read back (the raw entry, before keepRestored re-validates it). */
 export function readRestored(entry: Obj): SurfaceEntry {
-  return { id: str(entry.id), kind: str(entry.kind), path: str(entry.path), line: num(entry.line), pr: entry.pr, attachment: entry.attachment, device: entry.device, title: str(entry.title), terminal: entry.terminal };
+  return { id: str(entry.id), kind: str(entry.kind), path: str(entry.path), line: num(entry.line), folderTrail: entry.folderTrail, pr: entry.pr, attachment: entry.attachment, device: entry.device, title: str(entry.title), terminal: entry.terminal };
 }
 
 /** What the restored panel must do once it is in place: reopen the Diff's own panel and name the device. */

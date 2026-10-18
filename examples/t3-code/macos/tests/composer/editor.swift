@@ -98,6 +98,21 @@ final class EditorFixture {
 }
 
 final class ComposerEditorTests: XCTestCase {
+    func testPrefilledProviderAnswerStaysLiteralAndRestoresNormalDraftParsing() {
+        let fixture = EditorFixture()
+        _ = fixture.composer.perform(["op": "editorSync", "literal": true])
+        let text = "  **Keep** $imagegen [README.md](README.md)\n- [ ] literal task\n"
+        fixture.type(text)
+        let styler = fixture.composer.editor.styler
+        XCTAssertEqual(fixture.editor.string, text)
+        XCTAssertTrue(styler.chips.isEmpty)
+        XCTAssertTrue(styler.marks.isEmpty)
+        XCTAssertTrue(styler.tasks.isEmpty)
+        _ = fixture.composer.perform(["op": "editorSync", "literal": false])
+        XCTAssertFalse(styler.chips.isEmpty)
+        XCTAssertFalse(styler.marks.isEmpty)
+        XCTAssertEqual(fixture.editor.string, text)
+    }
     func testContextInsertionRetainsCaretAndSelectionAfterComposerBlur() {
         for blurred in [false, true] {
             for selecting in [false, true] {
@@ -142,7 +157,11 @@ final class ComposerEditorTests: XCTestCase {
         XCTAssertEqual(t("/mo"), T3ComposerTrigger(kind: "slash-command", query: "mo", start: 0, end: 3))
         XCTAssertEqual(t("a\n/plan"), T3ComposerTrigger(kind: "slash-command", query: "plan", start: 2, end: 7))
         XCTAssertNil(t("/model x"), "a space ends the command token")
-        XCTAssertNil(t("hello /x"), "a slash command opens a line")
+        XCTAssertEqual(t("hello /x"), T3ComposerTrigger(kind: "slash-command", query: "x", start: 6, end: 8))
+        XCTAssertEqual(t("Use\t/skill:review later", 17), T3ComposerTrigger(kind: "slash-command", query: "skill:review", start: 4, end: 17))
+        XCTAssertNil(t("Use/review"))
+        XCTAssertNil(t("https://example.com/review"))
+        XCTAssertNil(t("Use /review "))
         XCTAssertEqual(t("see #12"), T3ComposerTrigger(kind: "pull-request", query: "12", start: 4, end: 7))
         XCTAssertEqual(t("#"), T3ComposerTrigger(kind: "pull-request", query: "", start: 0, end: 1))
         XCTAssertNil(t("#-x"))

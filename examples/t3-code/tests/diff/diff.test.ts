@@ -22,7 +22,7 @@ function harness() {
     async atomicWriteFile(_path, bytes) { saved = new TextDecoder().decode(bytes); } } };
   const client = new T3Client();
   Object.assign(client, { available: true, generation: 1, connection: 'connected', environmentId: 'env', projectId: 'p1', threadId: 't1',
-    configLive: true, shellLive: true, threadLive: true, scopes: ['orchestration:read', 'orchestration:operate'],
+    configLive: true, shellLive: true, threadLive: true, scopes: ['orchestration:read', 'orchestration:operate', 'filesystem:read'],
     config: { environment: { capabilities: { serverResolvedCommandContext: true } } } });
   client.shell.projects = [{ id: 'p1', title: 'Fixture', workspaceRoot: '/repo' }];
   client.thread = { projection: { thread: { id: 't1' }, runtimeRequests: [], turnItems: [], runs: [{ id: 'r1', completedAt: '2026-10-03T14:15:00Z' }, { id: 'r2', completedAt: '2026-10-03T14:20:00Z' }],

@@ -3,6 +3,7 @@
 // command menu's rows (composer-editor-menu.ts), applies a picked row back
 // into the text view, keeps the editor's history and chip records in sync,
 // and builds the send's context records. Contract draws composer-editor.contract.
+import { preserveCitationDraft } from '../timeline/citation-draft';
 import type { T3Client } from '../client/client';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
 import { arr, messages, num, obj, str, type Obj } from '../client/domain';
@@ -26,6 +27,9 @@ import { terminalOpen } from '../terminal/terminal-drawer-view'; // the real ter
 import { videoOp } from './composer-attachments';
 import { folderDropTarget, primary } from '../connections/local-primary'; // the folder drop's target (folderDrop.ts)
 import { annotationChipContexts, annotationMessageRecords } from '../browser/browser-annotation'; // Annotate's chips
+import { composerInput } from './requests';
+import { importDroppedThread } from './composer-thread-import';
+import { parseFleetThreadId } from '../connections/settings-b-fleet';
 
 export type ComposerMenuRow = Omit<MenuRow, 'insert'>;
 export type ComposerMenu = { open: boolean; kind: string; listLabel: string; searchKey: string; loading: boolean; emptyText: string; count: number; rows: ComposerMenuRow[] };
@@ -85,9 +89,9 @@ function compactAvailable(client: T3Client, blankAround: boolean): boolean {
 export function threadContextRecords(client: T3Client, text: string): Obj[] {
   return contextReferences(text).flatMap(reference => {
     if (reference.kind !== 'thread' || !reference.id.startsWith('thread_')) return [];
-    const threadId = reference.id.slice('thread_'.length);
-    const thread = client.shell.threads.find(entry => str(entry.id) === threadId);
+    const thread = client.shell.threads.find(entry => contextId('thread', str(entry.id)) === reference.id);
     if (!thread) return [];
+    const threadId = str(thread.id);
     const label = contextLabel(reference.label, 'thread');
     return [{ version: 1, kind: 'thread', contextId: reference.id, label, environmentId: client.environmentId, threadId, title: label }];
   });
@@ -211,6 +215,7 @@ export const localId = (): string => uuid();
 
 /** The `composerEditor` resource: the menu for the trigger at the caret, the prompt-length line, and where the drawers go. */
 export async function composerEditorView(client: T3Client, native: Native | null | undefined, now = 0): Promise<ComposerEditorView> {
+  preserveCitationDraft(client);
   const view = await editorView(client, native, now);
   return { ...view, drawer: { ...composerDrawer(client.presentation), hold: composerStackHold(holds(client), client.snapshotOwner, client.presentation) } }; // composer-editor-drawer.ts
 }
@@ -222,8 +227,8 @@ function holds(client: T3Client): StackHold {
 }
 /** Root readiness resource; independent from the editor/menu resource. */
 /** `shown`: whether the chat view (and so ChatComposer) is on screen; omitted, the last answer's. */
-export function composerWorkspaceView(client: T3Client, shown?: boolean) {
-  return cache(client).discovery.state(client.ready ? client.environmentId : '', client.generation, selectedProvider(client), workspaceCwd(client), { prompt: client.draft, config: client.config }, shown);
+export function composerWorkspaceView(client: T3Client, shown?: boolean, now?: number) {
+  return cache(client).discovery.state(client.ready ? client.environmentId : '', client.generation, selectedProvider(client), workspaceCwd(client), { prompt: client.draft, config: client.config }, shown, now);
 }
 /** Root mutation: await the RPC, then Contract starts its retry clock on completion. */
 export async function refreshComposerWorkspace(client: T3Client, native: Native | null | undefined, key: string) {
@@ -240,10 +245,11 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   const overLimit = limit !== '';
   if (!native?.available) return { ...EDITOR_BAKED, promptLimit, overLimit, stash };
   native.watch('t3.editor');
-  const draft = client.draft, key = client.draftKey, files = draftFiles(client.local);
+  const literal = composerInput(client)?.active?.initialAnswer !== undefined;
+  const draft = composerInput(client)?.custom ?? client.draft, key = client.draftKey, files = draftFiles(client.local);
   let state: Obj;
   try {
-    state = await editorCall(native, { op: 'editorSync', owner: client.draftKey, richText: prefs(client).composerRichTextEnabled !== false, localEnvironment: folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'local', // local-primary.ts: Finder folders reach only the primary
+    state = await editorCall(native, { op: 'editorSync', owner: client.draftKey, literal, richText: prefs(client).composerRichTextEnabled !== false, localEnvironment: folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'local', // local-primary.ts: Finder folders reach only the primary
       history: client.thread ? historyEntries(messages(client.thread)) : [], contexts: chipContexts(client, draft), foldLimit: client.ready ? foldLimit(client) : 0,
       skills: skillChipLabels(workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills')) });
   } catch { return { owner: client.snapshotOwner, menu: CLOSED, promptLimit, overLimit, usageLimits: entry.usageLimits, stash }; }
@@ -261,7 +267,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
     ? { kind: str(raw.kind), query: str(raw.query), start: Number(raw.start) || 0, end: Number(raw.end) || 0 } : null;
   entry.trigger = trigger;
   entry.owner = client.snapshotOwner;
-  if (!trigger || !client.ready) { entry.rows = []; return { owner: client.snapshotOwner, menu: CLOSED, promptLimit, overLimit, usageLimits: entry.usageLimits, stash }; }
+  if (literal || !trigger || !client.ready) { entry.rows = []; return { owner: client.snapshotOwner, menu: CLOSED, promptLimit, overLimit, usageLimits: entry.usageLimits, stash }; }
   const current = selectedProvider(client);
   const cwd = workspaceCwd(client);
   const driver = str(current.driver);
@@ -282,7 +288,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
     const repository = repositorySelector(obj(project(client).repositoryIdentity));
     const search = await prSearch(client, native, entry, trigger.query, repository);
     if (search === 'loading') loading = true;
-    else { rows = pullRequestRows(search.entries, client.projectId, repository, trigger.query, search.providers ?? []); prFailed = search.failed; }
+    else { rows = pullRequestRows(search.entries, client.projectId, repository, trigger.query, search.providers ?? [], arr(obj(client.projection.thread).pullRequests ?? client.shell.threads.find(thread => thread.id === client.threadId)?.pullRequests)); prFailed = search.failed; }
   } else if (trigger.kind === 'path') {
     const threads = threadRows(client.shell.threads, client.threadId, trigger.query);
     const query = trigger.query.trim();
@@ -404,9 +410,13 @@ export async function removeReviewCommentChip(client: T3Client, native: Native, 
 export async function insertContext(client: T3Client, native: Native, kind: string, target: string): Promise<string> {
   let text = '';
   if (kind === 'thread') {
-    const thread = client.shell.threads.find(entry => str(entry.id) === target);
-    if (!thread) throw new ClientError('Use threads from this environment');
-    text = contextLink('thread', contextId('thread', target), str(thread.title, 'Thread'));
+    const ref = parseFleetThreadId(target);
+    if (ref && ref.environmentId !== client.environmentId) { text = await importDroppedThread(client, native, target); if (!text) return ''; }
+    else {
+      const id = ref?.threadId ?? target, thread = client.shell.threads.find(entry => str(entry.id) === id);
+      if (!thread) throw new ClientError('That thread is no longer available.');
+      text = contextLink('thread', contextId('thread', id), str(thread.title, 'Thread'));
+    }
   } else if (kind === 'file' || kind === 'folder') {
     const path = target.replace(/\/+$/, '');
     if (!path) throw new ClientError('Unable to add to chat');

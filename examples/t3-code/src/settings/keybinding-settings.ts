@@ -1,3 +1,4 @@
+import { can } from '../connections/command-permissions';
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
@@ -103,7 +104,7 @@ export async function keybindingSettings(client: T3Client, native: Native | null
     const connected = !!native?.available && client.connection === 'connected' && client.configLive;
     if (connected && environmentId !== '' && environmentId !== client.environmentId) throw new Error('Choose a connected environment to manage keybindings.');
     const config = connected ? client.config : {}, bindings = connected ? arr(config.keybindings) : keybindingDefaults.map(resolvedDefault);
-    const writable = connected && client.writable;
+    const writable = connected && can(client, 'settings:write');
     const listed = buildRows(bindings, ''), all = listed.map(row => ({ ...row, when: row.condition })), rows = query.trim() ? buildRows(bindings, query) : listed;
     const when = whenEditor(draftWhen);
     const draftKeyValue = draftKey.trim(), draftWhenValue = when.error ? '' : printWhen(parseWhen(draftWhen.trim()) || undefined);

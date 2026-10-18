@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // The drawer's client side (terminal-drawer-view.ts) against a fake client and native bridge: what
 // toggle, New, Close, the exit report and thread delete send to the server (T3 Code 1e2ecbd975
 // ChatView.tsx toggleTerminalVisibility / closeTerminal, useThreadActions.ts), the metadata stream's
@@ -18,6 +19,7 @@ type Call = { method: string; payload: Obj };
 function fixture(options: { fail?: string[]; connected?: boolean } = {}) {
   const calls: Call[] = [], native: Obj[] = [];
   const client = {
+    scopes: [...AUTH_STANDARD_CLIENT_SCOPES],
     environmentId: 'env-a', threadId: 'thread-1', projectId: 'project-1', generation: 3, connection: options.connected === false ? 'disconnected' : 'connected',
     ready: options.connected !== false, config: { keybindings: [] }, local: {} as object,
     shell: { projects: [{ id: 'project-1', workspaceRoot: '/repo' }], threads: [{ id: 'thread-1', projectId: 'project-1', worktreePath: '/repo/.t3/wt-1' }, { id: 'thread-2', projectId: 'project-1' }] },
@@ -222,6 +224,7 @@ import { launchThreadId, forgetDraftThreadId } from '../../src/composer/draft-th
 import { activeRef } from '../../src/terminal/terminal-drawer-view';
 test('draft terminal reserves its send identity, worktree and session across first send', async () => {
   const client = new Client();
+  Object.assign(client, { scopes: [...AUTH_STANDARD_CLIENT_SCOPES], connection: 'connected', configLive: true, shellLive: true, threadLive: true });
   client.environmentId = 'env'; client.projectId = 'project'; client.threadId = '';
   client.shell.projects = [{ id: 'project', workspaceRoot: '/repo' }];
   client.local.composerControls.contexts[client.draftKey] = { envMode: 'worktree', branch: 'feature', worktreePath: '/wt' };

@@ -30,16 +30,8 @@ import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
 import type { T3Client } from '../client/client';
 
-export const PAIRING_SCOPE_OPTIONS = [
-  { scope: 'orchestration:read', title: 'View environment', description: 'Read threads, status, diffs, and configuration.' },
-  { scope: 'orchestration:operate', title: 'Operate tasks', description: 'Start tasks and perform changes in the environment.' },
-  { scope: 'terminal:operate', title: 'Use terminals', description: 'Create terminals and send input to running shells.' },
-  { scope: 'review:write', title: 'Write reviews', description: 'Create comments while reviewing changes.' },
-  { scope: 'access:read', title: 'View access', description: 'Inspect pairing links and authorized clients.' },
-  { scope: 'access:write', title: 'Manage access', description: 'Issue and revoke credentials for other clients.' },
-  { scope: 'relay:read', title: 'View relay', description: 'Inspect managed relay connectivity.' },
-  { scope: 'relay:write', title: 'Manage relay', description: 'Change managed tunnel connectivity.' },
-] as const;
+export { AUTH_SCOPE_OPTIONS as PAIRING_SCOPE_OPTIONS } from './auth-scope-options';
+import { pairingScopeOptions, AUTH_SCOPE_OPTIONS as PAIRING_SCOPE_OPTIONS } from './auth-scope-options';
 
 // ── Time labels (timestampFormat.ts) ─────────────────────────────────────
 const accessTimestampFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -86,6 +78,7 @@ export type NetPairingRow = { id: string; label: string; createdTip: string; exp
 export type NetClientRow = { id: string; label: string; live: boolean; statusTip: string; current: boolean; device: string; scopeCount: string; scopeLabel: string; scopes: NetText[] };
 export type NetReveal = { open: boolean; linkId: string; title: string; description: string; value: string; rows: number; qr: boolean; cells: QrCell[] };
 export type NetworkView = {
+  scopeOptions: ReturnType<typeof pairingScopeOptions>;
   visible: boolean; loading: boolean; networkOn: boolean; switchReady: boolean; summaryUrl: string; fallback: string; hidden: number; error: string;
   endpoints: NetEndpointRow[]; tailscale: boolean; tailscaleOn: boolean; tailscaleDescription: string; tailscaleUrl: string; tailscaleHost: string; servePort: number;
   clientsVisible: boolean; summary: string; accessError: string; accessLoading: boolean; pairings: NetPairingRow[]; clients: NetClientRow[]; empty: boolean;
@@ -94,7 +87,7 @@ export type NetworkView = {
 
 const closedReveal = (): NetReveal => ({ open: false, linkId: '', title: '', description: '', value: '', rows: 3, qr: false, cells: [] });
 export function emptyNetworkView(): NetworkView {
-  return { visible: false, loading: true, networkOn: false, switchReady: false, summaryUrl: '', fallback: '', hidden: 0, error: '', endpoints: [], tailscale: false, tailscaleOn: false,
+  return { scopeOptions: pairingScopeOptions(), visible: false, loading: true, networkOn: false, switchReady: false, summaryUrl: '', fallback: '', hidden: 0, error: '', endpoints: [], tailscale: false, tailscaleOn: false,
     tailscaleDescription: 'Start Tailscale to set up HTTPS access through MagicDNS.', tailscaleUrl: '', tailscaleHost: '', servePort: 443, clientsVisible: false, summary: '',
     accessError: '', accessLoading: true, pairings: [], clients: [], empty: false, othersDisabled: true, networkSerial: 0, tailscaleSerial: 0, createSerial: 0, settled: 0,
     reveal: closedReveal(), ticking: false };
@@ -371,7 +364,8 @@ export async function runNetworkOp(client: T3Client, native: Native, op: string,
   if (op === 'pairing-create') {
     // handleCreatePairingLink: the dialog closes on success; its credential stays in memory for this row.
     try {
-      const scopes = value.split(' ').filter(scope => PAIRING_SCOPE_OPTIONS.some(option => option.scope === scope));
+      const scopes = value.split(' ').filter(Boolean);
+      if (scopes.some(scope => !PAIRING_SCOPE_OPTIONS.some(option => option.scope === scope)) || new Set(scopes).size !== scopes.length) throw new Error('Choose supported, unique permissions.');
       if (!scopes.length) throw new Error('Select at least one permission.');
       const created = await createPairingCredential(native, { label: id, scopes });
       createdCredentials.set(created.id, created.credential);

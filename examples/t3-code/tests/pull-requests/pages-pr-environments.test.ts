@@ -21,14 +21,14 @@ type Call = { at: string; method: string; payload: Obj; timeout?: number };
 
 function setup(originA: string, sharing: { a: string; b: string }, answers: { a?: (method: string, payload: Obj) => Obj; b?: (method: string, payload: Obj) => Obj } = {}) {
   const entry: FleetEntry = { key: KEY_B, origin: B, environmentId: 'env-b', phase: 'connected', message: '', traceId: '', generation: 4, synchronized: 4, lastEvent: 0, subscriptions: {},
-    config: { environment: { label: 'Lane B', capabilities: { pullRequests: true } } }, scopes: [], error: '', requested: true, shell: initialShell() };
+    config: { environment: { label: 'Lane B', capabilities: { pullRequests: true } } }, scopes: ['orchestration:read', 'source-control:write'], error: '', requested: true, shell: initialShell() };
   fleet.entries.set(KEY_B, entry);
   fleet.saved = [{ origin: originA, environmentId: 'env-a', enabled: true }, { origin: B, environmentId: 'env-b', enabled: true }];
   const calls: Call[] = [];
   const answerA = answers.a ?? ((method: string) => (method === 'pullRequests.routing' ? identity : { projectId: 'p1', title: 'from A' }));
   const answerB = answers.b ?? ((method: string) => (method === 'pullRequests.routingIdentity' ? { accountId: 'acct-1', host: 'github.com', provider: 'github', viewer: 'lane-primary' } : { projectId: 'b1', title: 'from B' }));
   const client = {
-    environmentId: 'env-a', origin: originA, connection: 'connected', statusMessage: '', scopes: [], ready: true, generation: 1, config: { environment: { label: 'Lane A', capabilities: { pullRequests: true } } },
+    environmentId: 'env-a', origin: originA, connection: 'connected', statusMessage: '', scopes: ['orchestration:read', 'source-control:write'], ready: true, generation: 1, config: { environment: { label: 'Lane A', capabilities: { pullRequests: true } } },
     shell: { projects: [], threads: [] },
     async request(_native: unknown, method: string, payload: Obj) { calls.push({ at: 'A', method, payload }); return answerA(method, payload); },
     async call(_native: unknown, request: Obj) { calls.push({ at: 'A', method: String(request.method), payload: request.payload as Obj, timeout: Number(request.timeout) }); return answerA(String(request.method), request.payload as Obj); },

@@ -4,7 +4,7 @@ import Foundation
 import SceneKit
 import CoreImage
 
-/// The iPhone Duo's hinged 3D viewer (MIT reference, see LICENSE-T3:
+/// The iPhone Duo's hinged 3D viewer (MIT reference 9c161462c9, see LICENSE-T3:
 /// apps/web/src/components/device/DeviceDuoViewport.tsx; packages/client-runtime/src/device/
 /// duoViewer.ts createDuoViewer, duoScene.ts createDuoScene) in SceneKit where the reference uses
 /// three.js. The connected server's own `iphone-duo` model (never bundled) has two hinge groups
@@ -35,6 +35,8 @@ final class T3DuoView: NSView {
     private var hingeLeaf: String?
     private var interactionActive = false
     private var firstPose = true
+    /// A hinge change no held leaf owns, until the display that shows the new fold reports.
+    private var foldPending = false
     private var physicalPose = "open", presentationAngle = 180.0
     private var targetPresentation = T3Quaternion.identity
     private var lastTime = 0.0
@@ -94,7 +96,7 @@ final class T3DuoView: NSView {
             return self.previewAngle ?? self.screen?.duo?.hingeAngle ?? (self.screen?.duo?.screenId == 1 ? 0 : 180)
         }, contains: { [weak self] x, y in self?.screen != nil && self?.beginHinge(x, y) == true }, change: { [weak self] value in
             guard let self else { return }
-            self.setHingePreview(value ?? self.controlPreview)
+            self.setHingePreview(value ?? self.controlPreview, pinch: true)
             if let value { self.hinge(value) }
         })
     }
@@ -171,7 +173,7 @@ final class T3DuoView: NSView {
         content.addChildNode(model)
         appliedAngle = .nan
         applyPose()
-        if screen?.duo?.screenId == 1, let snap = T3DuoSnaps.nearest(motion.rotation, activeSnaps()) {
+        if screen?.duo?.screenId == 1, physicalPose != "tent", let snap = T3DuoSnaps.nearest(motion.rotation, activeSnaps()) {
             restFace = snap.face
             motion.setPose(snap.rotation, now, immediate: true)
             applyPose()
@@ -313,29 +315,43 @@ final class T3DuoView: NSView {
         let previous = screen
         let ownedHandoff = requestedPanel != nil
         if next == nil || next?.duo?.screenId == requestedPanel { clearHandoff() }
-        let ownedRotation = requestedOrientation != nil && next?.duo?.screenId == previous?.duo?.screenId
+        let requestedRotation = requestedOrientation != nil
+        let ownedRotation = requestedRotation && next?.duo?.screenId == previous?.duo?.screenId
         let changedDisplay = next?.duo?.screenId != previous?.duo?.screenId
         requestedOrientation = nil
         screen = next
         let changedPose = next?.duo?.hingePose != nil && next?.duo?.hingePose != previous?.duo?.hingePose
         let folding = hingeLeaf != nil && !changedPose
-        let rotated = next?.duo?.screenId == previous?.duo?.screenId && next?.duo?.hingeAngle == previous?.duo?.hingeAngle && next?.orientation != previous?.orientation
+        // A hinge change no held leaf owns re-presents the device, centered on the hinge, once the
+        // display that shows the new fold reports. Across the closed position that takes steps: the
+        // outgoing display first reports the incoming one's orientation.
+        let angleBefore = previous?.duo?.hingeAngle ?? (previous?.duo?.screenId == 1 ? 0 : 180)
+        let angleAfter = next?.duo?.hingeAngle ?? (next?.duo?.screenId == 1 ? 0 : 180)
+        if next == nil || folding || changedPose { foldPending = false } else if previous != nil, angleBefore != angleAfter { foldPending = true }
+        let landedFold = foldPending && next.map(T3Duo.settled) == true && !ownedHandoff
+        if let next, T3Duo.settled(next) { foldPending = false }
+        let rotated = !foldPending && next?.duo?.screenId == previous?.duo?.screenId && next?.duo?.hingeAngle == previous?.duo?.hingeAngle && next?.orientation != previous?.orientation
         let leftPhysicalPose = rotated && !ownedRotation && !ownedHandoff && !folding && next?.duo?.hingePose == nil && previewAngle == nil
-        if firstPose || changedPose || leftPhysicalPose {
+        if firstPose || changedPose || leftPhysicalPose || landedFold {
             physicalPose = next?.duo?.hingePose ?? (next?.duo?.screenId == 1 ? "closed" : "open")
             presentationAngle = next?.duo?.hingeAngle ?? (next?.duo?.screenId == 1 ? 0 : 180)
         }
         targetAngle = previewAngle ?? next?.duo?.hingeAngle ?? (next?.duo?.screenId == 1 ? 0 : 180)
-        if firstPose || changedPose || (rotated && !ownedRotation && !ownedHandoff && !folding) {
+        if firstPose || changedPose || landedFold || (rotated && !ownedRotation && !ownedHandoff && !folding) {
             hingeLeaf = nil
             viewOrientation = next?.orientation
             targetPresentation = T3DuoSnaps.presentation(pose: physicalPose, angle: presentationAngle, screen: next)
-            if next?.duo?.screenId == 1, let snap = T3DuoSnaps.nearest(targetPresentation, activeSnaps()) { targetPresentation = snap.rotation }
+            // A landed fold is shut, so its pose already faces the cover while the hinge still moves;
+            // Tent stands on both edges with the cover outward, and facing it flat would tip it over.
+            if next?.duo?.screenId == 1, !landedFold, physicalPose != "tent", let snap = T3DuoSnaps.nearest(targetPresentation, activeSnaps()) { targetPresentation = snap.rotation }
             if firstPose { angle = targetAngle }
             restFace = next?.duo?.screenId == 1 ? "cover" : physicalPose == "laptop" ? "right" : "inside"
             motion.setPose(targetPresentation, now, immediate: firstPose)
             firstPose = false
-        } else if next != nil, changedDisplay, !ownedHandoff, !folding, let snap = T3DuoSnaps.nearest(motion.rotation, activeSnaps()) {
+        } else if let next, changedDisplay, !ownedHandoff, !folding, (restFace == "cover") != (next.duo?.screenId == 1),
+                  requestedRotation || T3Duo.settled(next), let snap = T3DuoSnaps.nearest(motion.rotation, activeSnaps()) {
+            // Native election can briefly flap to the display a fold does not show and back; neither
+            // is a handoff, and the view may still be easing into place.
             restFace = snap.face
             motion.setPose(snap.rotation, now)
         }
@@ -343,19 +359,23 @@ final class T3DuoView: NSView {
         applyPose(); fit(); invalidate()
     }
 
-    func setHingePreview(_ next: Double?) {
+    /// A pinch holds the leaf under it and follows the fingers; a fold button eases the hinge and
+    /// presents the device again, centered on the hinge, once the fold lands.
+    func setHingePreview(_ next: Double?, pinch: Bool = false) {
         guard !disposed else { return }
         if let next, !next.isFinite || next < 0 || next > 180 { return }
         if !moving { lastTime = now }
         previewAngle = next
-        if next != nil, hingeLeaf == nil, asset != nil {
+        if next != nil, !pinch {
+            hingeLeaf = nil
+        } else if next != nil, hingeLeaf == nil, asset != nil {
             clearHandoff(); requestedOrientation = nil
             hingeLeaf = screen?.duo?.screenId == 1 && angle > 20 ? "left" : "right"
             motion.setPose(motion.rotation, now, immediate: true)
         }
-        motion.hold(interactionActive || next != nil, now)
+        motion.hold(interactionActive || (pinch && next != nil), now)
         targetAngle = next ?? screen?.duo?.hingeAngle ?? (screen?.duo?.screenId == 1 ? 0 : 180)
-        if let next { angle = next; applyPose(); fit() }
+        if let next, pinch { angle = next; applyPose(); fit() }
         captured = nil
         invalidate()
     }

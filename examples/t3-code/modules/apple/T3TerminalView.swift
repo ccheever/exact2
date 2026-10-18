@@ -439,7 +439,7 @@ final class T3TerminalView: ExactNativeInstance {
         let env = props["env"].flatMap { $0.data(using: .utf8) }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] } ?? [:]
         let bound = sessions.bind(self, environment: props["environment"] ?? "", thread: props["thread"] ?? "", terminal: identity,
                                   cwd: props["cwd"] ?? "", worktreePath: props["worktree"] ?? "", env: env,
-                                  providerInstance: props["provider-instance"] ?? "")
+                                  providerInstance: props["provider-instance"] ?? "", readOnly: props["read-only"] == "true")
         session = bound
         // TerminalViewport setup: the retained output as one reset, the error, then exit handling from "closed".
         let initial = bound.output.read(from: .initial)
@@ -524,6 +524,7 @@ final class T3TerminalView: ExactNativeInstance {
             send(["type": "keyPolicy", "keybindings": Self.initial(next)["keybindings"] ?? [],
                   "readOnly": next["read-only"] == "true", "closePending": next["close-pending"] == "true"])
         }
+        if previous["read-only"] != next["read-only"], sessionMode, session != nil { bindSession() }
         synchronizeAuthOutput()
         configureAuthInput()
         if previous["scheme"] != next["scheme"] || previous["terminal-theme"] != next["terminal-theme"] { send(["type": "theme", "theme": Self.theme(next)]) }

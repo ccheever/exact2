@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // Settings › Projects over every environment (ProjectsSettings.tsx, ProjectSettingsPanel.tsx and
 // useSettingsProjectGroups at T3 Code 1e2ecbd975): a project only a background environment has opens its page without
 // changing the focused environment, reads that environment's settings and writes through its transport.
@@ -21,7 +22,7 @@ const repo = { provider: 'github', canonicalKey: 'github.com/acme/app', displayN
 
 function focused(): T3Client {
   const client = new T3Client();
-  Object.assign(client, { loaded: true, connection: 'connected', origin: 'http://127.0.0.1:16410', configLive: true, shellLive: true, threadLive: true, scopes: ['orchestration:operate'] });
+  Object.assign(client, { loaded: true, connection: 'connected', origin: 'http://127.0.0.1:16410', configLive: true, shellLive: true, threadLive: true, scopes: [...AUTH_STANDARD_CLIENT_SCOPES] });
   client.environmentId = 'local'; client.threadId = ''; client.projectId = 'p1';
   client.shell = { projects: [{ id: 'p1', title: 'App', workspaceRoot: '/work/app', repositoryIdentity: repo, createdAt: at, updatedAt: at }], threads: [], sequence: 1 };
   client.config = { environment: { label: 'This Mac', capabilities: { serverResolvedCommandContext: true, projectSettingsOverrides: true } }, settings: {}, providers: [], keybindings: [] };
@@ -34,7 +35,7 @@ function studio(writable = true): FleetEntry {
     shell: { projects: [{ id: 'r1', title: 'solo', workspaceRoot: '/srv/solo', createdAt: at, updatedAt: at },
       { id: 'r9', title: 'App', workspaceRoot: '/srv/app', repositoryIdentity: repo, createdAt: at, updatedAt: at }],
     threads: [{ id: 't1', projectId: 'r1', title: 'One', createdAt: at, updatedAt: at }], sequence: 1 },
-    scopes: writable ? ['orchestration:operate'] : [], error: '', requested: true } as unknown as FleetEntry;
+    scopes: writable ? [...AUTH_STANDARD_CLIENT_SCOPES] : [], error: '', requested: true } as unknown as FleetEntry;
   fleet.entries.set('remote', entry);
   return entry;
 }

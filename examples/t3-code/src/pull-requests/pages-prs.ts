@@ -1,3 +1,4 @@
+import { sourceControlHostName } from '../shared/source-control-hosts';
 import { sharedPullRequestSummary } from './pages-pr-shared';
 // The Pull Requests page: pullRequests.list / listStats /
 // detail / activity, grouped, sorted and presented as the reference page does.
@@ -546,7 +547,7 @@ export function presentList(view: PrListView, result: Obj | null, error: string,
   return view;
 }
 function providerName(kind: string): string {
-  return ({ github: 'GitHub', gitlab: 'GitLab', bitbucket: 'Bitbucket', 'azure-devops': 'Azure DevOps', forgejo: 'Forgejo' } as Record<string, string>)[kind] ?? kind;
+  return sourceControlHostName(kind);
 }
 
 // ── Commands ────────────────────────────────────────────────────────────────
