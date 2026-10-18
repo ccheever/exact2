@@ -113,8 +113,9 @@ final class HeadlessSessionTests: XCTestCase {
         defer { accepted.close() }
         accepted.core.text.refusedMarkdown = 999
         XCTAssertNoThrow(try accepted.resize(to: CGSize(width: 200, height: 450)), "each turn clears the previous refusal")
+        // An app's plan is no entry: the decoder refuses it by its header (LLP 1126 D2).
         XCTAssertThrowsError(try HeadlessSession(plan: plan, entry: "widget", size: CGSize(width: 200, height: 400))) { error in
-            XCTAssertTrue(String(describing: error).contains("exact_boot_entry"))
+            XCTAssertTrue(String(describing: error).contains("WrongEntry"), String(describing: error))
         }
     }
 
