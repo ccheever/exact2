@@ -43,6 +43,36 @@ final class WidgetContainerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("widget-generations/current").path))
     }
 
+    /// LLP 1126.001 WP13: the build writes `ExactWidgetKinds` for an app with an entry of either kind, empty with
+    /// activities alone; a bundle without it publishes nothing.
+    func testPublicationIsGatedOnAnEntryOfEitherKind() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? fm.removeItem(at: root) }
+        func bundle(_ info: [String: Any]) throws -> Bundle {
+            let url = root.appendingPathComponent(UUID().uuidString + ".bundle", isDirectory: true)
+            let data = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            // Foundation reads a flat bundle's Info.plist on iOS and Contents/Info.plist on macOS.
+            for path in ["Info.plist", "Contents/Info.plist"] {
+                let file = url.appendingPathComponent(path)
+                try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try data.write(to: file)
+            }
+            return try XCTUnwrap(Bundle(url: url))
+        }
+        let assets = AssetResolver(root: root, names: [], generation: "first") { _ in Data() }
+        let group = root.appendingPathComponent("group", isDirectory: true)
+        let current = group.appendingPathComponent("widget-generations/current").path
+        XCTAssertNil(WidgetContainer.entryKinds(of: try bundle([:])))
+        XCTAssertFalse(try WidgetContainer.publish(assets, bundle: try bundle([:]), root: group), "no entry of either kind: inert")
+        XCTAssertFalse(fm.fileExists(atPath: current))
+        XCTAssertEqual(WidgetContainer.entryKinds(of: try bundle(["ExactWidgetKinds": [String]()])), [])
+        XCTAssertTrue(try WidgetContainer.publish(assets, bundle: try bundle(["ExactWidgetKinds": [String]()]), root: group), "activities alone publish the generation")
+        XCTAssertTrue(fm.fileExists(atPath: current))
+        XCTAssertEqual(WidgetContainer.entryKinds(of: try bundle(["ExactWidgetKinds": ["card"]])), ["card"])
+        XCTAssertThrowsError(try WidgetContainer.publish(assets, bundle: try bundle(["ExactWidgetKinds": ["card"]]), root: root.appendingPathComponent("widgets", isDirectory: true)), "a widget's plan is required of its generation")
+    }
+
     private enum RefreshFailure: Error { case offline }
 
     func testAccountSwitchRefusesLastGoodTimelineUntilTheNewAccountRefreshes() throws {
