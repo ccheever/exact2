@@ -15,6 +15,7 @@ fn frame(now_ms: f64) -> Frame {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     }
 }
 
