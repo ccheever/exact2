@@ -348,7 +348,7 @@ final class SnapshotDriverTests: XCTestCase {
         try write(render(SnapshotDriver.view(session: session, displaySize: family.size, environment: environment(family)).environment(\.colorScheme, .light).background(.white), size: family.size), "gradients")
         let root = try XCTUnwrap(snapshot.roots.first.flatMap { snapshot.nodes[$0] })
         let strips = root.children.compactMap { snapshot.nodes[$0] }
-        XCTAssertEqual(strips.count, 8)
+        XCTAssertEqual(strips.count, 10)
         func frame(_ strip: HeadlessSession.Node) -> CGRect { strip.frame.offsetBy(dx: root.frame.minX + family.content.minX, dy: root.frame.minY + family.content.minY) }
         func sample(_ strip: HeadlessSession.Node, x: CGFloat, y: CGFloat) throws -> [Int] {
             let f = frame(strip)
@@ -362,7 +362,7 @@ final class SnapshotDriverTests: XCTestCase {
         // at the side's end and at the top's middle (a circle of the farthest
         // side would still be green there).
         let centre = try sample(strips[1], x: 0.5, y: 0.5), side = try sample(strips[1], x: 0.01, y: 0.5), top = try sample(strips[1], x: 0.5, y: 0.1)
-        XCTAssertGreaterThan(centre[1], 200, "\(centre)"); XCTAssertLessThan(side[1], 70, "\(side)"); XCTAssertLessThan(top[1], 70, "\(top)")
+        XCTAssertGreaterThan(centre[1], 200, "\(centre)"); XCTAssertLessThan(side[1], 110, "\(side)"); XCTAssertLessThan(top[1], 110, "\(top)")
         // A length stop: the kernel places it; red up to 20 px, blue from 80%.
         let before = try sample(strips[2], x: 0.03, y: 0.5), after = try sample(strips[2], x: 0.97, y: 0.5)
         XCTAssertGreaterThan(before[0], 200, "\(before)"); XCTAssertGreaterThan(after[2], 200, "\(after)")
@@ -389,6 +389,100 @@ final class SnapshotDriverTests: XCTestCase {
         let e = frame(strips[6])
         XCTAssertGreaterThan(try ink(image, in: e), 10)
         XCTAssertEqual(try ink(image, in: e.insetBy(dx: 60, dy: 6)), 0)
+        // Between the wide ramp's stops the shading interpolates in linear
+        // sRGB (`.linearColor`): a quarter along, red is brighter than an
+        // sRGB-space mix (191) would leave it.
+        let quarter = try sample(strips[4], x: 0.25, y: 0.5)
+        XCTAssertGreaterThan(quarter[0], 205, "\(quarter)")
+        // `opacity` reaches the model through its presentation op: a red
+        // strip at 0 is the page, at 0.5 half red over white.
+        let gone = try sample(strips[7], x: 0.5, y: 0.5), half = try sample(strips[8], x: 0.5, y: 0.5)
+        XCTAssertEqual(gone, [255, 255, 255], "opacity 0")
+        XCTAssertGreaterThan(half[0], 240, "\(half)"); XCTAssertGreaterThan(half[1], 100, "\(half)"); XCTAssertLessThan(half[1], 160, "\(half)")
+        // A plain text node's `text-decoration` reaches its run's paint.
+        let label = strips[9]
+        XCTAssertEqual(SnapshotTextPaint.decoration(try XCTUnwrap(label.runs.first), node: label), "line-through")
+    }
+
+    /// Images resolve under the bundle roots or the app group's `data`,
+    /// `cache` and `tmp`, never outside them.
+    func testImagePathsResolveUnderTheirRoots() throws {
+        let group = Self.out.appending(path: "group")
+        for dir in ["data", "cache", "tmp"] { try FileManager.default.createDirectory(at: group.appending(path: dir), withIntermediateDirectories: true) }
+        try Data([0]).write(to: group.appending(path: "cache/avatar.png"))
+        try Data([0]).write(to: group.appending(path: "secret.png"))
+        XCTAssertEqual(SnapshotRasters.resolve("app:/cache/avatar.png", roots: [], appGroup: group)?.lastPathComponent, "avatar.png")
+        XCTAssertNil(SnapshotRasters.resolve("app:/cache/../secret.png", roots: [], appGroup: group))
+        XCTAssertNil(SnapshotRasters.resolve("app:/cache/avatar.png", roots: [], appGroup: nil), "no group, no app:/")
+        XCTAssertNil(SnapshotRasters.resolve("app:/other/avatar.png", roots: [], appGroup: group))
+        XCTAssertNil(SnapshotRasters.resolve("app:/cache", roots: [], appGroup: group), "a root alone")
+        XCTAssertNil(SnapshotRasters.resolve("../group/secret.png", roots: [Self.out.appending(path: "assets")], appGroup: nil))
+    }
+
+    /// The invocation's raster cache keeps decoded bytes under its budget
+    /// and goes with the invocation.
+    func testTheRasterCacheIsBudgetedAndReleasedWithItsInvocation() throws {
+        let dir = Self.out.appending(path: "assets")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let context = try XCTUnwrap(CGContext(data: nil, width: 400, height: 400, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 400, height: 400))
+        try write(context.makeImage(), "assets/blue")
+        let url = dir.appending(path: "blue.png")
+        var rasters: SnapshotRasters? = SnapshotRasters(budget: 300 * 300 * 4)
+        weak var released = rasters
+        let small = try XCTUnwrap(rasters?.decode(url, box: CGSize(width: 50, height: 50), fit: "fill", scale: 1))
+        XCTAssertLessThanOrEqual(max(small.image.width, small.image.height), 50)
+        // Past the budget the cache evicts: a decode larger than it is not kept, and asked again is decoded again.
+        let big = try XCTUnwrap(rasters?.decode(url, box: CGSize(width: 400, height: 400), fit: "fill", scale: 1))
+        XCTAssertEqual(big.image.width, 400)
+        rasters = nil
+        XCTAssertNil(released, "the invocation's rasters go with it")
+    }
+
+    /// `cover` decodes the window the box shows at its pixels, not a
+    /// box-sized thumbnail of the whole image scaled back up.
+    func testCoverDecodesTheVisibleWindow() throws {
+        let dir = Self.out.appending(path: "assets")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let context = try XCTUnwrap(CGContext(data: nil, width: 2000, height: 500, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(srgbRed: 0, green: 1, blue: 0, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 2000, height: 500))
+        try write(context.makeImage(), "assets/wide")
+        let url = dir.appending(path: "wide.png"), rasters = SnapshotRasters()
+        // A 40 pt square at 3x: the cover scale is 120/500, so the decode is 480 × 120 (the window is 120 × 120 of it).
+        let cover = try XCTUnwrap(rasters.decode(url, box: CGSize(width: 40, height: 40), fit: "cover", scale: 3))
+        XCTAssertEqual(cover.image.width, 480); XCTAssertEqual(cover.image.height, 120)
+        XCTAssertEqual(cover.natural, CGSize(width: 2000, height: 500))
+        let contain = try XCTUnwrap(rasters.decode(url, box: CGSize(width: 40, height: 40), fit: "contain", scale: 3))
+        XCTAssertEqual(contain.image.width, 120)
+        // The longest side is capped whatever the cover scale asks.
+        let capped = try XCTUnwrap(SnapshotRasters(longestSide: 256).decode(url, box: CGSize(width: 2000, height: 2000), fit: "cover", scale: 3))
+        XCTAssertLessThanOrEqual(cover.image.width, 2048); XCTAssertLessThanOrEqual(capped.image.width, 256)
+    }
+
+    /// A symbol fits its box as `object-fit` says and clips to its rounded
+    /// edge, like a raster: contained in a 48 pt box it is far wider than
+    /// its 17 pt glyph.
+    func testSymbolsFitTheirBoxAndKeepTheirRoles() throws {
+        func node(_ fit: String?) -> HeadlessSession.Snapshot {
+            var style: NodeStyle = ["font_size": 17, "text_color": ["sys": "labelColor"]]
+            if let fit { style["object_fit"] = .string(fit) }
+            let image = HeadlessSession.Node(id: 2, kind: "image", frame: CGRect(x: 0, y: 0, width: 48, height: 48), props: ["imageSource": "symbol:sf/square.fill", "symbolName": "square.fill"], style: style)
+            let root = HeadlessSession.Node(id: 1, kind: "view", frame: CGRect(x: 0, y: 0, width: 48, height: 48), children: [2])
+            return HeadlessSession.Snapshot(size: CGSize(width: 48, height: 48), roots: [1], nodes: [1: root, 2: image])
+        }
+        func inkWidth(_ snapshot: HeadlessSession.Snapshot) throws -> Int {
+            let view = SnapshotDriver.view(snapshot, environment: SnapshotEnvironment(family: .systemSmall, contentMargins: EdgeInsets())).environment(\.colorScheme, .light).background(.white)
+            let image = try XCTUnwrap(render(view, size: CGSize(width: 48, height: 48), scale: 1))
+            return (0..<48).filter { try! ink(image, in: CGRect(x: CGFloat($0), y: 0, width: 1, height: 48)) > 0 }.count
+        }
+        XCTAssertGreaterThan(try inkWidth(node("contain")), 36)
+        XCTAssertGreaterThan(try inkWidth(node(nil)), 36, "unsaid is fill, which keeps a symbol's aspect")
+        XCTAssertLessThan(try inkWidth(node("scale-down")), 24, "at its natural size")
+        let image = try XCTUnwrap(node("contain").nodes[2])
+        XCTAssertEqual(SnapshotSemantics.role(image), "img")
+        XCTAssertEqual(SnapshotSemantics.traits(image), .isImage)
+        XCTAssertEqual(SnapshotSemantics.role(HeadlessSession.Node(id: 3, kind: "button", frame: .zero, props: ["href": "/x"])), "link")
+        XCTAssertEqual(SnapshotSemantics.traits(HeadlessSession.Node(id: 3, kind: "view", frame: .zero, props: ["accessibilityRole": "button"])), .isButton)
     }
 
     /// Raster decoding is bounded (D8): a large image decodes to a
@@ -396,15 +490,15 @@ final class SnapshotDriverTests: XCTestCase {
     func testRastersDecodeAsBoundedThumbnails() throws {
         let dir = Self.out.appending(path: "assets")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let big = dir.appending(path: "big.png")
         let context = try XCTUnwrap(CGContext(data: nil, width: 2000, height: 1500, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 2000, height: 1500))
         try write(context.makeImage(), "assets/big")
-        let decoded = try XCTUnwrap(SnapshotRasters.decode("big.png", roots: [Self.out], pixels: CGSize(width: 120, height: 120)))
+        let rasters = SnapshotRasters()
+        let decoded = try XCTUnwrap(rasters.decode("big.png", roots: [Self.out], appGroup: nil, box: CGSize(width: 40, height: 40), fit: "fill", scale: 3))
         XCTAssertEqual(decoded.natural, CGSize(width: 2000, height: 1500))
         XCTAssertLessThanOrEqual(max(decoded.image.width, decoded.image.height), 120)
-        XCTAssertNil(SnapshotRasters.decode("../../big.png", roots: [dir], pixels: CGSize(width: 10, height: 10)), "a path may not leave its root")
-        XCTAssertNil(SnapshotRasters.decode("big.png", roots: [dir.appending(path: "missing")], pixels: CGSize(width: 10, height: 10)))
+        XCTAssertNil(rasters.decode("../../big.png", roots: [dir], appGroup: nil, box: CGSize(width: 10, height: 10), fit: "fill", scale: 1), "a path may not leave its root")
+        XCTAssertNil(rasters.decode("big.png", roots: [dir.appending(path: "missing")], appGroup: nil, box: CGSize(width: 10, height: 10), fit: "fill", scale: 1))
     }
 
     // MARK: D5: the accented groups

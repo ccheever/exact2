@@ -99,6 +99,15 @@ final class HeadlessSessionTests: XCTestCase {
         var longer = kept
         for ch in broken.dropFirst(kept.count) { longer.append(ch); if ch != " " { break } }
         XCTAssertGreaterThan(width(longer + "…"), tight.width + 0.5, "one more character would not: \(longer)")
+        // A clamp through a ligature (`ffi`, `fi`): the kept glyph covers every
+        // character it drew, so the text never ends between an f and its i.
+        let ligature = try XCTUnwrap(node("clamped-ligature").lines.first)
+        XCTAssertTrue(ligature.text.hasSuffix("…"))
+        let keptLigature = String(ligature.text.dropLast())
+        XCTAssertTrue("efficiency efficiency".hasPrefix(keptLigature), keptLigature)
+        let rest = "efficiency efficiency".dropFirst(keptLigature.count)
+        XCTAssertFalse(keptLigature.hasSuffix("f") && (rest.hasPrefix("i") || rest.hasPrefix("f")), "cut inside a ligature: \(keptLigature)|\(rest)")
+        XCTAssertLessThanOrEqual(width(keptLigature + "…"), ligature.width + 0.5)
         let hyphen = try XCTUnwrap(node("hyphen").lines.first)
         XCTAssertEqual(hyphen.range, NSRange(location: 0, length: 3))
         XCTAssertEqual(hyphen.text, "ab-")

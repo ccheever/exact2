@@ -129,4 +129,6 @@ component GradientCard
       view height=14 background-image="linear-gradient(to right, color(display-p3 1 0 0), color(display-p3 0 0 1))"
       view height=14 border-width=2 border-style="dashed" border-color="#ff0000"
       view height=14 border-width=2 border-style="dashed" border-color="#ff0000" border-radius="50%"
-      text label font="-exact-footnote"
+      view height=14 background-color="#ff0000" opacity=0
+      view height=14 background-color="#ff0000" opacity=0.5
+      text label font="-exact-footnote" text-decoration="line-through"
