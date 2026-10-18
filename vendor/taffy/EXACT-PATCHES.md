@@ -1492,6 +1492,40 @@ checks twenty-four more, including the fractional bounds, unit boundaries and
 an unchanged subunit cap. Four layouts failed before the per-size comparison.
 Both retain the ratio basis for content growth and the final size for stretch.
 
+## Patch 50: include the definite height in a ratio box's automatic width minimum
+
+`minimum_ratio_width` combines its content-only min-content measurement with
+the width transferred from the definite height, taking the larger before
+capping by `max-width` ([CSS Sizing 4 §5.1](https://www.w3.org/TR/css-sizing-4/#intrinsic),
+[Flexbox §4.5](https://www.w3.org/TR/css-flexbox-1/#min-size-auto)). The height
+is clamped by its own min/max before transfer; `Ratio` preserves padding and
+border according to `box-sizing`. Replaced boxes, scroll containers and
+explicit width minima retain their existing paths.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+27 literal cases measured in Chrome 151.0.7922.34 on 2026-10-18, prefixed
+`Chrome 151 ratio minimum`. Before the patch, 22 frames differed: the empty
+80px square shrank to 50px in a narrow row and to 0px in the absolute-block
+case. Coverage includes siblings, max-width, wider content, height bounds,
+padding and borders under both box-sizing modes, and the explicit-minimum,
+overflow, stretch and column controls. The shared minimum fixes the absolute
+case without a separate intrinsic-layout change.
+
+The final cross-size clamp omits the automatic inline minimum when a column
+stretches the item's width. That cross size takes the line width and authored
+bounds ([Flexbox §9.4](https://www.w3.org/TR/css-flexbox-1/#algo-stretch)).
+Intrinsic measurement retains the minimum so shrink-to-fit and wrapping
+columns account for wider content. Rows, non-stretched columns, block and
+grid keep their ratio minima.
+
+Twenty-six `Chrome 151 ratio column stretch` fixtures, measured with the same
+Chrome version and date, cover definite and automatic column heights,
+column-reverse, alignment overrides, margins, bounds, padding, wider content
+and wrapping, plus block and grid controls. Ten frames failed before the
+correction, including an 80×80 item where Chrome stretches it to 50×80. Six
+additional frames guard intrinsic measurement: omitting the minimum during
+setup narrowed wider-content columns from Chrome's 120px to 80px.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested

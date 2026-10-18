@@ -91,6 +91,86 @@ test "the dials panel is drawn from each dial's declared metadata"
   expect text "dial-paint-value" == "#f00"
   expect text "dial-paint-help" == "brand.red is not a value a dial can take (a dial is a literal), so it is not offered."
 
+test "the component panel: each component's params from describe, grouped and ordered as declared, a native one named so"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "component-Card"
+  expect text "component-Card-identity" == "app.contract#Card"
+  expect text "component-MapCard-identity" == "app.tamber#MapCard · a native view's"
+  expect tree has "dial-app.contract#Card.fill-color"
+  expect text "dial-app.contract#Card.fill-value" == "accent.fill"
+  expect tree has "dial-app.contract#Card.pad-slider"
+  expect text "dial-app.contract#Card.pad-value" == "12px"
+  expect text "dial-app.contract#Card.pad-bounds" == "0px – 24px · step 1px"
+  expect text "param-Card.pad-source" == "set here · default 8px"
+  // `control=token`, the default: a field for a token or a literal.
+  expect tree has "dial-app.contract#Card.fade-field"
+  expect text "param-Card.fade-source" == "the default"
+  expect tree missing "param-Card.tone"
+  tap "more-Card-Colour"
+  expect tree has "dial-app.contract#Card.tone-select"
+  expect text "param-Card.tone-pinned" == "pinned: no longer follows surface.card"
+  expect tree has "dial-app.tamber#MapCard.zoom-stepper"
+  expect text "param-MapCard.zoom-source" == "the default"
+
+test "the component panel's other kinds: a duration's slider writes ms, an icon param shows its sources, a panel edit beside an open param's branch is no stale draft"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect text "dial-app.tamber#MapCard.pan-bounds" == "0ms – 1000ms · step 50ms"
+  type "dial-app.tamber#MapCard.pan-slider" "400"
+  expect state editKind == "set-param"
+  expect state editValue == "400ms"
+  expect text "dial-app.tamber#MapCard.glyph-value" == "sf star · material star"
+  expect tree missing "dial-app.tamber#MapCard.glyph-field"
+  // A param's branch open in the editor, then another param edited in the
+  // panel: that draft is the panel's, not a stale branch draft.
+  tap "cell-surface.card-0-light"
+  clock data
+  type "dial-app.contract#Card.pad-slider" "18"
+  expect state editTarget == "app.contract#Card.pad"
+  expect tree missing "draft-stale"
+
+test "a param edit is set-param with its chip, scrubbed when live; Reset is unset-param, applied and undone in one step"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  clock +1
+  clock data
+  type "dial-app.contract#Card.pad-slider" "16"
+  expect state editKind == "set-param"
+  expect state editTarget == "app.contract#Card.pad"
+  expect state editValue == "16px"
+  clock data
+  expect text "chip" == "Live"
+  tap "scrub-start"
+  clock data
+  expect text "scrub-previewing" == "Previewing: the running copies show this value, and the files are unchanged until Keep."
+  tap "scrub-cancel"
+  clock data
+  // A duration param is substituted at build: it rebuilds, with no scrub.
+  type "dial-app.contract#Card.fade-field" "200ms"
+  type "dial-app.contract#Card.fade-field" key "Enter"
+  expect state editTarget == "app.contract#Card.fade"
+  clock data
+  expect text "chip" == "Rebuilds"
+  expect tree has "scrub-unavailable"
+  tap "param-Card.pad-reset"
+  expect state editKind == "unset-param"
+  expect state editTarget == "app.contract#Card.pad"
+  clock data
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (1)"
+  tap "undo"
+  clock data
+  expect text "undo" == "Undo (0)"
+  request POST "/__stub/restart" {} as ada
+
 test "a length dial's slider and stepper write a px length, as a length dial takes"
   type "name" "Ada"
   tap "save-name"
@@ -1020,6 +1100,78 @@ test "the inspector: inspect mode on the builds, a selection's source and rows, 
   expect text "inspect-toggle" == "Inspect"
   request POST "/__stub/restart" {} as ada
 
+test "the param rung: a row that reads a component param opens the param on the branch that won, its edit set-param, the token it aliases offered, never the default"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 1, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1083feff", "source": "authored", "origin": "own", "token": {"names": ["app.contract#Card.fill"], "text": "app.contract#Card.fill", "modes": "", "implied": false}, "editable": {"rung": "param", "param": "app.contract#Card.fill", "short": "Card.fill", "token": "accent.fill", "modes": ""}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "own", "token": {"names": ["app.contract#Card.pad"], "text": "app.contract#Card.pad", "modes": "", "implied": false}, "editable": {"rung": "param", "param": "app.contract#Card.pad", "short": "Card.pad", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  expect text "selrow-edit-background-color" == "Edit Card.fill"
+  expect text "selrow-token-background-color" == "Edit the token accent.fill instead"
+  expect text "selrow-edit-padding" == "Edit Card.pad"
+  expect tree missing "selrow-token-padding"
+  expect tree missing "selrow-reason-padding"
+  tap "selrow-edit-padding"
+  clock data
+  expect state selToken == "app.contract#Card.pad"
+  expect state selColumn == "2-dark"
+  clock +1
+  clock data
+  expect tree missing "rename-to"
+  type "part-amount-field" "14"
+  expect state editKind == "set-param"
+  expect state editTarget == "app.contract#Card.pad"
+  expect state editValue == "14px"
+  // Another param edited in the panel while Card.pad's branch is open: the
+  // panel's draft, not a stale one of the branch.
+  type "dial-app.tamber#MapCard.zoom-stepper" "13"
+  expect state editTarget == "app.tamber#MapCard.zoom"
+  expect state editValue == "13"
+  expect tree missing "draft-stale"
+  tap "selrow-token-background-color"
+  clock data
+  expect state selToken == "accent.fill"
+  request POST "/__stub/restart" {} as ada
+
+test "Only this mode on a param with no line: its line is written first, in the one reviewed transaction, which has no scrub"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 1, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1083feff", "source": "authored", "origin": "own", "token": {"names": ["app.contract#Card.fill"], "text": "app.contract#Card.fill", "modes": "", "implied": false}, "editable": {"rung": "param", "param": "app.contract#Card.fill", "short": "Card.fill", "token": "accent.fill", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  tap "selrow-edit-background-color"
+  clock data
+  clock +1
+  clock data
+  tap "only-this-mode"
+  expect state editKind == "set-param"
+  expect state editWhen == "dark-style=dim density=regular"
+  clock data
+  expect text "chip" == "Live"
+  expect disabled "scrub-start"
+  request POST "/__stub/restart" {} as ada
+
 test "the inspector places a light copy on the light column, and a build whose scheme is not known, or that went, offers no edit"
   type "name" "Ada"
   tap "save-name"
@@ -1173,3 +1325,24 @@ test "the inspect toggle follows the server's inspect events: another client tak
   clock data
   expect text "inspect-toggle" == "Inspect"
   request POST "/__stub/restart" {} as ada
+
+test "Enter in Rename or in a new token's fields proposes it, as its button does, and only when the button would"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "cell-space.edge-0-light"
+  clock data
+  type "rename-to" key "Enter"
+  expect state editKind == ""
+  type "rename-to" "space.gutter"
+  type "rename-to" key "Enter"
+  expect state editKind == "rename-token"
+  expect state editValue == "space.gutter"
+  type "new-name" "surface.raised"
+  type "new-name" key "Enter"
+  expect state editKind == "rename-token"
+  type "new-value" "#ffffff"
+  type "new-value" key "Enter"
+  expect state editKind == "add-token"
+  expect state editTarget == "surface.raised"
+  expect state editValue == "#ffffff"

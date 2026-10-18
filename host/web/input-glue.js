@@ -378,7 +378,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       for (const rule of list.flatMap(r => r instanceof CSSMediaRule ? [...r.cssRules] : [r])) {
         if (!rule.selectorText?.includes(`[data-exact-held~="${held.state}"]`) && !rule.selectorText?.includes(`[data-exact-held~=${held.state}]`)) continue;
         if (!el.matches(rule.selectorText)) continue;
-        for (const prop of rule.style) rows.push({ name: prop.replace(/^border-(top|right|bottom|left)-color$/, "border_color_$1").replace(/-/g, "_"), value: rule.style.getPropertyValue(prop).trim(), prop });
+        // A custom property is the look's own (`--exact-hover-wash`), not a row.
+        for (const prop of rule.style) if (!prop.startsWith("--")) rows.push({ name: prop.replace(/^border-(top|right|bottom|left)-color$/, "border_color_$1").replace(/-/g, "_"), value: rule.style.getPropertyValue(prop).trim(), prop });
       }
     }
     // A row a token or a role writes (`var(…)`, `light-dark(…)`) says the value it resolves to here; which token it

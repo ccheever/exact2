@@ -420,9 +420,11 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         if (r.selected != null && (!inspectors.has(b.id) || (r.inspect != null && r.inspect !== (inspectSeq.get(b.id) ?? 0)))) return { status: 409, body: { message: 'inspect mode is off on this build, or it is another command\'s now' } };
         // A selection is the server's to join (`selected`): it may refuse a
         // stale one, and ask the build again.
-        const refused = r.selected != null && selected ? selected(shown(b), r, f => frame(b.id, f)) : null;
-        if (refused) return refused;
-        send({ event: 'selected', build: b.id, selected: r.selected ?? null });
+        // It answers a refusal, or the report as it is published (`publish`:
+        // its names as the server's clients may see them).
+        const joined = r.selected != null && selected ? selected(shown(b), r, f => frame(b.id, f)) : null;
+        if (joined?.status) return joined;
+        send({ event: 'selected', build: b.id, selected: joined?.publish ?? r.selected ?? null });
       }
       return { status: 204, body: null };
     },

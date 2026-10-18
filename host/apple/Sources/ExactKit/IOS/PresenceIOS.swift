@@ -36,6 +36,7 @@ extension Presenter {
             stack.append(contentsOf: next.subviews)
         }
         for leaving in [view] + held { _ = leaving.endEditing(true) }
+        for member in members { member.holdGone() } // a held node that starts to leave is gone (HeldState.swift)
         for member in members { release(member.id) { _ in } }
         view.isUserInteractionEnabled = false
         view.accessibilityElementsHidden = true

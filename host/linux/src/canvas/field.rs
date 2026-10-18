@@ -41,6 +41,12 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.force = true;
     }
 
+    /// The reader's field `id` had real input (a finger down, a key down).
+    pub fn field_input(&mut self, id: u32, generation: u32) {
+        self.p.reader_field_input(id, generation);
+        self.force = true;
+    }
+
     /// The reader's field `id` holds `value` after its edit `seq`, its
     /// selection at `start` to `end`.
     pub fn field_edited(&mut self, id: u32, edit: (u32, u32), value: &str, selection: (u32, u32)) {

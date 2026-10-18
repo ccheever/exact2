@@ -114,8 +114,8 @@ the table's `select` is the closed button, as a person first sees it.
 | spinner | accent-color | android | exact | 0 | 293 | measured |
 | select | accent-color | ios | exact | 0 | 1312 | measured |
 | select | accent-color | macos | none | (28.1) | 0 | inferred: agent capture is an inactive window |
-| select | accent-color | web | none | 29.1 | 0 | measured |
-| select | accent-color | linux | none | 28.1 | 0 | measured |
+| select | accent-color | web | none | 33.3 | 0 | measured |
+| select | accent-color | linux | none | 33.3 | 0 | measured |
 | select | accent-color | windows | none | - | - | inferred: same painter, not measured |
 | select | accent-color | terminal | none | - | - | none by construction |
 | select | accent-color | android | none | 31.5 | 0 | measured |
@@ -133,45 +133,45 @@ the table's `select` is the closed button, as a person first sees it.
 | button-prominent:disabled | accent-color | windows | none | - | - | inferred: same painter, not measured |
 | button-prominent:disabled | accent-color | terminal | none | - | - | none by construction |
 | button-prominent:disabled | accent-color | android | exact | 0 | 77238 | measured |
-| field | Field | ios | none | 18.7 | 0 | measured |
+| field | Field | ios | exact | 0 | 102933 | measured |
 | field | Field | macos | none | 18.7 | 0 | measured |
-| field | Field | web | none | 18.7 | 0 | measured |
-| field | Field | linux | none | 18.7 | 0 | measured |
-| field | Field | windows | none | - | - | inferred: same painter, not measured |
+| field | Field | web | exact | 0 | 12772 | measured |
+| field | Field | linux | exact | 0 | 12817 | measured |
+| field | Field | windows | exact | - | - | inferred: same painter, not measured |
 | field | Field | terminal | none | - | - | none by construction |
 | field | Field | android | exact | 0 | 138189 | measured |
-| field | FieldText | ios | exact | 0 | 1301 | measured |
+| field | FieldText | ios | exact | 0 | 1308 | measured |
 | field | FieldText | macos | exact | 0 | 54 | measured |
-| field | FieldText | web | exact | 0 | 100 | measured |
-| field | FieldText | linux | exact | 0 | 66 | measured |
+| field | FieldText | web | exact | 0 | 111 | measured |
+| field | FieldText | linux | exact | 0 | 67 | measured |
 | field | FieldText | windows | exact | - | - | inferred: same painter, not measured |
 | field | FieldText | terminal | none | - | - | none by construction |
 | field | FieldText | android | exact | 0 | 848 | measured |
-| field | placeholder | ios | exact | 0 | 2403 | measured |
+| field | placeholder | ios | exact | 0 | 2405 | measured |
 | field | placeholder | macos | exact | 0 | 117 | measured |
 | field | placeholder | web | exact | 0 | 195 | measured |
-| field | placeholder | linux | exact | 0 | 142 | measured |
+| field | placeholder | linux | exact | 0 | 143 | measured |
 | field | placeholder | windows | exact | - | - | inferred: same painter, not measured |
 | field | placeholder | terminal | none | - | - | none by construction |
 | field | placeholder | android | exact | 0 | 1633 | measured |
-| textarea | Field | ios | none | 18.7 | 0 | measured |
+| textarea | Field | ios | exact | 0 | 189055 | measured |
 | textarea | Field | macos | exact | 0 | 12142 | measured |
-| textarea | Field | web | none | 18.7 | 0 | measured |
-| textarea | Field | linux | none | 18.7 | 0 | measured |
-| textarea | Field | windows | none | - | - | inferred: same painter, not measured |
+| textarea | Field | web | exact | 0 | 20462 | measured |
+| textarea | Field | linux | exact | 0 | 20537 | measured |
+| textarea | Field | windows | exact | - | - | inferred: same painter, not measured |
 | textarea | Field | terminal | none | - | - | none by construction |
 | textarea | Field | android | exact | 0 | 172841 | measured |
-| textarea | FieldText | ios | exact | 0 | 1301 | measured |
+| textarea | FieldText | ios | exact | 0 | 1308 | measured |
 | textarea | FieldText | macos | exact | 0 | 53 | measured |
-| textarea | FieldText | web | exact | 0 | 100 | measured |
-| textarea | FieldText | linux | exact | 0 | 66 | measured |
+| textarea | FieldText | web | exact | 0 | 111 | measured |
+| textarea | FieldText | linux | exact | 0 | 67 | measured |
 | textarea | FieldText | windows | exact | - | - | inferred: same painter, not measured |
 | textarea | FieldText | terminal | none | - | - | none by construction |
 | textarea | FieldText | android | exact | 0 | 848 | measured |
-| textarea | placeholder | ios | exact | 0 | 2403 | measured |
+| textarea | placeholder | ios | exact | 0 | 2405 | measured |
 | textarea | placeholder | macos | exact | 0 | 116 | measured |
 | textarea | placeholder | web | exact | 0 | 195 | measured |
-| textarea | placeholder | linux | exact | 0 | 142 | measured |
+| textarea | placeholder | linux | exact | 0 | 143 | measured |
 | textarea | placeholder | windows | exact | - | - | inferred: same painter, not measured |
 | textarea | placeholder | terminal | none | - | - | none by construction |
 | textarea | placeholder | android | exact | 0 | 1633 | measured |

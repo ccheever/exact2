@@ -364,7 +364,7 @@ export async function buildRust(app, { compat, env = developmentBuildEnv(), nati
         variants.tiered={receipt:rustReceipt(app,compat,plan,bytes,nativeTarget,'tiered'),bytes};
       }
     }
-    return { plan, variants, inputs, inputDigest: before, sourceMap: map, entries: new Map(Object.entries(filesystem({op:'tree',root:resolve(scratch,'plans'),optionalRoot:true}) ?? {}).map(([name,bytes]) => [`plans/${name}`,Buffer.from(bytes,'base64')])) };
+    return { plan, variants, inputs, inputDigest: before, sourceMap: map, entries: new Map(['plans', 'activities'].flatMap(tree => Object.entries(filesystem({op:'tree',root:resolve(scratch,tree),optionalRoot:true}) ?? {}).map(([name,bytes]) => [`${tree}/${name}`,Buffer.from(bytes,'base64')]))) };
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }
 

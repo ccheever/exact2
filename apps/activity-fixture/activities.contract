@@ -1,0 +1,26 @@
+// The fixture's two activities share one component: one line in each of WP8's
+// eight placements (LLP 1126.001 WP8).
+shape FixtureState
+  label: string
+
+component FixtureActivity
+  props
+    label: string
+  view
+    view slot="lockScreen"
+      text label
+    view slot="compactLeading"
+      text label
+    view slot="compactTrailing"
+      text label
+    view slot="minimal"
+      text label
+    view slot="expanded"
+      view slot="leading"
+        text label
+      view slot="trailing"
+        text label
+      view slot="center"
+        text label
+      view slot="bottom"
+        text label
