@@ -29,10 +29,10 @@ test('invalid quota is not fabricated as zero and Cursor combined quota is hidde
   const cursor=mobileUsageConfig({providers:[{...nativeAccount({...limits,windows:['totalPercentUsed','autoPercentUsed','apiPercentUsed'].map(id=>({...window(),id}))}),driver:'cursor'}]});
   const pool=collectLimitPools(collectLimitAccounts(new Map([['a',{entry:{target:{label:'A'}},serverConfig:cursor}]])),0)[0]!;expect(displayLimitWindows(pool).map(window=>window.id)).toEqual(['autoPercentUsed','apiPercentUsed']);
 });
-function presentedLimits(providers:Obj[],at=now){
+function presentedLimits(providers:Obj[],at=now,publish=false){
   const config=mobileUsageConfig({providers}),presentations:LimitPresentations=new Map([['a',{entry:{target:{label:'A'}},serverConfig:config}]]);
   return mobileUsagePresentation({tab:'limits',window:mobileUsageWindow(30,at),metric:'cost',now:at,presentations,external:false,
-    sources:[{id:'a',label:'A',connected:true,summary:null,error:'',canRead:true,canWrite:false,canManage:false,config}]},false);
+    sources:[{id:'a',label:'A',connected:true,summary:null,error:'',canRead:true,canWrite:false,canManage:false,config}]},publish);
 }
 test('pooled Limits headers retain window and account order while selecting the first positive refill',()=>{
   const at=Date.parse('2026-10-07T12:00:00Z'),reset=(minutes:number)=>new Date(at+minutes*60_000).toISOString();
@@ -118,6 +118,44 @@ test('pooled Limits segments use Claude orange or Codex neutral and bind the bad
   }
   for(const mode of ['light','dark'])for(const theme of ['t3-code','t3-chat','grove','ocean','ember','iris'])
     expect(settingsColors(mode,theme).subtleStrong).toBe(settingsTokens(mode,theme)['--color-subtle-strong']);
+});
+test('Account detail becomes unavailable when its captured window disappears while the account remains',()=>{
+  const at=Date.parse('2026-10-07T12:00:00Z'),session={...window('session',50),label:'Session'},weekly={...window('weekly',25),id:'weekly',label:'Weekly'};
+  const initial=presentedLimits([nativeAccount({...limits,windows:[session,weekly]})],at,true),key=initial.pools[0]!.windows[0]!.columns[0]!.key;
+  expect(mobileUsageAccount(key,'primary','session',at).present).toBe(true);
+  const changed=presentedLimits([nativeAccount({...limits,windows:[weekly]})],at,true);
+  expect(changed.pools[0]!.windows[0]!.columns[0]!.key).toBe(key);
+  for(const [id,kind] of [['primary','session'],['weekly','session'],['missing','weekly']]){
+    const detail=mobileUsageAccount(key,id!,kind!,at);
+    expect([detail.present,detail.error]).toEqual([false,'This account is no longer reporting limits on the selected environments.']);
+  }
+});
+test('Account detail remains unavailable when the captured native account disappears',()=>{
+  const at=Date.parse('2026-10-07T12:00:00Z'),initial=presentedLimits([nativeAccount(limits)],at,true),key=initial.pools[0]!.windows[0]!.columns[0]!.key;
+  presentedLimits([],at,true);
+  const detail=mobileUsageAccount(key,'primary','session',at);
+  expect([detail.present,detail.error]).toEqual([false,'This account is no longer reporting limits on the selected environments.']);
+});
+test('Account detail omits restoration when its reset restores zero or no reset is reported',()=>{
+  const at=Date.parse('2026-10-07T12:00:00Z'),reset=new Date(at+60*60_000).toISOString();
+  for(const [usedPercent,resetsAt] of [[0,reset],[0.4,reset],[50,undefined]] as const){
+    const providers=[nativeAccount({...limits,windows:[{...window('session',usedPercent),resetsAt}]}),
+      {...nativeAccount({...limits,windows:[{...window('session',75),resetsAt:reset}]},'second@example.test'),instanceId:'two'}];
+    const before=JSON.stringify(providers);presentedLimits(providers,at,true);
+    const detail=mobileUsageAccount('a:one','primary','session',at);
+    expect(detail.present).toBe(true);expect(detail.restores).toBe('');expect(JSON.stringify(providers)).toBe(before);
+  }
+});
+test('Account detail preserves positive pooled restoration for future and past resets at the captured clock',()=>{
+  const at=Date.parse('2026-10-07T12:00:00Z');
+  for(const delta of [-60,60]){
+    const reset=new Date(at+delta*60_000).toISOString(),providers=[nativeAccount({...limits,windows:[{...window('session',50),resetsAt:reset}]}),
+      {...nativeAccount({...limits,windows:[{...window('session',75),resetsAt:reset}]},'second@example.test'),instanceId:'two'}];
+    const before=JSON.stringify(providers);presentedLimits(providers,at,true);
+    const detail=mobileUsageAccount('a:one','primary','session',at);
+    expect([detail.present,detail.error,detail.restores]).toEqual([true,'','Restores 25% of the pool']);
+    expect(detail.resets.length).toBeGreaterThan(0);expect(JSON.stringify(providers)).toBe(before);
+  }
 });
 test('explicit empty selection stays empty; diagnostic permissions distinguish old session scopes',()=>{
   expect(mobileUsageSelection('null')).toBeNull();expect(mobileUsageSelection('[]')).toEqual([]);expect(()=>mobileUsageSelection('{}')).toThrow();
