@@ -1,6 +1,8 @@
 #if EXACT_WIDGET_GALLERY && (os(macOS) || os(iOS))
 import XCTest
 import SwiftUI
+import ImageIO
+import UniformTypeIdentifiers
 import ExactCore
 import ExactSnapshot
 @testable import ExactKit
@@ -56,6 +58,12 @@ final class WidgetGalleryTests: XCTestCase {
             renderer.scale = 1
             renderer.proposedSize = ProposedViewSize(width: 362, height: nil)
             let image = try XCTUnwrap(renderer.cgImage, entry.kind)
+            if let out = ProcessInfo.processInfo.environment["EXACT_WP10_OUT"].map({ URL(fileURLWithPath: $0) }) {
+                try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+                if let destination = CGImageDestinationCreateWithURL(out.appending(path: "gallery-\(entry.kind)-\(scheme).png") as CFURL, UTType.png.identifier as CFString, 1, nil) {
+                    CGImageDestinationAddImage(destination, image, nil); CGImageDestinationFinalize(destination)
+                }
+            }
             XCTAssertEqual(image.width, 362)
             XCTAssertGreaterThan(image.height, 200, "the Lock Screen card, the expanded Island and the compact row stack")
             XCTAssertGreaterThanOrEqual(preview.render.layoutCount, 8, "each placement laid out at least once: \(preview.render.layoutCount)")
