@@ -30,7 +30,7 @@ macro_rules! canvas_jni {
             use std::cell::RefCell;
             use std::ffi::{c_void, CStr};
             use $crate::canvas::jni_sys::{
-                jboolean, jclass, jdouble, jfloat, jint, jintArray, jlong, jobject, jstring,
+                jboolean, jclass, jdouble, jfloat, jfloatArray, jint, jintArray, jlong, jobject, jstring,
                 JNIEnv, JNI_FALSE, JNI_TRUE,
             };
 
@@ -985,6 +985,27 @@ macro_rules! canvas_jni {
             ) {
                 let ch = char::from_u32(code as u32).filter(|_| code > 0);
                 with(|h| h.key(ch, backspace == JNI_TRUE));
+            }
+
+            /// A gamepad's state (LLP 1127.003 D2): `values` its 17 standard
+            /// buttons, then its 4 axes.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_pad(
+                env: *mut JNIEnv,
+                _class: jclass,
+                index: jint,
+                connected: jboolean,
+                values: jfloatArray,
+            ) {
+                let mut v = [0f32; 21];
+                if ((**env).GetArrayLength.expect("jni"))(env, values) != 21 {
+                    return;
+                }
+                ((**env).GetFloatArrayRegion.expect("jni"))(env, values, 0, 21, v.as_mut_ptr());
+                let (mut buttons, mut axes) = ([0f32; 17], [0f32; 4]);
+                buttons.copy_from_slice(&v[..17]);
+                axes.copy_from_slice(&v[17..]);
+                with(|h| h.pad(index as u8, connected == JNI_TRUE, buttons, axes));
             }
 
             /// Pictures announced and not yet fetched, as id, width, height triples:

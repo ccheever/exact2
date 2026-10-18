@@ -29,6 +29,12 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.force = true;
     }
 
+    /// A gamepad's state (`Pads.kt`): to the canvas a key would reach.
+    pub fn pad(&mut self, index: u8, connected: bool, buttons: [f32; 17], axes: [f32; 4]) {
+        self.p.hardware_pad(index, connected, buttons, axes);
+        self.force = true;
+    }
+
     /// System Back, in the presenter's order (LLP 1115.001 D6). Whether the
     /// app took it; when it did not, it has nowhere to go back to and the
     /// activity goes.

@@ -155,6 +155,9 @@ object Native {
     /** A key at the focused node when no hosted field holds the focus: a character (or '\n' for Enter), or
      * Backspace. A hosted field ([Fields]) takes its keys itself. */
     @JvmStatic external fun key(code: Int, backspace: Boolean)
+    /** A gamepad's state for the canvas a key would reach (LLP 1127.003 D2): [values] its 17 standard buttons, then
+     * its 4 axes; [connected] false when it went away. */
+    @JvmStatic external fun pad(index: Int, connected: Boolean, values: FloatArray)
     /** System Back (LLP 1115.001 D6): whether the app took it. From its navigation root's selected route it goes to
      * the Back control the root names, else to the root's `navigate` handler, else it is the runner's own `back`;
      * false when there is nowhere to go back to, and the activity finishes. The reader takes Back only while the
