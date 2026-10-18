@@ -1599,6 +1599,12 @@
       "params": ["any"],
       "returns": "any",
       "_comment": "@ref LLP 1017.003 §Refused (admitted 2026-10-17): JavaScript's `Array.prototype.flat()` at its default depth, 1: a list of lists' items in order, `list<list<T>> -> list<T>` (the type checker's; no depth is taken). One list step an outer item and one an item it emits, taken before the list is built, as `concat` takes them; the result's extent is checked as a `List` is."
+    },
+    {
+      "name": "rangeFrame",
+      "params": ["string", "number", "number"],
+      "returns": "Geometry",
+      "_comment": "LLP 1114.007: action-time viewport geometry of the UTF-16 source range in a live text field. Hosts read their actual editor layout; an unmounted or unsupported field is unavailable."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",
