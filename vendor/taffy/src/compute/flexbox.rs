@@ -1546,6 +1546,32 @@ fn item_known_dimension_definiteness(constants: &AlgoConstants, item: &FlexItem)
     Size { width: true, height: true }.with_main(dir, main_is_definite).with_cross(dir, cross_is_definite)
 }
 
+/// The widest item's outer min-content contribution in a wrapping row.
+fn wrapping_row_min_content(
+    tree: &mut impl LayoutFlexboxContainer,
+    lines: &[FlexLine<'_>],
+    constants: &AlgoConstants,
+    available_space: Size<AvailableSpace>,
+) -> f32 {
+    // EXACT PATCH 48: include contents when the automatic minimum is zero.
+    // Chrome uses preferred width and min/max, but neither flex-basis clamp,
+    // even for inflexible items or scroll containers (§9.9.1.3).
+    // https://www.w3.org/TR/css-flexbox-1/#intrinsic-item-contributions
+    let available_space = Size { width: AvailableSpace::MinContent, ..available_space };
+    lines.iter().flat_map(|line| line.items.iter()).map(|item| {
+        let width = tree.measure_child_size(
+            item.node,
+            Size::NONE,
+            constants.node_inner_size,
+            available_space.maybe_sub(item.margin.sum_axes()),
+            SizingMode::InherentSize,
+            constants.dir.main_axis(),
+            Line::FALSE,
+        );
+        width.max(item.resolved_minimum_main_size) + item.margin.horizontal_axis_sum()
+    }).fold(0.0, f32_max)
+}
+
 /// Determine the container's main size (if not already known)
 fn determine_container_main_size(
     tree: &mut impl LayoutFlexboxContainer,
@@ -1638,23 +1664,7 @@ fn determine_container_main_size(
                 }
             }
             AvailableSpace::MinContent if is_wrapping_row => {
-                // EXACT PATCH 48: a wrapping row takes its widest item's intrinsic
-                // contribution, including contents when its automatic minimum is zero.
-                // Chrome 151 uses the preferred width and min/max but neither flex-basis
-                // clamp here, even for inflexible items or scroll containers (§9.9.1.3).
-                // https://www.w3.org/TR/css-flexbox-1/#intrinsic-item-contributions
-                lines.iter().flat_map(|line| line.items.iter()).map(|item| {
-                    let width = tree.measure_child_size(
-                        item.node,
-                        Size::NONE,
-                        constants.node_inner_size,
-                        available_space.maybe_sub(item.margin.sum_axes()),
-                        SizingMode::InherentSize,
-                        dir.main_axis(),
-                        Line::FALSE,
-                    );
-                    width.max(item.resolved_minimum_main_size) + item.margin.horizontal_axis_sum()
-                }).fold(0.0, f32_max) + main_content_box_inset
+                wrapping_row_min_content(tree, lines, constants, available_space) + main_content_box_inset
             }
             AvailableSpace::MinContent if constants.is_wrap => {
                 let longest_line_length: f32 = lines
@@ -1909,6 +1919,11 @@ fn determine_container_main_size(
                     main_size = f32_max(main_size, item_main_size_sum + gap_sum)
                 }
 
+                // EXACT PATCH 51: wrapping max-content cannot be narrower than
+                // its min-content width, even without a fit-content caller.
+                if is_wrapping_row {
+                    main_size = main_size.max(wrapping_row_min_content(tree, lines, constants, available_space));
+                }
                 main_size + main_content_box_inset
             }
         }
@@ -3701,6 +3716,56 @@ mod intrinsic_tests {
     use crate::prelude::*;
     use crate::tree::{LayoutPartialTreeExt, SizingMode};
     use crate::Overflow;
+
+    // Chrome 151.0.7922.34, 2026-10-18: width:max-content wrappers around
+    // wrapping rows, including an item whose automatic minimum is disabled.
+    #[test]
+    fn wrapping_max_content_is_floored_by_min_content() {
+        let mut failures = Vec::new();
+        for (name, preferred, content, margin, minimum, maximum, wrap, expected) in [
+            ("preferred", length(100.0), None, 0.0, auto(), auto(), FlexWrap::Wrap, 100.0),
+            ("contents", auto(), Some(100.0), 0.0, length(0.0), auto(), FlexWrap::Wrap, 100.0),
+            ("margin", length(100.0), None, -10.0, auto(), auto(), FlexWrap::Wrap, 90.0),
+            ("maximum", length(100.0), None, 0.0, auto(), length(80.0), FlexWrap::Wrap, 80.0),
+            ("nowrap", length(100.0), None, 0.0, auto(), auto(), FlexWrap::NoWrap, 40.0),
+        ] {
+            let mut tree = TaffyTree::<()>::new();
+            let children: Vec<_> = content.into_iter().map(|width| tree.new_leaf(Style {
+                display: Display::Block,
+                size: Size { width: length(width), height: length(10.0) },
+                ..Default::default()
+            }).unwrap()).collect();
+            let item = tree.new_with_children(Style {
+                display: Display::Block,
+                size: Size { width: preferred, height: length(20.0) },
+                flex_basis: length(40.0),
+                min_size: Size { width: minimum, height: auto() },
+                margin: crate::geometry::Rect { right: length(margin), ..zero() },
+                ..Default::default()
+            }, &children).unwrap();
+            let row = tree.new_with_children(Style {
+                flex_wrap: wrap,
+                max_size: Size { width: maximum, height: auto() },
+                ..Default::default()
+            }, &[item]).unwrap();
+            for mode in [SizingMode::ContentSize, SizingMode::InherentSize] {
+                tree.mark_dirty(row).unwrap();
+                let size = tree.as_layout_tree().measure_child_size_both(
+                    row, Size::NONE, Size::NONE, Size::MAX_CONTENT, mode, Line::FALSE,
+                );
+                if size != (Size { width: expected, height: 20.0 }) {
+                    failures.push(format!("{name}; {mode:?}: {size:?}, Chrome {expected}×20"));
+                }
+            }
+            tree.mark_dirty(row).unwrap();
+            tree.compute_layout(row, Size::MAX_CONTENT).unwrap();
+            let size = tree.layout(row).unwrap().size;
+            if size != (Size { width: expected, height: 20.0 }) {
+                failures.push(format!("{name}; layout: {size:?}, Chrome {expected}×20"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
 
     // Chrome 151.0.7922.34, 2026-10-18: intrinsic row widths use the
     // hypothetical main size only when a definite basis cannot flex to the contribution.

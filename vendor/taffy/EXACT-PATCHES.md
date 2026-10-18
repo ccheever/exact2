@@ -1560,6 +1560,16 @@ sizes, including `flex-basis:content` controls that the kernel does not
 expose. Before the patch, 16 queries differed. Run with
 `cargo test --manifest-path vendor/taffy/Cargo.toml --no-fail-fast`.
 
+Wrapping max-content is floored by the widest outer min-content contribution
+before container insets and bounds. It shares Patch 48's measurement, so a
+direct MaxContent query has the floor Chrome applies even without an absolute
+fit-content caller. Seven `Chrome 151 intrinsic wrap floor` fixtures check
+direct kernel MaxContent layouts; Taffy's
+`wrapping_max_content_is_floored_by_min_content` also checks both sizing modes
+and contents with an explicit zero minimum. Measured with the same Chrome
+version and date. Before the correction, seven kernel frames and twelve
+Taffy measurements/layouts differed, including 40px instead of 100px.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested

@@ -236,6 +236,8 @@ fn min_content_rows_remeasure_content_dependent_bases() {
 
 /// Chrome 151.0.7922.34, 2026-10-18: a width:max-content wrapper around each
 /// case. The eight basic row cases also agree inside float:left wrappers.
+/// `Chrome 151 intrinsic wrap floor` also checks the min-content floor,
+/// including reversed rows, item and container padding, margins and a cap.
 /// A max-content root offer must publish wrapped frames without a parent's
 /// definite-width pass.
 #[test]
