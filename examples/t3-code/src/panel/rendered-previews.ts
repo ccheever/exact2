@@ -1,6 +1,6 @@
 // Rendered previews (MIT reference, see LICENSE-T3: DelimitedTablePreview.tsx and
 // packages/shared/src/delimitedPreview.ts): CSV/TSV as rows. Markdown, a file in Files or a sent attachment, is
-// parsed by the chat renderer itself (app.contract filesMarkdown over macos/src/markdown.rs: files-surface.ts
+// parsed by the chat renderer itself (app.contract filesMarkdown over data/src/markdown.rs: files-surface.ts
 // renderedMarkdown, attachment-surface.ts renderedAttachment).
 
 /** parseDelimitedPreview: quoted delimiters, escaped quotes and multiline cells, 100 rows × 30 columns. */

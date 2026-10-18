@@ -9,7 +9,7 @@ const box = { x: 100, y: 10, width: 80, height: 24 };
 function scope(closed: string[][]) {
   return {
     tab: { id: 'files' },
-    frame: (id: string) => (id === 'panel-tab-files' ? box : { x: 0, y: 0, width: 0, height: 0 }),
+    frame: (id: string) => (id === 'panel-tab-row-files' ? box : { x: 0, y: 0, width: 0, height: 0 }),
     ui: (op: string, id: string) => { closed.push([op, id]); },
   };
 }

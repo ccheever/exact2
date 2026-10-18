@@ -30,9 +30,9 @@ const shell = (id: string, extra: Obj = {}): Obj => ({ id, projectId: 'p1', titl
   activeProviderThreadId: null, pendingRuntimeRequest: null, createdAt: iso(-3_600_000), updatedAt: iso(-3_600_000), archivedAt: null,
   settledOverride: null, settledAt: null, modelSelection: { instanceId: 'codex', model: 'm' }, lineage: { relationshipToParent: null }, ...extra });
 
-interface Fake { client: T3Client; dispatched: Obj[]; opened: string[]; drafts: string[]; calls: Obj[]; picks: string[] }
-function fake(threads: Obj[], options: { caps?: Obj; settings?: Obj; threadId?: string; picks?: string[] } = {}): Fake {
-  const dispatched: Obj[] = [], opened: string[] = [], drafts: string[] = [], calls: Obj[] = [], picks = [...(options.picks ?? [])];
+interface Fake { client: T3Client; dispatched: Obj[]; opened: string[]; drafts: string[]; calls: Obj[] }
+function fake(threads: Obj[], options: { caps?: Obj; settings?: Obj; threadId?: string } = {}): Fake {
+  const dispatched: Obj[] = [], opened: string[] = [], drafts: string[] = [], calls: Obj[] = [];
   let ids = 0;
   const client = {
     shell: { projects: [{ id: 'p1', title: 'Parity fixture', workspaceRoot: '/fixture' }, { id: 'p2', title: 'Other', workspaceRoot: '/other' }], threads, sequence: 1 },
@@ -45,14 +45,13 @@ function fake(threads: Obj[], options: { caps?: Obj; settings?: Obj; threadId?: 
       request: async (method: string, payload: Obj) => { if (method === 'orchestration.dispatchCommand') dispatched.push(payload); return {}; },
       call: async (request: Obj) => {
         calls.push(request);
-        if (request.op === 'sidebarMenu') return { id: picks.shift() ?? null };
         return {};
       },
     }),
     async openSelected(_native: Native, id: string) { opened.push(id); client.threadId = id; },
     async openDraft(_native: Native, projectId: string) { drafts.push(projectId); client.threadId = ''; },
   } as unknown as T3Client & { threadId: string };
-  return { client, dispatched, opened, drafts, calls, picks };
+  return { client, dispatched, opened, drafts, calls };
 }
 const native = { available: true, watch() {}, later: async () => ({}) } as unknown as Native;
 const files = {} as Files;
@@ -374,21 +373,21 @@ describe('sidebar commands (sidebar-commands.ts)', () => {
   });
 
   test('the row menu runs the picked action: mark unread, auto-settle, regenerate, copy, archive, delete with confirmation', async () => {
-    const { client, dispatched, calls } = fake([shell('a', { branch: 'feature/x' })], { picks: ['mark-unread', 'auto-settle:disabled', 'regenerate-title', 'copy-branch', 'archive', 'delete'] });
-    for (let index = 0; index < 5; index++) await sidebarCommand(client, native, files, 'menu', 'a', 'row');
+    const { client, dispatched, calls } = fake([shell('a', { branch: 'feature/x' })]);
+    for (const choice of ['mark-unread', 'auto-settle:disabled', 'regenerate-title', 'copy-branch', 'archive']) await sidebarCommand(client, native, files, 'menu-choice', 'a', choice);
     expect(strip(dispatched)).toEqual([{ type: 'thread.mark-unread', threadId: 'a' }, { type: 'thread.auto-settle.set', threadId: 'a', enabled: false },
       { type: 'thread.metadata.update', threadId: 'a', regenerateTitle: true }, { type: 'thread.archive', threadId: 'a' }]);
     expect(calls.filter(call => call.op === 'copyText').map(call => call.text)).toEqual(['feature/x']);
     expect(toasts(client).some(toast => toast.title === 'Branch copied')).toBe(true);
-    await sidebarCommand(client, native, files, 'menu', 'a', 'row');
+    await sidebarCommand(client, native, files, 'menu-choice', 'a', 'delete');
     expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ dialog: 'delete', dialogTitle: 'Delete thread "Thread a"?', dialogDescription: 'This permanently clears conversation history for this thread.' });
     await sidebarCommand(client, native, files, 'dialog-confirm', '', '');
     expect(strip(dispatched).at(-1)).toEqual({ type: 'thread.delete', threadId: 'a' });
   });
 
   test('archive confirms only when Archive confirmation is on; a running thread cannot archive', async () => {
-    const { client, dispatched } = fake([shell('a'), shell('r', { latestRunId: 'x', status: 'running', activeRunId: 'x' })], { settings: { confirmThreadArchive: true }, picks: ['archive'] });
-    await sidebarCommand(client, native, files, 'menu', 'a', 'row');
+    const { client, dispatched } = fake([shell('a'), shell('r', { latestRunId: 'x', status: 'running', activeRunId: 'x' })], { settings: { confirmThreadArchive: true } });
+    await sidebarCommand(client, native, files, 'menu-choice', 'a', 'archive');
     expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ dialog: 'archive', dialogTitle: 'Archive thread "Thread a"?' });
     await sidebarLocal(client, native, 'dialog-close', '', '');
     expect(dispatched).toHaveLength(0);
@@ -415,9 +414,9 @@ describe('sidebar commands (sidebar-commands.ts)', () => {
   });
 
   test('a selected row opens the bulk menu; Settle (N) parks the whole batch', async () => {
-    const { client, dispatched } = fake([shell('a'), shell('b')], { picks: ['settle'] });
+    const { client, dispatched } = fake([shell('a'), shell('b')]);
     sidebarSession(client).selection = ['a', 'b'];
-    await sidebarCommand(client, native, files, 'menu', 'a', 'row');
+    await sidebarCommand(client, native, files, 'menu-choice', 'a', 'settle');
     expect(strip(dispatched).map(payload => `${payload.type}:${payload.threadId}`)).toEqual(['thread.settle:a', 'thread.settle:b']);
     expect(sidebarSession(client).selection).toEqual([]);
   });
@@ -482,9 +481,9 @@ describe('sidebar navigation, drafts and the hover card', () => {
   });
 
   test('custom snooze keeps the dialog open with its error, then snoozes every selected thread', async () => {
-    const { client, dispatched } = fake([shell('a'), shell('b')], { picks: ['snooze:custom'] });
+    const { client, dispatched } = fake([shell('a'), shell('b')]);
     sidebarSession(client).selection = ['a', 'b'];
-    await sidebarCommand(client, native, files, 'menu', 'a', 'row');
+    await sidebarCommand(client, native, files, 'menu-choice', 'a', 'snooze:custom');
     expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ dialog: 'snooze', dialogMode: 'date', dialogUnit: 'hours', dialogAmount: '2' });
     await sidebarLocal(client, native, 'dialog-field', 'mode', 'duration');
     await sidebarLocal(client, native, 'dialog-field', 'amount', '-1');
@@ -501,13 +500,13 @@ describe('sidebar navigation, drafts and the hover card', () => {
   // triggers collapse once the pointer leaves, so a one-thread dialog names its row (sidebar-row.contract's
   // `id=thread-…`) and a selection's names none.
   test('a dialog for one thread gives the focus back to its row; a selection and a closed dialog name none', async () => {
-    const { client } = fake([shell('a'), shell('b')], { picks: ['snooze:custom'], settings: { confirmThreadDelete: true } });
+    const { client } = fake([shell('a'), shell('b')], { settings: { confirmThreadDelete: true } });
     await sidebarCommand(client, native, files, 'snooze:custom', 'a', '');
     expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ dialog: 'snooze', dialogReturn: 'thread-a' });
     await sidebarLocal(client, native, 'dialog-close', '', '');
     expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ dialog: '', dialogReturn: '' });
     sidebarSession(client).selection = ['a', 'b'];
-    await sidebarCommand(client, native, files, 'menu', 'a', 'row');
+    await sidebarCommand(client, native, files, 'menu-choice', 'a', 'snooze:custom');
     expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ dialog: 'snooze', dialogReturn: '' });
     await sidebarLocal(client, native, 'dialog-close', '', '');
     sidebarSession(client).selection = [];

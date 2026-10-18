@@ -23,7 +23,7 @@ use ProviderWizard, AcpRegistry from "../providers/providers-wizard.contract"
 use ConnectionsPage, SbSshHosts from "../connections/connections.contract"
 use KeybindingPage from "../settings/settings-keybindings.contract"
 use ScheduledPage from "../settings/settings-scheduled.contract"
-use KeyDispatch, ShortcutDispatch from "../settings/settings-shortcuts.contract"
+use KeyDispatch, ShortcutDispatch, ViewReload from "../settings/settings-shortcuts.contract"
 use SourceControlPage, IntegrationsPage from "../settings/settings-source-control.contract"
 use StoragePage from "../settings/settings-storage.contract"
 use ArchivePage from "../settings/settings-archive.contract"
@@ -838,6 +838,8 @@ component T3Window
       // (composer-chip-popover.contract ChipPopoverEscape); outside the SSH prompt's inert
       // background, so it gives the key up while the prompt shows, as the details under it did.
       ChipPopoverEscape(held=(chipShown and not (sshPrompt.open or paletteOpen or modelsOpen or optionsOpen != "" or projectsOpen or confirmOp != "")), dismiss=chipEscape)
+      // View › Reload and Force Reload, outside the inert background: the reference's work under any dialog.
+      ViewReload(items=shortcuts)
       row width="100%" height="100%" min-width=0 position="relative" inert=sshPrompt.open testId="ssh-background"
         // Inert under the composer's file and image previews too: their trap passes over buttons with Keyboard
         // Navigation off (dialog-trap.contract ControlGuard), so nothing behind them may be a Tab stop.

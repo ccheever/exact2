@@ -1,8 +1,7 @@
 // Pierre file-icon resolution for the Markdown module's file chips, as timeline-files.ts resolves
 // (@pierre/trees createFileTreeIconResolver, Apache-2.0, with T3's T3_PIERRE_ICONS, MIT; see LICENSE-T3).
-// Pierre's own tables are generated (macos/pierre-icons.tsv, tools/generate/gen-icons.mjs), so they
-// are read at run time from `crate::pierre_tables()`: the library embeds the file (lib.rs) and the
-// bake reads the one its build script has just generated (build.rs).
+// Pierre's own tables are generated (data/pierre-icons.tsv, tools/generate/gen-icons.mjs), so they
+// are parsed at run time from `crate::pierre_tables()`, which embeds the file (lib.rs).
 
 /// T3_PIERRE_ICONS.byFileName: two remap a built-in icon to its shape without its colour.
 const T3_PIERRE_BY_NAME: &[(&str, &str)] = &[

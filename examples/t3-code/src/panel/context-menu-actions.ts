@@ -1,10 +1,10 @@
 // What the Files tree row and pull request number menus do (T3 Code
 // 1e2ecbd975, MIT; see LICENSE-T3): FileBrowserPanel.tsx showEntryContextMenu with
 // fileContextMenu.ts useFileContextMenu.activate, and pullRequestLinkContextMenu.ts
-// showPullRequestLinkContextMenu. Items come from context-menus.ts; the module's
-// `contextMenu` op (T3ContextMenu.swift) shows the Files menus at the pointer and names the
-// pick; the pull request number's menu is a Contract context popover (pages-prs.contract
-// PrLinkMenu), whose row names its pick here.
+// showPullRequestLinkContextMenu. Items come from context-menus.ts. Both are Contract context
+// popovers (files-surface.contract FilesExplorer, pages-prs.contract PrLinkMenu), whose rows
+// name their pick here. `showContextMenu` is the module's menu at the pointer (T3ContextMenu.swift)
+// for the chat's file and web link menus.
 import type { T3Client } from '../client/client';
 import { obj, str, type Obj } from '../client/domain';
 import { bridgeReply, type Native } from '../client/protocol';
@@ -14,7 +14,7 @@ import { fileLink } from '../composer/composer-editor-menu';
 import { workspaceOf } from './panel-surfaces';
 import { buildFileContextMenuItems, fileActionFailureTitle, fileContextMenuCapabilities, fileTreeContextMenuItems, menuItemIds,
   pullRequestLinkContextMenuItems, resolveFileContextMenuAbsolutePath } from '../shared/context-menus';
-import type { MenuItem } from '../sidebar/sidebar-menu';
+import { menuRows, type MenuItem, type MenuRow } from '../sidebar/sidebar-menu';
 
 /** The module's menu at the pointer; the picked id, or '' when it closed without a choice. */
 export async function showContextMenu(client: T3Client, native: Native, items: MenuItem[]): Promise<string> {
@@ -23,17 +23,26 @@ export async function showContextMenu(client: T3Client, native: Native, items: M
   return menuItemIds(items).includes(picked) ? picked : '';
 }
 
-/** A Files tree row's right-click (`shelllocal:surface-files-row-menu`, id = the row's workspace path). */
-export async function filesTreeMenu(client: T3Client, native: Native, relativePath: string): Promise<void> {
+/**
+ * The Files tree's one context popover (files-surface.contract FilesExplorer `files-tree-menu`): showEntryContextMenu's
+ * items. A tree path is relative and has no `..`, so every row of one workspace resolves to an absolute path, or none
+ * without a workspace root, and they share the menu.
+ */
+export function filesTreeMenuRows(client: T3Client): MenuRow[] {
+  const environmentId = client.environmentId || null, { cwd } = workspaceOf(client);
+  return menuRows(fileTreeItems(cwd !== '', environmentId, client));
+}
+const fileTreeItems = (hasAbsolutePath: boolean, environmentId: string | null, client: T3Client): MenuItem[] =>
+  fileTreeContextMenuItems(buildFileContextMenuItems({ hasAbsolutePath, capabilities: fileContextMenuCapabilities(client.config, environmentId) }));
+
+/** A choice from a Files tree row's menu (`shelllocal:surface-files-row-pick`, id = the row's workspace path, value = the item). */
+export async function filesTreeChoice(client: T3Client, native: Native, relativePath: string, picked: string): Promise<void> {
   const path = relativePath.replace(/\/+$/, '');
   if (!path) return;
-  const environmentId = client.environmentId || null, origin = client.origin, { cwd } = workspaceOf(client);
+  const environmentId = client.environmentId || null, { cwd } = workspaceOf(client);
   const target = { environmentId, filePath: path, workspaceRoot: cwd || undefined };
   const absolutePath = resolveFileContextMenuAbsolutePath(target);
-  const fileItems = buildFileContextMenuItems({ hasAbsolutePath: absolutePath !== null, capabilities: fileContextMenuCapabilities(client.config, environmentId) });
-  const picked = await showContextMenu(client, native, fileTreeContextMenuItems(fileItems));
-  // A menu from another environment cannot act here.
-  if (!picked || (client.environmentId || null) !== environmentId || client.origin !== origin) return;
+  if (!menuItemIds(fileTreeItems(absolutePath !== null, environmentId, client)).includes(picked)) return;
   const mention = fileLink(path);
   if (picked === 'copy-mention') {
     const reply = await bridgeReply(native, { op: 'copyText', text: mention });
