@@ -69,6 +69,32 @@ test('shared live list drives filtered rows without opening another subscription
   const {native,calls}=transport();const list=await mobileScheduledTasks(scope,0,native);expect(list.sections[0]?.rows[0]?.id).toBe('task-a');expect(calls.some(call=>call.op==='subscribe'||call.method==='scheduledTasks.list')).toBe(false);
   const result=await mobileScheduledCommand('delete-confirmed',JSON.stringify({environmentIds:['scheduled-test'],members:[],projectLabel:'gone'}),'scheduled-test','task-a',native);expect(result.message).toContain('scope');expect(calls.some(call=>call.method==='scheduledTasks.delete')).toBe(false);
 });
+test('Scheduled section icons use the live override, detected machine and generic default',async()=>{
+  const {native,entry}=transport();
+  const cases:[string,string,string][]=[['server','server.rack','Server'],['cloud','cloud','Cloud VM'],['linux','terminal','Linux/WSL'],['desktop','desktopcomputer','Desktop'],['laptop','laptopcomputer','Laptop'],['mac-mini','macmini','Mini PC'],['mac-studio','macstudio','Workstation']];
+  for(const [machine,machineSymbol,machineLabel] of cases){
+    entry.config={...entry.config,settings:{},environment:{platform:{machine}}};
+    expect((await mobileScheduledTasks(scope,0,native)).sections[0]).toMatchObject({machineSymbol,machineLabel});
+  }
+  entry.config={...entry.config,settings:{environmentIcon:'cloud'},environment:{platform:{machine:'laptop'}}};
+  expect((await mobileScheduledTasks(scope,0,native)).sections[0]).toMatchObject({machineSymbol:'cloud',machineLabel:'Cloud VM'});
+  entry.config={...entry.config,settings:{environmentIcon:'server'}};
+  expect((await mobileScheduledTasks(scope,0,native)).sections[0]).toMatchObject({machineSymbol:'server.rack',machineLabel:'Server'});
+  entry.config={...entry.config,settings:{},environment:{}};
+  expect((await mobileScheduledTasks(scope,0,native)).sections[0]).toMatchObject({machineSymbol:'server.rack',machineLabel:'Server'});
+});
+test('Scheduled section icons consume each environment config independently and refresh from live changes',async()=>{
+  const {native,entry,calls}=transport(),origin='http://scheduled-other.test',environmentId='scheduled-other',key=environmentKey(origin,environmentId);
+  entry.config={...entry.config,settings:{environmentIcon:'cloud'},environment:{label:'Cloud',platform:{machine:'laptop'}}};
+  const other:FleetEntry={...entry,key,origin,environmentId,subscriptions:{},config:{settings:{},environment:{label:'Mini',platform:{machine:'mac-mini'}}}};
+  fleet.entries.set(key,other);fleet.saved=[...fleet.saved,{origin,environmentId}];
+  const combined:Native={...native,async later(input){return obj(input).op==='environments'?{ok:true,generation:entry.generation,value:{saved:fleet.saved}}:native.later(input);}};
+  const both=JSON.stringify({environmentIds:[entry.environmentId,environmentId],members:null,projectLabel:''});
+  expect((await mobileScheduledTasks(both,0,combined)).sections.map(section=>[section.id,section.machineSymbol,section.machineLabel])).toEqual([[entry.environmentId,'cloud','Cloud VM'],[environmentId,'macmini','Mini PC']]);
+  other.config={...other.config,settings:{environmentIcon:'desktop'}};
+  expect((await mobileScheduledTasks(both,0,combined)).sections.map(section=>[section.id,section.machineSymbol,section.machineLabel])).toEqual([[entry.environmentId,'cloud','Cloud VM'],[environmentId,'desktopcomputer','Desktop']]);
+  expect(calls.some(call=>call.op==='subscribe'||call.method==='scheduledTasks.list')).toBe(false);
+});
 test('field edits make no requests; save rechecks revoked permissions and dirty close is guarded',async()=>{
   const {native,calls,deny}=transport();expect((await mobileScheduledBegin(scope,'scheduled-test','',native)).message).toBe('');const count=calls.length;
   mobileScheduledEdit('title','Nightly');mobileScheduledEdit('prompt','Audit');expect(calls).toHaveLength(count);expect(mobileScheduledEditor().dirty).toBe(true);expect(mobileScheduledClose().closed).toBe(false);

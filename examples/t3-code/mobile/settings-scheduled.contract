@@ -13,6 +13,8 @@ shape ScheduledTaskRow
 shape ScheduledTaskSection
   id: string
   title: string
+  machineSymbol: string
+  machineLabel: string
   error: string
   loading: bool
   emptyMessage: string
@@ -108,7 +110,9 @@ component SettingsScheduledTasks
           text data.emptyMessage color=colors.muted font-size=roles.body.size
         for section in data.sections key=section.id
           column gap=7
-            SettingsSectionLabel(title=section.title, colors=colors, roles=roles)
+            row align-items="center" gap=7 padding-left=7 padding-right=7 min-width=0
+              t3-symbol symbol-name=section.machineSymbol symbol-tint=colors.muted width=16 height=16 flex-shrink=0 aria-label=section.machineLabel
+              text section.title font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500 color=colors.muted flex-shrink=1 min-width=0
             column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" overflow="hidden"
               if section.error.length > 0
                 text section.error color=danger role="alert" font-size=roles.body.size line-height=`${roles.body.line}px` padding=14
