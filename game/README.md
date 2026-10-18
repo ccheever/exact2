@@ -404,7 +404,7 @@ Beside the simulation result a proof reports a look result, on its own line:
 session's close the runner draws every world offscreen from its own camera (a look
 frame, [render README](render/README.md#look-frames)), the page as composited where
 the canvas draws, and a contact sheet over 600 ms, and prints each as a `LOOK` path.
-A tell in a look frame or in the session's journal (`look: …` lines, which a drawing
+A tell in a look frame or in the session's `logs` (`look: …` lines, which a drawing
 host writes at `clock settle` and `screenshot`) fails the proof: a near-black or
 near-white frame, more than 5% of pixels clipped, particles that drew and covered
 nothing, a shadowed sun with no caster. A look the game intends is silenced by name in

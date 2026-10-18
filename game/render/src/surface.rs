@@ -771,6 +771,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
             ),
             P::inspect,
         );
+        self.look.tell_into(request, &mut reply);
         if H::ENABLED {
             #[derive(Default, exact_game::Data)]
             struct Operation {

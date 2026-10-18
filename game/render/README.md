@@ -725,7 +725,8 @@ driver asks again.
   (`near-white`), more than 5% of pixels clipped (`clipped`), particles submitted
   to the camera with no sample covered (`particles-uncovered`), and a shadowed sun
   whose cascades kept no caster after culling (`no-shadow-casters`). Each writes a
-  `look: …` line to the world's journal once per change. Tells see brightness and
+  `look: …` line to the world's `logs` once per change; it stays out of the world's
+  journal, which a save carries, so a tell never changes a save. Tells see brightness and
   coverage, not colour or composition: a grey meadow, a model facing backwards and
   an overflowing panel take a look at the picture.
 - **Coverage**: an occlusion query around each draw of the forward and translucent

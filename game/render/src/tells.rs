@@ -81,12 +81,12 @@ pub struct Drawn {
     pub sun_casters: Option<u64>,
 }
 
-/// One tell that fired: its name and its journal line.
+/// One tell that fired: its name and its `logs` line.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tell {
     /// The name `look.silence` uses.
     pub name: &'static str,
-    /// The line the world's journal gets, `look: …`.
+    /// The line `logs` gets, `look: …`.
     pub line: String,
 }
 

@@ -732,7 +732,7 @@ export async function worldLook(s, args) {
 }
 
 /** After `clock settle` (`r` its reply) and a `screenshot`, each world's tells where its canvas draws (LLP 1127.000 D1): a
- * look frame of the tick the clock reached, whose `look: …` lines reach the world's journal; the reply carries them as
+ * look frame of the tick the clock reached, whose `look: …` lines reach the world's `logs`; the reply carries them as
  * `look`. A canvas that draws no frames (the GPU-less host) answers at once and adds none. */
 export async function worldTells(s, r) {
   if (Array.isArray(r?.world)) s.worldCanvases = r.world.map((w) => w.canvas).filter((c) => c != null);

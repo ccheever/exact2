@@ -597,7 +597,7 @@ export async function proof(meta, script) {
     return {picture:frame.screenshot, look:frame.look};
   };
   // At a session's close: each world's look frame from its own camera, the page as composited where the canvas
-  // draws, and a contact sheet over 600 ms; then the tells the session's journal gathered.
+  // draws, and a contact sheet over 600 ms; then the tells the session's logs gathered.
   const lookStep = async (raw, id) => {
     const canvases = ((await raw.tree()).nodes ?? []).filter(n => n.world).map(n => n.props?.testId ?? n.id);
     for (const canvas of canvases) {

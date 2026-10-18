@@ -24,8 +24,11 @@ pub(super) struct Look<const ASSETS: bool> {
     stash_format: Option<wgpu::TextureFormat>,
     /// A readback still mapping (on the web, until the page's next turn).
     pending: Option<Pending>,
-    /// The journal line each tell last wrote: a settled frame logs once.
+    /// The line each tell last told: a settled frame tells once.
     logged: Vec<(&'static str, String)>,
+    /// Tell lines the next `logs` reply carries. They stay out of the world's
+    /// journal, which a save carries: presentation never enters a save.
+    unread: Vec<String>,
     /// The canvas's size in points: its last frame's, or the last request that said it.
     pub(super) points: (f32, f32),
 }
@@ -38,6 +41,7 @@ impl<const ASSETS: bool> Default for Look<ASSETS> {
             stash_format: None,
             pending: None,
             logged: Vec::new(),
+            unread: Vec::new(),
             points: (0., 0.),
         }
     }
@@ -148,11 +152,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             .sim
             .as_mut()
             .ok_or("the world has not been bound".to_string())?;
-        // As every agent request: the viewport, then the clock (no tick past it).
-        if size.width > 0. && size.height > 0. && size.width.is_finite() && size.height.is_finite()
-        {
-            sim.viewport(size.width, size.height);
-        }
+        // As every agent request, the world catches up to the host's clock. The
+        // canvas's size is the look frame's own (`look.points`); the input's
+        // viewport, which a save carries, is left as it is.
         if size.now.is_finite() {
             sim.advance_with(
                 size.now,
@@ -421,7 +423,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         let stats = crate::tells::FrameStats::of(&read.rgba);
         let drawn = crate::look::drawn(&p.records, &p.facts, &read);
         let tells = crate::tells::tells(&stats, drawn);
-        // The world's journal (`logs`) gets each tell once per change.
+        // `logs` gets each tell once per change.
         for tell in &tells {
             if !self
                 .look
@@ -429,7 +431,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                 .iter()
                 .any(|(n, l)| *n == tell.name && *l == tell.line)
             {
-                w.log(&tell.line);
+                self.look
+                    .unread
+                    .push(format!("tick={} {}", p.tick, tell.line));
                 self.look.logged.retain(|(n, _)| *n != tell.name);
                 self.look.logged.push((tell.name, tell.line.clone()));
             }
@@ -477,5 +481,24 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                 )
             }
         })
+    }
+}
+
+impl<const ASSETS: bool> Look<ASSETS> {
+    /// Add the unread tell lines to a world's `logs` reply (`{…,"lines":[…]}`).
+    pub(super) fn tell_into(&mut self, request: &str, reply: &mut String) {
+        if self.unread.is_empty() || !request.contains("\"logs\"") || !reply.ends_with("]}") {
+            return;
+        }
+        let at = reply.len() - 2;
+        let mut lines = String::new();
+        for line in self.unread.drain(..) {
+            lines.push(',');
+            lines.push_str(&crate::look::quote(&line));
+        }
+        if reply[..at].ends_with('[') {
+            lines.remove(0);
+        }
+        reply.insert_str(at, &lines);
     }
 }

@@ -154,6 +154,9 @@ fn tells<G: Game<Args = ()>>(gpu: Option<&Gpu>) -> (Vec<String>, serde_json::Val
             s.agent(r#"{"op":"clock","now":0}"#).unwrap();
         }
     }
+    // A tell is presentation: the save before the look frame is the save after it.
+    s.agent(r#"{"op":"clock","now":500}"#).unwrap();
+    let saved = s.carry().unwrap().unwrap();
     let request = format!(
         r#"{{"op":"state","look":true,"now":500,"width":{},"height":{}}}"#,
         SIZE.0, SIZE.1
@@ -164,7 +167,7 @@ fn tells<G: Game<Args = ()>>(gpu: Option<&Gpu>) -> (Vec<String>, serde_json::Val
     let names = (look["tells"].as_array().unwrap().iter())
         .map(|t| t["name"].as_str().unwrap().to_owned())
         .collect();
-    // The tells reached the world's journal too.
+    // The tells reached `logs` too, and not the journal a save carries.
     let logs: serde_json::Value =
         serde_json::from_str(&s.agent(r#"{"op":"logs"}"#).unwrap()).unwrap();
     for tell in look["tells"].as_array().unwrap() {
@@ -176,6 +179,8 @@ fn tells<G: Game<Args = ()>>(gpu: Option<&Gpu>) -> (Vec<String>, serde_json::Val
         );
     }
     assert!(reply["tick"].as_u64().unwrap() > 0, "{reply}");
+    let after = s.carry().unwrap().unwrap();
+    assert!(after == saved, "a look frame changed the save");
     (names, reply)
 }
 
