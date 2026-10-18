@@ -112,14 +112,41 @@ impl DigestStore {
     }
 }
 
-// Completed development receipts bind every byte. A Mac can run either
-// receipt policy through this headless host.
+/// Definition: `update/src/gpu.rs::code_digest`; copied so an L=0 host
+/// links no updater (LLP 1030 D4). Completed development receipts bind
+/// every byte. The parity test below holds this copy to the definition.
 pub(super) fn bytes_digest(bytes: &[u8], code: bool) -> String {
-    if code {
-        exact_update::gpu_code_digest(bytes)
-    } else {
-        exact_update::sha256_hex(bytes)
-    }
+    use sha2::Digest;
+    let word = |at: usize| {
+        bytes
+            .get(at..at + 4)
+            .map(|b| u32::from_le_bytes(b.try_into().unwrap()) as usize)
+    };
+    let macho = || -> Option<Vec<u8>> {
+        if !code || word(0)? != 0xfeed_facf {
+            return None;
+        }
+        let (mut at, mut signature, mut zero) = (32, None, Vec::new());
+        for _ in 0..word(16)? {
+            let (cmd, size) = (word(at)?, word(at + 4)?);
+            if cmd == 0x1d {
+                signature = Some(word(at + 8)?);
+                zero.push((at + 12, 4));
+            } else if cmd == 0x19 && bytes.get(at + 8..at + 24)? == b"__LINKEDIT\0\0\0\0\0\0" {
+                zero.extend([(at + 32, 8), (at + 48, 8)]);
+            }
+            at += size.max(8);
+        }
+        let mut code = bytes.get(..signature?)?.to_vec();
+        for (at, len) in zero {
+            code.get_mut(at..at + len)?.fill(0);
+        }
+        Some(code)
+    };
+    format!(
+        "{:x}",
+        sha2::Sha256::digest(macho().as_deref().unwrap_or(bytes))
+    )
 }
 
 #[cfg(test)]
@@ -143,6 +170,25 @@ mod tests {
         bytes[150] = code;
         bytes.extend_from_slice(signature);
         bytes
+    }
+
+    #[test]
+    fn product_digest_matches_the_bake_definition() {
+        let original = signed(b"ad-hoc", 1);
+        let resigned = signed(b"longer recipient signature", 1);
+        let changed = signed(b"ad-hoc", 2);
+        for bytes in [
+            original.as_slice(),
+            resigned.as_slice(),
+            changed.as_slice(),
+            b"ELF or PE".as_slice(),
+            &original[..100],
+        ] {
+            assert_eq!(
+                bytes_digest(bytes, true),
+                exact_update::gpu_code_digest(bytes)
+            );
+        }
     }
 
     #[test]
