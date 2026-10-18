@@ -29,6 +29,8 @@ extension Agent {
         let port = vp.convert(vp.bounds, to: nil).intersection(win.bounds)
         // While a sheet is up, it is what is presented; the screen under it is not.
         let scope: UIView = presenter.modals.coordinateView ?? win
+        // A dialog's sheet, and a popover over it, can be above a route's sheet and outside it.
+        let roots = [scope] + presenter.presentations().filter { !$0.isDescendant(of: scope) && !presenter.modals.inertBehind($0) }
         let keyboard = keyboardTopForCheck()
         let r2 = { (v: CGFloat) in Agent.r2(v) }
         // The bars drawn over the content: what lies under one, scrolled there, is covered, not presented (LLP 1116.007 D3.8).
@@ -38,7 +40,7 @@ extension Agent {
             if Agent.isBar(v) { let b = v.convert(v.bounds, to: nil); if b.intersects(port) { bars.append((v, b, b.midY < port.midY)) }; return }
             for s in v.subviews { findBars(s) }
         }
-        findBars(scope)
+        roots.forEach(findBars)
         var items: [[String: Any]] = []
 
         func rgba(_ c: [Double]?) -> [Double]? {
@@ -203,7 +205,7 @@ extension Agent {
             let whole: UIView = bar ?? (own ? hit : owner ?? hit)
             let cb = whole.convert(whole.bounds, to: nil), above = cb.midY < seen.midY
             if reachable(v, hit: hit, above: above, by: above ? cb.maxY - p.y : p.y - cb.minY) { return nil }
-            let sheet = presenter.modals.coordinateView.map { hit.isDescendant(of: $0) && !v.isDescendant(of: $0) } ?? false
+            let sheet = presenter.surface(containing: hit).map { ($0.kind == .route || $0.kind == .dialog) && !v.isDescendant(of: $0.view) } ?? false
             let barName = bar.map { String(describing: Swift.type(of: $0)) }
             var c: [String: Any] = ["kind": barName != nil ? "bar" : sheet ? "sheet" : "node", "name": barName ?? String(describing: Swift.type(of: hit))]
             if bar == nil, let n = owner as? NodeView { c["by"] = Int(n.id) }
@@ -231,8 +233,9 @@ extension Agent {
         }
 
         // Preorder over what is shown, so a view past the viewport's side is named and not each of its children.
+        var visited = Set<ObjectIdentifier>()
         func walk(_ v: UIView, alpha: CGFloat, held: Bool, parent: NodeView? = nil) {
-            guard !v.isHidden, v.alpha > 0.01, v.layer.opacity > 0.01 else { return }
+            guard visited.insert(ObjectIdentifier(v)).inserted, !v.isHidden, v.alpha > 0.01, v.layer.opacity > 0.01 else { return }
             let a = alpha * v.alpha * CGFloat(v.layer.opacity)
             var heldBelow = held
             if let n = v as? NodeView {
@@ -438,7 +441,7 @@ extension Agent {
             items.append(item)
         }
 
-        walk(scope, alpha: 1, held: false)
+        roots.forEach { walk($0, alpha: 1, held: false) }
         let dark = vp.traitCollection.userInterfaceStyle == .dark
         var reply: [String: Any] = ["viewport": rect(port), "capture": ["window": true, "w": r2(win.bounds.width), "h": r2(win.bounds.height)],
                                     "scheme": dark ? "dark" : "light", "target": 44, "items": items]

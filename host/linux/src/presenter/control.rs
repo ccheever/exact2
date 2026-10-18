@@ -452,10 +452,13 @@ impl<D: DataSource> Presenter<D> {
                 if h == 0.0 {
                     h = style.font_size * 1.2;
                 }
-                let high = (h + 32.0).max(crate::paint::material::HEIGHT);
+                let high = (h + 32.0).max(crate::paint::material::height());
                 sizes.push((
                     id,
-                    ((w + crate::paint::material::WITH_ICON).ceil(), high.ceil()),
+                    (
+                        (w + crate::paint::material::with_icon()).ceil(),
+                        high.ceil(),
+                    ),
                 ));
             }
         }
