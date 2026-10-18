@@ -93,7 +93,19 @@ test('an `:active` row lowered to the press paint is joined at its part, read-on
     expect(sitesAt(map, part)).toEqual([0]);
     // What is held (LLP 1122 D8): an `:active` row at its part, named by its state.
     const held = join({ id: 'web-1' }, { ...selected, held: { state: 'active', rows: [{ name: 'press_background_color', value: '#00f' }, { name: 'press_scale', value: '0.95' }] } }, map);
-    expect(held.held.rows.map(r => [r.name, r.state, r.source?.line])).toEqual([['press_background_color', 'active', 9], ['press_scale', 'active', 7]]);
+    // (Named as its author wrote it, under its part: theme2's 16:13 (2); the press row beside it.)
+    expect(held.held.rows.map(r => [r.name, r.row, r.state, r.source?.line])).toEqual([['background-color', 'press_background_color', 'active', 9], ['press_scale', undefined, 'active', 7]]);
+    // Named on a node inside the press (stage 9 E): joined at the press's own site, its rows' tokens kept.
+    const inner = { ...map, nodes: [...map.nodes, { file: app, line: 12, col: 7, end_col: 11, component: 'App', chain: [], bindings: [] }] };
+    const label = { node: 2, site: 1, instance: [], rows: [], held: { state: 'active', node: 1, site: 0, instance: [], rows: [{ name: 'press_background_color', value: '#00f', token: { names: ['accent.soft'], text: 'accent.soft', modes: '', implied: false } }] } };
+    const named = join({ id: 'web-1' }, label, inner);
+    expect(named.held.rows.map(r => [r.name, r.row, r.source?.line, r.token?.names])).toEqual([['background-color', 'press_background_color', 9, ['accent.soft']]]);
+    expect(named.source.line).toBe(12);
+    // The held node's own file is checked too: one moved since makes the selection read-only.
+    const style = joinPath(dir, 'style.contract');
+    writeFileSync(style, 'style now');
+    const split = { ...inner, sources: [...inner.sources, { file: style, sha256: sha('style then') }], nodes: [{ ...inner.nodes[0], file: style }, inner.nodes[1]] };
+    expect(join({ id: 'web-1' }, label, split).readOnly).toContain('style.contract');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

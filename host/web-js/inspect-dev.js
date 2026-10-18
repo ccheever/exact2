@@ -263,6 +263,8 @@ async function selectedReport(el, click = null) {
   if (node.error) return { kind: "unsupported", what: "inspect", detail: node.error };
   const envelope = (selected) => ({ kind: "selected", selected, inspect: inspecting.seq ?? undefined, ...(click ? { click } : {}), plan: facts.plan, design: facts.design, revision: facts.revision });
   let selected = { node: viewOf(el), type: node.type, testId: node.testId, site: node.site, instance: node.instance, planDigest: x?.plan ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style).map(([name, row]) => ({ name, ...row })), held: globalThis.exact?.heldOf?.(el)?.held ?? null, trimmed: false };
+  // (The held node, named by this runtime's ids, where the glue could not number it.)
+  if (selected.held && selected.held.node == null && selected.held.el) selected.held.node = viewOf(selected.held.el);
   if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, computed: c, source, from, token }) => ({ name, value, ...(c ? { computed: c } : {}), source, from, token })), trimmed: true };
   while (bytes(envelope(selected)) > REPORT_BYTES && selected.rows.length) selected = { ...selected, rows: selected.rows.slice(0, Math.floor(selected.rows.length / 2)) };
   if (bytes(envelope(selected)) > REPORT_BYTES) return { kind: "unsupported", what: "inspect", detail: "the selected node's identity alone is larger than a report" };
@@ -528,6 +530,11 @@ export async function frame(m) {
  * `status()` the page's status, `facts()` its `{plan, design, revision}`. */
 export function install(given) {
   env = given;
+  // A held node's instance path, for the held answer (input-glue.js `heldOf`): the inspect table's, once read.
+  (globalThis.exact ??= {}).instanceOf = (el) => {
+    const entry = table && el?.dataset?.site != null ? table.sites[String(el.dataset.site)] : null;
+    return entry ? instanceOf(table, el, entry) : null; // (a site the table lacks has no path to say)
+  };
   // The dev client's own stand-in (its cover and shield while this loaded) goes.
   document.getElementById("exact-inspect-early")?.remove();
   document.getElementById("exact-inspect-early-shield")?.remove();

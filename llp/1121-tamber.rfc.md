@@ -3795,3 +3795,28 @@ author wrote says where.
 - **Tests:** `source_map.rs` (an own row, an expansion, a class's row in another file, a tag's row
   saying nowhere); `tamber-inspect.test.mjs` (the join's `at`, `sha256` and `attr`; an attribute's
   place is no node's site).
+
+### Stage 9, commit E: held rows name their tokens (draft for theme2)
+
+Built to the approved plan (`~/x2theme/x2p4-s9e-plan.md`; theme2's 16:13 ruling and its conditions), under `tamber/1.12`.
+
+- **The runner** (`runner/src/agent.rs` `node`): the answer gains `looks {hover?, focus_visible?}`, each look row as a style row is, its value and the token it read (`Runner::look_token`, from the theme index's look rows under the node's tuple). So every host reads a look's rows, and their tokens, from one place.
+- **The held answer, every host**: `held {state, node, site, instance, rows: [{name, value, token?}]}`, the node being the one the state is held on (the press it resolved to, named on a node inside it). Rows: `active` the node's own D7 rows from the runner's answer; a look's from its `looks`.
+  - The wasm page: `heldOf(el, ask)` reads the runner (no more CSS text, `computed` or `provenance`).
+  - The JS target (no runner): the page's CSS, a varying token named by modes.js; `provenance: "incomplete"` only for a value it can't name (16:13 (b)).
+  - Apple and Linux: their runner's `node` answer (Apple's batch conversion stays only for a presenter with no session).
+- **The server's join** places held rows at the held node's site (its map node and bindings), and names an `:active` row as its author wrote it under the part (`background-color`), the press row it lowered to as `row` (16:13 (2)).
+- **Docs:** the protocol's `tamber/1.12` bullet and the selection's `held`. QUEUE's two entries (held token names and the press's site; Apple's non-colour look rows) are closed.
+- **Tests:** `state_looks.rs` (a node's layout says its looks' rows and tokens: a token row, a literal row, only the states it has); `hold.test.mjs` (the runner's rows and tokens for a held press named on its label, and for a held hover); `HeldStateTests` (a held hover's rows name their tokens on the Mac; a press named inside names the press's node and site); `held_tests.rs` (the held answer's node and site); `tamber-inspect.test.mjs` (a held press named inside joins at the press's site, named as written, tokens kept).
+
+- **After review round 1 (Astra, Grok):**
+  - A look's clear (`unset`) is said in the runner's `looks` (`{"value": "unset"}`), not dropped.
+  - The JS target: a link's empty `data-view` marker names no node 0 (the runtime's id is the agent's and the selection's); the held node's instance path comes from the inspect table where the page has one (`exact.instanceOf`); `provenance: "incomplete"` only for a token reference (`var(--x-…)`) modes.js can't name, never for a literal pair or a host's own property.
+  - The join checks the held node's own files (its file, chain and parts) for freshness, as the selected node's.
+  - Tests: the clear said; a JS link's held node; the held node's moved file read-only; Linux's held answer names the card from the child's layout too.
+- **After review round 2 (Astra, Grok):**
+  - (At landing: `tamber/1.12` was opened on main by D1 and rt1's held revision; E's items joined that one bullet, theme2's 18:44.)
+  - The JS target names a role's override too (`var(--exact-canvas-text)` is `CanvasText`, modes.js's table), a host's own property still none.
+  - A site the inspect table lacks gives the held answer no instance path (not the root's `[]`).
+  - Tests: the runtime's id names a JS link; a role override named; `cargo fmt` over the new tests.
+- **After review round 3 (Astra RIGHT WITH CHANGES, Grok RIGHT):** the JS target checks each token reference on its own, so a role it names beside a token it can't name still leaves the answer `provenance: "incomplete"` (a test with both).
