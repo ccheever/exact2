@@ -293,8 +293,9 @@ and the row is kept only if the numbers say so.
   attributes in place after text or selection changes and skips marked text
   throughout composition. `format`, `select`, list Return, selection bookmarks
   across a link field, and alternate plain copy are implemented on both hosts.
-  Native markers remain visible until caret movement, selection gestures and
-  accessibility have been judged on a phone. The current proof uses a fixed
+  LLP 1114.007 admits hidden source markers on macOS for the shared decorations
+  capability. On iOS, native markers remain visible until caret movement,
+  selection gestures and accessibility have been judged on a phone. The current proof uses a fixed
   editor height; intrinsic `field-sizing: content` parity remains owed.
 - **Web:** `contentEditable`, no library (Charlie, 2026-09-22). Each source
   line is a block; hidden syntax is a `display: none` span, out of layout,

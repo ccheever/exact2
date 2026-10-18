@@ -278,7 +278,6 @@ fn manifest_and_preview_are_checked_and_no_widgets_is_unchanged() {
         declared: true,
     };
     assert!(empty.widgets().unwrap().is_empty());
-    assert!(empty.live_activities().unwrap().is_empty());
     for value in [
         json!({"widgets":null}),
         json!({"widgets":[{"kind":"../escape"}]}),
@@ -290,48 +289,6 @@ fn manifest_and_preview_are_checked_and_no_widgets_is_unchanged() {
         .widgets()
         .is_err());
     }
-    // The packaging's fields of an activity entry (LLP 1126.001 WP13); the rest are the bake's.
-    for value in [
-        json!({"live_activities":{}}),
-        json!({"live_activities":[{}]}),
-        json!({"live_activities":[{"kind":"../escape"}]}),
-        json!({"live_activities":[{"kind":"a"},{"kind":"A"}]}),
-        json!({"live_activities":[{"kind":"a","push":"yes"}]}),
-        json!({"live_activities":[{"kind":"a","frequent":1}]}),
-        json!({"live_activities":[{"kind":"a","Push":true}]}),
-        json!({"live_activities":[{"kind":"a","pushed":true}]}),
-        json!({"live_activities":[{"kind":"a","frequant":true}]}),
-        json!({"live_activities":[{"kind":"a","frequently":true}]}),
-        json!({"live_activities":[{"kind":"a","psuh":true}]}),
-        json!({"live_activities":[{"kind":"a","freqeunt":true}]}),
-    ] {
-        assert!(Manifest {
-            json: value,
-            ..empty.clone()
-        }
-        .live_activities()
-        .is_err());
-    }
-    assert!(Manifest {
-        json: json!({"live_activities":[{"kind":"a","pushes":true}]}),
-        ..empty.clone()
-    }
-    .live_activities()
-    .unwrap_err()
-    .contains("live_activities[0].pushes is misspelt; write push"));
-    let activities = Manifest {
-        json: json!({"live_activities":[{"kind":"departure","push":true,"preview":{}},{"kind":"alert","frequent":true}]}),
-        ..empty.clone()
-    }
-    .live_activities()
-    .unwrap();
-    assert_eq!(
-        activities
-            .iter()
-            .map(|a| (a.kind.as_str(), a.push, a.frequent))
-            .collect::<Vec<_>>(),
-        [("departure", true, false), ("alert", false, true)]
-    );
     let mut labels = Manifest {
         json: json!({"widgets":[{"kind":"card","title":"Next Trains","description":"Departures from your station.",
             "families":["systemSmall"],"component":"Card","props":"Props","refresh":"refreshCard","preview":{"title":"Preview"}}]}),
@@ -390,7 +347,7 @@ fn manifest_entries_do_not_change_the_app_plan() {
     json["widgets"] = json!([{"kind":"next-trains","families":["systemSmall"],"component":"Card","props":"Props","refresh":"refreshCard","preview":{"title":"Next train"}}]);
     std::fs::write(dir.join("app.json"), json.to_string()).unwrap();
     let manifest = Manifest::read(dir).unwrap();
-    let entries = compile_widgets(dir, &manifest).unwrap();
+    let entries = compile_entries(dir, &manifest).unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries["next-trains"].plan.app_id, "test.snapshot");
     assert_eq!(before, crate::compile_path(&path).unwrap().encode());
@@ -400,7 +357,7 @@ fn manifest_entries_do_not_change_the_app_plan() {
 fn caltrain_entry_reaches_only_its_departure_card() {
     let app = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/caltrain");
     let manifest = Manifest::read(&app).unwrap();
-    let entries = compile_widgets(&app, &manifest).unwrap();
+    let entries = compile_entries(&app, &manifest).unwrap();
     let entry = &entries["next-trains"].plan;
     assert!(entry.strings.iter().any(|s| s == "Mountain View"));
     for app_only in ["board-north", "seededEpoch", "change-station", "Caltrain"] {
@@ -539,7 +496,7 @@ fn fonts_keep_only_reachable_literal_families() {
             source(&format!("    text title font-family={family}"), fonts, ""),
         )
         .unwrap();
-        let entries = compile_widgets(&temp.0, &manifest).unwrap();
+        let entries = compile_entries(&temp.0, &manifest).unwrap();
         assert_eq!(entries["next-trains"].plan.faces.len(), count);
     }
 }
@@ -574,7 +531,7 @@ fn refresh_sources_are_typed_and_data_changes_fail_the_bake() {
     std::fs::write(temp.0.join("app.json"), manifest.to_string()).unwrap();
     let app = crate::compile_path(&path).unwrap();
     let plan =
-        &compile_widgets(&temp.0, &Manifest::read(&temp.0).unwrap()).unwrap()["next-trains"].plan;
+        &compile_entries(&temp.0, &Manifest::read(&temp.0).unwrap()).unwrap()["next-trains"].plan;
     let source = plan.source(plan.snapshot_refresh.unwrap());
     assert_eq!(plan.str(source.name), "refreshCard");
     assert_eq!(source.params.len, 1);
@@ -761,7 +718,7 @@ fn refresh_checks_distinguish_pending_sources_and_result_mismatches() {
     let entries = std::collections::BTreeMap::from([(
         "next-trains".into(),
         Entry {
-            widget: widget(),
+            declaration: Declaration::Widget(widget()),
             plan,
         },
     )]);

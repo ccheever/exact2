@@ -260,6 +260,21 @@ pub(super) fn progress_bar(
     }
 }
 
+/// The look's ground under an enabled field.
+const GROUND: &str = "-exact-secondary-grouped-background";
+
+/// A field's ground: the design's `Field` where it overrides that role
+/// (LLP 1121 D9), else the look's `own` (a disabled field's is raised), as
+/// the web's sheet has it. A disabled field says so in its grey ink and
+/// line.
+fn field_ground(own: &str, dark: bool) -> [u8; 4] {
+    use exact_kernel::style::roles;
+    match roles::role("Field").is_some_and(|id| roles::overridden(id).is_some()) {
+        true => role("Field", dark),
+        false => role(own, dark),
+    }
+}
+
 /// What a field draws under its text: the field's ground inside the
 /// control's line, with a control's corners. Disabled, the raised ground
 /// inside a divider; marked invalid, the line is the red.
@@ -274,21 +289,19 @@ pub(super) fn field(
     let shape = Shape::new(rect, [look::px(metric::CONTROL_RADIUS, em); 4]);
     let (ground, line) = if disabled(node) {
         (
-            role("-exact-secondary-background", dark),
+            field_ground("-exact-secondary-background", dark),
             role("-exact-separator", dark),
         )
     } else if node.props.str(PropId::AccessibilityInvalid) == Some("true") {
-        (
-            role("-exact-secondary-grouped-background", dark),
-            role("-exact-system-red", dark),
-        )
+        (field_ground(GROUND, dark), role("-exact-system-red", dark))
     } else {
-        (
-            role("-exact-secondary-grouped-background", dark),
-            look::line(dark),
-        )
+        (field_ground(GROUND, dark), look::line(dark))
     };
-    backend.fill(&shape, ground, ts);
+    // A ground the author wrote (a class's included) is painted under the
+    // chrome already, as the web's inline row beats its sheet.
+    if !node.style.written.has(StyleId::BackgroundColor) {
+        backend.fill(&shape, ground, ts);
+    }
     edge(
         backend,
         &shape,
@@ -299,7 +312,8 @@ pub(super) fn field(
     shape
 }
 
-/// A field's ink: the label's, the grey when disabled, and the node's own
+/// A field's ink: the design's FieldText (the label's where it doesn't
+/// override it, LLP 1121 D9), the grey when disabled, and the node's own
 /// `color` where its author wrote one. The page's `color` does not tint a
 /// surface the host paints.
 pub(super) fn field_ink(node: &NodeRef<'_>, dark: bool) -> [u8; 4] {
@@ -308,7 +322,7 @@ pub(super) fn field_ink(node: &NodeRef<'_>, dark: bool) -> [u8; 4] {
     } else if disabled(node) {
         role("GrayText", dark)
     } else {
-        role("-exact-label", dark)
+        role("FieldText", dark)
     }
 }
 
@@ -559,5 +573,41 @@ pub(super) fn row(
             role("-exact-separator", dark),
             ts,
         );
+    }
+}
+
+#[cfg(test)]
+mod field_ground_tests {
+    use exact_kernel::style::roles;
+    use exact_kernel::ColorValue;
+
+    /// A field's ground: the design's `Field` where it overrides that role,
+    /// else the look's, as the web's sheet has it (stage 8 C's gap 6).
+    #[test]
+    fn the_ground_reads_field_only_where_the_design_overrides_it() {
+        roles::set_overrides(Vec::new());
+        for dark in [false, true] {
+            assert_eq!(
+                super::field_ground(super::GROUND, dark),
+                super::role("-exact-secondary-grouped-background", dark)
+            );
+            assert_eq!(
+                super::field_ground("-exact-secondary-background", dark),
+                super::role("-exact-secondary-background", dark),
+                "a disabled field's raised ground"
+            );
+        }
+        let id = roles::role("Field").unwrap();
+        let yellow = exact_kernel::Color(0xfff1_a8ff);
+        roles::set_overrides(vec![(id, ColorValue::LightDark(yellow, yellow))]);
+        for dark in [false, true] {
+            assert_eq!(
+                super::field_ground(super::GROUND, dark),
+                [0xff, 0xf1, 0xa8, 0xff]
+            );
+            let disabled = super::field_ground("-exact-secondary-background", dark);
+            assert_eq!(disabled, [0xff, 0xf1, 0xa8, 0xff], "a disabled field's too");
+        }
+        roles::set_overrides(Vec::new());
     }
 }

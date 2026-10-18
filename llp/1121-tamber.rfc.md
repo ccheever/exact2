@@ -1440,9 +1440,25 @@ Android's reader and the terminal.
       corpus unchanged; `tamber-unreachable` names the macOS switch and iOS's disabled glass
    button; the workbench shows each component's state parts, editable through `set-state`
    (which rebuilds).
-9. **Icon tokens** (D10). Digest break: none if the symbol wire already takes an SVG source
-   per node, else one. **Gate:** the clone's ~100 `symbol:sf/…` uses draw on the web from
-   icon tokens; a missing source fails the build with the target named.
+9. **Icons and native controls, finished; the design server's row operations** (D9, D10, D13).
+   Re-scoped 2026-10-18 (theme2's brief, accepted by the lead, Charlie informed): the icon tokens
+   this stage first held were built and met in stage 6 F (their gate: the clone's `symbol:sf/…`
+   uses draw on the web from icon tokens, and a missing source fails the build with the target
+   named). What it holds now: Apple draws icon paths (an svg-only icon, tinted by a colour
+   token); Mac symbol images take their colour; `explain` and `uses` answer icons and params;
+   `set-row`, `add-param` and `remove-param` (stage 7 C's, on stage 8 D's `.contract`
+   ownership), the server half of LLP 1122 T5; held rows name their tokens (LLP 1122 T4);
+   D9's and D8's follow-ups (an authored accent past an `AccentColor` role on the natives, the
+   web's authored transition off a look's edges, a row arriving during a delegated track, the
+   iPad pointer's `:hover`). Wire: the next window, `tamber/1.12`. Digest break: name it if A
+   or B moves the kernel schema. **Gate:** an svg-only icon draws on iOS and the Mac, tinted by
+   a colour token, through a live retheme; Mac symbols take `color`; `explain` answers an icon
+   and a param; LLP 1122 T5's gate lines through `set-row` (one-line template edit with hot
+   reload, a stale digest refused, a failing candidate writes nothing, promote to param and to
+   token each one transaction, a `class:` row edits its style's own file); inspect on a held
+   node names its rows' tokens; an authored transition does not time a look on the web; an
+   iPad pointer shows a `:hover` look; no regressions (release unchanged where unused, conform
+   clean, LLP 1061's press corpus unchanged).
 10. **External clients and remote authentication** (D13, D14). A Figma plugin bridge, a Paper
     or Pencil client, pairing. Waits on §9 Q4. **Gate:** a changed accent in Figma Variables
     is proposed as a dial change and a changed folded value as a pinned override; a paired
@@ -3655,3 +3671,58 @@ Built to the approved plan (`~/x2theme/x2p4-s8e-plan.md`; theme2's 07:48 ruling 
 - **After the re-check (Astra):** a frame bound at arrival could still address the old plan once the new runner was in. The server now names the plan a hold's site addresses (`hold {revision, hold, plan}`), and every host takes a frame of another plan as nothing, unsaid, for the replay to correspond. Ended revisions are forgotten at a lower revision (a new server's), and a refusal ends its revision too.
 - **After the second re-check (Astra):** a hold from before a new stream (a server restart, a reconnect) neither ends a revision nor reports a let-go on the new one (ended revisions and reports are scoped to the stream and the server's run), so a new revision of the same number still applies and the new server's hold is not ended by the old one's. The protocol's `hold` bullet names `plan`.
 
+### Stage 8, commit E2: held states on Apple (iOS and Mac) (draft for theme2)
+
+- **`HeldState.swift`.** One hold an app, on the host's own tracking, handlers never told:
+  - `active`: `pressed` on the node the press resolves to (up to the innermost node with a `press` handler, 07:48), through the same `pressChanged`, so D7's press paint and scale ease as a real press's (at once on the agent's clock). A held press plays no haptic. A real release on the node lets it go (`input`).
+  - `hover` (the Mac): `lookState(hovered: true)`. The pointer coming over the node or leaving it lets it go; moving within it does not. iOS answers `hover` unsupported (D8; the iPad pointer is later).
+  - `focus-visible`: `lookState(focus: true)`; the focus ring's change lets it go.
+  - A disabled node refuses one; its disabling (`disabled`) and its going (`gone`) let it go.
+- **The build channel** (`BuildChannel.swift`, `Inspect.swift`): `hold` among the capabilities; `hold {revision, hold}` resolves the site and instance path to exactly one view (structural instance compare), as `refresh` does, and reports `held`/`unsupported` with the frame's revision. No single view lets the previous hold go too; the same frame taken again replaces nothing.
+- **A dev loop's new generation** (`ExactApp.applyTogether`): a held node going with the old tree is let go unsaid, and the hold frame is taken again after the swap under the same plan (`rehold`); under another plan the server's replay does, as on the web.
+- **The agent**: `{"op":"tap","id":V,"holdState":…}` on both platforms; `layout`'s node and the inspect selection carry `held {state, rows}` (the press rows by wire name for `active`, the look's rows otherwise).
+- **Tests** (`HeldStateTests`, Mac and iOS): a held press is the real press with its paint and rows until a real release; a disabled node refuses and its disabling and going let go; a new generation lets a hold go unsaid; the Mac's held hover goes when the pointer comes or leaves, not as it moves within; iOS holds no hover.
+- **After review round 1 (Astra, Grok):**
+  - The hold is kept apart from the real state and shown beside it: `active` shows the press (`showPress`, eased as a real press, at once on the agent's clock) without touching `pressed`; `hover` and `focus-visible` show the look beside the pointer's and the focus's (`looked`). Letting go leaves what the real state shows: a press really down and inside its box keeps its paint, and its release still clicks. A press already down as an active hold lands is taken over: its release or its leaving the box shows nothing and is no input.
+  - Real input lets every state go: a press (the Mac's window monitor and `mouseDown`; iOS's `ExactWindow`, a node's `touchesBegan`, the agent's finger) or a key (`keyEvent`, both platforms) on the held node or inside it, through authored parents. A hover goes when the pointer's path comes onto the node or leaves it (an over bit of its own, a node with no hover look included); moving within keeps it. A focus goes when the focus comes into the node or leaves it, on every focus change (`Presenter.focus` and `blur`, both platforms).
+  - Disabled: resolving `active` stops at a disabled node and answers `disabled`; a node under a disabled one refuses; a props change disabling the held node or an ancestor lets it go.
+  - `held.rows` are CSS values: the press rows from the runner's `node` op, the look's rows written as the runner writes them (`#rrggbb`, `light-dark(…)`). They answer for the node named too, with its press's rows.
+  - A new generation lets the hold go unsaid before the presenters reset (`HeldState.swap`, the frame kept), takes no input while swapping, and holds again after under the same plan: one `held` at the same revision, nothing `gone`; under another plan nothing is said.
+  - A state no host knows is answered `unsupported` by name, unpainted.
+  - The site and instance resolve through the logical tree: a flat leaf's or an inline run's site (no view of its own) presses its press ancestor; a hover or a focus needs the node's own view (else `gone`).
+  - Tests: a press down after the hold lets it go at its down; one down before it is taken over (no input at its release, the paint kept, and let go with the press still down it still clicks); a key; the focus coming and going; a hover on a child; a disabled ancestor; row values; a child with no view; an unknown state; the presenter reset; and on the Mac `applyTogether` under the same plan and another.
+- **After review round 2 (Astra, Grok):**
+  - `active` resolves to the host's real press, a `press` handler or a button's default link (theme2's 11:48), as `platformPressDims` takes it.
+  - The iOS agent lets a hold go at its press's down, whichever way the tap is delivered (a host activation included), on the node it names or that node's nearest view, and where a pan's finger lands.
+  - Keys let go at keyboard input's entry, before shortcuts and composition: the Mac's `routeKey`, UIKit's key commands (`performShortcut`), the software keyboard's text (`insertText`, `setMarkedText`), and the iOS agent's key before its shortcut.
+  - A held node that starts to leave (an exit) is `gone` at once, and one taken out of the map (`forget`) or under a presenter that resets (its session ending) too: one `gone` at the held revision; still unsaid in a generation swap.
+  - A held press shows on a native button as its highlight, beside the platform's own (`NativeButtonIOS`, `NativeButtonCellMac`), and on a press with no press rows as the platform's dim or tint, taken over the same way.
+  - A Mac hover takes `over` from a live hit test of the resting pointer, so after a same-plan swap a move within the new node keeps the hold.
+  - The iOS agent's `layout` of a flat leaf answers as one (its box in its parent's view, `native.flatLeaf`), with the press's held rows.
+  - Tests: a shortcut through `routeKey` and a UIKit key command; a native button and a plain press, down then held then up; a default link; an exit then a destroy, a reset, and on the build channel an exit and a session's end each `gone` once at the held revision; the iOS agent's tap on the press and on its flat child, and `layout` of that child; on the Mac a held hover through a same-plan swap, moved within. The fixture plan is `host/apple/tests/fixtures/held-state.contract`.
+- **After review round 3 (Astra, Grok):**
+  - Holds are their stream's, as the web's are: a hold frame is bound on arrival to the stream it came on (the connection's nonce). A new stream forgets the revisions ended on the one before (as a lower revision does), and what a hold of an old stream says later (its let-go, its refusal) is said to none and ends nothing, so a restarted server that numbers from where the old one did is never answered by an old hold. `rehold` takes only a frame of the stream it is on.
+  - A hold frame for another plan than the running one leaves both the hold held and the frame kept for `rehold` as they are.
+  - A Mac click's hit and a held hover's `over` are what the hover path sees (`TableRowCell.whatIsThere`): a pressable table row's own views, where AppKit's hit test gives the table.
+  - iOS's text view and field let a hold go at a backspace, one that deletes nothing included.
+  - The iOS agent lets a hold go where its press is delivered, never at a tap it then refuses: at a finger's checked hit (its long press or double tap too), at a host activation once it took, at a pan's, a pinch's, an iframe tap's, and at a scroll drag's accepted start.
+  - Tests: two reconnects reusing revision 5 (an old hold's late release says nothing; ended revisions are the old stream's), and a frame for another plan; a real click on a pressable table row and a move within a held row; a refused tap, a tap on the press at its flat child's point (the press runs), a checkbox's host activation, and a backspace.
+  - After the re-check: a canvas lets a hold go only at an accepted down or one-shot press (not its hover, wheel or a contact's later phase), and a long press or a double tap only once a handler heard it or it selected; one refused (`no … handler`) keeps the hold (tested).
+
+### Stage 8, commit E3: held states on Linux and Android (draft for theme2)
+
+Built to the same plan and E1's wire. Android's reader runs this presenter, so it holds what Linux holds.
+
+- **The build channel** (`host/linux/src/build_channel.rs`, `presenter/build_channel.rs`): `hold` is parsed (`Frame::Hold`), no longer reserved. The registration says `hold` among its capabilities. The registration and `status` say `planDigest`, so the server replays a hold under a new plan.
+- **Where the hold lives.** One hold an app, on the host's own tracking (`Host::looks_shown`, `press::Shown`), shared by the build channel's frames and the agent's `holdState`. A new generation's host holds none, so nothing is said.
+- **Resolving.** The runner's `sites`, then `node` with `plan: true` for each view at the frame's site; the instance path compares as a JSON value (keys in any order). No single view there lets the one held before go (`replaced`) and reports `gone`.
+- **The states**, handlers never told (`presenter/held.rs`):
+  - `active`: the press of the innermost node at or above it with a `press` handler (07:48), via `press_feedback(key, true)`, so D7's press paint and scale ease as a real press's (landed at once on the agent's clock). While held, a real press's release or its moving off leaves the press: a press already down when the hold comes is taken over.
+  - `hover` and `focus-visible`: the held node keeps that look beside the pointer's and the focus's (`Shown::on`); `refresh_looks` paints it on and off at once.
+- **Letting go.** A disabled node (or one under a disabled node) refuses one, and disabling lets it go (`disabled`). The node going, or mounted again, lets it go (`gone`). Real input lets it go (`input`): a press on it or inside it (`pointer_pressed_with`, so the agent's taps too), a key with the focus in it, the pointer coming over it or leaving it for a hover (not moving within it), the focus coming or going for a focus. A held press let go while a real contact still presses the node stays until that contact's release. A newer hold, a null one or the agent's `holdState` lets it go (`replaced`); the same frame taken again (resent, or `rehold`'s) replaces nothing. Every report names its hold frame's revision; a state the host doesn't know is `unsupported` by name.
+- **A new generation** lets the hold go unsaid, and `rehold` takes the last hold frame again under the same plan digest. Under another, the server's replay does.
+- **The agent:** `{"op":"tap","id":V,"holdState":…}` answers `{tapped, holdState, delivery: "recognized"}`, or an error for a disabled node or no press there, or `malformed` for another state. `layout`'s node answer carries `held {state, rows}`: the node's press rows for `active` (`press_scale`, `press_opacity`, `press_opacity_to`, `press_background_color`, `press_color`, the ones it has), the look's rows otherwise, by wire name. It gives no tokens, and the server's join adds the sources.
+- **Tests** (`presenter/held_tests.rs`): `active` as the press paint, eased, its rows, and let go by a real press that then goes on; a real press taken over; `hover` and `focus-visible` as their looks, their rows, and the pointer and the focus crossing; a disabled node refusing and disabling letting go; no press there, no single view, an unknown state, a reordered instance, and going; a new generation unsaid and held again under the same plan only; the agent's `holdState` and `layout`'s held rows. `build_channel.rs`: the frame parse and the capability.
+- **After review round 1 (Astra, Grok):** a held `active` named on a node inside the press answers `layout` for that node too, with the press's rows; a held press let go keeps its paint only while a live contact presses the node inside the box it had when pressed (one dragged off unpaints). A frame addressing another plan is nothing, unsaid; a revision ended here is not taken again from a resent frame, and a lower revision (a new server's) forgets them.
+- **After review round 2 (Astra, Grok):** a disabled node stops a held `active`'s walk to its press (`disabled`), as a real press does; an `unsupported` hold ends its revision; a held `active` shows the painted control's pressed look (a neutral control's wash) as a contact's does.
+- **After review round 3 (Astra, Grok):** a held `active` named inside its press climbs the kernel's parents (the display's are none until a new generation's first picture is acknowledged), so a same-plan generation takes it again with no `gone`; a frame of another plan leaves the frame kept and what is held alone; holds are scoped to the build channel's stream (a let-go of an earlier stream's says nothing, a queued hold report of an earlier nonce, or of none while the stream is lost, is dropped, a kept frame is taken again only on its own stream, a hold command still waiting from the old stream is dropped, and a new or lost stream forgets the ended revisions); Android's reader tells exact2 of a finger down, a key down or any IME call (a code-point deletion included) in a hosted field (`Native.fieldInput`), so real input that changes nothing else (a backspace in an empty field) still lets a hold go; Android's hosted fields (a finger on one, an edit, composing, a selection, the action key) let a hold of the field go; a held press and a contact's each show their own painted control pressed.

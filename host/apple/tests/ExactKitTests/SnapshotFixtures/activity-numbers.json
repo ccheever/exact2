@@ -1,0 +1,152 @@
+[
+  {
+    "bits": "0",
+    "budget": 3,
+    "foundation": "0",
+    "serde": "0.0"
+  },
+  {
+    "bits": "8000000000000000",
+    "budget": 4,
+    "foundation": "-0",
+    "serde": "-0.0"
+  },
+  {
+    "bits": "3ff0000000000000",
+    "budget": 3,
+    "foundation": "1",
+    "serde": "1.0"
+  },
+  {
+    "bits": "bff0000000000000",
+    "budget": 4,
+    "foundation": "-1",
+    "serde": "-1.0"
+  },
+  {
+    "bits": "4059400000000000",
+    "budget": 5,
+    "foundation": "101",
+    "serde": "101.0"
+  },
+  {
+    "bits": "3f1a36e2eb1c432d",
+    "budget": 6,
+    "foundation": "0.0001",
+    "serde": "0.0001"
+  },
+  {
+    "bits": "3f1a36e2eb1c432c",
+    "budget": 22,
+    "foundation": "9.999999999999999e-05",
+    "serde": "0.00009999999999999999"
+  },
+  {
+    "bits": "3ee4f8b588e368f1",
+    "budget": 7,
+    "foundation": "1e-05",
+    "serde": "0.00001"
+  },
+  {
+    "bits": "3eb0c6f7a0b5ed8d",
+    "budget": 5,
+    "foundation": "1e-06",
+    "serde": "1e-6"
+  },
+  {
+    "bits": "3e7ad7f29abcaf48",
+    "budget": 5,
+    "foundation": "1e-07",
+    "serde": "1e-7"
+  },
+  {
+    "bits": "bee9e409302678ba",
+    "budget": 24,
+    "foundation": "-1.2345678901234568e-05",
+    "serde": "-0.000012345678901234568"
+  },
+  {
+    "bits": "3f202e85be180b74",
+    "budget": 22,
+    "foundation": "0.00012345678901234567",
+    "serde": "0.00012345678901234567"
+  },
+  {
+    "bits": "430c6bf526340000",
+    "budget": 18,
+    "foundation": "1000000000000000",
+    "serde": "1000000000000000.0"
+  },
+  {
+    "bits": "433fffffffffffff",
+    "budget": 18,
+    "foundation": "9007199254740991",
+    "serde": "9007199254740991.0"
+  },
+  {
+    "bits": "4340000000000000",
+    "budget": 18,
+    "foundation": "9007199254740992",
+    "serde": "9007199254740992.0"
+  },
+  {
+    "bits": "4340000000000001",
+    "budget": 21,
+    "foundation": "9.007199254740994e+15",
+    "serde": "9007199254740994.0"
+  },
+  {
+    "bits": "c340000000000001",
+    "budget": 22,
+    "foundation": "-9.007199254740994e+15",
+    "serde": "-9007199254740994.0"
+  },
+  {
+    "bits": "4341c37937e07fff",
+    "budget": 21,
+    "foundation": "9.999999999999998e+15",
+    "serde": "9999999999999998.0"
+  },
+  {
+    "bits": "4341c37937e08000",
+    "budget": 5,
+    "foundation": "1e+16",
+    "serde": "1e+16"
+  },
+  {
+    "bits": "4415af1d78b58c40",
+    "budget": 5,
+    "foundation": "1e+20",
+    "serde": "1e+20"
+  },
+  {
+    "bits": "54b249ad2594c37d",
+    "budget": 6,
+    "foundation": "1e+100",
+    "serde": "1e+100"
+  },
+  {
+    "bits": "7fefffffffffffff",
+    "budget": 23,
+    "foundation": "1.7976931348623157e+308",
+    "serde": "1.7976931348623157e+308"
+  },
+  {
+    "bits": "ffefffffffffffff",
+    "budget": 24,
+    "foundation": "-1.7976931348623157e+308",
+    "serde": "-1.7976931348623157e+308"
+  },
+  {
+    "bits": "1",
+    "budget": 6,
+    "foundation": "5e-324",
+    "serde": "5e-324"
+  },
+  {
+    "bits": "8000000000000001",
+    "budget": 7,
+    "foundation": "-5e-324",
+    "serde": "-5e-324"
+  }
+]

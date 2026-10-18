@@ -207,13 +207,23 @@ impl Painter {
         // The field names its inks by role: the placeholder's, and the grey
         // of a disabled one (the neutral look's, LLP 1115.000 D17, and
         // Material's `onSurfaceVariant` and `onSurface` at 38 %).
+        // The value's ink: a native field's own colour, moving or pressed,
+        // else its start's, the design's FieldText: an inherited colour, or
+        // an ancestor's press, never tints it (LLP 1115 D4, LLP 1121 D9). A
+        // field of the author's own inherits as text does. The caret takes
+        // it too.
+        let value_ink = if native {
+            super::inline::own_presented_color(walk, node, self.dark)
+        } else {
+            presented_color(walk, node, self.dark)
+        }
+        .unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)));
         let mut ink = if placeholder {
             // An authored `::placeholder` colour, its alpha its own (LLP 1104 D3).
             control::authored_placeholder(node.style, self.dark)
                 .unwrap_or_else(|| look::role("-exact-placeholder", self.dark))
         } else {
-            presented_color(walk, node, self.dark)
-                .unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)))
+            value_ink
         };
         if native
             && disabled
@@ -266,12 +276,9 @@ impl Painter {
             );
         }
         if focused {
-            let caret = rgba(
-                computed
-                    .caret_color
-                    .unwrap_or(node.text_color())
-                    .resolve(self.dark),
-            );
+            let caret = computed
+                .caret_color
+                .map_or(value_ink, |c| rgba(c.resolve(self.dark)));
             let at_end = || exact_runner::FieldSelection::at_end(value);
             self.field_caret(
                 &field,

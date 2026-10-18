@@ -1442,6 +1442,56 @@ definite 40px basis control, and both row directions. Literal frames in
 layout at the known width, these direct requests had 57 kernel frame mismatches
 and 34 Taffy size/frame mismatches. All absolute cases already agreed with Chrome.
 
+## Patch 49: resolve percentage heights against a changed final stretch size
+
+`calculate_flex_item` treats the final cross size as definite when stretching
+changes it from the hypothetical cross size. This supplies the used height to
+percentage children as [CSS Flexbox §9.4](https://www.w3.org/TR/css-flexbox-1/#algo-stretch)
+requires. Preliminary measurements retain patch 12's ratio rule. If content
+grows a ratio item without stretch changing its height, its percentage children
+still use the preferred ratio height.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+25 literal cases measured in Chrome 151.0.7922.34 on 2026-10-18, including full
+container, item and descendant frames. They cover absolute and normal rows,
+maxima and minima, definite heights, flex-start, columns, wrapping, reversed
+rows, padding, borders, taller siblings and content growth. Before this patch,
+12 frames differed: the reported 30px item gave its child 50px instead of 30px.
+An uncapped normal row's content-grown 130px item retains its 50px percentage
+basis, as does a row capped at that unchanged height.
+
+Taffy's `stretched_ratio_percentage_height_uses_the_final_cross_size` holds
+eight normal-flow layouts, including the capped failure and the content-growth
+control. Its percentage heights and following sibling positions failed before
+the final stretch size became definite.
+
+`determine_used_cross_size` compares the clamped and hypothetical cross sizes
+in 1/64px units, truncating each positive size as
+[Blink's `LayoutUnit(float)`](https://raw.githubusercontent.com/chromium/chromium/main/third_party/blink/renderer/platform/geometry/layout_unit.h)
+does. Rounding their difference incorrectly treats distinct lengths within the
+same unit as stretch. When the item's measured outer size already fills the
+line, compare with the same container insets added to both sides, preserving
+its hypothetical height before reversing inset and margin additions. Apply the
+item's bounds to that comparison too: an item maximum can cancel stretching.
+This changes definiteness only; layout geometry and intrinsic measurement stay
+unchanged.
+
+Fourteen fractional-margin cases and 44 container cases, measured in Chrome
+151.0.7922.34 on 2026-10-18, cover absolute and in-flow rows, padding, borders,
+box-sizing, nested containers, columns, bounds and layout-unit boundaries.
+Eight further cases cover fractional constraints in both flow modes. Chrome
+uses 110.078125px for a 110.09px maximum; minima of 110.102px, 110.108px and
+110.109px share the natural 110.09375px unit and retain a 50px percentage basis.
+The latter two minima gave the percentage child the full height before the
+correction: eight frame mismatches. These eight fixture cases compare literal
+frames in layout units because the kernel retains f32 geometry.
+
+Taffy's `fractional_cross_margins_do_not_make_content_growth_a_stretch` checks ten
+layouts without pixel rounding. `container_insets_do_not_make_content_growth_a_stretch`
+checks twenty-four more, including the fractional bounds, unit boundaries and
+an unchanged subunit cap. Four layouts failed before the per-size comparison.
+Both retain the ratio basis for content growth and the final size for stretch.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested

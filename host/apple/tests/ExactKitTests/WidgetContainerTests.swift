@@ -32,6 +32,10 @@ final class WidgetContainerTests: XCTestCase {
         XCTAssertEqual(reads, 2)
         XCTAssertEqual(try String(contentsOf: base.appendingPathComponent(first + "/plans/card.plan"), encoding: .utf8), "first")
         XCTAssertNotEqual(try String(contentsOf: base.appendingPathComponent("current"), encoding: .utf8), first)
+        XCTAssertEqual(try WidgetContainer.pin(root: root, generation: first, compatibility: "cohort").lastPathComponent, first)
+        XCTAssertNotEqual(try WidgetContainer.pin(root: root, compatibility: "cohort").lastPathComponent, first)
+        XCTAssertThrowsError(try WidgetContainer.pin(root: root, generation: first, compatibility: "another-cohort"))
+        XCTAssertThrowsError(try WidgetContainer.pin(root: root, generation: "../current", compatibility: "cohort"))
     }
     func testTypeScriptPublicationRefusesEitherMissingHalf() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

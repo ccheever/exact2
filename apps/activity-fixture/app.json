@@ -14,11 +14,21 @@
   "live_activities": [
     {
       "kind": "departure",
-      "push": true
+      "component": "FixtureActivity",
+      "state": "FixtureState",
+      "push": true,
+      "preview": {
+        "label": "Departs 9:05"
+      }
     },
     {
       "kind": "alert",
-      "frequent": true
+      "component": "FixtureActivity",
+      "state": "FixtureState",
+      "frequent": true,
+      "preview": {
+        "label": "Delay"
+      }
     }
   ],
   "host": {

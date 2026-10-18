@@ -48,6 +48,7 @@ pub(crate) mod inline;
 mod layer;
 mod lift;
 pub(crate) mod look;
+pub use look::page_color;
 pub(crate) mod material;
 pub(crate) use alert::Picture as AlertPicture;
 mod native;
@@ -545,6 +546,8 @@ pub struct Painter {
     /// The control under a pointer that hovers, and the one a contact holds
     /// down (`presenter/feedback.rs`), which the neutral look washes.
     pub(crate) feedback: (Option<ViewId>, Option<ViewId>),
+    /// The control a held `active` presses (`presenter/held.rs`), beside a contact's.
+    pub(crate) held_press: Option<ViewId>,
     /// The background the last box painted shows, its states' over its own,
     /// which its `background-clip: text` fills with (`text_clip`).
     clipped: Option<(ViewId, [u8; 4])>,
@@ -663,6 +666,7 @@ impl Painter {
             flatten: None,
             ringless: None,
             feedback: (None, None),
+            held_press: None,
             clipped: None,
             field_content: HashMap::new(),
             field_text: HashMap::new(),
@@ -1089,7 +1093,10 @@ impl Painter {
         if paints_self {
             paint.paint(self.backend.as_mut(), &surface, ts);
             self.column_rules(walk.scene.kernel, node, rect, ts);
-            let (dark, feedback) = (self.dark, self.feedback);
+            let (dark, feedback) = (
+                self.dark,
+                (self.feedback.0, self.presses(node.id).then_some(node.id)),
+            );
             let kernel = walk.scene.kernel;
             neutral::row(
                 self.backend.as_mut(),
@@ -1390,18 +1397,6 @@ pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         }
     }
     (w, h)
-}
-
-/// The page's own colour under a scheme: the `-exact-background` role (LLP
-/// 1115.000 D3.6), the platform's surface where a host reported one and the
-/// role's pair elsewhere. What an unset background shows (LLP 1115 D2),
-/// never white under a dark scheme.
-pub fn page_color(dark: bool) -> [u8; 4] {
-    static PAGE: std::sync::LazyLock<Option<u8>> =
-        std::sync::LazyLock::new(|| exact_kernel::style::roles::role("-exact-background"));
-    PAGE.map_or([255; 4], |id| {
-        rgba(exact_kernel::ColorValue::Role(id).resolve(dark))
-    })
 }
 
 /// The painting scope for `node` (`roles::authored_accent`): the roles drawn

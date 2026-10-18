@@ -212,23 +212,51 @@
       }
     },
     "live_activities": {
-      "description": "Live Activity entries (LLP 1126 D9). The packaging reads `kind`, `push` (the app's server advances it: aps-environment is signed in) and `frequent` (the frequent-update budget); the entry's root, state shape and preview are stage 2's bake (LLP 1126.001 WP8).",
       "type": "array",
       "items": {
         "type": "object",
+        "additionalProperties": false,
         "required": [
-          "kind"
+          "kind",
+          "component",
+          "state",
+          "preview"
         ],
         "properties": {
           "kind": {
             "type": "string",
             "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
           },
+          "component": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "state": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]*(?![\\s\\S])",
+            "description": "Literal platform label; no control characters."
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]*(?![\\s\\S])",
+            "description": "Literal platform label; no control characters."
+          },
+          "preview": {
+            "type": "object"
+          },
           "push": {
-            "type": "boolean"
+            "type": "boolean",
+            "default": false
           },
           "frequent": {
-            "type": "boolean"
+            "type": "boolean",
+            "default": false
           }
         }
       }
@@ -302,7 +330,8 @@
         "additionalProperties": false,
         "properties": {
           "protocol": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9+.-]*$" },
-          "url": { "type": "string", "pattern": "^/(?!/)(?:(?!%s|#).)*%s(?:(?!%s|#).)*$" }
+          "url": { "type": "string", "pattern": "^/(?!/)(?:(?!%s|#).)*%s(?:(?!%s|#).)*$" },
+          "distribution_only": { "type": "boolean", "description": "Register this handler in Apple bundles only for an archive or --distribution build. Defaults to false." }
         }
       }
     },

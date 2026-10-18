@@ -29,7 +29,7 @@ test('the neutral sheet\'s colours are the role table\'s neutral column', () => 
   const root = /:root \{([^}]*)\}/.exec(neutral)[1];
   const defined = new Map([...root.matchAll(/--exact-([a-z-]+): (light-dark\([^)]*\))/g)].map((m) => [m[1], m[2]]));
   // A role by its own name; a CSS system colour the sheet needs as a value by its name in lower case.
-  const role = (name) => pair.get(name) ?? pair.get({ 'gray-text': 'GrayText' }[name]);
+  const role = (name) => pair.get(name) ?? pair.get({ 'gray-text': 'GrayText', 'field-text': 'FieldText' }[name]);
   for (const [name, value] of defined) expect([name, value]).toEqual([name, role(name)]);
   // Every role named by either sheet is defined in the neutral column.
   const named = new Set([...(shell + neutral).matchAll(/var\(--exact-([a-z-]+)/g)].map((m) => m[1]).filter((name) => role(name)));

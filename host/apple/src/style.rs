@@ -819,9 +819,19 @@ fn paint_over(computed: &mut StyleProps, shown: &Shown) {
     }
 }
 
+/// Whether a `color` moving on the node is its author's: its keyframes
+/// name it, or it is a text field, which inherits none (see
+/// [`style_json_presented`]).
+fn says_moving_color(node: &NodeRef<'_>) -> bool {
+    node.node_type == NodeType::TextInput
+        || node.style.animation.properties().contains(&Property::Color)
+}
+
 /// A leaving view's last style with its presented paint over it: its node
-/// is gone, so the rows are the ones it last showed (LLP 1063 D5).
-pub fn restyle_presented(last: &str, env: &Env, shown: &Shown) -> String {
+/// is gone, so the rows are the ones it last showed (LLP 1063 D5). `own`:
+/// the exit's keyframes name `color`, so a moving one is its author's and
+/// `"written"` names it, as [`style_json_presented`] does.
+pub fn restyle_presented(last: &str, env: &Env, shown: &Shown, own: bool) -> String {
     let mut paint = StyleProps::default();
     paint_over(&mut paint, shown);
     for (p, id) in [
@@ -866,7 +876,17 @@ pub fn restyle_presented(last: &str, env: &Env, shown: &Shown) -> String {
             }
         });
     let over = over.into_iter().map(str::to_string);
-    format!("{{{}}}", kept.chain(over).collect::<Vec<_>>().join(","))
+    let mut rows: Vec<String> = kept.chain(over).collect();
+    if own && shown.get(Property::Color).is_some() {
+        match rows.iter_mut().find(|e| e.starts_with("\"written\":[")) {
+            Some(w) if !w.contains("\"text_color\"") => {
+                w.insert_str("\"written\":[".len(), "\"text_color\",");
+            }
+            Some(_) => {}
+            None => rows.push("\"written\":[\"text_color\"]".into()),
+        }
+    }
+    format!("{{{}}}", rows.join(","))
 }
 
 /// The top-level `"key":value` entries of a JSON object the host wrote.
@@ -898,10 +918,34 @@ fn entries(json: &str) -> Vec<&str> {
 /// shadow animation or transition moves them (LLP 1055.000 D6, LLP 1062):
 /// `color` (and the `currentcolor` border sides that follow it), the
 /// background, the border sides, a symbol's tint, and the shadow.
+/// `shown` is the node's own motion. A moving `color` is its author's where
+/// its keyframes name `color`, or on a text field, whose colour stops at it
+/// (a platform start, LLP 1104 D4): `"written"` names it then, as a field
+/// reads its colour only where the node says one (LLP 1115 D4). A
+/// transition over an inherited colour is not the node's say.
 pub fn style_json_presented(
     node: &NodeRef<'_>,
     env: &Env,
     shown: &Shown,
+) -> (String, Vec<Skipped>) {
+    style_json_shown(node, env, shown, true)
+}
+
+/// [`style_json_presented`] with `shown` an ancestor's moving `color`,
+/// which the node inherits: not its own, so not written.
+pub fn style_json_inherited(
+    node: &NodeRef<'_>,
+    env: &Env,
+    shown: &Shown,
+) -> (String, Vec<Skipped>) {
+    style_json_shown(node, env, shown, false)
+}
+
+fn style_json_shown(
+    node: &NodeRef<'_>,
+    env: &Env,
+    shown: &Shown,
+    own: bool,
 ) -> (String, Vec<Skipped>) {
     let rows = if matches!(
         node.node_type,
@@ -942,6 +986,9 @@ pub fn style_json_presented(
         ));
     computed.mask.set(StyleId::TextColor);
     paint_over(&mut computed, shown);
+    if own && shown.get(Property::Color).is_some() && says_moving_color(node) {
+        computed.written.set(StyleId::TextColor);
+    }
     // The presenter must inset editors/images and paint the same border area
     // that the kernel laid out. Authored widths survive separately in the node.
     let widths = computed.border_widths();
@@ -1262,6 +1309,59 @@ mod flow_tests {
         assert!(json(5).get("written").is_none(), "no row");
     }
 
+    /// LLP 1115 D4: a colour moving on a field is its own, so `"written"`
+    /// names it (a field reads its colour only there); an ancestor's moving
+    /// colour, which it inherits, is not named.
+    #[test]
+    fn an_own_moving_colour_is_written_and_an_inherited_one_is_not() {
+        use exact_kernel::{Kernel, MonospaceMeasurer, Op};
+        let mut kernel = Kernel::new(Box::new(MonospaceMeasurer::default()));
+        let node_type = NodeType::TextInput;
+        kernel
+            .apply(0, 1, &[Op::CreateView { id: 1, node_type }])
+            .unwrap();
+        let mut shown = Shown::default();
+        shown.set(
+            Property::Color,
+            Some(exact_motion::Value::rgba8(0, 0, 255, 255)),
+        );
+        let node = kernel.node(1).unwrap();
+        let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+        let own = json(style_json_presented(&node, &Env::default(), &shown).0);
+        assert_eq!(own["written"], serde_json::json!(["text_color"]), "{own}");
+        assert_eq!(own["text_color"], serde_json::json!([0, 0, 255, 255]));
+        let inherited = json(style_json_inherited(&node, &Env::default(), &shown).0);
+        assert!(inherited.get("written").is_none(), "{inherited}");
+        let still = json(style_json_presented(&node, &Env::default(), &Shown::default()).0);
+        assert!(still.get("written").is_none(), "{still}");
+        // Off a field, a transition's colour is not the node's say (a
+        // spinner under a changing parent keeps its own ink).
+        let view = NodeType::View;
+        kernel
+            .apply(
+                0,
+                2,
+                &[Op::CreateView {
+                    id: 2,
+                    node_type: view,
+                }],
+            )
+            .unwrap();
+        let other = json(style_json_presented(&kernel.node(2).unwrap(), &Env::default(), &shown).0);
+        assert!(other.get("written").is_none(), "{other}");
+        // A leaving view whose exit's keyframes name `color`.
+        let last = r#"{"text_color":[0,0,0,255],"written":["background_color"]}"#;
+        let left = json(restyle_presented(last, &Env::default(), &shown, true));
+        assert_eq!(
+            left["written"],
+            serde_json::json!(["text_color", "background_color"])
+        );
+        let left = json(restyle_presented("{}", &Env::default(), &shown, true));
+        assert_eq!(left["written"], serde_json::json!(["text_color"]));
+        let left = json(restyle_presented(last, &Env::default(), &shown, false));
+        assert_eq!(left["written"], serde_json::json!(["background_color"]));
+    }
+
     /// Quarters are written as `{n}` writes them.
     #[test]
     fn quarters_spell_as_display_does() {
@@ -1348,7 +1448,7 @@ mod flow_tests {
             Some(exact_motion::Value::rgba8(255, 0, 0, 128)),
         );
         let json: serde_json::Value =
-            serde_json::from_str(&restyle_presented(last, &Env::default(), &shown)).unwrap();
+            serde_json::from_str(&restyle_presented(last, &Env::default(), &shown, false)).unwrap();
         assert_eq!(
             json["system_colors"],
             serde_json::json!({"text_color": "-apple-system-label"})
@@ -1362,7 +1462,7 @@ mod flow_tests {
             Some(exact_motion::Value::rgba8(0, 0, 255, 255)),
         );
         let json: serde_json::Value =
-            serde_json::from_str(&restyle_presented(last, &Env::default(), &shown)).unwrap();
+            serde_json::from_str(&restyle_presented(last, &Env::default(), &shown, false)).unwrap();
         assert!(json.get("system_colors").is_none(), "{json}");
     }
 }

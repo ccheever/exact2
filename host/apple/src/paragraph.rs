@@ -196,7 +196,7 @@ impl<D: DataSource> Host<D> {
                 // A run painting an inherited `color` that moves (LLP 1062 D5).
                 let mut shown = style::Shown::default();
                 shown.set(Property::Color, self.paint.runs.get(&id).copied());
-                let (style, _) = style::style_json_presented(&run, &kernel.env(), &shown);
+                let (style, _) = style::style_json_inherited(&run, &kernel.env(), &shown);
                 let handlers: Vec<_> = self
                     .inline_runs
                     .get(&id)
@@ -461,7 +461,7 @@ impl<D: DataSource> Host<D> {
                 if let Some((owner, _)) = self.inline_runs.get(&child) {
                     runs.push((child, *owner));
                 } else {
-                    restyled.push((child, style::style_json_presented(&c, &env, &inherited).0));
+                    restyled.push((child, style::style_json_inherited(&c, &env, &inherited).0));
                 }
                 stack.extend(c.children());
             }

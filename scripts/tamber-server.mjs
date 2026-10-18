@@ -81,7 +81,7 @@ import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
 import { buildChannel } from './tamber-builds.mjs';
 import { scrubSessions } from './tamber-scrub.mjs';
-import { current, join, sitesAt, staleMap } from './tamber-inspect.mjs';
+import { current, join, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
 
@@ -225,7 +225,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       refreshed.delete(build.id);
       // (A selection that does not name its plan joins with no map: read-only.)
       const map = report.selected.planDigest ? mapOf(report.selected.planDigest) : null;
-      const selection = join(build, report.selected, map, { served: designServed(), design: designPath(appDir) });
+      // A plan the params were not read for (a package's component changed,
+      // which moves no file of the app's): read again, its names kept
+      // meanwhile and no alias offered.
+      if (report.selected.planDigest && report.selected.planDigest !== params.plan) learnParams(null, report.selected.planDigest);
+      const selection = join(build, report.selected, map, { served: designServed(), design: designPath(appDir), params: params.map });
       send({ event: 'selection', seq: ++seq, epoch, ...selection });
       // Outlined as the client that owns inspect mode on that build, naming
       // the click it answers (its page does not scroll for it).
@@ -242,7 +246,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
           return at.get(m.digest) ? { sites: at.get(m.digest), plan: m.digest } : null;
         }, report.click ?? null);
       }
-      return null;
+      return { publish: published(report.selected, params.map) };
     },
   });
   // Scrub sessions (tamber-scrub.mjs): previewed by the dev loop (`scrub`:
@@ -291,6 +295,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // A hand edit competes with a scrub as a write does.
     if (!rest.client && edited.length) scrubs.compete();
     if (edited.length || rest.client) send({ event: 'changed', seq: ++seq, epoch, ...rest, files: Object.fromEntries(known), edited });
+    // A write's files are the design's now: its params are read again.
+    if (edited.length) learnParams(Object.fromEntries(known));
   };
 
   // The server gone (never started, the lock another's, exited): every
@@ -361,6 +367,31 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (first && known.size === 0) { first = false; for (const [path, d] of Object.entries(reply.ok.files)) known.set(path, d); }
     else { first = false; publish(reply.ok.files, { changed: null, client: null }, [...known.keys()].filter(path => !(path in reply.ok.files))); }
     watchAll(Object.keys(reply.ok.files));
+    learnParams(reply.ok.files);
+  };
+  // The app's component params (LLP 1122 T3), read again when its files
+  // move: the join names a row's param by them, never by its IR token. A
+  // file change empties the map until the read answers (a row reading a
+  // param is read-only meanwhile, said so); a read that fails is tried
+  // again at the next change. A new plan (`plan`) reads them again too.
+  // While a new plan's read is out, the names stand but no alias is offered
+  // (one may have moved with a package's component).
+  const params = { key: null, plan: null, map: new Map(), reading: 0 };
+  const learnParams = (files, plan = params.plan) => {
+    const key = files ? JSON.stringify(Object.entries(files).sort()) : params.key;
+    if (params.key === key && params.plan === plan) return;
+    if (files && params.key !== key) params.map = new Map();
+    else params.map = new Map([...params.map].map(([ir, p]) => [ir, { ...p, token: null }]));
+    params.key = key; params.plan = plan;
+    const at = ++params.reading;
+    const failed = () => { if (at === params.reading) { params.key = null; params.plan = null; } };
+    ask({ method: 'describe' }).then(r => {
+      if (at !== params.reading) return;
+      // Of the files this read was for, or not kept (they moved meanwhile).
+      const of = r?.ok?.files ? JSON.stringify(Object.entries(r.ok.files).sort()) : null;
+      if (r?.ok?.ir && (!files || of === key)) params.map = paramsOf(r.ok.ir);
+      else failed();
+    }, failed);
   };
   const refresh = () => ask({ method: 'hello' }, { wait: first ? 0 : answerMs, done: read });
   // The app's directory (where a new design beside it appears) and the

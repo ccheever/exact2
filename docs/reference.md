@@ -316,6 +316,12 @@ The web manifest carries the same entries; browser registration is subject to
 the browser's supported schemes and installation behavior. Linux's CLI URL
 argument retains the ordinary location conversion because it does not
 register OS protocol handlers.
+For packaged-only Apple registration, add `"distribution_only": true` to an
+entry, for example `{"protocol":"notes","url":"/open?u=%s","distribution_only":true}`.
+Archives and `--distribution` builds include it; local builds, including
+`--bundle` and `--release` alone, omit it from both the registered schemes and
+native handler templates. The default is `false`. This option does not filter
+the web manifest or explicit `host.<platform>.urlSchemes`.
 A file chosen in the app's own picker (`showOpenFilePicker`,
 `showSaveFilePicker`) joins File ▸ Open Recent — a save once it is written —
 and becomes the window's document, as a routed one does. A path from the command line, from Finder, from ⌘O, or from a link inside
@@ -405,7 +411,64 @@ The bake writes `plans/<kind>.plan` beside `app.plan`. The envelope's `plans`
 map indexes these authenticated assets in the app's compatibility cohort.
 Kinds, families and gallery labels are binary compatibility inputs; views and preview props
 are plan contents. A running host refuses a snapshot plan at decode, and a
-snapshot reader requires its exact kind and refresh signature.
+snapshot reader requires its exact kind. A widget also requires a refresh
+signature; an activity has named placements and no refresh source.
+
+Live Activities are top-level `app.json` `live_activities` rows:
+
+```json
+{"kind":"departure","component":"DepartureActivity","state":"DepartureState",
+ "preview":{"station":"Mountain View","at":1787915700000},"push":true}
+```
+
+The root's props match every field of `state`. Optional `title` and `description`
+follow the widget label rule; `push` and `frequent` are Booleans, defaulting to
+false. Kinds are unique across both entry lists, ignoring case. Unknown keys fail
+the bake with an edit. Capability flags and labels require a new binary; state
+shapes, previews and views ride the bundle.
+
+Declare the placements in that one component's view with `view slot="lockScreen"`,
+`view slot="compactLeading"`, `view slot="compactTrailing"`, `view slot="minimal"`
+and `view slot="expanded"`. Under `expanded`, declare four `view` children with
+`slot="leading"`, `slot="trailing"`, `slot="center"` and `slot="bottom"`. Each slot
+is required once. Put its layout attributes and content on that slot's view;
+`expanded` only groups its regions. See `apps/caltrain/activities.contract`.
+
+The activity plan has one `snapshot_state` slot and an `activity_slots` table
+mapping each placement name to a node site under a synthetic container. One
+session serves the activity. For each slot, the driver sets the session's viewport
+to the region's proposed content size, lays out, takes that slot's subtree and
+measures its `fit_content_height`. `snapshot_viewport` thus reads the current
+region's size; no app-visible slot selector is injected. The other slots' frames
+are not a shared surface layout. Rendering remains read-only, with the same
+clock, request, input and handler refusals as widgets. `time` and `progress`
+remain platform live views. Activity rendering and sends are separate host work.
+
+The bake writes `plans/activities.json` and `activities/<kind>.schema.json` plus
+`activities/<kind>.d.ts` (exporting `State`, `Attributes` and `ContentState`). The
+state uses JSON Schema 2020-12 with required fields and no additional properties.
+The shape digest hashes its canonical schema, including each record's field
+order. The universal envelope's attributes are `{kind, generation, shape}`;
+its content state is `{shape, state}`, where `state` is a JSON value, not an
+encoded JSON string. `generation` names the immutable publication digest. The
+preview and sends share a conservative 4096-byte JSON budget, including both
+shape digests. Numbers reserve the longer of serde_json's and Foundation's
+shortest Double spellings, capped at 24 bytes; the bake also covers a preview's
+original integer spelling before Double decoding. Both reserve two bytes for
+`\b`, `\t`, `\n`, `\f`, `\r` and slashes, and six for the other U+0000–U+001F
+characters and U+2028/U+2029. Other characters and JSON punctuation use their
+compact UTF-8 size. A refusal reports the budgeted bytes and asks for shorter
+state. Shared Rust/Swift fixtures pin encoder spellings, escape counts, admission
+of a 60-point route and 150 small integers, and refusal at 4097 bytes.
+
+An activity pins its named generation within the installed compatibility cohort,
+even after `current` moves. Publications currently keep every generation. The
+cache has one file per activity id. The caller supplies the pinned plan's decoder:
+a state it cannot decode falls back to its last decodable state with the driver's
+outdated flag. Without a decodable kept state the placeholder has no outdated
+flag. A failed write returns an error to the caller. ActivityKit's `isStale` is a separate system
+fact. Rendering across a compatibility-changing binary update remains subject
+to LLP 1126.001 §5 Q6's pending ruling.
 
 The `snapshot` columns on the style and prop rows declare admission. Unsupported
 rows, scrolling, sticky positioning, timers, requests, native modules and handlers
