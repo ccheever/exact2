@@ -212,20 +212,21 @@ extension Presenter {
                !scrollers.contains(where: { $0 === grouped }) { scrollers.append(grouped) }
         }
         for sv in scrollers {
-            let frame: CGRect
-            if let grouped, sv === grouped || grouped.isDescendant(of: sv),
-               let projected = groupedLists?.projectedRect(for: target, in: grouped) {
-                // Inner authored scrolls use the target's own box. The native
-                // row frame projects only into its collection and outer ports.
-                frame = grouped.convert(projected, to: sv)
-            } else {
-                frame = target.convert(target.bounds, to: sv)
-            }
             // Content room belongs to the range; only UI insets (a bar or
             // keyboard) obstruct the viewport used for CSS alignment.
             let owner = (sv.superview as? NodeView).flatMap { $0.scrollView === sv ? $0 : nil }
-            let area = IntoView.inset(frame, style: target.style, family: "scroll_margin", outward: true)
+            // Measured at each call: a layout can size a native row that had an estimated height.
             func destination() -> CGPoint {
+                let frame: CGRect
+                if let grouped, sv === grouped || grouped.isDescendant(of: sv),
+                   let projected = groupedLists?.projectedRect(for: target, in: grouped) {
+                    // Inner authored scrolls use the target's own box. The native
+                    // row frame projects only into its collection and outer ports.
+                    frame = grouped.convert(projected, to: sv)
+                } else {
+                    frame = target.convert(target.bounds, to: sv)
+                }
+                let area = IntoView.inset(frame, style: target.style, family: "scroll_margin", outward: true)
                 let inset = owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset
                 let port = IntoView.inset(sv.pageBounds.inset(by: inset), style: owner?.style ?? [:], family: "scroll_padding")
                 let x = IntoView.aligned(inline, target: area.minX, area.maxX, port: port.minX, size: port.width) - (port.minX - sv.bounds.minX)
