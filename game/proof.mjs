@@ -421,10 +421,6 @@ export function proofInputs(root, app, cachePath) {
     const path = relative(root, dir).replaceAll('\\', '/'), file = path ? path + '/' : '';
     if (proofInputExcluded(file + 'input.rs', basename(app), prefix, root)) return;
     directories.add(dir);
-    // The app root also contains the generated manifest. All its entry changes
-    // require a rerun, as do entry changes inside the generated asset tree.
-    const state = file === prefix || file.startsWith(prefix + 'assets/') ? assetState : authoredState;
-    state.push([file, statKey(dir)]);
     for (const entry of readdirSync(dir, {withFileTypes:true}).sort((a, b) => a.name.localeCompare(b.name)))
       if (entry.isDirectory() && !['.git', 'node_modules'].includes(entry.name)) sourceDirectories(resolve(dir, entry.name));
   };
@@ -459,6 +455,24 @@ export function proofInputs(root, app, cachePath) {
   // The repository walk excludes other apps at their shared parent, and an
   // external app may be outside root. Always scan this app's whole input tree.
   sourceDirectories(resolve(app));
+  // A Git-ignored directory can contain tracked sources. New untracked entries
+  // there are ignored too; only its identity and the tracked files' full stats
+  // matter. Other directories retain timestamps to catch transient sources.
+  const ignoredMixed = new Set();
+  for (const cwd of new Set([resolve(root), resolve(app)])) {
+    const paths = [...directories].filter(dir => dir === cwd || dir.startsWith(cwd + '/'));
+    const ignored = spawnSync('git', ['check-ignore', '--no-index', '-z', '--stdin'], {
+      cwd, input:paths.map(dir => dir + '/').join('\0') + '\0', encoding:'utf8',
+    });
+    if (ignored.status === 0) for (const path of ignored.stdout.split('\0').filter(Boolean)) ignoredMixed.add(resolve(path));
+  }
+  for (const dir of directories) {
+    const path = relative(root, dir).replaceAll('\\', '/'), file = path ? path + '/' : '';
+    // Generated manifest/asset entry changes still require a rerun.
+    const state = file === prefix || file.startsWith(prefix + 'assets/') ? assetState : authoredState;
+    const key = statKey(dir);
+    state.push([file, ignoredMixed.has(dir) ? key.split(':').slice(0, 2).join(':') : key]);
+  }
   groups.authored.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
   return {...Object.fromEntries(Object.entries({...groups,authoredState,assetState}).map(([kind,rows])=>[kind,createHash('sha256').update(JSON.stringify(rows)).digest('hex')])),reads};
 }

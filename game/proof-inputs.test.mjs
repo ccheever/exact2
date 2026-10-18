@@ -479,6 +479,21 @@ test('external repositories apply their own ignores and excludes with tracked pr
     const read = proofInputReader(sdk, app); read();
     writeFixtureFile(app, 'logic/excluded/new-output.rs', 'new excluded entry');
     read();
+    const ignoredSibling = writeFixtureFile(app, 'logic/private/new-output.rs', 'new ignored sibling');
+    read();
+    writeFileSync(ignoredSibling + '.tmp', 'replacement');
+    renameSync(ignoredSibling + '.tmp', ignoredSibling);
+    read();
+    rmSync(ignoredSibling);
+    read();
+    // Even a reverted tracked edit must invalidate the in-flight proof.
+    writeFixtureFile(app, 'logic/private/tracked.rs', 'temporary authored bytes');
+    writeFixtureFile(app, 'logic/private/tracked.rs', 'tracked');
+    expect(read).toThrow('authored proof inputs changed during build');
+    const stable = proofInputReader(sdk, app); stable();
+    const transient = writeFixtureFile(app, 'logic/src/transient.rs', 'consumed source');
+    rmSync(transient);
+    expect(stable).toThrow('authored proof inputs changed during build');
     writeFixtureFile(app, 'logic/private/tracked.rs', 'changed tracked');
     expect(proofInputs(sdk, app).authored).not.toBe(before.authored);
     rmSync(resolve(app, '.git'), {recursive:true});

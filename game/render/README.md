@@ -566,7 +566,8 @@ are resolved to linear view depth with the split undone, so they are correct for
 both layers; SSAO skips viewmodel pixels and never samples them as occluders.
 
 Opaque batches stay retained. Only transparent draws are sorted each displayed
-frame, back-to-front in camera depth, using retained tick poses and local centers.
+frame: world transparency first, view-model transparency last, each back-to-front
+in camera depth, using retained tick poses and local centers.
 They keep depth testing, disable depth writes, and do not cast shadows. A model's
 own materials are multiplied by entity base colour and have entity emission added:
 one model serves every team colour or mutation look. `NodeMaterials` adds a tint and
@@ -918,8 +919,9 @@ Ring, torus and cone geometry also works on the opaque path. See the
 
 Opaque and masked sprites write
 depth; the ordered translucent pass follows the sky, depth-tests and does not
-write depth. Ordering is descending view depth, ascending layer and entity slot,
-then kind rank and stable per-owner ordinal. Models use layer zero. Sprites and particles cast no
+write depth. World transparency draws first and view-model transparency last.
+Within each group, ordering is descending view depth, ascending layer and entity
+slot, then kind rank and stable per-owner ordinal. Models use layer zero. Sprites and particles cast no
 shadows. Soft circular particles choose additive or straight-alpha blending;
 sprites share `.tex` samplers and choose opaque, mask or straight-alpha blend.
 Billboard extents use scale magnitudes to preserve front-facing winding; texture
