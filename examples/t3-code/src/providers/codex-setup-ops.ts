@@ -1,3 +1,4 @@
+import { providerWritable } from './provider-permissions';
 // ManagedCodexSetup's commands and effects, T3 Code 9c161462c9 (MIT, see LICENSE-T3):
 // apps/web/src/components/settings/CodexSetupSection.tsx `run` :318-347, the handoff
 // :349-387, cancelSignIn :388-395, signIn :397-454, setup :456-479, the auto start, continue
@@ -33,7 +34,7 @@ export type CodexContext = {
 
 const providerOf = (host: CodexHost, instanceId: string) => arr(host.config.providers).find(provider => provider.instanceId === instanceId);
 const enabledOf = (host: CodexHost, instanceId: string) => providerOf(host, instanceId)?.enabled !== false;
-const statusOf = (context: CodexContext) => codexStatus(context.host, context.instanceId, providerOf(context.host, context.instanceId), { enabled: enabledOf(context.host, context.instanceId), readOnly: !context.host.writable });
+const statusOf = (context: CodexContext) => codexStatus(context.host, context.instanceId, providerOf(context.host, context.instanceId), { enabled: enabledOf(context.host, context.instanceId), readOnly: !providerWritable(context.host) });
 const call = (context: CodexContext, method: string, payload: Obj) => context.host.rpc(context.native, method, { instanceId: context.instanceId, ...payload }, true);
 
 /** `run`: one command at a time; a failure (not an interruption) is the setup's error. */
@@ -153,7 +154,7 @@ export async function codexSetupOp(context: CodexContext, op: string, token: str
   const flow = codexFlow(context.host, context.instanceId), status = statusOf(context), entry = setupOf(context.host, context.instanceId);
   if (op === 'setup:chatgpt-usage') { await openExternal(context.module, CHATGPT_USAGE_URL); return; }
   if (op === 'setup:chatgpt-plan-ack') { acknowledgeChatGptPlan(context.host, value); await save(); return; }
-  if (!context.host.writable) return;
+  if (!providerWritable(context.host)) return;
   const once = `${op}|${token}`;
   const guarded = !['setup:codex-callback', 'setup:codex-browser', 'setup:codex-mode', 'setup:codex-start'].includes(op);
   if (guarded && (token !== status.token || entry.done.has(once))) return;

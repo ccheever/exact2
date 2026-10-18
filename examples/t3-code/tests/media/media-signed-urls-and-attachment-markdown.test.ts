@@ -30,6 +30,7 @@ function fakeClient(over: Record<string, unknown> = {}) {
   };
   const request = async (method: string, payload: Record<string, unknown>) => { calls.push({ method, payload }); const reply = replies[method]; if (!reply) throw new Error(`no reply for ${method}`); return reply(payload); };
   const client = {
+    scopes: ['filesystem:read'],
     environmentId: 'env', threadId: 't1', projectId: 'p1', ready: true, connection: 'connected', origin: 'http://127.0.0.1:16482', revision: 0, generation: 1,
     diffOpen: false, diffText: '', diffError: '', diffLoading: false,
     get draftKey() { return `env:${this.threadId || `new:${this.projectId}`}`; },

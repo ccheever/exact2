@@ -141,7 +141,7 @@ describe('details source (upstream 429c625a85, d1034d62b2)', () => {
   const make = (status: Obj, extra: Obj = {}) => {
     const calls: Obj[] = [];
     if (!extra.origin) primaryAt('http://127.0.0.1:3773', 'env'); // the focused environment is this Mac's embedded server, unless the case names another
-    const client = { ready: true, projectId: 'p1', threadId: 't1', environmentId: 'env', origin: 'http://127.0.0.1:3773', local: {}, draftKey: 'env:t1', generation: 1,
+    const client = { scopes: ['filesystem:read'], ready: true, projectId: 'p1', threadId: 't1', environmentId: 'env', origin: 'http://127.0.0.1:3773', local: {}, draftKey: 'env:t1', generation: 1,
       config: { availableEditors: ['cursor'], environment: { label: 'Local' }, providers: [] }, projection: { thread: { id: 't1', lineage: {} }, runs: [], subagents: [], contextTransfers: [] },
       shell: { projects: [{ id: 'p1', workspaceRoot: '/work/project' }], threads: [shell('t1', { projectId: 'p1' })] },
       // Only the git status stream is recorded; the live scheduled-task stream (live-streams.ts) has its own tests.
