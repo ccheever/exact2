@@ -461,11 +461,14 @@ impl<D: DataSource> Presenter<D> {
             return;
         };
         let (hit, point) = (node.id, contact.origin);
-        if self.focus_refusal(hit).is_some() {
-            // A hidden field must not regain focus or activate on release either.
-            if let Err(error) = self.pointer_cancel(now_ms) {
-                self.host.log(error);
+        if !self.focusable(hit) || self.focus_refusal(hit).is_some() {
+            // Keep the held pointer for the physical release and its hatch Up.
+            let contact = self.contact.take().unwrap();
+            if let Some((key, _)) = contact.press {
+                self.host.press_feedback(key, false, now_ms);
+                self.dirty = true;
             }
+            self.set_collection_interaction(None);
             return;
         }
         self.contact.as_mut().unwrap().field_focus_before_down = Some(self.focus);

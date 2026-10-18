@@ -76,6 +76,8 @@ fn contact_field(tag: &str, feedback: &str, down: &str) -> (Presenter<()>, ViewI
   state disabled = false
   state fieldDisplay = "block"
   state parentDisplay = "flex"
+  state fieldVisibility = "visible"
+  state parentVisibility = "visible"
   action record(phase: string)
     seen = `${{seen}}${{phase}}`
   action down
@@ -85,7 +87,7 @@ fn contact_field(tag: &str, feedback: &str, down: &str) -> (Presenter<()>, ViewI
     seen = `${{seen}}pan `
   view
     column width=400 height=600
-      column display=parentDisplay
+      column display=parentDisplay visibility=parentVisibility
         if shown
           {tag} id="field" testId="field" value="abcd" appearance="none" width=180 height=120 padding=12 font-size=16 line-height="24px" display=fieldDisplay disabled=disabled pointerdown=down focus=record("focus ") press=record("press ") {feedback}
       box testId="pan" pan=pan press=record("pan-press ") touch-action="none" width=180 height=40
@@ -187,14 +189,16 @@ fn cancelled_mouse_field_contact_keeps_focus_and_never_presses() {
 
 #[test]
 fn field_down_revalidates_after_authored_pointerdown() {
-    for down in [
-        "shown = false",
-        "disabled = true",
-        "fieldDisplay = \"none\"",
-        "parentDisplay = \"none\"",
+    for (down, visibility) in [
+        ("shown = false", ""),
+        ("disabled = true", ""),
+        ("fieldDisplay = \"none\"", ""),
+        ("parentDisplay = \"none\"", ""),
+        ("fieldVisibility = \"hidden\"", "visibility=fieldVisibility"),
+        ("parentVisibility = \"hidden\"", ""),
     ] {
         for feedback in ["", "-exact-press-scale=0.9"] {
-            let (mut p, id) = contact_field("input", feedback, down);
+            let (mut p, id) = contact_field("input", &format!("{feedback} {visibility}"), down);
             let k = p.host.kernel();
             let other = k.node_by_key(k.find_by_test_id("other")[0]).unwrap().id;
             p.set_focus(Some(other), 0.);

@@ -496,6 +496,53 @@ fn input_is_observed_after_exacts_dispatch_with_handled_and_captured_until_it_li
     assert!(notes().is_empty());
 }
 
+#[test]
+fn field_hidden_on_down_keeps_pointerup_and_hatch_up_until_release() {
+    for (property, hidden, visible) in [
+        ("display", "none", "flex"),
+        ("visibility", "hidden", "visible"),
+    ] {
+        let style = format!("{property}=(hidden ? \"{hidden}\" : \"{visible}\")");
+        for (field, parent) in [(style.as_str(), ""), ("", style.as_str())] {
+            for feedback in ["", "-exact-press-scale=0.9"] {
+                let mut p = boot::<Ears>(
+                    &format!(
+                        r#"component App
+  state hidden = false
+  state ups = 0
+  state presses = 0
+  action hide
+    hidden = true
+  action lifted
+    ups = ups + 1
+  action pressed
+    presses = presses + 1
+  view
+    column hatch="outer" width=300 height=300 pointerup=lifted
+      column {parent}
+        input testId="field" value="abcd" width=100 height=40 pointerdown=hide press=pressed {field} {feedback}
+"#
+                    ),
+                    &["outer"],
+                );
+                first_pixel(&mut p);
+                p.pointer_down(20., 20., 1.).unwrap();
+                assert_eq!(notes(), ["outer Down handled=true inside=true"]);
+                assert_eq!(
+                    state(&mut p)["slots"]["ups"],
+                    0,
+                    "{field} {parent} {feedback}: pointerup waits for release"
+                );
+                p.pointer_up(20., 20., 2.).unwrap();
+                assert_eq!(notes(), ["outer Up handled=true inside=true"]);
+                let slots = state(&mut p)["slots"].clone();
+                assert_eq!(slots["ups"], 1);
+                assert_eq!(slots["presses"], 0);
+            }
+        }
+    }
+}
+
 const CLOCK: &str = r##"component App
   state running = false
   state frames = 0
