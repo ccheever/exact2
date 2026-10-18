@@ -1,5 +1,5 @@
-// Selection and pace maths for the provider limits, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
-// packages/shared/src/usageLimits.ts (providersWithLimits, accountKey, limitsNotice,
+// Selection and pace maths for the provider limits, T3 Code 9c161462c9 (MIT, see LICENSE-T3):
+// packages/shared/src/usageLimits.ts (providersWithLimits, accountKey, accountKeyResolver, limitsNotice,
 // remainingPercent, elapsedShare, paceOf, formatDuration, formatResetsIn, USAGE_LIMITS_COMMAND,
 // isUsageLimitsCommand, hasProviderUsageLimits, withUsageLimitsCommands,
 // collectProviderUsageLimits) and apps/web/src/components/usage/UsageLimits.tsx (barColor, PACE).
@@ -36,6 +36,39 @@ function accountKey(driver: unknown, email: unknown, limits?: Obj): string | nul
   const normalizedEmail = str(email).trim().toLowerCase();
   if (normalizedEmail) return `${str(driver)}:${normalizedEmail}`;
   return str(limits?.credentialFingerprint) ? `${str(driver)}:credential:${str(limits?.credentialFingerprint)}` : null;
+}
+
+/** A login or hub account as accountKeyResolver reads it. */
+export type AccountReport = { driver: unknown; email?: unknown; workspaceId?: unknown; usageLimits?: unknown };
+/** The account fields read from a server's JSON report. */
+export const accountReport = (report: Obj): AccountReport => ({ driver: report.driver, email: report.email, workspaceId: report.workspaceId, usageLimits: report.usageLimits });
+/** A native instance's report: its auth names the email and the workspace. */
+export const nativeReport = (provider: Obj): AccountReport => ({
+  driver: provider.driver, email: obj(provider.auth).email, workspaceId: obj(provider.auth).workspaceId, usageLimits: provider.usageLimits,
+});
+
+/**
+ * Keys each report by the account it draws on. One email can belong to several workspaces, each
+ * with its own quota, so a report that names its workspace is keyed by it too. One that does not
+ * (a hub, an older server) joins the only workspace known for its email, and gets no key when there
+ * are several, since it cannot say which one it read. Pass every enabled login, read or not, so an
+ * unreadable workspace still counts as one.
+ */
+export function accountKeyResolver(reports: Iterable<AccountReport>): (report: AccountReport) => string | null {
+  const workspaces = new Map<string, Set<string>>();
+  for (const report of reports) {
+    const key = accountKey(report.driver, report.email, obj(report.usageLimits)), workspaceId = str(report.workspaceId);
+    if (key && workspaceId) workspaces.set(key, (workspaces.get(key) ?? new Set()).add(workspaceId));
+  }
+  return report => {
+    const key = accountKey(report.driver, report.email, obj(report.usageLimits));
+    if (!key) return null;
+    const workspaceId = str(report.workspaceId);
+    if (workspaceId) return `${key}:${workspaceId}`;
+    const known = workspaces.get(key);
+    if (!known) return key;
+    return known.size === 1 ? `${key}:${[...known][0]}` : null;
+  };
 }
 
 /** The one-line status under a provider heading when there are no bars to draw. */
@@ -103,7 +136,9 @@ export function formatDuration(ms: number): string {
 export function formatResetsIn(window: Obj, now: number): string | null {
   const resetsAt = resetMillis(window);
   if (resetsAt === null) return null;
-  return resetsAt <= now ? 'resets now' : `resets in ${formatDuration(resetsAt - now)}`;
+  if (resetsAt <= now) return 'resets now';
+  if (resetsAt - now < MINUTE) return 'Resets momentarily';
+  return `resets in ${formatDuration(resetsAt - now)}`;
 }
 
 /** UsageLimits.tsx barColor: the series colour the cost chart uses for this driver, as [light, dark]. */
@@ -152,19 +187,21 @@ export function collectProviderUsageLimits(instanceId: string, providers: readon
   const selected = providers.find(provider => provider.instanceId === instanceId);
   if (!selected || !hasProviderUsageLimits(selected.driver, providers, sources)) return null;
   const native = providersWithLimits(providers).filter(provider => provider.driver === selected.driver);
+  const resolveKey = accountKeyResolver([...providers.filter(provider => provider.enabled === true).map(nativeReport),
+    ...sources.flatMap(source => arr(source.accounts)).map(accountReport)]);
   const nativeAccounts = new Set(native.flatMap(provider => {
     const limits = obj(provider.usageLimits);
-    const key = accountKey(provider.driver, obj(provider.auth).email, limits);
+    const key = resolveKey(nativeReport(provider));
     return key && arr(limits.windows).length && !limits.unavailable ? [key] : [];
   }));
   const accounts: UsageLimitsAccount[] = [];
   const notices: string[] = [];
   for (const provider of native) {
     const limits = obj(provider.usageLimits), auth = obj(provider.auth);
-    const key = accountKey(provider.driver, auth.email, limits);
+    const key = resolveKey(nativeReport(provider));
     const hubCredits = sources
       .flatMap(source => arr(source.accounts).map(account => ({ source, account })))
-      .filter(({ account }) => key !== null && accountKey(account.driver, account.email, obj(account.usageLimits)) === key
+      .filter(({ account }) => key !== null && resolveKey(accountReport(account)) === key
         && !!obj(account.usageLimits).resetCredits && !limitsNotice(obj(account.usageLimits)))
       .sort((a, b) => Date.parse(str(obj(b.account.usageLimits).checkedAt)) - Date.parse(str(obj(a.account.usageLimits).checkedAt)))[0];
     // Two independent decisions. Which balance to *display* follows whichever snapshot is
@@ -196,7 +233,7 @@ export function collectProviderUsageLimits(instanceId: string, providers: readon
     const matching = arr(source.accounts).filter(account => account.driver === selected.driver);
     for (const account of matching) {
       const limits = obj(account.usageLimits);
-      const key = accountKey(account.driver, account.email, limits);
+      const key = resolveKey(accountReport(account));
       if (key && nativeAccounts.has(key)) continue;
       const creditId = str(obj(limits.resetCredits).nextCreditId);
       accounts.push({

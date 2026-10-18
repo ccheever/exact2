@@ -265,7 +265,7 @@ describe('usage across environments', () => {
     const rig = new Rig(laptop(), desktop());
     let page = await rig.page({ metric: 'cost' });
     expect(rig.of('server.getUsageSummary').map(entry => entry.env).sort()).toEqual(['env-a', 'env-b']);
-    expect([page.total, page.environmentIcon]).toEqual(['', 'pending']); // the skeleton
+    expect([page.total, page.environmentIcon]).toEqual(['', '']); // the skeleton; scan progress is in the menu
     const bucket = (provider: string, cost: number, home: string) => ({ day: '2026-09-11', provider, model: 'm', sourcePath: home, costUsd: cost, records: 1, unpricedRecords: 0,
       totals: { uncachedInputTokens: 10, cachedInputTokens: 0, cacheCreationTokens: 0, outputTokens: 0 } });
     const source = (home: string) => ({ status: 'ok', distinctSessions: 1, fingerprint: { hostId: 'h', provider: 'codex', resolvedHomePath: home, volumeId: 'v' } });
@@ -298,6 +298,103 @@ describe('usage across environments', () => {
     // A second press while one runs does nothing (refreshingRef).
     await rig.page({ metric: 'cost', refresh: 2 });
     expect(rig.of('server.refreshUsageRates', 'env-a')).toHaveLength(2);
+  });
+
+  const usageBucket = (provider: string, cost: number, home: string, day = '2026-09-11') => ({ day, provider, model: `${provider}-model`, sourcePath: home, costUsd: cost, records: 1, unpricedRecords: 0,
+    totals: { uncachedInputTokens: 10, cachedInputTokens: 0, cacheCreationTokens: 0, outputTokens: 0 } });
+  const usageSource = (provider: string, home: string, extra: Obj = {}) => ({ status: 'ok', distinctSessions: 1, fingerprint: { hostId: 'h', provider, resolvedHomePath: home, volumeId: 'v' }, ...extra });
+
+  it('slow sources answer from cache, then one awaitRefresh read replaces them; only their figures are muted meanwhile', async () => {
+    const rig = new Rig(laptop(), null);
+    await rig.page({ metric: 'cost' });
+    await rig.reply(rig.of('server.getUsageSummary')[0]!, summary({ sources: [usageSource('codex', '/c'), usageSource('cursor', 'cursor-account:a', { refreshing: true })],
+      buckets: [usageBucket('codex', 1.5, '/c'), usageBucket('cursor', 0.5, 'cursor-account:a')] }));
+    let page = await rig.page({ metric: 'cost' });
+    expect(rig.of('server.getUsageSummary').map(entry => entry.payload.awaitRefresh)).toEqual([undefined, true]);
+    expect([page.total, page.loading, page.environments[0]!.status]).toEqual(['$2.00', true, 'Updating Cursor…']);
+    expect(page.providers.map(row => [row.key, row.value, row.loading, row.awaiting])).toEqual([['codex', '$1.50', false, false], ['cursor', '$0.50', true, false]]);
+    expect(page.chart.series.map(series => [series.key, series.loading])).toEqual([['codex', false], ['cursor', true]]);
+    expect(page.models.map(row => [row.model, row.loading])).toEqual([['codex-model', false], ['cursor-model', true]]);
+    expect(page.periods[0]!.cells.map(cell => [cell.key, cell.loading])).toEqual([['codex', false], ['cursor', true]]);
+    await rig.reply(rig.of('server.getUsageSummary')[1]!, summary({ sources: [usageSource('codex', '/c'), usageSource('cursor', 'cursor-account:a')],
+      buckets: [usageBucket('codex', 1.5, '/c'), usageBucket('cursor', 0.75, 'cursor-account:a')] }));
+    page = await rig.page({ metric: 'cost' });
+    expect([page.total, page.loading, page.environments[0]!.status, page.providers.some(row => row.loading)]).toEqual(['$2.25', false, 'Ready', false]);
+    expect(rig.of('server.getUsageSummary')).toHaveLength(2);
+  });
+
+  it('a failed follow-up keeps the cached summary; a refreshing provider with no usage yet keeps its row and line', async () => {
+    const rig = new Rig(laptop(), null);
+    await rig.page({ metric: 'cost' });
+    await rig.reply(rig.of('server.getUsageSummary')[0]!, summary({ sources: [usageSource('codex', '/c'), usageSource('cursor', 'cursor-account:a', { refreshing: true })],
+      buckets: [usageBucket('codex', 1.5, '/c')] }));
+    let page = await rig.page({ metric: 'cost' });
+    expect(page.providers.map(row => [row.key, row.value, row.loading, row.awaiting])).toEqual([['codex', '$1.50', false, false], ['cursor', '—', true, true]]);
+    expect(page.chart.series.map(series => series.key)).toEqual(['codex', 'cursor']);
+    expect(page.columns.map(column => column.key)).toEqual(['codex', 'cursor']);
+    await rig.reply(rig.of('server.getUsageSummary')[1]!, { error: { kind: 'RPC', message: 'Cursor API timed out' } });
+    page = await rig.page({ metric: 'cost' });
+    // The cached summary stands: still answered, nothing left to wait on.
+    expect([page.total, page.environments[0]!.status, page.coverage, page.loading]).toEqual(['$1.50', 'Ready', [], false]);
+    expect(page.providers.map(row => row.key)).toEqual(['codex']);
+  });
+
+  it("the last window's usage stays on screen, muted, until the new window answers, for the same environments only", async () => {
+    const rig = new Rig(laptop(), null);
+    await rig.page({ metric: 'cost' });
+    await rig.reply(rig.of('server.getUsageSummary')[0]!, summary({ sources: [usageSource('codex', '/c')], buckets: [usageBucket('codex', 1.5, '/c')] }));
+    let page = await rig.page({ metric: 'cost' });
+    expect([page.total, page.windowLabel, page.loading]).toEqual(['$1.50', 'Aug 13 to Sep 11', false]);
+    page = await rig.page({ metric: 'cost', windowDays: 7 });
+    expect(rig.of('server.getUsageSummary')).toHaveLength(2);
+    expect([page.total, page.windowLabel, page.loading, page.providers[0]!.loading, page.environments[0]!.status]).toEqual(['$1.50', 'Aug 13 to Sep 11', true, true, 'Scanning…']);
+    // Another selection never stands in for this one: the skeleton shows instead.
+    rig.background(desktop());
+    page = await rig.page({ metric: 'cost', windowDays: 7 });
+    expect(page.total).toBe('$1.50'); // all environments, as before
+    await rig.command('usage-pool-env', 'env-a');
+    page = await rig.page({ metric: 'cost', windowDays: 7 });
+    expect(page.total).toBe('');
+    await rig.command('usage-pool-env', '');
+    await rig.reply(rig.of('server.getUsageSummary', 'env-a')[1]!, summary({ sources: [usageSource('codex', '/c')], buckets: [usageBucket('codex', 0.25, '/c')] }));
+    page = await rig.page({ metric: 'cost', windowDays: 7 });
+    expect([page.total, page.windowLabel, page.loading]).toEqual(['$0.25', 'Sep 5 to Sep 11', true]); // Desktop still scans
+  });
+
+  it('a manual refresh mutes every figure until the rescan answers', async () => {
+    const rig = new Rig(laptop(), null);
+    await rig.page({ metric: 'cost' });
+    await rig.reply(rig.of('server.getUsageSummary')[0]!, summary({ sources: [usageSource('codex', '/c')], buckets: [usageBucket('codex', 1.5, '/c')] }));
+    const page = await rig.page({ metric: 'cost', refresh: 1 });
+    expect([page.total, page.loading, page.providers[0]!.loading, page.environments[0]!.status]).toEqual(['$1.50', true, true, 'Refreshing…']);
+  });
+
+  it('the provider filter drops hidden providers from totals, rows, Limits and the prompts, and is remembered', async () => {
+    const configA = laptop();
+    (configA.providers as Obj[])[0]!.auth = { status: 'authenticated', email: 'same@example.com', label: 'ChatGPT Pro', subscriptionSharing: true };
+    const rig = new Rig(configA, null);
+    await rig.page({ metric: 'cost' });
+    await rig.reply(rig.of('server.getUsageSummary')[0]!, summary({ sources: [usageSource('codex', '/c'), usageSource('claude', '/a', { status: 'partial', message: 'Some Claude transcripts could not be read.' })],
+      buckets: [usageBucket('codex', 1.5, '/c'), usageBucket('claude', 2, '/a')] }));
+    let page = await rig.page({ metric: 'cost' });
+    expect([page.total, page.providerFilter.label, page.providerFilter.all, page.notices.length]).toEqual(['$3.50', 'All providers', true, 1]);
+    await rig.command('usage-provider', '', 'claude');
+    page = await rig.page({ metric: 'cost' });
+    expect([page.total, page.sessions, page.providers.map(row => row.key), page.notices]).toEqual(['$1.50', '1 sessions', ['codex'], []]);
+    expect([page.providerFilter.label, page.providerFilter.all, page.providerFilter.rows.filter(row => !row.checked).map(row => row.key)])
+      .toEqual(['5 providers', false, ['claude']]);
+    const limits = (await rig.page()).pooled;
+    expect(limits.pools.map(pool => pool.driver)).toEqual(['codex']); // the hub's Claude seat leaves with its driver
+    expect(limits.notices.map(notice => notice.text)).toEqual(['Old hub: token expired']);
+    expect(rig.client.local).toMatchObject({ pages: { usage: { hiddenProviders: ['claude'] } } });
+    await rig.command('usage-provider', '', 'codex');
+    page = await rig.page({ metric: 'cost' });
+    expect([page.total, page.chatgptShared, page.providerFilter.label]).toEqual(['$0.00', false, '4 providers']);
+    expect((await rig.page()).pooled.links).toEqual([]);
+    await rig.command('usage-provider', '', ''); // "All providers" shows every one
+    expect((await rig.page({ metric: 'cost' })).providerFilter.label).toBe('All providers');
+    await rig.command('usage-provider', '', ''); // and hides every one
+    expect((await rig.page({ metric: 'cost' })).providerFilter.label).toBe('No providers');
   });
 
   it('offers Cursor Keychain access where Cursor is ready and the summary asks for it, and enables it on that environment', async () => {
