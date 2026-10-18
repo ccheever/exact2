@@ -14,7 +14,7 @@ test('a signalled leg resumes, collecting exit 3, and publishes byte-identical f
     if (process.env.KILL_PROOF_LEG === '1' && host === 'web' && mode === '1') process.kill(process.pid, 'SIGTERM');
     const out = process.env.EXACT_PROOF_OUT;
     mkdirSync(out,{recursive:true});
-    const summary = {host, mode, status:'UNVERIFIED', failures:[], seconds:0, inputs:'a'.repeat(64), sourceInputs:'b'.repeat(64), pins:{ticks:{1:'0x0000000000000001'}, saves:{checkpoint:'c'.repeat(64)}}, worlds:[], saves:[]};
+    const summary = {host, mode, status:'UNVERIFIED', failures:[], seconds:0, inputs:'a'.repeat(64), sourceInputs:'b'.repeat(64), pins:{ticks:{1:'0x'+'1'.padStart(16,'0')}, saves:{checkpoint:'c'.repeat(64)}}, worlds:[], saves:[]};
     writeFileSync(out+'/summary.json',JSON.stringify(summary));
     process.exit(3);
   `);

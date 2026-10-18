@@ -414,7 +414,7 @@ test('proof summaries record both identities from the completed bake', async () 
       env:{...process.env, EXACT_GAME_PROOF_PROFILE:'release', EXACT_PROOF_OUT:out}, stdout:'pipe', stderr:'pipe',
     });
     const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-    expect(code, stdout + stderr).toBe(0);
+    expect(code, stdout + stderr).toBe(3);
     const after = proofInputs(root, app), summary = JSON.parse(readFileSync(resolve(out, 'summary.json')));
     expect(after.all).not.toBe(before.all);
     expect(after.authored).toBe(before.authored);

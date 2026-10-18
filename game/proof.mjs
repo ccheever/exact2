@@ -626,6 +626,13 @@ export function worldObservations(observations, session) {
 }
 
 export async function proof(meta, script) {
+  try { await runProof(meta, script); }
+  catch (error) {
+    console.error(`PROOF FAIL: ${formatProofError(error)}`);
+    process.exitCode = 1;
+  }
+}
+async function runProof(meta, script) {
   const app = fileURLToPath(new URL('.', meta.url)), name = basename(app);
   const root = fileURLToPath(new URL('..', import.meta.url));
   const args = process.argv.slice(2), device = args.includes('--device');
@@ -644,12 +651,14 @@ export async function proof(meta, script) {
   // Re-execute the actual proof, comparing every session's final simulation state.
   if (process.argv.includes('--paranoid')) {
     if (!['web', 'linux', 'windows'].includes(host)) throw new Error('--paranoid supports web, linux and windows');
+    let unverified = false;
     const failed = await paranoidRuns(async mode => {
       const started = performance.now();
       const child = spawn(process.execPath, [fileURLToPath(meta.url), host], {
         env:{...process.env, EXACT_GAME_PARANOID:mode, EXACT_GAME_PARANOID_COMPARE:'1'}, stdio:'inherit',
       });
       const code = await new Promise((ok, reject) => { child.on('exit', ok); child.on('error', reject); });
+      unverified ||= code === 3;
       console.log(`PARANOID ${name} ${host} ${mode}: ${((performance.now()-started)/1000).toFixed(3)} s (including build)`);
       return code === 3 ? 0 : code;
     }, async () => {
@@ -659,7 +668,8 @@ export async function proof(meta, script) {
       const code = await new Promise((ok, reject) => { child.on('exit', ok); child.on('error', reject); });
       return code === 3 ? 0 : code;
     }, host);
-    process.exit(failed ? 1 : 0);
+    console.log(`PROOF ${failed ? 'FAIL' : unverified ? 'UNVERIFIED' : 'PASS'} ${name}: paranoid modes ${failed ? 'failed' : unverified ? 'completed without a complete baseline' : 'checked the baseline'}`);
+    process.exit(failed ? 1 : unverified ? 3 : 0);
   }
   const finalWorlds = [], paranoidSamples = [], observations = new Map();
   const previousPins = JSON.parse(readFileSync(resolve(app, 'pins.json'), 'utf8'));

@@ -167,7 +167,7 @@ for (const row of rows) {
 }
 for (const failure of failures) console.error(failure.reason);
 if (hosts.length > 1) {
-  const entry = await import(script);
+  const entry = await import(resolve(app, 'proof.mjs'));
   if (entry.compare) try { await entry.compare(rows, {root, repeat}); }
   catch (error) { console.error(error.message); failed = true; }
 }
