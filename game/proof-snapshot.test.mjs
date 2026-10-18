@@ -30,3 +30,23 @@ test('snapshots isolate edits; continuation names changed inputs and corrupt rec
     expect(() => reusableLeg(leg,root,run.digest)).toThrow('corrupt receipt');
   } finally { rmSync(sdk,{recursive:true,force:true}); }
 });
+
+test('driver and proof ignore proof-only and status edits but admit logic changes', async () => {
+  const {webInputDigests} = await import('../scripts/agent-launch.mjs');
+  const sdk = resolve(import.meta.dir,'..');
+  const app = mkdtempSync(resolve(sdk,'target/input-agreement-'));
+  mkdirSync(resolve(app,'logic/src'), {recursive:true});
+  writeFileSync(resolve(app,'logic/src/lib.rs'), 'before');
+  writeFileSync(resolve(app,'proof.mjs'), 'export const proof = 1;');
+  const info = {dir:app, manifest:{game:{}}};
+  try {
+    const proof = inventory(sdk,app), driver = webInputDigests(info,false);
+    writeFileSync(resolve(app,'proof.mjs'), 'export const proof = 2;');
+    writeFileSync(resolve(app,'status.json'), '{"state":"running"}');
+    expect(inventory(sdk,app)).toEqual(proof);
+    expect(webInputDigests(info,false)).toEqual(driver);
+    writeFileSync(resolve(app,'logic/src/lib.rs'), 'after');
+    expect(inventory(sdk,app)).not.toEqual(proof);
+    expect(webInputDigests(info,false)).not.toEqual(driver);
+  } finally { rmSync(app,{recursive:true,force:true}); }
+}, 60000);

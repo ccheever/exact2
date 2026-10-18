@@ -6,15 +6,19 @@ test('a signalled leg resumes, collecting exit 3, and publishes byte-identical f
   mkdirSync(resolve(import.meta.dir,'../target'), {recursive:true});
   const parent = mkdtempSync(resolve(import.meta.dir,'../target/resume-'));
   const app = resolve(parent,'sample'); mkdirSync(app);
+  mkdirSync(resolve(app,'logic/src'), {recursive:true});
+  writeFileSync(resolve(app,'logic/src/lib.rs'), '1');
   const pinFile = resolve(app,'pins.json');
   writeFileSync(pinFile, '{"ticks":{},"saves":{}}');
   writeFileSync(resolve(app,'proof.mjs'), `
-    import {mkdirSync,writeFileSync} from 'node:fs';
+    import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
     const host = process.argv[2], mode = process.env.EXACT_GAME_PARANOID;
     if (process.env.KILL_PROOF_LEG === '1' && host === 'web' && mode === '1') process.kill(process.pid, 'SIGTERM');
+    const value = readFileSync('logic/src/lib.rs','utf8');
+    if (process.env.EDIT_SOURCE_APP) writeFileSync(process.env.EDIT_SOURCE_APP+'/logic/src/lib.rs','2');
     const out = process.env.EXACT_PROOF_OUT;
     mkdirSync(out,{recursive:true});
-    const summary = {host, mode, status:'UNVERIFIED', failures:[], seconds:0, inputs:'a'.repeat(64), sourceInputs:'b'.repeat(64), pins:{ticks:{1:'0x'+'1'.padStart(16,'0')}, saves:{checkpoint:'c'.repeat(64)}}, worlds:[], saves:[]};
+    const summary = {host, mode, status:'UNVERIFIED', failures:[], seconds:0, inputs:'a'.repeat(64), sourceInputs:'b'.repeat(64), pins:{ticks:{1:'0x'+BigInt(value).toString(16).padStart(16,'0')}, saves:{checkpoint:'c'.repeat(64)}}, worlds:[], saves:[]};
     writeFileSync(out+'/summary.json',JSON.stringify(summary));
     process.exit(3);
   `);
@@ -39,5 +43,18 @@ test('a signalled leg resumes, collecting exit 3, and publishes byte-identical f
     expect(Object.values(ledger.legs).every(leg => leg.exitCode === 3 && leg.state === 'complete')).toBe(true);
     const matrix = await run(['--continue',interrupted.root,'--hosts','web,linux']);
     expect(matrix.code).toBe(1); expect(matrix.text).toContain('matrix');
+    writeFileSync(pinFile, '{"ticks":{},"saves":{}}');
+    const edited = await run([], {EDIT_SOURCE_APP:app});
+    expect(edited.code, edited.text).toBe(0);
+    expect(readFileSync(pinFile,'utf8')).toBe(expected);
+    const changed = await run(['--continue',edited.root]);
+    expect(changed.code).toBe(1);
+    expect(changed.text).toContain('app/logic/src/lib.rs changed');
+    writeFileSync(resolve(app,'logic/src/lib.rs'), '1');
+    mkdirSync(resolve(app,'tools'));
+    writeFileSync(resolve(app,'tools/probe.mjs'), 'an unrelated probe');
+    const tools = await run(['--continue',edited.root]);
+    expect(tools.code, tools.text).toBe(0);
+    expect(readFileSync(pinFile,'utf8')).toBe(expected);
   } finally { rmSync(parent,{recursive:true,force:true}); }
 }, 120000);
