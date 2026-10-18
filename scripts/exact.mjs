@@ -42,6 +42,7 @@ import { fileURLToPath } from 'node:url';
 import { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
 import { applyPattern, createApp, createGame, patternList, wireSnapback } from '../game/new.mjs';
 import { sdkFetch } from '../game/app/shells.mjs';
+import { generate as gameVocabulary } from '../game/vocab.mjs';
 import { appleArtifacts, assertAppleIdentity, stripForDistribution } from '../host/apple/build.mjs';
 import { closeFilesystemReader } from './filesystem.mjs';
 import { builtAppMatches, jsTargetBuild } from '../host/web/serve.mjs';
@@ -419,6 +420,10 @@ export function setup({check = false} = {}) {
     console.log('cargo fetch (the game SDK lock, game/app/shells.lock)');
     const fetched = sdkFetch();
     if (!fetched.ok) throw new Error(`cargo fetch of the game SDK lock failed${fetched.message ? `: ${fetched.message}` : ''}`);
+    // `game vocab` reads the engine's rustdoc; built here, its first lookup answers at once.
+    console.log('cargo rustdoc -p exact-game (for exact game vocab)');
+    try { gameVocabulary(); }
+    catch (error) { console.error(`exact setup: game vocab was not prepared, so its first lookup builds it: ${error.message.split('\n')[0]}`); }
   }
   const report = sdkReport();
   printReport(report);
@@ -646,7 +651,8 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact uninstall <app>        take both away
   exact setup [--check]        install pinned Rust, wasm-bindgen, Binaryen and
                                this machine's host/iOS/tvOS Hermes bundles;
-                               fetch the crates every bake reads offline
+                               fetch the crates every bake reads offline;
+                               build the engine rustdoc that game vocab reads
   exact hatch <word> [<app>]   an access hatch: a stub for each target the app builds (Kotlin for android/)
                                (--app, --window for those scopes), and app.json's entry
   exact list                   the apps in this repo
@@ -1016,7 +1022,7 @@ export function pattern(args, say = console.log) {
 }
 
 /** The guides `docs` reads, in the order a tie is settled: what a builder looks a section up in. */
-const GUIDES = ['docs/start-here.md', 'docs/contract-for-agents.md', 'docs/contract-grammar.md', 'docs/agent-pitfalls.md', 'docs/reference.md'];
+const GUIDES = ['docs/start-here.md', 'docs/contract-for-agents.md', 'docs/contract-grammar.md', 'docs/agent-pitfalls.md', 'docs/game-pitfalls.md', 'docs/reference.md'];
 const SECTION_LINES = 120;
 
 /** Whether a line opens or closes a code fence (CommonMark: an opening fence's info string has no backtick). */
