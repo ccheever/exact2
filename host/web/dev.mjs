@@ -439,15 +439,15 @@ const isEntryFile = name => name.startsWith('plans/') || name.startsWith('activi
 function captureGeneration(reuseCurrentAssets = false, tableUpdate = null) {
   // A mixed app publishes one complete candidate. A producer may finish
   // first, but neither language may reset the other's last admitted module.
-  if (typescript && portableRust && (!currentModule || !currentRust)) return;
+  if (!tableUpdate && typescript && portableRust && (!currentModule || !currentRust)) return;
   const encodedPlan = currentModule || tableUpdate ? null : filesystem({ op: 'get', root: dist, path: 'app.plan' });
   if (!currentModule && !tableUpdate && encodedPlan === null) throw new Error('the plan is missing');
   const planBytes = (tableUpdate ? current?.files.get('app.plan') : undefined) ?? currentModule?.get('app.plan') ?? currentRust?.get('app.plan') ?? Buffer.from(encodedPlan, 'base64');
-  const files = currentModule ? new Map(currentModule) : new Map([['app.plan', planBytes]]);
+  const files = tableUpdate ? new Map(current.files) : currentModule ? new Map(currentModule) : new Map([['app.plan', planBytes]]);
   // Source metadata stays beside the dev generation, never in its assets or
   // module receipt. A static/Rust bake may have replaced the plan without a map.
   const encodedMap = currentModule || currentRust || tableUpdate ? null : filesystem({ op: 'get', root: dist, path: 'app.plan.map.json' });
-  const mapBytes = (tableUpdate ? current?.files.get('app.plan.map.json') : undefined) ?? currentModule?.get('app.plan.map.json') ?? currentRust?.get('app.plan.map.json') ?? (encodedMap == null ? null : Buffer.from(encodedMap, 'base64'));
+  const mapBytes = tableUpdate ? current.files.get('app.plan.map.json') : currentModule?.get('app.plan.map.json') ?? currentRust?.get('app.plan.map.json') ?? (encodedMap == null ? null : Buffer.from(encodedMap, 'base64'));
   files.delete('app.plan.map.json');
   if (mapBytes && mapBytes.length <= 64 * 1024 * 1024) {
     try {
@@ -455,8 +455,8 @@ function captureGeneration(reuseCurrentAssets = false, tableUpdate = null) {
       if (JSON.parse(mapBytes.toString('utf8')).digest === planDigest) files.set('app.plan.map.json', mapBytes);
     } catch { /* Unavailable metadata must not prevent a valid app reload. */ }
   }
-  const module = currentModule ? moduleCards(files, app.id) : null;
-  if (currentRust) for (const [name, body] of currentRust) {
+  const module = (tableUpdate ? current.envelope.module : currentModule) ? moduleCards(files, app.id) : null;
+  if (!tableUpdate && currentRust) for (const [name, body] of currentRust) {
     if (name === 'app.plan' || name === 'app.plan.map.json' || (currentModule && isEntryFile(name))) continue;
     // A Contract/TS bake can reuse the exact accepted Rust artifact. Bind
     // its receipt to the new common plan; each client validates both
@@ -467,10 +467,10 @@ function captureGeneration(reuseCurrentAssets = false, tableUpdate = null) {
       files.set(name, Buffer.from(JSON.stringify(receipt)));
     } else files.set(name, body);
   }
-  const rust = currentRust ? rustCards(files) : null;
+  const rust = (tableUpdate ? current.envelope.rust : currentRust) ? rustCards(files) : null;
   const assets = [];
   const entryFiles = currentModule ?? currentRust;
-  const fromProducer = name => entryFiles && isEntryFile(name);
+  const fromProducer = name => !tableUpdate && entryFiles && isEntryFile(name);
   // Logic edits reuse the last admitted static snapshot. Asset events capture
   // through owned filesystem reads again before publishing their own revision.
   if (reuseCurrentAssets && current) {
@@ -485,7 +485,7 @@ function captureGeneration(reuseCurrentAssets = false, tableUpdate = null) {
     for (const [name, body] of captured) files.set(name, body);
     assets.push(...assetCards(captured));
   }
-  if (entryFiles) {
+  if (!tableUpdate && entryFiles) {
     const entries = new Map([...entryFiles].filter(([name]) => isEntryFile(name)));
     for (const [name, body] of entries) files.set(name, body);
     assets.push(...assetCards(entries));

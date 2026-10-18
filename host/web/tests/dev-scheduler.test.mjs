@@ -651,7 +651,7 @@ test('dev cache requires every GPU artifact from the requested profile', async (
 });
 
 test('Contract generations replace producer-owned plans and activity schemas while retaining static assets', () => {
-  const start = source.indexOf('  const module = currentModule ? moduleCards');
+  const start = source.indexOf('  const module = (tableUpdate ?');
   const end = source.indexOf('  assets.sort(', start);
   const select = new Function('currentModule', 'currentRust', 'current', 'reuseCurrentAssets', 'captureAssets', 'assetCards', `
     const tableUpdate = null;

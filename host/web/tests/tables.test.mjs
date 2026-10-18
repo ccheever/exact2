@@ -6,6 +6,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import {loadavg} from 'node:os';
 import {tableOperation, watchTables} from '../../../game/app/tables.mjs';
 import {filesystem} from '../../../scripts/filesystem.mjs';
+import {devGenerationDigest} from '../serve.mjs';
 import {pendingBuildInputs} from '../../../scripts/app.mjs';
 const source = readFileSync(new URL('../dev.mjs', import.meta.url), 'utf8');
 
@@ -22,22 +23,25 @@ test('a table generation publishes with zero spawns and preserves the admitted p
   const plan = Buffer.from('plan'), before = Buffer.from('old'), next = Buffer.from('new');
   const hash = b => createHash('sha256').update(b).digest('hex');
   const start = source.indexOf('const tableGenerations = new Map();'), end = source.indexOf('// The resident compiler', start);
-  const make = new Function('createHash','canonicalBytes','webEnvelope','resolve','filesystem',`
-    const typescript=false,portableRust=false,currentModule=null,currentRust=null,app={},dist='unused';
+  const make = new Function('createHash','canonicalBytes','webEnvelope','resolve','filesystem','devGenerationDigest',`
+    const typescript=true,portableRust=true,currentModule=new Map([['app.plan',Buffer.from('unpublished')],['plans/pending.plan',Buffer.from('pending')]]),currentRust=null,app={},dist='unused';
     const epoch='a'.repeat(32),program='program',seq=2;let retentionToken=null;
-    let current={files:new Map([['app.plan',Buffer.from('plan')],['assets/exact-tables.json',Buffer.from('old')],['assets/other',Buffer.from('sibling')]]),envelope:{assets:[{name:'assets/exact-tables.json',sha256:'old'},{name:'assets/other',sha256:'sibling'}]}};
+    let current={files:new Map([['app.plan',Buffer.from('plan')],['assets/exact-tables.json',Buffer.from('old')],['assets/other',Buffer.from('sibling')],['plans/admitted.plan',Buffer.from('admitted')]]),envelope:{assets:[{name:'assets/exact-tables.json',sha256:'old'},{name:'assets/other',sha256:'sibling'},{name:'plans/admitted.plan',sha256:'admitted'}]}};
     const classifyGeneration=()=>[],announcePlan=()=>{},keepMap=()=>{},console={log(){}};
     const retainDevGeneration=()=>{throw Error('table publication used the disk helper');};
     ${source.slice(start,end)}
     return {publish(bytes){captureGeneration(true,new Map([['assets/exact-tables.json',bytes]]));return current;}};
   `);
-  const api = make(createHash, x=>Buffer.from(JSON.stringify(x)), (_,bytes,assets)=>({plan:{sha256:hash(bytes),bytes:bytes.length},assets}),resolve,filesystem);
+  const api = make(createHash, x=>Buffer.from(JSON.stringify(x)), (_,bytes,assets)=>({plan:{sha256:hash(bytes),bytes:bytes.length},assets}),resolve,filesystem,devGenerationDigest);
   let result;
   expect(tableOperation(() => { result = api.publish(next); }).processes).toBe(0);
   expect(result.files.get('app.plan')).toEqual(plan);
   expect(result.files.get('assets/exact-tables.json')).toEqual(next);
   expect(result.files.get('assets/other').toString()).toBe('sibling');
   expect(result.envelope.assets[0].sha256).toBe(hash(next));
+  expect(result.files.get('plans/admitted.plan').toString()).toBe('admitted');
+  expect(result.files.has('plans/pending.plan')).toBe(false);
+  expect(result.envelope.module).toBeUndefined();
 });
 
 test('primary declaration reload validates and publishes current files without a second edit', async () => {
