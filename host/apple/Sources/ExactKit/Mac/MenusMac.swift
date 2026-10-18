@@ -85,10 +85,11 @@ final class MenuHost: NSObject {
     /// AppKit pops up a view's `menu(for:)`: its top left at the pointer, the
     /// pointer just outside it, so no row is highlighted and the press's
     /// release chooses nothing (a quick one leaves the menu open, a held one
-    /// closes it). `popUp(positioning:at:in:)`, a pop-up button's presentation,
-    /// puts the pointer in the first row, which a release half a second after
-    /// the press chose. The press is restated at `point` in `source`'s window:
-    /// one bubbled from a popover's own window was not in it.
+    /// closes it). `popUp(positioning:at:in:)` is a pop-up button's
+    /// presentation: it puts the pointer in the first row, where a release half
+    /// a second after the press chooses it. The press is restated at `point`
+    /// in `source`'s window, which one bubbled from a popover's own window is
+    /// not in.
     private func track(_ menu: NSMenu, positioning item: NSMenuItem? = nil, at point: NSPoint, in source: NodeView,
                        click: NSEvent? = nil, closed: () -> Void) {
         nativeTracking += 1
@@ -96,6 +97,10 @@ final class MenuHost: NSObject {
            let press = NSEvent.mouseEvent(with: click.type, location: source.convert(point, to: nil), modifierFlags: click.modifierFlags,
                                           timestamp: click.timestamp, windowNumber: window.windowNumber, context: nil,
                                           eventNumber: click.eventNumber, clickCount: click.clickCount, pressure: click.pressure) {
+            // The author's rows alone: AppKit appends Services to a contextual
+            // menu whose view can send them (`validRequestor`), as a paragraph
+            // can while the page has a selection.
+            menu.allowsContextMenuPlugIns = false
             NSMenu.popUpContextMenu(menu, with: press, for: source)
         } else {
             menu.popUp(positioning: item, at: point, in: source)

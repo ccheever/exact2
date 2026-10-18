@@ -95,8 +95,7 @@ extension Presenter {
     }
 
     /// `node`'s `contextmenu` and `contextPopover` at `point` in the source's
-    /// window (the node's when omitted), its sample with no button held.
-    /// `click` is a pointer's press, which the menu pops up from.
+    /// window (the node's when omitted), with no button held.
     func contextMenu(_ node: NodeView, at point: NSPoint, from source: NSView? = nil, click: NSEvent? = nil) -> Bool {
         func converted(to window: NSWindow?) -> NSPoint {
             guard let from = source?.window ?? node.window, let window, from !== window else { return point }
@@ -232,7 +231,6 @@ extension NodeView {
     /// The context action runs before the menu is read, for pointer and
     /// keyboard alike. A context action cannot leak its preventDefault to
     /// another input; keydown cancellation was handled before this default.
-    /// `click` is a pointer's press, which the menu pops up from.
     func dispatchContextMenu(at point: NSPoint, sample: PointerSample, bubbled: Bool = false, click: NSEvent? = nil) -> Bool {
         guard let presenter, presenter.views[id] === self, !formDisabled, !(bubbled ? authoredInert : inert) else { return false }
         let action = handlers.contains("contextmenu"), menu = props["contextPopover"]?.isEmpty == false

@@ -14,7 +14,7 @@ A right press on a node whose `contextPopover` is a native `NSMenu`, released ha
 
 ## Cause
 
-`MenuHost.context` (host/apple/Sources/ExactKit/Mac/MenusMac.swift:371) tracks the menu with `popUp(positioning: nil, at:in:)` (MenusMac.swift:86), a pop-up button's presentation: the menu's left edge is at the pointer, and the pointer is 5 pt below its top, inside the first row. Held past AppKit's click threshold, the release chooses the row under it.
+On main before the fix, `MenuHost.context` (host/apple/Sources/ExactKit/Mac/MenusMac.swift:371) tracked the menu with `popUp(positioning: nil, at:in:)` (MenusMac.swift:86), a pop-up button's presentation: the menu's left edge is at the pointer, and the pointer is 5 pt below its top, inside the first row. Held past AppKit's click threshold, the release chose the row under it.
 
 ## Reproduction
 
