@@ -864,7 +864,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         ],
         StyleId::PositionTryFallbacks => vec![with(
             "position-try-fallbacks",
-            r#"v=>v==null||/^\s*(?:none|(?:flip-block(?:\s+flip-inline)?|flip-inline(?:\s+flip-block)?)(?:\s*,\s*(?:flip-block(?:\s+flip-inline)?|flip-inline(?:\s+flip-block)?))*)\s*$/i.test(v)?v:"invalid""#,
+            r#"v=>v==null||/^\s*none\s*$/i.test(v)||String(v).split(",").every(a=>{const w=a.replace(/[A-Z]/g,c=>c.toLowerCase()).split(/[\t\n\f\r ]+/).filter(Boolean);return w.length>0&&new Set(w).size===w.length&&w.every(t=>/^flip-(?:block|inline|start)$/.test(t))})?v:"invalid""#,
         )],
         StyleId::DragTimeline => vec![with("--exact-drag-timeline", NONE)],
         // @ref LLP 1055.002 — `-exact-clock(Name)` is css.rs's clock property and
