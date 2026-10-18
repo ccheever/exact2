@@ -188,7 +188,7 @@ fn source_changes_preserve_order_across_holes_and_recycled_entities() {
     );
 }
 
-// Synth-only worlds save and hash exactly as before sampled sounds existed.
+// Synth payloads and world hashes stay fixed; the save pin includes the EXGAME version.
 #[test]
 fn synth_definitions_and_voices_keep_their_encoding() {
     let mut w = World::new(60, 3);
@@ -205,6 +205,13 @@ fn synth_definitions_and_voices_keep_their_encoding() {
     let definition = crate::hash::of(&w.resource::<Sounds>().0["chime"]);
     let voices = crate::hash::of(&*w.resource::<Voices>());
     let save = crate::hash::of(&w.save());
+    let mut v4 = w.save();
+    v4[7] = 4;
+    assert_eq!(
+        crate::hash::of(&v4),
+        0x74c8d1c938b423f9,
+        "only the EXGAME header changed"
+    );
     let pins: BTreeMap<String, String> =
         crate::json::from_str(include_str!("../tests/pins.json")).unwrap();
     for (name, got) in [
