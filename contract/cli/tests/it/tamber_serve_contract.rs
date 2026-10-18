@@ -237,3 +237,73 @@ fn set_state_refuses_what_it_cannot_splice_and_a_linked_package() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Review round 3: a package linked file by file (a vendored directory
+/// with its `package.json`) is read-only; a negative in parentheses set
+/// whole; a `(` in a row's comment no line's open one; an imported source
+/// stays the server's while the root does not parse.
+#[test]
+fn set_state_round_three_edges() {
+    let dir = app("state-edges3", DESIGN);
+    let file = dir.join("app.contract");
+    let vendor = dir.join("vendor/p");
+    std::fs::create_dir_all(&vendor).unwrap();
+    std::fs::write(vendor.join("package.json"), "{\"name\": \"p\"}").unwrap();
+    std::fs::write(
+        vendor.join("index.contract"),
+        "style Pkg\n  opacity=1\n\ncomponent Badge\n  view\n    text \"b\" class=Pkg\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("node_modules/p")).unwrap();
+    std::os::unix::fs::symlink(
+        vendor.join("index.contract"),
+        dir.join("node_modules/p/index.contract"),
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("ui")).unwrap();
+    std::fs::write(dir.join("ui/post.contract"), "style Post\n  background-color=\"#ffffff\"\n  :hover\n    opacity=-(0.2)\n  :active\n    opacity=0.5 // (temporary\n  :focus-visible\n    opacity=(0.5)\n\ncomponent PostButton\n  view\n    column class=Post\n      text \"p\"\n").unwrap();
+    let root = "use PostButton from \"./ui/post.contract\"\nuse Badge from \"./node_modules/p/index.contract\"\ncomponent App\n  view\n    column\n      PostButton()\n      Badge()\n";
+    std::fs::write(&file, root).unwrap();
+    let post = dir.join("ui/post.contract");
+    let mut s = Serve::start(&dir, &[]);
+    let (hello, _) = s.ask(json!({"method": "hello", "client": "test"}));
+    let files = hello["ok"]["files"].as_object().expect("files");
+    assert!(files.contains_key("ui/post.contract"), "{hello}");
+    assert!(
+        !files.keys().any(|f| f.contains("index.contract")),
+        "{hello}"
+    );
+    let write = |s: &mut Serve, op: serde_json::Value| {
+        s.ask(json!({"method": "transaction", "client": "one", "files": {"ui/post.contract": digest(&post)}, "ops": [op]})).0
+    };
+    let neg = write(
+        &mut s,
+        json!({"op": "set-state", "style": "Post", "state": "hover", "row": "opacity", "value": 0.4}),
+    );
+    assert!(neg["ok"]["inverse"].is_string(), "{neg}");
+    let comment = write(
+        &mut s,
+        json!({"op": "set-state", "style": "Post", "state": "active", "row": "opacity", "value": 0.6}),
+    );
+    assert!(comment["ok"]["inverse"].is_string(), "{comment}");
+    let paren = write(
+        &mut s,
+        json!({"op": "set-state", "style": "Post", "state": "focus-visible", "row": "opacity", "value": 0.7}),
+    );
+    assert!(paren["ok"]["inverse"].is_string(), "{paren}");
+    let text = std::fs::read_to_string(&post).unwrap();
+    assert!(
+        text.contains("opacity=0.4\n")
+            && text.contains("opacity=0.6 // (temporary")
+            && text.contains("opacity=0.7\n"),
+        "{text}"
+    );
+    // The root stops parsing: its import is still the server's.
+    std::fs::write(&file, format!("{root}  view (\n")).unwrap();
+    let (broken, _) = s.ask(json!({"method": "hello", "client": "test"}));
+    assert!(
+        broken["ok"]["files"]["ui/post.contract"].is_string(),
+        "{broken}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

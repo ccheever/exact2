@@ -724,9 +724,12 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (!planned.ok) return planned;
     // A state part's write without a `file` touches the Contract source it
     // wrote, not every one: the others' digests guard it too, asked again.
-    if ((Array.isArray(ops) ? ops : []).some(o => typeof o?.file !== 'string' && /^(un)?set-state$/.test(o?.op))) {
-      const wrote = new Set(Object.keys(planned.ok.texts ?? {}));
-      for (const path of contracts) if (!wrote.has(path) && !(Array.isArray(ops) && ops.some(o => o?.file === path))) touched.delete(path);
+    // Where it wrote none beyond the named files (already as asked), every
+    // source stays its target, as `prepare` takes them.
+    const named = new Set((Array.isArray(ops) ? ops : []).flatMap(o => (typeof o?.file === 'string' ? [o.file] : [])));
+    const wrote = new Set(Object.keys(planned.ok.texts ?? {}).filter(path => path.endsWith('.contract') && !named.has(path)));
+    if (wrote.size && (Array.isArray(ops) ? ops : []).some(o => typeof o?.file !== 'string' && /^(un)?set-state$/.test(o?.op))) {
+      for (const path of contracts) if (!wrote.has(path) && !named.has(path)) touched.delete(path);
       const more = Object.fromEntries(Object.entries(files ?? {}).filter(([path]) => !touched.has(path) && !(path in guards)));
       if (Object.keys(more).length) {
         guards = { ...guards, ...more };

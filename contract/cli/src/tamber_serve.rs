@@ -198,6 +198,9 @@ struct Server {
     synthetic: Option<Synthetic>,
     /// The app's components' params (LLP 1121 D15), by the same key.
     params: (String, contract::tamber_params::AppParams),
+    /// The app's own Contract sources at the last read that loaded them
+    /// all: a root that stops parsing for a moment keeps its imports.
+    contract: std::cell::RefCell<Vec<String>>,
 }
 
 /// A digest, its synthetic token expressions, and the plan's retention.
@@ -330,6 +333,7 @@ impl Server {
             client: None,
             synthetic: None,
             params: Default::default(),
+            contract: Default::default(),
         };
         server.same_state()?;
         server.recover()?;
@@ -562,7 +566,7 @@ impl Server {
             .filter(|n| n.ends_with(".tamber") && *n != self.design)
             .collect();
         others.sort();
-        let contract = crate::tamber_contract::owned(&self.dir);
+        let contract = crate::tamber_contract::owned_kept(&self.dir, &self.contract);
         Ok(std::iter::once(self.design.clone())
             .chain(others)
             .chain(contract)

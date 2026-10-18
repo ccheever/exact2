@@ -331,7 +331,8 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   unformatted file's included.
 - **A design edit splices only the lines it touches,** laid out as `tamber fmt` would, and leaves
   every other byte alone. So a value edit is a one-line diff, even in a file that wasn't formatted.
-  A `.contract` write is laid out whole by `contract fmt` (above).
+  A `.contract` write is laid out whole by `contract fmt` (above): one line only in a file
+  already formatted, and in one that isn't, its other lines laid out too.
 - **A state part written under a node** is `set-row`'s (LLP 1122 T5): a `set-state` naming a
   `node` is refused, pointing there. A row written over more than one line is the author's to
   edit, and refused.

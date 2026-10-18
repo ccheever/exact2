@@ -39,12 +39,14 @@ impl ContractOp {
 }
 
 /// The app's own Contract sources, by path from its directory: what the
-/// server may write. A package's file is its package's.
-pub(crate) fn owned(dir: &Path) -> Vec<String> {
+/// server may write, and whether the graph loaded whole. A package's file
+/// is its package's: one in a directory, below the app's, whose
+/// `package.json` names a package (installed, linked or vendored, as a
+/// component's identity reads it, LLP 1121 D15), or one a `node_modules`
+/// entry links to, however a `use` reached it.
+pub(crate) fn owned(dir: &Path) -> (Vec<String>, bool) {
     let graph = contract::source_graph(&dir.join("app.contract"));
-    // A package's directory, however reached: one `use` named, or one a
-    // `node_modules` entry links to (a relative path through it reads the
-    // linked directory's files as the app's).
+    let app = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
     let mut packages: Vec<PathBuf> = graph.packages.iter().map(|p| p.root.clone()).collect();
     let installed = |d: &Path| std::fs::read_dir(d).into_iter().flatten().flatten();
     for entry in installed(&dir.join("node_modules")) {
@@ -55,25 +57,61 @@ pub(crate) fn owned(dir: &Path) -> Vec<String> {
         }
     }
     // A link back to the app or above it (a workspace's own) is no package.
-    let app = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
     packages.retain(|root| !app.starts_with(root));
+    let named = |d: &Path| {
+        std::fs::read_to_string(d.join("package.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .is_some_and(|m| m["name"].is_string())
+    };
+    let in_package = |path: &Path| {
+        packages.iter().any(|root| path.starts_with(root))
+            || path
+                .ancestors()
+                .skip(1)
+                .take_while(|d| d.starts_with(&app) && *d != app)
+                .any(named)
+    };
     let mut out: Vec<String> = graph
         .sources
         .iter()
         .filter(|s| matches!(s.origin, contract::Origin::App))
-        .filter(|s| !packages.iter().any(|root| s.path.starts_with(root)))
         .filter(|s| s.path.extension().is_some_and(|e| e == "contract"))
-        .filter_map(|s| s.path.strip_prefix(dir).ok()?.to_str().map(str::to_string))
+        .filter(|s| !in_package(&s.path))
+        .filter_map(|s| s.path.strip_prefix(&app).ok()?.to_str().map(str::to_string))
         .filter(|p| !p.starts_with(".exact") && !p.split('/').any(|c| c == "node_modules"))
         .collect();
+    out.sort();
+    out.dedup();
+    (out, graph.errors.is_empty())
+}
+
+/// [`owned`], and where the graph stopped loading (a syntax error) the
+/// files the last whole one listed while they are there, so their pending
+/// writes stay the session's; `last` is that list.
+pub(crate) fn owned_kept(dir: &Path, last: &std::cell::RefCell<Vec<String>>) -> Vec<String> {
+    let (mut out, whole) = owned(dir);
+    if whole {
+        *last.borrow_mut() = out.clone();
+        return out;
+    }
+    out.extend(
+        last.borrow()
+            .iter()
+            .filter(|f| dir.join(f).is_file())
+            .cloned(),
+    );
     out.sort();
     out.dedup();
     out
 }
 
+/// A `.contract` write, with the file it names, if it names one.
+pub(crate) type Named = (Option<String>, ContractOp);
+
 /// `ops` without its `.contract` writes, which are returned apart, each
 /// with the file it names, if it names one.
-pub(crate) fn split(ops: &Value) -> Result<(Value, Vec<(Option<String>, ContractOp)>), Value> {
+pub(crate) fn split(ops: &Value) -> Result<(Value, Vec<Named>), Value> {
     let Some(all) = ops.as_array() else {
         return Ok((ops.clone(), Vec::new()));
     };
@@ -178,10 +216,15 @@ pub(crate) fn restore(text: &str, op: &Op) -> Result<String, String> {
     Ok(joined(&all, *newline))
 }
 
-/// How many parentheses `text` leaves open, outside its strings.
+/// How many parentheses `text` leaves open, outside its strings and
+/// before a `//` comment.
 fn depth(text: &str) -> usize {
     let (mut depth, mut quoted, mut escaped) = (0usize, false, false);
-    for c in text.chars() {
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if !quoted && c == '/' && chars.peek() == Some(&'/') {
+            break;
+        }
         match (quoted, escaped, c) {
             (true, true, _) => escaped = false,
             (true, false, '\\') => escaped = true,
@@ -261,12 +304,21 @@ pub(crate) fn edit(text: &str, op: &ContractOp) -> Result<String, String> {
         }
         Ok((start, end, close))
     };
+    // Where a found row's value starts as written: before the parentheses
+    // and any `-` that opened them (`-(0.2)`), so a set replaces it whole.
+    let written_at = |a: &contract_syntax::Attr, start: usize| -> usize {
+        let l = &all[at(a.span.line)];
+        let key = (a.span.col as usize - 1).min(start);
+        let eq = l[key..start].find('=').map_or(key, |i| key + i + 1);
+        eq + (l[eq..start].len() - l[eq..start].trim_start().len())
+    };
     match op {
         ContractOp::SetState { value, .. } => match found {
             // Its value replaced where it is written.
             Some(a) => {
-                let (start, end, _) = value_at(a)?;
-                all[at(a.span.line)].replace_range(start..end, value);
+                let (start, _, close) = value_at(a)?;
+                let from = written_at(a, start);
+                all[at(a.span.line)].replace_range(from..close, value);
             }
             // A row added after its block's last.
             None if !block.is_empty() => {
@@ -362,9 +414,9 @@ pub(crate) fn file_of(
         .collect();
     match declares.as_slice() {
         [one] => Ok((*one).clone()),
-        [] => {
-            Err(json!({"message": format!("no file of the app declares `style {}`", op.style())}))
-        }
+        [] => Err(
+            json!({"message": format!("no file of the app declares `style {}` (a node's own state part is `set-row`'s, LLP 1122 T5)", op.style())}),
+        ),
         many => Err(
             json!({"message": format!("`style {}` is declared in {}: name the `file`", op.style(), many.iter().map(|p| format!("`{p}`")).collect::<Vec<_>>().join(" and "))}),
         ),

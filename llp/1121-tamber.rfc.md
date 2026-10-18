@@ -3406,6 +3406,12 @@ verifying build (not reproduced in three replays).
 - **The inverse** is a line restore of the preimage (`exact_tamber::Op::Restore`, applied to the raw
   text by `tamber_contract::restore`, bypassing fmt), so an unformatted file comes back byte for
   byte (LLP 1122 D6).
+- **Deviation from LLP 1122 D6's one-line diff:** a `.contract` write runs `contract fmt` over the
+  whole file (as the approved plan said), so in an unformatted file a one-row `set-state` lays out
+  its other lines too; in a formatted file it is one line. The inverse still gives the unformatted
+  bytes back.
+- **A node's own state part** is `set-row`'s (LLP 1122 T5): a `set-state` naming a `node` is
+  refused, and the "no file declares `style`" refusal says so.
 - **Wire:** `tamber/1.11`, the window stage 7's close opened (theme2, 20:30).
 - **Tests:** `contract/cli/tests/it/tamber_serve_contract.rs` (set, replace, undo to the
   unformatted bytes; unset with its block; a refused compile writes nothing; an unknown style;
