@@ -345,3 +345,16 @@ test('Swift under modules/apple is the app module even when it has no views', as
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('widget reload artifact is cached by source and target triple', async () => {
+  const { widgetReload } = await import('../host/apple/widgets.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-widget-reload-')), source = resolve(dir, 'reload.swift');
+  try {
+    writeFileSync(source, 'first');
+    let builds = 0;
+    const options = { directory: dir, source, triple: 'arm64-apple-ios17.0-simulator', sdk: '/sdk', runApple: (_, args) => { builds++; writeFileSync(args.at(-1), 'binary'); } };
+    widgetReload(options); widgetReload(options); assert.equal(builds, 1);
+    writeFileSync(source, 'second'); widgetReload(options); assert.equal(builds, 2);
+    widgetReload({ ...options, triple: 'arm64-apple-ios17.0' }); assert.equal(builds, 3);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
