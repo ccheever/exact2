@@ -114,7 +114,7 @@ export function residencyProbe(model, texture, popName) {
         receive=ok; timer=setTimeout(()=>reject(new Error('residency probe timeout')),20000);
       });
       try { await session.type('world',{key}); return await result; }
-      finally { clearTimeout(timer); receive=null; }
+      finally { clearTimeout(timer); receive=null; changedTexture=false; }
     },
   };
 }
