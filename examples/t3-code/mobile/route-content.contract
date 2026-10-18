@@ -434,7 +434,7 @@ component MobileRouteContent
     else if routeName == "threadTerminalCapture"
       MobileTerminalCaptureView(data=terminalCapture, colors=terminalData.colors, select=selectTerminalLine, attach=attachTerminalOutput)
     else if routeName == "threadReview"
-      ReviewView(data=reviewData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, fontSize=settingsAppearance.codeFontSize, rowHeight=settingsAppearance.codeLine, numberSize=settingsAppearance.codeNumber, rawFontSize=settingsAppearance.roles.label.size, action=reviewAction, refresh=refreshReview, loadMore=loadReviewFiles, routeId=routeId, focused=focused)
+      ReviewView(data=reviewData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, fontSize=settingsAppearance.codeFontSize, rowHeight=settingsAppearance.codeLine, numberSize=settingsAppearance.codeNumber, rawFontSize=settingsAppearance.roles.label.size, emptyTitleFontSize=settingsAppearance.roles.footnote.size, emptyTitleLineHeight=settingsAppearance.roles.footnote.line, action=reviewAction, refresh=refreshReview, loadMore=loadReviewFiles, routeId=routeId, focused=focused)
     else if routeName == "threadReviewComment"
       ReviewCommentComposer(data=reviewData, value=reviewComment, colors=reviewLook, change=editReviewComment, submit=submitReviewComment)
     else if routeName == "threadFiles"
