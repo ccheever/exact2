@@ -119,6 +119,10 @@ component Home
     emptyDetail: string
     loading: bool
     addEnvironment: bool
+    fullPageEmpty: bool
+    liquidGlass: bool
+    windowHeight: number
+    safeTop: number
     bottomClearance: number
     emptyClearance: number
     menuAction: action
@@ -130,6 +134,7 @@ component Home
   provide
     projectFaviconSurface = listId
   derive swipeOwner = `${routeId}:${listId}`
+  derive fullPageFrame = fullPageEmpty and liquidGlass
   state stateOwner = ""
   state openToken = ""
   state dragToken = ""
@@ -237,11 +242,19 @@ component Home
       list id=listId appearance="none" flex=1 min-height=0 padding-left=8 padding-right=8 padding-top=6 padding-bottom=bottomClearance
         text emptyTitle padding-left=7 padding-right=7 padding-top=14 padding-bottom=14 font-size=14 line-height="19px" color=colors.drawerMuted translate="0px 0.5px" testId="sidebar-empty-title"
     else if items.length == 0
+      // Reference HomeScreen's unfiltered empty box spans the transparent glass window; filtered empties stay in flow.
       column flex=1
+        position=(fullPageFrame ? "absolute" : "static")
+        top=(fullPageFrame ? 0 : "auto")
+        left=(fullPageFrame ? 0 : "auto")
+        right=(fullPageFrame ? 0 : "auto")
+        height=(fullPageFrame ? windowHeight : "auto")
+        box-sizing=(fullPageFrame ? "border-box" : "content-box")
         align-items="center"
         justify-content="center"
         padding-left=28
         padding-right=28
+        padding-top=(fullPageFrame ? safeTop + 72 : 0)
         padding-bottom=emptyClearance
         column max-width=430 width="100%"
           align-items="center"

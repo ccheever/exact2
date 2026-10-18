@@ -73,6 +73,6 @@ export function mobileHomeView(args: unknown[], client: T3Client = mobileClient,
     : needle ? searching ? 'Searching thread messages…' : 'No matching threads'
     : project ? `No threads in ${project.title}` : 'No threads yet';
   return { nextSwipeRefreshAt, arrangement: homeArrangeSnapshot(client, mobileHomeSources(client, background), Number(now), order), items: result.items, emptyTitle: result.emptyTitle, emptyDetail: result.emptyDetail,
-    ...(sidebar ? { emptyTitle: sidebarEmpty, emptyDetail: '', loading: false, addEnvironment: false }
-      : { loading: result.loading, addEnvironment: result.addEnvironment }) };
+    ...(sidebar ? { emptyTitle: sidebarEmpty, emptyDetail: '', loading: false, addEnvironment: false, fullPageEmpty: false }
+      : { loading: result.loading, addEnvironment: result.addEnvironment, fullPageEmpty: result.fullPageEmpty }) };
 }

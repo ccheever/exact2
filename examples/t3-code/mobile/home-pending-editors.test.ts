@@ -67,3 +67,11 @@ test('actual Home wrapper exposes validated marker recovery without queue or dra
   expect(withDraft.items.find(item => item.kind === 'pending')?.title).toBe('Recovered actual draft');
   expect(mobileHome(now, {}, client, background).items.some(item => item.kind === 'pending')).toBe(true);
 });
+test('queued, retained and draft content keeps a filtered empty Home out of the full-page state', () => {
+  const f = fixture(), view = (options: Parameters<typeof mobileHome>[1]) => mobileHome(now, options, new MobileDraftClient(), new EnvironmentFleet());
+  expect(view({ pendingTasks: [], pendingEditors: [] }).fullPageEmpty).toBe(true);
+  for (const options of [{ drafts: [f.draft] }, { pendingTasks: [f.task] }, { pendingEditors: [f.marker] }]) {
+    const result = view({ pendingTasks: [], pendingEditors: [], ...options, query: 'absent' });
+    expect(result.items).toHaveLength(0); expect(result.fullPageEmpty).toBe(false);
+  }
+});
