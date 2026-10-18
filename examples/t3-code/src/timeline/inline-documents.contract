@@ -58,13 +58,13 @@ component InlineDocumentFrame
   action loaded
     local("inline-doc-loaded", document.key, "")
   view
-    box width="100%" min-width=0 position="relative" height=(document.height + (document.permission != "" ? 160 : 0)) overflow="hidden" testId=`inline-doc-${document.key}`
+    box width="100%" min-width=0 position="relative" height=(document.height) overflow="hidden" testId=`inline-doc-${document.key}`
       for post in document.posts.slice(0, 1) key=post.key
         InlineDocumentPostDelivery(post=post, target=`inline-frame-${document.key}`, local=local, documentKey=document.key)
       if document.shortcut != ""
         for serial in [document.shortcutSerial] key=serial
           InlineDocumentShortcutDelivery(name=document.shortcut)
-      box id=`inline-box-${document.key}` popover=(document.fullscreen ? some("manual") : none) position=(document.fullscreen ? "absolute" : "relative") width=(document.fullscreen ? inlineDocumentViewportWidth : "100%") height=(document.fullscreen ? inlineDocumentViewportHeight : document.height + (document.permission != "" ? 160 : 0)) margin=0 padding=0 border-width=0 background-color="light-dark(#fcfcfc, #0a0a0a)" resize=laidOut
+      box id=`inline-box-${document.key}` popover=(document.fullscreen ? some("manual") : none) position=(document.fullscreen ? "absolute" : "relative") width=(document.fullscreen ? inlineDocumentViewportWidth : "100%") height=(document.fullscreen ? inlineDocumentViewportHeight : document.height) margin=0 padding=0 border-width=0 background-color="light-dark(#fcfcfc, #0a0a0a)" resize=laidOut
         if document.closed
           row gap="0.5rem" align-items="center"
             text "This app was closed." flex=1 color="-exact-secondary-label"
@@ -90,28 +90,19 @@ component InlineDocumentFrame
             box width=(document.fullscreen ? inlineDocumentViewportWidth * zoom : "100%") height=(document.fullscreen ? (inlineDocumentViewportHeight - (document.kind == "html" ? 48 : 0)) * zoom : document.height)
               if document.src != ""
                 iframe id=`inline-frame-${document.key}` src=document.src sandbox="allow-scripts allow-forms allow-popups allow-downloads" message=reported load=loaded width=(document.fullscreen ? inlineDocumentViewportWidth : "100%") height=(document.fullscreen ? inlineDocumentViewportHeight - (document.kind == "html" ? 48 : 0) : document.height) scale=zoom transform-origin="0 0" border-width=0 opacity=(document.ready ? 1 : 0) aria-label=document.title testId="inline-doc-frame"
-          button press=local("inline-doc-fullscreen", document.key, document.fullscreen ? "close" : "open") position="absolute" right="0.5rem" top="0.5rem" width="2rem" height="2rem" padding=0 aria-label=(document.fullscreen ? "Exit full screen" : "Expand document") testId="inline-doc-expand"
+          button press=local("inline-doc-fullscreen", document.key, document.fullscreen ? "close" : "open") position="absolute" right="0.5rem" top="0.5rem" width="2rem" height="2rem" padding=0 aria-label=(document.fullscreen ? "Exit full screen" : "Expand document") title="" testId="inline-doc-expand"
             Icon(name=(document.fullscreen ? "minimize" : "maximize"), size=14, color="-exact-label")
 
         if document.fullscreen and document.kind == "html"
           row position="absolute" left=0 right=0 bottom=0 height=48 justify-content="center" align-items="center" gap="0.5rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
             text document.title max-width="40%" text-overflow="ellipsis" white-space="nowrap" overflow="hidden"
-            button press=zoomOut disabled=(zoom <= 0.5) aria-label="Zoom out" testId="inline-doc-zoom-out"
+            button press=zoomOut disabled=(zoom <= 0.5) aria-label="Zoom out" title="" testId="inline-doc-zoom-out"
               Icon(name="minus", size=14, color="-exact-label")
             button press=resetZoom aria-label="Reset zoom" testId="inline-doc-zoom-reset"
               text `${zoom * 100}%` font-variant-numeric="tabular-nums"
-            button press=zoomIn disabled=(zoom >= 2) aria-label="Zoom in" testId="inline-doc-zoom-in"
+            button press=zoomIn disabled=(zoom >= 2) aria-label="Zoom in" title="" testId="inline-doc-zoom-in"
               Icon(name="plus", size=14, color="-exact-label")
 
-        if document.permission != ""
-          column position="absolute" left=0 right=0 bottom=0 height=160 padding="0.75rem" box-sizing="border-box" gap="0.5rem" background-color="light-dark(#fcfcfc, #0a0a0a)" role="alertdialog" aria-label="App permission" testId="inline-doc-permission"
-            scroll flex=1 min-height=0
-              text document.permission font-size="0.8125rem" white-space="pre-wrap"
-            row justify-content="flex-end" gap="0.5rem"
-              button press=local("inline-doc-permission", document.key, `${document.permissionSerial}:deny`) testId="inline-doc-deny"
-                text "Decline"
-              button press=local("inline-doc-permission", document.key, `${document.permissionSerial}:allow`) testId="inline-doc-allow"
-                text "Allow"
 
 
 component InlineDocumentPostDelivery
