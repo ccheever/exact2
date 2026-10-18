@@ -142,3 +142,13 @@ test('cleanup uses its maintenance permission independently of orchestration wri
   expect(cleanupPermitted({ scopes: ['orchestration:operate'] }, focused)).toBe(false);
   expect(cleanupPermitted({ scopes: ['environment:maintain'] }, focused)).toBe(true);
 });
+
+import { contractComponent, type Env } from '../support/contract-action-fixture';
+test('webhook copy and rotation complete without closing the editor or showing their internal completion marker', () => {
+  const root = contractComponent('app.contract', 'T3Code');
+  for (const message of ['', 'task-webhook-keep']) {
+    const state: Env = { noticeExit: '', routeKeyboard: '', pendingModal: 'rest', restEditor: 'task', modalError: 'old', settingsRefresh: 7, commandPending: true, renameAfterOp: '', keybindingOpen: true, keybindingPrevious: 'old', keybindingRecording: true };
+    root.call('commandCompleted', state, { changed: { message, relaunch: false, routeReorder: 0 }, routeKeyboardComplete: () => '', routeKeyboardOwned: false }, []);
+    expect(state).toMatchObject({ modalError: '', commandPending: false, pendingModal: '', settingsRefresh: 8, restEditor: message ? 'task' : '' });
+  }
+});
