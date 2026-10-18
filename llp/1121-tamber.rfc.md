@@ -3819,3 +3819,4 @@ Built to the approved plan (`~/x2theme/x2p4-s9e-plan.md`; theme2's 16:13 ruling 
   - The JS target names a role's override too (`var(--exact-canvas-text)` is `CanvasText`, modes.js's table), a host's own property still none.
   - A site the inspect table lacks gives the held answer no instance path (not the root's `[]`).
   - Tests: the runtime's id names a JS link; a role override named; `cargo fmt` over the new tests.
+- **After review round 3 (Astra RIGHT WITH CHANGES, Grok RIGHT):** the JS target checks each token reference on its own, so a role it names beside a token it can't name still leaves the answer `provenance: "incomplete"` (a test with both).

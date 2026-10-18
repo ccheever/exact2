@@ -405,10 +405,11 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       delete row.prop;
       if (!/\b(var|light-dark)\(/.test(row.value)) continue;
       row.computed = cs.getPropertyValue(prop).trim();
-      const refs = new Set([...row.value.matchAll(/var\((--x-[\w-]+)/g)].map(m => m[1])).size;
       const token = globalThis.exact.modes?.token?.(el, prop, row.value);
       if (token) row.token = token;
-      if (refs > (token?.names?.length ?? 0)) incomplete = true;
+      // Each token reference on its own: one modes.js can't name leaves the answer incomplete, whatever else it named.
+      const refs = new Set([...row.value.matchAll(/var\((--x-[\w-]+)/g)].map(m => m[1]));
+      if ([...refs].some(ref => !globalThis.exact.modes?.token?.(el, prop, `var(${ref})`))) incomplete = true;
     }
     const site = el.dataset?.site != null ? Number(el.dataset.site) : null;
     // (Its instance path is the inspect table's, where the page has one: `exact.instanceOf`, inspect-dev.js.)

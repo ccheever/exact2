@@ -92,6 +92,18 @@ check('a held state is the real one, until real input, its disabling or its goin
     // Where the runtime numbers its views (the JS target's `$exactViewId`), the link is named by it.
     expect(await evaluate('(globalThis.$exactViewId = (el) => el.id === "lnk" ? 41 : null, exact.heldOf(document.getElementById("lnk")).held.node)')).toBe(41);
     await evaluate('delete globalThis.$exactViewId');
+    // A token reference modes.js can't name leaves the answer incomplete, even beside one it names (a role).
+    const mixed = await evaluate(`(() => {
+      const el = document.getElementById('lnk');
+      el.style.setProperty('--exact-press-background-color', 'color-mix(in srgb, var(--exact-canvas-text), var(--x-missing))');
+      globalThis.exact.modes = { token: (e, p, text) => /--exact-canvas-text/.test(text) ? { names: ['CanvasText'], text, modes: '', implied: false } : undefined };
+      exact.hold(el, 'active');
+      const h = exact.heldOf(el).held;
+      delete globalThis.exact.modes; exact.hold(null, null);
+      return { provenance: h.provenance ?? null, names: h.rows[0].token?.names ?? null };
+    })()`);
+    expect(mixed).toEqual({ provenance: 'incomplete', names: ['CanvasText'] });
+    await evaluate('dropped.splice(0)');
     await hold('label', 'active');
     await evaluate('dropped.splice(0)');
     // A node no press reaches holds none, said why.
