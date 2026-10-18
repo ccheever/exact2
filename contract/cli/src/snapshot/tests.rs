@@ -278,8 +278,8 @@ fn manifest_and_preview_are_checked_and_no_widgets_is_unchanged() {
         declared: true,
     };
     assert!(empty.widgets().unwrap().is_empty());
+    assert!(empty.live_activities().unwrap().is_empty());
     for value in [
-        json!({"live_activities":[]}),
         json!({"widgets":null}),
         json!({"widgets":[{"kind":"../escape"}]}),
     ] {
@@ -290,6 +290,35 @@ fn manifest_and_preview_are_checked_and_no_widgets_is_unchanged() {
         .widgets()
         .is_err());
     }
+    // The packaging's fields of an activity entry (LLP 1126.001 WP13); the rest are the bake's.
+    for value in [
+        json!({"live_activities":{}}),
+        json!({"live_activities":[{}]}),
+        json!({"live_activities":[{"kind":"../escape"}]}),
+        json!({"live_activities":[{"kind":"a"},{"kind":"A"}]}),
+        json!({"live_activities":[{"kind":"a","push":"yes"}]}),
+        json!({"live_activities":[{"kind":"a","frequent":1}]}),
+    ] {
+        assert!(Manifest {
+            json: value,
+            ..empty.clone()
+        }
+        .live_activities()
+        .is_err());
+    }
+    let activities = Manifest {
+        json: json!({"live_activities":[{"kind":"departure","push":true},{"kind":"alert","frequent":true}]}),
+        ..empty.clone()
+    }
+    .live_activities()
+    .unwrap();
+    assert_eq!(
+        activities
+            .iter()
+            .map(|a| (a.kind.as_str(), a.push, a.frequent))
+            .collect::<Vec<_>>(),
+        [("departure", true, false), ("alert", false, true)]
+    );
     let mut labels = Manifest {
         json: json!({"widgets":[{"kind":"card","title":"Next Trains","description":"Departures from your station.",
             "families":["systemSmall"],"component":"Card","props":"Props","refresh":"refreshCard","preview":{"title":"Preview"}}]}),

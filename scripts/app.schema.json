@@ -212,8 +212,26 @@
       }
     },
     "live_activities": {
-      "description": "Reserved for stage 2; remove it for this bake.",
-      "not": {}
+      "description": "Live Activity entries (LLP 1126 D9). The packaging reads `kind`, `push` (the app's server advances it: aps-environment is signed in) and `frequent` (the frequent-update budget); the entry's root, state shape and preview are stage 2's bake (LLP 1126.001 WP8).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "push": {
+            "type": "boolean"
+          },
+          "frequent": {
+            "type": "boolean"
+          }
+        }
+      }
     },
     "widgets": {
       "type": "array",

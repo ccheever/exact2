@@ -26,14 +26,67 @@ pub struct Widget {
     pub preview: Value,
 }
 
+/// A Live Activity entry as the packaging reads it (LLP 1126.001 WP13):
+/// the kind and the two flags that decide the app's entitlements and plist
+/// keys. The entry's root, state shape and preview are WP8's.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LiveActivity {
+    /// Stable identifier, unique among the app's activities.
+    pub kind: String,
+    /// The app's server advances it: `aps-environment` is signed in.
+    pub push: bool,
+    /// It needs the frequent-update push budget (`NSSupportsLiveActivitiesFrequentUpdates`).
+    pub frequent: bool,
+}
+
 use exact_plan::entry_identifier;
 
 impl Manifest {
-    /// Read entries, refusing malformed declarations and stage 2's reserved key.
+    /// Read the activity entries' packaging fields. A row is an object with an
+    /// identifier `kind`, unique across rows, and Boolean `push` and `frequent`
+    /// when present; its other keys are checked by the bake (WP8).
+    pub fn live_activities(&self) -> Result<Vec<LiveActivity>, String> {
+        let Some(value) = self.json.get("live_activities") else {
+            return Ok(Vec::new());
+        };
+        let rows = value.as_array().ok_or("live_activities must be an array")?;
+        let mut kinds = HashSet::new();
+        rows.iter()
+            .enumerate()
+            .map(|(i, row)| {
+                let at = format!("live_activities[{i}]");
+                let object = row
+                    .as_object()
+                    .ok_or_else(|| format!("{at} must be an object"))?;
+                let kind = object
+                    .get("kind")
+                    .and_then(Value::as_str)
+                    .filter(|v| entry_identifier(v))
+                    .map(str::to_owned)
+                    .ok_or_else(|| format!("{at}.kind must be an identifier"))?;
+                if !kinds.insert(kind.to_ascii_lowercase()) {
+                    return Err(format!(
+                        "{at}.kind repeats {kind}; give each activity a unique kind"
+                    ));
+                }
+                let flag = |key: &str| -> Result<bool, String> {
+                    match object.get(key) {
+                        None => Ok(false),
+                        Some(Value::Bool(b)) => Ok(*b),
+                        Some(_) => Err(format!("{at}.{key} must be true or false")),
+                    }
+                };
+                Ok(LiveActivity {
+                    kind,
+                    push: flag("push")?,
+                    frequent: flag("frequent")?,
+                })
+            })
+            .collect()
+    }
+
+    /// Read entries, refusing malformed declarations.
     pub fn widgets(&self) -> Result<Vec<Widget>, String> {
-        if self.json.get("live_activities").is_some() {
-            return Err("live_activities is reserved for stage 2; remove it for this bake".into());
-        }
         let Some(value) = self.json.get("widgets") else {
             return Ok(Vec::new());
         };
