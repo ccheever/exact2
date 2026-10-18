@@ -1,6 +1,85 @@
 use super::{id, pixel, PainterChoice, Presenter};
 use exact_linux::presenter::PointerKind;
 
+pub(super) fn focus_changes_during_flow_damage() {
+    let mut failures = Vec::new();
+    for scheme in ["light", "dark"] {
+        for kind in ["select", "date", "time", "datetime-local"] {
+            let tag = if kind == "select" {
+                "select".to_string()
+            } else {
+                format!("input type=\"{kind}\"")
+            };
+            let child = if kind == "select" {
+                "        option \"One\"\n"
+            } else {
+                ""
+            };
+            let source = format!(
+                r##"component App
+  state offset = 100
+  action move(k: string)
+    offset = offset + 5
+    if k == "f"
+      focus("field")
+    if k == "n"
+      focus("after")
+  view
+    column width=400 height=360 padding=20 gap=10 align-items="flex-start"
+      {tag} id="field" testId="field" width=160 height=40 accent-color="#008800" key=move
+{child}      button "After" id="after" testId="after" key=move
+      view width=300 height=200 overflow="hidden"
+        text "one two three four five six seven eight nine ten one two three four five six seven eight nine ten" width=300 height=200 testId="para"
+        view position="absolute" left=offset top=0 width=80 height=60 wrap-flow="both"
+"##
+            );
+            let plan = contract::compile(&source).unwrap();
+            let (mut p, error) = Presenter::boot_with(
+                &plan.encode(),
+                (),
+                (440.0, 400.0),
+                1.0,
+                std::path::PathBuf::new(),
+                PainterChoice::Cpu,
+            )
+            .unwrap();
+            assert!(error.is_none(), "{error:?}");
+            p.set_system_scheme(scheme == "dark");
+            let field = id(&p, "field");
+            let before = p.frame();
+            let unfocused = before.pixel(100, 21).unwrap();
+            assert!(!p.paragraph(id(&p, "para")).unwrap().fragments().is_empty());
+            key(&mut p, "after", "m");
+            p.frame();
+            assert!(
+                !p.damage_rects().is_empty(),
+                "{scheme} {kind}: flow-only damage"
+            );
+            for (target, command, focused) in [("after", "f", true), ("field", "n", false)] {
+                key(&mut p, target, command);
+                p.run_commands(<()>::default);
+                assert_eq!(p.focus() == Some(field), focused);
+                // Read the first frame: another paint would clear the flow damage
+                // and hide a stale or missing ring behind a full repaint.
+                let frame = p.frame();
+                let expected = if focused {
+                    [0, 136, 0]
+                } else {
+                    [unfocused.red(), unfocused.green(), unfocused.blue()]
+                };
+                let c = frame.pixel(100, 21).unwrap();
+                let actual = [c.red(), c.green(), c.blue()];
+                if actual != expected || !p.damage_rects().is_empty() {
+                    failures.push(format!("{scheme} {kind}, focused={focused}: ring {actual:?} != {expected:?}, damage {:?}", p.damage_rects()));
+                }
+                // Establish the correct previous frame for the next transition.
+                p.frame();
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 pub(super) fn select_and_date_focus() {
     let mut failures = Vec::new();
     for scheme in ["light", "dark"] {
