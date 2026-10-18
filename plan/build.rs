@@ -583,8 +583,11 @@ fn main() {
     }
     let _ = writeln!(w, "    /// Interned strings.");
     let _ = writeln!(w, "    pub strings: Vec<String>,");
-    let _ = writeln!(w, "    /// Bytecode pool.");
-    let _ = writeln!(w, "    pub code: Vec<u8>,");
+    let _ = writeln!(
+        w,
+        "    /// Bytecode pool: borrowed from a static plan's bytes, else owned."
+    );
+    let _ = writeln!(w, "    pub code: std::borrow::Cow<'static, [u8]>,");
     let _ = writeln!(
         w,
         "    /// Data pool (compiled values): borrowed from a static plan's bytes, else owned."
@@ -871,14 +874,13 @@ fn main() {
     let _ = writeln!(w, "        if snapshot_entry != snapshot.unwrap_or(\"\") || snapshot_entry.is_empty() != snapshot_refresh.is_none() {{ return Err(PlanError::WrongEntry); }}");
     // A string is its 4-byte length and its bytes.
     let _ = writeln!(w, "        let n = r.count()?; let mut strings = Vec::with_capacity(r.reserve(n, 4)); for _ in 0..n {{ strings.push(r.string()?); }}");
+    // The bytecode and data pools stay in a static plan's bytes.
     let _ = writeln!(
         w,
-        "        let n = r.count()?; let code = r.bytes(n)?.to_vec();"
+        "        let lend = |r: &mut Reader| -> Result<std::borrow::Cow<'static, [u8]>, PlanError> {{ let n = r.count()?; let at = bytes.len() - r.remaining(); let pool = r.bytes(n)?; Ok(match lent {{ Some(lent) => std::borrow::Cow::Borrowed(&lent[at..at + n]), None => std::borrow::Cow::Owned(pool.to_vec()) }}) }};"
     );
-    let _ = writeln!(
-        w,
-        "        let n = r.count()?; let at = bytes.len() - r.remaining(); let pool = r.bytes(n)?; let data: std::borrow::Cow<'static, [u8]> = match lent {{ Some(lent) => std::borrow::Cow::Borrowed(&lent[at..at + n]), None => std::borrow::Cow::Owned(pool.to_vec()) }};"
-    );
+    let _ = writeln!(w, "        let code = lend(&mut r)?;");
+    let _ = writeln!(w, "        let data = lend(&mut r)?;");
     // The rows read through a sticky reader: no branch per field, and the
     // first failing read's error, as an early return would give it.
     let _ = writeln!(w, "        let mut s = crate::bytes::Sticky::new(r);");
