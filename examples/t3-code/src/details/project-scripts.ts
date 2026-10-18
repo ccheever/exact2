@@ -21,7 +21,7 @@ export const NO_SCRIPTS: CardScripts = { scriptName: '', scriptIcon: 'play', scr
 export function cardScripts(settings: Obj, project: Obj | undefined, lastInvoked = ''): CardScripts {
   if (!project) return NO_SCRIPTS;
   const scripts = resolveScripts(obj(settings), project);
-  const primary = scripts.find(script => script.id === lastInvoked && !script.runOnSettle) ?? primaryScript(scripts);
+  const primary = primaryScript(scripts, lastInvoked);
   return { scriptName: primary?.name ?? '', scriptIcon: primary?.icon || 'play',
     scripts: scripts.map(script => ({ id: script.id, label: scriptMenuLabel(script), icon: script.icon || 'play' })) };
 }
@@ -33,8 +33,7 @@ export async function runProjectTerminalScript(client: T3Client, native: Native,
   const project = client.shell.projects.find(project => project.id === client.projectId);
   if (!project || !client.threadId) return;
   const scripts = resolveScripts(obj(client.config.settings), project);
-  const id = scriptId || lastInvokedProjectScript(client);
-  const script = scripts.find(script => script.id === id) ?? (!scriptId ? primaryScript(scripts) : undefined);
+  const script = scriptId ? scripts.find(script => script.id === scriptId) : primaryScript(scripts, lastInvokedProjectScript(client));
   if (!script) throw new ClientError('That project script is no longer available.');
   let remembered = lastScripts.get(client);
   if (!remembered) { remembered = new Map(); lastScripts.set(client, remembered); }

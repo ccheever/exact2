@@ -14,6 +14,8 @@ test('settle actions preserve independent setup roles and stay reachable without
   expect(releaseClaimedRoles(both, input)).toMatchObject({ runOnSettle: false, runOnWorktreeCreate: true });
   expect(releaseClaimedRoles(both, { ...input, runOnSettle: false, runOnWorktreeCreate: true })).toMatchObject({ runOnSettle: true, runOnWorktreeCreate: false });
   expect(primaryScript([clean])).toBeUndefined();
+  const normal = { ...clean, id: 'test', name: 'Test', runOnSettle: false };
+  expect(primaryScript([clean, normal], 'clean')?.id).toBe('test');
   expect(scriptMenuLabel(both)).toBe('Clean (setup, on settle)');
   const view = cardScripts({ defaultProjectScripts: [clean], projectSettingsFolded: true }, { id: 'p' }, 'clean');
   expect(view.scriptName).toBe('');

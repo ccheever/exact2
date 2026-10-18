@@ -68,8 +68,8 @@ export function releaseClaimedRoles(script: Script, saved: Pick<ScriptInput, 'ru
   const settle = saved.runOnSettle && script.runOnSettle === true;
   return setup || settle ? { ...script, ...(setup ? { runOnWorktreeCreate: false } : {}), ...(settle ? { runOnSettle: false } : {}) } : script;
 }
-export function primaryScript(scripts: Script[]): Script | undefined {
-  return scripts.find(script => !script.runOnWorktreeCreate && !script.runOnSettle) ?? scripts.find(script => !script.runOnSettle);
+export function primaryScript(scripts: Script[], preferred = ''): Script | undefined {
+  return scripts.find(script => script.id === preferred && !script.runOnSettle) ?? scripts.find(script => !script.runOnWorktreeCreate && !script.runOnSettle) ?? scripts.find(script => !script.runOnSettle);
 }
 export function scriptMenuLabel(script: Script): string {
   const roles = [...(script.runOnWorktreeCreate ? ['setup'] : []), ...(script.runOnSettle ? ['on settle'] : [])];
