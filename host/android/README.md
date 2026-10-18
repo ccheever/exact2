@@ -16,8 +16,9 @@ the stream or those calls, so both sides are built from one commit.
 | `app/` | the shell: one activity over the reader, packaging the app that `-Papp=<name>` names |
 | `gradlew`, `gradle/` | the Gradle wrapper (9.8.0), committed. Its jar is Gradle's own (sha256 `238e777f…`, as services.gradle.org publishes it) and the distribution's sha256 is pinned in `gradle-wrapper.properties` |
 
-minSdk 29 (Android 10), targetSdk 36, compileSdk 37.2, AGP 9.4.1, Kotlin 2.4.10, `arm64-v8a` only. Views, with no
-Compose, AppCompat or Material library.
+minSdk the app's manifest's `host.android.minimumOS` gives: 31 (Android 12) without one, 29 at `"10"` ("Android 10
+and 11", below). targetSdk 36, compileSdk 37.2, AGP 9.4.1, Kotlin 2.4.10, `arm64-v8a` only. Views, with no Compose,
+AppCompat or Material library.
 
 ## Where it came from
 
@@ -1014,11 +1015,14 @@ table (LLP 1115.000 D14.4).
 
 ## Android 10 and 11
 
-The floor is Android 10 (API 29): the shell and the reader at minSdk 29, the app's library at the NDK's API 29. A
+An app runs on Android 10 or 11 when its manifest says so: `host.android.minimumOS` `"10"` or `"11"` (absent, `"12"`)
+is the shell's minSdk. The reader is built for Android 10 (its minSdk 29, the app's library at the NDK's API 29). A
 call of a later release is behind a `Build.VERSION.SDK_INT` check (lint's `NewApi` finds none unguarded), and a class
 that names a later release's types is a nested class an older release never loads (`ExactActivity.Back`, `Splash`).
 What Android 10 and 11 do in its place is in `Legacy.kt` and `LegacyGlyphs.kt`, and on the Rust side in
-`host/linux/src/canvas/legacy.rs`; a newer release never enters them.
+`host/linux/src/canvas/legacy.rs`; a newer release never enters them. Only an app below Android 12 keeps the Kotlin of
+it (`app/proguard-legacy.pro`); for any other, R8 folds each `SDK_INT` check against the app's minSdk and leaves none.
+The Rust of it (12 KB) is in every app's library: the host's Rust is the same for every app.
 
 | | Android 12 and later | Android 10 and 11 |
 |---|---|---|
@@ -1046,10 +1050,11 @@ fallbacks forced on the Pixel, the same screen's text differs from `drawGlyphs` 
 of a line's pixels), the outlines carrying 1 to 4 % more ink by coverage; its emoji are not drawn, since Android 13
 and later ship Noto Color Emoji as COLRv1 (Android 10 and 11 ship its CBDT build).
 
-What it costs Android 12 and later: Caltrain's release APK at minSdk 29 against the same tree without this work is
-10,578,583 bytes against 10,555,651 (+22,932, 0.2 %): `classes.dex` +17,604 (the checks, R8's outlines of the newer
-calls, `Legacy`, `LegacyGlyphs`), `libexactcanvas.so` +11,776 (5,070 compressed; `canvas/legacy.rs` and the run-time
-lookup of `AImageDecoder`) and `resources.arsc` +256. At run time a newer release pays the `SDK_INT` checks alone.
+What it costs, in Caltrain's release APK against the same tree without this work (10,555,651 bytes): at the default
+`minimumOS`, `classes.dex` +1,440 (`ExactActivity.Back` and `Splash`) and `libexactcanvas.so` +11,776 (5,070
+compressed; `canvas/legacy.rs` and the run-time lookup of `AImageDecoder`). At `"10"`, `classes.dex` is +17,604 (the
+checks, R8's outlines of the newer calls, `Legacy`, `LegacyGlyphs`) and `resources.arsc` +256 (+22,932 in all, 0.2 %),
+in the one APK every release installs; at run time a newer release pays the `SDK_INT` checks alone.
 
 Not tried: Android 11 (no device), and a TypeScript data module: the Android Hermes bundle is built at the NDK's API
 30 (LLP 1107 §4.1), and whether its archives link and load at API 29 is unknown.
