@@ -4,7 +4,7 @@
 - **Method:** one brief (sha256 `a5169af91eba22e513f389bf56fd34a8a99caa18c9cd15820e0c377779c47c02`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer.
 - **Transcription:** the final message, unedited.
 - **Verdict:** two should-fix (a driver boot on the canvas reader and the Android loop took the wall reading against the drive's epoch; the Windows window still booted at zero) and a nit (the baked fallback reused the first attempt's reading).
-- **Disposition:** all three taken in `530ed93a3`, checked in round 3.
+- **Disposition:** all three taken in `87ecb43b3`, checked in round 3.
 
 Nothing here is a blocker. Two defects should be fixed; one edge is minor.
 

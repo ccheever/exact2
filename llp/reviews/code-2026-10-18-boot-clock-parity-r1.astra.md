@@ -4,7 +4,7 @@
 - **Method:** one brief (sha256 `12752839cf4c0f9c0cf96a48310391dbdb5938922a39389ac4ca79d76d273819`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer.
 - **Transcription:** the final message, unedited.
 - **Verdict:** nothing blocking in the web change; one should-fix (Linux, Android and the canvas host start their clock before the config loads, which can fetch a plan, so a slow start left boot timers behind) and a nit (the web's fresh boot_plan path untested).
-- **Disposition:** both taken in `2a27c7139` (Config::clock_started; the boot starts at the display clock's reading and the date at its zero; a boot_plan test).
+- **Disposition:** both taken in `733a2ed71` (Config::clock_started; the boot starts at the display clock's reading and the date at its zero; a boot_plan test).
 
 Nothing blocking in HEAD’s web change.
 

@@ -4,7 +4,7 @@
 - **Method:** one brief (sha256 `a5169af91eba22e513f389bf56fd34a8a99caa18c9cd15820e0c377779c47c02`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer.
 - **Transcription:** the final message, unedited.
 - **Verdict:** nothing blocking; three should-fix: the Android reader's agent boots took the display clock's start; the baked fallback reused the first attempt's reading; the Windows window was not covered.
-- **Disposition:** all three taken in `530ed93a3` (agent boots at zero; each attempt reads the clock; Windows tells its clock's start), checked in round 3.
+- **Disposition:** all three taken in `87ecb43b3` (agent boots at zero; each attempt reads the clock; Windows tells its clock's start), checked in round 3.
 
 Nothing blocking. Three **SHOULD-FIX** findings:
 

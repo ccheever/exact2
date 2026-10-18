@@ -4,7 +4,7 @@
 - **Method:** one brief (sha256 `f09307dfb53af57646f16225afbf66d07920a4900959fb49415bb3f8b3db18de`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer.
 - **Transcription:** the final message, unedited.
 - **Verdict:** the same should-fix as Astra's (round 1's boot at the display reading did not fire those timers); the fallback epoch and Windows hold.
-- **Disposition:** as Astra's: reverted in `02fd8a42c`, the reader's seek clock QUEUEd.
+- **Disposition:** as Astra's: reverted in `f0e876a3a`, the reader's seek clock QUEUEd.
 
 Nothing blocking. The stdio driver, the baked fallback, and the Windows window boot all do what round 2 asked. One follow-on on the Android reader.
 
