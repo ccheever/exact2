@@ -79,6 +79,10 @@ enum SharePictureCase {
         XCTAssertEqual(first.lastPathComponent, "card-one.png")
         XCTAssertEqual(try Data(contentsOf: first), Data("one".utf8))
         XCTAssertEqual(try Data(contentsOf: second), picture.png)
+        // With a title, the picture is named by it, as the sheet's header shows it.
+        XCTAssertEqual(ShareSheet.pictureName("share-card", title: "Four on the Floor"), "Four on the Floor.png")
+        XCTAssertEqual(ShareSheet.pictureName("share-card", title: " A/B: 2 "), "A-B- 2.png")
+        XCTAssertEqual(ShareSheet.pictureName("share-card", title: "  "), "share-card.png")
         // A view with no area has no picture.
         p.apply(wireBatch([["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 0.0, "h": 50.0]]))
         XCTAssertNil(ShareSheet.picture(of: card))
