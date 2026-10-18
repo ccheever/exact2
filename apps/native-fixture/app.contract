@@ -514,6 +514,13 @@ component NativeFixture
                         text "Maps" testId="open-in-row-title"
                         svg width=12 height=12 viewBox="0 0 24 24"
                           path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width=3
+                      // One holding a field and a button of its own: each
+                      // keeps its touches; the rest of it opens the menu.
+                      button appearance="none" press=refreshProviders popovertarget="open-in" testId="open-in-mixed" display="flex" flex-direction="row" align-items="center" gap=6 padding=4
+                        text "Pick" testId="open-in-mixed-title"
+                        input value=query input=setQuery testId="open-in-mixed-field" aria-label="Filter" placeholder="Filter" width=70
+                        button press=bump testId="open-in-mixed-bump" padding=4 background-color="#e5e7eb"
+                          text "Bump"
                       text ("opened " + opened) testId="opened"
                     column id="open-in" popover="auto" position="absolute" role="menu" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
                       for p in providerItems key=p.id

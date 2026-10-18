@@ -155,6 +155,7 @@ final class MenuButton: InvokerButton {
     }
     override func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
         super.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
+        releasePress()
         guard self.menuConfiguration === configuration else { return }
         if isMenuOpen { isMenuOpen = false; toggled?(false) }
         let ended: () -> Void = { [weak self] in

@@ -14,16 +14,6 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-/// The transparent button `MenuHost` lays over an invoker. It takes the
-/// invoker's touches, so its highlight is the invoker's press look, as a
-/// UIButton's own content dims while a finger holds it.
-class InvokerButton: UIButton {
-    weak var invoker: NodeView?
-    override var isHighlighted: Bool {
-        didSet { if isHighlighted != oldValue { invoker?.pressed = isHighlighted } }
-    }
-}
-
 final class MenuHost {
     private(set) weak var presenter: Presenter?
     private var touchObserver: PopoverTouch?
@@ -200,9 +190,8 @@ final class MenuHost {
     /// After a batch: hide every popover, and lay a transparent button
     /// whose primary action is the system menu over every invoker of one.
     /// It is in the paint foreground, above the invoker's children however
-    /// they are ranked (a positioned chip): a touch anywhere in the invoker
-    /// opens the menu, as on a UIButton with subviews, whose own recognizers
-    /// see every touch inside it.
+    /// they are ranked (a positioned chip), and yields only to one that is
+    /// interactive itself (`InvokerButton`).
     func sync() {
         // Ordinary menus retain LLP 1021 D4's existing agent presentation.
         // Confirmations use the same UIKit owner under either input carrier.
