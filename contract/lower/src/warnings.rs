@@ -37,10 +37,9 @@ mod width;
 
 pub(crate) use width::horizontal_flex;
 
-/// At most this many warnings from one compile, before `tamber-unreachable`
-/// and the colours that stay one scheme: those name every site, briefly,
-/// since a repair of the first twenty would only show the next
-/// (rules/RULES.md, "Every check reports all failures in one run").
+/// At most this many warnings from one compile. A blank SF Symbol's later uses,
+/// `tamber-unreachable` and colours that stay one scheme follow, each site briefly: a repair
+/// of the first twenty would only show the next (rules/RULES.md, "Loop shape").
 pub const MAX_WARNINGS: usize = 20;
 
 /// Every warning the checked file earns, in source order of its checks.
@@ -72,7 +71,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     // a root is a route.
     let mut stack: Vec<(&Node, bool, Option<&str>)> =
         root.view.iter().rev().map(|n| (n, false, None)).collect();
-    let mut seen = BTreeSet::new();
+    let (mut seen, mut symbol_repeats) = (BTreeSet::new(), None);
     while let Some((node, in_root, back)) = stack.pop() {
         let (children, in_root, back): (Vec<&Node>, bool, Option<&str>) = match node {
             Node::Element {
@@ -87,7 +86,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
                 let fresh = seen.insert((span.source_id, span.line, span.col, span.end_col));
                 // @ref LLP 1116.007 D3.1 — a symbol by another spelling than its role.
                 if let (true, "image", Some(source)) = (fresh, tag.as_str(), positional.first()) {
-                    out.extend(crate::symbols::aliases(source));
+                    out.extend(crate::symbols::aliases(source, &mut symbol_repeats));
                 }
                 let button = (tag == "button")
                     .then(|| roles::unlabelled_button(attrs, children, span))
@@ -191,6 +190,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
         }
     }
     out.truncate(MAX_WARNINGS);
+    out.extend(symbol_repeats.into_iter().flatten());
     crate::control_roles::unreachable(&root.view, &checked.file.styles, &mut out);
     one_scheme(
         root,

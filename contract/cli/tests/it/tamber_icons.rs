@@ -287,9 +287,51 @@ fn the_platform_warning_names_what_ships_and_how_to_stop() {
     ] {
         assert!(pencil.contains(part), "{part}: {pencil}");
     }
+    // The advice is said once a build; a later use is a line.
+    assert_eq!(
+        flag,
+        "symbol `sf/flag.checkered` is blank on linux and web too: declare `icon.flag-checkered` as the first `lower-symbol-platform` warning shows, and write `symbol:icon.flag-checkered`"
+    );
+}
+
+/// The euxy port's forty SF Symbols printed forty paragraphs and filled the
+/// cap, so the warnings after them were not printed: the later uses are a
+/// line each, outside the cap, and a later warning still prints.
+#[test]
+fn later_platform_symbols_are_a_line_each_outside_the_cap() {
+    let uses: String = (0..contract_lower::MAX_WARNINGS + 5)
+        .map(|i| format!("      image \"symbol:sf/flag.{i}\"\n"))
+        .collect();
+    let view = format!("component App\n  view\n    column\n{uses}      image \"symbol:sf/pencil\"\n      image \"symbol:gearshape\"\n");
+    let path = app("repeats", "\"ios\": {}, \"web\": {}", "", &view);
+    let (plan, warnings) = contract::compile_path_all_warned(&path, false);
+    plan.unwrap_or_else(|e| panic!("{e:?}"));
+    let platform: Vec<&str> = warnings
+        .iter()
+        .filter(|w| w.id == "lower-symbol-platform")
+        .map(|w| w.message.as_str())
+        .collect();
+    assert_eq!(
+        platform.len(),
+        contract_lower::MAX_WARNINGS + 6,
+        "{platform:?}"
+    );
     assert!(
-        !flag.contains("The role") && flag.contains("Declare an icon token"),
-        "{flag}"
+        platform[0].contains("in app.tamber's `icons`"),
+        "{}",
+        platform[0]
+    );
+    assert!(
+        platform[1..].iter().all(|m| !m.contains("app.tamber")),
+        "{platform:?}"
+    );
+    assert_eq!(
+        platform.last().copied(),
+        Some("symbol `sf/pencil` is blank on web too: write `symbol:pencil`, the role, which draws on every host")
+    );
+    assert!(
+        warnings.iter().any(|w| w.id == "lower-symbol-alias"),
+        "{warnings:?}"
     );
 }
 

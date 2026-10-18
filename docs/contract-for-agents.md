@@ -1516,8 +1516,10 @@ An `image` source is the same string on every host: a path under the app's
 `pause`, their `-fill`s, `skip-back-15`, `skip-forward-15`, `skip-back-30`,
 `skip-forward-30`, `speaker`, `speaker-mute` and `moon`; an unknown role is refused
 with the list), `symbol:sf/<name>` (an SF Symbol by its Apple name: drawn on Apple
-only, blank on the web and Linux with no warning, where `layout` reports `reason:
-"platform"`; a tab or button that must show everywhere takes a role), an `app:/data|cache|tmp/…` file
+only, blank on the web and Linux, where `layout` reports `reason: "platform"`; a
+build of an app that ships either warns, its first use with the repair and each
+later one in a line; a tab or button that must show everywhere takes a role or an
+icon token), an `app:/data|cache|tmp/…` file
 (a picked photo, or one the data module kept with `storage.fs`; it shows after a
 relaunch too), or a `data:` URL of at most 1 MiB, past which every host shows
 nothing (the web and Apple journal `image refused`). Shrink a picked photo for an upload limit with
