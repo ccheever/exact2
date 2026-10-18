@@ -56,6 +56,67 @@ fn sim(mode: Paranoid) -> Sim<Tables> {
     deliver(&mut sim, rows(4.0, "first")).unwrap();
     sim
 }
+
+#[test]
+fn paranoid_reconstructs_table_input_ticks_inside_a_long_advance() {
+    #[derive(Default)]
+    struct BrokenRestore(f32);
+    impl Data for BrokenRestore {
+        fn write(&self, w: &mut dyn Writer) {
+            self.0.write(w);
+        }
+        fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+            self.0.read(r)?;
+            self.0 = 0.0;
+            Ok(())
+        }
+    }
+    impl Resource for BrokenRestore {
+        const NAME: &'static str = "BrokenRestore";
+    }
+    struct Broken;
+    impl Game for Broken {
+        const ID: &'static str = "broken-table-restore";
+        const HZ: u32 = 1000;
+        const TABLES: &'static [asset::Table] = Tables::TABLES;
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            w.insert_resource(BrokenRestore::default());
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            let speed = w.table::<Tuning>("weapons.json").unwrap().speed;
+            w.resource_mut::<BrokenRestore>().0 = speed;
+        }
+    }
+    // Only tick 5 has a value restore loses. Tick 6 clears it before the
+    // periodic samples at 16 and 32 or the final tick of this single advance.
+    for mode in [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame] {
+        let mut s = Sim::<Broken>::new(()).unwrap().paranoid(mode);
+        s.asset(
+            asset::TABLE_ASSET,
+            Some(json::to_string(&rows(0.0, "first")).unwrap().as_bytes()),
+        )
+        .unwrap();
+        let inputs = [(0, 0.0), (5, 8.0), (6, 0.0)].map(|(tick, speed)| asset::TableInput {
+            tick,
+            rows: rows(speed, "first"),
+        });
+        s.replay_tables(&inputs).unwrap();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| s.run(32.0)));
+        if mode == Paranoid::Off {
+            assert_eq!(result.unwrap(), 32);
+            assert_eq!(s.world().tick(), 32);
+            assert_eq!(s.world().resource::<BrokenRestore>().0, 0.0);
+        } else {
+            let error = result.expect_err("table activation must expose the broken restore");
+            let message = error.downcast_ref::<String>().unwrap();
+            assert!(
+                message.contains(&format!("paranoid {mode:?} tick 5: world hash")),
+                "{message}"
+            );
+        }
+    }
+}
 #[test]
 fn cached_reads_and_whole_transactions_activate_only_on_a_tick() {
     let mut sim = sim(Paranoid::Off);

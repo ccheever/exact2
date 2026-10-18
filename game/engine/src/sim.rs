@@ -921,7 +921,7 @@ impl<G: Game> Sim<G> {
             }
             self.restored = false;
             self.restored_from = None;
-            self.world.activate_tables();
+            delivered |= self.world.activate_tables();
             G::tick(&mut self.world, &self.input, &self.args);
             self.last_motion = self.input.pointer().map_or(crate::Vec2::ZERO, |p| p.delta);
             crate::scene::follow(&self.world);

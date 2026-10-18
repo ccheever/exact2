@@ -262,9 +262,9 @@ impl crate::World {
                     .join(", ")
             })
     }
-    pub(crate) fn activate_tables(&mut self) {
+    pub(crate) fn activate_tables(&mut self) -> bool {
         let Some(current) = self.assets.tables.as_ref() else {
-            return;
+            return false;
         };
         let tick = self.tick() + 1;
         if !current
@@ -273,7 +273,7 @@ impl crate::World {
             .first()
             .is_some_and(|pending| pending.input.tick <= tick)
         {
-            return;
+            return false;
         }
         let mut store = (**current).clone();
         while store
@@ -293,6 +293,7 @@ impl crate::World {
         }
         self.insert_resource(TableValues(store.history.active.clone()));
         self.assets.tables = Some(Arc::new(store));
+        true
     }
     pub(crate) fn setup_tables(&mut self) {
         if let Some(current) = &self.assets.tables {
