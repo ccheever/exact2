@@ -220,3 +220,84 @@ fn long_turn(r: &mut Runner<Module>) -> f64 {
     }
     panic!("calibration did not reach a 150 ms turn");
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn apple_bridge_admits_the_plan_it_booted_with_borrowed_module_bytes() {
+    use exact_apple::abi::{Bridge, Hooks};
+    use exact_apple::link::{Links, Uses};
+    let plan = plan().encode();
+    let mut bridge = Bridge::with_links(Links::of(Uses::NONE));
+    let mut input = plan.clone();
+    input.extend_from_slice(b"card");
+    bridge.input_write(&input);
+    bridge.boot_entry(
+        plan.len(),
+        4,
+        0,
+        Module::new(Vec::new(), APP, GRANTS),
+        Hooks::none(),
+        160.,
+        160.,
+    );
+    let len = bridge.entry_timeline_module(1., 900., receipt().as_bytes(), HBC) as usize;
+    let rows: serde_json::Value = serde_json::from_slice(bridge.output_bytes(len)).unwrap();
+    assert_eq!(
+        rows,
+        serde_json::json!([{"date":1,"props":{"title":"missing"}}]),
+        "the bridge must admit its original pruned plan without a second bytecode buffer"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn missing_snapshot_roots_do_not_prevent_activation_or_create_app_directories() {
+    let root = super::storage::Root::new();
+    for saved in [false, true] {
+        if saved {
+            std::fs::create_dir_all(root.0.join("data")).unwrap();
+            std::fs::write(root.0.join("data/value"), "saved with no cache").unwrap();
+        }
+        let mut module = Module::new(Vec::new(), APP, GRANTS);
+        module
+            .prepare_snapshot(
+                Some(SnapshotModule {
+                    receipt: &receipt(),
+                    bytecode: HBC,
+                    plan: &plan().encode(),
+                    kind: "card",
+                }),
+                Instant::now() + Duration::from_secs(30),
+            )
+            .unwrap();
+        module
+            .configure_storage(
+                root.0.join("data"),
+                root.0.join("cache"),
+                root.0.join("tmp"),
+            )
+            .unwrap();
+        let mut r = Runner::boot(
+            plan(),
+            module,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        assert!(refresh(&mut r, 1.).unwrap().contains("kept secret"));
+        if saved {
+            assert!(refresh(&mut r, 3.).unwrap().contains("saved with no cache"));
+            assert!(!root.0.join("cache").exists() && !root.0.join("tmp").exists());
+        } else {
+            assert!(
+                refresh(&mut r, 3.).is_err(),
+                "a missing file remains a read error for the app's loader"
+            );
+            assert!(
+                !root.0.exists(),
+                "snapshot activation must never create the app's store"
+            );
+        }
+    }
+}

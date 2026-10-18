@@ -1,7 +1,7 @@
 import type { Storage } from "../../../vendor/ibex/crates/ibex2/src/bindings/storage";
 type Store = { get(name:string):string|null; set(name:string,value:string):void; forget(name:string):void };
 const appId = "dev.exact.storage-test";
-const grants = "fs.read app:/data\nfs.write app:/data\nfs.write app:/cache\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
+const grants = "fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
 
 // Work queued behind whatever the module started last, the way an app serializes its
 // database operations. The second answer's storage calls run in a later microtask.

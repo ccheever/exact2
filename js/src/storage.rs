@@ -83,11 +83,16 @@ impl Session {
                 std::fs::create_dir_all(path).map_err(|e| format!("app storage: {e}"))?;
             }
         }
+        #[cfg(unix)]
+        let directories = if read_only {
+            AppDirectories::snapshot(&paths.data, &paths.cache, &paths.temporary)
+        } else {
+            AppDirectories::new(&paths.data, &paths.cache, &paths.temporary)
+        };
+        #[cfg(not(unix))]
+        let directories = AppDirectories::new(&paths.data, &paths.cache, &paths.temporary);
         self.context
-            .set_app_directories(
-                AppDirectories::new(&paths.data, &paths.cache, &paths.temporary)
-                    .map_err(|e| e.to_string())?,
-            )
+            .set_app_directories(directories.map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())
     }
 
