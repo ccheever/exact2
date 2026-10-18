@@ -4,16 +4,16 @@
     "90": "0xa4eefb7865f5f042"
   },
   "saves": {
-    "continuation": "d2a39cfa3883b08fd0c0b6c839d7c93865197b053abe56e35662d00f37aea225"
+    "continuation": "f800ac487c941277db3aede14e3680394e496b3f1febcedc0c12be0bea040af1"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "fa95503a30fa816878db15f60438d09882bfd3dc9c383802139a4d46227628f6",
-  "sourceInputs": "94d6918a545f37f3293403689cbebfc0852d30681850b5d3b8ae6f1efb2b4eec",
+  "inputs": "c9b8765633a0d0329b0c0861e705eb2fa045399a26d1a92da377327dad16687a",
+  "sourceInputs": "76d9326167aac210fc38a3c246c0596b7c0457cbd0ffcdca8708f82a0a4f22fe",
   "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
-  "at": "cf42ef991fd5fc00da1f6f7e50bd4f75f5935acc",
-  "reason": "Gameplay: Beacons gains a 200 ms sprint hold and a beacon input context for light (LLP 1127.003 review round 1, LLP 1128 I12); the continuation save now holds the InputContexts resource. Ticks 0 and 90 are unchanged."
+  "at": "1f9267d428337b6cf992b8eba1d179d51f70cc29",
+  "reason": "Review round 2 of LLP 1127.003: the contexts and bindings as last applied leave Input's saved copy for the hashed InputState resource (InputGestures renamed), so the continuation save's bytes move; ticks 0 and 90 are unchanged."
 }
