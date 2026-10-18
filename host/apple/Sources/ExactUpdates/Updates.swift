@@ -162,7 +162,7 @@ public final class ExactUpdates: ExactAppLifecycle {
     }
 
     private func generation(_ selection: Updates.Selection, app: ExactApp) throws -> ExactGeneration {
-        let assets = AssetResolver(root: app.assetRoot, names: selection.assets) { name in
+        let assets = AssetResolver(root: app.assetRoot, names: selection.assets, generation: "delivery:\(selection.entry):\(selection.seq)") { name in
             try Updates.asset(selection, name: name).get()
         }
         var module: ExactModule?

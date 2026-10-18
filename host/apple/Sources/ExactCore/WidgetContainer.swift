@@ -1,6 +1,6 @@
 // @ref LLP 1126 D8 — the app publishes, an extension pins and only reads.
 import Foundation
-import CryptoKit
+import CommonCrypto
 #if EXACT_WIDGETS
 import WidgetKit
 #endif
@@ -38,46 +38,51 @@ public enum WidgetContainer {
     }
     private static let publisher = DispatchQueue(label: "exact.widget-generation", qos: .utility)
     /// The serial publisher preserves acceptance order and keeps asset copying
-    /// and hashing off the app's first-frame path.
+    /// off the app's first-frame path.
     package static func publishAfterFirstPixel(_ assets: AssetResolver) {
         guard Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") != nil else { return }
         publisher.async {
             do {
-                try publish(assets)
+                let changed = try publish(assets)
                 #if EXACT_WIDGETS
-                WidgetCenter.shared.reloadAllTimelines()
+                if changed { WidgetCenter.shared.reloadAllTimelines() }
                 #endif
             } catch { FileHandle.standardError.write(Data("widget generation: \(error)\n".utf8)) }
         }
     }
-    package static func publish(_ assets: AssetResolver) throws {
-        guard let root, let kinds = Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") as? [String], !kinds.isEmpty else { return }
-        let names = try assets.widgetNames()
-        var payload: [(String, Data)] = []
-        for name in names.sorted() {
-            guard let bytes = try assets.delivery(name) else { throw CocoaError(.fileReadNoSuchFile) }
-            payload.append((name, bytes))
-        }
-        for kind in kinds where !names.contains("plans/\(kind).plan") { throw HeadlessSession.Failure(description: "generation lacks widget \(kind)") }
-        payload.append(("compatibility", Data(compatibility.utf8)))
-        var hash = SHA256()
-        for (name, bytes) in payload { hash.update(data: Data("\(name.utf8.count):\(name):\(bytes.count):".utf8)); hash.update(data: bytes) }
-        let digest = hash.finalize().map { String(format: "%02x", $0) }.joined()
+    package static func publish(_ assets: AssetResolver) throws -> Bool {
+        guard let root, let kinds = Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") as? [String], !kinds.isEmpty else { return false }
+        return try publish(assets, root: root, kinds: kinds, compatibility: compatibility)
+    }
+    package static func publish(_ assets: AssetResolver, root: URL, kinds: [String], compatibility: String) throws -> Bool {
+        // A signed bake or accepted delivery identifies the bytes already. An
+        // unchanged launch reads only current, without opening any asset.
+        let stamp = Data((compatibility + "\n" + assets.publicationID).utf8)
+        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        _ = stamp.withUnsafeBytes { CC_SHA256($0.baseAddress, CC_LONG(stamp.count), &hash) }
+        let digest = hash.map { String(format: "%02x", $0) }.joined()
         let base = root.appendingPathComponent("widget-generations", isDirectory: true)
+        let current = base.appendingPathComponent("current")
+        if (try? String(contentsOf: current, encoding: .utf8)) == digest { return false }
         let final = base.appendingPathComponent(digest, isDirectory: true)
         let fm = FileManager.default
         try fm.createDirectory(at: base, withIntermediateDirectories: true)
         if !fm.fileExists(atPath: final.path) {
+            let names = try assets.widgetNames()
+            for kind in kinds where !names.contains("plans/\(kind).plan") { throw HeadlessSession.Failure(description: "generation lacks widget \(kind)") }
             let staging = base.appendingPathComponent(".\(UUID().uuidString)", isDirectory: true)
             try fm.createDirectory(at: staging, withIntermediateDirectories: false)
             defer { try? fm.removeItem(at: staging) }
-            for (name, bytes) in payload {
+            for name in names {
+                guard let bytes = try assets.delivery(name) else { throw CocoaError(.fileReadNoSuchFile) }
                 let file = staging.appendingPathComponent(name)
                 try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try bytes.write(to: file)
             }
+            try Data(compatibility.utf8).write(to: staging.appendingPathComponent("compatibility"))
             try fm.moveItem(at: staging, to: final)
         }
-        try Data(digest.utf8).write(to: base.appendingPathComponent("current"), options: .atomic)
+        try Data(digest.utf8).write(to: current, options: .atomic)
+        return true
     }
 }

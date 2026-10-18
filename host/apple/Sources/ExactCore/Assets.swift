@@ -4,6 +4,7 @@ import Foundation
 /// retained; an absent name never falls through to another generation.
 public final class AssetResolver {
     package let root: URL
+    package let publicationID: String
     private let names: [String]?
     private let read: ((String) throws -> Data?)?
     package var isComplete: Bool { names != nil }
@@ -18,14 +19,14 @@ public final class AssetResolver {
     package var encodedCacheBytes: Int { lock.lock(); defer { lock.unlock() }; return cache.values.reduce(0) { $0 + $1.count } }
 
     /// A complete provider never falls through to the embedded directory.
-    public init(root: URL, names: [String], read: @escaping (String) throws -> Data?) {
-        self.root = root; self.names = names; self.read = read
+    public init(root: URL, names: [String], generation: String = UUID().uuidString, read: @escaping (String) throws -> Data?) {
+        self.root = root; self.names = names; self.read = read; publicationID = generation
     }
 
     /// Own verified payloads without retaining texture heap buffers. The private
     /// files live exactly as long as this generation and can be read after loss.
     package init(root: URL, verified: [String: Data]) throws {
-        self.root = root; names = Array(verified.keys); read = nil
+        self.root = root; names = Array(verified.keys); read = nil; publicationID = UUID().uuidString
         for (name, bytes) in verified {
             guard Self.validAssetName(name.hasPrefix("assets/") ? String(name.dropFirst(7)) : name) else {
                 throw CocoaError(.fileReadInvalidFileName)
@@ -51,6 +52,7 @@ public final class AssetResolver {
 
     package init(root: URL) {
         self.root = root; names = nil; read = nil
+        publicationID = "embedded:" + (Bundle.main.object(forInfoDictionaryKey: "ExactWidgetGeneration") as? String ?? root.path)
     }
 
     deinit { if let directory { try? FileManager.default.removeItem(at: directory) } }
