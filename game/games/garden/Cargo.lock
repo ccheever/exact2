@@ -908,6 +908,7 @@ dependencies = [
  "exact-runner",
  "exact-svg-raster",
  "exact-textflow",
+ "exact-update",
  "fontconfig-parser",
  "fontique",
  "getrandom 0.3.4",

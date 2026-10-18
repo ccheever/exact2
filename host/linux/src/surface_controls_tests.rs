@@ -1260,3 +1260,52 @@ fn a_finger_drag_focuses_its_input_canvas_at_down() {
     assert_eq!(p.focus(), Some(world));
     done(p, path);
 }
+
+#[test]
+fn baked_gpu_code_and_development_receipts_keep_distinct_digest_policies() {
+    let signed = |signature: &[u8], code: u8| {
+        let mut bytes = vec![0u8; 160];
+        bytes[..4].copy_from_slice(&0xfeed_facfu32.to_le_bytes());
+        bytes[16..20].copy_from_slice(&1u32.to_le_bytes());
+        bytes[32..36].copy_from_slice(&0x1du32.to_le_bytes());
+        bytes[36..40].copy_from_slice(&16u32.to_le_bytes());
+        bytes[40..44].copy_from_slice(&160u32.to_le_bytes());
+        bytes[44..48].copy_from_slice(&(signature.len() as u32).to_le_bytes());
+        bytes[150] = code;
+        bytes.extend_from_slice(signature);
+        bytes
+    };
+    let dir = std::env::temp_dir().join(format!("gpu-digest-policy-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = dir.join("original.dylib");
+    let resigned = dir.join("resigned.dylib");
+    let edited = dir.join("edited.dylib");
+    let bytes = signed(b"ad-hoc", 1);
+    std::fs::write(&original, &bytes).unwrap();
+    std::fs::write(&resigned, signed(b"another signature", 1)).unwrap();
+    std::fs::write(&edited, signed(b"ad-hoc", 2)).unwrap();
+    let mut compat = json!({"id":"cohort","inputs":{"app":"app"},"embedded":{"gpu":{
+        "app":"app","cohort":"cohort","trust":"development",
+        "sha256":exact_update::gpu_code_digest(&bytes)}}});
+    verify_module(&original, &compat, "").unwrap();
+    verify_module(&resigned, &compat, "").unwrap();
+    assert!(verify_module(&edited, &compat, "")
+        .unwrap_err()
+        .contains("digest mismatch"));
+    compat["embedded"]["gpu"] =
+        json!({"app":"app","cohort":"cohort","trust":"development","receipt":true});
+    let receipt = json!({"inputs":"0".repeat(64),"artifact":exact_update::sha256_hex(&bytes)});
+    for path in [&original, &resigned] {
+        std::fs::write(
+            format!("{}.proof.json", path.display()),
+            receipt.to_string(),
+        )
+        .unwrap();
+    }
+    // The first read cached the code digest; a receipt still checks the raw file.
+    verify_module(&original, &compat, "").unwrap();
+    assert!(verify_module(&resigned, &compat, "")
+        .unwrap_err()
+        .contains("digest mismatch"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
