@@ -65,7 +65,8 @@ impl Environment {
             // Uniform extinction (no height falloff): a surface 32.9 m away keeps
             // 10% of its colour, ln 10 / 0.07.
             fog: Some(Fog::new(0.07, 0.)),
-            // Only light-emitting fish and lamps reach the bright pass.
+            // The default threshold on HDR brightness (the brightest channel,
+            // before exposure) at a weaker glow than the default 0.16.
             bloom: Some(Bloom {
                 threshold: 1.,
                 intensity: 0.1,

@@ -66,7 +66,7 @@ impl Drop for Lease<'_> {
 /// assert_ne!(w.require::<Transform>("a"), w.require::<Transform>("c"));
 /// assert_eq!(format!("{:?}", w.require::<Transform>("a")),
 ///     format!("{:?}", Transform::at(1., 0., 0.)));
-/// // `RefMut` does the same; two rows of one column may be held at once.
+/// // `RefMut` does the same, but `get_mut` is a write: it marks both rows edited.
 /// assert_eq!(w.get_mut::<Transform>("a"), w.get_mut::<Transform>("b"));
 /// ```
 pub struct Ref<'a, C> {

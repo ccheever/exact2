@@ -1,6 +1,7 @@
 //! The underwater recipe's numbers (`game/recipes/underwater.md`): the frame's
-//! mean luminance sits in a band that a wrong exposure leaves, a translucent
-//! water surface keeps the sand in sunlight where an opaque one shades it, and
+//! mean luminance sits in a band that a wrong exposure leaves, at the start and
+//! with the sub backed against the glass (still in the frame); a translucent
+//! water surface keeps the sand in sunlight where an opaque one shades it; and
 //! `Environment::underwater()`'s fog hides 90% of a surface at the reach it states.
 #![cfg(not(target_arch = "wasm32"))]
 #[path = "fixture/device.rs"]
@@ -40,6 +41,8 @@ fn decode(v: u8) -> f32 {
 const BAND: std::ops::RangeInclusive<f32> = 0.13..=0.33;
 
 // The recipe's scene (`game/recipes/underwater.md`), formatted; keep the two in step.
+const GLASS_MAX: Vec3 = Vec3::new(10., 8., 6.);
+const BOOM: Vec3 = Vec3::new(0., 1.5, 5.);
 fn tank(w: &mut World) {
     w.insert_resource(Environment::underwater());
     w.spawn_named(
@@ -93,12 +96,17 @@ fn tank(w: &mut World) {
         (
             Transform::default(),
             Camera::default(),
-            Follow::new("sub")
-                .offset(0., 1.5, 5.)
-                .look_at_offset(0., 0., -6.)
-                .lag(0.2),
+            Follow::new("sub").offset(BOOM.x, BOOM.y, BOOM.z).lag(0.2),
         ),
     );
+}
+fn fit_boom(w: &World) {
+    let sub = w.require::<Transform>("sub").position;
+    let back = (GLASS_MAX.z - 0.5 - sub.z).clamp(0., BOOM.z);
+    let lift = (BOOM.length_squared() - back * back)
+        .sqrt()
+        .min(GLASS_MAX.y - 0.5 - sub.y);
+    w.require_mut::<Follow>("camera").offset = Vec3::new(0., lift, back);
 }
 
 #[derive(Default, Args)]
@@ -120,15 +128,20 @@ impl Game for Tank {
             w.require_mut::<Material>("surface").color[3] = 1.;
         }
     }
-    fn tick(_: &mut World, _: &Input, _: &TankArgs) {}
+    fn tick(w: &mut World, _: &Input, _: &TankArgs) {
+        let mut sub = w.require_mut::<Transform>("sub");
+        sub.position.z = (sub.position.z + 4. * w.dt()).min(GLASS_MAX.z - 1.25);
+        drop(sub);
+        fit_boom(w);
+    }
 }
 
-fn frame(width: f32, height: f32) -> Frame {
+fn frame(width: f32, height: f32, now_ms: f64) -> Frame {
     Frame {
         width,
         height,
         scale: 1.,
-        now_ms: 0.,
+        now_ms,
         seekable: true,
         period_ms: 0.,
         children_generation: 0,
@@ -136,7 +149,15 @@ fn frame(width: f32, height: f32) -> Frame {
         headroom: 1.0,
     }
 }
-fn shoot(gpu: &Gpu, exposure: f32, opaque_surface: bool, name: &str) -> fixture::Pixels {
+/// The frame at `ms` on the simulation clock, and the sub's screen rectangle
+/// (x, y, width, height) in it.
+fn shoot(
+    gpu: &Gpu,
+    exposure: f32,
+    opaque_surface: bool,
+    ms: f64,
+    name: &str,
+) -> (fixture::Pixels, Rect) {
     let mut s = WorldSurface::<Tank>::default();
     s.bind(
         &[
@@ -146,10 +167,37 @@ fn shoot(gpu: &Gpu, exposure: f32, opaque_surface: bool, name: &str) -> fixture:
         None,
     )
     .unwrap();
-    let (pixels, _) = fixture::render(gpu, &mut s, &frame(192., 108.)).unwrap();
-    assert!(s.error().is_none(), "{:?}", s.error());
+    let mut pixels = None;
+    for at in [0., ms] {
+        pixels = Some(
+            fixture::render(gpu, &mut s, &frame(192., 108., at))
+                .unwrap()
+                .0,
+        );
+        assert!(s.error().is_none(), "{:?}", s.error());
+    }
+    let pixels = pixels.unwrap();
     pixels.save(name);
-    pixels
+    let layout = s
+        .agent(r#"{"op":"layout","entity":"sub","width":192,"height":108}"#)
+        .unwrap();
+    let sub = json::from_str::<Layout>(&layout).unwrap().entity.screen;
+    (pixels, sub)
+}
+#[derive(Default, Data, Debug)]
+struct Rect {
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+}
+#[derive(Default, Data)]
+struct LayoutEntity {
+    screen: Rect,
+}
+#[derive(Default, Data)]
+struct Layout {
+    entity: LayoutEntity,
 }
 /// Mean luminance of the sand between the camera and the first rock: the
 /// bottom eighth of the frame.
@@ -168,24 +216,30 @@ fn sand(p: &fixture::Pixels) -> f32 {
 #[test]
 fn the_recipe_frame_is_in_its_band_and_a_wrong_exposure_is_not() {
     let Some(gpu) = gpu() else { return };
-    let recipe = shoot(&gpu, 1., false, "underwater");
-    let (dark, bright) = (
-        shoot(&gpu, 0.25, false, "underwater-exposure-quarter"),
-        shoot(&gpu, 4., false, "underwater-exposure-4x"),
-    );
-    let shaded = shoot(&gpu, 1., true, "underwater-opaque-surface");
-    let means = [&recipe, &dark, &bright].map(mean_luminance);
+    let (recipe, _) = shoot(&gpu, 1., false, 0., "underwater");
+    let (dark, _) = shoot(&gpu, 0.25, false, 0., "underwater-exposure-quarter");
+    let (bright, _) = shoot(&gpu, 4., false, 0., "underwater-exposure-4x");
+    let (shaded, _) = shoot(&gpu, 1., true, 0., "underwater-opaque-surface");
+    // Three seconds in, the sub has backed against the front glass.
+    let (glass, sub) = shoot(&gpu, 1., false, 3000., "underwater-at-glass");
+    let means = [&recipe, &dark, &bright, &glass].map(mean_luminance);
     let sands = [&recipe, &shaded].map(sand);
     eprintln!(
-        "underwater mean luminance: recipe {:.4}, exposure x0.25 {:.4}, x4 {:.4}; \
-         sand: translucent surface {:.4}, opaque surface {:.4}",
-        means[0], means[1], means[2], sands[0], sands[1]
+        "underwater mean luminance: recipe {:.4}, exposure x0.25 {:.4}, x4 {:.4}, \
+         sub at the glass {:.4}; sand: translucent surface {:.4}, opaque surface {:.4}; \
+         sub on screen at the glass {sub:?}",
+        means[0], means[1], means[2], means[3], sands[0], sands[1]
     );
     assert!(BAND.contains(&means[0]), "the recipe's frame: {means:?}");
     assert!(!BAND.contains(&means[1]), "a quarter exposure: {means:?}");
     assert!(
         !BAND.contains(&means[2]),
         "four times the exposure: {means:?}"
+    );
+    assert!(BAND.contains(&means[3]), "the sub at the glass: {means:?}");
+    assert!(
+        sub.w > 0. && sub.x >= 0. && sub.y >= 0. && sub.x + sub.w <= 192. && sub.y + sub.h <= 108.,
+        "the sub is wholly in the frame at the glass: {sub:?}"
     );
     assert!(
         sands[1] < sands[0] * 0.8,
@@ -195,11 +249,27 @@ fn the_recipe_frame_is_in_its_band_and_a_wrong_exposure_is_not() {
 
 #[derive(Default, Args)]
 struct ProbeArgs {}
-/// Two black cubes in open water at half the fog reach and at the reach, with
-/// every light off and tone mapping linear, so a pixel decodes to
-/// `fog × (1 − transmittance)` and the open water beside them to `fog`.
+/// Two black cubes in open water, every light off and tone mapping linear, so a
+/// pixel decodes to `fog × (1 − transmittance)` and open water to `fog`. Each
+/// cube's front face crosses its probe pixel's ray at the stated distance.
 struct Probe;
 const REACH: f32 = 32.9;
+const PROBE: u32 = 128;
+const EYE: Vec3 = Vec3::new(0., 2., 0.);
+/// Probe pixels (column, row) and the distance along each one's ray.
+const PROBES: [(u32, u32, f32); 2] = [(44, 64, REACH / 2.), (84, 64, REACH)];
+/// The direction through a pixel's centre, for `Camera::default()`'s 60°
+/// vertical field on a square target looking down −Z.
+fn ray(x: u32, y: u32) -> Vec3 {
+    let half = PROBE as f32 / 2.;
+    let tan = 30f32.to_radians().tan();
+    Vec3::new(
+        (x as f32 + 0.5 - half) / half * tan,
+        (half - y as f32 - 0.5) / half * tan,
+        -1.,
+    )
+    .normalize()
+}
 impl Game for Probe {
     const ID: &'static str = "underwater-fog-probe";
     type Args = ProbeArgs;
@@ -212,12 +282,20 @@ impl Game for Probe {
             ..Environment::underwater()
         });
         w.spawn((
-            Transform::at(0., 2., 0.).looking_at(Vec3::new(0., 2., -1.), Vec3::Y),
+            Transform::at(EYE.x, EYE.y, EYE.z).looking_at(EYE - Vec3::Z, Vec3::Y),
             Camera::default(),
         ));
         let black = Material::rgb(0., 0., 0.).rough(1.);
-        w.spawn((Transform::at(-3., 2., -REACH / 2.), Mesh::cube(2.), black));
-        w.spawn((Transform::at(6., 2., -REACH), Mesh::cube(4.), black));
+        for (x, y, distance) in PROBES {
+            let hit = EYE + ray(x, y) * distance;
+            // Sized to cover about a dozen pixels at its distance.
+            let half = distance / 16.;
+            w.spawn((
+                Transform::at(hit.x, hit.y, hit.z - half),
+                Mesh::cube(2. * half),
+                black,
+            ));
+        }
     }
     fn tick(_: &mut World, _: &Input, _: &ProbeArgs) {}
 }
@@ -227,22 +305,23 @@ fn the_underwater_fog_hides_nine_tenths_at_its_stated_reach() {
     let Some(gpu) = gpu() else { return };
     let mut s = WorldSurface::<Probe>::default();
     s.bind(&[], None).unwrap();
-    let (p, _) = fixture::render(&gpu, &mut s, &frame(128., 128.)).unwrap();
+    let size = PROBE as f32;
+    let (p, _) = fixture::render(&gpu, &mut s, &frame(size, size, 0.)).unwrap();
     assert!(s.error().is_none(), "{:?}", s.error());
     p.save("underwater-fog-probe");
-    // The cubes' centres project to these pixels; open water fills the top row.
+    // Open water fills the top row.
     let water = luminance_at(&p, 64, 2);
-    let half = luminance_at(&p, 64 - 3 * 64 * 2 / 19, 64);
-    let reach = luminance_at(&p, 64 + 6 * 64 / 19, 64);
-    let transmittance = [1. - half / water, 1. - reach / water];
-    eprintln!(
-        "underwater fog transmittance: {:.3} at {:.2} m, {:.3} at {REACH} m",
-        transmittance[0],
-        REACH / 2.,
-        transmittance[1]
-    );
-    assert!((transmittance[0] - 0.316).abs() < 0.03, "{transmittance:?}");
-    assert!((transmittance[1] - 0.1).abs() < 0.03, "{transmittance:?}");
+    for (x, y, distance) in PROBES {
+        let measured = 1. - luminance_at(&p, x, y) / water;
+        let expected = (-0.07 * distance).exp();
+        eprintln!(
+            "underwater fog transmittance at {distance:.2} m: {measured:.3}, expected {expected:.3}"
+        );
+        assert!(
+            (measured - expected).abs() < 0.02,
+            "at {distance} m: {measured}"
+        );
+    }
 }
 fn luminance_at(p: &fixture::Pixels, x: u32, y: u32) -> f32 {
     let [r, g, b, _] = p.at(x, y);
