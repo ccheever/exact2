@@ -1459,3 +1459,5 @@ and the Linux headless CPU renderer without claiming display frame timing.
 - **A game's web build is GPU-bound at about half its native rate on a Pixel 5** (2026-10-17, the Castle Town port). Its WebGPU timers put a frame at 17–22 ms (forward pass 15–20 ms) in Android WebView 136 and Chrome 155, where the native build presents every 11.1 ms frame; the CPU side is about 5 ms. Time the native build's passes the same way and compare pass by pass (Dawn's robust buffer access, WGSL's lack of a forced early depth test, attachments that cannot be transient where the browser lacks `TRANSIENT_ATTACHMENT`, and no `shader-f16` in WebView 136 are candidates, none measured).
 
 - Route Apple dev-client table-only generations to running GPU canvases, preserving world and tick; current whole-generation delivery resets surfaces (1127.001 D3).
+
+- **Edit-loop acceptance still open (LLP 1127.001):** D2's two-second check figure is unqualified; D4 remains gated on the scene-language ruling; D5's SDK seed is unpublished. None is a pass.
