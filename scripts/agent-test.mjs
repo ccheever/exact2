@@ -290,6 +290,29 @@ export const STORAGE_NOTE = 'this drive names no --storage, so the app\'s storag
  *  beside the hold under `--touch platform` (Share.swift, DocumentPickers.swift). */
 const HELD_SHEETS = { share: 'share sheet', pick: 'photo or file picker', 'open-file': 'document picker', 'open-directory': 'document picker', 'save-file': 'document picker', export: 'export sheet', auth: 'sign-in sheet' };
 const SHOWN_SHEETS = ['share', 'open-file', 'open-directory', 'save-file'];
+// Native and web canvas journals advance their own cursors on every wire read.
+// Advice owns no journal entries: keep its batches until the caller asks for logs.
+const peekedWorldLogs = new WeakMap();
+export async function peekLogs(s, since) {
+  const session = s.session, reply = await s.op({ op: 'logs', since });
+  if (reply.world?.length) {
+    let sessions = peekedWorldLogs.get(s);
+    if (!sessions) peekedWorldLogs.set(s, sessions = new Map());
+    sessions.set(session, [...(sessions.get(session) ?? []), ...reply.world]);
+  }
+  return reply;
+}
+export function takeWorldLogs(s, world) {
+  const sessions = peekedWorldLogs.get(s), previous = sessions?.get(s.session) ?? [];
+  sessions?.delete(s.session);
+  if (!previous.length) return world;
+  const merged = new Map();
+  for (const row of [...previous, ...(world ?? [])]) {
+    const before = merged.get(row.canvas);
+    merged.set(row.canvas, before ? { ...before, ...row, from: before.from ?? row.from, lines: [...before.lines, ...row.lines], ...(before.dropped != null || row.dropped != null ? { dropped: (before.dropped ?? 0) + (row.dropped ?? 0) } : {}) } : row);
+  }
+  return [...merged.values()];
+}
 export function driveNotes(s, { host, storage, origins = [] }) {
   const INPUTS = ['tap', 'type', 'clock'], READS = ['tree', 'screenshot', 'layout'];
   const said = new Set(), note = (key, text) => { if (!said.has(key)) { said.add(key); console.error(`note: ${text}`); } };
@@ -319,7 +342,7 @@ export function driveNotes(s, { host, storage, origins = [] }) {
     // sources were refused their storage reads as an app bug (the euxy port). Not here when an input's reply said it.
     if (storage === undefined && !said.has('storage') && !s.storageSaid && ++probes <= 20) {
       try {
-        const j = await bounded(s.op({ op: 'logs', since: peek }), 3000);
+        const j = await bounded(peekLogs(s, peek), 3000);
         if (Array.isArray(j?.lines)) {
           peek = j.next;
           if (j.lines.some((l) => STORAGE_REFUSED.test(typeof l === 'string' ? l : JSON.stringify(l)))) note('storage', STORAGE_NOTE);
@@ -328,7 +351,7 @@ export function driveNotes(s, { host, storage, origins = [] }) {
     }
     if (!(end || early || (host === 'web' && INPUTS.includes(op)))) return;
     try {
-      const j = await bounded(s.op({ op: 'logs', since: replies }), 3000);
+      const j = await bounded(peekLogs(s, replies), 3000);
       if (Array.isArray(j?.lines)) replies = j.next;
       for (const [name, why] of refusedReplies(j?.lines)) note(`reply ${name} ${why}`, replyNote(name, why));
       const state = await bounded(s.state(), 3000);
@@ -514,7 +537,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const fail = async (message) => {
       const state = await s.state().catch(() => ({}));
       const failed = Object.entries(state.failed ?? {}).map(([name, why]) => ` (resource ${name} failed: ${why}; it shows its placeholder or last value)`).join('')
-        + [...refusedReplies((await s.op({ op: 'logs', since: 0 }).catch(() => null))?.lines)].map(([name, why]) => ` (${replyNote(name, why)})`).join('');
+        + [...refusedReplies((await peekLogs(s, 0).catch(() => null))?.lines)].map(([name, why]) => ` (${replyNote(name, why)})`).join('');
       if (unpolled != null) return failures.push(`${message}${failed} (line ${unpolled} wrote to the server, and the clock has not moved past the app's next read since: \`clock +<its poll's ms>\`, then \`clock data\`)`);
       if (input != null) return failures.push(`${message}${failed} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\` or a transition lands at \`clock settle\`; a timer fires when the clock reaches its time, \`clock +N\`)`);
       const pending = (state.pending ?? []).filter((p) => !p.device).map((p) => p.name);
@@ -705,7 +728,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       if (failures.length && closedAt == null) try {
         const state = await s.state();
         const mutations = new Map(Object.entries(state.mutationFailures ?? {}).map(([name, failure]) => [name, `${failure.code}: ${failure.message}`]));
-        const refusal = rosterRefusalNote(reset, schema, mutations.size ? mutations : refusedReplies((await s.op({op: 'logs', since: 0}))?.lines));
+        const refusal = rosterRefusalNote(reset, schema, mutations.size ? mutations : refusedReplies((await peekLogs(s, 0))?.lines));
         if (refusal) notes.push(refusal);
         const logs = await Promise.race([s.logs(), new Promise((done) => setTimeout(() => done(null), 3000))]);
         const said = (logs?.host ?? []).filter((l) => /^console\.\w+: /.test(l));

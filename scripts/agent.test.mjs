@@ -384,6 +384,30 @@ test('a native named store is kept unless the drive resets it, under its lock; a
   } finally { [console.log, console.error] = quiet; }
 });
 
+test('storage advice preserves canvas journal entries through the host seam', async () => {
+  const { driveNotes } = await import('./agent-test.mjs');
+  const journal = ['loop wind on'], lines = [], calls = [];
+  let cursor = 0;
+  const carrier = { host: 'web', browser: 'chrome', hostLines: [], launchFacts: launchFacts({}), reset() {},
+    async ask(req) {
+      calls.push(req.op);
+      if (req.op !== 'logs') return { epoch: 0, clock: 0 };
+      const from = cursor; cursor = journal.length;
+      return { from: req.since, next: lines.length, lines: lines.slice(req.since),
+        world: [{ canvas: 7, from, next: cursor, lines: journal.slice(from) }] };
+    } };
+  const s = await open({ reuse: carrier });
+  carrier.host = 'linux';
+  await s.landed({ tapped: true });
+  assert.ok(calls.includes('logs'), 'the input ran the storage probe');
+  journal.push('beacon-1 lit');
+  await driveNotes(s, { host: 'linux' })('tap');
+  journal.push('sfx chime');
+  const logs = await s.logs();
+  assert.deepEqual(logs.world, [{ canvas: 7, from: 0, next: 3, lines: journal }]);
+  assert.deepEqual((await s.logs()).world[0].lines, [], 'the caller consumes each entry once');
+});
+
 test('a drive with no store says its storage was refused after the first op that met it, a screenshot too, once', async () => {
   const { driveNotes, STORAGE_NOTE } = await import('./agent-test.mjs');
   const said = [], quiet = console.error;
