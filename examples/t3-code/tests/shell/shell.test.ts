@@ -365,6 +365,8 @@ describe('shell commands and routed failures', () => {
   test('archive refuses a running thread; the editor uses its RPC', async () => {
     const running = client({ shell: { threads: [{ id: 't1', title: 'Busy', status: 'running', activeRunId: 'r' }], projects: [] }, config: { providers: [{ driver: 'codex', instanceId: 'codex' }] } });
     await expect(shellCommand(running.value, {} as Native, storage, 'archive', 't1', '')).rejects.toThrow('Stop the running turn');
+    await shellCommand(running.value, {} as Native, storage, 'select-editor', '/work/p1', 'zed');
+    expect(running.requested).toEqual([]);
     await shellCommand(running.value, {} as Native, storage, 'open-editor', '/work/p1', 'cursor');
     expect(running.requested).toEqual([{ method: 'shell.openInEditor', cwd: '/work/p1', editor: 'cursor' }]);
   });

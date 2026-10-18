@@ -48,11 +48,11 @@ const helpers = { projectIdentity: (name: string) => ({ projectMark: name.slice(
   providerBadge: () => ({ providerBadge: '', providerBadgeColor: '' }) };
 
 describe('⇧⌘S settles with the sidebar\'s undo notice', () => {
-  test('the chord\'s chat:settle records the same undo step as the row\'s Settle, without moving on', async () => {
+  test('the chord settles with the row action’s undo step and opens the next card', async () => {
     const chord = fake([thread('a'), thread('b')], 'a');
-    await chatCommand(chord.client, native, {} as Files, 'settle', 'a');
+    await chatCommand(chord.client, native, {} as Files, 'settle-advance', 'a');
     expect(sidebarSnapshot(chord.client, NOW, helpers).sidebar.undoText).toBe('Settled 1 thread,');
-    expect(chord.opened).toEqual([]); // ChatView's thread.settle calls settleThread: no forward navigation
+    expect(chord.opened).toEqual(['b']);
     await sidebarCommand(chord.client, native, {} as Files, 'undo', '', '');
     expect(chord.dispatched.map(payload => `${payload.type}:${payload.threadId}`)).toEqual(['thread.settle:a', 'thread.unsettle:a']);
     const row = fake([thread('a'), thread('b')]);
@@ -68,8 +68,8 @@ describe('⇧⌘S settles with the sidebar\'s undo notice', () => {
       return keyboardDispatch(client, [], '', '', context).find(item => item.command === 'thread.settle')?.target;
     };
     expect(target({ settledOverride: 'settled', settledAt: new Date(NOW).toISOString() })).toBe('chat:unsettle');
-    expect(target({ settledOverride: null, settledAt: new Date(NOW).toISOString() })).toBe('chat:settle');
-    expect(target({ settledOverride: 'active', settledAt: new Date(NOW).toISOString() })).toBe('chat:settle');
+    expect(target({ settledOverride: null, settledAt: new Date(NOW).toISOString() })).toBe('chat:settle-advance');
+    expect(target({ settledOverride: 'active', settledAt: new Date(NOW).toISOString() })).toBe('chat:settle-advance');
   });
   test('under the agent\'s clock the notice is timed on the window\'s instant, which the chord\'s command carries', async () => {
     setRuntimeClock(() => 50_000); // the data runtime's clock is the driver's, not the epoch

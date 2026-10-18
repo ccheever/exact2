@@ -40,10 +40,12 @@ component FilesBody
     documents: ChatDocument[]
     scheme: string
     sheet: bool
+    // prefers-reduced-motion: a loading folder's spinner stays still.
+    still: bool
     local: action
     searchFocus: action
   view
-    FilesSurface(family=family, files=files, documents=documents, scheme=scheme, sheet=sheet, local=local, searchFocus=searchFocus)
+    FilesSurface(family=family, files=files, documents=documents, scheme=scheme, sheet=sheet, still=still, local=local, searchFocus=searchFocus)
 
 component FilesSurface
   props
@@ -52,11 +54,12 @@ component FilesSurface
     documents: ChatDocument[]
     scheme: string
     sheet: bool
+    still: bool
     local: action
     searchFocus: action
   view
     column flex=1 min-height=0 width="100%" position="relative" overflow="hidden" testId="files-surface"
-      if files.path != ""
+      if files.subheader
         FileHeader(files=files, sheet=sheet, local=local)
       if files.truncatedNote != ""
         text files.truncatedNote flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#fe9a0033, #fe9a0033)" background-color="light-dark(#fffbeb, #fe9a0014)" font-size="0.6875rem" line-height="1rem" color="light-dark(#bb4d00, #ffb900)" role="status"
@@ -66,7 +69,7 @@ component FilesSurface
             FilePreview(family=family, files=files, documents=documents, scheme=scheme, local=local)
         if files.showExplorer
           column min-height=0 flex-shrink=(files.path != "" and files.preview != "" ? 0 : 1) flex-grow=(files.path != "" and files.preview != "" ? 0 : 1) width=(files.path != "" and files.preview != "" ? "46%" : "100%") max-width=(files.path != "" and files.preview != "" ? "22rem" : "6250rem") min-width=(files.path != "" and files.preview != "" ? "16rem" : "0px") box-sizing="border-box" border-left-width=(files.path != "" and files.preview != "" ? 1 : 0) border-left-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" testId="files-explorer"
-            FilesExplorer(files=files, sheet=sheet, local=local, searchFocus=searchFocus)
+            FilesExplorer(files=files, sheet=sheet, still=still, local=local, searchFocus=searchFocus)
 
 // FILE_SURFACE_SUBHEADER_CLASS: 28pt with 12pt below in the inline panel, 40pt over a hairline in a sheet; 12pt sides, 8pt gaps.
 component FileHeader
@@ -116,7 +119,7 @@ component FileHeader
         FilesToggle(id="wrap", label=(files.wrap ? "Disable word wrap" : "Enable word wrap"), icon="wrap-text", pressed=files.wrap, hovered=hovered, hover=hover, press=local("surface-files-wrap", "", ""))
       if files.openInBrowser
         FilesToggle(id="open-browser", label="Open file in preview browser", icon="earth", pressed=false, hovered=hovered, hover=hover, press=local("surface-files-open-browser", files.path, ""))
-      if files.preview != ""
+      if files.explorerToggle
         FilesToggle(id="explorer", label=(files.explorer ? "Hide file explorer" : "Show file explorer"), icon="folder-tree", pressed=files.explorer, hovered=hovered, hover=hover, press=local("surface-files-explorer", "", ""))
 
 // One row of a folder crumb's menu: its Pierre glyph, label and a chevron for a folder; the open file is the checked
@@ -172,7 +175,9 @@ component FilesToggle
         PanelIcon(name=icon, size=14, color=(pressed ? "light-dark(#18181b, #fafafa)" : "light-dark(#71717b, #a1a1aa)"))
       TipBubble(label=label, side="bottom", align="end", offset=32, inset=0, shown=(hovered == id))
 
-// FileBreadcrumbs: 12pt muted crumbs (2pt sides, 4pt radius) between 14pt chevrons; the file is medium foreground.
+// FileBreadcrumbs: 12pt crumbs (2pt sides, 4pt radius), the current one medium foreground. A folder crumb moves the
+// browser to its folder, muted further below the current one; the 16 × 20 chevron after it opens the folder's contents
+// (FolderContentsMenu), a host path's plain 14pt chevron does not.
 component FilesCrumbView
   inject
     dialogMenuEntered: action
@@ -185,7 +190,10 @@ component FilesCrumbView
   state over = false
   action hover(value: bool)
     over = value
-  // The end of the menu a key on the crumb asked for (Enter, Space or ↓ the first item, ↑ the last; a pointer press
+  state chevronOver = false
+  action chevronHover(value: bool)
+    chevronOver = value
+  // The end of the menu a key on the chevron asked for (Enter, Space or ↓ the first item, ↑ the last; a pointer press
   // none), read by the menu's rows as they mount once the data module has listed the folder (menu-keys.contract).
   state menuEnd = ""
   action crumbKey(k: string, e: KeyboardEvent)
@@ -195,7 +203,7 @@ component FilesCrumbView
       if not e.repeat
         menuEnd = kmKeyEnd(k)
         showPopover(`crumb-menu-${crumb.id}`, source=`crumb-${crumb.id}`)
-  // The popover opens and closes the listing: Base UI's Menu opens on the crumb's press, and any press outside it,
+  // The popover opens and closes the listing: Base UI's Menu opens on the chevron's press, and any press outside it,
   // Escape or a file picked closes it.
   action toggled(e: ToggleEvent)
     if e.newState == "open"
@@ -209,30 +217,35 @@ component FilesCrumbView
       hidePopover(`crumb-menu-${crumb.id}`)
     local(directory ? "surface-files-crumb-dir" : "surface-file", path, "")
   view
-    // Hooked so the folder menu opens under the crumb as laid out (files-surface.ts crumbMenu).
-    box hatch="t3-anchor" data-anchor=`crumb:${crumb.id}` display="flex" flex-direction="row" flex-shrink=0 min-width=0 align-items="center"
-      if crumb.id != "."
-        box margin-left="0.25rem" margin-right="0.25rem" flex-shrink=0 display="flex"
-          ShellIcon(name="chevron-right", size=14, color="light-dark(#71717b99, #81818199)")
+    box display="flex" flex-direction="row" flex-shrink=0 min-width=0 align-items="center" testId=`crumb-item-${crumb.id}`
       if crumb.current
-        text crumb.label max-width="10rem" padding-left="0.125rem" padding-right="0.125rem" font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#27272a, #f5f5f5)"
+        text crumb.label max-width="10rem" padding-left="0.125rem" padding-right="0.125rem" font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#27272a, #f5f5f5)" aria-current="page"
+      else if crumb.navigable
+        button press=local("surface-files-crumb-go", crumb.path, "") hover=hover aria-label=crumb.label testId=`crumb-go-${crumb.id}` max-width="10rem" padding-left="0.125rem" padding-right="0.125rem" border-radius="0.25rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+          text crumb.label font-size="0.75rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color=(over ? "light-dark(#27272a, #f5f5f5)" : crumb.descendant ? "light-dark(#71717bb3, #818181b3)" : "light-dark(#71717b, #818181)")
       else
-        box position="relative" min-width=0 display="flex"
-          button id=`crumb-${crumb.id}` popovertarget=`crumb-menu-${crumb.id}` key=crumbKey hover=hover aria-label=`Browse ${crumb.label}` aria-haspopup="menu" aria-expanded=open testId=`crumb-${crumb.id}` max-width="10rem" padding-left="0.125rem" padding-right="0.125rem" border-radius="0.25rem" border-width=0 background-color=(over or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
-            text crumb.label font-size="0.75rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color=(over or open ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
-          // FileBreadcrumbs' MenuPopup (align start): 4pt under the crumb, flipping near an edge.
-          column id=`crumb-menu-${crumb.id}` data-dialog-return="menu" focusin=dialogMenuEntered(`crumb-menu-${crumb.id}`, `crumb-${crumb.id}`) toggle=toggled popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" min-width="10rem" max-width="20rem" testId=`crumb-menu-layer-${crumb.id}`
-            column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label=crumb.label testId="crumb-menu"
-              // Mounted once the data module lists this folder, so the rows a key asked for are there to take the focus.
-              if open
-                KeyMenu(menuId="crumb-menu-keys", items=(menu.back != "" ? [KmItem(id="crumb-back", label=menu.back)] : []).concat(menu.entries.map((entry) => KmItem(id=`crumb-entry-${entry.path}`, label=entry.label))), keyed=kmEndKeyed(menuEnd), gap="0px", modal=true)
-                  if menu.back != ""
-                    FilesCrumbItem(keysId="crumb-menu-keys", label=menu.back, icon="arrow-left", token="", trailing=false, current=false, ignored=false, test="crumb-back", press=pick(menu.backPath, true))
-                    box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
-                  if menu.status != ""
-                    text menu.status height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" font-size="0.875rem" line-height="1.75rem" opacity=0.64 color="light-dark(#27272a, #f5f5f5)"
-                  for entry in menu.entries key=entry.id
-                    FilesCrumbItem(keysId="crumb-menu-keys", label=entry.label, icon=(entry.directory ? "folder" : ""), token=entry.token, trailing=entry.directory, current=entry.current, ignored=entry.ignored, test=`crumb-entry-${entry.path}`, press=pick(entry.path, entry.directory))
+        text crumb.label max-width="10rem" padding-left="0.125rem" padding-right="0.125rem" font-size="0.75rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #818181)"
+      if not crumb.last
+        if crumb.menu
+          box position="relative" flex-shrink=0 display="flex" margin-left="0.125rem" margin-right="0.125rem"
+            button id=`crumb-${crumb.id}` popovertarget=`crumb-menu-${crumb.id}` key=crumbKey hover=chevronHover aria-label=`Browse ${crumb.label}` aria-haspopup="menu" aria-expanded=open testId=`crumb-${crumb.id}` width="1rem" height="1.25rem" padding=0 border-radius="0.25rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(chevronOver or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+              ShellIcon(name="chevron-right", size=14, color=(chevronOver or open ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b99, #81818199)"))
+            // FolderContentsMenu's MenuPopup (align start): 4pt under the chevron, flipping near an edge.
+            column id=`crumb-menu-${crumb.id}` data-dialog-return="menu" focusin=dialogMenuEntered(`crumb-menu-${crumb.id}`, `crumb-${crumb.id}`) toggle=toggled popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" min-width="10rem" max-width="20rem" testId=`crumb-menu-layer-${crumb.id}`
+              column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label=crumb.label testId="crumb-menu"
+                // Mounted once the data module lists this folder, so the rows a key asked for are there to take the focus.
+                if open
+                  KeyMenu(menuId="crumb-menu-keys", items=(menu.back != "" ? [KmItem(id="crumb-back", label=menu.back)] : []).concat(menu.entries.map((entry) => KmItem(id=`crumb-entry-${entry.path}`, label=entry.label))), keyed=kmEndKeyed(menuEnd), gap="0px", modal=true)
+                    if menu.back != ""
+                      FilesCrumbItem(keysId="crumb-menu-keys", label=menu.back, icon="arrow-left", token="", trailing=false, current=false, ignored=false, test="crumb-back", press=pick(menu.backPath, true))
+                      box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
+                    if menu.status != ""
+                      text menu.status height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" font-size="0.875rem" line-height="1.75rem" opacity=0.64 color="light-dark(#27272a, #f5f5f5)"
+                    for entry in menu.entries key=entry.id
+                      FilesCrumbItem(keysId="crumb-menu-keys", label=entry.label, icon=(entry.directory ? "folder" : ""), token=entry.token, trailing=entry.directory, current=entry.current, ignored=entry.ignored, test=`crumb-entry-${entry.path}`, press=pick(entry.path, entry.directory))
+        else
+          box margin-left="0.25rem" margin-right="0.25rem" flex-shrink=0 display="flex" aria-hidden=true
+            ShellIcon(name="chevron-right", size=14, color="light-dark(#71717b99, #81818199)")
 
 // OpenInPicker (compact, in the file's subheader): its MenuPopup (align="end") 4pt under the chevron, its right edge on
 // the chevron's. A popover, so a press anywhere outside it or Escape closes it, as Base UI's Menu does; it is modal
@@ -304,9 +317,21 @@ component FilePreview
     if files.preview == "loading"
       column flex=1 align-items="center" justify-content="center" testId="file-loading"
         PanelIcon(name="loader", size=24, color="light-dark(#71717b, #818181)")
+    // A read error names what it tried: the attempted path and, for a workspace file, the workspace folder (FilePreviewPanel).
     if files.preview == "error"
-      column flex=1 align-items="center" justify-content="center" padding-left="1.5rem" padding-right="1.5rem"
-        text files.previewError text-align="center" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#e40014, #ff6467)" testId="file-error"
+      scroll flex=1 min-height=0 width="100%" role="alert" testId="file-error-body"
+        column min-height="100%" width="100%" justify-content="center"
+          column flex-shrink=0 gap="0.75rem" padding="1.5rem" box-sizing="border-box" align-items="center"
+            text files.previewError width="100%" text-align="center" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#e40014, #ff6467)" testId="file-error"
+            if files.errorPath != ""
+              column width="100%" align-items="center" testId="file-error-path"
+                text "Attempted path" text-align="center" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #818181)"
+                text files.errorPath width="100%" text-align="center" font-family=family font-size="0.75rem" line-height="1.21875rem" overflow-wrap="anywhere" user-select="text" color="light-dark(#27272a, #f5f5f5)"
+            if files.errorCwd != ""
+              text width="100%" text-align="center" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #818181)" testId="file-error-cwd"
+                text "Workspace folder: "
+                text files.errorCwd font-family=family overflow-wrap="anywhere" user-select="text"
+                text ". Check the link's path or locate the file in Files."
     if files.preview == "markdown"
       scroll flex=1 min-height=0 width="100%" testId="file-markdown"
         column width="100%" max-width="56rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" box-sizing="border-box" align-self="center"
@@ -418,6 +443,7 @@ component FilesExplorer
   props
     files: FilesView
     sheet: bool
+    still: bool
     local: action
     searchFocus: action
   state hovered = ""
@@ -457,12 +483,13 @@ component FilesExplorer
           text `${files.error} Click to retry.` text-align="left" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#e40014, #ff6467)"
       if files.truncated
         text "More matches available. Refine your search." padding-left="0.75rem" padding-right="0.75rem" padding-top="0.25rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-      if files.loading or not files.ready
+      // A folder expanding shows its row's spinner, not this line, which would shift the tree.
+      if files.searching or not files.ready
         text "Loading files…" role="status" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.25rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
       scroll flex=1 min-height=0 width="100%" role="tree" aria-label=`${files.project} files` testId="files-tree"
         column width="100%" padding-left="1rem" padding-right="1rem" box-sizing="border-box"
           for row in files.rows key=row.id
-            FilesTreeRowView(row=row, local=local, menu=rowMenu)
+            FilesTreeRowView(row=row, still=still, local=local, menu=rowMenu)
 
 // FileBrowserPanel showEntryContextMenu (FileBrowserPanel.tsx; ElectronMenu.ts showContextMenu) as the tree's one context
 // popover: Open, the server-worded reveal and the "Open with" submenu of detected editors when the environment offers
@@ -492,9 +519,15 @@ component FilesTreeMenu
             button press=local("surface-files-row-pick", path, e.id) popovertarget="files-tree-menu" popovertargetaction="hide" role="menuitem" disabled=e.disabled testId=`files-tree-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
               text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
 
+// renderRowDecoration's spinner (Lucide LoaderCircle at 60% in the muted decoration lane), turning unless reduced motion.
+keyframes filesTreeSpin
+  from rotate=0
+  to rotate=360
+
 component FilesTreeRowView
   props
     row: FilesTreeRow
+    still: bool
     local: action
     // The tree's context popover owner (FilesExplorer `rowMenu`).
     menu: action
@@ -510,4 +543,9 @@ component FilesTreeRowView
         ShellIcon(name=(row.expanded ? "chevron-down" : "chevron-right"), size=16, color="light-dark(#84848a, #8b8b92)")
       else
         FileTypeIcon(token=row.token, size=16)
-      text row.name flex=1 min-width=0 text-align="left" font-size=12 line-height="24px" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#27272a, #f5f5f5)"
+      // The tree's 0.75rem scales with the Interface font size.
+      text row.name flex=1 min-width=0 text-align="left" font-size="0.75rem" line-height="24px" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#27272a, #f5f5f5)"
+      if row.loading
+        box width=16 height=16 flex-shrink=0 display="flex" opacity=0.6 animation=(still ? "none" : "filesTreeSpin 1s linear infinite") role="status" aria-label="Loading…" testId=`tree-loading-${row.path}`
+          svg width=16 height=16 viewBox="0 0 24 24" color="light-dark(#71717b, #818181)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" aria-hidden=true
+            path d="M21 12a9 9 0 1 1-6.219-8.56"

@@ -93,13 +93,13 @@ export async function environmentRequest(client: Writer, native: Native, environ
 
 /** persistScopedSettingsPatch's persistServer: one server.updateSettings per environment; the answer replaces that environment's settings. */
 export function scopedWriter(client: Writer, native: Native, environments: readonly ScopeEnvironment[], source: EnvironmentFleet = appFleet) {
-  return async ({ environmentId, input }: { environmentId: string; input: { patch: Obj } }): Promise<{ _tag: 'Success' | 'Failure' }> => {
+  return async ({ environmentId, input }: { environmentId: string; input: { patch: Obj } }): Promise<{ _tag: 'Success' | 'Failure'; value?: Obj }> => {
     const environment = environments.find(candidate => candidate.environmentId === environmentId);
     if (!environment) return { _tag: 'Failure' };
     const updated = await environmentRequest(client, native, environment, 'server.updateSettings', input, true, source);
     if (!environment.fleetKey) client.config = { ...client.config, settings: updated };
     else { const entry = entryOf(source, environment.fleetKey); if (entry) { entry.config = { ...entry.config, settings: updated }; source.revision++; } }
-    return { _tag: 'Success' };
+    return { _tag: 'Success', value: updated };
   };
 }
 

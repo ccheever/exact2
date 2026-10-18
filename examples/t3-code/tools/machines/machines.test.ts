@@ -3,7 +3,7 @@
 // switched-on saved environment; two or more) has three rows and the Run on menu two machines.
 import { expect, test } from "bun:test";
 import { ENVIRONMENTS, SEEDS, checkPort } from "../second-environment/lib.mjs";
-import { MACHINES, OLDER, OPEN_CONNECTIONS } from "./machines.mjs";
+import { MANY_MACHINES, MACHINES, OLDER, OPEN_CONNECTIONS } from "./machines.mjs";
 import { SELF_UPDATE, rewrite, updateScript } from "./older-server.mjs";
 import { CLIENT_VERSION } from "../../src/connections/version-skew";
 
@@ -30,4 +30,11 @@ test("the older-server stand-in: every environment descriptor reads older with s
     [[0, "downloading"], [6000, "installing"], [3000, "complete"], [0, "Exit"]]);
   expect(updateScript({ _tag: "Request", id: "2", tag: "server.updateServer" }, timing)).toEqual(
     [[9000, { _tag: "Exit", requestId: "2", exit: { _tag: "Success", value: { targetVersion: CLIENT_VERSION, method: "boot-service" } } }]]);
+});
+
+// A duplicate friendly name is deliberate: addresses must distinguish both Studio entries.
+test("many-machine fixture has eight distinct machine ports and duplicate-name coverage", () => {
+  expect(MANY_MACHINES).toHaveLength(7);
+  expect(new Set(MANY_MACHINES.map(name => ENVIRONMENTS[name as keyof typeof ENVIRONMENTS].port)).size).toBe(7);
+  expect(MANY_MACHINES.map(name => ENVIRONMENTS[name as keyof typeof ENVIRONMENTS].label).filter(label => label === 'Lane Studio')).toHaveLength(2);
 });

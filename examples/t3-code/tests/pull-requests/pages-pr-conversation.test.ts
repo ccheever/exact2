@@ -8,7 +8,8 @@ import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import { ClientError, type Native } from '../../src/client/protocol';
 import { prCommand, pullRequestDetail, type DetailInput } from '../../src/pull-requests/pages-pr-detail';
-import { presentSummary } from '../../src/pull-requests/pages-pr-summary';
+import { commentFilter, presentSummary, toggleCommentFilter } from '../../src/pull-requests/pages-pr-summary';
+import { adoptPagesPrefs } from '../../src/pages/pages-prefs';
 import { presentTimeline } from '../../src/pull-requests/pages-pr-timeline';
 import { PR_REFRESH_KEY, prRefreshEvent, pullRequestRefreshStats } from '../../src/pull-requests/pages-pr-refresh';
 
@@ -44,23 +45,44 @@ function conversation(): Obj {
 
 describe('the Summary tab (PullRequestSummaryTab)', () => {
   const view = presentSummary({ detail: detail(), activity: conversation(), activityPending: false, activityError: '', now: NOW, listEntry: null });
-  test('splits the conversation: finished work, bots, and the rest windowed from the newest', () => {
-    expect([view.activeCount, view.botCount, view.finishedCount]).toEqual([16, 4, 2]);
+  test('hides bot and finished comments until the filter shows them, and windows what is left from the newest', () => {
+    expect([view.activeCount, view.filterLabel, view.showBots, view.showResolved]).toEqual([16, '6 hidden', false, false]);
     expect(view.newest.filter(card => card.fromEnd < 10).map(card => card.id)).toEqual(['changes', 'c13', 'c12', 'c11', 'c10', 'c9', 'c8', 'c7', 'c6', 'c5']);
     // "Show 6 older comments (6 hidden)" is the window's (pages-pr-summary.contract PrdShowOlder over activeCount - shown).
     expect(view.oldest[0]?.fromEnd).toBe(15);
-    expect([view.bots.label, view.finished.label]).toEqual(['4 bot comments', '2 resolved or dismissed comments']);
-    expect(view.finishedNewest.map(card => [card.id, card.finishedLabel])).toEqual([['resolved-line', 'Resolved'], ['dismissed', 'Review dismissed']]);
+    expect(view.newest.some(card => card.id.startsWith('bot') || card.finished)).toBe(false);
+  });
+  test('the filter shows bots and finished work in the one list, finished work collapsed', () => {
+    const all = presentSummary({ detail: detail(), activity: conversation(), activityPending: false, activityError: '', now: NOW, listEntry: null, filter: { bots: true, resolved: true } });
+    expect([all.activeCount, all.filterLabel, all.filteredOutText]).toEqual([22, 'Filter', '']);
+    expect(all.newest.filter(card => card.finished).map(card => [card.id, card.finishedLabel])).toEqual([['resolved-line', 'Resolved'], ['dismissed', 'Review dismissed']]);
+    expect(all.newest.find(card => card.id === 'resolved-line')?.location).toBe('src/validate.js:6');
+    // A resolved bot comment is both kinds: it shows only when both are shown.
+    const bots = presentSummary({ detail: detail(), activity: conversation(), activityPending: false, activityError: '', now: NOW, listEntry: null, filter: { bots: true, resolved: false } });
+    expect([bots.activeCount, bots.filterLabel]).toEqual([20, '2 hidden']);
   });
   test('a line remark names its place, and says when the line has moved on', () => {
     const outdated = view.newest.find(card => card.id === 'outdated-line')!;
     expect([outdated.location, outdated.outdated]).toEqual(['src/validate.js:8', true]);
-    expect(view.finishedNewest.find(card => card.id === 'resolved-line')?.location).toBe('src/validate.js:6');
-  });
-  test('a bot group says how many wrote, across how many files, and when last', () => {
-    expect([view.bots.authorsText, view.bots.filesText, view.bots.latest, view.bots.faces.map(face => face.login)]).toEqual(['1 author', '', '3h ago', ['ci-helper[bot]']]);
     // A marker-only bot body still renders what follows the marker; a review's verdict reads as its badge.
     expect(view.newest.find(card => card.id === 'changes')).toMatchObject({ outcome: 'changes-requested', outcomeLabel: 'Changes requested', bodyId: 'pr-comment:changes' });
+  });
+  test('a conversation the filter hides whole says so', () => {
+    const only = { ...conversation(), comments: [remark('b', 5, { author: person('ci-helper[bot]', { isBot: true }) })] };
+    expect(presentSummary({ detail: detail(), activity: only, activityPending: false, activityError: '', now: NOW, listEntry: null }).filteredOutText).toBe('The only comment is hidden by the filter.');
+    const bots = { ...conversation(), comments: [0, 1, 2].map(index => remark(`b${index}`, 5 - index, { author: person('ci-helper[bot]', { isBot: true }) })) };
+    expect(presentSummary({ detail: detail(), activity: bots, activityPending: false, activityError: '', now: NOW, listEntry: null }).filteredOutText).toBe('All 3 comments are hidden by the filter.');
+  });
+  test('the filter is the device\'s: one choice for every pull request, kept with the pages preferences', () => {
+    const client = { local: {} };
+    expect(commentFilter(client)).toEqual({ bots: false, resolved: false });
+    toggleCommentFilter(client, 'bots');
+    expect(commentFilter(client)).toEqual({ bots: true, resolved: false });
+    toggleCommentFilter(client, 'resolved'); toggleCommentFilter(client, 'bots'); toggleCommentFilter(client, 'other');
+    expect(commentFilter(client)).toEqual({ bots: false, resolved: true });
+    const next = {};
+    adoptPagesPrefs(next, { pages: (client.local as { pages: Obj }).pages });
+    expect(commentFilter({ local: next })).toEqual({ bots: false, resolved: true });
   });
   test('reviewers wear their last verdict; a verdict older than the newest commit is stale', () => {
     const fresh = presentSummary({ detail: detail(), activity: conversation(), activityPending: false, activityError: '', now: NOW, listEntry: null });

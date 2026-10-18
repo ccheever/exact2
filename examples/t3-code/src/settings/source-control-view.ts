@@ -1,3 +1,4 @@
+// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
 import { can } from '../connections/command-permissions';
 // Settings → Source control and Integrations view models (reference
 // SourceControlSettings.tsx, ProjectDefaultsSettings.tsx, BranchNamingSettings.tsx,
@@ -11,32 +12,36 @@ import type { T3Client } from '../client/client';
 import { providerAvailable, type Native } from '../client/protocol';
 import { deviceTool } from '../device/settings-a-integrations';
 import { bitbucketView, type BitbucketView } from './settings-a-bitbucket';
-import { deviceHostsView } from '../device/settings-a-hosts';
+import { deviceHostsView, scopedDeviceHostsView } from '../device/settings-a-hosts';
 import { deviceScope } from '../device/settings-integrations-scope';
 import { connectedEnvironmentCount, simulatorSupportRows, type SimulatorSupportRow } from '../device/device-support'; // 5318d054a5: Simulator support row
 import { letGo } from '../client/let-go';
 import { linkTargetPreference } from '../browser/browser-links';
-import { formatSettingValue as formatValue } from './settings-core'; // SettingInheritance formatValue, one for every page
+import { resolveScope, memberFiles, serverContext, inheritanceGroups, type InheritanceGroup, formatSettingValue as formatValue, traitsControl, type CoreOption } from './settings-core';
+import { resolveTextGenerationSelection } from './text-generation-model';
 import { providerBadge } from '../client/presentation';
 import { triggerModelName } from '../composer/composer-controls-model';
+import { watchDeviceHostStates } from '../client/live-streams';
 import { deviceStateOf, watchDevice } from '../device/device-surface'; // useDeviceState
 import { groupOfMember } from './projects-fleet';
 
 type Choice = { value: string; label: string; selected: boolean };
 type Layer = { key: string; label: string; value: string; effective: boolean; set: boolean };
 export type ScopedRow = { key: string; kind: string; title: string; description: string; checked: boolean; value: string; valueLabel: string; options: Choice[]; placeholder: string;
-  disabled: boolean; first: boolean; summary: string; state: string; layers: Layer[]; reset: string; status: string; child: string;
+  disabled: boolean; first: boolean; summary: string; state: string; layers: Layer[]; layerGroups: InheritanceGroup[]; reset: string; status: string; child: string;
   /** ScopedSwitch's mixed state: the Integrations device rows compute it across the settings scope's targets (settings-integrations-scope.ts). */
   mixed: boolean;
   /** The control's accessible name and SettingResetButton's `label` ("Reset <label> to default"), as the reference names them; '' uses the title. */
   control: string; resetLabel: string;
   /** A model row's picker trigger mark: the instance's driver and ProviderInstanceIcon badge. */
-  driver: string; badge: string; accent: string };
+  driver: string; badge: string; accent: string;
+  /** The writer model's TraitsPicker: its trigger label ('' draws none) and menu rows. */
+  traitsLabel: string; traits: CoreOption[] };
 
-export const DEFAULTS: Obj = { defaultAutoPull: false, pullRequestMergeMethod: null, branchNamingMode: 'static', branchNamePrefix: 't3code', branchNameInstructions: '',
-  sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true }, sourceControlWriterModelSelection: null,
+export const DEFAULTS: Obj = { defaultAutoPull: false, pullRequestMergeMethod: null, branchNamingMode: 'static', branchNamePrefix: 't3', branchNameInstructions: '',
+  sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true }, sourceControlWriterModelSelection: null, reviewGuideModelSelection: null, reviewGuidesEnabled: false,
   enableAgentBrowserAccess: true, enableAgentDeviceAccess: false, enableDeviceSupport: false, defaultModelSelection: null, defaultThreadEnvMode: null, deviceHosts: [] };
-const PROJECT_KEYS = ['defaultModelSelection', 'defaultThreadEnvMode', 'defaultAutoPull', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'sourceControlWriterModelSelection', 'sourceControlWritingStyle', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod'];
+const PROJECT_KEYS = ['defaultModelSelection', 'defaultThreadEnvMode', 'defaultAutoPull', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'sourceControlWriterModelSelection', 'reviewGuideModelSelection', 'sourceControlWritingStyle', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod'];
 const MERGE_LABELS: Record<string, string> = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' };
 const BRANCH_MODES: Record<string, string> = { static: 'Static prefix', semantic: 'Semantic prefix', custom: 'Custom instructions' };
 const WRITING_MODES: Record<string, { label: string; description: string }> = {
@@ -57,7 +62,7 @@ export function inheritance(settings: Obj, projectId: string, key: string, envir
   layers.push({ key: 'environment', label: 'Environment', value: environmentSet ? formatValue(key, settings[key]) : 'Inherits', effective: !projectSet && environmentSet, set: environmentSet });
   layers.push({ key: 'built-in', label: 'Default', value: formatValue(key, DEFAULTS[key]), effective: !projectSet && !environmentSet, set: true });
   const [summary, state] = projectSet ? ['Overridden for this project', 'overridden'] : projectId && scoped ? [`Inherited from ${environmentLabel}`, 'inherited'] : environmentSet ? ['Set on the environment', 'environment'] : ['Built-in default', 'default'];
-  return { summary, state, layers };
+  return { summary, state, layers, layerGroups: [] as InheritanceGroup[] };
 }
 
 function effective(settings: Obj, projectId: string): Obj {
@@ -67,7 +72,8 @@ function effective(settings: Obj, projectId: string): Obj {
 
 function row(settings: Obj, projectId: string, environmentLabel: string, key: string, partial: Partial<ScopedRow>): ScopedRow {
   const info = inheritance(settings, projectId, key, environmentLabel);
-  return { key, kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: false, first: false, status: '', child: '', reset: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', ...info, ...partial };
+  return { key, kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: false, first: false, status: '', child: '', reset: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '',
+    traitsLabel: '', traits: [], ...info, ...partial };
 }
 
 /** Source-control route rows: Repositories and Text generation. */
@@ -89,21 +95,25 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
       reset: resetFor('pullRequestMergeMethod', merge !== 'last') }),
   ];
   const mode = str(value.branchNamingMode, 'static'), writing = str(style.mode, 'repo_conventions');
-  const writerOn = value.sourceControlWriterModelSelection !== null && value.sourceControlWriterModelSelection !== undefined;
-  const writer = obj(value.sourceControlWriterModelSelection);
-  // ProviderModelPicker's trigger: the writer's instance mark and model name, its slug when the
-  // instance does not list it; the picker itself is the window's (settings-model-picker.ts).
-  const textProviders = providers.filter(provider => provider.supportsTextGeneration !== false);
-  const writerProvider = textProviders.find(provider => provider.instanceId === writer.instanceId);
-  const writerModel = arr(writerProvider?.models).find(model => model.slug === writer.model);
-  const writerBadge = providerBadge(writerProvider, providers);
-  const available = textProviders.some(provider => providerAvailable(provider) && arr(provider.models).some(model => model.isUnavailable !== true));
+  const textProviders = providers.filter(provider => provider.supportsTextGeneration !== false && providerAvailable(provider));
+  const available = textProviders.some(provider => arr(provider.models).some(model => model.isUnavailable !== true));
+  const modelRow = (key: string, title: string, description: string) => {
+    const enabled = value[key] != null;
+    const resolved = resolveTextGenerationSelection(obj(value[key] ?? value.sourceControlWriterModelSelection ?? value.textGenerationModelSelection), textProviders);
+    const badge = providerBadge(resolved?.provider, providers);
+    const traits = resolved ? traitsControl({ providers }, resolved.provider, resolved.model, resolved.options) : null;
+    return row(settings, projectId, environmentLabel, key, { kind: 'model', title, checked: enabled, disabled: !writable,
+      description, value: resolved ? `${str(resolved.provider.instanceId)}:${str(resolved.model?.slug)}` : '',
+      valueLabel: resolved?.model ? triggerModelName(resolved.model) : 'Choose model', driver: str(resolved?.provider.driver),
+      badge: badge.providerBadge, accent: badge.providerBadgeColor, traitsLabel: str(traits?.label2), traits: traits?.options2 ?? [],
+      status: !available ? 'No text generation providers available.' : '' });
+  };
   const text = [
     row(settings, projectId, environmentLabel, 'branchNamingMode', { kind: 'select', title: 'Worktree branch naming', resetLabel: 'branch naming', first: true, value: mode, valueLabel: BRANCH_MODES[mode] || mode, disabled: !writable,
-      description: 'Choose how new worktree branches are named from your first message.', options: Object.entries(BRANCH_MODES).map(([v, l]) => ({ value: v, label: l, selected: v === mode })), reset: resetFor('branchNamingMode', mode !== 'static') }),
+      description: 'Choose how new worktree branches are named from your first message.', options: Object.entries(BRANCH_MODES).map(([v, l]) => ({ value: v, label: l, selected: v === mode })), reset: resetFor('branchNamingMode', mode !== 'static'),
+      status: mode === 'semantic' ? 'The model chooses a prefix that describes the work, such as feat/add-search, fix/login-timeout, or refactor/auth.' : '' }),
     ...(mode === 'static' ? [row(settings, projectId, environmentLabel, 'branchNamePrefix', { kind: 'text', title: 'Branch prefix', resetLabel: 'branch prefix', value: str(value.branchNamePrefix), placeholder: 'No prefix', disabled: !writable,
-      description: 'For example, t3code or t3code/ produces t3code/add-search. Leave empty for no prefix.', reset: resetFor('branchNamePrefix', str(value.branchNamePrefix) !== 't3code') })] : []),
-    ...(mode === 'semantic' ? [row(settings, projectId, environmentLabel, 'branchNamingMode', { kind: 'note', title: '', description: 'The model chooses a prefix that describes the work, such as feat/add-search, fix/login-timeout, or refactor/auth.' })] : []),
+      description: 'For example, t3 or t3/ produces t3/add-search. Leave empty for no prefix.', reset: resetFor('branchNamePrefix', str(value.branchNamePrefix) !== 't3') })] : []),
     ...(mode === 'custom' ? [row(settings, projectId, environmentLabel, 'branchNameInstructions', { kind: 'textarea', title: 'Branch naming instructions', resetLabel: 'branch naming instructions', value: str(value.branchNameInstructions), placeholder: 'Use julius/ followed by the issue ID and a short description.', disabled: !writable,
       description: 'Appended to the naming prompt. The model returns the complete branch name; no prefix or suffix is added.', reset: resetFor('branchNameInstructions', str(value.branchNameInstructions) !== '') })] : []),
     row(settings, projectId, environmentLabel, 'sourceControlWritingStyle', { kind: 'select', title: 'Source control writing style', resetLabel: 'source control writing style', value: writing, valueLabel: WRITING_MODES[writing]?.label || writing, disabled: !writable,
@@ -112,11 +122,11 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
       reset: project ? (overridden('sourceControlWritingStyle') ? 'key=sourceControlWritingStyle&value=__inherit__' : '') : (writing !== 'repo_conventions' || str(style.customInstructions) !== '' ? 'key=sourceControlWritingStyle&value=__default__' : '') }),
     row(settings, projectId, environmentLabel, 'sourceControlWritingStyle', { key: 'sourceControlWritingStyle.followChangeRequestTemplates', kind: 'switch', title: 'Follow change request templates', resetLabel: 'change request templates', checked: style.followChangeRequestTemplates !== false, disabled: !writable,
       description: "Use the repository's template for change request descriptions when available.", reset: project ? '' : style.followChangeRequestTemplates === false ? 'key=sourceControlWritingStyle.followChangeRequestTemplates&value=__default__' : '' }),
-    row(settings, projectId, environmentLabel, 'sourceControlWriterModelSelection', { kind: 'model', title: 'Source control writer model', checked: writerOn, disabled: !writable,
-      description: "Model for source control text and branch or bookmark names. Off uses the environment's text generation model.",
-      value: writerOn ? `${str(writer.instanceId)}:${str(writer.model)}` : '', valueLabel: writerOn ? (writerModel ? triggerModelName(writerModel) : str(writer.model)) || 'Choose model' : '',
-      driver: writerOn ? str(writerProvider?.driver) : '', badge: writerBadge.providerBadge, accent: writerBadge.providerBadgeColor,
-      status: writerOn && !available ? 'No text generation providers available.' : '' }),
+    modelRow('sourceControlWriterModelSelection', 'Source control writer model', "Model for source control text and branch or bookmark names. Off uses the environment's text generation model."),
+    row(settings, projectId, environmentLabel, 'reviewGuidesEnabled', { title: 'Review guides', checked: settings.reviewGuidesEnabled === true, disabled: project || !writable,
+      description: 'Adds a Guide tab to pull requests: an agent writes a tour of the change, stop by stop, with the calls a maintainer should make.' }),
+    ...(settings.reviewGuidesEnabled === true ? [modelRow('reviewGuideModelSelection', 'Review guide model',
+      'Model that reads a pull request to write its review guide. It reads the change itself over many steps, so a stronger model helps. Off uses the source control writer model.')] : []),
   ];
   return { repositories, text: text.map((entry, index) => ({ ...entry, first: index === 0 })) };
 }
@@ -139,7 +149,7 @@ export function integrationRows(settings: Obj, projectId: string, environmentLab
 }
 
 /** planScopedSettingsPatch / planScopedSettingsClear for one key. */
-export function scopedPatch(settings: Obj, projectId: string, key: string, raw: string): Obj {
+export function scopedPatch(settings: Obj, projectId: string, key: string, raw: string, providers: Obj[] = []): Obj {
   const [root, field] = key.split('.');
   if (!(root in DEFAULTS)) throw new Error('Unsupported setting.');
   let value: Json | undefined;
@@ -157,12 +167,31 @@ export function scopedPatch(settings: Obj, projectId: string, key: string, raw: 
     const [model, option] = raw.split('#'), at = model.indexOf(':');
     if (at <= 0) throw new Error('Choose an available model.');
     const [id, choice] = (option || '').split('=');
-    value = { instanceId: model.slice(0, at), model: model.slice(at + 1), ...(id ? { options: [{ id, value: choice }] } : {}) };
+    value = { instanceId: model.slice(0, at), model: model.slice(at + 1), ...(id ? { options: [{ id, value: choice === 'true' ? true : choice === 'false' ? false : choice }] } : {}) };
   }
-  else if (root === 'sourceControlWriterModelSelection') {
+  else if ((root === 'sourceControlWriterModelSelection' || root === 'reviewGuideModelSelection')) {
     if (raw === 'off') value = null;
-    else if (raw === 'default') { const text = obj(settings.textGenerationModelSelection); if (!str(text.instanceId) || !str(text.model)) throw new Error('No text generation providers available.'); value = text; }
-    else { const at = raw.indexOf(':'); if (at <= 0) throw new Error('Choose an available model.'); value = { instanceId: raw.slice(0, at), model: raw.slice(at + 1) }; }
+    else if (raw === 'default') {
+      const values = effective(settings, projectId), fallback = obj(root === 'reviewGuideModelSelection' ? values.sourceControlWriterModelSelection ?? values.textGenerationModelSelection : values.textGenerationModelSelection);
+      const resolved = resolveTextGenerationSelection(fallback, providers.filter(provider => providerAvailable(provider) && provider.supportsTextGeneration !== false));
+      if (resolved?.model) value = { instanceId: str(resolved.provider.instanceId), model: str(resolved.model.slug), options: resolved.options };
+      else if (str(fallback.instanceId) && str(fallback.model)) value = fallback;
+      else throw new Error('No text generation providers available.');
+    }
+    else {
+      // "instance:model", or "instance:model#optionId=value" (TraitsPicker): one trait changes, the others stay.
+      const [model, option] = raw.split('#'), at = model!.indexOf(':');
+      if (at <= 0) throw new Error('Choose an available model.');
+      const instanceId = model!.slice(0, at), slug = model!.slice(at + 1);
+      if (option === undefined) value = { instanceId, model: slug };
+      else {
+        const split = option.indexOf('='), id = option.slice(0, split), choice = option.slice(split + 1);
+        if (split <= 0 || !choice) throw new Error('Choose a supported option.');
+        const current = obj(effective(settings, projectId)[root]);
+        const kept = current.instanceId === instanceId && current.model === slug ? arr(current.options).filter(entry => entry.id !== id).map(entry => ({ id: str(entry.id), value: entry.value as Json })) : [];
+        value = { instanceId, model: slug, options: [...kept, { id, value: choice === 'true' ? true : choice === 'false' ? false : choice }] };
+      }
+    }
   } else { if (raw !== 'true' && raw !== 'false') throw new Error('Choose On or Off.'); value = raw === 'true'; }
   if (!projectId) {
     if (value === undefined) throw new Error('Choose a project to clear its override.');
@@ -225,7 +254,7 @@ function scopeError(client: T3Client, native: Native | null | undefined, environ
 }
 function environmentLabel(client: T3Client): string { return str(obj(client.config.environment).label, 'Environment'); }
 
-export async function sourceControlPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, rescan: number) {
+export async function sourceControlPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, rescan: number, machine = '', projectKey = '', checkout = '') {
   const empty = { available: false, error: '', project: projectId !== '', scope: `${environmentId}:${projectId}`, repositories: [] as ScopedRow[], text: [] as ScopedRow[],
     scanned: false, scanError: '', vcs: [] as ReturnType<typeof discoveryRows>['vcs'], providers: [] as ReturnType<typeof discoveryRows>['providers'], fetches: [fetchInterval({})], bitbucket: [] as BitbucketView[] };
   if (!active) return empty;
@@ -237,6 +266,10 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
     const config = client.config, settings = obj(config.settings);
     if (projectId && obj(obj(config.environment).capabilities).projectSettingsOverrides !== true) return { ...empty, error: 'Update the selected environment to configure project overrides.' };
     const rows = sourceControlRows(settings, projectId, environmentLabel(client), arr(config.providers), can(client, 'settings:write'));
+    const legacy = !projectKey && projectId ? groupOfMember(client, projectId) : undefined;
+    const scope = resolveScope(client, machine, legacy?.key ?? projectKey, checkout);
+    const context = serverContext(client, scope, await memberFiles(client, native, scope.members, scope));
+    for (const row of [...rows.repositories, ...rows.text]) row.layerGroups = inheritanceGroups(context, row.key, DEFAULTS);
     // Discovery scans one machine's tools (server.discoverSourceControl); a rescan re-runs it.
     const key = `${client.origin}:${client.generation}:${rescan}`;
     let cached = discoveries.get(client);
@@ -269,16 +302,20 @@ export async function integrationsPage(client: T3Client, native: Native | null |
     // A bare project id (settingsProjectId with no project key: Project settings' target) is its project on every environment (settingsScopeOf).
     const legacy = !projectKey && projectId ? groupOfMember(client, projectId) : undefined;
     const devices = deviceScope(client, machine, legacy ? legacy.key : projectKey, legacy ? '' : checkout);
+    const scope = resolveScope(client, machine, legacy?.key ?? projectKey, checkout);
+    const context = serverContext(client, scope, await memberFiles(client, native, scope.members, scope));
+    for (const row of [...rows.browser, rows.deviceHub, rows.agentDevice, rows.hostsRow]) row.layerGroups = inheritanceGroups(context, row.key, DEFAULTS);
     rows.deviceHub = { ...rows.deviceHub, checked: devices.checked.enableDeviceSupport, mixed: devices.mixed.enableDeviceSupport,
       disabled: devices.project || devices.unavailable || devices.connectedCount === 0 || !can(client, 'settings:write') };
     rows.agentDevice = { ...rows.agentDevice, checked: devices.checked.enableAgentDeviceAccess, mixed: devices.mixed.enableAgentDeviceAccess,
       disabled: !can(client, 'settings:write') || devices.connectedCount === 0 || (!devices.project && !devices.anyHubEnabled) };
     // DeviceToolVersions over the stream's state; "Check versions" (rest:device-tools) is the one inspection.
     await watchDevice(client, native);
+    await watchDeviceHostStates(client, native, scope.selected.map(environment => environment.environmentId));
     const deviceState = deviceStateOf(client), tools = obj(arr(deviceState?.hosts).find(host => host.kind === 'local')?.tools);
     const hubStatus = deviceState ? toolVersion(tools.hub) : 'Version unknown', agentStatus = deviceState ? toolVersion(tools.agent) : 'Version unknown';
     return { ...empty, available: true, ...rows, deviceScope: devices.scopeKey, hubStatus, agentStatus, hosts: Array.isArray(settings.deviceHosts) ? settings.deviceHosts.length : 0,
-      hubTool: deviceTool('hub', deviceState), agentTool: deviceTool('agent', deviceState), deviceHosts: deviceHostsView(client, settings, deviceState, projectId !== '', true),
+      hubTool: deviceTool('hub', deviceState), agentTool: deviceTool('agent', deviceState), deviceHosts: scopedDeviceHostsView(client, native, resolveScope(client, machine, legacy?.key ?? projectKey, checkout).selected, resolveScope(client, machine, legacy?.key ?? projectKey, checkout).environments, deviceState, projectId !== ''),
       simulatorSupport: simulatorSupportRows(client, environmentId, settings.enableDeviceSupport === true, deviceState, connectedEnvironmentCount(client)) };
   } catch (failure) { return { ...empty, error: failure instanceof Error ? failure.message : 'Could not load settings.' }; }
 }
@@ -289,5 +326,5 @@ export function toolVersion(value: unknown): string {
   return version ? `v${version}` : 'Not installed';
 }
 function blankRow(): ScopedRow {
-  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '' };
+  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], layerGroups: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', traitsLabel: '', traits: [] };
 }

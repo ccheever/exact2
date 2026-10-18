@@ -8,6 +8,7 @@ import type { Obj } from '../../src/client/domain';
 import type { Files, Native } from '../../src/client/protocol';
 import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { byEnvironment, groupOfMember, settingsGroups, settingsPageClient } from '../../src/settings/projects-fleet';
+import { archiveCommand } from '../../src/settings/settings-a-archive';
 import { projectsPage } from '../../src/settings/projects-view';
 import { sidebarWrites } from '../../src/client/client-ops-sidebar';
 import { restCommand } from '../../src/settings/settings-rest-commands';
@@ -120,3 +121,28 @@ describe('its writes go through the member\'s own environment', () => {
   });
 });
 const opsOf = (ops: Obj[], name: string) => ops.filter(op => op.op === name);
+
+
+test('background archive actions use the row owner without changing the focused thread', async () => {
+  const client = focused(), entry = studio(), ops: Obj[] = [];
+  client.threadId = 'focused-thread';
+  client.local.drafts['env-remote:t1'] = 'background draft';
+  client.local.drafts['local:focused-thread'] = 'focused draft';
+  Object.assign(client.local.clientSettings!, { confirmThreadDelete: false });
+  const native = nativeOf(entry, ops), later = native.later;
+  native.later = async request => {
+    const op = obj(request);
+    if (op.method === 'orchestration.getArchivedShellSnapshot') {
+      ops.push(op);
+      return { ok: true, generation: 3, value: { snapshotSequence: 1, projects: entry.shell.projects, threads: entry.shell.threads.map(thread => ({ ...thread, archivedAt: at })) } };
+    }
+    return later(request);
+  };
+  await archiveCommand(client, native, files, 'archive-pick', 'env-remote:r1:t1', 'unarchive');
+  await archiveCommand(client, native, files, 'archive-pick', 'env-remote:r1:t1', 'delete');
+  expect(fleetRequests(ops).filter(request => request.method === 'orchestration.dispatchCommand').map(request => [request.payload.type, request.payload.threadId])).toEqual([
+    ['thread.unarchive', 't1'], ['thread.delete', 't1']]);
+  expect(client.threadId).toBe('focused-thread');
+  expect(client.local.drafts['env-remote:t1']).toBeUndefined();
+  expect(client.local.drafts['local:focused-thread']).toBe('focused draft');
+});

@@ -66,7 +66,7 @@ class Parser {
   }
   static OPS = [/or(?!\w)/y, /and(?!\w)/y, /==|!=|<=|>=|<|>/y, /\+|-/y, /\*|\/(?!\/)|%/y];
   static METHODS = new Set(['isEmpty', 'toString', 'includes', 'startsWith', 'endsWith', 'trim', 'toLowerCase', 'slice',
-    'concat', 'indexOf', 'split', 'replaceAll', 'at', 'map', 'filter', 'join', 'toFixed']);
+    'concat', 'indexOf', 'split', 'replaceAll', 'at', 'map', 'flat', 'filter', 'join', 'toFixed']);
   binary(level: number): E {
     if (level === Parser.OPS.length) return this.unary();
     if (level === 2 && this.word('not')) return { k: 'one', x: this.binary(2) };

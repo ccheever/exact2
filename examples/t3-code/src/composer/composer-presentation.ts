@@ -181,7 +181,7 @@ export function composerView(client: ComposerSource, requests: { approval: boole
   const display = traitsDisplay(str(provider?.driver), descriptors, shown, selection, reported, ultra);
   // getTriggerDisplayModelName; the tooltip adds the picker's shortcut (ProviderModelPicker triggerTooltipContent).
   const modelTitle = model ? triggerModelName(model) : modelId || 'Choose model', modelShortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, keyContext).split(' ')[0] ?? '');
-  const { steps, ...layout } = footerLayout({ model: modelTitle, traits: display.label, traitsIcon: !!display.speed,
+  const { steps, ...layout } = footerLayout({ model: modelTitle, traits: display.label, traitsIcon: display.label !== '',
     runtime: runtime.label, plan: planVisible ? (client.interactionMode === 'plan' ? 'Plan' : 'Build') : '', host: anchors.controls.width,
     measure: measuredLabels(client.presentation), previous: footerSteps.get(client) });
   footerSteps.set(client, steps);
@@ -194,7 +194,7 @@ export function composerView(client: ComposerSource, requests: { approval: boole
       projectRequired: !client.projectId, providerUnavailable: chosen.showProviderUnavailable,
       phase: client.threadId ? threadPhase(client.projection) : 'disconnected' }),
     modelTip: modelShortcut ? `${modelTitle}${model?.isUnavailable === true ? ' (Unavailable)' : ''} · ${modelShortcut}` : `${modelTitle}${model?.isUnavailable === true ? ' (Unavailable)' : ''}`,
-    traitsLabel: display.label, traitsSpeed: display.speed, traitsAria: display.speed ? `${display.label}, ${display.speed === 'ultrafast' ? 'Ultrafast' : 'Fast'} mode on` : display.label,
+    traitsLabel: display.label,
     ...layout, traitsCount: traits.count, traitsSelected: traits.selected, traits: traits.items,
     runtimeMode: runtime.mode, runtimeLabel: runtime.label, runtimeIcon: runtime.icon, runtimeDescription: runtime.description,
     runtimeSelected: Math.max(0, runtimes.indexOf(runtime)), runtimeCount: runtimes.length,

@@ -3,20 +3,25 @@
 // and DeviceToolVersions.tsx. Hosts are the environment's `deviceHosts` setting;
 // a connection check is `device.testHost`, a failed host's retry is
 // `device.list { retryHostId }`, and the row's state is `device.list`'s
-// hostStatuses. This client edits one environment (the connected one).
+// hostStatuses. Scope targets retain their own lists, ids and connection checks.
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
+import { liveEnvironments } from '../client/live-streams';
+import { environmentClient } from '../settings/projects-fleet';
+import { settingsScopeEnvironmentLabels } from '../settings/settings-scope';
+import type { ScopeEnvironment } from '../settings/settings-scope-sources';
 import { randomBytes } from '../transport/transport-wire'; // drawn ahead: code resumed by a server reply may not draw
 
 export type HostConfig = { id: string; label: string; target: string; identityFile?: string; port?: number };
 type Check = { status: 'pending' | 'local' | 'connected' | 'failed'; platforms: Obj[]; tools: Obj | null; error: string };
 type Editor = { isNew: boolean; original: HostConfig | null; host: HostConfig; serial: number };
-type HostsState = { editor: Editor | null; checks: Map<string, Check>; serial: number; retrying: string };
+type HostTarget = { client: T3Client; label: string; secondary: string; state: Obj | null };
+type HostsState = { targets: HostTarget[]; editingTargets: HostTarget[]; editor: Editor | null; checks: Map<string, Check>; serial: number; retrying: string };
 const states = new WeakMap<T3Client, HostsState>();
-const stateOf = (client: T3Client) => { let state = states.get(client); if (!state) states.set(client, state = { editor: null, checks: new Map(), serial: 0, retrying: '' }); return state; };
+const stateOf = (client: T3Client) => { let state = states.get(client); if (!state) states.set(client, state = { targets: [], editingTargets: [], editor: null, checks: new Map(), serial: 0, retrying: '' }); return state; };
 
 /** deviceHostConnectionKey: target, port and identity file. The contract spells the same key. */
 export const connectionKey = (host: { target: string; port?: number | string; identityFile?: string }) =>
@@ -43,7 +48,7 @@ export function updateDeviceHosts(hosts: HostConfig[], host: HostConfig, remove:
   if (remove) return hosts.filter(candidate => candidate.id !== existing?.id);
   return existing ? hosts.map(candidate => candidate.id === existing.id ? { ...host, id: existing.id } : candidate) : [...hosts, host];
 }
-const hostsOf = (settings: Obj): HostConfig[] => arr(settings.deviceHosts).map(host => ({ id: str(host.id), label: str(host.label), target: str(host.target),
+export const hostsOf = (settings: Obj): HostConfig[] => arr(settings.deviceHosts).map(host => ({ id: str(host.id), label: str(host.label), target: str(host.target),
   ...(str(host.identityFile) ? { identityFile: str(host.identityFile) } : {}), ...(typeof host.port === 'number' ? { port: host.port } : {}) }));
 // randomUUID's shape (Math.random and Date.now are unavailable in data sources).
 const randomId = () => Array.from(randomBytes(16), (byte, index) => `${[4, 6, 8, 10].includes(index) ? '-' : ''}${byte.toString(16).padStart(2, '0')}`).join('');
@@ -52,9 +57,9 @@ const envLabel = (client: T3Client) => str(obj(client.config.environment).label,
 // ── Views ──────────────────────────────────────────────────────────────────
 type Platform = { id: string; label: string };
 type ToolLine = { id: string; name: string; running: string; required: string; installed: string };
-export type HostRow = { id: string; label: string; target: string; platforms: Platform[]; versions: string; tools: ToolLine[]; toolsKnown: boolean; owner: string; toolError: string;
+export type HostRow = { environment: string; hostId: string; id: string; label: string; target: string; platforms: Platform[]; versions: string; tools: ToolLine[]; toolsKnown: boolean; owner: string; toolError: string;
   local: boolean; error: string; progress: string; retry: boolean; retrying: boolean; menuId: string };
-export type DeviceHostsView = { available: boolean; canAdd: boolean; message: string; environmentLabel: string; hosts: HostRow[] };
+export type DeviceHostsView = { available: boolean; canAdd: boolean; message: string; environmentLabel: string; hosts: HostRow[]; groups: { id: string; label: string; secondary: string; summary: string; hosts: HostRow[] }[] };
 const toolLines = (tools: Obj | null): ToolLine[] => tools ? [['hub', 'Device hub'], ['agent', 'Agent device']].map(([id, name]) => {
   const tool = obj(tools[id!]);
   return { id: id!, name: name!, running: str(tool.runningVersion) || 'Not running', required: str(tool.requiredVersion), installed: (Array.isArray(tool.installedVersions) ? tool.installedVersions.map(String) : []).join(', ') || 'None' };
@@ -64,7 +69,7 @@ const platformsOf = (platforms: Obj[]): Platform[] => platforms.filter(platform 
 
 export function deviceHostsView(client: T3Client, settings: Obj, deviceState: Obj | null, projectScope: boolean, connected: boolean): DeviceHostsView {
   const state = stateOf(client), label = envLabel(client);
-  if (!connected) return { available: false, canAdd: false, message: 'Connect a selected environment to manage device hosts.', environmentLabel: label, hosts: [] };
+  if (!connected) return { available: false, canAdd: false, message: 'Connect a selected environment to manage device hosts.', environmentLabel: label, hosts: [], groups: [] };
   const summaries = arr(deviceState?.hosts), statuses = obj(deviceState?.hostStatuses);
   const hosts = hostsOf(settings).map(host => {
     const summary = summaries.find(entry => str(entry.id) === host.id) ?? null, status = obj(statuses[host.id]), check = state.checks.get(connectionKey(host)) ?? null;
@@ -72,11 +77,56 @@ export function deviceHostsView(client: T3Client, settings: Obj, deviceState: Ob
     const progress = check?.status === 'pending' ? 'Checking connection…' : str(status.status) === 'installing' ? 'Installing device support…' : str(status.status) === 'starting' ? 'Connecting…' : '';
     const error = check?.status === 'failed' ? check.error : check?.status === 'local' ? '' : str(status.status) === 'failed' ? str(status.detail) : '';
     const tools = summary?.tools ? obj(summary.tools) : check?.status === 'connected' ? check.tools : null;
-    return { id: host.id, label: host.label, target: host.target, platforms: platformsOf(platforms), versions: str(summary?.toolInspectionError) ? 'Versions unavailable' : 'Versions',
+    return { environment: '', hostId: host.id, id: host.id, label: host.label, target: host.target, platforms: platformsOf(platforms), versions: str(summary?.toolInspectionError) ? 'Versions unavailable' : 'Versions',
       tools: toolLines(tools), toolsKnown: tools !== null, owner: label, toolError: str(summary?.toolInspectionError), local: check?.status === 'local', error, progress,
       retry: str(status.status) === 'failed' && deviceState?.supportsHostRetry === true && str(deviceState?.hostStatus) !== 'disabled', retrying: state.retrying === host.id, menuId: `device-host-menu-${host.id}` };
   });
-  return { available: true, canAdd: !projectScope && state.editor === null, message: '', environmentLabel: label, hosts };
+  return { available: true, canAdd: !projectScope && state.editor === null, message: '', environmentLabel: label, hosts, groups: [] };
+}
+
+/** Only configurations with unambiguous identities can share a row (deviceHostsSettings.logic.ts). */
+export function groupDeviceHosts(environments: readonly { environmentId: string; label: string; hosts: HostConfig[] }[]) {
+  const groups = new Map<string, { host: HostConfig; members: { environmentId: string; label: string; host: HostConfig }[] }>();
+  const identities = new Map<string, string>(), configurations = new Map<string, string>();
+  for (const environment of environments) {
+    const destinations = new Set<string>();
+    for (const host of environment.hosts) {
+      const destination = JSON.stringify([host.target, host.port, host.identityFile]);
+      const configuration = JSON.stringify([host.label, host.target, host.port, host.identityFile]);
+      if (destinations.has(destination) || (identities.has(host.id) && identities.get(host.id) !== configuration)
+        || (configurations.has(host.target) && configurations.get(host.target) !== configuration)) return null;
+      destinations.add(destination); identities.set(host.id, configuration); configurations.set(host.target, configuration);
+      const member = { environmentId: environment.environmentId, label: environment.label, host };
+      const group = groups.get(destination);
+      if (group) group.members.push(member); else groups.set(destination, { host, members: [member] });
+    }
+  }
+  return [...groups.values()];
+}
+const targetClients = new WeakMap<T3Client, Map<string, { generation: number; client: T3Client }>>();
+/** Keep each background client's check/editor cache across answers; its connection generation invalidates it. */
+export function scopedDeviceHostsView(client: T3Client, native: Native, environments: ScopeEnvironment[], all: ScopeEnvironment[], deviceState: Obj | null, projectScope: boolean): DeviceHostsView {
+  let cache = targetClients.get(client);
+  if (!cache) targetClients.set(client, cache = new Map());
+  const targets = environments.filter(environment => environment.connection.phase === 'connected' && environment.serverConfig).map(environment => {
+    let cached = cache!.get(environment.environmentId);
+    const remote = environmentClient(client, environment.environmentId, native);
+    if (!cached || cached.generation !== remote.generation) cache!.set(environment.environmentId, cached = { generation: remote.generation, client: remote });
+    const labels = settingsScopeEnvironmentLabels(environment, all);
+    return { client: cached.client, label: labels.primary, secondary: labels.secondary, state: environment.environmentId === client.environmentId ? deviceState : liveEnvironments(client, native).find(entry => entry.environmentId === environment.environmentId)?.devices.value?.[0] ?? null };
+  });
+  stateOf(client).targets = targets;
+  const views = targets.map(target => ({ target, view: deviceHostsView(target.client, obj(target.client.config.settings), target.state, projectScope, true) }));
+  const base = deviceHostsView(client, {}, deviceState, projectScope, targets.length > 0);
+  const groups = groupDeviceHosts(targets.map(target => ({ environmentId: target.client.environmentId, label: target.label, hosts: hostsOf(obj(target.client.config.settings)) })));
+  const decorate = (row: HostRow, target: HostTarget) => ({ ...row, environment: target.client.environmentId, hostId: row.id, id: `${target.client.environmentId}-${row.id}`, menuId: `device-host-menu-${target.client.environmentId}-${row.id}`, owner: target.label });
+  if (targets.length > 1 && groups === null) return { ...base, hosts: [], groups: views.map(({ target, view }) => ({ id: target.client.environmentId, label: target.label, secondary: target.secondary,
+    summary: view.hosts.length ? `${view.hosts.length} host${view.hosts.length === 1 ? '' : 's'}` : 'No device hosts', hosts: view.hosts.map(row => decorate(row, target)) })) };
+  return { ...base, hosts: (groups ?? []).map(group => {
+    const member = group.members[0]!, { target, view } = views.find(view => view.target.client.environmentId === member.environmentId)!;
+    const row = view.hosts.find(row => row.id === member.host.id)!;
+    return { ...row, owner: group.members.map(member => member.label).join(', '), environment: '', hostId: row.id };
+  }) };
 }
 
 export type HostCheckRow = { id: string; label: string; status: string; platforms: string; error: string };
@@ -88,17 +138,22 @@ export function hostEditorView(client: T3Client): HostEditorView {
   const blank: HostEditorView = { open: false, title: '', description: '', serial: '', id: '', label: '', target: '', identityFile: '', port: '', optionsOpen: false, checkKey: '', checking: false, checked: false, summary: 'Check access before saving', results: [] };
   if (!editor) return blank;
   const host = editor.host;
-  return { ...blank, open: true, title: editor.isNew ? 'Add device host' : 'Edit device host', description: `Connect from ${label}. Hosts on the same machine are skipped.`, serial: String(editor.serial),
+  return { ...blank, open: true, title: editor.isNew ? 'Add device host' : 'Edit device host', description: stateOf(client).editingTargets.length > 1 ? `Connect from each of ${stateOf(client).editingTargets.length} machines. Hosts on the same machine are skipped.` : `Connect from ${label}. Hosts on the same machine are skipped.`, serial: String(editor.serial),
     id: host.id, label: host.label, target: host.target, identityFile: host.identityFile ?? '', port: host.port === undefined ? '' : String(host.port), optionsOpen: host.port !== undefined || host.identityFile !== undefined };
 }
 /** The check shown under the dialog's Test connection for one connection key. */
 export function hostChecks(client: T3Client): { key: string; checking: boolean; summary: string; results: HostCheckRow[] }[] {
-  const label = envLabel(client), environmentId = client.environmentId;
-  return [...stateOf(client).checks].map(([key, check]) => ({ key, checking: check.status === 'pending',
-    summary: check.status === 'pending' ? 'Checking environments…' : check.status === 'failed' ? '1 of 1 failed' : 'Connection checks passed',
-    results: [{ id: environmentId, label, status: check.status === 'pending' ? 'Checking…' : check.status === 'local' ? 'Already available locally' : check.status === 'failed' ? 'Failed' : 'Connected',
-      platforms: check.status === 'connected' ? check.platforms.map(platform => `${str(platform.platform) === 'ios' ? 'iOS' : 'Android'} ${platform.available === true ? 'available' : 'unavailable'}`).join('   ') : '',
-      error: check.status === 'failed' ? check.error : '' }] }));
+  const state = stateOf(client), targets = state.editingTargets.length ? state.editingTargets : state.targets.length ? state.targets : [{ client, label: envLabel(client) }];
+  const keys = [...new Set(targets.flatMap(target => [...stateOf(target.client).checks.keys()]))];
+  return keys.map(key => {
+    const results = targets.flatMap(target => {
+      const check = stateOf(target.client).checks.get(key);
+      return check ? [{ id: target.client.environmentId, label: target.label, status: check.status === 'pending' ? 'Checking…' : check.status === 'local' ? 'Already available locally' : check.status === 'failed' ? 'Failed' : 'Connected',
+        platforms: check.status === 'connected' ? check.platforms.map(platform => `${str(platform.platform) === 'ios' ? 'iOS' : 'Android'} ${platform.available === true ? 'available' : 'unavailable'}`).join('   ') : '', error: check.status === 'failed' ? check.error : '' }] : [];
+    });
+    const failed = results.filter(result => result.status === 'Failed').length, checking = results.some(result => result.status === 'Checking…');
+    return { key, checking, summary: checking ? 'Checking environments…' : failed ? `${failed} of ${targets.length} failed` : 'Connection checks passed', results };
+  });
 }
 
 // ── Commands ───────────────────────────────────────────────────────────────
@@ -118,7 +173,7 @@ async function test(client: T3Client, native: Native, host: HostConfig): Promise
 const fields = (input: Record<string, string>) => ({ id: str(input.id), label: str(input.label), target: str(input.target), identityFile: str(input.identityFile), port: str(input.port) });
 
 /** rest:hosts-* — open / edit / close the editor, test, save, remove, retry. */
-export async function deviceHostsCommand(client: T3Client, native: Native, op: string, input: Record<string, string>, projectScope: boolean): Promise<string> {
+async function singleDeviceHostsCommand(client: T3Client, native: Native, op: string, input: Record<string, string>, projectScope: boolean): Promise<string> {
   const state = stateOf(client), access = client.restAccess(native);
   if (op === 'hosts-close') { state.editor = null; return ''; }
   if (op === 'hosts-open' || op === 'hosts-edit') {
@@ -172,4 +227,36 @@ export async function deviceHostsCommand(client: T3Client, native: Native, op: s
     return '';
   }
   throw new ClientError(`Unknown settings action: ${op}`);
+}
+
+/** One scoped action fans out without replacing the other machines' host ids or unrelated hosts. */
+export async function deviceHostsCommand(client: T3Client, native: Native, op: string, input: Record<string, string>, projectScope: boolean): Promise<string> {
+  const state = stateOf(client);
+  const available = state.targets.length ? state.targets : [{ client, label: envLabel(client), secondary: '', state: null }];
+  const targets = input.environment ? available.filter(target => target.client.environmentId === input.environment)
+    : state.editingTargets.length && !['hosts-open', 'hosts-edit', 'hosts-test-row', 'hosts-remove', 'hosts-retry'].includes(op) ? state.editingTargets : available;
+  if (!targets.length) throw new ClientError('That environment is no longer selected.');
+  if (op === 'hosts-close') { state.editor = null; state.editingTargets = []; return ''; }
+  if (op === 'hosts-open' || op === 'hosts-edit') {
+    await singleDeviceHostsCommand(targets[0]!.client, native, op, input, projectScope);
+    state.editor = stateOf(targets[0]!.client).editor; state.editingTargets = targets;
+    return '';
+  }
+  const original = state.editor?.original;
+  await Promise.all(targets.map(async target => {
+    let mapped = { ...input };
+    if (original && (op === 'hosts-save' || op === 'hosts-remove')) {
+      const host = hostsOf(obj(target.client.config.settings)).find(host => connectionKey(host) === connectionKey(original));
+      if (host) mapped.id = host.id;
+    } else if (targets.length > 1 && ['hosts-test-row', 'hosts-remove', 'hosts-retry'].includes(op)) {
+      const firstHost = hostsOf(obj(targets[0]!.client.config.settings)).find(host => host.id === input.id);
+      const host = firstHost && hostsOf(obj(target.client.config.settings)).find(host => connectionKey(host) === connectionKey(firstHost));
+      if (!host) return;
+      mapped.id = host.id;
+    }
+    if (state.editor) stateOf(target.client).editor = state.editor;
+    await singleDeviceHostsCommand(target.client, native, op, mapped, projectScope);
+  }));
+  if (op === 'hosts-save') { state.editor = null; state.editingTargets = []; }
+  return '';
 }

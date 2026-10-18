@@ -162,7 +162,7 @@ export type DispatchRow = (add: DispatchAdd, client: T3Client, threads: Obj[], b
 // order (the host files a button's first ⌘ chord as its menu key equivalent,
 // so order is kept). A feature adds a row function, here or in its own file,
 // and one entry below; no row reads another's locals.
-const MAIN_ROWS: DispatchRow[] = [paletteRows, appearanceRow, threadOrderRows, navigationRows, scratchRow, threadRows, panelRows, (add, client) => previewToggleRow(add, client), terminalRows, turnRows, modelPickerRows, threadCommandRows];
+const MAIN_ROWS: DispatchRow[] = [paletteRows, appearanceRow, threadOrderRows, navigationRows, scratchRow, threadRows, panelRows, (add, client) => previewToggleRow(add, client), terminalRows, turnRows, effortRows, modelPickerRows, threadCommandRows];
 /** The palette, usage, theme editor and new-thread commands. */
 function paletteRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   // theme.select opens the palette on Change theme; usage.open and themeEditor.toggle run the palette's rows.
@@ -218,7 +218,7 @@ function threadRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePr
     // ChatView activeThreadSettled: only an explicit settle makes ⇧⌘S un-settle; an automatic one is settled explicitly
     // (a thread whose settledAt outlived its un-settle took Un-settle, a no-op).
     const settled = thread.settledOverride === 'settled';
-    add('thread.settle', 'command', settled ? 'chat:unsettle' : 'chat:settle', settled ? 'Un-settle Thread' : 'Settle Thread', str(thread.id));
+    add('thread.settle', 'command', settled ? 'chat:unsettle' : 'chat:settle-advance', settled ? 'Un-settle Thread' : 'Settle Thread', str(thread.id));
     // thread.pin: pin, or unpin through the sidebar's Unpin confirmation when that setting asks.
     if (obj(obj(obj(client.config).environment).capabilities).threadPinning === true) {
       const pinned = thread.pinnedAt != null;
@@ -232,12 +232,14 @@ function threadRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePr
   const project = (client.shell?.projects ?? []).find(candidate => candidate.id === client.projectId);
   if (project && favoriteEditor(client.config) && openFavoriteEnabled(client, str(project.title))) add('editor.openFavorite', 'flow', 'open-favorite', 'Open in Editor', str(thread?.worktreePath, str(project.workspaceRoot)));
 }
-/** The right panel: close, toggle, Diff, and Copy Thread ID. */
+/** The right panel: close, toggle, thread details, Diff, and Copy Thread ID. */
 function panelRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   // rightPanel.close: an open panel closes before ⌘W reaches the window, a draft's panel too.
   const closing = closeChordTarget(client, context.diffOpen, context.prNumber ?? ''); // the active surface tab first
   if (closing) add('rightPanel.close', closing[0], closing[1], 'Close Right Panel');
   add('rightPanel.toggle', 'diff', '', 'Toggle Right Panel'); // a draft's panel toggles too (ChatView toggleRightPanel)
+  // threadPanel.toggle: ChatView's toggleThreadPanel, for the open thread or draft (no ChatView under a utility page).
+  if (!context.page && (client.threadId || client.projectId)) add('threadPanel.toggle', 'details', '', 'Toggle Thread Details');
   if (!context.draftThreadRoute) {
     add('diff.toggle', diffShown(client) ? 'diff' : 'diff-open', '', 'Toggle Diff');
     add('thread.copyReference', 'copy-thread', '', 'Copy Thread ID');
@@ -247,6 +249,12 @@ function panelRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePro
 function turnRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   if (context.turnRunning) add('thread.stop', 'stop', '', 'Stop');
   addStripShortcuts(client, add); // ⇧⌘X, ⇧⌘G, ⇧⌘L: the composer's context strip (composer-controls-branch.ts).
+}
+/** composer.increaseEffort / composer.decreaseEffort (unbound by default): the chat view's composer steps its effort (composer-effort-step.ts). */
+function effortRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
+  if (context.page) return;
+  add('composer.increaseEffort', 'command', 'effort-step', 'Increase Effort', '1');
+  add('composer.decreaseEffort', 'command', 'effort-step', 'Decrease Effort', '-1');
 }
 /** The open model picker: provider rail and the first nine models. */
 function modelPickerRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {

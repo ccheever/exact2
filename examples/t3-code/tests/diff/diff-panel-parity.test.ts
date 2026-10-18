@@ -267,6 +267,7 @@ describe('the scope menu', () => {
 
 describe('file header counts', () => {
   test("Pierre's counts read deletions first and hide a zero beside a change; DiffStatLabel reads additions first, compact", () => {
+    expect(headerStat({ additions: 12345, deletions: 6789 }, false)).toEqual({ statAligned: false, addText: '+12,345', delText: '-6,789' });
     expect(headerStat({ additions: 5, deletions: 1 }, false)).toEqual({ statAligned: false, addText: '+5', delText: '-1' });
     expect(headerStat({ additions: 1, deletions: 0 }, false)).toEqual({ statAligned: false, addText: '+1', delText: '' });
     expect(headerStat({ additions: 0, deletions: 0 }, false)).toEqual({ statAligned: false, addText: '+0', delText: '-0' });
