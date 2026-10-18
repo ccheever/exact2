@@ -180,8 +180,8 @@ const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { 
 /** The app's server for one `agent` drive (LLP 1116.008 D1): null when the app has none, or the URL it calls already answers
  * (the builder's own, or another drive's: used, said nothing of); else started where app.ts calls it, on a database of the
  * drive's own, `.exact/agent/<storage>/db.sqlite` kept for the `--storage` name so a second drive on it sees the first's data
- * (without one, an empty database removed after; `fresh`, a drive that starts its store empty, empties it first), and one
- * line says so. `{ stop() }` ends it. Drives that overlap share the
+ * (without one, an empty database removed after; `fresh`, a drive that starts its store empty, empties it first, and is
+ * refused while another drive or the builder's server is using the app server), and one line says so. `{ stop() }` ends it. Drives that overlap share the
  * server: each is a `drive-<pid>` file in `.exact/agent-server/`, the servers a drive started are `server-<pid>` (their
  * database as the file's text), and the last drive out stops them; one that did not start the server stops nothing, and the
  * builder's own is never in the list. An entry that does not read `DB` is refused (`appServer`'s `refusal`), as `test` refuses it. */
@@ -221,6 +221,13 @@ export async function driveServer(dir, storage, say = (line) => console.error(li
     catch { const owner = Number(readIn(lease, 'starting')); if (owner && !alive(owner)) rmSync(starting, { force: true }); else await Bun.sleep(100); }
   }
   try {
+    // A store asked empty cannot be emptied under a server another drive (or the builder) is using: refused, and this
+    // drive's lease given up, never the database deleted or kept as it was.
+    const others = files('drive').filter(([file, pid]) => file !== mine && alive(pid)).map(([, pid]) => pid);
+    if (fresh && (others.length || await answering(server.url))) {
+      await stop();
+      throw new Error(`agent: --storage ${storage} is to start empty, but ${others.length ? `another drive (pid ${others.join(', ')}) is using` : 'something already answers at'} ${server.url}, the app server, on its database: let it end, or name another store`);
+    }
     if (await answering(server.url)) {
       const other = files('server').map(([file]) => readIn(lease, file)).find((was) => was && was !== db);
       if (other) say(`agent: ${server.entry} at ${server.url} is another drive's, on its database (${relative(dir, other)}); this drive uses it`);

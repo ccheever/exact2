@@ -462,13 +462,15 @@ test('agent\'s server: started on a database of its own, shared by overlapping d
   const serving = "import { Database } from 'bun:sqlite';\nconst db = new Database(process.env.DB!);\nBun.serve({ hostname: '127.0.0.1', port: Number(process.env.PORT ?? " + port + "), routes: { '/health': () => new Response('ok') } });\n";
   // One drive, as agent.mjs makes it: its own process, ending when its stdin does.
   const script = `const { driveServer } = await import(${JSON.stringify(resolve(import.meta.dir, 'verify.mjs'))});
-    const served = await driveServer(process.argv[1], process.argv[2] === '-' ? undefined : process.argv[2]);
+    let served;
+    try { served = await driveServer(process.argv[1], process.argv[2] === '-' ? undefined : process.argv[2], undefined, { fresh: process.argv[3] === 'fresh' }); }
+    catch (e) { console.log(e.message); process.exit(0); }
     console.log('up');
     for await (const line of console) break;
     await served?.stop();
     console.log('stopped');`;
-  const drive = (storage) => {
-    const child = Bun.spawn([process.execPath, '-e', script, dir, storage], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' }), lines = child.stdout.values()[Symbol.asyncIterator]();
+  const drive = (storage, fresh = '') => {
+    const child = Bun.spawn([process.execPath, '-e', script, dir, storage, fresh], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' }), lines = child.stdout.values()[Symbol.asyncIterator]();
     const next = async () => new TextDecoder().decode((await lines.next()).value).trim();
     return { child, next, said: () => new Response(child.stderr).text(), end: async () => { child.stdin.write('\n'); await child.stdin.flush(); return next(); } };
   };
@@ -499,6 +501,23 @@ test('agent\'s server: started on a database of its own, shared by overlapping d
     assert.equal(await b.said(), `agent: server.ts at ${url} is another drive's, on its database (.exact/agent/one/db.sqlite); this drive uses it\n`);
     assert.deepEqual(['.exact/agent/one/db.sqlite', '.exact/agent-server'].map((f) => existsSync(resolve(dir, f))), [true, false]);
 
+    // A store asked empty (a compare, --reset-storage): refused while another drive uses the server, which runs on for
+    // it; alone, its database is emptied before the server starts.
+    const kept = drive('two');
+    assert.equal(await kept.next(), 'up');
+    const early = drive('one', 'fresh');
+    assert.match(await early.next(), /^agent: --storage one is to start empty, but another drive \(pid \d+\) is using http:\/\/127\.0\.0\.1:\d+, the app server, on its database: let it end, or name another store$/);
+    assert.equal(await up(), true);
+    assert.equal(await kept.end(), 'stopped');
+    await Bun.sleep(100);
+    writeFileSync(resolve(dir, '.exact/agent/one/db.sqlite-journal'), 'left');
+    const fresh = drive('one', 'fresh');
+    assert.equal(await fresh.next(), 'up');
+    assert.equal(existsSync(resolve(dir, '.exact/agent/one/db.sqlite-journal')), false);
+    assert.equal(await fresh.end(), 'stopped');
+    await Bun.sleep(100);
+    assert.equal(await up(), false);
+
     // Two that start together: one starts it, the other waits and uses it.
     const [d, e] = [drive('four'), drive('five')];
     assert.deepEqual([await d.next(), await e.next(), await up()], ['up', 'up', true]);
@@ -524,6 +543,9 @@ test('agent\'s server: started on a database of its own, shared by overlapping d
       assert.equal(await d.next(), 'up');
       assert.equal(await d.end(), 'stopped');
       assert.equal(await d.said(), '');
+      assert.deepEqual([await up(), theirs.exitCode], [true, null]);
+      // Asked empty, a drive is refused rather than writing into theirs.
+      assert.match(await drive('three', 'fresh').next(), /but something already answers at /);
       assert.deepEqual([await up(), theirs.exitCode], [true, null]);
     } finally { theirs.kill(); await theirs.exited; }
   } finally { rmSync(dir, { recursive: true, force: true }); }

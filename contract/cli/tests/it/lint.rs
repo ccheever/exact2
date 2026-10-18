@@ -766,6 +766,13 @@ fn a_refused_member_does_not_hide_the_other_passes_refusals() {
         .map(|(id, _, _)| id)
         .collect();
     assert_eq!(ids, ["syntax-expected-expression"]);
+    // A state only a refused action wrote cannot be inferred now: that is not said.
+    let written = "component App\n  state selected = none\n  action pick\n    selected = some(1) +\n  view\n    button \"go\" press=pick color=missingName\n";
+    let ids: Vec<String> = compile_all("written", written)
+        .into_iter()
+        .map(|(id, _, _)| id)
+        .collect();
+    assert_eq!(ids, ["syntax-expected-expression", "type-unknown-name"]);
     // A refused first component would make another the app: nothing else is checked.
     let first = "component App\n  props\n    x number\n  view\n    Card()\ncomponent Card\n  view\n    text \"a\" color=missingName\n";
     let ids: Vec<String> = compile_all("first", first)

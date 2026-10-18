@@ -18,7 +18,9 @@ pub(crate) struct Refused {
 impl Refused {
     /// `result`, after the syntax refusals when there are any: then a later
     /// pass's refusal is kept only when it names nothing refused, since one
-    /// that does may say no more than that the thing is missing.
+    /// that does may say no more than that the thing is missing, and is no
+    /// `type-cannot-infer`, since what completed a type may be in what was
+    /// refused (an action that wrote `selected = some(1)`).
     pub(crate) fn join<T>(
         &self,
         result: Result<T, Vec<CompileError>>,
@@ -29,7 +31,11 @@ impl Refused {
         let mut all = self.errors.clone();
         if !self.whole {
             let later = result.err().unwrap_or_default();
-            all.extend(later.into_iter().filter(|e| !self.hides(e)));
+            all.extend(
+                later
+                    .into_iter()
+                    .filter(|e| !self.hides(e) && e.id != "type-cannot-infer"),
+            );
         }
         Err(all)
     }

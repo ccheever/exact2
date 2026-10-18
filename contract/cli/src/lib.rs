@@ -673,8 +673,10 @@ fn compile_path_warned(
             path, &app_root, file, sources, mapped, surfaces, profile, warned,
         )
     });
-    if let Some(warned) = warned {
-        warned.extend(own.into_iter().filter(|e| !refused.hides(e)));
+    // A warning about a program some of which was refused may be about what
+    // is missing: none is said until the syntax is whole.
+    if let Some(warned) = warned.filter(|_| refused.errors.is_empty()) {
+        warned.extend(own);
     }
     refused.join(compiled)
 }
