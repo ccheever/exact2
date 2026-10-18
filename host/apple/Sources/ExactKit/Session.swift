@@ -156,6 +156,7 @@ public final class ExactApp {
     /// and subscribed once; every `{seq}` applies to every session.
     private(set) var connection: PlanURL?
     private init() {
+        WidgetContainer.configure()
         #if canImport(UIKit)
         let fallback = Bundle.main.bundlePath
         #else
@@ -192,7 +193,10 @@ public final class ExactApp {
         return true
     }
 
-    func firstPixel(_ token: UInt64) { lifecycle?.firstPixel(self, token: token) }
+    func firstPixel(_ token: UInt64) {
+        lifecycle?.firstPixel(self, token: token)
+        WidgetContainer.publishAfterFirstPixel(resolver)
+    }
 
     /// Refresh generic delivery facts after a composition-owned event.
     public func refreshDelivery() {

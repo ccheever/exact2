@@ -132,3 +132,19 @@ public final class AssetResolver {
         return url.path.hasPrefix(base.path + "/") ? url : nil
     }
 }
+
+extension AssetResolver {
+    package func widgetNames() throws -> [String] {
+        if let names { return names }
+        let fm = FileManager.default
+        var names: [String] = []
+        for tree in ["plans", "assets"] {
+            let base = root.appendingPathComponent(tree, isDirectory: true)
+            guard let walker = fm.enumerator(at: base, includingPropertiesForKeys: [.isRegularFileKey]) else { continue }
+            for case let file as URL in walker where try file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
+                names.append(tree + "/" + String(file.path.dropFirst(base.path.count + 1)))
+            }
+        }
+        return names
+    }
+}

@@ -45,7 +45,12 @@ impl Prefs {
         let agent = std::env::var_os("EXACT_AGENT").is_some();
         let store = std::env::var("EXACT_STORE").unwrap_or_default();
         let memory = (agent && store != "real") || store == "memory";
-        if cfg!(test) || cfg!(not(target_vendor = "apple")) || app_id.is_empty() || memory {
+        if cfg!(test)
+            || cfg!(not(target_vendor = "apple"))
+            || app_id.is_empty()
+            || memory
+            || group_root(app_id).is_some()
+        {
             Prefs::Kv
         } else {
             Prefs::Defaults(app_id.to_string())
@@ -102,6 +107,14 @@ pub fn endow(grants: &str) -> Result<Bindings, String> {
 /// scratch tree (files, not the Keychain).
 pub fn endow_for(grants: &str, app_id: &str) -> Result<Bindings, String> {
     let mut host = Host::new();
+    if let Some(root) = group_root(app_id) {
+        host = host.with_kv_store(Box::new(ibex2::kv::FileStore::new(root.join("kv"))));
+        #[cfg(target_vendor = "apple")]
+        {
+            host = host
+                .with_secret_store(Box::new(ibex2::secrets::darwin::KeychainStore::new(app_id)));
+        }
+    }
     let agent = std::env::var_os("EXACT_AGENT").is_some();
     let store = std::env::var("EXACT_STORE").unwrap_or_default();
     if (agent && store != "real") || store == "memory" {
@@ -781,4 +794,15 @@ mod tests {
         );
         assert!(!file.exists());
     }
+}
+
+/// Widget builds share one group, explicitly supplied by their signed host.
+/// Other apps keep every existing path and Keychain service.
+pub(crate) fn group_root(app_id: &str) -> Option<std::path::PathBuf> {
+    if std::env::var("EXACT_APP_GROUP_APP").ok().as_deref() != Some(app_id) {
+        return None;
+    }
+    std::env::var_os("EXACT_APP_GROUP_ROOT")
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_absolute())
 }

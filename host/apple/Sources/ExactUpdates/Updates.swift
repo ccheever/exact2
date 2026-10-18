@@ -41,7 +41,7 @@ enum Updates {
     /// `assets` as what the binary embeds by name. A refusal is one stderr
     /// line, and the app runs on the embedded facts.
     static func open(assets: URL) -> Bool {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.path ?? NSTemporaryDirectory()
+        let base = WidgetContainer.updateBase?.path ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.path ?? NSTemporaryDirectory()
         guard let payload = try? JSONSerialization.data(withJSONObject: ["base": base, "assets": assets.path]) else { return false }
         let n = write(String(decoding: payload, as: UTF8.self))
         let len = api!.pointee.open(n)

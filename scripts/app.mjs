@@ -1165,7 +1165,8 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
       for(const resource of unit.resources??[])add(resolve(packageRoot,resource.path));
       if(unit.type==='system-target')add(resolve(packageRoot,unit.path));pending.push(...(unit.target_dependencies??[]));
     }
-    add(resolve(packageRoot,'Package.swift'));add(resolve(packageRoot,'webarm/WebArm.swift'));add(resolve(packageRoot,'videoarm/VideoArm.swift'));add(resolve(packageRoot,'build.mjs'));add(resolve(packageRoot,'assets.mjs'));
+    add(resolve(packageRoot,'Package.swift'));add(resolve(packageRoot,'webarm/WebArm.swift'));add(resolve(packageRoot,'videoarm/VideoArm.swift'));add(resolve(packageRoot,'build.mjs'));add(resolve(packageRoot,'assets.mjs'));add(resolve(packageRoot,'bundle.mjs'));add(resolve(packageRoot,'widgets.mjs'));
+    if(platform==='ios'&&app.manifest.widgets?.length)add(resolve(packageRoot,'widget'),true);
   }
   if(platform==='web') {
     for(const path of [...Object.values(webHostFiles('base','rust','gpu',...(gpuModules(app.manifest).length?['gpuModules']:[]))),'scripts/app.mjs','scripts/rust.mjs',...SHELL_SOURCES,'host/web/build.mjs','package.json','bun.lock']) add(resolve(ROOT,path));

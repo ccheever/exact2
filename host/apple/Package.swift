@@ -40,9 +40,10 @@ let testing = ProcessInfo.processInfo.environment["EXACT_TESTS"] == "1"
 // production one (`EXACT_UPDATE_TRUST=production`) compiles none of it.
 let devTools: [SwiftSetting] = ProcessInfo.processInfo.environment["EXACT_UPDATE_TRUST"] == "production" ? [] : [.define("EXACT_INSPECT")]
 
+let sharedCore = ProcessInfo.processInfo.environment["EXACT_CORE_FRAMEWORK"]
 let core: [Target] = [
     .systemLibrary(name: "CExact", path: "Sources/CExact"),
-    .target(
+    sharedCore.map { .binaryTarget(name: "ExactCore", path: $0) } ?? .target(
         name: "ExactCore",
         dependencies: ["CExact"],
         path: "Sources/ExactCore",
