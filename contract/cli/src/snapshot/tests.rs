@@ -199,13 +199,19 @@ fn manifest_and_preview_are_checked_and_no_widgets_is_unchanged() {
         Some("Departures from your station.")
     );
     for key in ["title", "description"] {
-        for invalid in [json!(null), json!(3), json!([])] {
+        for invalid in [
+            json!(null),
+            json!(3),
+            json!([]),
+            json!(""),
+            json!("a\u{2028}b"),
+        ] {
             let mut manifest = labels.clone();
             manifest.json["widgets"][0][key] = invalid;
             assert!(manifest
                 .widgets()
                 .unwrap_err()
-                .contains(&format!("{key} must be a string")));
+                .contains(&format!("{key} must be a non-empty string")));
         }
         labels.json["widgets"][0]
             .as_object_mut()

@@ -77,7 +77,7 @@ impl Manifest {
                             // The label is a Swift string literal in the generated widget bundle.
                             value
                                 .as_str()
-                                .filter(|s| !s.trim().is_empty() && !s.chars().any(char::is_control))
+                                .filter(|s| !s.trim().is_empty() && !s.chars().any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')))
                                 .map(str::to_owned)
                                 .ok_or_else(|| format!("{at}.{key} must be a non-empty string without control characters"))
                         })
