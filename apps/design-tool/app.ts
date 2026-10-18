@@ -1074,11 +1074,13 @@ const sources: Sources = {
     if (epoch && r.missed && r.epoch === place.epoch) {
       changeset.unshift({ seq: Number(r.seq ?? 0), who: '', acceptedBy: '', write: 0, changed: [], files: [], before: {}, after: {}, mine: false, diff: '', values: new Map(), committed: false, gap: true });
     }
-    // (The files as each event came: a selection is of those, not of a write later in the answer.)
+    // (The files as each event came: a selection is of those, not of a write later in the answer. The
+    // first answer's start is not known, so a selection before a write in it is of no files known.)
     let filesAt = lastFiles;
+    const lastWrite = anew ? ((r.events ?? []) as any[]).findLastIndex(e => e.event === 'changed') : -1;
     if (epoch && !r.missed) for (const e of (r.events ?? []) as any[]) noted(e);
     // The builds, as their events tell them.
-    for (const e of (r.events ?? []) as any[]) {
+    for (const [i, e] of ((r.events ?? []) as any[]).entries()) {
       // (The design server gone: its scrubs with it.)
       if (e.event === 'down') { scrubMoves += 1; scrubsOpen.clear(); }
       if (e.event === 'scrub') { scrubMoves += 1; if (e.reason === 'opened') scrubsOpen.add(String(e.scrub)); else scrubsOpen.delete(String(e.scrub)); if (scrubsOpen.size > 64) scrubsOpen.delete(scrubsOpen.values().next().value!); }
@@ -1107,7 +1109,12 @@ const sources: Sources = {
         if (e.what === 'inspect' && selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale ||= `its page could not inspect it${e.detail ? ` (${e.detail})` : ''}`;
       }
       // A selection joined to source, with what it was made under.
-      else if (e.event === 'selection') { const b = buildsNow.get(String(e.build)); selectionNow = { e, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: digestKey(filesAt) }; }
+      // A selection's held report counts only as the answer to the hold its page was asked under: one
+      // from before the hold moved (or unasked) is asked for again.
+      else if (e.event === 'selection') {
+        const b = buildsNow.get(String(e.build)), held = e.held && asked.get(String(e.build)) === JSON.stringify(b?.holding.hold ?? null);
+        selectionNow = { e: held || !e.held ? e : { ...e, held: undefined }, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: i < lastWrite ? '' : digestKey(filesAt) };
+      }
       // Inspect mode's owners as they move (tamber/1.6): this client's on or
       // off, or another's taking a build over. Inspect mode ending where the
       // selection is (an off taken by no one, `to: null`) ends it, whoever

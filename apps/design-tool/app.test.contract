@@ -1346,12 +1346,18 @@ test "a style's state part row is edited by set-state, the default, from its val
   clock data
   clock +1
   clock data
+  // The held look as its page reports it when asked (its first report, unasked, is asked again).
+  request POST "/__stub/held-answer" {"held": {"state": "active", "site": 3, "rows": [{"name": "press_opacity_to", "value": "0.8", "state": "active", "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "opacity", "file": "post.contract"}}]}} as ada
   request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/post.contract", "line": 9, "col": 5, "end_col": 11, "component": "PostButton", "chain": []}, "rows": [{"name": "press_opacity_to", "value": "0.8", "source": "authored", "origin": "class:PostButton", "state": "active", "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "opacity", "file": "post.contract", "text": "0.8"}}, {"name": "press_background_color", "value": "#0f73ffff", "source": "authored", "origin": "class:PostButton", "state": "active", "token": {"names": ["accent.fill"], "text": "accent.fill", "modes": "", "implied": false}, "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "background-color", "file": "post.contract", "text": "accent.fill", "token": "accent.fill"}}], "held": {"state": "active", "site": 3, "rows": [{"name": "press_opacity_to", "value": "0.8", "state": "active", "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "opacity", "file": "post.contract"}}]}} as ada
   clock +1
   clock data
   expect text "selrow-state-:active opacity" == "Edit PostButton :active opacity"
   expect text "selrow-token-:active background-color" == "Edit the token accent.fill instead"
   expect text "selrow-state-:active background-color" == "Edit PostButton :active background-color"
+  clock +1
+  clock data
+  clock +1
+  clock data
   expect text "heldrow-state-:active opacity" == "Edit PostButton :active opacity"
   tap "selrow-state-:active opacity"
   expect state editKind == "set-state"
