@@ -10,10 +10,10 @@
     "linux",
     "web"
   ],
-  "inputs": "e0d90e5e9af733c2abc50a530440ffeaa5edb4414a80e4013948a79b024137cc",
-  "sourceInputs": "fb75783c450e9dfe1e1c79beee52fb4c9af33431b0f7a27a0e26627a53c997b2",
+  "inputs": "339ecc38cd26389acf699fc60ab4895fa59c46905f1d23d7d71ef0658497f2f2",
+  "sourceInputs": "8533c084fa6b4b1b0ec5d4b566ac4fae04a6c031697cc425e1cd9461637e92db",
   "game": "asset-fixture",
   "generated": "bun game/prove.mjs asset-fixture --repin --hosts 'linux,web'",
-  "at": "a3ab3a5ce7fd77d371354532685708346bbb835b",
-  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream; MeshData.outline, MaterialData.rim and Node.posable extend saved model identities"
+  "at": "aa3d6611193eb44e4604a553d2166bacf5d24f51",
+  "reason": "07170a2db: saved Environment.tone_mapping (Aces) extends the world hash stream and simulation save; fog is None; MeshData.outline, MaterialData.rim and Node.posable extend saved model identities"
 }
