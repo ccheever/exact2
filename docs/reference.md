@@ -1788,7 +1788,7 @@ visibility deviation; other native hosts remain unqualified.
 `time` is HTML's instant, in epoch milliseconds. `format` names the platform
 presentation: `relative`, `timer`, `countdown`, `date-short`, `date-medium`
 (the default), `date-long`, `date-full`, or `time-short` and `time-medium` (with seconds). Date and time styles use the viewer's locale and
-time zone. Children are fallback text if the host cannot format the instant.
+time zone (Linux desktop currently uses English). Children are fallback text if the host cannot format the instant.
 
 ```contract
 component Clock
