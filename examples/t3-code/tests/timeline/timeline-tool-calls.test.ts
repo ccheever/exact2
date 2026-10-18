@@ -177,27 +177,37 @@ function rows(value: T3Client) { return transcriptRows(value); }
 describe('mermaid fences (5e35272)', () => {
   const flow = 'graph TD\n  A --> B';
   const markdown = `Look:\n\n\`\`\`mermaid\n${flow}\n\`\`\`\n\n\`\`\`ts\nconst a = 1;\n\`\`\`\n`;
-  test('only settled mermaid fences carry a diagram, loading until the module answers', async () => {
+  test('only settled mermaid fences carry a diagram, loading in each theme until its page reports', async () => {
     const { mermaidFences, messageDiagrams } = await import('../../src/timeline/timeline-mermaid');
     expect(mermaidFences(markdown)).toEqual([flow]);
-    expect(messageDiagrams(markdown, false)).toMatchObject([{ id: '0', code: flow, diagram: 'loading', items: [] }]);
+    const [diagram] = messageDiagrams(markdown, false);
+    expect(diagram).toMatchObject({ id: '0', code: flow, light: { diagram: 'loading' }, dark: { diagram: 'loading' } });
+    // The Mermaid page (assets/mermaid/index.html) takes the fence, its theme and the font in its fragment.
+    const page = new URL(diagram!.srcDark, 'exact-app://app/');
+    expect(page.pathname).toBe('/assets/mermaid/index.html');
+    expect(Object.fromEntries(new URLSearchParams(page.hash.slice(1)))).toMatchObject({ theme: 'dark', source: flow });
     expect(messageDiagrams(markdown, true)).toEqual([]);
   });
-  test('joins both themes into one geometry with both paints, and reports errors', async () => {
-    const { joinThemes } = await import('../../src/timeline/timeline-mermaid');
-    const item = (fill: string) => ({ kind: 'path', d: 'M0 0H10', transform: 'matrix(1 0 0 1 0 0)', fill, stroke: '', width: 1, dash: '', cap: 'butt', join: 'miter' });
-    const light = JSON.stringify({ status: 'rendered', width: 120, height: 80, viewBox: '0 0 120 80', items: [item('#ececff'), { kind: 'text', text: 'Start', transform: 'matrix(1 0 0 1 4 8)', fill: '#333333', x: 0, y: 16, size: 16, weight: 400, slant: 'normal', baseline: 'central' }] });
-    const dark = JSON.stringify({ status: 'rendered', width: 120, height: 80, viewBox: '0 0 120 80', items: [item('#1f2020'), { kind: 'text', text: 'Start', transform: 'matrix(1 0 0 1 4 8)', fill: '#cccccc', x: 0, y: 16, size: 16, weight: 400, slant: 'normal', baseline: 'central' }] });
-    const joined = joinThemes(light, dark);
-    expect(joined).toMatchObject({ diagram: 'rendered', width: 120, viewBox: '0 0 120 80' });
-    expect(joined.items[0]).toMatchObject({ fill: '#ececff', fillDark: '#1f2020', stroke: '#00000000', dash: 'none' });
-    expect(joined.items[1]).toMatchObject({ kind: 'text', text: 'Start', fill: '#333333', fillDark: '#cccccc', baseline: 'central' });
-    expect(joinThemes(JSON.stringify({ status: 'error', message: 'Parse error on line 2', retryable: false }), '{}')).toMatchObject({ diagram: 'error', message: 'Parse error on line 2', retryable: false, items: [] });
+  test('a page\'s report lands per theme and source; an error offers Retry only when Retry may help, and Retry loads the page again', async () => {
+    const { diagramFor, noteMermaidFrame, retryMermaid } = await import('../../src/timeline/timeline-mermaid');
+    const code = 'graph LR\n  X --> Y';
+    noteMermaidFrame(JSON.stringify({ status: 'rendered', width: 120.5, height: 80, theme: 'light', source: code }));
+    expect(diagramFor('0', code)).toMatchObject({ light: { diagram: 'rendered', width: 120.5, height: 80 }, dark: { diagram: 'loading' } });
+    noteMermaidFrame(JSON.stringify({ status: 'error', message: 'Mermaid failed to load.', retryable: true, theme: 'dark', source: code }));
+    expect(diagramFor('0', code).dark).toEqual({ diagram: 'error', message: 'Mermaid failed to load.', retryable: true, width: 0, height: 0 });
+    const before = diagramFor('0', code).srcDark;
+    retryMermaid(code, 'dark');
+    expect(diagramFor('0', code).dark.diagram).toBe('loading');
+    expect(diagramFor('0', code).srcDark).not.toBe(before);
+    expect(diagramFor('0', code).light.diagram).toBe('rendered');
+    // A report that is not JSON, names no source or no size changes nothing.
+    for (const junk of ['nope', JSON.stringify({ status: 'rendered', width: 1, height: 1, theme: 'dark', source: '' }), JSON.stringify({ status: 'rendered', width: 0, height: 5, theme: 'dark', source: code })]) noteMermaidFrame(junk);
+    expect(diagramFor('0', code).dark.diagram).toBe('loading');
   });
   test('a user message with a mermaid fence presents its diagram beside its code highlights', () => {
     const value = client([user('u', 0, markdown)]);
     const row = rows(value).find(candidate => candidate.kind === 'user')!;
     expect(row.code!.map(code => code.code)).toEqual([flow, 'const a = 1;']);
-    expect(row.diagrams!.map(diagram => [diagram.code, diagram.diagram])).toEqual([[flow, 'loading']]);
+    expect(row.diagrams!.map(diagram => [diagram.code, diagram.light.diagram])).toEqual([[flow, 'loading']]);
   });
 });

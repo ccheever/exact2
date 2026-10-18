@@ -67,6 +67,5 @@ final class WebInspectionTests: XCTestCase {
         media.mount(host: host, kind: "html", raw: "http://127.0.0.1:9/api/assets/page?sig=1", name: "page.html")
         let preview = try XCTUnwrap(host.subviews.first as? WKWebView)
         XCTAssertTrue(preview.isInspectable, "html-preview")
-        XCTAssertTrue(T3TimelineMermaid.renderer().isInspectable, "mermaid")
     }
 }

@@ -8,7 +8,7 @@ import type { T3Client } from '../client/client';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { canSnooze, capabilities, latestRun, orderKeyBetween, planReorder, wokeAt } from './sidebar-model';
-import { bulkMenuState, canArchive, nativeTemplate, threadMenuItems, threadMenuState, type MenuItem } from './sidebar-menu';
+import { bulkMenuState, canArchive, threadMenuState } from './sidebar-menu';
 import { wall, adoptCommandTime, closeDialog, localDate, openSnoozeDialog, resolveCustomSnooze, sidebarPrefs, sidebarSession, undoLive, SETTLED_TAIL_PAGE_COUNT, type UndoAction } from './sidebar-state';
 import { calendarLocal } from './snooze-calendar';
 export { clock, undoLive } from './sidebar-state';
@@ -20,8 +20,7 @@ import { syncFavicons } from './sidebar-glyph';
 import { syncBranchPullRequests } from './sidebar-branch-pr';
 import { resetSidebarWidth } from './sidebar-width';
 import { sweepRelease } from './row-sweep';
-import { discardDraft, draftChoice, draftMenu } from './draft-rows';
-import { menuAnchor, rowKeyMenu, withMenuAnchor } from './row-context-keys';
+import { discardDraft, draftChoice } from './draft-rows';
 import { legacyCommand, legacyLocal } from './legacy-sidebar-commands'; // The "Sidebar (legacy)" gestures
 import { legacyEnabled, legacyProjectOrder, threadSortOrder } from './legacy-sidebar-view';
 import { archiveBackground, backgroundThreadPath, backgroundWorktreePlan, envAccess, isBackground, markUnreadBackground, openBackgroundDraft, removeBackground } from './legacy-sidebar-fleet';
@@ -429,11 +428,7 @@ export async function sidebarRefreshed(client: T3Client, nativeHandle: Native): 
 /** After a thread opens: the server visit lands at once for an unseen completion. */
 export function sidebarOpened(client: T3Client, nativeHandle: Native): void { visitOpenThread(client, nativeHandle); }
 
-const menuState = (client: T3Client, thread: Obj, header: boolean) => threadMenuState(client, thread, header, projectScopes(client), wall(client));
-async function showMenu(client: T3Client, nativeHandle: Native, items: MenuItem[]): Promise<string> {
-  const reply = obj(await client.restAccess(nativeHandle).call({ op: 'sidebarMenu', items: nativeTemplate(items), ...menuAnchor(client) }));
-  return str(reply.id);
-}
+const menuState = (client: T3Client, thread: Obj) => threadMenuState(client, thread, false, projectScopes(client), wall(client));
 
 /** The sidebar's local ops: view state that never reaches the server. */
 export async function sidebarLocal(client: T3Client, _native: Native, op: string, id: string, value: string): Promise<string> {
@@ -506,8 +501,6 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
   }
   if (op === 'discard-project-draft') { discardDraft(client, nativeHandle, `${client.environmentId}:new:${id}`, true); return ''; } // Behind the undo notice
   if (op === 'draft-choice') return draftChoice(client, nativeHandle, id, value); // the draft row's context popover (exact2 #223)
-  if (op === 'draft-menu') return value === 'key' ? withMenuAnchor(client, 'bottom-left', () => draftMenu(client, nativeHandle, id)) : draftMenu(client, nativeHandle, id); // Upstream 95edeb753b: a draft row's context menu; Shift+F10 anchors it to the row
-  if (op === 'row-key') { const key = rowKeyMenu(id, value); return key ? withMenuAnchor(client, key.anchor, () => sidebarCommand(client, nativeHandle, storage, key.op, key.id, key.value)) : ''; } // A focused row's ContextMenu key
   if (op === 'new-thread-click') {
     // routes/_chat.tsx chat.new: the legacy sidebar keeps the immediate contextual create; ⇧-click (`value` "shift", the
     // press's own MouseEvent, app.contract sidebarNewThread) creates at once.
@@ -523,22 +516,14 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
     catch (error) { toast(client, 'Could not open threads', error); return ''; }
     return 'sidebar:new-thread';
   }
-  // The row's thread on its own environment (handleThreadContextMenu's threadByKey): a background row's choices act there.
-  if (op === 'menu') {
-    if (session.selection.length > 0 && session.selection.includes(id)) return bulkMenu(client, nativeHandle, storage);
-    const thread = targetOf(client, id)?.row;
-    if (!thread) return '';
-    const state = menuState(client, thread, value === 'header');
-    const choice = await showMenu(client, nativeHandle, threadMenuItems(state));
-    return choice ? runChoice(client, nativeHandle, storage, thread, choice, state.scope?.key ?? '') : '';
-  }
-  // A choice from the row's context popover (sidebar-row.contract RowMenu, exact2 #223): the row's
-  // menu as painted, so a selected row's is the bulk menu, as the right-click's handler decides.
+  // A choice from the row's context popover (sidebar-row.contract ThreadMenu, exact2 #223): the row's
+  // menu as painted, so a selected row's is the bulk menu, as the right-click's handler decides. The row's
+  // thread is on its own environment (handleThreadContextMenu's threadByKey): a background row's choices act there.
   if (op === 'menu-choice') {
     if (session.selection.length > 0 && session.selection.includes(id)) return bulkChoice(client, nativeHandle, storage, value);
     const thread = targetOf(client, id)?.row;
     if (!thread || !value) return '';
-    const state = menuState(client, thread, false);
+    const state = menuState(client, thread);
     return runChoice(client, nativeHandle, storage, thread, value, state.scope?.key ?? '');
   }
   // A row of any environment: a background environment's (`fleet:` id) acts on that environment, as the reference's
@@ -612,12 +597,6 @@ async function runChoice(client: T3Client, nativeHandle: Native, storage: Files,
 function selectedRows(client: T3Client, now: number): Obj[] {
   const rendered = new Set(renderedRows(client, partition(client, now)).map(entry => str(entry.thread.id)));
   return sidebarSession(client).selection.filter(id => rendered.has(id)).map(id => targetOf(client, id)?.row).filter((thread): thread is Obj => !!thread);
-}
-async function bulkMenu(client: T3Client, nativeHandle: Native, storage: Files): Promise<string> {
-  const threads = selectedRows(client, wall(client));
-  if (!threads.length) return '';
-  const choice = await showMenu(client, nativeHandle, bulkMenuState(client, threads, wall(client)).items);
-  return choice ? bulkChoice(client, nativeHandle, storage, choice) : '';
 }
 async function bulkChoice(client: T3Client, nativeHandle: Native, storage: Files, choice: string): Promise<string> {
   const session = sidebarSession(client), threads = selectedRows(client, wall(client));

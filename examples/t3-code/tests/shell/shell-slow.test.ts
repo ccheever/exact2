@@ -117,7 +117,7 @@ describe('a request the transport has failed', () => {
     expect(tracking(client)).toBe(false);
   });
 
-  test('is older than the deadline the transport's rpc gives a request', () => {
+  test('is older than the deadline the transport gives a request', () => {
     expect(TRANSPORT_REQUEST_DEADLINE_MS).toBeGreaterThan(30_000);
     expect(TRANSPORT_REQUEST_DEADLINE_MS).toBeLessThan(35_000);
   });

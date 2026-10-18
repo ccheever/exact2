@@ -291,8 +291,8 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
     // The transcript's scroll (ChatColumn's transcriptScrolled) still hides it, before it keeps the position.
     expect(source('app-main.contract')).toContain('reachend=releaseFold scroll=transcriptScrolled');
     const scrolled: unknown[][] = [];
-    contractComponent('app-main.contract', 'ChatColumn').call('transcriptScrolled', { firstKey: '', anchor: { owner: '' }, turnsSeen: [] },
-      { citeScrolled: (...args: unknown[]) => scrolled.push(args), frame: () => ({ unavailable: true }), anchorKey: (key?: string) => key ?? '', composerOwner: 'o', commandPending: false, turnIds: [] },
+    contractComponent('app-main.contract', 'ChatColumn').call('transcriptScrolled', { firstKey: '', anchor: { owner: '' }, turnsSeen: [], tipEpoch: 0, tipArmed: false },
+      { citeScrolled: (...args: unknown[]) => scrolled.push(args), restScrolled: () => {}, frame: () => ({ unavailable: true }), anchorKey: (key?: string) => key ?? '', composerOwner: 'o', commandPending: false, turnIds: [] },
       [0, 120, { firstVisibleKey: undefined, firstVisibleOffset: 0, scrollTop: 120, scrollHeight: 2000, clientHeight: 600 }]);
     expect(scrolled).toEqual([[0, 120]]);
   });

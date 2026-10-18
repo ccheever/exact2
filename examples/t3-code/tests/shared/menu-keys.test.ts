@@ -135,9 +135,10 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
       if (!/\bKeyMenu\(/.test(text)) continue;
       text.split('\n').forEach((line, index) => {
         if (!/^\s*(button|link)\b/.test(line) || !/role=(?:"menuitem|\(.*menuitem)/.test(line)) return;
-        // The context menus (the sidebar's rows, a panel tab's, a pull request number's) are AppKit menus on macOS (LLP 1021
-        // §5.1): their keyboard is the system's. A row that is always disabled is never a stop; diff.contract's AddSurfaceItem is mounted nowhere.
-        if (/testId=`(thread|draft|tab)-menu-/.test(line) || /testId=`\$\{menuId\}-(copy-link|open-external)`/.test(line) || /\bdisabled=true\b/.test(line) || /popovertarget="diff-add-surface"/.test(line)) return;
+        // The context menus (the sidebar's rows, the legacy sidebar's rows and headers, the Files tree's, a panel tab's, a pull
+        // request number's) are AppKit menus on macOS (LLP 1021 §5.1): their keyboard is the system's. A row that is always
+        // disabled is never a stop; diff.contract's AddSurfaceItem is mounted nowhere.
+        if (/testId=`(thread|draft|tab|legacy-thread|legacy-project|files-tree)-menu-/.test(line) || /testId=`\$\{menuId\}-(copy-link|open-external)`/.test(line) || /\bdisabled=true\b/.test(line) || /popovertarget="diff-add-surface"/.test(line)) return;
         rows++;
         if (!/^\s*(button|link) id=/.test(line)) missing.push(`${file}:${index + 1}`);
       });

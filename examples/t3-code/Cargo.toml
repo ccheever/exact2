@@ -5,7 +5,7 @@
 # finds it through `macos/Cargo.toml`'s `package.workspace` and passes the root's
 # profiles.
 [workspace]
-members = ["macos"]
+members = ["data", "macos"]
 resolver = "2"
 
 [workspace.package]

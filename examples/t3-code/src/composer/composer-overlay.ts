@@ -15,9 +15,10 @@
 // grows while the reader is there is held back until the reader asks for more:
 // they scroll away (the new end is then simply further down), the rows change
 // (the reference follows new rows to the end of the grown reservation), or they
-// scroll toward the end while already there (T3Timeline.swift `transcriptPulls`).
+// scroll toward the end while already there (transcript-facts.ts `pulls`).
 // A smaller reservation applies at once. A new thread rebuilds it.
 import { obj, type Obj } from '../client/domain';
+import { transcriptFacts } from '../timeline/transcript-facts';
 
 export type OverlayHold = { owner: string; inset: number; applied: number; content: string; pulls: number };
 export type ComposerOverlay = { transcriptTail: number; scrollLift: number };
@@ -48,7 +49,7 @@ export function contentKey(rows: ReadonlyArray<unknown>): string {
 /**
  * The list's end reservation (`transcriptTail`, added to the last row's padding)
  * and how far the Scroll to end pill rises (`scrollLift`).
- * `atEnd` and `pulls` come from T3Timeline; `owner` is the thread's composer.
+ * `atEnd` and `pulls` come from the window's reading of the transcript (transcript-facts.ts); `owner` is the thread's composer.
  */
 export function composerOverlay(hold: OverlayHold, input: { owner: string; frames: Obj; atEnd: boolean; pulls: number; content: string }): ComposerOverlay {
   const { owner, frames, atEnd, pulls, content } = input;
@@ -79,7 +80,7 @@ export function composerOverlaySnapshot(client: { origin: string; projectId: str
   let hold = holds.get(client);
   if (!hold) { hold = newOverlayHold(); holds.set(client, hold); }
   const owner = `${client.origin}:${client.projectId}:${client.threadId}`;
-  const presentation = client.presentation, mine = presentation.owner === owner;
-  return composerOverlay(hold, { owner, frames: obj(presentation.frames), atEnd: !mine || presentation.atEnd !== false,
-    pulls: Number(presentation.transcriptPulls) || 0, content: contentKey(rows) });
+  const presentation = client.presentation, transcript = transcriptFacts(client), mine = transcript.owner === owner;
+  return composerOverlay(hold, { owner, frames: obj(presentation.frames), atEnd: !mine || transcript.atEnd,
+    pulls: transcript.pulls, content: contentKey(rows) });
 }

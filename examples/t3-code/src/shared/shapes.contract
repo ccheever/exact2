@@ -300,6 +300,15 @@ shape DiffTreeRow
   markdown: bool
   expanded: bool
   selected: bool
+// A citation's View source (citation-source.ts): the transcript row whose answer goes under its top; each request a new nonce.
+shape CiteJump
+  key: string
+  nonce: number
+// Save file (save-file.ts): the app file the window's Save panel copies out, under its name; each request a new nonce.
+shape SaveRequest
+  from: string
+  name: string
+  nonce: number
 shape SnapshotDraft
   id: string
   name: string
@@ -451,6 +460,8 @@ shape Snapshot
   revertPending: string
   minimap: MinimapItem[]
   citing: bool // a citation is placing its answer (ChatColumn restores nothing meanwhile)
+  citeJump: CiteJump // the answer a citation's View source places (ChatColumn citeBegin)
+  saveRequest: SaveRequest // the app file the window's Save panel offers next (app.contract saveNow)
   imagePreviewId: string
   imagePreviewName: string
   imagePreviewPosition: string

@@ -32,12 +32,13 @@ const hit = (isIntersecting: boolean): Entry => ({ isIntersecting, intersectionR
 function transcript(drawn = rows, owner = 'http://a:p:t1') {
   const calls: unknown[][] = [];
   const mounted = new Set(drawn.map(row => row.id));
-  const state: Env = { turnsSeen: [], turnsOwner: '', firstKey: '', anchor: { owner: '' } };
+  const state: Env = { turnsSeen: [], turnsOwner: '', firstKey: '', anchor: { owner: '' }, tipEpoch: 0, tipArmed: false };
   // The column's other derives read the canvas and the lane (laneInset, stackWidth): a plain wide window.
   const scope: Env = { ...fns, min: Math.min, max: Math.max, composerOwner: owner, viewport: { prefersReducedMotion: false }, canvas: { ready: false }, conversationWidth: 1024, rem: 16,
     data: { messages: drawn.map(row => ({ id: row.id })), minimap: minimapItems(drawn), threadId: 't1', look: { chatMax: 768 } },
     scrollIntoView: (...args: unknown[]) => calls.push(['scrollIntoView', ...args]), chatLocal: (...args: unknown[]) => calls.push(['chatLocal', ...args]),
-    citeScrolled: () => {}, anchorKey: (key?: string) => key ?? '', commandPending: false,
+    citeEnd: () => calls.push(['citeEnd']),
+    citeScrolled: () => {}, restScrolled: () => {}, restGesture: () => {}, anchorKey: (key?: string) => key ?? '', commandPending: false,
     // frame(): a user turn's box exists while the virtual window holds its row.
     frame: (id: string) => ({ unavailable: !mounted.has(id.replace(/^turn-/, '')) }) };
   const now = () => ({ ...scope, ...column.derives(state, scope) });
@@ -139,12 +140,10 @@ describe('A strip or chevron jumps through the public keyed command', () => {
     t.jump('u2', -1);
     t.jump('', 2);
     t.jump('', 9);
-    // Each jump first ends a citation's native placement and hold (one writer), then asks the keyed command.
-    const release = ['chatLocal', 'timeline-release', '', ''];
-    expect(t.calls).toEqual([release, ['scrollIntoView', 'transcript', 'u2', { offset: -24, behavior: 'smooth' }], release, ['scrollIntoView', 'transcript', 'u3', { offset: -24, behavior: 'smooth' }]]);
+    // Each jump first ends a citation's placement (one writer), then asks the keyed command.
+    expect(t.calls).toEqual([['citeEnd'], ['scrollIntoView', 'transcript', 'u2', { offset: -24, behavior: 'smooth' }], ['citeEnd'], ['scrollIntoView', 'transcript', 'u3', { offset: -24, behavior: 'smooth' }]]);
     (t.scope.viewport as Env).prefersReducedMotion = true;
     t.jump('u1', -1);
     expect(t.calls.at(-1)).toEqual(['scrollIntoView', 'transcript', 'u1', { offset: -24, behavior: 'instant' }]);
-    expect(source('timeline-presentation.ts')).toContain("if (op === 'timeline-release') { await client.restAccess(native).call({ op: 'timelineRelease' })");
   });
 });

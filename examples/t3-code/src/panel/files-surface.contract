@@ -22,6 +22,8 @@ use diffSel from "../diff/diff-rows.contract"
 use DiagramBlocks, ChatDocument from "../timeline/markdown.contract"
 use FilesMedia from "../media/media-actions.contract"
 use PanelIcon from "./panel-icons.contract"
+use SidebarMenuCard, SidebarMenuItem from "../sidebar/sidebar-row.contract"
+use SidebarMenuRow from "../sidebar/sidebar-shapes.contract"
 use KmItem from "../shared/menu-keys.contract"
 use KeyMenu from "../shared/menu-keys.contract"
 use kmKeyEnd from "../shared/menu-keys.contract"
@@ -421,6 +423,10 @@ component FilesExplorer
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
+  // The row a right press named, for the tree's one context popover (`files-tree-menu`): its `contextmenu` runs first.
+  state menuPath = ""
+  action rowMenu(path: string)
+    menuPath = path
   // FileSearchField's Escape runs closeSearch (the query and the tree's search) and blurs the field;
   // inline the panel stays. In a sheet the key then reaches the Base UI dialog, which closes, so the sheet's toggle
   // leaves Escape to the field while it has the focus (SurfacePanel filesSearchAt) and the field's "sheet" closes it
@@ -433,6 +439,7 @@ component FilesExplorer
       blur()
   view
     column flex=1 min-height=0 width="100%"
+      FilesTreeMenu(rows=files.treeMenu, path=menuPath, local=local)
       row height="2.25rem" flex-shrink=0 margin-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.25rem" align-items="center"
         box position="relative" flex-shrink=0
           button press=local("surface-files-refresh", "", "") hover=hover("refresh") aria-label="Refresh workspace files" testId="files-refresh" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(hovered == "refresh" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
@@ -455,18 +462,48 @@ component FilesExplorer
       scroll flex=1 min-height=0 width="100%" role="tree" aria-label=`${files.project} files` testId="files-tree"
         column width="100%" padding-left="1rem" padding-right="1rem" box-sizing="border-box"
           for row in files.rows key=row.id
-            FilesTreeRowView(row=row, local=local)
+            FilesTreeRowView(row=row, local=local, menu=rowMenu)
+
+// FileBrowserPanel showEntryContextMenu (FileBrowserPanel.tsx; ElectronMenu.ts showContextMenu) as the tree's one context
+// popover: Open, the server-worded reveal and the "Open with" submenu of detected editors when the environment offers
+// them (LLP 1021 §5.2), then Copy mention and Add to chat. macOS presents it as an NSMenu at the pointer, or at the
+// focused row's centre for the ContextMenu key (exact2 #314); the web and the agent paint it at the row.
+component FilesTreeMenu
+  props
+    rows: SidebarMenuRow[]
+    path: string
+    local: action
+  view
+    box position="absolute" left=0 top=0 width=0 height=0
+      column id="files-tree-menu" popover="auto" position-try-fallbacks="none" role="menu" class=SidebarMenuCard testId="files-tree-menu"
+        for e in rows.filter((e) => e.parent == "") key=e.id
+          if e.separated
+            hr height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" border-width=0 background-color="light-dark(#e4e4e7, #ffffff0f)"
+          if e.sub
+            button popovertarget=`files-tree-menu-sub-${e.id}` aria-haspopup="menu" role="menuitem" disabled=e.disabled testId=`files-tree-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
+              text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+              text "›" aria-hidden=true font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+          else
+            button press=local("surface-files-row-pick", path, e.id) popovertarget="files-tree-menu" popovertargetaction="hide" role="menuitem" disabled=e.disabled testId=`files-tree-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
+              text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+      for s in rows.filter((e) => e.sub) key=s.id
+        column id=`files-tree-menu-sub-${s.id}` popover="auto" position-try-fallbacks="flip-inline" role="menu" position-area="right span-bottom" class=SidebarMenuCard testId=`files-tree-menu-sub-${s.id}`
+          for e in rows.filter((c) => c.parent == s.id) key=e.id
+            button press=local("surface-files-row-pick", path, e.id) popovertarget="files-tree-menu" popovertargetaction="hide" role="menuitem" disabled=e.disabled testId=`files-tree-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
+              text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
 
 component FilesTreeRowView
   props
     row: FilesTreeRow
     local: action
+    // The tree's context popover owner (FilesExplorer `rowMenu`).
+    menu: action
   state over = false
   action hover(value: bool)
     over = value
   view
-    // FileBrowserPanel's right-click menu (Open, reveal, Open with ▸, Copy mention, Add to chat).
-    button press=local(row.directory ? "surface-files-toggle" : "surface-file", row.path, "tree") contextmenu=local("surface-files-row-menu", row.path, "") hover=hover role="treeitem" aria-label=row.name aria-expanded=row.expanded aria-selected=row.selected testId=`tree-${row.path}` width="100%" height=24 padding-left=(6.8 + row.depth * 18.7) padding-right=6 box-sizing="border-box" gap=4.4 border-radius=5 border-width=0 position="relative" display="flex" flex-direction="row" align-items="center" background-color=(row.selected ? "light-dark(#27272a1f, #f5f5f51f)" : over ? "light-dark(#27272a0d, #f5f5f50d)" : "#00000000") opacity=(row.ignored ? 0.5 : 1)
+    // FileBrowserPanel's right-click menu (Open, reveal, Open with ▸, Copy mention, Add to chat): FilesTreeMenu.
+    button press=local(row.directory ? "surface-files-toggle" : "surface-file", row.path, "tree") contextmenu=menu(row.path) contextPopover="files-tree-menu" hover=hover role="treeitem" aria-label=row.name aria-expanded=row.expanded aria-selected=row.selected testId=`tree-${row.path}` width="100%" height=24 padding-left=(6.8 + row.depth * 18.7) padding-right=6 box-sizing="border-box" gap=4.4 border-radius=5 border-width=0 position="relative" display="flex" flex-direction="row" align-items="center" background-color=(row.selected ? "light-dark(#27272a1f, #f5f5f51f)" : over ? "light-dark(#27272a0d, #f5f5f50d)" : "#00000000") opacity=(row.ignored ? 0.5 : 1)
       for guide in row.guides key=guide.id
         box position="absolute" left=guide.left top=0 bottom=0 width=1 background-color="light-dark(#71717b40, #81818140)"
       if row.directory

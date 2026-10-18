@@ -6,15 +6,14 @@
 // included; a thread's draft only loses its composer content. Undo brings back the
 // text and attachments unless the draft has new content; the uploads are released
 // once the notice can no longer undo it.
-import { obj, str, type Obj } from '../client/domain';
+import { str, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import { ClientError, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
-import { menuRows, nativeTemplate, type MenuItem, type MenuRow } from './sidebar-menu';
+import { menuRows, type MenuItem, type MenuRow } from './sidebar-menu';
 import { remember } from './sidebar-commands';
 import { sidebarSession } from './sidebar-state';
 import { draftContext, type DraftContext } from '../composer/composer-controls-branch';
-import { menuAnchor } from './row-context-keys';
 import { letGo } from '../client/let-go';
 
 /** buildDraftActionMenuItems: Copy (Path, Branch), Project settings, then the destructive Discard draft. */
@@ -68,17 +67,10 @@ function draftMenuState(client: T3Client, projectId: string) {
   const hasProject = !!project && client.projectGroups().some(group => group.members.some(member => member.id === projectId));
   return { key, context, workspacePath, hasProject, items: draftMenuItems({ hasPath: !!workspacePath, hasBranch: !!context.branch, hasProject }) };
 }
-/** The draft row's context popover (sidebar-row.contract DraftMenu, exact2 #223). */
+/** The draft row's context popover (sidebar-row.contract DraftMenu, exact2 #223), from a right click or the row's keys. */
 export function draftMenuRows(client: T3Client, projectId: string): MenuRow[] {
   const state = draftMenuState(client, projectId);
   return state ? menuRows(state.items) : [];
-}
-/** handleDraftContextMenu for a new-thread draft row (`projectId`), opened from the keyboard at the row (T3Sidebar.swift). */
-export async function draftMenu(client: T3Client, native: Native, projectId: string): Promise<string> {
-  const state = draftMenuState(client, projectId);
-  if (!state) return '';
-  const reply = obj(await client.restAccess(native).call({ op: 'sidebarMenu', items: nativeTemplate(state.items), ...menuAnchor(client) }));
-  return draftChoice(client, native, projectId, str(reply.id));
 }
 /** A choice from the draft row's menu, by its item id. */
 export async function draftChoice(client: T3Client, native: Native, projectId: string, choice: string): Promise<string> {

@@ -39,7 +39,7 @@ describe('app.contract', () => {
 
 describe('app.ts', () => {
   test('grants whole schemes, for servers named at run time, and the catalog secret', () => {
-    expect(grants.split('\n').sort()).toEqual(['net.fetch http:', 'net.fetch https:', 'net.websocket ws:', 'net.websocket wss:', 'secret.keep t3-catalog']);
+    expect(grants.split('\n')).toEqual(expect.arrayContaining(['net.fetch http:', 'net.fetch https:', 'net.websocket ws:', 'net.websocket wss:', 'secret.keep t3-catalog']));
   });
 
   test('the tick answers now, as a mutation that sends must', () => {

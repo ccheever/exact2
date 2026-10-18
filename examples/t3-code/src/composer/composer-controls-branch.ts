@@ -11,7 +11,7 @@ import { pushToast } from '../shell/toast';
 import type { T3Client } from '../client/client';
 import { fanoutSelections } from './composer-controls-fanout';
 import { defaultRefName, originDefault, originLabel, resetOrigin, startFromOrigin } from '../details/git-branch'; // Start from origin, the default base ref
-import { REF_PAGE, firstPage, morePages, refsStatus, scrollEnds } from './ref-paging';
+import { REF_PAGE, firstPage, morePages, refScrollEnds, refsStatus, scrollEnds } from './ref-paging';
 import { NO_STRIP_PR, stripPr } from './strip-pr-badge'; // the strip's pull request badge
 import { checkoutItems, type CheckoutItem } from './pr-checkout'; // the picker's checkout item
 import { NO_RUN_ON, stripRunOn } from '../details/git-env'; // MobileRunContextSelector's "Run on"
@@ -176,10 +176,10 @@ async function load(client: T3Client, native: Native, cwd: string, open: boolean
   const list = (cursor?: number) => access.read('vcs.listRefs', { cwd, limit: REF_PAGE, ...(search ? { query: search } : {}), ...(cursor === undefined ? {} : { cursor }) });
   const isRepo = entry.checked ? entry.isRepo : true;
   if (open && isRepo && entry.refsQuery !== query) {
-    Object.assign(entry, firstPage(await list(), scrollEnds(client.presentation, 'strip-refs'))); entry.refsQuery = query;
+    Object.assign(entry, firstPage(await list(), scrollEnds(refScrollEnds(client), 'strip-refs'))); entry.refsQuery = query;
   } else if (open && isRepo) {
     // A scroll toward the list's end loads the next page (ref-paging.ts).
-    Object.assign(entry, await morePages({ refs: entry.refs, total: entry.total, nextCursor: entry.nextCursor ?? null, ends: entry.ends ?? 0, loadingMore: entry.loadingMore }, client.presentation, 'strip-refs', list));
+    Object.assign(entry, await morePages({ refs: entry.refs, total: entry.total, nextCursor: entry.nextCursor ?? null, ends: entry.ends ?? 0, loadingMore: entry.loadingMore }, refScrollEnds(client), 'strip-refs', list));
   }
   // The workspace card's read (card) leaves the strip picker's open pages alone.
   if (!open && !card) entry.refsQuery = null;

@@ -29,6 +29,8 @@ import { settingsPickerCatalog } from '../providers/settings-model-picker'; // G
 import { look } from '../appearance/settings-appearance-look';
 import { composerOverlaySnapshot } from '../composer/composer-overlay';
 import { composerVideoSnapshot } from '../composer/composer-attachments';
+import { saveSnapshot } from '../media/save-file';
+import { transcriptFacts } from '../timeline/transcript-facts';
 import { composerImagePreview } from '../composer/composer-chip-details';
 import { alertClip } from '../shared/laid-out-widths';
 import { tableMenuSnapshot } from '../timeline/table-menu';
@@ -143,10 +145,11 @@ export function snapshot(client: T3Client, now = 0, displayMode = '') {
     providerId: client.providerId, modelId: client.modelId, modelLabel: currentModel ? triggerModelName(currentModel) : selectedModel || 'Choose model',
     composerCollapseOnScroll: client.local.deviceSettings.composerCollapseOnScroll,
     planModeEnabled: client.local.deviceSettings.planModeEnabled,
-    composerResting: client.presentation.owner === `${client.origin}:${client.projectId}:${client.threadId}` && client.presentation.resting === true,
-    transcriptAway: client.presentation.owner === `${client.origin}:${client.projectId}:${client.threadId}` && client.presentation.atEnd === false,
+    composerResting: transcriptFacts(client).owner === `${client.origin}:${client.projectId}:${client.threadId}` && transcriptFacts(client).resting,
+    transcriptAway: transcriptFacts(client).owner === `${client.origin}:${client.projectId}:${client.threadId}` && !transcriptFacts(client).atEnd,
     ...composerOverlaySnapshot(client, transcript), // the composer over the transcript (composer-overlay.ts)
     ...composerVideoSnapshot(client), // the shelf's videos and their preview (composer-attachments.ts)
+    ...saveSnapshot(client), // the file the window's Save panel offers next (save-file.ts)
     composerImagePreview: composerImagePreview(client), // an image chip's expanded preview (composer-chip-details.ts)
     providerDriver: str(selectedProvider?.driver), ...providerBadge(selectedProvider, providers), optionId: str(option?.id),
     optionLabel: str(arr(option?.options).find(choice => choice.id === selectedOption)?.label, 'Default'),

@@ -17,7 +17,7 @@ import { treeRows } from './timeline-tree';
 import { cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, messageAttachments } from './timeline-attachments';
 import { revealCitation } from './citation-source';
 import { minimapItems, type MinimapRow } from './timeline-minimap';
-import { diagramPreviewAction, diagramPreviewView, messageDiagrams, retryMermaid } from './timeline-mermaid';
+import { diagramPreviewAction, diagramPreviewView, messageDiagrams, noteMermaidFrame, retryMermaid } from './timeline-mermaid';
 import { setupView, threadWorktreeSetup, worktreeDetailsOpen, worktreeSetupAction } from './timeline-worktree';
 import { chippedAttachmentIds, markdownEnv, messageChips } from './message-chips';
 import { hasQuestionAnswer, notificationChildThreadId, notificationSubagent, plainOutput, questionAnswerPreview, questionHistory, questionTextPreview, runlessWorkStartedAt, type InspectorCode } from './timeline-inspect';
@@ -25,6 +25,7 @@ import { gitChatLocal } from '../details/git-route';
 import { openFileSurface, surfaceLocal } from '../panel/panel-surfaces';
 import { mediaLocal } from '../media/media-views'; // the media menu, a video's error and Retry
 import { closeTableMenu, tableMenuAction } from './table-menu'; // the table Copy popup
+import { noteRefScrollEnd } from '../composer/ref-paging';
 import { preparationFailureRunId, retryableActivities } from './workspace-retry'; // Retry a failed workspace preparation
 import { numericDateFormatter, timestampFormatter } from '../shared/timestamp-format'; // the host's locale
 import { letGo } from '../client/let-go';
@@ -69,11 +70,13 @@ interface ViewState { open: Set<string>; copies: Map<string, { nonce: number; ok
   historyError: Map<string, string>; revert: { threadId: string; messageId: string; turnCount: number } | null;
   treeAll: Set<string>; treeDirs: Map<string, boolean>; lastRows: { threadId: string; rows: MinimapRow[] };
   /** A citation's View source is placing its answer (citation-source.ts): ChatColumn restores no remembered position meanwhile. */
-  citing: number }
+  citing: number;
+  /** The answer row the last View source asked ChatColumn to place, on its thread; each request a new nonce. */
+  citeJump: { threadId: string; key: string; nonce: number } }
 const views = new WeakMap<T3Client, ViewState>();
 export function timelineView(client: T3Client): ViewState {
   let view = views.get(client);
-  if (!view) { view = { open: new Set(), copies: new Map(), nonce: 0, codeCopy: { threadId: '', text: '', nonce: 0 }, historyError: new Map(), revert: null, treeAll: new Set(), treeDirs: new Map(), lastRows: { threadId: '', rows: [] }, citing: 0 }; views.set(client, view); }
+  if (!view) { view = { open: new Set(), copies: new Map(), nonce: 0, codeCopy: { threadId: '', text: '', nonce: 0 }, historyError: new Map(), revert: null, treeAll: new Set(), treeDirs: new Map(), lastRows: { threadId: '', rows: [] }, citing: 0, citeJump: { threadId: '', key: '', nonce: 0 } }; views.set(client, view); }
   return view;
 }
 const scoped = (client: T3Client, kind: string, id: string) => `${client.threadId}\u0000${kind}\u0000${id}`;
@@ -87,6 +90,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op === 'run-terminal' && storage) { await runTerminalCommand(client, native, storage, value.trim()); return ''; }
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // the right panel's surfaces (window chatLocal)
   if (op === 'link-open') return openLinkFromUi(client, native, id, value); // "Open links in" (browser-links.ts)
+  if (op === 'ref-scroll-end') { noteRefScrollEnd(client, id); return ''; } // a ref list scrolled toward its end (ref-paging.contract)
   if (op === 'link-menu') return chatExternalLinkMenu(client, native, storage, value, id === 'page'); // a reply's web link menu (external-link-menu.ts)
   if (op === 'pr-link-pick') { await pullRequestLinkPick(client, native, value); return ''; } // the detail header's number's menu choice
   if (op === 'pr-preview') { notePreviewHover(client, id, value === '1'); return ''; } // a pull request link's hover card
@@ -111,24 +115,25 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op.startsWith('image-')) return imagePreviewAction(client, op, id, value);
   if (op === 'revert') return askRevert(client, view, id, Number(value));
   if (op === 'revert-answer') return answerRevert(client, native, view, value, storage);
-  if (op === 'diagram-retry') return retryMermaid(value);
+  if (op === 'diagram-retry') return retryMermaid(value, id); // id: the theme whose page failed
+  if (op === 'diagram-frame') return noteMermaidFrame(value); // a Mermaid page's report (assets/mermaid/render.js)
   if (op === 'setup-details' || op === 'setup-cancel' || op === 'setup-terminal') return worktreeSetupAction(client, native, op);
   if (op === 'diagram-open' || op === 'diagram-close') return diagramPreviewAction(client, op, value);
   // A table's Copy as Markdown / CSV (the check morph, no toast) and a thread chip's open.
-  if (op === 'table-menu' || op === 'table-menu-close') return tableMenuAction(client, op, id, value, native);
+  if (op === 'table-menu' || op === 'table-menu-close') return tableMenuAction(client, op, id, value);
   if (op === 'copy-table') {
     closeTableMenu(client);
     if (!value) throw new ClientError('That table is unavailable.');
     await chatLocal(client, native, 'copy-code', id, value, storage);
     return '';
   }
-  // View source opens the cited thread and scrolls its answer into place (citation-source.ts).
-  // A minimap jump (Contract's scrollIntoView) ends the citation's native placement and hold.
-  if (op === 'timeline-release') { await client.restAccess(native).call({ op: 'timelineRelease' }).catch(() => undefined); return ''; }
+  // View source opens the cited thread and has the chat column place its answer (citation-source.ts).
   if (op === 'chip-citation') {
     view.citing++;
-    try { return await revealCitation(client, native, id, value, () => view.lastRows.threadId === client.threadId ? view.lastRows.rows : []); }
-    finally { view.citing--; }
+    try {
+      return await revealCitation(client, native, id, value, () => view.lastRows.threadId === client.threadId ? view.lastRows.rows : [],
+        key => { view.citeJump = { threadId: client.threadId, key, nonce: view.citeJump.nonce + 1 }; });
+    } finally { view.citing--; }
   }
   if (op === 'chip-pr') { if (!id) throw new ClientError('That pull request is no longer available.'); await openPullRequest(client, native, id); return ''; } // a sent pull request chip (pr-chip-open.ts)
   if (op === 'chip-thread') {
@@ -236,7 +241,9 @@ export function timelineSnapshot(client: T3Client) {
   const rows = view.lastRows.threadId === client.threadId ? view.lastRows.rows : [];
   return { historyError: view.historyError.get(client.threadId) ?? '', codeCopyNonce: view.codeCopy.threadId === client.threadId ? view.codeCopy.nonce : 0,
     revertPending: view.revert?.threadId === client.threadId ? view.revert.messageId : '', ...planSaveView(client),
-    minimap: minimapItems(rows), citing: view.citing > 0, ...imagePreviewView(client), ...diagramPreviewView(client) };
+    minimap: minimapItems(rows), citing: view.citing > 0,
+    citeJump: view.citeJump.threadId === client.threadId ? { key: view.citeJump.key, nonce: view.citeJump.nonce } : { key: '', nonce: 0 },
+    ...imagePreviewView(client), ...diagramPreviewView(client) };
 }
 
 /** The working root that path labels are made relative to (filePathDisplay). */

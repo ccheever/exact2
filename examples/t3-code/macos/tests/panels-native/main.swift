@@ -2,29 +2,12 @@ import AppKit
 import XCTest
 
 // T3PanelsNative.swift: PullRequestUnavailableError reads as the reference's
-// sentence; a sent attachment's text preview and Save file over a stubbed
-// asset route (no network). A press below the Files editor's last line, with the
+// sentence; the media preview reads only a signed asset route. A press below the Files editor's last line, with the
 // composer holding the focus, gives the mounted editor the focus with the caret at the end, and
 // typed keys land in the file, not the draft.
 // Compiled without T3Module.swift, so the test supplies the module the facade names.
 final class PanelsStubModule: ExactModule {}
 let exactModule: ExactModule.Type = PanelsStubModule.self
-
-final class StubAssets: URLProtocol {
-    static var body = Data()
-    static var status = 200
-    static var seenRange: String?
-    override class func canInit(with request: URLRequest) -> Bool { request.url?.path.hasPrefix("/api/assets/") == true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-    override func startLoading() {
-        StubAssets.seenRange = request.value(forHTTPHeaderField: "Range")
-        let response = HTTPURLResponse(url: request.url!, statusCode: StubAssets.status, httpVersion: "HTTP/1.1", headerFields: [:])!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: StubAssets.body)
-        client?.urlProtocolDidFinishLoading(self)
-    }
-    override func stopLoading() {}
-}
 
 private let panelsResolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
 private let panelsAct: ExactHatches.ActFn = { _, _, _ in 0 }
@@ -134,82 +117,14 @@ final class PanelsTests: XCTestCase {
     }
 
     func testAssetRouteOnly() {
-        XCTAssertNotNil(T3AttachmentFiles.assetURL("http://127.0.0.1:1/api/assets/abc"))
-        XCTAssertNil(T3AttachmentFiles.assetURL("file:///etc/hosts"))
-        XCTAssertNil(T3AttachmentFiles.assetURL("http://127.0.0.1:1/api/orchestration/shell"))
-        XCTAssertNil(T3AttachmentFiles.assetURL("https://user@host/api/assets/x"))
-    }
-
-    private func perform(_ request: [String: Any], exports: URL? = nil, staged: @escaping (String) -> URL? = { _ in nil }) -> [String: Any] {
-        let done = expectation(description: "reply")
-        var value: [String: Any] = [:]
-        T3AttachmentFiles.perform(request, exportsRoot: exports, stagedFile: staged) { reply in value = reply["value"] as? [String: Any] ?? [:]; done.fulfill() }
-        wait(for: [done], timeout: 10)
-        return value
-    }
-
-    func testTextPreviewSaveAndRefusals() throws {
-        StubAssets.status = 200
-        StubAssets.body = Data("# Notes\n\n- “one”\n".utf8)
-        var value = perform(["op": "attachmentText", "url": "http://127.0.0.1:9/api/assets/a"])
-        XCTAssertEqual(value["text"] as? String, "# Notes\n\n- “one”\n")
-        XCTAssertEqual(value["truncated"] as? Bool, false)
-        XCTAssertEqual(StubAssets.seenRange, "bytes=0-1048576")
-        StubAssets.body = Data(repeating: 0x61, count: 1_048_577)
-        value = perform(["op": "attachmentText", "url": "http://127.0.0.1:9/api/assets/a"])
-        XCTAssertEqual(value["truncated"] as? Bool, true)
-        XCTAssertEqual((value["text"] as? String)?.count, 1_048_576)
-        StubAssets.body = Data([0x50, 0x00, 0x01])
-        value = perform(["op": "attachmentText", "url": "http://127.0.0.1:9/api/assets/a"])
-        XCTAssertEqual(value["message"] as? String, "This file contains binary data and cannot be shown as text.")
-        StubAssets.body = Data([0xff, 0xfe, 0x41])
-        value = perform(["op": "attachmentText", "url": "http://127.0.0.1:9/api/assets/a"])
-        XCTAssertEqual(value["message"] as? String, "This file is not UTF-8 text. Open it in another app to view its contents.")
-        value = perform(["op": "attachmentText", "url": "file:///etc/hosts"])
-        XCTAssertEqual(value["message"] as? String, "The attachment is unavailable.")
-        // Save file: the bytes land where the agent's exports go (an NSSavePanel for a person).
-        let root = URL(fileURLWithPath: ProcessInfo.processInfo.environment["T3_PANELS_TEST_DIR"] ?? NSTemporaryDirectory()).appendingPathComponent("exports-\(UUID().uuidString)")
-        StubAssets.body = Data("a,b\n1,2\n".utf8)
-        value = perform(["op": "attachmentSave", "url": "http://127.0.0.1:9/api/assets/b", "name": "table.csv"], exports: root)
-        XCTAssertEqual(value["saved"] as? Bool, true)
-        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("table.csv")), Data("a,b\n1,2\n".utf8))
-        StubAssets.status = 404
-        value = perform(["op": "attachmentSave", "url": "http://127.0.0.1:9/api/assets/b", "name": "x"], exports: root)
-        XCTAssertEqual(value["message"] as? String, "The file could not be loaded. Try again.")
-        try? FileManager.default.removeItem(at: root)
-    }
-
-    /// A composer file chip's preview reads the draft's own bytes (AttachmentFilePreview's `file` Blob): a staged copy, or a
-    /// folded paste's text, never a URL.
-    func testADraftsStagedCopyAndPasteAreReadAndSavedHere() throws {
-        let root = URL(fileURLWithPath: ProcessInfo.processInfo.environment["T3_PANELS_TEST_DIR"] ?? NSTemporaryDirectory()).appendingPathComponent("staged-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let id = UUID().uuidString.lowercased(), copy = root.appendingPathComponent(id)
-        try Data("let a = 1\n".utf8).write(to: copy)
-        let staged = { (name: String) in name == id ? copy : nil }
-        var value = perform(["op": "attachmentText", "staged": id], staged: staged)
-        XCTAssertEqual(value["text"] as? String, "let a = 1\n")
-        XCTAssertEqual(value["truncated"] as? Bool, false)
-        try Data(repeating: 0x61, count: 1_048_577).write(to: copy)
-        value = perform(["op": "attachmentText", "staged": id], staged: staged)
-        XCTAssertEqual(value["truncated"] as? Bool, true)
-        XCTAssertEqual((value["text"] as? String)?.count, 1_048_576)
-        value = perform(["op": "attachmentText", "staged": "gone"], staged: staged)
-        XCTAssertEqual(value["message"] as? String, "Could not load this file.")
-        let exports = root.appendingPathComponent("exports")
-        value = perform(["op": "attachmentSave", "staged": id, "name": "notes.swift"], exports: exports, staged: staged)
-        XCTAssertEqual(value["saved"] as? Bool, true)
-        XCTAssertEqual(try Data(contentsOf: exports.appendingPathComponent("notes.swift")).count, 1_048_577)
-        value = perform(["op": "attachmentText", "base64": Data("pasted".utf8).base64EncodedString()])
-        XCTAssertEqual(value["text"] as? String, "pasted")
-        value = perform(["op": "attachmentSave", "base64": Data("pasted".utf8).base64EncodedString(), "name": "pasted-text.txt"], exports: exports)
-        XCTAssertEqual(try String(contentsOf: exports.appendingPathComponent("pasted-text.txt"), encoding: .utf8), "pasted")
-        try? FileManager.default.removeItem(at: root)
+        XCTAssertNotNil(T3MediaPreview.assetURL("http://127.0.0.1:1/api/assets/abc"))
+        XCTAssertNil(T3MediaPreview.assetURL("file:///etc/hosts"))
+        XCTAssertNil(T3MediaPreview.assetURL("http://127.0.0.1:1/api/orchestration/shell"))
+        XCTAssertNil(T3MediaPreview.assetURL("https://user@host/api/assets/x"))
     }
 }
 
 _ = NSApplication.shared
-URLProtocol.registerClass(StubAssets.self)
 let suite = XCTestSuite(forTestCaseClass: PanelsTests.self)
 suite.run()
 let run = suite.testRun!
