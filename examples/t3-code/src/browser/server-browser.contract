@@ -136,7 +136,7 @@ component ServerBrowserPage
         column gap="0.75rem" padding="1rem" min-width="18rem"
           text frame.dialogMessage white-space="pre-wrap"
           if frame.dialogType == "prompt" and frame.controlled
-            input value=prompt input=promptEdit aria-label="Browser prompt" testId="server-browser-prompt"
+            input value=prompt input=promptEdit autocorrect="off" aria-label="Browser prompt" testId="server-browser-prompt"
           row justify-content="flex-end" gap="0.5rem"
             if not frame.controlled
               text frame.label
