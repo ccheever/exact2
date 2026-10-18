@@ -1,4 +1,4 @@
-// The composer chips' other presses, adapted from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+// The composer chips' other presses, adapted from T3 Code 9c161462c9 (MIT, see LICENSE-T3):
 // composerContextPresentation.tsx (the registry's renderers and ComposerContextActions), contextChipParts.tsx
 // (ContextChipPopover, PullRequestChip, FileChip, ImageChipButton), ComposerPromptEditorTiptap.tsx ComposerMentionNodeView,
 // ThreadContextChip.tsx and chat/AssistantCitationChip.tsx, and ChatComposer.tsx's `composerContextActions`.
@@ -18,6 +18,7 @@ import { openFileSurface } from '../panel/panel-surfaces';
 import { chatLocal } from '../timeline/timeline-presentation';
 import { parseAssistantCitationHref } from '../timeline/diff-citations';
 import { reviewCommentRecords } from './composer-editor';
+import { contextId } from './composer-editor-menu';
 import { draftFiles } from './composer-editor-files';
 import { videoOp } from './composer-attachments';
 import { openComposerFile } from './composer-chip-file';
@@ -124,7 +125,7 @@ export async function performChipAct(client: T3Client, native: Native, press: Ob
   const act = str(press.act), context = str(press.context);
   if (act === 'mention') { if (str(press.path)) await openFileSurface(client, native, str(press.path), 0); return ''; }
   if (act === 'thread') {
-    const threadId = context.startsWith('thread_') ? context.slice('thread_'.length) : '';
+    const threadId = str(client.shell.threads.find(thread => contextId('thread', str(thread.id)) === context)?.id);
     return chatLocal(client, native, 'chip-thread', threadId, '');
   }
   if (act === 'citation') {

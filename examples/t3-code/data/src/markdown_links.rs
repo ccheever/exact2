@@ -41,6 +41,7 @@ fn windows_drive(href: &str) -> bool {
 fn kept_by_transform(href: &str) -> bool {
     let lower = href.to_ascii_lowercase();
     lower.starts_with("t3-context://")
+        || lower.starts_with("t3-thread://v1/")
         || lower.starts_with("t3-citation://")
         || lower.starts_with("file:")
         || windows_drive(href)

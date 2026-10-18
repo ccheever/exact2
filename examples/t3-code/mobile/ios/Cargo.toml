@@ -17,4 +17,4 @@ exact-js = { path = "../../../../js" }
 
 [build-dependencies]
 exact-js-bake = { path = "../../../../js/bake" }
-# Its build script makes the generated sources (tools/generate/generate.mjs) before this bake.
+# mobile/ios/build.rs runs tools/generate/generate.mjs before the mobile bake.
