@@ -21,3 +21,14 @@ test('goal banner keeps usage beside the title, shows only idle actions and pres
   expect(topStatus('working', false, false, false)?.label).toBe('Working');
   expect(obj(native.committed.at(-1)).modelSelection).toBeDefined();
 });
+
+test('runless provider-native work hides and refuses goal actions', async () => {
+  const { client, native, disk } = await opened();
+  client.shell.threads = [thread('t1', { goal: { objective: 'Inspect parser', status: 'active' } })];
+  client.projection.runs = [];
+  Object.assign(obj(client.projection.thread), { creationSource: 'provider', lineage: { relationshipToParent: 'subagent' } });
+  client.projection.nodes = [{ id: 'root', kind: 'root_turn', runId: null, status: 'running', startedAt: '2026-01-01T00:00:00Z' }];
+  expect(composerNotices(client, 0).find(notice => notice.id === 'goal:t1')).toMatchObject({ title: 'Pursuing goal', action: '', action2: '' });
+  await expect(composerCommand(client, native, disk, 'goal-clear', '', '')).rejects.toThrow('Wait for the current turn');
+  expect(native.committed).toHaveLength(0);
+});

@@ -1,6 +1,9 @@
 // T3 Code 9c161462c9 client-runtime state/threadExecution.ts (MIT, LICENSE-T3).
 import { formatDuration } from '../timeline/timeline-worklog';
 import { obj } from '../client/domain';
+import { activeRun } from '../client/protocol';
+import type { T3Client } from '../client/client';
+import { runlessWorkStartedAt } from '../timeline/timeline-inspect';
 export type ProviderGoal = { objective: string; status: 'active' | 'paused' | 'blocked' | 'usage_limited' | 'budget_limited' | 'complete';
   tokenBudget?: number | null; tokensUsed?: number; timeUsedSeconds?: number; checks?: number };
 
@@ -58,4 +61,10 @@ export function providerGoal(value: unknown): ProviderGoal | null {
     || !(status === 'active' || status === 'paused' || status === 'blocked' || status === 'usage_limited' || status === 'budget_limited' || status === 'complete')) return null;
   const finite = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
   return { objective: goal.objective, status, tokensUsed: finite(goal.tokensUsed), tokenBudget: goal.tokenBudget === null ? null : finite(goal.tokenBudget), timeUsedSeconds: finite(goal.timeUsedSeconds), checks: finite(goal.checks) };
+}
+
+/** ChatView isWorking includes a provider-native child whose root turn has no app run. */
+export function providerGoalWorking(client: T3Client): boolean {
+  return !!activeRun(client.projection) || runlessWorkStartedAt(client.projection) !== ''
+    || client.busy && client.pending?.threadId === client.threadId && obj(client.pending.payload).type === 'message.dispatch';
 }

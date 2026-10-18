@@ -4,7 +4,7 @@
 // onProviderModelSelect's provider lock), ChatView.logic.ts (deriveLockedProvider,
 // resolveComposerProviderSelection), threadWorkflows.ts (threadSupportsProviderHandoff),
 // TraitsPicker.tsx (option choice) and QueuedRunsControl.tsx.
-import { providerGoal, presentProviderGoal } from './provider-goal';
+import { providerGoal, presentProviderGoal, providerGoalWorking } from './provider-goal';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError, activeRun, launchPayload, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
@@ -183,7 +183,7 @@ export async function composerCommand(client: T3Client, native: Native, storage:
   if (op === 'compact' || op === 'goal-resume' || op === 'goal-clear') {
     // Native commands run as separate turns; the draft and its attachments stay local.
     const projection = requireThread(client), threadId = client.threadId;
-    if (activeRun(projection)) throw new ClientError(op === 'compact' ? 'Compacting is unavailable right now' : 'Wait for the current turn to finish.');
+    if (op === 'compact' ? !!activeRun(projection) : providerGoalWorking(client)) throw new ClientError(op === 'compact' ? 'Compacting is unavailable right now' : 'Wait for the current turn to finish.');
     if (op !== 'compact') {
       const goal = providerGoal(client.shell.threads.find(thread => thread.id === threadId)?.goal);
       if (!goal || op === 'goal-resume' && !presentProviderGoal(goal, false).canResume) throw new ClientError('That goal action is no longer available.');

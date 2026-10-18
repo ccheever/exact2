@@ -4,7 +4,7 @@
 // composerFooterLayout.ts (icon-only before overflow), TraitsPicker.tsx
 // (buildTraitsTriggerDisplay), ChatView.tsx (background and child-input banners,
 // the Compact chip, tasks progress), threadSync.ts and ComposerTasksBadge.tsx.
-import { providerGoal, presentProviderGoal } from './provider-goal';
+import { providerGoal, presentProviderGoal, providerGoalWorking } from './provider-goal';
 import { branchMismatchNotice } from './composer-controls-branch';
 import { projectCloneBlock, projectCloneNotice } from '../shell/project-clones-live';
 import { systemComposerNotices } from '../connections/server-update-notices';
@@ -214,7 +214,7 @@ function childInputNotice(client: T3Client): ComposerNotice | null {
 function goalNotice(client: T3Client): ComposerNotice | null {
   const thread = client.shell.threads.find(thread => thread.id === client.threadId), goal = providerGoal(thread?.goal);
   if (!goal) return null;
-  const working = !!activeRun(client.projection), view = presentProviderGoal(goal, working);
+  const working = providerGoalWorking(client), view = presentProviderGoal(goal, working);
   return notice({ id: `goal:${client.threadId}`, variant: 'default', priority: 0, icon: 'target', title: view.usage ? `${view.title} · ${view.usage}` : view.title,
     description: view.objective, action: working ? '' : view.canResume ? 'cc:goal-resume' : 'cc:goal-clear', actionLabel: view.canResume ? 'Resume' : 'Clear',
     action2: !working && view.canResume ? 'cc:goal-clear' : '', action2Label: 'Clear' });
