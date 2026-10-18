@@ -1,7 +1,7 @@
 // General → About → Mobile app, ported from T3 Code 9c161462c9 MobileAppSettingsRow.tsx (MIT, LICENSE-T3).
 use CoreRow from "./settings-core.contract"
-use CorePalette from "./settings-core.contract"
-use SettingsGhost from "./settings-core.contract"
+use CorePalette from "./settings-core-shared.contract"
+use SettingsGhost from "./settings-core-shared.contract"
 
 component MobileAppControl
   props

@@ -16,7 +16,7 @@ import { scopeNoticeGroups, type ScopeNoticeGroup } from './settings-scope-notic
 import { scopeEnvironments, scopeProjectGroups } from './settings-scope-sources';
 
 type Choice = { value: string; label: string; selected: boolean };
-const blank: ScopedRow = { key: '', kind: 'select', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], layerGroups: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '' };
+const blank: ScopedRow = { key: '', kind: 'select', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], layerGroups: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', traitsLabel: '', traits: [] };
 
 function iconDescription(project: Obj): string {
   const icon = obj(project.projectIcon);

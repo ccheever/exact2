@@ -1,3 +1,4 @@
+// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
 // Settings → Source control and Integrations (reference SourceControlSettings.tsx,
 // ProjectDefaultsSettings.tsx, BranchNamingSettings.tsx,
 // SourceControlWritingSettings.tsx, IntegrationsSettings.tsx). Scoped rows show
@@ -38,6 +39,14 @@ use BrowserProfilesSetting from "../browser/browser-profiles.contract"
 use BrowserTabDefaultRows from "../browser/browser-defaults.contract"
 use BrowserAutoShowRow from "../browser/browser-defaults.contract"
 use SettingsPickerTrigger from "../composer/model-picker.contract"
+use CoreOption from "./settings-core-shared.contract"
+use CorePalette from "./settings-core-shared.contract"
+use SettingsGhost from "./settings-core-shared.contract"
+use TraitsMenu from "./settings-traits.contract"
+use CcIcon from "../composer/composer-controls.contract"
+use KmItem from "../shared/menu-keys.contract"
+use kmTriggerKey from "../shared/menu-keys.contract"
+use kmTriggerTarget from "../shared/menu-keys.contract"
 
 shape InheritLayer
   key: string
@@ -72,6 +81,9 @@ shape ScopedRow
   driver: string
   badge: string
   accent: string
+  // The writer model's TraitsPicker: its trigger label ("" draws none) and menu rows.
+  traitsLabel: string
+  traits: CoreOption[]
 shape DiscoveryRow
   kind: string
   label: string
@@ -215,12 +227,41 @@ component ScopedSettingRow
             if row.kind == "model"
               // ProviderModelPicker: the window's picker under this trigger, while a provider can write.
               if row.checked and row.status == ""
-                SettingsPickerTrigger(rowId="source-control-writer-model", label=row.valueLabel, name="Source control writer model", driver=row.driver, badge=row.badge, accent=row.accent, disabled=(busy or row.disabled), press=pickModel("source-control-writer-model", scope))
-              SettingsSwitch(checked=row.checked, label="Use a separate source control writer model", disabled=(busy or row.disabled), switchId="scoped-writer-model-enabled", toggle=rest("scoped", `key=sourceControlWriterModelSelection&value=${row.checked ? "off" : "default"}`))
+                SettingsPickerTrigger(rowId=(row.key == "reviewGuideModelSelection" ? "review-guide-model" : "source-control-writer-model"), label=row.valueLabel, name=row.title, driver=row.driver, badge=row.badge, accent=row.accent, disabled=(busy or row.disabled), press=pickModel((row.key == "reviewGuideModelSelection" ? "review-guide-model" : "source-control-writer-model"), scope))
+                if row.traitsLabel != ""
+                  WriterTraitsPicker(row=row, disabled=(busy or row.disabled), restInput=restInput)
+              SettingsSwitch(checked=row.checked, label=(row.key == "reviewGuideModelSelection" ? "Use a separate review guide model" : "Use a separate source control writer model"), disabled=(busy or row.disabled or (not row.checked and row.status != "")), switchId=`scoped-${row.key}-enabled`, toggle=rest("scoped", `key=${row.key}&value=${row.checked ? "off" : "default"}`))
       if row.kind == "textarea"
         ScopedTextArea(value=row.value, placeholder=row.placeholder, label=row.title, fieldKey=row.key, busy=(busy or row.disabled), restInput=restInput)
       if row.child != "" or (row.key == "sourceControlWritingStyle" and row.value == "custom")
         ScopedTextArea(value=row.child, placeholder=row.placeholder, label="Custom source control writing instructions", fieldKey="sourceControlWritingStyle.customInstructions", busy=(busy or row.disabled), restInput=restInput)
+
+// TraitsPicker beside the writer model (SourceControlWritingSettings): a pick saves that one trait
+// on the resolved writer selection ("instance:model#optionId=value", source-control-view.ts).
+component WriterTraitsPicker
+  inject
+    corePal: CorePalette
+  props
+    row: ScopedRow
+    disabled: bool
+    restInput: action
+  derive items = row.traits.filter((option) => option.icon != "section" and option.icon != "section-rule").map((option) => KmItem(id=`scoped-${row.key}-effort-menu-${option.id}`, label=option.label))
+  action triggerKey(k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        showPopover(`effort-scoped-${row.key}`, source=`scoped-${row.key}-effort`)
+        let target = kmTriggerTarget(items, k)
+        if target != ""
+          focus(target)
+  view
+    box position="relative"
+      button id=`scoped-${row.key}-effort` popovertarget=`effort-scoped-${row.key}` key=triggerKey class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" disabled=disabled aria-label=row.traitsLabel testId=`scoped-${row.key}-effort`
+        CcIcon(name="brain", size=16, color=corePal.muted, weight=2)
+        text row.traitsLabel font-size="0.875rem" font-weight=500 line-height="1.25rem" color=corePal.muted
+        CcIcon(name="chevron-down", size=14, color=corePal.muted, weight=2)
+      TraitsMenu(options=row.traits, pal=corePal, menuId=`effort-scoped-${row.key}`, items=items, keyed=0, choose=restInput("scoped", `key=${row.key}&value=${encodeURIComponent(row.value)}#`), testId=`scoped-${row.key}-effort-menu`)
 
 // Inputs commit on blur, as the reference's onBlur writes do.
 component ScopedTextField
