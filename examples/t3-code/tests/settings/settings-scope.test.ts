@@ -2,6 +2,7 @@
 // Original describe/it names; EnvironmentId/ProjectId.make become plain strings.
 import { describe, expect, it } from 'bun:test';
 import { environmentAxisValue, projectAxisValue, resolveSettingsScope, selectEnvironmentAxis, selectProjectAxis, settingsScopeEnvironmentLabel,
+  settingsScopeEnvironmentAddress, settingsScopeEnvironmentLabels, settingsScopeProjectMachines,
   validateSettingsScopeSearch, type ScopeGroup, type ScopeMember } from '../../src/settings/settings-scope';
 
 const laptopId = 'laptop';
@@ -76,7 +77,7 @@ const secondEnv = { environmentId: 'second', label: 'Development', displayUrl: '
 describe('settings scope environment labels', () => {
   it('distinguishes same-name environments by address', () => {
     const list = [firstEnv, secondEnv];
-    expect(list.map(environment => settingsScopeEnvironmentLabel(environment, list))).toEqual(['Development · https://first.example.com', 'Development · https://second.example.com']);
+    expect(list.map(environment => settingsScopeEnvironmentLabel(environment, list))).toEqual(['Development · first.example.com', 'Development · second.example.com']);
   });
   it('falls back to environment IDs when duplicate names have no display URL', () => {
     const list = [firstEnv, secondEnv].map(environment => ({ ...environment, displayUrl: null }));
@@ -85,6 +86,21 @@ describe('settings scope environment labels', () => {
   it('keeps unique names compact and removes disambiguation after a rename', () => {
     expect(settingsScopeEnvironmentLabel(firstEnv, [firstEnv])).toBe('Development');
     expect(settingsScopeEnvironmentLabel(firstEnv, [firstEnv, { ...secondEnv, label: 'Production' }])).toBe('Development');
+  });
+  it('names the full display URL when same-name environments share a host', () => {
+    const list = [firstEnv, { ...secondEnv, displayUrl: 'http://first.example.com/' }];
+    expect(list.map(environment => settingsScopeEnvironmentLabels(environment, list).secondary)).toEqual(['https://first.example.com', 'http://first.example.com/']);
+  });
+  it('gives the address when no list is passed, and the id without a display URL', () => {
+    expect(settingsScopeEnvironmentLabels(firstEnv)).toEqual({ primary: 'Development', secondary: 'first.example.com' });
+    expect(settingsScopeEnvironmentAddress({ ...firstEnv, displayUrl: null })).toBe('first');
+    expect(settingsScopeEnvironmentAddress({ ...firstEnv, displayUrl: 'not a url' })).toBe('not a url');
+  });
+  it("lists a project's machines once each, with addresses on request", () => {
+    const list = [firstEnv, secondEnv, { environmentId: 'third', label: 'Laptop', displayUrl: 'http://127.0.0.1:16510' }];
+    const project = { memberProjects: [{ environmentId: 'first' }, { environmentId: 'third' }, { environmentId: 'third' }, { environmentId: 'gone', environmentLabel: 'Old' }] as ScopeMember[] };
+    expect(settingsScopeProjectMachines(project, list)).toEqual(['Development · first.example.com', 'Laptop', 'Old']);
+    expect(settingsScopeProjectMachines(project, list, true)).toEqual(['Development · first.example.com', 'Laptop · 127.0.0.1:16510', 'Old']);
   });
 });
 

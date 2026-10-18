@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // Settings › Projects over every environment (ProjectsSettings.tsx, ProjectSettingsPanel.tsx and
 // useSettingsProjectGroups at T3 Code 1e2ecbd975): a project only a background environment has opens its page without
 // changing the focused environment, reads that environment's settings and writes through its transport.
@@ -7,6 +8,7 @@ import type { Obj } from '../../src/client/domain';
 import type { Files, Native } from '../../src/client/protocol';
 import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { byEnvironment, groupOfMember, settingsGroups, settingsPageClient } from '../../src/settings/projects-fleet';
+import { archiveCommand } from '../../src/settings/settings-a-archive';
 import { projectsPage } from '../../src/settings/projects-view';
 import { sidebarWrites } from '../../src/client/client-ops-sidebar';
 import { restCommand } from '../../src/settings/settings-rest-commands';
@@ -20,7 +22,7 @@ const repo = { provider: 'github', canonicalKey: 'github.com/acme/app', displayN
 
 function focused(): T3Client {
   const client = new T3Client();
-  Object.assign(client, { loaded: true, connection: 'connected', origin: 'http://127.0.0.1:16410', configLive: true, shellLive: true, threadLive: true, scopes: ['orchestration:operate'] });
+  Object.assign(client, { loaded: true, connection: 'connected', origin: 'http://127.0.0.1:16410', configLive: true, shellLive: true, threadLive: true, scopes: [...AUTH_STANDARD_CLIENT_SCOPES] });
   client.environmentId = 'local'; client.threadId = ''; client.projectId = 'p1';
   client.shell = { projects: [{ id: 'p1', title: 'App', workspaceRoot: '/work/app', repositoryIdentity: repo, createdAt: at, updatedAt: at }], threads: [], sequence: 1 };
   client.config = { environment: { label: 'This Mac', capabilities: { serverResolvedCommandContext: true, projectSettingsOverrides: true } }, settings: {}, providers: [], keybindings: [] };
@@ -33,7 +35,7 @@ function studio(writable = true): FleetEntry {
     shell: { projects: [{ id: 'r1', title: 'solo', workspaceRoot: '/srv/solo', createdAt: at, updatedAt: at },
       { id: 'r9', title: 'App', workspaceRoot: '/srv/app', repositoryIdentity: repo, createdAt: at, updatedAt: at }],
     threads: [{ id: 't1', projectId: 'r1', title: 'One', createdAt: at, updatedAt: at }], sequence: 1 },
-    scopes: writable ? ['orchestration:operate'] : [], error: '', requested: true } as unknown as FleetEntry;
+    scopes: writable ? [...AUTH_STANDARD_CLIENT_SCOPES] : [], error: '', requested: true } as unknown as FleetEntry;
   fleet.entries.set('remote', entry);
   return entry;
 }
@@ -119,3 +121,28 @@ describe('its writes go through the member\'s own environment', () => {
   });
 });
 const opsOf = (ops: Obj[], name: string) => ops.filter(op => op.op === name);
+
+
+test('background archive actions use the row owner without changing the focused thread', async () => {
+  const client = focused(), entry = studio(), ops: Obj[] = [];
+  client.threadId = 'focused-thread';
+  client.local.drafts['env-remote:t1'] = 'background draft';
+  client.local.drafts['local:focused-thread'] = 'focused draft';
+  Object.assign(client.local.clientSettings!, { confirmThreadDelete: false });
+  const native = nativeOf(entry, ops), later = native.later;
+  native.later = async request => {
+    const op = obj(request);
+    if (op.method === 'orchestration.getArchivedShellSnapshot') {
+      ops.push(op);
+      return { ok: true, generation: 3, value: { snapshotSequence: 1, projects: entry.shell.projects, threads: entry.shell.threads.map(thread => ({ ...thread, archivedAt: at })) } };
+    }
+    return later(request);
+  };
+  await archiveCommand(client, native, files, 'archive-pick', 'env-remote:r1:t1', 'unarchive');
+  await archiveCommand(client, native, files, 'archive-pick', 'env-remote:r1:t1', 'delete');
+  expect(fleetRequests(ops).filter(request => request.method === 'orchestration.dispatchCommand').map(request => [request.payload.type, request.payload.threadId])).toEqual([
+    ['thread.unarchive', 't1'], ['thread.delete', 't1']]);
+  expect(client.threadId).toBe('focused-thread');
+  expect(client.local.drafts['env-remote:t1']).toBeUndefined();
+  expect(client.local.drafts['local:focused-thread']).toBe('focused draft');
+});

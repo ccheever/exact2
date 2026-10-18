@@ -1,5 +1,5 @@
 // Settings › Integrations › Browser's default rows (MIT reference, see LICENSE-T3, T3 Code
-// 1e2ecbd975: apps/web/src/components/settings/IntegrationsSettings.tsx BrowserViewportSetting, BrowserZoomSetting,
+// 9c161462c9: apps/web/src/components/settings/IntegrationsSettings.tsx BrowserViewportSetting, BrowserZoomSetting,
 // BrowserAppearanceSetting, BrowserRecordingFrameRateSetting, BrowserRecordingInputSettings,
 // BrowserAutoShowFloatingPreviewSetting). `view` is browser-defaults.ts `browserDefaultsView`; each write is
 // `restlocal:browser-defaults` with `key=…&value=…`. "Open links in" is browser-links.ts's row, between these two groups.
@@ -48,6 +48,7 @@ shape BrowserDefaultsView
   mousePresses: bool
   autoShow: bool
   autoShowReset: bool
+  pullRequestLinksInApp: bool
 
 // SettingsRow: the title (with its reset arrow while the value is not the default), the description, the control.
 component BdRow
@@ -180,3 +181,12 @@ component BrowserAutoShowRow
   view
     BdRow(rowId="auto-show", title="Auto-show floating preview", description="Show the floating preview when an agent opens a browser or device unless the agent says otherwise.", reset=view.autoShowReset, resetLabel="auto-show floating preview", resetPress=local("browser-defaults", "key=reset&value=auto-show"))
       SettingsSwitch(checked=view.autoShow, label="Auto-show floating preview", disabled=false, switchId="browser-auto-show-floating-preview", toggle=local("browser-defaults", `key=auto-show&value=${view.autoShow ? "false" : "true"}`))
+
+// Open pull requests in T3 Code (PullRequestLinksOpenInAppSetting, after Auto-show; not a preview default, so never disabled).
+component PullRequestLinksRow
+  props
+    view: BrowserDefaultsView
+    local: action
+  view
+    BdRow(rowId="pull-request-links-open-in-app", title="Open pull requests in T3 Code", description="Clicking a pull request link opens it in T3 Code. Turn off to open pull request links like any other link, on GitHub or your git host.", reset=(not view.pullRequestLinksInApp), resetLabel="open pull requests in T3 Code", resetPress=local("browser-defaults", "key=reset&value=pull-request-links"))
+      SettingsSwitch(checked=view.pullRequestLinksInApp, label="Open pull requests in T3 Code", disabled=false, switchId="pull-request-links-open-in-app", toggle=local("browser-defaults", `key=pull-request-links&value=${view.pullRequestLinksInApp ? "false" : "true"}`))

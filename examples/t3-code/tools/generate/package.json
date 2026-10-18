@@ -18,6 +18,7 @@
     "oniguruma-parser": "0.12.2",
     "oniguruma-to-es": "4.3.6",
     "remark-parse": "11.0.0",
-    "unified": "11.0.5"
+    "unified": "11.0.5",
+    "unbash": "5.0.0"
   }
 }

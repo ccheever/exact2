@@ -1,4 +1,4 @@
-// Window-shell commands (MIT reference: hooks/useThreadActionMenu.ts,
+// Window-shell commands (T3 Code 9c161462c9, MIT reference: hooks/useThreadActionMenu.ts,
 // hooks/useThreadActions.ts, chat/ChatHeader.tsx rename, OpenInPicker; the
 // provider update prompt's "Update" is provider-update-notify.ts) and the toasts the reference raises around the
 // main window's actions. `shell:` ops write to the server through the
@@ -8,8 +8,8 @@ import { closeThreadTerminals } from '../terminal/terminal-drawer-view';
 import { automationCommand } from '../settings/scheduled-tasks-commands';
 import type { T3Client } from '../client/client';
 import { pushToast } from './toast';
-import { obj, str } from '../client/domain';
-import { ClientError, type Files, type Native } from '../client/protocol';
+import { arr, obj, str } from '../client/domain';
+import { activeRun, ClientError, type Files, type Native } from '../client/protocol';
 import { rememberEditor, detailsKey } from '../details/shell-details';
 import { toggleInline } from './shell-prefs';
 import { markCopied } from './shell';
@@ -18,6 +18,7 @@ import { surfaceLocal, surfaceCommand } from '../panel/panel-surfaces';
 import { openInEditorHere } from '../connections/remote-open'; // remote Open (OpenInPicker)
 import { letGo } from '../client/let-go';
 import { markUnread } from '../sidebar/sidebar-commands';
+import { replaceLinkedPrompt } from '../prompt-links/linked-prompt';
 
 function threadOf(client: T3Client, threadId: string) {
   const thread = client.shell.threads.find(candidate => candidate.id === threadId);
@@ -38,6 +39,7 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
   if (op.startsWith('clone-')) return cloneCommand(client, native, storage, op, id, value); // project-clones-live.ts
   if (op.startsWith('automation-')) return automationCommand(client, native, op.slice(11), id, value); // scheduled-tasks-commands.ts
   const access = client.restAccess(native);
+  if (op === 'select-editor') { rememberEditor(client, value); return ''; }
   if (op === 'open-editor') {
     if (!id) throw new ClientError('This thread does not have a workspace path to open.');
     // OpenInPicker: remotely a deep link to this Mac's editor, never an editor run on the other machine (remote-open.ts).
@@ -47,6 +49,7 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
   // The card's branch picker, Git actions and dialogs (git-route.ts).
   if (op.startsWith('git-')) return gitShellCommand(client, native, storage, op.slice(4), id, value);
   if (op === 'mark-unread') { await markUnread(client, native, id); return ''; } // the sidebar's, silent on failure
+  if (op === 'stop-subagent') { await stopSubagent(client, native, storage, id); return ''; }
   const thread = threadOf(client, id);
   const title = str(thread.title, 'thread');
   if (op === 'rename') {
@@ -84,8 +87,31 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
   return '';
 }
 
+/**
+ * ThreadRelationshipsPanel stopSubagent → interruptThreadTurn({ threadId: child }): the child thread's active run, else
+ * the latest run while it still owns background work, is interrupted with its queue held. A failure is the toast
+ * "Could not stop subagent".
+ */
+async function stopSubagent(client: T3Client, native: Native, storage: Files, childThreadId: string): Promise<void> {
+  try {
+    const access = client.restAccess(native);
+    const projection = childThreadId === client.threadId ? client.projection : obj(await access.request('orchestration.getThreadProjection', { threadId: childThreadId }));
+    const runs = arr(obj(projection).runs);
+    const background = arr(client.shell.threads.find(thread => thread.id === childThreadId)?.pendingBackgroundTasks).length > 0;
+    const run = activeRun(obj(projection)) ?? (background ? runs[runs.length - 1] : undefined);
+    if (!run) return;
+    const [commandId] = await access.ids(1);
+    await access.dispatch(storage, { type: 'run.interrupt', commandId, threadId: childThreadId, runId: str(run.id), holdQueue: true }, 'Stop subagent');
+  } catch (error) {
+    if (letGo(error)) throw error;
+    if (client.error === messageOf(error)) client.error = ''; // the toast stands in for the transcript banner
+    pushToast(client, { kind: 'error', title: 'Could not stop subagent' });
+  }
+}
+
 /** Local window actions: clipboard copies with the reference's toasts. */
 export async function shellLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
+  if (op === 'prompt-link-replace') { replaceLinkedPrompt(client, Number(id)); return ''; }
   const copy = async (text: string) => {
     const response = obj(await native.later({ op: 'copyText', text, generation: client.generation }));
     if (response.ok !== true) throw new ClientError('Could not copy to the clipboard.');
@@ -122,7 +148,7 @@ const messageOf = (error: unknown) => error instanceof Error ? error.message : '
 
 /** The reference's failure toast titles for main-window actions (Sidebar.tsx, ChatView.tsx, useThreadActionMenu.ts). */
 const FAILURE_TITLES: Record<string, string> = {
-  'chat:settle': 'Failed to settle thread', 'chat:unsettle': 'Failed to un-settle thread', unsettle: 'Failed to un-settle thread',
+  'chat:settle': 'Failed to settle thread', 'chat:settle-advance': 'Failed to settle thread', 'chat:unsettle': 'Failed to un-settle thread', unsettle: 'Failed to un-settle thread',
   'chat:unsnooze': 'Failed to wake thread', 'chat:snooze': 'Failed to snooze thread',
   'shell:pin': 'Failed to pin thread', 'shell:unpin': 'Failed to unpin thread', 'shell:rename': 'Failed to rename thread',
   'shell:archive': 'Failed to archive thread', 'shell:delete': 'Failed to delete thread',

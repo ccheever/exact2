@@ -98,6 +98,21 @@ final class EditorFixture {
 }
 
 final class ComposerEditorTests: XCTestCase {
+    func testPrefilledProviderAnswerStaysLiteralAndRestoresNormalDraftParsing() {
+        let fixture = EditorFixture()
+        _ = fixture.composer.perform(["op": "editorSync", "literal": true])
+        let text = "  **Keep** $imagegen [README.md](README.md)\n- [ ] literal task\n"
+        fixture.type(text)
+        let styler = fixture.composer.editor.styler
+        XCTAssertEqual(fixture.editor.string, text)
+        XCTAssertTrue(styler.chips.isEmpty)
+        XCTAssertTrue(styler.marks.isEmpty)
+        XCTAssertTrue(styler.tasks.isEmpty)
+        _ = fixture.composer.perform(["op": "editorSync", "literal": false])
+        XCTAssertFalse(styler.chips.isEmpty)
+        XCTAssertFalse(styler.marks.isEmpty)
+        XCTAssertEqual(fixture.editor.string, text)
+    }
     func testContextInsertionRetainsCaretAndSelectionAfterComposerBlur() {
         for blurred in [false, true] {
             for selecting in [false, true] {

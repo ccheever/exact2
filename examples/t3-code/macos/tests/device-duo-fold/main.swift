@@ -404,6 +404,46 @@ final class DeviceDuoFoldTests: XCTestCase {
         window.orderOut(nil)
     }
 
+    /// duoViewer.test.ts (ba0ea3d152): a fold button's Closed lands, after the display handoff, in
+    /// the closed pose presented upright and centered on the hinge, and asks for no rotation.
+    func testFoldButtonLandsCenteredOnTheHinge() throws {
+        guard let dir = ProcessInfo.processInfo.environment["T3_DEVICE_GLB_DIR"] else { throw XCTSkip("T3_DEVICE_GLB_DIR is not set") }
+        let hub = try Hub()
+        let files = try FileManager.default.contentsOfDirectory(atPath: dir)
+        let chat = try XCTUnwrap(files.first { $0.hasPrefix("_chat-") && $0.hasSuffix(".js") })
+        hub.http.append(("/assets/", { path, connection in
+            let name = String(path.split(separator: "/").last ?? "")
+            guard let data = FileManager.default.contents(atPath: dir + "/" + name) else { return hub.respond(connection, status: "404 Not Found", body: Data()) }
+            hub.respond(connection, type: name.hasSuffix(".js") ? "text/javascript" : "model/gltf-binary", body: data)
+        }))
+        hub.http.insert(("=/", { _, connection in hub.respond(connection, type: "text/html", body: Data("<script type=module src=\"/assets/\(chat)\"></script>".utf8)) }), at: 0)
+        var orientations: [String] = []
+        let view = T3DuoView(touch: { _, _, _ in }, unavailable: { XCTFail("Duo 3D unavailable") }, panelRequested: { _ in },
+                             orientationRequested: { orientations.append($0) }, hinge: { _ in })
+        let window = window(view)
+        func screen(_ panel: Int, _ angle: Double, _ orientation: String) -> T3DeviceClient.Screen {
+            panel == 1 ? .init(width: 1398, height: 2034, orientation: orientation, duo: T3DuoConfig(screenId: 1, supportsHingeAngle: true, hingeAngle: angle))
+                : .init(width: 2007, height: 2853, orientation: orientation, duo: T3DuoConfig(screenId: 3, supportsHingeAngle: true, hingeAngle: angle))
+        }
+        view.setScreen(screen(3, 180, "landscape_left"))
+        view.origin = hub.origin
+        spin(until: { view.isLoaded }, timeout: 30)
+        XCTAssertTrue(view.isLoaded)
+        RunLoop.main.run(until: Date().addingTimeInterval(1))
+        // Closed: the inner display reports first, in the cover's orientation, then the cover.
+        view.setControlPreview(0)
+        view.setScreen(screen(3, 0, "landscape_left"))
+        view.setControlPreview(nil)
+        view.setScreen(screen(1, 0, "portrait"))
+        RunLoop.main.run(until: Date().addingTimeInterval(3))
+        let upright = simd_quatd(angle: .pi / 2, axis: SIMD3(0, 1, 0))
+        XCTAssertLessThan(T3Quaternion.angle(view.orbitRotation, upright), 0.01, "the closed phone stands upright")
+        XCTAssertEqual(view.hingeAngle, 0, accuracy: 0.5)
+        XCTAssertEqual(orientations, [], "a fold asks for no rotation")
+        view.dispose()
+        window.orderOut(nil)
+    }
+
     func testDuoViewerRendersServedModel() throws {
         guard let dir = ProcessInfo.processInfo.environment["T3_DEVICE_GLB_DIR"] else { throw XCTSkip("T3_DEVICE_GLB_DIR is not set") }
         let hub = try Hub()
@@ -436,10 +476,16 @@ final class DeviceDuoFoldTests: XCTestCase {
                 if pose == "open", let middle { XCTAssertEqual(middle.x, 0.5, accuracy: 0.05); XCTAssertEqual(middle.y, 0.5, accuracy: 0.05) }
                 save(window, "duo-\(pose)-\(dark ? "dark" : "light").png")
                 if pose == "open" {
-                    // A preview from a pinch or a queued angle command moves the hinge before the hub confirms it.
+                    // duoViewer.test.ts "eases a fold button's hinge while a pinch follows the fingers":
+                    // a queued angle command eases the hinge before the hub confirms it; a pinch is immediate.
                     view.setControlPreview(120)
-                    XCTAssertEqual(view.hingeAngle, 120)
+                    XCTAssertGreaterThan(view.hingeAngle, 120, "a fold button eases")
+                    RunLoop.main.run(until: Date().addingTimeInterval(1.2))
+                    XCTAssertEqual(view.hingeAngle, 120, accuracy: 0.5)
+                    view.setHingePreview(60, pinch: true)
+                    XCTAssertEqual(view.hingeAngle, 60)
                     XCTAssertNil(view.screenPoint(0.5, 0.5, captured: false), "no contact while the hinge is held")
+                    view.setHingePreview(nil, pinch: true)
                     view.setControlPreview(nil)
                     RunLoop.main.run(until: Date().addingTimeInterval(1.2))
                     XCTAssertEqual(view.hingeAngle, 180, accuracy: 0.5, "back to the confirmed angle")

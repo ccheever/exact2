@@ -1,3 +1,4 @@
+import { can, requirePermission } from '../connections/command-permissions';
 import { terminalLayout, terminalSplitLabel, terminalTabs } from './terminal-layout';
 import { recordTerminalFocus, clearTerminalFocus } from './terminal-focus';
 // T3 Code 1e2ecbd975 rightPanelStore and ChatView terminal surface actions.
@@ -7,7 +8,7 @@ import type { Files, Native } from '../client/protocol';
 import { obj, str } from '../client/domain';
 import { panelState, surfaceStore, type PanelState, type Surface } from '../panel/panel-surfaces';
 import { closeSurface, registerSurfaceClose } from '../panel/right-panel-tabs';
-import { activeRef, ensureTerminalRef, launchFor, knownSessions, allocatableIds, openTerminal, closeTerminalSession, handleTerminalMessage, terminalKeybindings, terminalShortcut, terminalCommandAction, terminalOps, type TerminalDrawerView } from './terminal-drawer-view';
+import { activeRef, ensureTerminalRef, launchFor, knownSessions, allocatableIds, openTerminal, closeTerminalSession, handleTerminalMessage, terminalKeybindings, terminalShortcut, terminalCommandAction, terminalOps, revealTerminal, type TerminalDrawerView } from './terminal-drawer-view';
 import { nextTerminalId, resolveTerminalSessionLabel } from './terminal-labels';
 import { terminalCloseConfirmMessage } from './terminal-close';
 import { parseScopedThreadKey, scopedThreadKey, terminalUiStore, type ScopedThreadRef } from './terminal-ui-state';
@@ -41,6 +42,7 @@ export function terminalSurfaceCloseCopy(client: T3Client, surface: Surface): { 
   return { closeTitle, closeBody };
 }
 export async function addTerminalSurface(client: T3Client, native: Native): Promise<void> {
+  requirePermission(client.scopes, 'terminal:operate');
   const ref = await ensureTerminalRef(client, native);
   if (!ref || !launchFor(client, ref.threadId)) return;
   const terminalId = nextTerminalId(allocatableIds(client, ref));
@@ -74,6 +76,16 @@ export function activateTerminalPane(state: PanelState, surfaceId: string, termi
   const terminal = state.surfaces.find(entry => entry.id === surfaceId && entry.kind === 'terminal')?.terminal;
   if (terminal?.terminalIds.includes(terminalId)) terminal.activeTerminalId = terminalId;
 }
+/**
+ * revealThreadTerminal: an existing terminal shows in the panel surface that holds it (the panel opens on that
+ * surface and pane), else in the thread's drawer, without opening another shell.
+ */
+export function revealThreadTerminal(client: T3Client, ref: ScopedThreadRef, terminalId: string): void {
+  const state = surfaceStore(client).panels.get(scopedThreadKey(ref));
+  const surface = state?.surfaces.find(entry => entry.kind === 'terminal' && entry.terminal?.terminalIds.includes(terminalId));
+  if (state && surface) { activateTerminalPane(state, surface.id, terminalId); state.visible = true; focusPanelTerminal(client); return; }
+  revealTerminal(client, ref, terminalId);
+}
 export function removePanelTerminal(state: PanelState, surface: Surface, terminalId: string): void {
   const terminal = surface.terminal;
   if (!terminal || !terminal.terminalIds.includes(terminalId)) return;
@@ -92,6 +104,7 @@ export function installTerminalPanelCleanup(client: T3Client, native: Native, st
   } });
 }
 export async function terminalPanelLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
+  if (['new', 'split', 'split-vertical', 'close'].includes(op)) requirePermission(client.scopes, 'terminal:operate');
   const ref = activeRef(client), state = panelState(client);
   if (!ref) return '';
   if (op === 'focus-in' || op === 'focus-out') {
@@ -160,7 +173,7 @@ export function terminalPanelView(client: T3Client, base: TerminalDrawerView, su
     closeTitle, closeBody, sessionKey: JSON.stringify([ref.environmentId, ref.threadId, terminalId]), focusRequest: focus.get(client) ?? 0,
     closeLabel: keyClose ? `Close Terminal (${keyClose})` : 'Close Terminal', newLabel: keyNew ? `New Terminal (${keyNew})` : 'New Terminal',
     keybindings: terminalKeybindings(client), commandPrefix: 'terminalpanellocal', surface: surface.id, panes, tabs, direction: layout.direction,
-    showTabs: layout.showTabs, splitDisabled: layout.splitDisabled,
+    showTabs: layout.showTabs, splitDisabled: !can(client, 'terminal:operate') || layout.splitDisabled,
     splitLabel: terminalSplitLabel(false, layout.splitDisabled, terminalShortcut(client, 'terminal.split')),
     splitVerticalLabel: terminalSplitLabel(true, layout.splitDisabled, terminalShortcut(client, 'terminal.splitVertical')) };
 }

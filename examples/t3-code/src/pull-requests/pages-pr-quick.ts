@@ -1,8 +1,9 @@
+import { sourceControlHostActions } from '../shared/source-control-hosts';
 // The Pull Requests page's row extras: the Shift quick actions
 // (PullRequestSpeedActions: Reopen, Close + Ready for review, Close + Merge, shown while Shift alone is
 // held), the checks popover (PullRequestChecksPopover on a listing row: the rollup's headline, then the
 // checks behind it read when it opens) and the stack popover (PullRequestStackPopover: "n/m", the
-// layers read when it opens). Sources: T3 Code 1e2ecbd975 (MIT, see LICENSE-T3)
+// layers read when it opens). Sources: T3 Code 9c161462c9 (MIT, see LICENSE-T3)
 // apps/web/src/components/pullRequest/{PullRequestSpeedActions,PullRequestChecksPopover,
 // PullRequestStackPopover,PullRequestStackLayers,PullRequestRow}.tsx, usePullRequestActions.ts
 // (usePullRequestActionRunner's toasts), routes/_chat.pull-requests.tsx (speedMode, onSpeedAction).
@@ -11,6 +12,10 @@
 // a text field or the composer has the focus, cleared when the app resigns), which wakes this page's
 // resource (`t3.pr`) when it changes. A quick action runs as the panel's actions do (`pageslocal:pr-act-quick`,
 // one command at a time), and a row's popovers read only once opened (`pageslocal:pr-quick-*`).
+import { startDetached, type DetachedReply } from '../composer/composer-replies';
+import { startFleetDetached } from '../usage/usage-replies';
+import { environmentTarget, pullRequestServer, routerHost } from './pages-pr-environments';
+import { pullRequestRouter } from './pages-pr-routing';
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
@@ -41,9 +46,9 @@ function quickState(client: object): QuickState {
   if (!state) { state = { pending: new Set(), checks: '', showAll: false, stack: '', stacks: new Map(), speedMode: false, shown: new Set() }; states.set(client, state); }
   return state;
 }
-const entryKey = (entry: Obj) => `${str(entry.host)}:${str(entry.repository)}#${num(entry.number)}`;
-const referenceOf = (entry: Obj): Obj => ({ projectId: str(entry.projectId), ...(str(entry.host) ? { host: str(entry.host) } : {}), repository: str(entry.repository), number: num(entry.number) });
-const refOf = (entry: Obj) => JSON.stringify({ projectId: str(entry.projectId), host: str(entry.host), repository: str(entry.repository), number: num(entry.number) });
+const entryKey = (entry: Obj) => `${str(entry.environmentId)}:${str(entry.host)}:${str(entry.repository)}#${num(entry.number)}`;
+const referenceOf = (entry: Obj): Obj => ({ ...(str(entry.environmentId) ? { environmentId: str(entry.environmentId) } : {}), projectId: str(entry.projectId), ...(str(entry.host) ? { host: str(entry.host) } : {}), repository: str(entry.repository), number: num(entry.number) });
+const refOf = (entry: Obj) => JSON.stringify({ ...(str(entry.environmentId) ? { environmentId: str(entry.environmentId) } : {}), projectId: str(entry.projectId), host: str(entry.host), repository: str(entry.repository), number: num(entry.number) });
 
 // ── Speed actions (PullRequestSpeedActions) ─────────────────────────────────
 
@@ -52,12 +57,13 @@ const ACTIONS: Record<string, { label: string; icon: string }> = {
   ready: { label: 'Ready for review', icon: 'git-pull-request-arrow' }, reopen: { label: 'Reopen', icon: 'git-pull-request-arrow' },
 };
 export type PrSpeedAction = { key: string; action: string; label: string; icon: string; destructive: boolean; disabled: boolean; tooltip: string; aria: string; value: string };
-/** The row's quick actions: none on a merged or non-GitHub row; Reopen on a closed one, Close and Ready for review on a draft, else Close and Merge. */
+/** State determines the candidates; the host definition limits which actions it supports. */
 export function speedActions(entry: Obj, pending: boolean): PrSpeedAction[] {
-  if (entry.state === 'merged' || str(entry.provider, 'github') !== 'github') return [];
+  if (entry.state === 'merged') return [];
+  const supported = sourceControlHostActions(str(entry.provider, 'github'));
   const actions = entry.state === 'closed' ? ['reopen'] : entry.isDraft === true ? ['close', 'ready'] : ['close', 'merge'];
   const stacked = entry.stack !== undefined && entry.stack !== null;
-  return actions.map(action => {
+  return actions.filter(action => supported.includes(action)).map(action => {
     const { label, icon } = ACTIONS[action]!;
     return { key: action, action, label, icon, destructive: action === 'close', disabled: pending || (action === 'merge' && stacked),
       tooltip: action === 'merge' && stacked ? 'Open this pull request to merge its stack' : `${label} immediately`, aria: `${label} #${num(entry.number)}`,
@@ -130,10 +136,89 @@ export async function runQuickAction(client: T3Client, native: Native, value: st
   return '';
 }
 
+const acceptedQuickWrites = new WeakMap<object, { origin: string; payload: Obj }[]>();
+async function flushQuickInvalidations(client: T3Client, native: Native): Promise<void> {
+  const pending = acceptedQuickWrites.get(client);
+  while (pending?.length) {
+    const write = pending[0]!;
+    await pullRequestRouter.afterWrite(routerHost(client, native, write.origin), 'pullRequests.runAction', write.payload);
+    pending.shift();
+  }
+}
+/** Send quick writes without holding the UI's answer. The routed transport owns each queued request. */
+export async function queueQuickAction(client: T3Client, native: Native, value: string, listEntry: (ref: string) => Obj | null, refreshPanels: () => void, report?: (ok: boolean, error?: string) => void): Promise<string> {
+  let parsed: Obj;
+  try { parsed = obj(JSON.parse(value)); } catch { throw new ClientError('Unknown quick action.'); }
+  const action = str(parsed.action), entry = listEntry(str(parsed.ref));
+  if (!ACTIONS[action]) throw new ClientError(`Unknown quick action: ${action}`);
+  if (!entry) throw new ClientError('That pull request is no longer in the list.');
+  const state = quickState(client), key = entryKey(entry);
+  if (state.pending.has(key)) return '';
+  state.pending.add(key);
+  let origin = '';
+  let payload: Obj = {};
+  const finish = (answer: DetachedReply) => {
+    state.pending.delete(key);
+    if (!answer.ok) {
+      const error = readableFailure(answer.error, ACTION_HINT[action]!);
+      if (report) report(false, error);
+      else if (!answer.interrupted) pushToast(client, { kind: 'error', title: ACTION_FAILURE[action]!, description: error });
+      return;
+    }
+    const accepted = acceptedQuickWrites.get(client) ?? [];
+    accepted.push({ origin, payload }); acceptedQuickWrites.set(client, accepted);
+    if (report) report(true); else pushToast(client, { kind: 'success', title: SPEED_SUCCESS[action]! });
+    if (action !== 'merge') { noteActed(client, entry, action, 'sent'); noteActed(client, entry, action, 'done'); }
+    actionState(client).relist++;
+    refreshPanels();
+  };
+  try {
+    const method = action === 'merge' ? await resolveMergeMethod(client, native, entry) : undefined;
+    payload = actionPayload(referenceOf(entry), action, method);
+    origin = pullRequestServer(client, str(entry.environmentId), payload);
+    const out: { sent?: { reply: Promise<DetachedReply> } } = {};
+    await pullRequestRouter.dispatch(routerHost(client, native, origin), 'pullRequests.runAction', payload, async (environmentId, routed) => {
+      const remote = environmentTarget(client, environmentId);
+      if (environmentId && environmentId !== client.environmentId && !remote) throw new ClientError('The environment was removed.', 'EnvironmentRpcUnavailableError');
+      out.sent = remote ? await startFleetDetached(native, remote, 'pullRequests.runAction', routed) : await startDetached(client, native, 'pullRequests.runAction', routed);
+      return {};
+    });
+    if (!out.sent) throw new ClientError('No connected environment can change this pull request.');
+    void out.sent.reply.then(finish);
+  } catch (error) {
+    state.pending.delete(key);
+    if (letGo(error)) throw error;
+    const message = readableFailure(error, ACTION_HINT[action]!);
+    if (report) report(false, message); else pushToast(client, { kind: 'error', title: ACTION_FAILURE[action]!, description: message });
+  }
+  return '';
+}
+
+/** Close every eligible row selected by a sweep, with one result toast for the batch. */
+export async function queueCloseBatch(client: T3Client, native: Native, refs: string[], listEntry: (ref: string) => Obj | null, refreshPanels: () => void): Promise<string> {
+  const seen = new Set<string>();
+  const entries = refs.flatMap(ref => {
+    const entry = listEntry(ref);
+    if (!entry || entry.state !== 'open' || str(entry.provider, 'github') !== 'github') return [];
+    const key = entryKey(entry);
+    if (seen.has(key) || quickState(client).pending.has(key)) return [];
+    seen.add(key); return [{ ref, entry }];
+  });
+  let completed = 0, closed = 0;
+  const failures: string[] = [];
+  for (const { ref, entry } of entries) await queueQuickAction(client, native, JSON.stringify({ ref, action: 'close' }), () => entry, refreshPanels, (ok, error) => {
+    completed++;
+    if (ok) closed++; else failures.push(`#${num(entry.number)}: ${error || ACTION_HINT.close}`);
+    if (completed === entries.length) pushToast(client, { kind: failures.length ? 'error' : 'success', title: failures.length ? `Closed ${closed} of ${entries.length} pull requests` : `Closed ${closed} pull request${closed === 1 ? '' : 's'}`, ...(failures.length ? { description: failures.slice(0, 3).join('\n') } : {}) });
+  });
+  return '';
+}
+
 // ── Speed mode ──────────────────────────────────────────────────────────────
 
 /** The native monitor's speed mode (Shift alone), read on every answer of the page; false without a module. */
 export async function readSpeedMode(client: T3Client, native: Native): Promise<boolean> {
+  await flushQuickInvalidations(client, native);
   try { quickState(client).speedMode = obj(await client.restAccess(native).call({ op: 'sidebarSpeedMode' })).speedMode === true; }
   catch (error) { if (letGo(error)) throw error; quickState(client).speedMode = false; }
   return quickState(client).speedMode;

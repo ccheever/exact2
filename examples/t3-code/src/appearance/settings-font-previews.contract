@@ -4,7 +4,7 @@
 // sample patch (settings-font-previews.ts):
 // @pierre/diffs' default header (change icon, path, counts) and unified rows with their
 // gutter bars, syntax colours and word-alt emphasis.
-use CorePalette from "../settings/settings-core.contract"
+use CorePalette from "../settings/settings-core-shared.contract"
 use FontDiffLine, FontDiffPreview from "../shared/shapes.contract"
 use DiffGlyph from "../diff/diff-glyphs.contract"
 use diffInk from "./settings-appearance-look.contract"

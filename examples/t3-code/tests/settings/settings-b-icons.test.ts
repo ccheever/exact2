@@ -100,7 +100,9 @@ test('saving fans the icon out to every member and validates first', async () =>
   await expect(runIconOp(client, native, storage, 'project-favicon-set', 'p1', 'path=notes.txt')).rejects.toThrow('Choose an image file');
   await expect(runIconOp(client, native, storage, 'project-icon-set', 'p1', 'kind=monogram&text=%21%21&color=teal')).rejects.toThrow('One or two letters');
   await expect(runIconOp(client, native, storage, 'project-icon-set', 'gone', 'kind=emoji&emoji=%F0%9F%9A%80')).rejects.toThrow('membership changed');
-  expect(writes.length).toBe(3);
+  await runIconOp(client, native, storage, 'project-favicon-set', 'p1', 'path=AppIcon.ICNS');
+  expect(writes[3]!.payload).toMatchObject({ faviconPath: 'AppIcon.ICNS', projectIcon: null });
+  expect(writes.length).toBe(4);
 });
 
 test('the settings row shows the override, else the server favicon, else the automatic monogram', async () => {

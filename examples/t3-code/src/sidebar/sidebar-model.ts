@@ -1,3 +1,4 @@
+// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
 // The sidebar's thread model (Sidebar.tsx, Sidebar.logic.ts, client-runtime
 // models.ts/threadSettled.ts/threadSort.ts; MIT, see LICENSE-T3): status, the
 // shelf a thread lives on, the static sort, unread/woke/recede prominence and
@@ -252,11 +253,21 @@ export function workingStartedAt(thread: Obj): string | null {
   return null;
 }
 
+/**
+ * When the pill's timer starts (Sidebar.tsx WorkingDuration): a working
+ * thread's activity run start; a waiting one's latest run end, since Waiting
+ * starts when the turn ends and background work keeps the thread held.
+ */
+export function statusSince(thread: Obj, status: SidebarStatus): string | null {
+  const since = status === 'working' ? workingStartedAt(thread) : status === 'waiting' ? latestRun(thread)?.completedAt ?? null : null;
+  return valid(since) ? since : null;
+}
+
 export interface TopStatus { label: string; icon: string; color: string }
 /** Sidebar.tsx topStatus: the pill that replaces the age at the card's top right. */
 export function topStatus(status: SidebarStatus, woke: boolean, unread: boolean): TopStatus | null {
   if (status === 'working') return { label: 'Working', icon: 'circle-dashed', color: '#2b7fff' };
-  if (status === 'waiting') return { label: 'Waiting', icon: '', color: 'light-dark(#71717b, #818181)' };
+  if (status === 'waiting') return { label: 'Waiting', icon: 'circle-dot-dashed', color: 'light-dark(#71717b, #818181)' };
   if (status === 'approval') return { label: 'Approval', icon: 'shield-question', color: 'light-dark(#bb4d00, #ffb900)' };
   if (status === 'input') return { label: 'Input', icon: 'message-circle-question', color: 'light-dark(#4f39f6, #a3b3ff)' };
   if (status === 'limited') return { label: 'Limited', icon: 'circle-alert', color: '#fe9a00' };

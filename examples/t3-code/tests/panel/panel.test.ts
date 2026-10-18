@@ -10,7 +10,7 @@ import { deviceThreadId } from '../../src/device/device-session';
 import { toasts } from '../../src/shell/toast';
 import { treeRows, searchRows, searchMatches, crumbs, codeLines, sortEntries, filesState, editFile, pendingPaths, setMarkdownTaskChecked } from '../../src/panel/files-surface';
 import { resolveChains, listLines, prsView, prCommandPayload } from '../../src/panel/linked-prs';
-import { platformSetupStatus, hubStatusLabel, configureInput, deviceStateEvent, watchDevice, deviceReady, DEVICE_STATE_KEY } from '../../src/device/device-surface';
+import { platformSetupStatus, hubStatusLabel, deviceHubReadiness, deviceLocal, deviceView, configureInput, deviceStateEvent, watchDevice, deviceReady, DEVICE_STATE_KEY } from '../../src/device/device-surface';
 import { parseDelimited } from '../../src/panel/rendered-previews';
 import { surfaces } from '../../src/shell/shell';
 import { decodeClientPrefs } from '../../src/settings/settings-core';
@@ -25,6 +25,7 @@ function fakeClient(over: Record<string, unknown> = {}) {
   const calls: Call[] = [];
   const replies: Record<string, (payload: Record<string, unknown>) => unknown> = {};
   const client = {
+    scopes: ['filesystem:read', 'filesystem:write', 'preview:operate', 'terminal:read', 'terminal:operate'],
     environmentId: 'env', threadId: 't1', projectId: 'p1', ready: true, revision: 0, generation: 1, diffOpen: false, diffText: '', diffError: '', diffLoading: false,
     get draftKey() { return `env:${this.threadId || `new:${this.projectId}`}`; },
     config: { environment: { capabilities: { threadPullRequests: true, threadPullRequestWatch: true } } },
@@ -285,6 +286,18 @@ describe('Linked pull requests', () => {
     const lines = listLines(resolveChains([lone, top, base]));
     expect(lines.map(line => [line.link.number, line.depth, line.stack?.size ?? 0])).toEqual([[1, 0, 2], [2, 1, 0], [3, 0, 0]]);
   });
+  test('siblings stay under their parent, and deeper layers precede a later shallow sibling for the current PR', async () => {
+    const make = (number: number, headBranch: string, baseBranch: string) => link(number, { state: 'open', headBranch, baseBranch });
+    const links = [make(1, 'base', 'main'), make(2, 'first', 'base'), make(3, 'deep', 'first'), make(4, 'sibling', 'base')];
+    const chains = resolveChains(links);
+    expect(chains).toHaveLength(1);
+    expect(listLines(chains).map(row => [row.link.number, row.depth, row.stack?.size ?? 0])).toEqual([[1, 0, 4], [2, 1, 0], [3, 2, 0], [4, 1, 0]]);
+    const { resolveThreadCurrentPullRequestLink } = await import('../../src/sidebar/thread-reference');
+    expect(resolveThreadCurrentPullRequestLink(links)?.number).toBe(3);
+    expect(resolveThreadCurrentPullRequestLink(links.map(entry => ({ ...entry, snapshot: { ...entry.snapshot, state: 'merged' } })))?.number).toBe(3);
+    const cyclic = [make(5, 'a', 'b'), make(6, 'b', 'a')];
+    expect(listLines(resolveChains(cyclic)).map(row => row.depth)).toEqual([0, 0]);
+  });
   test('rows carry watch state, waiting links and the footer; watch and unlink are orchestration commands', async () => {
     const watched = link(4, { title: 'Watched', state: 'open', isDraft: false, headBranch: 'h', baseBranch: 'main', updatedAt: '2026-10-04T00:00:00.000Z', syncedAt: '2026-10-04T00:00:00.000Z', additions: 3, deletions: 1, author: { login: 'octo' } }, { watch: { since: 'x' } });
     const { client, calls } = fakeClient();
@@ -304,13 +317,42 @@ describe('Linked pull requests', () => {
 
 describe('Device setup', () => {
   test('platform status and hub labels match DeviceSetup', () => {
-    const state = { hostStatus: 'ready', hosts: [{ platforms: [{ platform: 'ios', available: true }, { platform: 'android', available: false, reason: 'Install the Android SDK.' }] }], devices: [] };
+    const state = { hostStatus: 'ready', hosts: [{ id: 'local', kind: 'local', platforms: [{ platform: 'ios', available: true }, { platform: 'android', available: false, reason: 'Install the Android SDK.' }] }], devices: [] };
     expect(platformSetupStatus(state, 'ios').message).toBe('Xcode is installed, but no iOS Simulator is available. Install a runtime in Xcode Settings → Components.');
     expect(platformSetupStatus(state, 'android')).toEqual({ ready: false, message: 'Install the Android SDK.' });
-    expect(hubStatusLabel('ready', false)).toBe('Device hub is ready.');
-    expect(hubStatusLabel('installing', true)).toBe('Installing device hub…');
+    expect(hubStatusLabel({ hostStatus: 'ready' }, false)).toBe('Device hub is ready.');
+    expect(hubStatusLabel({ hostStatus: 'installing' }, true)).toBe('Installing device hub…');
+    expect(hubStatusLabel({ hostStatus: 'idle', hostStatuses: { mini: { status: 'ready' } } }, false)).toBe('Device hub is ready.');
     expect(configureInput('hub', 'false')).toEqual({ enabled: false, agentAccessEnabled: false });
     expect(configureInput('complete', '')).toEqual({ onboardingCompleted: true });
+  });
+  // IntegrationsSettings.test.tsx "counts a remote device host when this machine has no simulator tooling".
+  const remoteOnly = () => ({
+    hostStatus: 'idle', hostStatuses: { macmini: { status: 'ready' } }, sessions: [], onboardingCompleted: false, agentAccessEnabled: false,
+    hosts: [
+      { id: 'local', kind: 'local', label: 'This Mac', platforms: [{ platform: 'ios', available: false, reason: 'Xcode was not found.' }, { platform: 'android', available: false, reason: 'Android SDK was not found.' }] },
+      { id: 'macmini', kind: 'ssh', label: 'Mac Mini', hubInstalled: true, agentDeviceInstalled: true, platforms: [{ platform: 'ios', available: true }, { platform: 'android', available: false, reason: 'Android SDK was not found.' }] },
+    ],
+    devices: [{ hostId: 'macmini', id: 'iphone', platform: 'ios', name: 'iPhone 16 Pro', version: 'iOS 27.0', booted: true, physical: false }],
+  });
+  test('a ready remote device host is enough: readiness, the platform names it, Continue moves on', async () => {
+    const state = remoteOnly();
+    expect(deviceHubReadiness(state)).toEqual({ ready: true, busy: false });
+    expect(platformSetupStatus(state, 'ios')).toEqual({ ready: true, message: 'Xcode and iOS Simulator are available on Mac Mini.' });
+    expect(platformSetupStatus(state, 'android').ready).toBe(false);
+    expect(deviceHubReadiness({ hostStatus: 'idle', hostStatuses: { macmini: { status: 'starting' } } })).toEqual({ ready: false, busy: true });
+    expect(deviceHubReadiness({ hostStatus: 'starting', hostStatuses: { macmini: { status: 'ready' } } })).toEqual({ ready: true, busy: false });
+    const { client, calls } = fakeClient();
+    await surfaceLocal(client, native, 'open', 'm', '');
+    deviceStateEvent(client, { subscriptionId: '1-9', key: DEVICE_STATE_KEY, value: state });
+    const view = await panelView(client, native, 0);
+    expect(view.device).toMatchObject({ canContinue: true, hubReady: true, hubStatus: 'Device hub is ready.', busy: false });
+    expect(view.device.platforms[0]!.message).toBe('Xcode and iOS Simulator are available on Mac Mini.');
+    // DeviceSetup probes once while it is open with the hub enabled; remote hosts report platforms only after one.
+    await panelView(client, native, 0);
+    expect(calls.filter(call => call.method === 'device.list').length).toBe(1);
+    await deviceLocal(client, native, 'continue', '', '');
+    expect((await deviceView(client, native)).step).toBe(1);
   });
   test('Device opens the wizard until onboarding is complete; the stream decides readiness', async () => {
     const { client, calls } = fakeClient();

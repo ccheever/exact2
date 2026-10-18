@@ -1,6 +1,6 @@
 // Ported from T3 Code 1e2ecbd975 packages/shared/src/usageLimits.test.ts (MIT, see LICENSE-T3):
-// "pace" (:58), "limitsNotice" (:83), "providersWithLimits" (:101), "/usage-limits"
-// (:863-1072, six cases), "remainingPercent" (:1112) and "isUsageLimitsCommand" (:1121), with
+// "pace" (:58; 9c161462c9's reset boundary cases), "limitsNotice" (:83), "providersWithLimits" (:101), "/usage-limits"
+// (:863-1072, six cases, and 9c161462c9's two-workspace credit case), "remainingPercent" (:1112) and "isUsageLimitsCommand" (:1121), with
 // their original names. Changes: ids are plain strings (no ProviderInstanceId.make), and
 // vite-plus/test is bun:test.
 import { describe, expect, it } from 'bun:test';
@@ -39,6 +39,20 @@ function provider(overrides: Obj): Obj {
 }
 
 describe('pace', () => {
+  it.each([
+    ['2026-09-03T12:01:00.000Z', 'resets in 1m'],
+    ['2026-09-03T12:00:59.999Z', 'Resets momentarily'],
+    ['2026-09-03T12:00:00.001Z', 'Resets momentarily'],
+    ['2026-09-03T12:00:00.000Z', 'resets now'],
+    ['2026-09-03T11:59:59.999Z', 'resets now'],
+  ])('formats the reset boundary at %s', (resetsAt, label) => {
+    expect(formatResetsIn({ ...window, resetsAt }, now)).toBe(label);
+  });
+
+  it('ignores invalid reset timestamps', () => {
+    expect(formatResetsIn({ ...window, resetsAt: 'invalid' }, now)).toBeNull();
+  });
+
   it('places the clock three fifths through a five-hour window with two hours left', () => {
     expect(elapsedShare(window, now)).toBeCloseTo(0.6);
     expect(paceOf(window, now)).toBe('under');
@@ -112,6 +126,15 @@ describe('/usage-limits', () => {
     expect((report?.accounts[0]?.limits.resetCredits as Obj | undefined)?.availableCount).toBe(2);
     expect(report?.accounts[0]?.resetCreditInput).toEqual({ sourceId: 'hub', accountId: 'duplicate', creditId: 'duplicate-credit' });
     expect(report?.accounts.find(account => account.id === 'hub:oss')?.resetCreditInput).toEqual({ sourceId: 'hub', accountId: 'oss', creditId: 'oss-credit' });
+  });
+
+  it('gives a hub credit to no native row when its email is signed in to two workspaces', () => {
+    const workspaces = ['ws-a', 'ws-b'].map(workspaceId => provider({ instanceId: workspaceId, usageLimits: limits,
+      auth: { status: 'authenticated', email: 'same@example.com', workspaceId } }));
+    const hub = [{ ...sources[0]!, accounts: [{ id: 'duplicate', driver: selected.driver, email: 'same@example.com',
+      usageLimits: { ...limits, resetCredits: { availableCount: 2, nextCreditId: 'c' } } }] }];
+    const report = collectProviderUsageLimits('ws-a', workspaces, hub, now);
+    expect(report?.accounts.map(account => account.resetCreditInput)).toEqual([{ instanceId: 'ws-a' }, { instanceId: 'ws-b' }, { sourceId: 'hub', accountId: 'duplicate', creditId: 'c' }]);
   });
 
   it('redeems a native duplicate through the hub even when the native snapshot is fresher', () => {

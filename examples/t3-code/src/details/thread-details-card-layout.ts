@@ -1,6 +1,6 @@
 // The inline workspace card's place and fold (T3 Code 1e2ecbd975, MIT, see LICENSE-T3:
 // apps/web/src/components/chat/threadDetailsCardLayout.ts, ported as is), and ThreadDetailsCard's
-// measurement of its content per density.
+// measurement of its content per density (ThreadDetailsCard.tsx, 9c161462c9).
 import type { PreviewMiniPlayerFrame } from '../device/previewMiniPlayerLayout';
 import { DETAILS_CARD_CLEARANCE } from '../shell/chat-canvas-layout';
 
@@ -48,23 +48,28 @@ export const DETAILS_FRAMES = {
   content: 'details-content',
   /** Only `full` shows these: the Run on and workspace rows, Automations and Lineage, the Git action group at rest. */
   fullTop: 'details-full-top', fullTail: 'details-full-tail', fullGit: 'details-full-git',
+  /** The Lineage section (inside `fullTail`), which the density does not count. */
+  lineage: 'details-lineage',
   /** The Version Control section, whose hairline only `full` draws. */
   vcs: 'details-vcs',
   /** Mounted only while the card shows its compact rows. */
   compact: 'details-density-compact',
 } as const;
 
-export type ThreadDetailsCardHeights = { full: number; compact: number };
+/** The heights the density fits (`full` without Lineage), and `content`: the full layout's whole height. */
+export type ThreadDetailsCardHeights = { full: number; compact: number; content: number };
 
 const frameHeight = (value: unknown): number | null =>
   Array.isArray(value) && value.length >= 4 && Number.isFinite(Number(value[3])) ? Number(value[3]) : null;
 
 /**
  * ThreadDetailsCard's measure (`element.offsetHeight` plus the card's 1 pt borders) for the density the frames were
- * laid out in. A full layout gives both heights: the compact one is the content without the parts only `full` shows,
- * where the reference lays the compact rows out to measure them (the result is the same height). A compact layout gives
- * the compact height; the essential rows are not measured, as in the reference. Frames from no recognisable layout (a
- * density switch in flight) give nothing, so a height is never kept for the wrong density.
+ * laid out in. Lineage scrolls as it expands, so the height a density must fit leaves it out: counting it would fold
+ * away the section and workspace rows when the user asks to see more of it. A full layout gives both fitting heights
+ * (the compact one is the content without the parts only `full` shows, where the reference lays the compact rows out
+ * to measure them; the result is the same height) and the whole content, where a floating player stays below the card.
+ * A compact layout gives the compact height; the essential rows are not measured, as in the reference. Frames from no
+ * recognisable layout (a density switch in flight) give nothing, so a height is never kept for the wrong density.
  */
 export function measureThreadDetailsCard(frames: Record<string, unknown>): Partial<ThreadDetailsCardHeights> {
   const content = frameHeight(frames[DETAILS_FRAMES.content]);
@@ -74,7 +79,7 @@ export function measureThreadDetailsCard(frames: Record<string, unknown>): Parti
   if (top !== null) {
     const folded = top + (frameHeight(frames[DETAILS_FRAMES.fullTail]) ?? 0) + (frameHeight(frames[DETAILS_FRAMES.fullGit]) ?? 0)
       + (frameHeight(frames[DETAILS_FRAMES.vcs]) === null ? 0 : 1);
-    return { full, compact: Math.max(0, full - folded) };
+    return { full: full - (frameHeight(frames[DETAILS_FRAMES.lineage]) ?? 0), compact: Math.max(0, full - folded), content: full };
   }
   return frameHeight(frames[DETAILS_FRAMES.compact]) === null ? {} : { compact: full };
 }

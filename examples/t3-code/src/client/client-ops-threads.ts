@@ -12,9 +12,11 @@ import { heroCarry, heroLand, ensureScratchProject } from '../pages/pages-home';
 import { homeTarget } from '../pages/home-landing';
 import { obj, str, messages } from './domain';
 import { ClientError, type Native, type Files } from './protocol';
+import { dismissPromptLink } from '../prompt-links/prompt-link-handler';
 
 /** Selection: a project, a new thread or a hero's carry, a thread, older history; Copy message; dismissing the thread error. */
 export async function threadOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
+  if (op === 'select-project' || op === 'select-thread' || op === 'new-thread' || op.startsWith('pages:hero-')) dismissPromptLink(this);
   let resultMessage = '';
   try {
     if (op === 'copy-message') {
@@ -43,6 +45,7 @@ export async function threadOps(this: T3Client, op: string, id: string, value: s
       if (named) id = named.threadId;
       const carry = op.startsWith('pages:hero-') ? await heroCarry(this, op.slice(11), id, () => ensureScratchProject(this, native!)) : null;
       if (carry) id = carry.projectId;
+      if (id && !this.shell.projects.some(project => project.id === id)) return true;
       if (id && this.shell.projects.some(project => project.id === id)) this.projectId = id;
       this.threadId = ''; this.thread = null; this.threadSubscription = ''; this.threadEpoch++;
       delete this.subscriptions.thread;
