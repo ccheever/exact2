@@ -6,6 +6,9 @@
 // disconnected" states, the `taskId` deep link that opens the editor once, and the editor's
 // draft, choices and branch refs. The editor never enables or runs a task by itself; Enabled
 // is the user's own switch. Labels and the scope rule are scheduled-tasks.ts ports.
+import { fleet } from '../connections/settings-b-fleet';
+import { deliveriesPage, closeDeliveries, EMPTY_DELIVERIES } from './scheduled-deliveries';
+import { webhookAddress, webhookDraft, webhookSchedule } from './scheduled-webhook';
 import { arr, obj, str, num, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
@@ -25,7 +28,7 @@ export { scheduleLabel, relativeLabel as runLabel, taskStatus } from './schedule
 export function editorDraft(task: Obj | undefined, projectId: string, modelKey: string, environmentId = '') {
   const draft = task ? taskToDraft(task) : emptyDraft(projectId, modelKey);
   const schedule = obj(task?.schedule);
-  return { id: draft.editingId, environmentId, title: draft.title, prompt: draft.prompt, enabled: draft.enabled, scheduleMode: draft.scheduleMode, intervalMinutes: draft.intervalMinutes,
+  return { ...webhookDraft(task), id: draft.editingId, environmentId, title: draft.title, prompt: draft.prompt, enabled: draft.enabled, scheduleMode: draft.scheduleMode, intervalMinutes: draft.intervalMinutes,
     timeOfDay: draft.timeOfDay, sunday: draft.sunday, monday: draft.monday, tuesday: draft.tuesday, wednesday: draft.wednesday, thursday: draft.thursday, friday: draft.friday,
     saturday: draft.saturday, projectId: draft.projectId, threadId: draft.threadId, workspaceMode: draft.workspaceMode, baseRef: draft.baseRef, startFromOrigin: draft.startFromOrigin,
     path: draft.existingWorktreePath, modelKey: draft.modelKey, legacyInterval: schedule.type === 'interval' && num(schedule.everyMs) < 60000 };
@@ -94,8 +97,9 @@ export function editTarget(value: string, fallbackEnvironment: string): { enviro
   return { environmentId: fallbackEnvironment, taskId: value, link: false };
 }
 
-export type TaskRow = { id: string; environmentId: string; title: string; prompt: string; status: string; runStatus: string; runError: string; enabled: boolean; first: boolean };
+export type TaskRow = { webhook: boolean; id: string; environmentId: string; title: string; prompt: string; status: string; runStatus: string; runError: string; enabled: boolean; first: boolean };
 export type TaskSection = { id: string; label: string; secondary: string; kind: string; transport: string; heading: boolean; state: string; title: string; description: string; linkMissing: boolean; tasks: TaskRow[] };
+
 
 /** ScheduledTaskEnvironmentSection: disconnected, error, loading, then the scoped rows. */
 export function taskSection(environment: LiveEnvironment, scope: TaskScope, heading: boolean, linkTaskId: string, now: number): TaskSection {
@@ -106,7 +110,7 @@ export function taskSection(environment: LiveEnvironment, scope: TaskScope, head
   const tasks = environment.tasks.value.filter(task => matchesScheduledTaskScope(scope, environment.environmentId, str(task.projectId)));
   return { ...base, state: 'ready', title: tasks.length ? '' : 'No scheduled tasks', description: tasks.length ? '' : 'No tasks match this environment and project selection.',
     linkMissing: !!linkTaskId && !tasks.some(task => task.id === linkTaskId),
-    tasks: tasks.map((task, index) => ({ id: str(task.id), environmentId: environment.environmentId, title: str(task.title), prompt: str(task.prompt), status: taskStatus(task, now),
+    tasks: tasks.map((task, index) => ({ webhook: obj(task.schedule).type === 'webhook', id: str(task.id), environmentId: environment.environmentId, title: str(task.title), prompt: str(task.prompt), status: taskStatus(task, now),
       runStatus: str(task.lastRunStatus) === 'never' ? '' : str(task.lastRunStatus), runError: str(task.lastRunError), enabled: task.enabled === true, first: index === 0 })) };
 }
 
@@ -165,11 +169,13 @@ export function taskRefsStatus(pages: ProjectRefs): string {
 }
 
 export async function scheduledPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, editor: string, editingId: string, active: boolean, now = 0, machine = '', projectKey = '', checkout = '', taskBase = '', refresh = 0) {
-  const empty = { available: false, writable: false, error: '', loading: false, environment: '', scope: `${environmentId}:${projectId}`, missing: false,
+  const empty = { deliveries: EMPTY_DELIVERIES, available: false, writable: false, error: '', loading: false, environment: '', scope: `${environmentId}:${projectId}`, missing: false,
     tasks: [] as TaskRow[], sections: [] as TaskSection[], compact: false, emptyTasks: false, summaries: [] as { id: string; text: string }[],
-    editors: [] as (ReturnType<typeof editorDraft> & { key: string; missing: boolean })[], projects: [] as TaskChoice[], workspaces: [] as Choice[], environments: [] as TaskChoice[],
+    editors: [] as (ReturnType<typeof editorDraft> & ReturnType<typeof webhookAddress> & { key: string; missing: boolean })[], projects: [] as TaskChoice[], workspaces: [] as Choice[], environments: [] as TaskChoice[],
+
     branches: [] as Refs[], marks: [] as TaskModelMark[] };
   if (!active || editor !== 'task') editorRefs.delete(client);
+  if (!active || editor !== 'task-deliveries') closeDeliveries(client);
   if (!active) return empty;
   try {
     if (!native?.available) throw new Error('Open this app on macOS to connect to T3 Code.');
@@ -180,7 +186,7 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     if (scope.kind === 'unavailable') throw new Error(scope.message);
     const inScope = environments.filter(environment => scope.environmentIds.includes(environment.environmentId));
     const fallback = (inScope.find(environment => environment.focused && environment.connected) ?? inScope.find(environment => environment.connected) ?? inScope[0])?.environmentId ?? '';
-    const target = editor === 'task' && editingId ? editTarget(editingId, fallback) : null;
+    const target = (editor === 'task' || editor === 'task-deliveries') && editingId ? editTarget(editingId, fallback) : null;
     const scopeMachines = scopeEnvironments(client);
     const sections = inScope.map(environment => {
       const section = taskSection(environment, scope, inScope.length > 1, target?.link && target.environmentId === environment.environmentId ? target.taskId : '', now);
@@ -193,6 +199,11 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     const base = { ...empty, available: !!editing?.connected, writable: !!editing?.connected && (!editing.focused || client.writable),
       environment: editing?.label ?? '', sections, compact: inScope.length > 1, summaries: taskEnvironmentSummaries(sections),
       emptyTasks: sections.some(section => section.state === 'ready') && sections.every(section => !section.tasks.length), tasks: sections.flatMap(section => section.tasks) };
+    if (editor === 'task-deliveries' && editing) {
+      const task = editing.tasks.value?.find(entry => entry.id === target?.taskId);
+      return task ? { ...base, deliveries: await deliveriesPage(client, editing, task, new URLSearchParams(taskBase).get('delivery') ?? '', refresh + Number(new URLSearchParams(taskBase).get('refresh') ?? 0), now) } : { ...base, deliveries: { ...EMPTY_DELIVERIES, open: true, error: 'This scheduled task no longer exists.' } };
+    }
+
     if (editor !== 'task' || !editing) return base;
     const all = editing.tasks.value;
     // A deep link opens the editor once its task is known; a missing one is the section's "Task unavailable".
@@ -282,8 +293,9 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     // editingTaskMissing: the task went away while its editor was open.
     const missing = !!target?.taskId && !!all && !task;
     return { ...base, missing,
-      editors: [{ ...draft, key, missing }],
+      editors: [{ ...draft, ...webhookAddress(task?.webhook ? obj(task.webhook) : undefined, editing.focused ? client.origin : str(fleet.entries.get(editing.key)?.origin)), key, missing }],
       projects: projects.map(project => ({ value: str(project.id), label: str(project.title), selected: false, kind: '', secondary: environments.some(environment => environment.shell.projects.some(other => other.title === project.title && (environment.environmentId !== editing.environmentId || other.id !== project.id))) ? str(project.workspaceRoot) : '' })),
+
       workspaces: ['worktree', 'root', 'existing_worktree'].map(value => ({ value, label: WORKSPACE_LABELS[value], selected: false })),
       // Runs on: the scope's connected environments (selectScopedSettingsEnvironments' connectedEnvironments).
       environments: inScope.filter(environment => environment.connected).map(environment => {
@@ -306,7 +318,8 @@ export function taskInput(input: Record<string, string>, existing: Obj | undefin
     const everyMs = Math.round(Number(input.intervalMinutes) * 60000);
     if (!Number.isSafeInteger(everyMs) || everyMs < 60000) fail('Invalid interval', 'Enter an interval of at least one minute.');
     schedule = { type: 'interval', everyMs };
-  } else {
+  } else if (input.scheduleMode === 'webhook') schedule = webhookSchedule(input, existing);
+  else {
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].flatMap((day, index) => input[day] === 'true' ? [index] : []);
     const time = str(input.timeOfDay) || '09:00';
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) fail('Invalid time', 'Choose a time of day.');

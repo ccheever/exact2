@@ -397,6 +397,7 @@ component ProjectDialogs
     cardScripts: bool
   view
     // Each editor gives the focus back to the control that opened it as it closes (dialog-trap.contract DialogFinalFocus).
+    DialogFinalFocus(open=(restEditor == "task-deliveries"), owner="webhook-deliveries-dialog")
     DialogFinalFocus(open=(restEditor == "task"), owner="scheduled-task-dialog")
     DialogFinalFocus(open=(restEditor == "project-remove"), owner="project-remove")
     DialogFinalFocus(open=(restEditor == "project-remove-member"), owner="project-remove-member")
