@@ -650,11 +650,23 @@ impl Parser {
             let value = match self.expr()? {
                 // `-0.2` is a literal to anyone writing a style: fold it, so
                 // `letter-spacing=-0.2` is a constant like `0.2`.
+                // Its span the `-` through the number, as an attribute's
+                // (the `-` alone where the number is on another line).
                 Expr::Unary(UnOp::Neg, inner, span) if matches!(*inner, Expr::Number(..)) => {
-                    let Expr::Number(n, _) = *inner else {
+                    let Expr::Number(n, at) = *inner else {
                         unreachable!()
                     };
-                    Expr::Number(-n, span)
+                    Expr::Number(
+                        -n,
+                        Span {
+                            end_col: if at.line == span.line {
+                                at.end_col
+                            } else {
+                                span.end_col
+                            },
+                            ..span
+                        },
+                    )
                 }
                 other => other,
             };

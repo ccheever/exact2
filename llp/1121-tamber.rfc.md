@@ -700,16 +700,22 @@ style PostButton
   inherit: `background-color`, `border-color`, `opacity`, `box-shadow`,
   `-exact-press-scale`. Paint only, so a state never relayouts. A host overlay never changes
   an inherited colour, so it never has to recolour descendant text, inline runs, SVG or
-  `currentcolor` outside the runner's commit; a pressed text colour is a later step with
-  host-side inheritance designed for it. Another row is `lower-state-row`.
+  `currentcolor` outside the runner's commit. `:active` is the exception, by way of the press
+  paint (below): it takes `color` (the host's pressed colour already reaches the subtree, LLP
+  1061 D7) and, until the press paint can draw them, refuses `border-color` and `box-shadow`.
+  Another row is `lower-state-row`.
 - **Runner-known states** (`:disabled`, `:checked`) lower to the conditional rows an author
-  can write today. **Host-known states** (`:active`, `:hover`, `:focus-visible`) lower to a
-  **state look**: a `looks` row `{ node, state, rows }`, keyed by node and state, applied by
-  the host on its own tracking, with no round trip (LLP 1061 D1's reason).
+  can write today. **`:hover` and `:focus-visible`** lower to a **state look**: a `looks` row
+  `{ node, state, rows }`, keyed by node and state, applied by the host on its own tracking,
+  with no round trip (LLP 1061 D1's reason). **`:active` lowers to the press paint** (LLP 1061
+  D7: `-exact-press-background-color`, `-exact-press-color`, the press's opacity and
+  `-exact-press-scale`), so each host has one press and one runtime for it, and no `:active`
+  look.
 - **`:active` is the host's existing press**, not CSS's: the innermost node with a `press`
   handler (LLP 1061), eased on the curve the host uses for `-exact-press-scale` today
-  (`cubic-bezier(.16, 1, .3, 1)` on Apple), held under Reduce Motion with colour changes
-  snapping, and unsmoothed on the agent's clock. On the web it is the runtime's existing press
+  (`cubic-bezier(.16, 1, .3, 1)` on Apple), held under Reduce Motion with its colours still
+  easing (the press is feedback, not motion: LLP 1061's 2026-09-27 ruling and D7), and
+  unsmoothed on the agent's clock. On the web it is the runtime's existing press
   glue (`data-pressed`), never a stylesheet `:active` rule, which would match ancestors and
   nodes with no `press` handler. A written `-exact-press-scale="0.97"` is that state's
   scale.
@@ -719,14 +725,21 @@ style PostButton
   1. the class's rows, then the node's own rows (the node wins, as today);
   2. `:checked`, the class's then the node's;
   3. `:disabled`, the class's then the node's;
-  4. the host overlays, `:hover`, then `:focus-visible`, then `:active`, each the class's then
-     the node's.
+  4. the host overlays, `:hover`, then `:focus-visible`, each the class's then the node's;
+  5. the press paint from `:active`, the class's then the node's.
 
   Steps 1–3 are the base, folded by the runner into conditional rows. A disabled node takes
   no press, hover or focus, as today. An overlay's values are absolute; when the base or the
   class changes under an active overlay, the host applies the overlay over the new base, and
   rows the overlay does not name show the new base. The host's ease owns overlay changes; an
-  authored `transition` owns base changes.
+  authored `transition` owns base changes. An `:active` `opacity` is CSS's, an absolute
+  target, eased from the opacity shown at the press (a hover or focus look's included), not
+  D7's share of the node's own; the press paint carries the target, replacing D7's clamped
+  share for it. A `:hover` or `:focus-visible` look's colours snap under Reduce Motion.
+- **One spelling a node.** A node or its class writing a D7 row and the same paint in `:active`
+  (`-exact-press-background-color` and `:active`'s `background-color`, say) is refused,
+  naming both. The design tool's `hold active` drives the host's real press, and inspect gives
+  an `:active` row's source span, though it lowered to the press paint.
 - **A declared state replaces the host's default for that state only.** `:disabled` sets the
   same `disabledStyled` mark the heuristic sets, and the heuristic's existing forms (an
   authored `opacity`; a colour that reads what `disabled` reads) still count. `:active`
@@ -735,6 +748,10 @@ style PostButton
 - **Excluded:** native controls (their states are the platform's, D9) and a `list`'s rows
   (their press is the cell highlight, LLP 1115.000 D16). A state part on either is
   `lower-state-target`.
+- **Ruled 2026-10-18 (Charlie, on a panel of Astra, Grok and Fable; option B):** `:active` is
+  the authoring form and D7's press paint its one runtime, extended until it paints what
+  `:active` says; this replaced looks for `:active` (stage 8 A's table keeps `:hover` and
+  `:focus-visible`).
 - **This amends LLP 1061 D1**, which rejected an `active` block as "a selector system for one
   property". It is now seven rows and five states over tracking the host already does, and
   it never selects another node. `::placeholder` (LLP 1104 D3) is the precedent for a part as
@@ -3303,7 +3320,7 @@ The clone at `d2406b4` was run on exact2 `272f117e3`.
 | The clone's post action row and Post button declare params | **Met.** |
 | The design tool lists them by group and priority with their controls and `select` options | **Met through `describe`**, which gives group, priority, control and options per param. The tool's own panel is LLP 1122 T3, not yet landed. |
 | A `set-param` reaches every instance live, and one on a duration param rebuilds instead | **Met** on the wasm loop, the JS loop, the iOS simulator and the Mac. `tint` and `gap` reached all six action rows live, and the natives kept their plan ("2 tokens to 2 builds, no generation"). `Drawer.fade` (a duration) is `rebuild`, and the page and natives took a new plan. |
-| A Swift native view's `.tamber` params appear beside them and draw through `ExactTamber(view)` | **Met on the Mac:** tamber-host's Swatch ring follows the mode. On the iOS simulator the first frame agrees, but the smoke's relaunch never opened its agent socket (a harness problem, followed up). |
+| A Swift native view's `.tamber` params appear beside them and draw through `ExactTamber(view)` | **Met** on the Mac and the iOS simulator: tamber-host's Swatch ring follows the mode. At the gate run the iOS smoke's relaunch never opened its agent socket; that was the gate simulator's own state. reload1's rerun on main `78b93c82a`, on a freshly made simulator, passes in full: the relaunch, the ring's colour change, the pin, the scheme and the font. |
 | An unused param, an ambiguous short name and a `rem` value on a ranged length are refused | **Met.** |
 | Renaming an import keeps an override on its component | **Met.** |
 | No regressions | **Met.** Plans of apps without params are byte-identical before and after stage 7, apart from a format-digest header another lane moved. |
@@ -3313,7 +3330,7 @@ sections) lands with LLP 1122 T5's `set-row`. A refuses an unread param, so eith
 paired with a row rewrite. Its `.contract` ownership infrastructure arrives with stage 8 D.
 
 **Queued:** a stale duration seen once on the JS loop after writes queued behind a slow first
-verifying build (not reproduced in three replays); and the iOS tamber smoke's relaunch.
+verifying build (not reproduced in three replays).
 
 **Stage 7 is closed.**
 
@@ -3369,3 +3386,37 @@ verifying build (not reproduced in three replays); and the iOS tamber smoke's re
   resolve per node tuple and follow live (theme2's ruling (b), 17:37).
 - **Tests:** `state_parts.rs`'s `a_param_read_only_by_a_state_part_is_reached` (refused as unused
   before, `tamber-param-unused`).
+
+### Stage 8, commit D: the server owns `.contract` state parts (draft for theme2)
+
+- **Owned files.** The server's files are the design's, then the app's own Contract sources
+  (`tamber_contract::owned`: the source graph's `App` units inside the app, never a package's or
+  `node_modules`). `hello`, the snapshot, the journal and its recovery, a transaction's digests and
+  `commit`'s set take them as they take a design file; the JS wire's watcher announces a hand edit
+  of one with `client: null`, and a `set-state` without a `file` holds every Contract source for
+  `commit`'s guard. This is stage 7 C's infrastructure (its plan's points 1, 4 and 5), which
+  LLP 1122 T5's `add-param`, `remove-param` and `set-row` will use.
+- **`set-state {style, state, row, value, file?}`** writes `row = value` in the `style`'s `:state`
+  block (the block and the row made when absent; the row's value replaced where it is written);
+  **`unset-state`** removes the row, and the block's header with its last row. The file is the one
+  named, or the owned file declaring the style, refused where none or two do. `contract fmt` then
+  lays the file out, and the whole app is compiled in memory with it (`with_contract_texts`, beside
+  `with_design_text`) before anything is written: a refusal answers the build's diagnostics and
+  writes nothing. The class is `rebuild`, so there is no scrub.
+- **The inverse** is a line restore of the preimage (`exact_tamber::Op::Restore`, applied to the raw
+  text by `tamber_contract::restore`, bypassing fmt), so an unformatted file comes back byte for
+  byte (LLP 1122 D6).
+- **Deviation from LLP 1122 D6's one-line diff:** a `.contract` write runs `contract fmt` over the
+  whole file (as the approved plan said), so in an unformatted file a one-row `set-state` lays out
+  its other lines too; in a formatted file it is one line. The inverse still gives the unformatted
+  bytes back.
+- **A node's own state part** is `set-row`'s (LLP 1122 T5): a `set-state` naming a `node` is
+  refused, and the "no file declares `style`" refusal says so.
+- **History and revert** (the lead's 06:04 ruling, a follow-up): a `.contract` file's commits
+  read as its state rows' edits (`what: "state"`), `code` where other lines changed, which a
+  revert leaves alone; a change with no state row is the app's code and not listed.
+- **Wire:** `tamber/1.11`, the window stage 7's close opened (theme2, 20:30).
+- **Tests:** `contract/cli/tests/it/tamber_serve_contract.rs` (set, replace, undo to the
+  unformatted bytes; unset with its block; a refused compile writes nothing; an unknown style;
+  `propose` says `rebuild`); `scripts/tamber-server.test.mjs` (a hand edit announced, `commit`
+  takes a written `.contract`, one dirty at its baseline refused).

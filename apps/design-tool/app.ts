@@ -11,6 +11,8 @@ import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } 
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf } from './dials';
 export { cellText, colourLiteral, controlOf, folded, panelOf } from './dials';
+import { partsOf } from './parts';
+export { joined, missing, partsOf } from './parts';
 
 export const appId = 'com.exact.design-tool';
 // The tool's own local URL: `tamber tool` serves it here, and a grant names
@@ -122,7 +124,7 @@ function change(e: any): Change | null {
 }
 
 type Design = Result<'loadDesign'>;
-const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], tokenGroups: [], names: [], axes: [] });
+const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], tokenGroups: [], names: [], axes: [], icons: [] });
 let designs = 0;
 
 
@@ -571,6 +573,8 @@ const opText = (o: any): string => {
     : o?.op === 'add-axis' ? `add axis ${o.name ?? o.axis} = ${[].concat(o.values ?? []).join(' | ')}`
     : o?.op === 'add-axis-value' ? `add ${o.value} to axis ${o.axis ?? o.name}`
     : o?.op === 'remove-axis-value' ? `remove ${o.value} from axis ${o.axis ?? o.name}`
+    : o?.op === 'set-state' ? `set ${o.style} :${String(o.state).replace(/^:/, '')} ${o.row} = ${typeof o.value === 'string' ? JSON.stringify(o.value) : o.value}`
+    : o?.op === 'unset-state' ? `unset ${o.style} :${String(o.state).replace(/^:/, '')} ${o.row}`
     : typeof o?.op === 'string' && /axis/.test(o.op) ? `${o.op.replace(/-/g, ' ')} ${o.name ?? o.axis ?? ''}${o.value ? ` ${o.value}` : ''}${o.values ? ` = ${[].concat(o.values).join(' | ')}` : ''}`.trim()
     : JSON.stringify(o);
   // The file it edits (the design's when it names none): two items may
@@ -736,7 +740,7 @@ const sources: Sources = {
       if (number === issued) {
         // The app design's axes, of the newest read only.
         if (axesAt === axesReads) designAxes = axes;
-        snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map(ir.tokens.map((t: { name: string; kind: string }) => [t.name, t.kind])) });
+        snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens].map((t: { name: string; kind: string }) => [t.name, t.kind])) });
         for (const old of snapshots.keys()) if (old < number - 4) snapshots.delete(old);
         reads.set(`${named(file)}|${read.files?.[named(file)] ?? ''}`, { stored, axes, columns });
         while (reads.size > 24) reads.delete(reads.keys().next().value!);
@@ -746,6 +750,7 @@ const sources: Sources = {
         columns: columns.map(({ id, label }) => ({ id, label })),
         tokenGroups: [...groups].map(([name, rows]) => ({ name, tokens: rows })),
         names: [...names],
+        icons: (ir.icons ?? []).map((i: { name: string; sf: string | null; material: string | null; svg: string | null }) => ({ name: i.name, sf: i.sf ?? '', material: i.material ?? '', svg: i.svg ?? '' })),
       };
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e;
@@ -774,6 +779,13 @@ const sources: Sources = {
       ok: true, error: '', token, kind: snap.kinds.get(token) ?? 'color', column, place: placeOf(snap.axes, col), label: `${token} · ${b.when || 'default'} (${col.label})`, when: b.when, value,
       expression: inputs.tokens.length + inputs.dials.length + inputs.roles.length > 0, inputs: inputs.tokens, dials, roles: inputs.roles, exact: b.own === '' || b.when === b.own, own: b.own, answer,
     };
+  },
+  // The branch editor's typed fields for a value (parts.ts), the names in
+  // it read by their kinds in the design read (a token's or a dial's).
+  loadParts: async ([kind, value, answer]) => {
+    const kinds = snapshots.get(answer)?.kinds;
+    const found = partsOf(kind, value, name => kinds?.get(name));
+    return found ? { ok: true, of: value, ...found } : { ok: false, of: value, parts: [], tail: '' };
   },
   proposeEdit: async ([file, kind, target, when, value]) => {
     const key = keyOf(file, kind, target, when, value);
@@ -1166,16 +1178,19 @@ const sources: Sources = {
     if (error) return { ...none, ok: false, error };
     const ok = reply.ok as { commits: any[]; more: boolean };
     const when = (w: When[]) => (w?.length ? ` when ${whenText(w)}` : '');
-    const edit = (e: { what: string; name: string; when: When[]; before: string | null; after: string | null }) =>
-      e.before === null ? `added ${e.what} ${e.name}${when(e.when)} = ${e.after}`
-      : e.after === null ? `removed ${e.what} ${e.name}${when(e.when)} (was ${e.before})`
-      : `${e.name}${when(e.when)} ${e.before} → ${e.after}`;
+    // A state part's row (a `.contract` file's, LLP 1121 stage 8 D) is its style's: `Post :active opacity`.
+    const edit = (e: { what: string; name: string; state?: string; row?: string; when: When[]; before: string | null; after: string | null }) => {
+      const name = e.what === 'state' ? `${e.name} :${e.state} ${e.row}` : e.name, what = e.what === 'state' ? 'row' : e.what;
+      return e.before === null ? `added ${what} ${name}${when(e.when)} = ${e.after}`
+        : e.after === null ? `removed ${what} ${name}${when(e.when)} (was ${e.before})`
+        : `${name}${when(e.when)} ${e.before} → ${e.after}`;
+    };
     return {
       ok: true, error: '', more: ok.more === true,
       commits: ok.commits.map(c => ({
         commit: String(c.commit), short: String(c.commit).slice(0, 12), author: String(c.author ?? ''), date: String(c.date ?? '').slice(0, 10),
         subject: String(c.message ?? '').split('\n')[0],
-        files: (c.files ?? []).map((f: any) => ({ file: String(f.file), refused: f.refused ? String(f.refused) : '', edits: (f.edits ?? []).map(edit) })),
+        files: (c.files ?? []).map((f: any) => ({ file: String(f.file), refused: f.refused ? String(f.refused) : '', edits: [...(f.edits ?? []).map(edit), ...(f.code ? ['and lines outside its state parts (the app\'s code)'] : [])] })),
       })),
     };
   },
@@ -1334,7 +1349,7 @@ const sources: Sources = {
   revertCommit: async ([client, commit]) => {
     // Held, never written: reviewed and accepted like any held proposal.
     const { error, reply } = await call('/__tamber', { method: 'revert', client, commit }, 30000);
-    const refused = ((reply.error as { refused?: any[] } | undefined)?.refused ?? []).map(r => `${r.file}: ${r.edit ? `${r.edit.name} ${r.edit.before ?? '(absent)'} → ${r.edit.after ?? '(absent)'}` : 'the file'}, ${r.why}${r.now != null ? ` (now ${r.now})` : ''}`);
+    const refused = ((reply.error as { refused?: any[] } | undefined)?.refused ?? []).map(r => `${r.file}: ${r.edit ? `${r.edit.name}${r.edit.what === 'state' ? ` :${r.edit.state} ${r.edit.row}` : ''} ${r.edit.before ?? '(absent)'} → ${r.edit.after ?? '(absent)'}` : 'the file'}, ${r.why}${r.now != null ? ` (now ${r.now})` : ''}`);
     if (error) return { ok: false, error, commit, proposal: '', refused };
     return { ok: true, error: '', commit, proposal: String((reply.ok as { proposal: string }).proposal), refused: [] };
   },

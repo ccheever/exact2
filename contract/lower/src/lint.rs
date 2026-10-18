@@ -117,6 +117,21 @@ fn logical(name: &str) -> Option<String> {
     })
 }
 
+/// What is written for a React Native style name that has no one CSS name.
+pub(crate) fn react_native(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "paddingHorizontal" => "; React Native's `paddingHorizontal` is `padding-left` and `padding-right` here, or `padding=\"<vertical> <horizontal>\"`",
+        "paddingVertical" => "; React Native's `paddingVertical` is `padding-top` and `padding-bottom` here, or `padding=\"<vertical> <horizontal>\"`",
+        "marginHorizontal" => "; React Native's `marginHorizontal` is `margin-left` and `margin-right` here, or `margin=\"<vertical> <horizontal>\"`",
+        "marginVertical" => "; React Native's `marginVertical` is `margin-top` and `margin-bottom` here, or `margin=\"<vertical> <horizontal>\"`",
+        "shadowColor" | "shadowOpacity" | "shadowRadius" | "shadowOffset" | "elevation" => {
+            "; React Native's shadow is one `box-shadow=\"<x>px <y>px <2 × shadowRadius>px <shadowColor at shadowOpacity>\"` here"
+        }
+        "selectable" => "; selectable text is `user-select=\"text\"` here",
+        _ => return None,
+    })
+}
+
 pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
     let hint = match tags::renamed(&a.name) {
         None if crate::fields::placeholder_hint(&a.name).is_some() => {
@@ -140,6 +155,9 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
                 a.name,
                 fragmentation(&a.name).unwrap_or_default()
             )
+        }
+        None if react_native(&a.name).is_some() => {
+            react_native(&a.name).unwrap_or_default().into()
         }
         None if logical(&a.name).is_some() => format!(
             "; CSS's logical `{}` is not admitted: write {}",

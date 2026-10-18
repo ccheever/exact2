@@ -789,8 +789,9 @@ fn absolute_flex_intrinsic_width_uses_the_clamped_definite_height() {
     );
 }
 
-// Chrome 151.0.7922.34, 2026-10-18: equal or inverted height bounds
-// constrain the final row, but do not size its intrinsic contributions.
+// Chrome 151.0.7922.34, 2026-10-18: a maximum or equal/inverted height bounds
+// constrain the final row, but do not size its intrinsic contributions or
+// change its items' main sizes during final stretching.
 #[test]
 fn intrinsic_flex_height_bounds_do_not_make_auto_height_definite() {
     let intrinsic: Frames = &[
@@ -803,17 +804,29 @@ fn intrinsic_flex_height_bounds_do_not_make_auto_height_definite() {
         [0.0, 0.0, 400.0, 100.0],
         [400.0, 0.0, 400.0, 100.0],
     ];
+    let block_zero_grow: Frames = &[
+        [0.0, 0.0, 800.0, 100.0],
+        [0.0, 0.0, 320.0, 100.0],
+        [320.0, 0.0, 320.0, 100.0],
+    ];
     let mut cases = Vec::new();
     for mode in ["absolute", "held", "block"] {
         for bounds in [
+            "max-height:100px",
             "min-height:100px;max-height:100px",
             "min-height:100px;max-height:80px",
         ] {
             for item in [
                 "flex-grow:1;padding:10px",
                 "flex-grow:1;padding:10px;box-sizing:border-box;aspect-ratio:2/1",
+                "flex-grow:0;padding:10px",
+                "flex-grow:0;padding:10px;box-sizing:border-box;aspect-ratio:2/1",
             ] {
-                let frames = if mode == "block" { block } else { intrinsic };
+                let frames = match mode {
+                    "block" if item.starts_with("flex-grow:0") => block_zero_grow,
+                    "block" => block,
+                    _ => intrinsic,
+                };
                 cases.push((mode, bounds, item, frames));
             }
         }

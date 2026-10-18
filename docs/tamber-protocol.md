@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.10`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.11`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.10"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.11"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -63,6 +63,10 @@ on macOS and Linux.
 - `tamber/1.10` (LLP 1121 stage 7, commit A) added component params: `describe`'s
   `ir.components` (and `contract tamber ir`'s), each component's params by full name. Stage 7's
   later wire changes add under the same version.
+- `tamber/1.11` (LLP 1121 stage 8, commit D) added the app's own Contract sources to the design's
+  files (`hello`, every reply's `files`, the journal, `commit`, `history` and `revert`) and the
+  state part operations `set-state` and `unset-state`. The window's later additive changes
+  (stage 8, real-time scrubs) add under the same version.
 
 ## Where it runs
 
@@ -143,8 +147,11 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 ### Files and digests
 
 - **The design's files** are the app's design (`app.tamber`, or the file `app.json`'s `"tamber"`
-  names) and every other `*.tamber` file directly in the app's directory. Paths are relative to
-  the app's directory.
+  names) and every other `*.tamber` file directly in the app's directory, then the app's own
+  Contract sources (*1.11*, LLP 1121 stage 8 D: each `.contract` file its `app.contract` reads
+  from inside the app; a package's are read-only and not among them), whose state parts
+  `set-state` writes. Paths are relative to the app's directory. A hand edit of either kind is
+  announced, `commit` takes either, and the journal recovers either.
 - **`files`** in a read or write reply is `{path: digest}`, where a digest is SHA-256 hex of the
   file's bytes. It covers every design file. `commit` is the exception: there, `files` is a list
   of paths.
@@ -297,7 +304,7 @@ The app's build failing is an error (`the app does not build: …`).
 ### Operations
 
 `ops` is a list of objects, each `{"op": "…", "file"?, …}`, where `file` defaults to the app's
-design.
+design (a `set-state` or `unset-state`: the Contract source that declares its `style`).
 
 | `op` | Fields | Edits |
 |---|---|---|
@@ -312,11 +319,23 @@ design.
 | `remove-axis-value` | `axis`, `value` | structure |
 | `set-param` (*1.10*) | `name`, `when?: [{axis, value}]`, `value` | the app's value of a component's param (LLP 1121 D15): its line in the design's `params` block, or one `when` line of it |
 | `unset-param` (*1.10*) | `name`, `when?` | removes the param's line (the component's default applies again), or one `when` line |
+| `set-state` | `style`, `state` (`active`, `hover`, `focus-visible`, `disabled`, `checked`, a `:` allowed), `row`, `value` (a string, written as a Contract string, or a number), `file?` | a row of a `style`'s state part in a `.contract` file (*1.11*, stage 8 D): the block and the row made if not there; `rebuild`, no scrub |
+| `unset-state` | `style`, `state`, `row`, `file?` | that row removed, and its block when it empties |
 
 - **Values are source text**, as the file writes them: `"light-dark(#fff, #000)"`, `"accent"`,
   `"oklch(from accent calc(l + 0.1) c h)"`.
-- **An edit splices only the lines it touches,** laid out as `tamber fmt` would, and leaves every
-  other byte alone. So a value edit is a one-line diff, even in a file that wasn't formatted.
+- **A `.contract` write** (`set-state`, `unset-state`) finds its `style` in the app's own Contract
+  sources when it names no `file` (refused where none or two declare it, naming them), goes
+  through `contract fmt`, and is refused, writing nothing, unless the whole app then builds (the
+  build's diagnostics answer it). Its inverse restores the file's bytes as they were, an
+  unformatted file's included.
+- **A design edit splices only the lines it touches,** laid out as `tamber fmt` would, and leaves
+  every other byte alone. So a value edit is a one-line diff, even in a file that wasn't formatted.
+  A `.contract` write is laid out whole by `contract fmt` (above): one line only in a file
+  already formatted, and in one that isn't, its other lines laid out too.
+- **A state part written under a node** is `set-row`'s (LLP 1122 T5): a `set-state` naming a
+  `node` is refused, pointing there. A row written over more than one line is the author's to
+  edit, and refused.
 - **The limits are the checker's:**
   - a token's `kind` is one stage 6 built (`color`, `length`, `number`, `box-shadow`,
     `text-shadow`, `duration`, `easing`, `type`, `family`);
@@ -337,7 +356,6 @@ design.
   build, wherever its component is used), and a live one can be scrubbed. A token's rename renames
   the `params` values naming it.
 - **Not yet built:**
-  - state parts (`set-state`; stage 8);
   - `set-row` (LLP 1122 T5);
   - `preview` as an operation (it is a request instead: see the build channel).
 
@@ -356,7 +374,13 @@ design.
   other (stage 5). It is `rebuild` for structure (a role override gained or lost among it), a
   synthetic token gained, lost or left unfoldable, a profile colour, or an unknown closure (the
   app's build stops before its design). A `live` edit reaches running development builds as a batch, with
-  no reload (see [The live table](#the-live-table-llp-1121-stage-4-12)); a `rebuild` one reloads;
+  no reload (see [The live table](#the-live-table-llp-1121-stage-4-12)); a `rebuild` one reloads.
+  `propose` through the JS target's dev loop is also `rebuild` when the edit moves a token its pages
+  write inline, which the loop's design read marks (a `font-weight` number, an SVG attribute's
+  length or number: LLP 1121 stage 6). Such a token has no property to change in place, and the
+  class is the serving loop's answer (D13): where builds disagree, `rebuild` wins. This holds
+  while the loop's design reader is built; without the reader the session's class stands, and
+  the release rebuilds;
 - `synthetic: [{expr, values}]` (*1.2*): each synthetic token whose value the edit changes, its new
   value as CSS text per app tuple, for the live batch;
 - `files`: the digests it planned against;
@@ -533,22 +557,40 @@ with.
   - each file is `{file, status, diff, edits, refused?}`, and a rename shows as a deletion plus an
     addition.
 - **Each edit** is `{what, name, when: [{axis, value}], before, after}`:
-  - `what` is `token`, `dial`, `axis` or `other`;
+  - `what` is `token`, `dial`, `axis`, `other`, or `state` (a `.contract` file's, below);
   - `before` and `after` are source text, or null;
   - they come from comparing the two versions' parsed declarations, so a version the checker
     would refuse still gives edits.
 - **`edits` is null, with `refused`,** when a side doesn't parse, declares a name or `when` twice,
   or the two versions together are over 1 MiB.
+- **The app's own Contract sources** (*1.11*, stage 8 D) are among the design's files: their
+  state parts are the design's. A `.contract` file's edits are its styles' state rows, each
+  `{what: "state", name: <style>, state, row, when: [], before, after}`, the values as Contract
+  writes them (`"#000000"` quoted, `0.5`); a block whose border colours change order is one
+  edit with `row` `border-*-color order`. The file says `code: true` where the commit changed
+  its other lines too. A `.contract` change with no state row is the app's code, not the
+  design's: it is left out, and a commit with nothing else is not listed (so a page may hold
+  fewer than `limit`). History reads the Contract sources the server has now; a revert reads
+  every one in the app outside `node_modules`, and refuses by name one the app no longer reads.
 
 ### `revert` (*1.1*)
 
 `{commit, client}` holds, as a proposal, the inverse of a past commit's design-file changes.
 - **Planned on today's files** as operations, never a byte restore. Its `review.revert` is
-  `{commit, subject, moved, already, only?}`. `moved` lists the files whose bytes differ from
-  the commit's result.
+  `{commit, subject, moved, already, code?, only?}`. `moved` lists the files whose bytes differ
+  from the commit's result. A `.contract` file's state rows are set back with `set-state` or
+  `unset-state`; its other lines are left as they are, and `code` lists the files where the
+  commit changed some (*1.11*).
 - **Refused (409)** with `refused: [{file, edit, now, why}]` when an edit can't be inverted:
   - the file has moved on it since;
-  - the commit created or removed a design file;
+  - the commit created or removed a design file (a `.contract` file's state rows included; one
+    whose code alone changed is left alone);
+  - a `.contract` row put back last would paint over a border row of its block it came before,
+    or the commit changed their order;
+  - a `.contract` row's style is gone, it is written over more than one line, its value before
+    is no string or number, or `unset-state` would take a comment (on its line, or its emptied
+    block's header);
+  - the `.contract` file is not one of the app's own Contract sources now;
   - it added or removed a dial;
   - it added an axis, reordered an axis's values, or changed an axis's `under`;
   - it changed a kind, a range, metadata, the design's name or its exports.
@@ -556,7 +598,7 @@ with.
   A removed axis is restored with `add-axis`.
 - **Other refusals:**
   - everything is undone already: 409 with `already`;
-  - a commit that touched no design file: 400;
+  - a commit that touched no design file, or only a Contract source's code: 400;
   - an unknown commit: 404.
 - **Accepted after the files move,** it is planned again from the commit. A partial accept keeps
   its selection when planned again.

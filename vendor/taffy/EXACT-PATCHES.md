@@ -1264,6 +1264,35 @@ modes and grid items with `width:max-content;height:max-content`, whose keywords
 are not exposed by the kernel. The grid, column and square stay 200px tall at a
 bounded 200px width.
 
+## Patch 44: distinguish a flex row's used height from a definite height
+
+A flex row distinguishes a used height from a definite cross size at its own
+layout entry. An absolute row's automatic height with a maximum stays indefinite
+for flex basis sizing unless an authored size, ratio or opposing insets makes it
+definite. Equal or inverted height bounds likewise supply only a used height
+unless a preferred or caller-supplied height makes it definite. This uses the
+existing `known_dimensions_are_definite` input within flex layout; the absolute
+solver continues to supply definite used dimensions to blocks, grids and columns.
+
+Flex items therefore keep the main sizes determined before final cross-axis
+stretching, as [CSS Flexbox §9.4](https://www.w3.org/TR/css-flexbox-1/#cross-sizing)
+requires. An absolute auto-height row capped at 100px keeps its two padded
+canvases at 320px wide inside a 640px row; an authored 100px height still gives
+180px items inside a 360px row. No flex-grow-specific rule or saved basis is needed.
+
+**Held by** `browser_replaced::constraints::intrinsic_flex_height_bounds_do_not_make_auto_height_definite`:
+36 literal Chrome 151.0.7922.34 cases measured on 2026-10-18, including zero-grow
+and growing canvases, natural and authored border-box ratios, a maximum alone,
+equal and inverted bounds, absolute rows, rows inside absolute blocks and normal
+flow rows. The existing patch 40 and 41 cases retain authored and opposing-inset
+heights, wrapping and auto-margin controls; patch 43's column cases still pass.
+
+`browser_position::positioned_boxes_roots_and_ratios_match_chrome` also holds
+22 Chrome 151 cases for absolute column wrapping and clamped ratio percentage
+bases, including reversed directions, `wrap-reverse`, equal bounds, authored
+heights, minima and block/flex/grid controls. Maximum-only columns hold item
+frames; their pre-existing container-height discrepancy is recorded in `QUEUE.md`.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
