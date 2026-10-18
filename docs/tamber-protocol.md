@@ -997,10 +997,14 @@ The tool drives no input into an app; a command changes only what `prefer` would
   value is one token; `{rung: "param", param, short, token?, modes}` (*1.11*, LLP 1122 T3) for
   such a row whose whole value is one component param: `param` its full name, `short` its short
   one (null where two components share it), `token` the token it aliases directly (its value as
-  the app has it, the line's or the default, when that is one declared token), `modes` the
-  winning branch as the token rung's. A row's `token.names` and `text` name a param by its full
-  name, never by the IR token the plan names it by (one the server has not read yet is left out,
-  and the row is read-only, said so). Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
+  the app has it, the line's or the default, when that names one declared token, a role override
+  by its role's spelling too; none for a param with `when` lines), `modes` the copy's mode tuple,
+  as the token rung's (the client reads the branch that won by `explain`). A row's `token.names`
+  and `text`, in the `selection` event and the published `selected` report alike, name a param by
+  its full name, never by the IR token the plan names it by, also inside a synthetic token's
+  expression; one the server has not read yet (its `describe` of the app, read again when the
+  app's files change, for a new plan, and after a failed read) is left out, and the row is
+  read-only, said so. A row reached through a param links it by its full name. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
   expression, a boundary, or an expression over tokens links its token, never this node's edit;
   a style's or the tag's row comes with template editing, T5). A row an `:active` part lowered to
   the press paint (*1.11*) carries `state` and `at`, its part's place, and its edit is `set-state`'s

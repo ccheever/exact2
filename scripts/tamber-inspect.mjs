@@ -106,48 +106,70 @@ function designMoved(map, build, served, file, read) {
 const declared = name => /^-?[A-Za-z_][\w.-]*$/.test(name);
 
 // The IR's name for a component param (LLP 1121 D15: `param.f<hash>.Card.x`),
-// which no author or tool writes.
-const IR_PARAM = /^param\.f[0-9a-f]+\./;
+// which no author or tool writes; anywhere in a name, since a synthetic
+// token is named by its whole expression.
+const IR_PARAM = /param\.f[0-9a-f]+\.[A-Za-z_][\w-]*(?:\.[A-Za-z_][\w-]*)*/g;
 
 /** Each IR param token's param, from `describe`'s `components` (tamber/1.10):
- * its full and short names, and the token it aliases directly (its value as
- * the app has it, the line's or the default, when that is one declared
- * token), which re-scope moves an edit to (LLP 1122 D6). */
+ * its full and short names, and the token it aliases directly (LLP 1122 D6:
+ * its value as the app has it, the line's or the default, when that names
+ * one declared token, a role override by its role's spelling too). A param
+ * with `when` lines aliases none: which branch wins is the copy's. */
 export function paramsOf(ir) {
-  const tokens = new Set((ir?.tokens ?? []).map(t => t.name));
+  const tokens = new Map();
+  for (const t of ir?.tokens ?? []) { tokens.set(t.name, t.name); if (t.role) tokens.set(t.role, t.name); }
   const out = new Map();
   for (const c of ir?.components ?? []) for (const p of c.params ?? []) {
     if (typeof p.token !== 'string') continue;
     const written = String(p.set?.value ?? p.default ?? '').trim();
-    out.set(p.token, { param: p.name, short: p.short ?? null, token: tokens.has(written) ? written : null });
+    const token = (p.set?.whens ?? 0) === 0 ? tokens.get(written) ?? null : null;
+    out.set(p.token, { param: p.name, short: p.short ?? null, token });
   }
   return out;
 }
 
-/** A row's token report with each IR param token named by its param's
- * full name (in `names` and in `text`); one the server has no param for
- * (its describe not read yet) is left out of `names`, so no client sees it. */
-function named(token, params) {
-  if (!token?.names?.some(n => IR_PARAM.test(n))) return token;
-  let text = String(token.text ?? '');
-  const names = [];
+/** `text` with each IR param token in it named by its param's full name,
+ * or "a component param" where `params` has none (not read yet); and
+ * whether one was. */
+function rename(text, params) {
   let unread = false;
+  const out = String(text).replace(IR_PARAM, n => { const p = params.get(n); if (!p) unread = true; return p ? p.param : 'a component param'; });
+  return { out, unread };
+}
+
+/** A row's token report with every IR param token named by its param's full
+ * name, in `names` and `text`; a name that holds one the server has not read
+ * is left out of `names`, so no client sees it, and the row is `unread`. */
+export function named(token, params) {
+  if (!token?.names) return { token, unread: false };
+  let unread = false;
+  const names = [];
   for (const n of token.names) {
-    if (!IR_PARAM.test(n)) { names.push(n); continue; }
-    const p = params.get(n);
-    if (p) { names.push(p.param); text = text.split(n).join(p.param); }
-    else { unread = true; text = text.split(n).join('a component param'); }
+    const r = rename(n, params);
+    if (r.unread) unread = true;
+    else names.push(r.out);
   }
-  return { ...token, names, text, ...(unread ? { paramUnread: true } : {}) };
+  const text = token.text == null ? token.text : rename(token.text, params).out;
+  return { token: { ...token, names, ...(text == null ? {} : { text }) }, unread };
+}
+
+/** A `selected` report as the server publishes it: its rows' token names
+ * scrubbed of IR param tokens as the join's are. */
+export function published(selected, params) {
+  if (!selected?.rows) return selected;
+  return { ...selected, rows: selected.rows.map(r => (r.token ? { ...r, token: named(r.token, params).token } : r)) };
 }
 
 /** Each row's editability: the token or param rung, or why not (D5, D6). Fails
  * closed: the rung only for a row the node itself sets (`authored`, its own
  * attribute in the map) whose whole value is one token; every other row
  * says why, and links the tokens it reads. */
-export function editable(row, origin, params = new Map()) {
+export function editable(row, origin, params = new Map(), unread = false) {
   const names = row.token?.names ?? [];
-  const link = names.find(declared) ?? null;
+  // (A param, by its full name, is a link too: the tool opens the param.)
+  const isParam = n => [...params.values()].some(p => p.param === n);
+  const link = names.find(n => declared(n) || isParam(n)) ?? null;
+  if (unread) return { rung: null, reason: 'it reads a component param this server has not read yet: inspect it again', link };
   if (row.source === 'inherited') return { rung: null, reason: `inherited from #${row.from}: the token is that node's to edit`, link };
   if (row.source === 'dynamic') return { rung: null, reason: 'a dynamic expression: read-only here', link };
   if (row.source === 'initial') return { rung: null, reason: 'its initial value: nothing sets it' };
@@ -157,7 +179,6 @@ export function editable(row, origin, params = new Map()) {
   if (origin.startsWith('class:') && origin.includes('/')) return { rung: null, reason: `a conditional class (${origin.slice(6)}): refused here`, link };
   if (origin.startsWith('class:')) return { rung: null, reason: `a style's row (${origin.slice(6)}): comes with template editing (T5)`, link };
   if (origin !== 'own') return { rung: null, reason: 'the tag\'s own row: comes with template editing (T5)', link };
-  if (row.token?.paramUnread) return { rung: null, reason: 'a component param this server has not read yet: inspect it again', link };
   // @ref LLP 1121 D8 — an `:active` row lowered to the press paint: its part's to edit.
   if (!names.length && row.state) return { rung: null, reason: `a \`:${row.state}\` part's row: \`set-state\` edits it` };
   if (!names.length) return { rung: null, reason: 'a value, not a token: setting a row comes with T5' };
@@ -175,10 +196,10 @@ export function editable(row, origin, params = new Map()) {
  * `map` (null when the build's map is not here). */
 export function join(build, selected, map, { read = readFileSync, served = null, design = null, params = new Map() } = {}) {
   const base = { build: build.id, node: selected.node, site: selected.site, instance: selected.instance, tuple: selected.tuple, trimmed: !!selected.trimmed, ...(selected.held ? { held: selected.held } : {}) };
-  const rows = (selected.rows ?? []).map(r => (r.token ? { ...r, token: named(r.token, params) } : { ...r }));
-  if (!map) return { ...base, source: null, rows: rows.map(r => ({ ...r, editable: { rung: null, reason: 'no source map for this build\'s plan' } })), readOnly: 'no source map for this build\'s plan' };
+  const rows = (selected.rows ?? []).map(r => { const n = named(r.token, params); return { ...r, ...(r.token ? { token: n.token } : {}), unread: n.unread }; });
+  if (!map) return { ...base, source: null, rows: rows.map(({ unread, ...r }) => ({ ...r, editable: { rung: null, reason: 'no source map for this build\'s plan' } })), readOnly: 'no source map for this build\'s plan' };
   const node = map.nodes[selected.site];
-  if (!node) return { ...base, source: null, rows: rows.map(r => ({ ...r, editable: { rung: null, reason: 'the site is not in the source map' } })), readOnly: 'the site is not in the source map' };
+  if (!node) return { ...base, source: null, rows: rows.map(({ unread, ...r }) => ({ ...r, editable: { rung: null, reason: 'the site is not in the source map' } })), readOnly: 'the site is not in the source map' };
   const bound = new Map((node.bindings ?? []).map(b => [b.row, b]));
   // An `:active` row is written in its part (LLP 1121 D8): its file counts too.
   const files = [...new Set([node.file, ...(node.chain ?? []).map(c => c.file), ...(node.bindings ?? []).flatMap(b => b.at ? [b.at.file] : [])])];
@@ -197,8 +218,9 @@ export function join(build, selected, map, { read = readFileSync, served = null,
       const origin = b?.origin ?? null;
       // A state part's row, where it is written (the map's `state` and `at`).
       const part = b?.state ? { state: b.state, at: b.at ?? null } : {};
-      const offered = editable({ ...r, ...part }, origin, params);
-      return { ...r, origin, ...part, editable: readOnly ? { rung: null, reason: readOnly, link: offered.link ?? offered.token ?? null } : offered };
+      const { unread, ...row } = r;
+      const offered = editable({ ...row, ...part }, origin, params, unread);
+      return { ...row, origin, ...part, editable: readOnly ? { rung: null, reason: readOnly, link: offered.link ?? offered.param ?? offered.token ?? null } : offered };
     }),
   };
 }

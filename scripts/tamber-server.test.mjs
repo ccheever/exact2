@@ -62,9 +62,10 @@ test('close() signals the server\'s group only by a pid of its own: a missing, 0
   }
 });
 
-test('the server reads the app\'s component params when its files move, and a selection names a param row on the param rung, never by its IR token (LLP 1122 T3)', async () => {
+test('the server reads the app\'s component params, again for a new plan or after a failed read, and a selection names a param row on the param rung; neither event carries an IR token (LLP 1122 T3)', async () => {
   const IR = 'param.f1a2b.Card.fill';
   const components = [{ identity: 'app.contract#Card', name: 'Card', params: [{ name: 'app.contract#Card.fill', short: 'Card.fill', token: IR, default: 'ink', set: null }] }];
+  let describes = 0;
   const serve = () => {
     const child = fakeServe();
     child.stdin.removeAllListeners('data');
@@ -73,8 +74,11 @@ test('the server reads the app\'s component params when its files move, and a se
       buf += chunk; const lines = buf.split('\n'); buf = lines.pop();
       for (const line of lines) {
         const r = JSON.parse(line);
-        const ok = r.method === 'describe' ? { files: { 'app.tamber': 'd1' }, ir: { tokens: [{ name: 'ink' }], components } } : { files: { 'app.tamber': 'd1' } };
-        child.stdout.write(`${JSON.stringify({ id: r.id, ok })}\n`);
+        // The first describe fails: the next selection's plan reads again.
+        const reply = r.method !== 'describe' ? { ok: { files: { 'app.tamber': 'd1' } } }
+          : ++describes === 1 ? { error: { message: 'not now' } }
+          : { ok: { files: { 'app.tamber': 'd1' }, ir: { tokens: [{ name: 'ink' }], components } } };
+        child.stdout.write(`${JSON.stringify({ id: r.id, ...reply })}\n`);
       }
     });
     return child;
@@ -84,7 +88,8 @@ test('the server reads the app\'s component params when its files move, and a se
   const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
   const tamber = tamberServer({ appDir: '/nowhere', spawnServe: serve, log: () => {}, sourceMap: () => Buffer.from(JSON.stringify(map)) });
   await tamber.ready;
-  await Bun.sleep(20);
+  const settled = async () => { for (let i = 0; i < 100 && describes < 1; i++) await Bun.sleep(5); await Bun.sleep(5); };
+  await settled();
   const headers = { host: `127.0.0.1:${port}`, 'x-exact-tamber-token': tamber.token };
   await ask(tamber, gate, { path: '/__tamber/events', method: 'POST', headers, body: JSON.stringify({ wait: false, client: 'tool' }) });
   const { nonce } = tamber.channel.open(() => {});
@@ -93,11 +98,18 @@ test('the server reads the app\'s component params when its files move, and a se
   report({ kind: 'status', scheme: 'light', revision: 0 });
   tamber.channel.inspect('tool', null, { on: true });
   const selected = { node: 2, site: 0, instance: [], planDigest: 'p1', tuple: {}, rows: [{ name: 'background_color', value: '#fff', source: 'authored', token: { names: [IR], text: IR, modes: '', implied: false } }] };
+  const events = async () => (await ask(tamber, gate, { path: '/__tamber/events', method: 'POST', headers, body: JSON.stringify({ after: 0, wait: false, client: 'tool' }) })).body.events;
+  // The read failed: read-only, said so; this plan reads them again.
   expect(report({ kind: 'selected', selected, plan: 'g1', design: 'd1', revision: 0 }).status).toBe(204);
-  const events = (await ask(tamber, gate, { path: '/__tamber/events', method: 'POST', headers, body: JSON.stringify({ after: 0, wait: false, client: 'tool' }) })).body.events;
-  const selection = events.filter(e => e.event === 'selection').at(-1);
-  expect(selection.rows[0].editable).toEqual({ rung: 'param', param: 'app.contract#Card.fill', short: 'Card.fill', token: 'ink', modes: '' });
-  expect(JSON.stringify(selection)).not.toContain(IR);
+  expect((await events()).filter(e => e.event === 'selection').at(-1).rows[0].editable).toMatchObject({ rung: null, reason: expect.stringContaining('has not read yet') });
+  for (let i = 0; i < 100 && describes < 2; i++) await Bun.sleep(5);
+  await Bun.sleep(5);
+  expect(report({ kind: 'selected', selected, plan: 'g1', design: 'd1', revision: 0 }).status).toBe(204);
+  const all = await events();
+  expect(all.filter(e => e.event === 'selection').at(-1).rows[0].editable).toEqual({ rung: 'param', param: 'app.contract#Card.fill', short: 'Card.fill', token: 'ink', modes: '' });
+  // The report as published too (`selected`): every one named by the param, or left out.
+  expect(all.filter(e => e.event === 'selected').at(-1).selected.rows[0].token.names).toEqual(['app.contract#Card.fill']);
+  expect(JSON.stringify(all)).not.toContain(IR);
   await tamber.close();
 });
 
