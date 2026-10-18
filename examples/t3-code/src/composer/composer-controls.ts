@@ -1,5 +1,5 @@
 // Composer selection, follow-up dispatch and primary-action state,
-// adapted from T3 Code (MIT); see LICENSE-T3. Sources:
+// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 9c161462c9:
 // apps/web/src/composerDraftStore.ts (sticky model memory, applyStickyState),
 // components/ChatView.tsx (onProviderModelSelect, persistThreadSettingsForNextTurn,
 // onSend, onResume), packages/client-runtime/src/state/composerDispatch.ts,
@@ -139,11 +139,26 @@ export function nextTurnCommands(thread: Obj, staged: StagedSelection | undefine
 
 export type DispatchMode = 'auto' | 'queue' | 'steer';
 /** resolveComposerDispatchMode: the alternate swaps queue and steer relative to the configured behavior. */
-export function resolveDispatchMode(running: boolean, followUp: string, alternate: boolean): DispatchMode {
+export function resolveDispatchMode(running: boolean, followUp: string, alternate: boolean, canSteer = true): DispatchMode {
   if (!running) return 'auto';
+  if (!canSteer) return 'queue';
   const preferred: DispatchMode = followUp === 'steer' ? 'steer' : 'queue';
   if (alternate) return preferred === 'queue' ? 'steer' : 'queue';
   return preferred;
+}
+/** A server-owned setup run accepts follow-ups in its queue, without starting another workspace. */
+export function sendQueuesBehindSetup(client: T3Client): boolean {
+  return !!client.threadId && ['preparing', 'starting'].includes(str(activeRun(client.projection)?.status));
+}
+/** ChatView's active /compact request, until its compaction item completes. */
+export function isCompacting(client: T3Client): boolean {
+  const run = activeRun(client.projection);
+  if (!run) return false;
+  const items = arr(client.projection.visibleTurnItems).map(row => obj(row.item));
+  const latestUser = items.filter(item => item.type === 'user_message').at(-1);
+  return !!latestUser && latestUser.runId === run.id && str(latestUser.text).trim().toLowerCase() === '/compact'
+    && arr(latestUser.attachments).length === 0
+    && !items.some(item => item.type === 'compaction' && item.runId === run.id && item.status === 'completed');
 }
 export function followUpBehavior(client: T3Client): string {
   return str((client.local as { clientSettings?: Obj }).clientSettings?.followUpBehavior, 'queue') === 'steer' ? 'steer' : 'queue';
