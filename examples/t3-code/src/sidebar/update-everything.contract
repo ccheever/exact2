@@ -3,6 +3,8 @@ use UpdateEverythingView from "../shared/shapes.contract"
 use Icon from "../shared/icons.contract"
 use PgIcon from "../shared/pages-icons.contract"
 component UpdateEverything
+  inject
+    rem: number
   props
     v: UpdateEverythingView
     run: action
@@ -21,7 +23,7 @@ component UpdateEverything
             box width="2rem" flex-shrink=0 display="flex" align-items="center" justify-content="center"
               Icon(name="refresh", size=14, color="light-dark(#71717b, #a3a3a3)")
         if v.details
-          column position="absolute" bottom="2.5rem" right=0 width="18rem" max-width="calc(100vw - 2rem)" padding="0.75rem" box-sizing="border-box" gap="0.375rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 10px 15px -3px #0000001a" z-index=50 role="group" aria-label="Update progress" testId="update-everything-progress"
+          column position="absolute" bottom="2.5rem" right=0 width="18rem" max-width=`calc(100vw - ${2 * rem}px)` padding="0.75rem" box-sizing="border-box" gap="0.375rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 10px 15px -3px #0000001a" z-index=50 role="group" aria-label="Update progress" testId="update-everything-progress"
             for m in v.machines key=m.id
               column gap="0.125rem"
                 row gap="0.75rem" align-items="center"

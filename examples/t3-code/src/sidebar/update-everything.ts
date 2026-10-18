@@ -19,11 +19,11 @@ import { closeFinishedUpdateRun, collectRestartingMachines, collectServerUpdateT
   type UpdateEverythingMachine, type UpdateEverythingRun, type UpdateRunMachine } from './update-everything-logic';
 
 type Plan = ReturnType<typeof updateEverythingPlan>;
-type State = { dialog: Plan | null; run: UpdateEverythingRun | null; details: boolean };
+type State = { now: number; dialog: Plan | null; run: UpdateEverythingRun | null; details: boolean };
 const states = new WeakMap<object, State>();
 export function updateEverythingState(client: object): State {
   let state = states.get(client);
-  if (!state) states.set(client, state = { dialog: null, run: null, details: false });
+  if (!state) states.set(client, state = { now: 0, dialog: null, run: null, details: false });
   return state;
 }
 export function updateEverythingMachines(client: T3Client): UpdateEverythingMachine[] {
@@ -48,6 +48,7 @@ export function updateEverythingPlan(client: T3Client, native: Native | null = n
 const notify = (native: Native) => { void native.later({ op: 'sidebarNotify' }).catch(() => {}); };
 /** Probes only when a remote npm-managed server is behind; the app remains usable while npm responds. */
 export function updateEverythingPass(client: T3Client, native: Native, now: number): void {
+  updateEverythingState(client).now = now;
   if (collectServerUpdateTargets(updateEverythingMachines(client), CLIENT_VERSION).targets.some(server => server.selfUpdate !== 'desktop-managed')) {
     releasePublished(CLIENT_VERSION, now, () => notify(native));
   }
@@ -96,7 +97,7 @@ export async function runEverything(state: State, plan: Pick<Plan, 'providers' |
 function nativeRunDeps(client: T3Client, native: Native): RunDeps {
   return { providers: machines => updateAllProviders(client, machines, { quiet: true }),
     server: target => awaitServerUpdate(target, nativeUpdateDeps(native, client), { quiet: true }),
-    now: () => Date.now(), changed: () => notify(native),
+    now: () => updateEverythingState(client).now, changed: () => notify(native),
     toast: result => { const view = getUpdateEverythingToastView(result, CLIENT_VERSION); if (view) pushToast(client, {
       kind: view.type, title: view.title, description: view.description, stacked: true,
     }); } };
@@ -116,7 +117,8 @@ export function retryEverythingServers(state: State, deps: Pick<RunDeps, 'server
   });
 }
 export function updateEverythingView(client: T3Client, now: number) {
-  const state = updateEverythingState(client), published = cachedReleasePublished(CLIENT_VERSION), plan = state.dialog ?? updateEverythingPlan(client, null, published);
+  const state = updateEverythingState(client); state.now = now;
+  const published = cachedReleasePublished(CLIENT_VERSION), plan = state.dialog ?? updateEverythingPlan(client, null, published);
   const views = state.run?.machines.map(machine => ({ machine, status: resolveUpdateRunMachineStatus(machine, state.run!.phase, machineState(client, machine)) })) ?? [];
   const capsule = state.run ? describeUpdateCapsule(state.run, views, null, now) : null;
   const sources = environmentSources(client, fleet.saved, fleet.entries);
@@ -139,10 +141,11 @@ export function updateEverythingView(client: T3Client, now: number) {
       elapsed: ['done', 'failed', 'waiting'].includes(status) ? '' : formatUpdateElapsed(now - machine.startedAt), failed: status === 'failed' })),
   };
 }
-export async function updateEverythingOp(client: T3Client, op: string, native: Native): Promise<boolean> {
+export async function updateEverythingOp(client: T3Client, op: string, native: Native, now = 0): Promise<boolean> {
   if (op.startsWith('sidebar:')) op = op.slice(8);
   if (!op.startsWith('ue:')) return false;
   const state = updateEverythingState(client), deps = nativeRunDeps(client, native);
+  if (now > 0) state.now = now;
   if (op === 'ue:open' && !state.run) {
     const plan = updateEverythingPlan(client, native, cachedReleasePublished(CLIENT_VERSION)); if (plan.hasUpdates) state.dialog = plan;
   } else if (op === 'ue:cancel') state.dialog = null;
