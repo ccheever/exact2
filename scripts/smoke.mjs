@@ -746,7 +746,6 @@ try {
   check(moved === 300, `a wheel of 300 over the content scrolled it by ${moved}`);
   check(innerMoved !== pageMoved, `one scroll container takes a wheel: inner moved ${innerMoved}, page moved ${pageMoved}`);
   await agree(s, 'caltrain: after the wheel', { host, check }); // 7a
-
   }
 
   // 6. The pixels when asked, and the GPU module where the host renders it

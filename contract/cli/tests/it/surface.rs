@@ -548,3 +548,20 @@ fn a_shortcut_on_a_key_the_game_binds_warns() {
     );
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// The physical keys a chord as ARIA spells it arrives as, which the
+/// shortcut warning compares with the codes `Actions` bind.
+#[test]
+fn a_chord_names_the_physical_keys_that_type_it() {
+    let codes = contract_analyze::chord_codes;
+    assert_eq!(codes("1"), ["Digit1", "Numpad1"]);
+    assert_eq!(codes("Shift+a"), ["KeyA"]);
+    assert_eq!(codes("Space"), ["Space"]);
+    assert_eq!(codes("Enter"), ["Enter", "NumpadEnter"]);
+    assert_eq!(codes("Control+Plus"), ["Equal", "NumpadAdd"]);
+    assert_eq!(codes("Meta++"), ["Equal", "NumpadAdd"]);
+    assert_eq!(codes("!"), ["Digit1"]);
+    assert_eq!(codes("F13"), ["F13"]);
+    assert!(codes("F36").is_empty());
+    assert!(codes("Volume").is_empty());
+}

@@ -245,23 +245,3 @@ pub fn check_shortcut_keys(
     out.dedup_by(|a, b| a.span == b.span && a.message == b.message);
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use super::chord_codes;
-
-    #[test]
-    fn a_chord_names_the_physical_keys_that_type_it() {
-        let codes = |chord| chord_codes(chord);
-        assert_eq!(codes("1"), ["Digit1", "Numpad1"]);
-        assert_eq!(codes("Shift+a"), ["KeyA"]);
-        assert_eq!(codes("Space"), ["Space"]);
-        assert_eq!(codes("Enter"), ["Enter", "NumpadEnter"]);
-        assert_eq!(codes("Control+Plus"), ["Equal", "NumpadAdd"]);
-        assert_eq!(codes("Meta++"), ["Equal", "NumpadAdd"]);
-        assert_eq!(codes("!"), ["Digit1"]);
-        assert_eq!(codes("F13"), ["F13"]);
-        assert!(codes("F36").is_empty());
-        assert!(codes("Volume").is_empty());
-    }
-}
