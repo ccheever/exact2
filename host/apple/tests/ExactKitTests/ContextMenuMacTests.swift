@@ -237,9 +237,9 @@ final class ContextMenuMacTests: XCTestCase {
         }
         defer { center.removeObserver(observer) }
         // A pointer's menu (`popUpContextMenu`) and a key's (`popUp`).
-        let right = NSEvent.mouseEvent(with: .rightMouseDown, location: source.convert(NSPoint(x: 30, y: 30), to: nil), modifierFlags: [],
-            timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)
-        for click in [right, nil] {
+        let right = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: source.convert(NSPoint(x: 30, y: 30), to: nil), modifierFlags: [],
+            timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        for click in [right, nil] as [NSEvent?] {
             heard = []
             p.menus.context(source, at: NSPoint(x: 30, y: 30), click: click)
             let deadline = Date(timeIntervalSinceNow: 5)
@@ -339,13 +339,20 @@ final class ContextMenuMacTests: XCTestCase {
         }
         let ended = center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { _ in closed += 1 }
         defer { center.removeObserver(began); center.removeObserver(ended) }
-        func opened(_ open: () -> Void) throws -> NSRect {
-            frame = nil; plugIns = nil
-            let before = closed, deadline = Date(timeIntervalSinceNow: 10)
-            open()
-            while (closed == before || menuFrame() != nil) && Date() < deadline {
+        // Until `done`, and no menu window is left on screen, an earlier
+        // test's fading one included.
+        func settle(_ done: () -> Bool = { true }) {
+            let deadline = Date(timeIntervalSinceNow: 10)
+            while (!done() || menuFrame() != nil) && Date() < deadline {
                 RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
             }
+        }
+        func opened(_ open: () -> Void) throws -> NSRect {
+            settle()
+            frame = nil; plugIns = nil
+            let before = closed
+            open()
+            settle { closed > before }
             turn()
             return try XCTUnwrap(frame, "the menu's window was on screen")
         }
