@@ -3,6 +3,7 @@ use crate::*;
 struct Tuning {
     speed: f32,
     label: String,
+    direction: [f32; 3],
 }
 struct Editable;
 impl Game for Editable {
@@ -14,6 +15,7 @@ impl Game for Editable {
             Tuning {
                 speed: 4.,
                 label: "player".into(),
+                direction: [0.; 3],
             },
         );
     }
@@ -50,6 +52,12 @@ fn live_edits_are_stamped_saved_replayed_validated_and_refused_in_production() {
     assert!(sim
         .agent(r#"{"op":"state"}"#)
         .contains("\"developmentEdits\":true"));
+    sim.world
+        .apply_set("set player Tuning.direction [1,2,3]", true);
+    assert_eq!(
+        sim.world().require::<Tuning>("player").direction,
+        [1., 2., 3.]
+    );
     let hash = sim.world().hash();
     for text in [
         "set missing Tuning.speed 1",
@@ -58,6 +66,8 @@ fn live_edits_are_stamped_saved_replayed_validated_and_refused_in_production() {
         "set player Tuning.speed 1e100",
         "set player Tuning.speed NaN",
         "set player Tuning.speed false",
+        "set player Tuning.direction [1,1e100,3]",
+        r#"set player Tuning.direction [1,"bad",3]"#,
     ] {
         sim.world.apply_set(text, true);
         assert_eq!(sim.world().hash(), hash, "{text}");

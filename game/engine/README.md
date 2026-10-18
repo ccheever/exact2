@@ -182,8 +182,7 @@ never displace a message. `Sim::post(text)` does the same in tests.
 
 Post `set player Character.speed 8` to the canvas (`Sim::post` in tests). The
 message uses the same stamped input queue as every post and applies at the start
-of its next tick. The target resolves by name then. Only a declared scalar or
-string field can change; strings use JSON quotes. Unknown names, unknown fields,
+of its next tick. The target resolves by name then. Values use the field's `Data` JSON schema; strings use JSON quotes. Unknown names, unknown fields,
 wrong types and non-finite values refuse by name without changing a component.
 The whole candidate is decoded and validated before replacement. Production bakes
 refuse `set` by name. Every attempt journals its command or refusal. A saved

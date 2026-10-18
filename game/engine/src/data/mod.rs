@@ -363,14 +363,11 @@ pub(crate) fn type_name<T>() -> &'static str {
     std::any::type_name::<T>().rsplit("::").next().unwrap()
 }
 
-/// Decode a finite scalar or string before replacing a live-edit candidate's field.
+/// Decode and check finite JSON before replacing a live-edit candidate's field.
 #[doc(hidden)]
-pub fn edit_scalar<T: Data>(value: &mut T, text: &str) -> Result<(), DataError> {
+pub fn edit_field<T: Data>(value: &mut T, text: &str) -> Result<(), DataError> {
     let candidate: T = json::from_str(text)?;
-    let json = json::to_string(&candidate)?;
-    if json.starts_with(['[', '{']) || json == "null" {
-        return Err(DataError::new("set accepts one scalar or string"));
-    }
+    json::to_string(&candidate)?;
     *value = candidate;
     Ok(())
 }

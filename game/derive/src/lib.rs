@@ -307,7 +307,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
                 .filter(|f| !f.skip)
                 .map(|f| {
                     format!(
-                        "{:?} => ::exact_game::data::edit_scalar(&mut self.{}, text),",
+                        "{:?} => ::exact_game::data::edit_field(&mut self.{}, text),",
                         clean(&f.name),
                         f.name
                     )
