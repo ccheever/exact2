@@ -7,6 +7,7 @@ import { collectLimitAccounts, collectLimitPools, displayLimitWindows, type Limi
 import { mobileUsageConfig } from './settings-usage-types';
 import { mobileUsage, mobileUsageCommand, mobileUsageSelection, mobileUsageSnapshot, mobileUsageWindow, usageGrant } from './settings-usage';
 import { mobileUsagePresentation, mobileUsageAccount } from './settings-usage-view';
+import { formatUsd } from './shared/pages-usage';
 import { mobileAutomationPrepare, mobileAutomationSnapshot, mobileAutomationCommand } from './settings-scheduled-flow';
 import { ClientError } from './shared/protocol';
 const window=(kind='session',usedPercent=50)=>({id:'primary',kind,label:'Allowance',usedPercent,resetsAt:'2026-10-08T00:00:00Z',windowDurationMins:300});
@@ -94,6 +95,25 @@ test('nonempty usage provider rows project only declared UI fields',()=>{
     expect(Object.keys(data.providers[0]!).sort()).toEqual(keys);
     expect(data.providers[0]).toMatchObject({id:'claude',label:'Claude Code',value:metric==='cost'?'$2.00':'1K',share:'100.0%'});
   }
+});
+
+test('mobile USD formatting keeps reference rounding, signed zero, grouping and nonfinite output',()=>{
+  expect([0.825,1.275,-0.825,-0.004,-0,0,1_234_567.891,NaN,Infinity,-Infinity].map(formatUsd))
+    .toEqual(['$0.83','$1.28','-$0.83','-$0.00','-$0.00','$0.00','$1,234,567.89','$NaN','$∞','-$∞']);
+});
+for(const [label,value,expected] of [
+  ['half-cent',0.825,'$0.83'],['second half-cent',1.275,'$1.28'],['negative half-cent',-0.825,'-$0.83'],
+  ['negative rounds to zero',-0.004,'-$0.00'],['zero',0,'$0.00'],['grouping',1_234_567.891,'$1,234,567.89'],
+  ['NaN',NaN,'$0.00'],['positive infinity',Infinity,'$0.00'],['negative infinity',-Infinity,'$0.00'],
+] as const)test(`Usage projection formats ${label} across cost fields and token details`,()=>{
+  const summary:Obj={contractVersion:6,sources:[{status:'ok',fingerprint:{provider:'claude',hostId:'host',resolvedHomePath:'/home'},distinctSessions:1}],
+    buckets:[{provider:'claude',model:'model',day:'2026-10-07',costUsd:value,cacheSavingsUsd:value,categoryCostUsd:{input:value},fastCostUsd:value,totals:{uncachedInputTokens:1000}}]};
+  const input={tab:'usage',window:mobileUsageWindow(30,now),now,presentations:new Map(),external:false,
+    sources:[{id:'a',label:'A',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]};
+  const cost=mobileUsagePresentation({...input,metric:'cost'},false),tokens=mobileUsagePresentation({...input,metric:'tokens'},false);
+  expect([cost.total,cost.providers[0]?.value,cost.models[0]?.value,cost.chart.find(period=>period.id==='2026-10-07')?.bands.find(band=>band.id==='claude')?.value,
+    ...['cost','savings','category-input','speed-fast'].map(id=>cost.costs.find(item=>item.id===id)?.value),tokens.providers[0]?.detail])
+    .toEqual(Array(9).fill(expected));
 });
 
 function refreshBarrier(){
