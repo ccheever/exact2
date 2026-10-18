@@ -17,8 +17,8 @@
 // - none: else (the platform's own colour stands);
 // - unmeasured: fewer than 16 pixels in the frame, or frames that differ
 //   between the builds (the run fails, naming it).
-// Pixels that move between two looks 0.7 s apart in either build
-// (animation) are left out first (theme2's 08:42 ruling, as is the hue).
+// Pixels that move between two looks in either build, the app's clock
+// held (an animation the clock does not drive), are left out first (theme2's 08:42 ruling, as is the hue).
 // Run each host's prerequisites first (a web dist, a native build of the
 // host fixture, a simulator or emulator of your own, Android's reader APK:
 // with --scratch for the reader), as agent.mjs says.
@@ -130,13 +130,13 @@ function capture(plan, png, dir) {
     root = scratch;
     target = ['--reader', '--app', 'tamber-host'];
   }
-  const r = spawnSync(process.execPath, [resolve(root, 'scripts/agent.mjs'), host, ...target, '--json', 'clock settle', ...ids.map(id => `layout ${id}`), `screenshot ${png}`, 'clock +700 real', `screenshot ${png.replace(/\.png$/, '.again.png')}`], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 });
+  const r = spawnSync(process.execPath, [resolve(root, 'scripts/agent.mjs'), host, ...target, '--json', 'clock settle', ...ids.map(id => `layout ${id}`), `screenshot ${png}`, `screenshot ${png.replace(/\.png$/, '.again.png')}`], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 });
   if (r.status !== 0) throw new Error(`agent ${host}: ${r.stderr || r.stdout}`);
   const replies = r.stdout.split('\n').filter(l => l.startsWith('{')).map(l => JSON.parse(l));
   const frames = {};
   for (const reply of replies) if (reply.node?.testId) frames[reply.node.testId] = reply.node.space;
   const shot = replies.findLast(x => x.screenshot), image = decodePng(readFileSync(png));
-  // A second look 0.7 s later: a pixel that moved between them is animation.
+  // A second look, the app's clock held: a pixel that moved is an animation the clock does not drive.
   const again = decodePng(readFileSync(png.replace(/\.png$/, '.again.png')));
   // A phone's screenshot is its whole screen: the viewport's width, and the
   // status bar above the app's first row (the reader draws under no other).
@@ -223,6 +223,12 @@ if (import.meta.main) {
       // The two builds' pixels are compared one for one: their frames must agree.
       const [fa, fp] = [a.frames[id].viewport, p.frames[id].viewport];
       if (['x', 'y', 'w', 'h'].some(k => Math.abs(fa[k] - fp[k]) > 0.5)) return { control, parameter, fidelity: 'unmeasured', why: `${id}'s frame differs between the builds` };
+      // A frame either screenshot does not hold whole is not measured.
+      const outside = (c, f) => {
+        const k = c.image.width / c.points, tall = (c.image.height - c.top) / k;
+        return f.x < -0.5 || f.y < -0.5 || f.x + f.w > c.points + 0.5 || f.y + f.h > tall + 0.5;
+      };
+      if (outside(a, fa) || outside(p, fp)) return { control, parameter, fidelity: 'unmeasured', why: `${id} runs past the screenshot` };
       // Every other colour the fixture asks for (a field's ground paints its placeholder's box too).
       const others = [...new Set(ROWS.map(o => o[3]).filter(c => c !== target))];
       // Pixels either build moved between its two looks (animation) decide nothing.

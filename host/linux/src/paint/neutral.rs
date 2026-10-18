@@ -194,9 +194,9 @@ pub(super) fn range(
     }
 }
 
-/// An indeterminate `progress`: a ring that fades round to its ink, the
-/// secondary label's unless the node's own `color` is written. One still
-/// frame: this host paints on change.
+/// An indeterminate `progress`: a ring that fades round to its ink: the
+/// node's own `color` where written, else an authored accent, else the
+/// secondary label's. One still frame: this host paints on change.
 pub(super) fn spinner(
     backend: &mut dyn Backend,
     node: &NodeRef<'_>,
@@ -209,8 +209,12 @@ pub(super) fn spinner(
     if s <= 0.0 {
         return;
     }
+    // Its own `color`, else an authored accent (LLP 1121 D9), else the
+    // look's grey: an inherited colour is not the spinner's (LLP 1115 D4).
     let ink = if node.style.written.has(StyleId::TextColor) {
         super::rgba(node.text_color().resolve(dark))
+    } else if let Some(accent) = super::control::authored_accent(node, dark) {
+        accent
     } else {
         role("-exact-secondary-label", dark)
     };

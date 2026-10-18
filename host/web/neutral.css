@@ -159,9 +159,15 @@
   #exact-root input[data-exact-switch]:checked:dir(rtl)::before { background-position: 0 0; }
   @media (prefers-reduced-motion: reduce) { #exact-root input[data-exact-switch]::before { transition: none; } }
 
-  /* The spinner is the secondary label's ink, not the text's around it; its node's own `color`, written, is the
-     author's (`data-exact-said`, D2's bit). */
-  [data-exact-progress]:not([data-exact-said~="color"])::before { background: conic-gradient(transparent 10%, var(--exact-secondary-label)); }
+  /* The spinner is not the text's ink around it (LLP 1115 D4): its node's own `color`, written, is the author's
+     (`data-exact-said`, D2's bit); else an authored accent (--exact-accent-said, LLP 1121 D9): written beside an
+     authored `accent-color` (css.rs), or on an element that writes --exact-accent inline (the JS target's bound and
+     live rows, not `auto`'s AccentColor nor inherit/unset) or takes a mode's (modes.rs), or the design's AccentColor
+     at :root; not the page's own accent, which :root keeps in
+     --exact-accent); else the secondary label's ink. */
+  #exact-root [style*="--exact-accent:"]:not([style*="--exact-accent: AccentColor;"], [style*="--exact-accent: inherit;"], [style*="--exact-accent: unset;"]) { --exact-accent-said: var(--exact-accent); }
+  [data-exact-progress]:not([data-exact-said~="color"])::before { background: conic-gradient(transparent 10%, var(--exact-accent-said, var(--exact-secondary-label))); }
+  @media (forced-colors: active) { #exact-root [data-exact-progress]::before { background: none; } }
 
   /* A segmented control (a content `tablist` of native tabs, a `radiogroup` of native radios): a track the width of
      its segments, the chosen one a chip of the page's ground. A segment takes its own title's width, as a control's
