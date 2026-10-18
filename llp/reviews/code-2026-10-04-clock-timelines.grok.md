@@ -2,7 +2,7 @@
 
 - **Family:** xAI. `grok-4.7`, reasoning effort xhigh, `--no-subagents`, `--sandbox read-only`, `--cwd` a detached worktree at `20431ac5c` (the branch rebased on `6274fbab3`).
 - **Method:** one brief (sha256 `9344e5fd477541c4ed5409996184f189a14c0282b24aaaac5f9b08de96df2103`), shared with astra. Round 1, blind to the other review. The author (Claude) is not a reviewer. A first run in `--permission-mode plan` was cancelled when its shell calls were refused; this is the rerun.
-- **Transcription:** the findings and verdict, unedited (the opening narration dropped).
+- **Transcription:** the findings and verdict, unedited (the opening narration dropped) except that an app's name reads "an app" (2026-10-18).
 - **Verdict:** SHIP WITH FIXES.
 - **Disposition (r1 fixes):**
   - High (the sole member's pause or resume resets the origin): taken; astra's 2. A member that moves to another clock is let go too.
@@ -64,4 +64,4 @@ Suggested fix: if that name is bound in the component, leave the ident and emit 
 
 ## What I could not verify
 
-I did not run tests, browsers, or builds. Phase equality on Chromium, WebKit, the agent clock, and Lexy is what the LLP reports; I did not reproduce it. Firefox, the strict-lane fixture, macOS and Linux app runs, and Core Animation across backgrounding are still open, as the LLP says. I also did not measure float boundary drift after a timeline has been busy for a long time. Under the agent, `register` records a start once per `CSSAnimation` and seek keeps writing `currentTime`; I did not check a finite synced animation that is author-paused across a cycle boundary, where the engine holds and then rejoins.
+I did not run tests, browsers, or builds. Phase equality on Chromium, WebKit, the agent clock, and an app is what the LLP reports; I did not reproduce it. Firefox, the strict-lane fixture, macOS and Linux app runs, and Core Animation across backgrounding are still open, as the LLP says. I also did not measure float boundary drift after a timeline has been busy for a long time. Under the agent, `register` records a start once per `CSSAnimation` and seek keeps writing `currentTime`; I did not check a finite synced animation that is author-paused across a cycle boundary, where the engine holds and then rejoins.
