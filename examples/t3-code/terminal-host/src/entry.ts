@@ -6,11 +6,13 @@
 // - page → native (`webkit.messageHandlers.t3terminal`): ready, data, resize, selection, link, composition,
 //   commitComposition, contextmenu, chord, focus, error.
 // - native → page (`t3Terminal.receive(message)`): write, resetAndWrite, theme, font, visible,
-//   focus, chords, compositionKey, clearSelection, readSelection, paste, dispose; `t3Terminal.debug()` answers
-//   the agent's status (ready, grid, visible text, selection, last error).
+//   focus, chords, compositionKey, clearSelection, readSelection, selectAll, scrollToBottom, paste,
+//   pointerRelease, dispose; `t3Terminal.debug()` answers the agent's status (ready, grid, visible
+//   text, selection, last error).
 //
 // Mounting, the setup failure text and the theme fallbacks follow ThreadTerminalDrawer.tsx
-// (:176-215 terminalThemeFromApp, :895-915 the failure text). Which chords the app keeps is the
+// (:176-215 terminalThemeFromApp, :895-915 the failure text; the ANSI palette is 9c161462c9's,
+// :159-203 and :307). Which chords the app keeps is the
 // app's decision (ThreadTerminalDrawer.tsx:745-782 beforeKey); the native view sends the list.
 import type { GhosttyColor, GhosttyTheme } from "../vendor/ghostty/core";
 import {
@@ -196,6 +198,51 @@ export function keepConversionContext(input: ConversionInput, converting: () => 
   };
 }
 
+function hexToGhosttyColor(hex: string): GhosttyColor {
+  const value = Number.parseInt(hex.slice(1), 16);
+  return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 };
+}
+
+// VS Code's default ANSI colors.
+export const TERMINAL_PALETTES = {
+  light: [
+    "#000000",
+    "#cd3131",
+    "#107c10",
+    "#949800",
+    "#0451a5",
+    "#bc05bc",
+    "#0598bc",
+    "#555555",
+    "#666666",
+    "#cd3131",
+    "#14ce14",
+    "#b5ba00",
+    "#0451a5",
+    "#bc05bc",
+    "#0598bc",
+    "#a5a5a5",
+  ].map(hexToGhosttyColor),
+  dark: [
+    "#000000",
+    "#cd3131",
+    "#0dbc79",
+    "#e5e510",
+    "#2472c8",
+    "#bc3fbc",
+    "#11a8cd",
+    "#e5e5e5",
+    "#666666",
+    "#f14c4c",
+    "#23d18b",
+    "#f5f543",
+    "#3b8eea",
+    "#d670d6",
+    "#29b8db",
+    "#e5e5e5",
+  ].map(hexToGhosttyColor),
+};
+
 const LIGHT: GhosttyTheme = {
   background: { r: 255, g: 255, b: 255 },
   foreground: { r: 28, g: 33, b: 41 },
@@ -225,7 +272,7 @@ function color(value: unknown, fallback: GhosttyColor): GhosttyColor {
     : fallback;
 }
 
-function themeFrom(value: unknown): { theme: GhosttyTheme; dark: boolean } {
+export function themeFrom(value: unknown): { theme: GhosttyTheme; dark: boolean } {
   const record = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
   const dark = record.dark === true;
   const base = dark ? DARK : LIGHT;
@@ -236,6 +283,7 @@ function themeFrom(value: unknown): { theme: GhosttyTheme; dark: boolean } {
       background: color(record.background, base.background),
       foreground: color(record.foreground, base.foreground),
       cursor: color(record.cursor, base.cursor),
+      palette: TERMINAL_PALETTES[dark ? "dark" : "light"],
       ...(typeof selection === "string" ? { selectionBackground: selection } : {}),
     },
   };
@@ -501,6 +549,17 @@ class TerminalPage {
         return null;
       case "readSelection":
         return surface.getSelection();
+      case "selectAll":
+        surface.selectAll();
+        return null;
+      case "scrollToBottom":
+        surface.scrollToBottom();
+        return null;
+      // A press that ended outside the page: the reference's dividers are in the same document, so
+      // their release reaches the surface's window listener (surface.ts onWindowPointerRelease).
+      case "pointerRelease":
+        window.dispatchEvent(new Event("pointerup"));
+        return null;
       case "paste": {
         const text = String(message.text ?? "");
         void surface.pasteFromClipboard(() => Promise.resolve(text));
