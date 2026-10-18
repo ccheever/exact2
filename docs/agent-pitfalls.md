@@ -658,6 +658,17 @@ screen, 2026-10-16.)
   `time.epochAtZero + performanceNow()`), or set it in the mount action, and let
   the task only refresh it. (Authoring bench, LLP 1087, t5-pomodoro, 2026-10-08.)
 
+- **A marker that moves by `if` costs a view each move.** Symptom: an animation
+  that moves a dot, a playhead or a selection ring from cell to cell several
+  times a second keeps a phone busier than a hand-built UIKit screen. Cause:
+  `if head == 0` around the marker destroys a node in one cell and creates one in
+  the next at every move: a view made and dropped, its style applied, and a
+  layout. Fix: keep the marker in every cell and move it by `opacity=(head == 0 ?
+  1 : 0)` (with `transition="none"` where it must not fade), as a hand-built app
+  toggles `alpha` or `isHidden`. Measured on euxy playing (sixty-eight step
+  cells, eight moves a second, iPhone 17 simulator): 7.1 → 5.5 % CPU, median of
+  four. (euxy CPU work, 2026-10-18.)
+
 - **A token kept in an app data file.** Exact has a secret store, and it holds
   strings, not only keys: grant `secret.keep <name>` and use
   `store.set`/`store.get`/`store.forget` in an answer (the Keychain on Apple,
