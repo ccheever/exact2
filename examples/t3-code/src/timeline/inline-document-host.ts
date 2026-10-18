@@ -13,7 +13,7 @@ type Job = { run: (native: Native, storage?: Files) => Promise<unknown>; resolve
 export type DocumentRuntime = {
   host: McpAppHost; jobs: Job[]; deadlines: Map<() => void, number>; now: number;
   permission: { serial: number; text: string; settle: (approved: boolean) => void } | null;
-  closed: boolean; fullscreen: boolean;
+  closed: boolean; fullscreen: boolean; owned: () => boolean;
 };
 export function makeDocumentRuntime(client: T3Client, input: {
   app: McpAppReference; sourceThreadId: string; itemId: string; conversationThreadId: string;
@@ -21,8 +21,8 @@ export function makeDocumentRuntime(client: T3Client, input: {
   height: (height: number) => void; width: () => number; viewportHeight: () => number; canExpand: () => boolean;
 }): DocumentRuntime {
   let permissionSerial = 0;
-  const runtime: DocumentRuntime = { host: null!, jobs: [], deadlines: new Map(), now: 0, permission: null, closed: false, fullscreen: false };
-  const requireOwner = () => { if (!input.owned() || runtime.closed) throw new McpAppHostRefusal('This document is no longer open.'); };
+  const runtime: DocumentRuntime = { host: null!, jobs: [], deadlines: new Map(), now: 0, permission: null, closed: false, fullscreen: false, owned: input.owned };
+  const requireOwner = () => { if (!runtime.owned() || runtime.closed) { disposeDocumentRuntime(runtime); throw new McpAppHostRefusal('This document is no longer open.'); } };
   const queue = <T>(run: (native: Native, storage?: Files) => Promise<T>): Promise<T> => {
     requireOwner();
     if (runtime.jobs.length >= 16) return Promise.reject(new McpAppHostRefusal('Too many document requests.'));
@@ -77,15 +77,22 @@ export function makeDocumentRuntime(client: T3Client, input: {
   return runtime;
 }
 export async function drainDocumentRuntime(runtime: DocumentRuntime, native: Native, now: number, storage?: Files): Promise<void> {
+  const current = () => !runtime.closed && runtime.owned();
+  if (!current()) { disposeDocumentRuntime(runtime); return; }
   runtime.now = now;
   for (const [run, due] of runtime.deadlines) if (due <= now) { runtime.deadlines.delete(run); run(); }
   // Settling a queued operation lets the protocol continuation enqueue its next
   // operation. No Native object survives this drain in a callback or timer.
   for (let step = 0; step < 32; step++) {
     await Promise.resolve();
+    if (!current()) { disposeDocumentRuntime(runtime); break; }
     const job = runtime.jobs.shift();
     if (!job) break;
-    try { job.resolve(await job.run(native, storage)); } catch (error) { job.reject(error); }
+    try {
+      const value = await job.run(native, storage);
+      if (!current()) { disposeDocumentRuntime(runtime); job.reject(new McpAppHostRefusal('This document is no longer open.')); break; }
+      job.resolve(value);
+    } catch (error) { job.reject(error); }
   }
 }
 export function disposeDocumentRuntime(runtime: DocumentRuntime): void {
