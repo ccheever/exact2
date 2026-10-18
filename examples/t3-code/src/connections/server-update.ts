@@ -1,7 +1,8 @@
 // The shared server-update state of every environment (T3 Code MIT, see LICENSE-T3;
-// reference 1e2ecbd975: packages/client-runtime/src/state/server.ts ServerUpdateState,
-// serverUpdateStateAtom and updateServer; apps/web/src/components/ServerUpdateAction.tsx
-// useServerUpdate, ServerUpdateAction and UPDATE_STAGE_LABELS).
+// reference 9c161462c9: packages/client-runtime/src/state/server.ts ServerUpdateState,
+// serverUpdateStateAtom, serverUpdateStateForProgressEvent and updateServer;
+// apps/web/src/components/ServerUpdateAction.tsx useServerUpdate (its quiet outcome),
+// ServerUpdateAction and UPDATE_STAGE_LABELS).
 // Port changes: the update itself runs in the transport (transport-outdated.ts, `mode:
 // "connected"`): a socket of its own (naming protocol 2) carries `server.updateServerWithProgress` (else
 // `server.updateServer`, a dropped boot-service/respawn socket being the handoff),
@@ -11,7 +12,8 @@
 // the data source). Its job table is the per-environment store: this module reads
 // it, derives `ServerUpdateState`, and toasts each result once the focused (or
 // background) connection reports the new version, which is when the reference's
-// command resolves. The Settings rows, this banner and Update all share it.
+// command resolves (`awaitServerUpdate` resolves its outcome then). The Settings rows, this
+// banner, Update all and Update everything share it.
 import { obj, str, type Obj } from '../client/domain';
 import { bridgeReply, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
@@ -34,8 +36,15 @@ export type ServerSelfUpdateProgressEvent = { readonly type: 'progress'; readonl
 export type ServerLifecycleReadyEvent = { readonly type: 'ready'; readonly payload: { readonly environment: { readonly serverVersion: string };
   readonly updateOutcome?: { readonly id: string; readonly status: 'committed' | 'rolled-back' | 'failed'; readonly targetVersion?: string; readonly reason?: string } } };
 
+/**
+ * "resuming" means the server has its update and restarts without this client. A desktop app
+ * update is not there yet when its prepare step completes: the client still has to commit it,
+ * so it stays "installing" (transport-outdated.ts sends the commit, then resumes).
+ */
 export function serverUpdateStateForProgressEvent(fromVersion: string, targetVersion: string, event: ServerSelfUpdateProgressEvent): Extract<ServerUpdateState, { status: 'running' }> {
-  return { status: 'running', stage: event.type === 'complete' ? 'resuming' : event.stage, fromVersion, targetVersion };
+  const stage = event.type !== 'complete' ? event.stage
+    : event.result.method === 'desktop-app' && event.result.desktopUpdateToken !== undefined ? 'installing' : 'resuming';
+  return { status: 'running', stage, fromVersion, targetVersion };
 }
 /** A failure from another server version is stale; running and idle states pass through. */
 export function serverUpdateStateForServerVersion(state: ServerUpdateState, serverVersion: string | null): ServerUpdateState {
@@ -162,8 +171,13 @@ export type UpdateDeps = {
 };
 /** The environments whose start is in flight (pendingUpdateEnvironmentIds). The job's running status takes over after. */
 const pendingUpdateEnvironmentIds = new Set<string>();
-/** Each attempt's toast facts: the job table holds no capability. */
-const attempts = new Map<string, { serverLabel: string; selfUpdate: string | null; failureTitle: string }>();
+/** useServerUpdate's result. "skipped" covers an update already in flight, a manual path and an interrupted request. */
+export type ServerUpdateOutcome = { readonly status: 'updated' | 'skipped' } | { readonly status: 'failed'; readonly message: string };
+/** Each attempt's toast facts (the job table holds no capability), whether it toasts, and who waits on its outcome. */
+type AttemptFacts = { serverLabel: string; selfUpdate: string | null; quiet: boolean; settle?: (outcome: ServerUpdateOutcome) => void; outcome?: ServerUpdateOutcome };
+const attempts = new Map<string, AttemptFacts>();
+const starting = new Map<string, AttemptFacts>();
+const failureTitle = (serverLabel: string) => serverLabel ? `${serverLabel} update failed` : 'Server update failed';
 
 /** Whether this environment's update is in flight (a start, or a running job). */
 export function isServerUpdatePending(environmentId: string): boolean {
@@ -173,9 +187,11 @@ export function isServerUpdatePending(environmentId: string): boolean {
 /**
  * The update a click asks for, after any confirmation: the manual path copies its command;
  * a self-update starts one job per environment (a second click while one runs does nothing).
- * Returns what happened, for the caller and the tests.
+ * Its result toasts unless `quiet`. Returns what happened, for the caller and the tests;
+ * `settle` hears the started job's outcome (awaitServerUpdate).
  */
-export async function updateEnvironment(target: ServerUpdateTarget, deps: UpdateDeps, failureTitle = 'Server update failed'): Promise<'copied' | 'started' | 'busy' | 'manual' | 'failed'> {
+export async function updateEnvironment(target: ServerUpdateTarget, deps: UpdateDeps,
+  { quiet = false, settle }: { quiet?: boolean; settle?: (outcome: ServerUpdateOutcome) => void } = {}): Promise<'copied' | 'started' | 'busy' | 'manual' | 'failed'> {
   if (target.selfUpdate === null) {
     const manual = manualUpdateCopy(target.targetVersion, target.installation, target.serverLabel);
     try { await deps.copy(manual.command); }
@@ -186,6 +202,8 @@ export async function updateEnvironment(target: ServerUpdateTarget, deps: Update
   if (manualDesktopOnly(target)) return 'manual';
   if (isServerUpdatePending(target.environmentId)) return 'busy';
   pendingUpdateEnvironmentIds.add(target.environmentId);
+  const facts: AttemptFacts = { serverLabel: target.serverLabel, selfUpdate: target.selfUpdate, quiet, ...(settle ? { settle } : {}) };
+  starting.set(target.environmentId, facts);
   try {
     const reply = await deps.start(target.environmentKey, {
       mode: 'connected', label: target.serverLabel, fromVersion: target.fromVersion || target.targetVersion, targetVersion: target.targetVersion,
@@ -194,13 +212,28 @@ export async function updateEnvironment(target: ServerUpdateTarget, deps: Update
       extras: target.threadContinuation && target.continueThreadsAfterServerUpdate ? { continueRunningThreads: true } : {},
     });
     if (reply.started !== true) return 'busy';
-    attempts.set(str(reply.attempt), { serverLabel: target.serverLabel, selfUpdate: target.selfUpdate, failureTitle });
+    if (!facts.outcome) attempts.set(str(reply.attempt), facts);
     return 'started';
   } catch (error) {
     if (letGo(error)) throw error;
-    deps.toast({ kind: 'error', title: failureTitle, description: serverUpdateFailureMessage(error), stacked: true });
+    const message = serverUpdateFailureMessage(error);
+    if (!quiet) deps.toast({ kind: 'error', title: failureTitle(target.serverLabel), description: message, stacked: true });
+    settle?.({ status: 'failed', message });
     return 'failed';
-  } finally { pendingUpdateEnvironmentIds.delete(target.environmentId); }
+  } finally { pendingUpdateEnvironmentIds.delete(target.environmentId); starting.delete(target.environmentId); }
+}
+
+/**
+ * useServerUpdate: updates one server and resolves once it is back on the target version (or
+ * failed), toasting the result unless `quiet`. Never rejects; a let-go start is "skipped".
+ */
+export function awaitServerUpdate(target: ServerUpdateTarget, deps: UpdateDeps, { quiet = false }: { quiet?: boolean } = {}): Promise<ServerUpdateOutcome> {
+  return new Promise(resolve => {
+    let settled = false;
+    const settle = (outcome: ServerUpdateOutcome) => { if (!settled) { settled = true; resolve(outcome); } };
+    updateEnvironment(target, deps, { quiet, settle }).then(result => { if (result !== 'started') settle({ status: 'skipped' }); },
+      () => settle({ status: 'skipped' }));
+  });
 }
 
 /** The deps over the native module and the client's toasts. */
@@ -230,10 +263,13 @@ export async function announceServerUpdates(native: Native, client: T3Client | n
     if (job.mode !== 'connected' || job.status === 'running') continue;
     const signature = `${key}\n${job.attempt}\n${job.status}`;
     if (announced.has(signature)) continue;
-    const facts = attempts.get(job.attempt) ?? { serverLabel: job.label || 'server', selfUpdate: null, failureTitle: 'Server update failed' };
+    const facts: AttemptFacts = attempts.get(job.attempt) ?? starting.get(keyEnvironment(key)) ?? { serverLabel: job.label, selfUpdate: null, quiet: false };
     if (job.status === 'failed') {
       announced.add(signature);
-      if (client) pushToast(client, { kind: 'error', title: facts.failureTitle, description: job.message || 'Server update failed.', stacked: true });
+      if (client && !facts.quiet) pushToast(client, { kind: 'error', title: failureTitle(facts.serverLabel), description: job.message || 'Server update failed.', stacked: true });
+      facts.outcome = { status: 'failed', message: job.message || 'Server update failed.' };
+      facts.settle?.(facts.outcome);
+      attempts.delete(job.attempt);
       continue;
     }
     if (job.status !== 'done') continue;
@@ -247,7 +283,10 @@ export async function announceServerUpdates(native: Native, client: T3Client | n
       continue;
     }
     announced.add(signature);
-    if (client) pushToast(client, { kind: 'success', ...serverUpdateSuccessToast(facts.serverLabel, facts.selfUpdate, job.resultVersion || job.targetVersion) });
+    if (client && !facts.quiet) pushToast(client, { kind: 'success', ...serverUpdateSuccessToast(facts.serverLabel || 'server', facts.selfUpdate, job.resultVersion || job.targetVersion) });
+    facts.outcome = { status: 'updated' };
+    facts.settle?.(facts.outcome);
+    attempts.delete(job.attempt);
     await native.later({ op: 'fleetOutdatedAck', fleet: key }).catch(() => undefined);
     await readJobs(native);
   }

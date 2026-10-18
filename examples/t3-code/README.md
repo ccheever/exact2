@@ -99,7 +99,11 @@ outdated or newer; one that can update itself offers **Update** in Settings › 
 connected server older than this client shows "Server update available" above the composer (and
 a warning in the thread details card); its Update streams the update's progress, waits for the
 server to come back on the new version and shares that state with Settings › Connections
-(`server-update.ts`).
+(`server-update.ts`). The sidebar's Update button combines one-click provider and remote server
+updates in one confirmation, with per-machine progress and Retry. Provider installers finish
+before servers restart; a slow server keeps its own progress without holding up the other
+machines. Servers installed from npm appear after the target release is published on npm.
+The app has no desktop self-update feed, so its own download/restart step is absent.
 
 1. In T3 Code, open **Settings → Connections** and create a fresh pairing link.
    A command-line installation can also use `t3 pair` for a running server.

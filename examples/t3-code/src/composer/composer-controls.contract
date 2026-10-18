@@ -1022,7 +1022,7 @@ component NoticeRow
                 CcIcon(name=notice.icon, size=12, color=(notice.iconTone == "error" ? "light-dark(#e7000b, #ff6467)" : "light-dark(#71717b, #818181)"), weight=2)
         if notice.machines.length > 0
           // The multi-machine banner's title opens its machine list (auto-balance.contract).
-          NoticeMachines(notice=notice, busy=busy, command=command, still=still)
+          NoticeMachines(notice=notice, busy=busy, command=command)
         else
           if notice.tip != ""
             // The title's tooltip: "<server> X → Y", or the update status in full.

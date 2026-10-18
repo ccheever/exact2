@@ -1,0 +1,38 @@
+// SidebarUpdatePill and SidebarUpdateCapsule, T3 Code 9c161462c9 (MIT; LICENSE-T3).
+use UpdateEverythingView from "../shared/shapes.contract"
+use Icon from "../shared/icons.contract"
+use PgIcon from "../shared/pages-icons.contract"
+component UpdateEverything
+  props
+    v: UpdateEverythingView
+    run: action
+  view
+    column margin-left="auto" flex=1 min-width=0 position="relative"
+      if v.running
+        row height="2rem" border-radius="9999px" background-color="light-dark(#eaeaed, #ffffff0a)" border-width=(v.tone == "default" ? 0 : 1) border-style="solid" border-color=(v.tone == "failed" ? "#fb2c3666" : "#f0b10066") align-items="center" role="status" testId="update-everything-capsule"
+          button press=run("ue:details", "", "") aria-label=v.label testId="update-everything-details" flex=1 min-width=0 height="100%" padding-left="0.75rem" padding-right="0.25rem" border-width=0 background-color="#00000000" cursor="pointer" display="flex" align-items="center" gap="0.25rem"
+            text v.label text-overflow="ellipsis" white-space="nowrap" font-size="0.75rem" color=(v.tone == "failed" ? "#fb2c36" : "light-dark(#27272a, #f1f3f7)")
+            if v.elapsed != ""
+              text v.elapsed font-size="0.75rem" font-variant-numeric="tabular-nums" color="#ca8a04"
+          if v.action != ""
+            button press=run((v.action == "retry" ? "ue:retry" : "ue:dismiss"), "", "") testId="update-everything-action" height="100%" padding-left="0.375rem" padding-right="0.75rem" border-width=0 background-color="#00000000" cursor="pointer"
+              text (v.action == "retry" ? "Retry" : "Dismiss") font-size="0.75rem" text-decoration-line="underline" color="light-dark(#27272a, #f1f3f7)"
+          else
+            box width="2rem" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+              Icon(name="refresh", size=14, color="light-dark(#71717b, #a3a3a3)")
+        if v.details
+          column position="absolute" bottom="2.5rem" right=0 width="18rem" max-width="calc(100vw - 2rem)" padding="0.75rem" box-sizing="border-box" gap="0.375rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 10px 15px -3px #0000001a" z-index=50 role="group" aria-label="Update progress" testId="update-everything-progress"
+            for m in v.machines key=m.id
+              column gap="0.125rem"
+                row gap="0.75rem" align-items="center"
+                  text m.label flex=1 min-width=0 text-overflow="ellipsis" font-size="0.75rem" color="light-dark(#27272a, #f1f3f7)"
+                  text (m.status + (m.elapsed != "" ? " " + m.elapsed : "")) font-size="0.75rem" font-variant-numeric="tabular-nums" color=(m.failed ? "#fb2c36" : "light-dark(#71717b, #a3a3a3)")
+                if m.failure != ""
+                  text m.failure font-size="0.75rem" color="light-dark(#71717b, #a3a3a3)"
+            if v.action != ""
+              button press=run("ue:dismiss", "", "") testId="update-everything-dismiss" margin-left="auto" border-width=0 background-color="#00000000" cursor="pointer"
+                text "Dismiss" font-size="0.75rem" color="light-dark(#71717b, #a3a3a3)"
+      else
+        button press=run("ue:open", "", "") title=v.summary aria-label=v.summary testId="update-everything" margin-left="auto" height="2rem" padding-left="0.75rem" padding-right="0.75rem" border-radius="9999px" border-width=0 background-color="light-dark(#eaeaed, #ffffff0a)" display="flex" flex-direction="row" align-items="center" gap="0.375rem" cursor="pointer"
+          PgIcon(name="download", size=14, color="light-dark(#27272a, #f1f3f7)")
+          text "Update" font-size="0.75rem" color="light-dark(#27272a, #f1f3f7)"
