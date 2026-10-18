@@ -1,17 +1,19 @@
 {
   "ticks": {
-    "0": "0xe4a8cfcdccd41d7a",
-    "1080": "0xf0f3b95bede822ab"
+    "0": "0x68106967367bba41",
+    "1080": "0x1e5dd38f9b0ce70a"
   },
   "saves": {
-    "continuation": "50332b6ed849e8302c6419e7b1462f8216f138eab6f053a355099d78b415788d"
+    "continuation": "4ca444cecd3cc78c47c989ee94cbbd81d493f30e2371fc9bee1c0a78884f9791"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "9de1f8789b9a95b5d64d23a2f6b50b4dfc92b003b5b1516d98062c48d5b9fec9",
+  "inputs": "a47b8ffb9ef18b2337f1ef5f7800bbe9e0e679d255907bb26bad1ef10cf03377",
+  "sourceInputs": "a7ed70dcafbf921c7bb6d43c39ac4b8a8e99e87339d978b11b06ee6b9a934d39",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "2c19c834853f9a169c70704b58f0ed255a8d7daa"
+  "at": "ad1abcb951e94fe8f4258198aac7e426e64366ad",
+  "reason": "EXSIM v8 (LLP 1127.003 D10: InputEvent::Pad and player) moves the continuation save. Ticks 0 and 1080 move as origin/main already moved them: they hash the same with and without this lane's engine (probed)."
 }
