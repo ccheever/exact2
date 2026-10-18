@@ -306,6 +306,53 @@ test('widgets share the owner Keychain groups and leave the host sample outside 
   assert.match(host, /SIMULATORX.com.exact.test.host/);
   assert.doesNotMatch(infoPlist(app,false,{id:app.id+'.host',executable:'ExactHostIOS'}), /ExactAppGroup|ExactAppIdentifier|ExactWidgetKinds/);
   assert.match(infoPlist(app,false,{executable:'Test'}), /ExactAppGroup/);
+  assert.doesNotMatch(infoPlist(app,false,{executable:'Test'}), /NSSupportsLiveActivities/);
+  assert.doesNotMatch(entitlements(app,null,true,null,{simulator:true}), /aps-environment/);
+});
+
+test('Live Activities alone gate the group, the Keychain group and the plist keys, and a pushed one signs aps-environment (LLP 1126.001 WP13)', async () => {
+  const {entitlements, infoPlist} = await import('../host/apple/build.mjs');
+  const {hasEntries} = await import('../host/apple/widgets.mjs');
+  const app = {id:'com.exact.test',displayName:'Test',manifest:{live_activities:[{kind:'departure',push:true},{kind:'alert',frequent:true}],host:{ios:{}}}};
+  assert.ok(hasEntries(app) && !hasEntries({manifest:{}}) && hasEntries({manifest:{widgets:[{kind:'w'}]}}));
+  const plist = infoPlist(app,false,{executable:'Test'});
+  assert.match(plist, /<key>ExactWidgetKinds<\/key><array><\/array>/, 'the app is the group store\'s writer with no widget kind');
+  assert.match(plist, /<key>NSSupportsLiveActivities<\/key><true\/>/);
+  assert.match(plist, /<key>NSSupportsLiveActivitiesFrequentUpdates<\/key><true\/>/);
+  assert.doesNotMatch(infoPlist({...app,manifest:{...app.manifest,live_activities:[{kind:'departure'}]}},false,{executable:'Test'}), /FrequentUpdates/);
+  assert.doesNotMatch(infoPlist(app,false,{executable:'Test',tv:true}), /NSSupportsLiveActivities|ExactAppGroup/);
+  const sim = entitlements(app,null,true,null,{simulator:true});
+  assert.match(sim, /group.com.exact.test/);
+  assert.match(sim, /<key>aps-environment<\/key><string>development<\/string>/);
+  assert.match(entitlements(app,'TEAM',false), /<key>aps-environment<\/key><string>production<\/string>/, 'a distribution profile signs production');
+  assert.doesNotMatch(entitlements({...app,id:app.id+'.widgets',widgetAppId:app.id},'TEAM',true), /aps-environment/, 'the extension reads no token');
+  assert.doesNotMatch(entitlements({...app,manifest:{...app.manifest,live_activities:[{kind:'departure'}]}},'TEAM',true), /aps-environment/);
+});
+
+test('a device build with entries takes the app\'s and the extension\'s profiles that grant the shared groups, or names each missing grant (LLP 1126.001 WP13)', async () => {
+  const {entryProfiles} = await import('../host/apple/widgets.mjs');
+  const app = {id:'com.exact.test',manifest:{live_activities:[{kind:'departure',push:true}],host:{ios:{}}}};
+  const make = (name, appId, extra = {}) => ({path:`/p/${name}`, name, team:'TEAM', prefix:'TEAM', appId, devices:['PHONE'], dev:true, expires:new Date(Date.now()+8.64e7), entitlements:['application-identifier','get-task-allow','keychain-access-groups'], groups:[], keychain:['TEAM.*','com.apple.token'], aps:null, ...extra});
+  const wildcard = make('Team wildcard', 'TEAM.*'), appOnly = make('App', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'development'});
+  const extension = make('Extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test']});
+  const installed = (list) => (udid, bundle) => list.filter(p => p.devices.includes(udid) && (p.appId === `TEAM.*` || p.appId === `TEAM.${bundle}`));
+  const both = entryProfiles({app, udid:'PHONE', covering: installed([wildcard, appOnly, extension]), named:null});
+  assert.equal(both.app.name, 'App'); assert.equal(both.extension.name, 'Extension');
+  const refusal = (list, required = []) => { try { entryProfiles({app, udid:'PHONE', required, covering: installed(list), named:null}); } catch (e) { return e.message; } assert.fail('refused'); };
+  const wildcardOnly = refusal([wildcard]);
+  assert.match(wildcardOnly, /com.exact.test: "Team wildcard" covers it but none grants the App Group group.com.exact.test, aps-environment/);
+  assert.match(wildcardOnly, /com.exact.test.widgets: "Team wildcard" covers it but none grants the App Group group.com.exact.test\n/);
+  assert.match(wildcardOnly, /register the App ID com.exact.test with App Groups \(group.com.exact.test\) and Push Notifications, and the App ID com.exact.test.widgets with App Groups/);
+  assert.match(refusal([appOnly]), /com.exact.test: provisioned\n  com.exact.test.widgets: no profile covers it/);
+  assert.match(refusal([make('App', 'TEAM.com.exact.test', {groups:['group.com.exact.test']}), extension]), /none grants aps-environment \(an activity takes pushes\)/);
+  assert.match(refusal([appOnly, extension], ['com.apple.developer.healthkit']), /com.exact.test: "App" covers it but none grants com.apple.developer.healthkit/);
+  assert.match(refusal([appOnly, make('Extension', 'TEAM.com.exact.test.widgets', {groups:['group.other']})]), /com.exact.test.widgets: "Extension" covers it but none grants the App Group group.com.exact.test/);
+  // The named profile (EXACT_PROFILE) is the app's; the extension's is found beside it, of the same team and kind.
+  const named = entryProfiles({app, udid:'PHONE', covering: installed([wildcard, extension]), named: appOnly});
+  assert.equal(named.app, appOnly); assert.equal(named.extension.name, 'Extension');
+  const distribution = make('Extension dist', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], dev:false, devices:[]});
+  const archived = entryProfiles({app, udid:undefined, covering:(udid, bundle, like) => [distribution, extension].filter(p => p.appId === `TEAM.${bundle}` && p.dev === like.dev), named:{...appOnly, dev:false, devices:[]}});
+  assert.equal(archived.extension.name, 'Extension dist');
 });
 
 test('a HealthKit grant signs with its entitlement, tvOS drops it, and a device build takes only a profile that allows it', async () => {

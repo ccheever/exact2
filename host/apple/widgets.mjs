@@ -4,10 +4,46 @@ import { mkdirSync, readdirSync, existsSync, writeFileSync, readFileSync, copyFi
 import { createHash } from 'node:crypto';
 import { plistFile, wrapFramework } from './assets.mjs';
 import { assertCapabilityFrameworks } from './link.mjs';
+import { coveringProfiles, decodeProfile } from './devices.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname), pkg = resolve(root, 'host/apple');
 export const widgetEntries = app => app.manifest.widgets ?? [];
+export const activityEntries = app => app.manifest.live_activities ?? [];
+/** Whether the app has an entry of either kind: what the extension, the shared framework, the App Group and the
+ * Keychain group are gated on (LLP 1126.001 WP13). */
+export const hasEntries = app => widgetEntries(app).length > 0 || activityEntries(app).length > 0;
 export const widgetGroup = app => `group.${app.widgetAppId ?? app.id}`;
 export const widgetId = app => `${app.id}.widgets`;
+
+/** The two profiles a device build of an app with entries embeds, the app's and its extension's (LLP 1126.001
+ * WP13), each granting the App Group and the Keychain group the two share, the app's also `aps-environment` when
+ * an activity takes pushes, and `required` (the grants' signing entitlements); or one refusal naming every grant
+ * no installed profile makes. EXACT_PROFILE names the app's; the extension's is found by its own id, since a team
+ * wildcard grants no App Group. `covering` and `named` are the installed profiles, replaced by a test. */
+export function entryProfiles({ app, udid, required = [], covering = coveringProfiles, named = process.env.EXACT_PROFILE ? decodeProfile(process.env.EXACT_PROFILE) : null }) {
+  const group = widgetGroup(app), extension = widgetId(app), push = activityEntries(app).some(entry => entry.push === true);
+  const keychain = p => p.keychain.includes(`${p.prefix}.*`) || p.keychain.includes(`${p.prefix}.${app.id}`);
+  const wants = (aps) => [
+    { has: p => p.groups.includes(group), missing: `the App Group ${group}`, portal: `App Groups (${group})` },
+    { has: keychain, missing: 'the Keychain group (its keychain-access-groups has neither the team wildcard nor the app id)', portal: null },
+    ...(aps ? [{ has: p => !!p.aps, missing: 'aps-environment (an activity takes pushes)', portal: 'Push Notifications' }] : []),
+    ...required.map(name => ({ has: p => p.entitlements.includes(name), missing: name, portal: name })),
+  ];
+  const choose = (id, candidates, needs) => {
+    const found = candidates.find(p => needs.every(want => want.has(p)));
+    if (found) return { found };
+    const lacking = candidates.length ? needs.filter(want => !candidates.some(p => want.has(p))) : needs;
+    const names = candidates.map(p => `"${p.name}"`).join(', ');
+    return { lacking, why: candidates.length ? `${names} ${candidates.length > 1 ? 'cover' : 'covers'} it but ${lacking.length ? `none grants ${lacking.map(w => w.missing).join(', ')}` : 'none grants all of these at once'}` : 'no profile covers it' };
+  };
+  const forApp = choose(app.id, named ? [named] : covering(udid, app.id), wants(push));
+  const forExtension = choose(extension, covering(udid, extension, forApp.found ?? named ?? null), wants(false));
+  if (forApp.found && forExtension.found) return { app: forApp.found, extension: forExtension.found };
+  const portal = (id, choice, aps) => `the App ID ${id} with ${[...new Set((choice.lacking ?? wants(aps)).map(w => w.portal).filter(Boolean))].join(' and ') || 'the capabilities above'}`;
+  throw new Error(`host/apple: a device build of an app with widgets or Live Activities embeds a development profile in the app and one in its extension, each granting the App Group and the Keychain group they share (LLP 1126.001 WP13). On this Mac${udid ? `, for this phone (${udid})` : ''}:
+  ${app.id}: ${forApp.found ? 'provisioned' : forApp.why}
+  ${extension}: ${forExtension.found ? 'provisioned' : forExtension.why}
+In the Apple Developer portal, register ${[!forApp.found && portal(app.id, forApp, push), !forExtension.found && portal(extension, forExtension, false)].filter(Boolean).join(', and ')}; make a development profile for each that includes this phone; install both (open the files, or Xcode ▸ Settings ▸ Accounts ▸ Download Manual Profiles). EXACT_PROFILE names the app's.`);
+}
 const tree = dir => readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? tree(resolve(dir, e.name)) : [resolve(dir, e.name)]);
 
 /** SwiftPM owns the sources, settings, incremental objects and module. The
@@ -77,10 +113,14 @@ export function widgetReload({ directory, triple, sdk, device, runApple, source 
   writeFileSync(stamp, digest);
   return binary;
 }
-export function packageWidgets({ app, bundle, shared, directory, sdk, triple, device, entitlements, sign, runApple, production }) {
+export function packageWidgets({ app, bundle, shared, directory, sdk, triple, device, entitlements, sign, runApple, production, profile = null }) {
   const extension = resolve(bundle, 'PlugIns/ExactWidgets.appex');
   mkdirSync(extension, { recursive: true });
-  for (const tree of ['plans', ...(existsSync(resolve(app.dir, 'app.ts')) ? ['typescript'] : [])]) cpSync(resolve(bundle, tree), resolve(extension, tree), { recursive: true });
+  // A phone installs the extension only with its own profile embedded (entryProfiles chose it).
+  if (profile) copyFileSync(profile.path, resolve(extension, 'embedded.mobileprovision'));
+  // The entries' plans and a TypeScript app's module bytes; an app with activities alone has no `plans` tree
+  // until its entries bake (LLP 1126.001 WP8).
+  for (const tree of ['plans', ...(existsSync(resolve(app.dir, 'app.ts')) ? ['typescript'] : [])]) if (existsSync(resolve(bundle, tree))) cpSync(resolve(bundle, tree), resolve(extension, tree), { recursive: true });
   const appInfo = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', resolve(bundle, 'Info.plist')]).stdout);
   const versions = Object.fromEntries(['CFBundleVersion', 'CFBundleShortVersionString', 'MinimumOSVersion'].map(key => [key, appInfo[key]]));
   const runtimeInfo = resolve(bundle, 'Frameworks/ExactCore.framework/Info.plist');
@@ -101,8 +141,12 @@ export function packageWidgets({ app, bundle, shared, directory, sdk, triple, de
         .supportedFamilies([${entry.families.map(f => `.${f}`).join(', ')}]).contentMarginsDisabled()
     }
 }`).join('\n');
+  // An app with activities and no widgets still ships the extension (its ActivityConfiguration is LLP 1126.001
+  // WP10's); a bundle's body needs one widget, so an empty configuration stands in until then.
+  if (!names.length) names.push('ExactActivities');
+  const standIn = names[0] === 'ExactActivities' ? 'struct ExactActivities: Widget { var body: some WidgetConfiguration { EmptyWidgetConfiguration() } }\n' : '';
   const source = resolve(directory, 'WidgetBundle.swift');
-  writeFileSync(source, `import SwiftUI\nimport WidgetKit\nimport UIKit\n${generated}\n@main struct ExactWidgets: WidgetBundle { var body: some Widget { ${names.map(n => `${n}()`).join('; ')} } }\n`);
+  writeFileSync(source, `import SwiftUI\nimport WidgetKit\nimport UIKit\n${generated}\n${standIn}@main struct ExactWidgets: WidgetBundle { var body: some Widget { ${names.map(n => `${n}()`).join('; ')} } }\n`);
   const entitlementPath = resolve(directory, 'widget-entitlements.plist');
   writeFileSync(entitlementPath, entitlements);
   writeFileSync(resolve(extension, 'Info.plist'), plistFile({ CFBundleIdentifier: widgetId(app), CFBundleName: 'ExactWidgets', CFBundleDisplayName: app.displayName, CFBundleExecutable: 'ExactWidgets', CFBundlePackageType: 'XPC!', ...versions, UIDeviceFamily: appInfo.UIDeviceFamily,

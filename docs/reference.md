@@ -370,6 +370,27 @@ expires it), or else an “Open app” placeholder,
 and schedules a retry no sooner than 15 minutes later. Rendering and gallery
 previews do not load Hermes or read the store.
 
+Live Activity entries are top-level `live_activities` rows, each with a `kind`
+(LLP 1126 D9). The packaging reads two flags: `push: true` for an activity the
+app's own server advances, which signs `aps-environment` into the app (never
+the extension, which reads no token), and `frequent: true` for one that needs
+the frequent-update budget (`NSSupportsLiveActivitiesFrequentUpdates`). An
+entry of either kind, a widget or an activity, gives the iOS build its WidgetKit
+extension, the shared `ExactCore` framework, the App Group and the Keychain
+group, and the app's `Info.plist` `NSSupportsLiveActivities`; an app with
+activities alone ships the extension with an empty widget bundle until its
+activity configuration lands (LLP 1126.001 WP10). The entry's root, state shape
+and preview are stage 2's bake (WP8).
+
+A device build of an app with entries embeds two development profiles, the
+app's and the extension's (`<id>.widgets`), each granting the App Group
+`group.<id>` and the Keychain group, the app's also `aps-environment` when an
+activity takes pushes. A team wildcard profile grants no App Group, so each is
+a profile for its exact App ID; `build.mjs --device` refuses before building
+anything, naming each App ID and capability to register and the profiles to
+install. `EXACT_PROFILE` names the app's; the extension's is found among the
+installed profiles by its id, of the same team and kind.
+
 The render's props slot is named `snapshot_props`; find it by name, since a
 `path(...)` link also needs a router slot. Its initial value is the preview; reached bindings cannot use that reserved name.
 The bake writes `plans/<kind>.plan` beside `app.plan`. The envelope's `plans`
