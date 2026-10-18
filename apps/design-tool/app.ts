@@ -873,7 +873,10 @@ const sources: Sources = {
     if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since you reviewed it.` : error, '');
     const inverse = (reply.ok as { inverse: string | null }).inverse;
     // A write that changed no byte has no inverse, and leaves redo be.
-    if (inverse) { undoStack.push({ inverse, ops, label: label(kind, target, when, value), token: read.token, rescope: move }); redoStack.length = 0; wroteMine(reply.ok); }
+    // A re-scope is checked against the files as this write left them: one
+    // that finds them moved since (another write, a hand edit) is refused.
+    const after = (reply.ok as { files?: Record<string, string> }).files;
+    if (inverse) { undoStack.push({ inverse, ops, label: label(kind, target, when, value), token: read.token, rescope: move && after ? { ...move, files: after } : null }); redoStack.length = 0; wroteMine(reply.ok); }
     return stacks(true, '', kind.split('-')[0], key);
   },
   rescopeLast: async ([client]) => {
@@ -882,15 +885,11 @@ const sources: Sources = {
     const at = session;
     const top = undoStack.at(-1);
     if (!top?.rescope) return stacks(false, 'The last write has no other rung to move to.', '');
-    const ops = top.rescope.ops;
-    const proposed = await call('/__tamber', { method: 'propose', ops }, 15000, top.token);
-    if (proposed.error === RESTARTED) forget(proposed.used);
-    if (session !== at) return stacks(false, RESTARTED, '');
-    if (proposed.error) return stacks(false, proposed.error, '');
-    const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files: (proposed.reply.ok as { files: Record<string, string> }).files, ops }, WRITE_WAIT, top.token);
+    const { ops, files } = top.rescope;
+    const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files, ops }, WRITE_WAIT, top.token);
     if (error === RESTARTED) forget(used);
     if (session !== at) return stacks(false, RESTARTED, '');
-    if (error) return stacks(false, byWhom(reply) ? `Not moved: ${byWhom(reply)} since.` : error, '');
+    if (error) return stacks(false, byWhom(reply) ? `Not moved: ${byWhom(reply)} since the edit, so its inverse would undo theirs.` : error, '');
     const inverse = (reply.ok as { inverse: string | null }).inverse;
     if (inverse) { undoStack.push({ inverse, ops, label: top.rescope.text.replace(/^Apply to/, 'moved to').replace(/ instead$/, ''), token: top.token }); redoStack.length = 0; wroteMine(reply.ok); }
     return stacks(true, '', 'rescope');

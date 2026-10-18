@@ -24,9 +24,10 @@ export function paramInfoOf(ir: { tokens: { name: string }[]; components?: { par
   return out;
 }
 
-/** A re-scope of the last edit: what it says, the inverse of that edit, and
- * the write at the other rung. */
-export type Rescope = { text: string; ops: Op[] };
+/** A re-scope of the last edit: what it says, the inverse of that edit and
+ * the write at the other rung, and (once written) the files' digests the
+ * edit left, which the move is checked against. */
+export type Rescope = { text: string; ops: Op[]; files?: Record<string, string> };
 
 const sameWhen = (a: When[], b: When[]) => JSON.stringify(a.map(c => `${c.axis}=${c.value}`).sort()) === JSON.stringify(b.map(c => `${c.axis}=${c.value}`).sort());
 

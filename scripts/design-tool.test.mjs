@@ -339,26 +339,33 @@ test('a dial edit and a Dim cell edit each write one line, undo gives the bytes 
   }
 }, 900_000);
 
-test('T3: Reset gives a param\'s line back byte for byte in one undo, and a param edit re-scoped to the token it aliases is one transaction undone in one step', async () => {
+test('T3: Reset gives a param\'s line back byte for byte in one undo; a param edit re-scoped to the token it aliases is one transaction, undone a level at a time; a re-scope after another write is refused', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-params-'));
   const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8');
   writeFileSync(join(app, 'app.tamber'), original);
   writeFileSync(join(app, 'app.contract'), STUB_APP);
   const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
   git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
-  const tool = await proxied(app);
+  let transactions = 0;
+  // Before the fifth transaction (the second re-scope), a hand edit.
+  const tool = await proxied(app, request => {
+    if (request.method === 'transaction' && ++transactions === 5) writeFileSync(join(app, 'app.tamber'), `${readFileSync(join(app, 'app.tamber'), 'utf8')}// a hand edit\n`);
+  });
   try {
     const replies = await drive(tool.url, `design-tool-params-${process.pid}`, [
       'type name Ada', 'tap save-name', 'clock data',
       // Reset: the line goes; undo gives it back.
       'tap param-Card.pad-reset', 'clock data', 'state', 'tap apply', 'clock data', 'clock +1', 'clock data', 'tap undo', 'clock data',
-      // A param edit, applied; then moved to the token it aliases, and undone.
+      // A param edit, applied; moved to the token it aliases; undone twice.
       'clock +1', 'clock data', 'type dial-app.contract#Card.fill-field #ff0000', 'type dial-app.contract#Card.fill-field key Enter', 'clock data', 'state',
-      'tap apply', 'clock data', 'clock +1', 'clock data', 'state', 'tap rescope', 'clock data', 'clock +1', 'clock data', 'state', 'tap undo', 'clock data',
+      'tap apply', 'clock data', 'clock +1', 'clock data', 'state', 'tap rescope', 'clock data', 'clock +1', 'clock data', 'state', 'tap undo', 'clock data', 'clock +1', 'clock data', 'tap undo', 'clock data',
+      // Again, but the file moves between the edit and the move: refused.
+      'clock +1', 'clock data', 'type dial-app.contract#Card.fill-field #00ff00', 'type dial-app.contract#Card.fill-field key Enter', 'clock data',
+      'tap apply', 'clock data', 'clock +1', 'clock data', 'tap rescope', 'clock data', 'state',
     ]);
     const states = replies.filter(r => r.resources);
     expect(states[0].resources.proposal).toMatchObject({ ok: true, active: true });
-    expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['transaction', true], ['undo', true], ['transaction', true], ['transaction', true], ['undo', true]]);
+    expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['transaction', true], ['undo', true], ['transaction', true], ['transaction', true], ['undo', true], ['undo', true], ['transaction', true], ['transaction', false]]);
     const pad = '  Card.pad = 12px';
     expect(edit(original, tool.writes[0].after)).toEqual({ at: original.split('\n').indexOf(pad), removed: [pad], added: [] });
     expect(tool.writes[1].after).toBe(original);
@@ -370,9 +377,13 @@ test('T3: Reset gives a param\'s line back byte for byte in one undo, and a para
     expect(moved).not.toContain('Card.fill =');
     expect(moved).toContain('  accent.fill = #ff0000\n');
     expect(edit(original, moved).removed).toEqual(['  accent.fill = accent']);
-    // One undo: the param edit as it was.
+    // One undo: the param edit as it was; another: the design as it was.
     expect(tool.writes[4].after).toBe(tool.writes[2].after);
+    expect(tool.writes[5].after).toBe(original);
     expect(states[3].derives.stack.rescope).toBe('');
+    // The move found the file changed since the edit: nothing written, said so.
+    expect(tool.writes[7].error.message).toContain('changed since');
+    expect(states.at(-1).derives.stack.error).toContain('Not moved:');
   } finally {
     await tool.close();
     rmSync(app, { recursive: true, force: true });
