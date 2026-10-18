@@ -166,15 +166,27 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
   // design as it is then. id -> the last told, less its design; its design;
   // the one waiting.
   const toldFacts = new Map(), toldDesign = new Map(), toldLater = new Map();
+  // (Keys in order, so a mode's axes in another order are the same facts.)
+  const canonical = v => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([p], [q]) => (p < q ? -1 : p > q ? 1 : 0))) : x));
+  /** Its comparison and anything waiting forgotten: a build registered again, or gone. */
+  const untell = id => { clearTimeout(toldLater.get(id)); toldLater.delete(id); toldFacts.delete(id); toldDesign.delete(id); };
   const tellStatus = (b, due = false) => {
-    const { design, ...facts } = shown(b), key = JSON.stringify(facts);
+    const { design, ...facts } = shown(b), key = canonical(facts);
     if (!due && toldDesign.has(b.id) && toldFacts.get(b.id) === key && toldDesign.get(b.id) !== design) {
-      if (!toldLater.has(b.id)) toldLater.set(b.id, setTimeout(() => { toldLater.delete(b.id); const now = builds.get(b.id); if (now) tellStatus(now, true); }, DESIGN_TOLD_MS));
+      // The first waiting design starts the wait; later ones replace it, not restart it.
+      if (!toldLater.has(b.id)) {
+        const later = setTimeout(() => {
+          toldLater.delete(b.id);
+          // Only if that registration is still connected (one gone was announced gone).
+          const now = builds.get(b.id);
+          if (now === b && connected(now)) tellStatus(now, true);
+        }, DESIGN_TOLD_MS);
+        later.unref?.();
+        toldLater.set(b.id, later);
+      }
       return;
     }
     clearTimeout(toldLater.get(b.id)); toldLater.delete(b.id);
-    // (Builds forgotten, their entries too.)
-    if (toldFacts.size > BUILDS * 2) for (const id of toldFacts.keys()) if (!builds.has(id)) { toldFacts.delete(id); toldDesign.delete(id); }
     toldFacts.set(b.id, key); toldDesign.set(b.id, design);
     send({ event: 'build-status', build: { ...facts, design } });
   };
@@ -343,12 +355,12 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         for (const other of streams.values()) if (other !== s && other.build === r.id) other.build = null;
         // A stream is one build: another id registered on it replaces the
         // build it was, and that build's pin goes with it.
-        if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); pins.delete(s.build); sent.delete(s.build); inspectors.delete(s.build); inspectSeq.delete(s.build); outliners.delete(s.build); holds.delete(s.build); holdSent.delete(s.build); }
+        if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); untell(s.build); pins.delete(s.build); sent.delete(s.build); inspectors.delete(s.build); inspectSeq.delete(s.build); outliners.delete(s.build); holds.delete(s.build); holdSent.delete(s.build); }
         s.build = r.id;
-        builds.delete(r.id);
+        builds.delete(r.id); untell(r.id);
         builds.set(r.id, { id: r.id, host: r.host, capabilities: r.capabilities, plan: r.plan ?? null, planDigest: r.planDigest ?? null, design: r.design ?? null, status: null, nonce: r.nonce });
         // The oldest builds with no open stream forgotten, over the cap.
-        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); pins.delete(id); sent.delete(id); inspectors.delete(id); inspectSeq.delete(id); outliners.delete(id); holds.delete(id); holdSent.delete(id); } }
+        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); untell(id); pins.delete(id); sent.delete(id); inspectors.delete(id); inspectSeq.delete(id); outliners.delete(id); holds.delete(id); holdSent.delete(id); } }
         log(`build registered: ${r.id} (${r.host})`);
         // Its pin, or none, as the server holds it now (a reload is a new
         // document; a pin cleared while it was away is cleared there too).
@@ -367,6 +379,9 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
       }
       const b = s.build && builds.get(s.build);
       if (!b) return { status: 409, body: { message: 'register first' } };
+      // Any other report (a selection, a held state, a refusal) is about the
+      // design the build runs now: a design still waiting is told first.
+      if (r.kind !== 'status' && toldLater.has(b.id)) tellStatus(b, true);
       if (r.kind === 'status') {
         // A late report (older than the status kept) cannot rewind it; a
         // revision this registration was never sent (an earlier run's, a

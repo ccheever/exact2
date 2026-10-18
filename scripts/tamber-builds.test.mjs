@@ -623,29 +623,59 @@ test('a hold is one a build, its client\'s, replayed only through one correspond
   expect(report(channel, { nonce: a3.nonce, kind: 'held', state: null, reason: 'gone' }).status).toBe(400);
 });
 
-test('a status that moves only the design is told once per 150 ms, the latest; any other change at once', async () => {
+test('a status that moves only the design is told 150 ms after the first waiting, the latest; any other change, or any other report, at once', async () => {
   const events = [];
   const channel = buildChannel({ send: e => events.push(e) });
   const a = stream(channel);
   register(channel, a.nonce, 'mac-1', 'macos');
-  const status = (extra) => report(channel, { nonce: a.nonce, kind: 'status', scheme: 'light', contrast: 'no-preference', mode: null, rootFontSize: 16, revision: 0, ...extra });
-  const told = () => events.filter(e => e.event === 'build-status');
+  const status = (extra) => report(channel, { nonce: a.nonce, kind: 'status', scheme: 'light', contrast: 'no-preference', mode: { a: 'x', b: 'y' }, rootFontSize: 16, revision: 0, ...extra });
+  const told = () => events.filter(e => e.event === 'build-status').map(e => e.build.design);
   status({ design: 'd0' });
-  expect(told().map(e => e.build.design)).toEqual(['d0']);
-  // A scrub's frames, each a status: none told while they come...
-  for (let i = 1; i <= 5; i++) status({ design: `d${i}` });
-  expect(told().length).toBe(1);
-  expect(channel.list()[0].design).toBe('d5');
-  // ...then the latest, once.
+  expect(told()).toEqual(['d0']);
+  // A scrub's frames, each a status, 40 ms apart: none told before 150 ms
+  // from the first waiting (a mode's axes in another order are the same)...
+  const t0 = Date.now();
+  status({ design: 'd1' });
+  await Bun.sleep(40); status({ design: 'd2', mode: { b: 'y', a: 'x' } });
+  await Bun.sleep(40); status({ design: 'd3' });
+  await Bun.sleep(40);
+  expect(Date.now() - t0 < 150 ? told() : ['too slow to check']).toEqual(['d0']);
+  expect(channel.list()[0].design).toBe('d3');
+  // ...then the latest, once, the wait not restarted by the later ones.
+  status({ design: 'd4' });
+  await Bun.sleep(Math.max(0, 190 - (Date.now() - t0)));
+  expect(told()).toEqual(['d0', 'd4']);
+  // Sustained frames: one told each 150 ms or so, not one a frame.
+  for (let i = 0; i < 12; i++) { status({ design: `s${i}` }); await Bun.sleep(30); }
   await Bun.sleep(200);
-  expect(told().map(e => e.build.design)).toEqual(['d0', 'd5']);
+  const sustained = told().slice(2);
+  expect(sustained.length).toBeGreaterThanOrEqual(2);
+  expect(sustained.length).toBeLessThanOrEqual(4);
+  expect(sustained.at(-1)).toBe('s11');
   // Another fact moving is told at once, with the design as it is then.
   status({ design: 'd6' });
   status({ design: 'd7', scheme: 'dark' });
-  expect(told().slice(2).map(e => [e.build.design, e.build.status.scheme])).toEqual([['d7', 'dark']]);
+  expect(told().slice(-1)).toEqual(['d7']);
+  const n = told().length;
   await Bun.sleep(200);
-  expect(told().length).toBe(3);
-  // The same status again is told at once (a status asked for).
-  status({ design: 'd7', scheme: 'dark' });
-  expect(told().length).toBe(4);
+  expect(told().length).toBe(n);
+  // A selection (any other report) is about the design it runs: told first.
+  status({ design: 'd8', scheme: 'dark' });
+  report(channel, { nonce: a.nonce, kind: 'unsupported', what: 'pin.contrast' });
+  expect(events.slice(-2).map(e => [e.event, e.build?.design ?? e.what])).toEqual([['build-status', 'd8'], ['unsupported', 'pin.contrast']]);
+  // Registered again (a reload on its stream) while one waits: its new
+  // registration's first status is told at once, the old one's wait never.
+  status({ design: 'd9', scheme: 'dark' });
+  register(channel, a.nonce, 'mac-1', 'macos');
+  status({ design: 'r0', scheme: 'dark' });
+  expect(told().slice(-1)).toEqual(['r0']);
+  const k = told().length;
+  await Bun.sleep(200);
+  expect(told().length).toBe(k);
+  // A build gone while one waits: nothing told for it after.
+  status({ design: 'r1', scheme: 'dark' });
+  a.close();
+  const m = told().length;
+  await Bun.sleep(200);
+  expect(told().length).toBe(m);
 });
