@@ -383,11 +383,13 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
     /// The navigation item the controller is on.
     weak var item: UINavigationItem?
     /// The field scrolls away with the content only while it is empty
-    /// (`NavigationHost.searchField`).
+    /// (`NavigationHost.searchField`), and never when its author made it
+    /// `position: sticky`, CSS's word for a box that stays in view as its
+    /// scroller scrolls (React Navigation's `hideWhenScrolling={false}`).
     func applyHiding() {
         #if os(iOS)
         guard let item else { return }
-        let hides = (field?.props["value"] ?? "").isEmpty
+        let hides = (field?.props["value"] ?? "").isEmpty && field?.style["position_type"]?.string != "sticky"
         if item.hidesSearchBarWhenScrolling != hides { item.hidesSearchBarWhenScrolling = hides }
         #endif
     }
@@ -930,10 +932,8 @@ extension NavigationHost {
     /// title keeps still: what is above it would sit under the bar.
     private func collapse(_ c: RouteController, shape: HeaderShape?, shows: Bool, scroller: NodeView?) {
         let kids = c.node.container.subviews.compactMap { $0 as? NodeView }
-        let flowing = { (v: NodeView) in
-            !v.isHidden && v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
-        }
-        let node = shape.map { shape in kids.firstIndex { $0 === shape.header }.flatMap { kids.indices.contains($0 + 1) ? kids[$0 + 1] : nil } }
+        let flowing = { (v: NodeView) in !v.isHidden && Self.inFlow(v) }
+        let node = shape.map { shape in kids.firstIndex { $0 === shape.header }.flatMap { kids[($0 + 1)...].first(where: flowing) } }
             ?? (shows ? kids.first(where: flowing) : nil)
         let target = shape?.authored.isEmpty != false && node?.scrollView != nil && node === scroller ? node : nil
         let physical = target?.scrollView
@@ -1020,9 +1020,7 @@ extension NavigationHost {
     /// cover. One that scrolls vertically only: UIKit's bottom inset would
     /// let a sideways carousel scroll up and down.
     static func bottomScroller(in route: NodeView) -> NodeView? {
-        let flowing = { (v: NodeView) in
-            v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
-        }
+        let flowing = inFlow
         // The last in-flow child spans the bottom edge alone when every other
         // ends above its top, as children stacked down a block or a column
         // do. Beside it in a row or a grid, a sibling reaches the edge too
@@ -1044,6 +1042,19 @@ extension NavigationHost {
             if last.scrollView != nil { return ["scroll", "auto"].contains(last.style["overflow_y"]?.string ?? "") ? last : nil }
             parent = last
         }
+    }
+
+    /// Whether `v` takes a place in its parent's flow, as a browser lays it
+    /// out: not `display: none`, not positioned out of it, and not a `dialog`
+    /// or a popover, which a browser draws in the top layer when open and not
+    /// at all when closed (`dialog:not([open])` and
+    /// `[popover]:not(:popover-open)` are `display: none`, and a `dialog` is
+    /// `position: absolute`). So a route's menus and confirmations, written
+    /// between its header and its scroller or after the scroller, leave the
+    /// scroller its route's top and bottom edges.
+    static func inFlow(_ v: NodeView) -> Bool {
+        v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
+            && v.props["popover"] == nil && v.props["semanticTag"] != "dialog"
     }
 
     /// The physical backend owned by a content node.

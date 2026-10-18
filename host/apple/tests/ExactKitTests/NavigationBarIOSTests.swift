@@ -428,6 +428,15 @@ final class NavigationBarIOSTests: XCTestCase {
         // the content scrolls are UIKit's own answers, not pinned by Exact.
         XCTAssertEqual(top.navigationItem.preferredSearchBarPlacement, .automatic, "UIKit's placement")
         XCTAssertTrue(top.navigationItem.hidesSearchBarWhenScrolling, "it hides on scroll, as UIKit's does")
+        // An author's `position: sticky` keeps the empty field in view.
+        let input = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "header-search" })
+        let header = try XCTUnwrap((top as? RouteController)?.search)
+        input.style["position_type"] = .string("sticky")
+        header.applyHiding()
+        XCTAssertFalse(top.navigationItem.hidesSearchBarWhenScrolling, "a sticky field stays in view")
+        input.style["position_type"] = nil
+        header.applyHiding()
+        XCTAssertTrue(top.navigationItem.hidesSearchBarWhenScrolling)
         search.searchBar.text = "abc"
         search.searchResultsUpdater?.updateSearchResults(for: search)
         until("the field's input ran with the text") { state(session, "query") as? String == "abc" }

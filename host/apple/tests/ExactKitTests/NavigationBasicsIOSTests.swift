@@ -547,6 +547,36 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertNil(NavigationHost.bottomScroller(in: route), "a last child above its sibling is not at the edge")
     }
 
+    /// A route's menus and confirmations take no place in its flow, as a
+    /// browser lays out neither: one written after its scroller leaves the
+    /// scroller at the bottom edge (euxy's Patterns tab, clipped at the tab
+    /// bar by its sort menu and its "Restore factory presets?" dialog).
+    func testTopLayerBoxesAfterAScrollerLeaveItAtTheBottomEdge() {
+        let p = Presenter()
+        var next: UInt32 = 0
+        func box(_ parent: NodeView?, y: CGFloat, height: CGFloat, props: [String: String] = [:], scrolls: Bool = false) -> NodeView {
+            next += 1
+            let n = NodeView(id: next, kind: "view", presenter: p)
+            n.props = props
+            n.frame = CGRect(x: 0, y: y, width: 400, height: height)
+            if scrolls { n.style["overflow_y"] = .string("scroll"); n.syncScroll() }
+            parent?.container.addSubview(n)
+            return n
+        }
+        let route = box(nil, y: 0, height: 600)
+        _ = box(route, y: 0, height: 100)
+        // Closed, a top-layer box is covered whole: laid out at no size.
+        _ = box(route, y: 0, height: 0, props: ["popover": "auto"])
+        let scroller = box(route, y: 100, height: 500, scrolls: true)
+        let menu = box(route, y: 0, height: 0, props: ["popover": "auto"])
+        let dialog = box(route, y: 0, height: 0, props: ["semanticTag": "dialog"])
+        XCTAssertTrue(NavigationHost.bottomScroller(in: route) === scroller)
+        XCTAssertFalse(NavigationHost.inFlow(menu))
+        XCTAssertFalse(NavigationHost.inFlow(dialog))
+        _ = box(route, y: 0, height: 0)
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a box in the flow after it still keeps the cover")
+    }
+
     /// A route that paints no background shows what the web shows through
     /// it — the root's (LLP 1116 D2: `-exact-grouped-background` on the root
     /// under every screen, and under the home indicator) — light and dark,

@@ -1434,6 +1434,10 @@ this adds no spacing value or custom button face.
 
 The bar shows a header's heading, the first text after it (its subtitle), one search
 field, one tablist and its buttons; anything else in the header is not shown on iOS.
+On iOS the search field scrolls away with the content while it is empty, as UIKit's
+does; `position="sticky" top=0` on the `input` keeps it in view (React Navigation's
+`hideWhenScrolling={false}`). The route's scroller runs under the bars wherever its
+menus, popovers and `dialog`s are written: they take no place in its flow.
 The agent paints the authored header by default, but marks such a node in `tree` and
 `screenshot`, and an `expect` or `tap` on it fails, saying so. A `testId` on a bar
 button, the search field, a segment or a tab is its `accessibilityIdentifier`, which
