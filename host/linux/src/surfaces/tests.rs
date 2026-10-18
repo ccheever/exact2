@@ -1,6 +1,5 @@
 use super::*;
 use exact_runner::Request;
-use sha2::{Digest, Sha256};
 
 pub(super) fn compile_fixture(source: &std::path::Path, path: &std::path::Path) {
     #[cfg(not(windows))]
@@ -233,7 +232,7 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)(output ? 
     )
     .unwrap();
     compile_fixture(&source, &path);
-    let digest = format!("{:x}", Sha256::digest(std::fs::read(&path).unwrap()));
+    let digest = digest::file_digest(&path, false).unwrap();
     let compat = json!({"id":"cohort", "inputs":{"app":"test.app"}, "embedded":{"gpu":{
             "name":path.file_name().unwrap().to_str().unwrap(),"sha256":digest,
             "app":"test.app","cohort":"cohort","trust":"production"}}});
@@ -267,8 +266,7 @@ fn module_identity_refuses_stale_foreign_and_missing_bakes_before_loading() {
     std::fs::write(&source, old).unwrap();
     compile_fixture(&source, &path);
     let mut old_compat = compat.clone();
-    old_compat["embedded"]["gpu"]["sha256"] =
-        format!("{:x}", Sha256::digest(std::fs::read(&path).unwrap())).into();
+    old_compat["embedded"]["gpu"]["sha256"] = digest::file_digest(&path, false).unwrap().into();
     let error = Abi::open_path(&path, &old_compat, "")
         .err()
         .expect("old ABI refused");
