@@ -75,10 +75,13 @@ component PrQuickActions
     number: number
     pending: bool
     act: action
+    sweepDown: action
+    sweepMove: action
+    sweepUp: action
   view
     row flex-shrink=0 align-items="center" gap="0.25rem" padding-right="0.75rem" role="group" aria-label=`Quick actions for pull request #${number}` testId=`pr-quick-${number}`
       for item in actions key=item.key
-        PrQuickButton(item=item, number=number, pending=pending, act=act)
+        PrQuickButton(item=item, number=number, pending=pending, act=act, sweepDown=sweepDown, sweepMove=sweepMove, sweepUp=sweepUp)
 
 // Button size="xs": variant "destructive-outline" for Close, "outline" for the rest; a spinner while it runs.
 component PrQuickButton
@@ -87,12 +90,15 @@ component PrQuickButton
     number: number
     pending: bool
     act: action
+    sweepDown: action
+    sweepMove: action
+    sweepUp: action
   state over = false
   action hover(value: bool)
     over = value
   view
     Tip(label=item.tooltip, side="top", align="center", offset=20)
-      button press=act("quick", item.value) hover=hover disabled=item.disabled aria-label=item.aria testId=`pr-quick-${number}-${item.key}` height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(item.destructive and over and not item.disabled ? "light-dark(#fb2c3652, #fb414a52)" : "light-dark(#d4d4d8, #ffffff14)") background-color=(over and not item.disabled ? (item.destructive ? "light-dark(#fb2c360a, #fb414a0a)" : "light-dark(#f4f4f580, #ffffff0d)") : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(item.disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
+      button press=act("quick", item.value) pointerdown=sweepDown(item.action) pointermove=sweepMove pointerup=sweepUp hover=hover disabled=item.disabled aria-label=item.aria testId=`pr-quick-${number}-${item.key}` height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(item.destructive and over and not item.disabled ? "light-dark(#fb2c3652, #fb414a52)" : "light-dark(#d4d4d8, #ffffff14)") background-color=(over and not item.disabled ? (item.destructive ? "light-dark(#fb2c360a, #fb414a0a)" : "light-dark(#f4f4f580, #ffffff0d)") : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(item.disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
         if pending
           box width="0.75rem" height="0.75rem" flex-shrink=0 display="flex" animation="pqSpin 1s linear infinite" aria-hidden=true
             svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color=(item.destructive ? pqDanger() : pqInk()) fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true

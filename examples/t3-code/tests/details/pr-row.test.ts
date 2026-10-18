@@ -231,13 +231,13 @@ describe('the split row, its card and the tab icon', () => {
   });
   test('a hand-off draft shows its branch\'s pull request, as the reference card does after Resolve', async () => {
     const { client, replies } = fakeClient();
-    replies['pullRequests.detail'] = () => detail({ number: 101, url: URL(101), headBranch: 'feature/conflict', mergeability: 'conflicting' });
+    replies['pullRequests.detail'] = () => detail({ number: 101, title: 'Fresh title from the host', url: URL(101), headBranch: 'feature/conflict', mergeability: 'conflicting' });
     replies['pullRequests.checks'] = () => ({ state: 'open', checks: [] });
     (client as unknown as { threadId: string }).threadId = '';
     client.local.composerControls.contexts = { 'env:new:p1': { envMode: 'worktree', branch: 'feature/conflict', worktreePath: '/w/feature-conflict' } };
     const status = { refName: 'feature/conflict', pr: { number: 101, title: 'Fix sidebar overflow on narrow windows', url: URL(101), state: 'open' }, sourceControlProvider: { kind: 'github' } };
     const view = await prRowsView(client, native, { status, threadId: '', now: 1, projectId: 'p1', rightGap: 0, inline: true });
-    expect(view.rows[0]).toMatchObject({ label: '#101: Fix sidebar overflow on narrow windows', split: true, action: 'resolve', actionLabel: 'Resolve' });
+    expect(view.rows[0]).toMatchObject({ label: '#101: Fresh title from the host', split: true, action: 'resolve', actionLabel: 'Resolve' });
   });
   test('the card flips to end-aligned where it would cross the window', () => {
     const long = prCard(detail({ title: 'Fix sidebar overflow on narrow windows', number: 101, headBranch: 'feature/conflict' }), 'open', 283);
