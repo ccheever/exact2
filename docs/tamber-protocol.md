@@ -74,8 +74,9 @@ on macOS and Linux.
   changes (stage 8) add under the same version.
 - `tamber/1.12` (LLP 1121 stage 9, commit D1) added `set-row`'s address to the selection join:
   a row its author wrote carries `at`, the attribute's place, with the file's `sha256` as
-  compiled, and `attr`, its name as written (a shorthand's for an expansion). Stage 9's later
-  wire changes add under the same version.
+  compiled, and `attr`, its name as written (a shorthand's for an expansion); real-time scrubs
+  added the long poll's held revision (`held` on each answer, and `held` on the request to leave
+  out an unchanged `proposals`). Stage 9's later wire changes add under the same version.
 
 ## Where it runs
 
@@ -578,7 +579,10 @@ with.
 **`drop`** `{proposal, client}` forgets one, and answers `{dropped: id}`.
 
 **The open list** rides `subscribed` and every long poll's answer, as `proposals`, each as the
-`proposal` event shows it.
+`proposal` event shows it. A long poll's answer also carries the list's revision, `held` (*1.12*),
+which moves whenever a proposal is held, dropped, accepted, expires or is recomputed. A long poll
+that sends `held` with the revision it has (and this run's `epoch`) gets no `proposals` while the
+list is unchanged: it keeps its own.
 
 ### `history` (*1.1*, LLP 1122 D9)
 
@@ -766,8 +770,8 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
   builds}`, then sends one `data:` line per later event. It replays nothing kept. Catching up is
   the long poll's job. Its body may be `{client}` (*1.2*), which makes that client present while
   it is open (see the build channel's ownership).
-- **`POST /__tamber/events`** `{after, epoch?, wait?, client?}` answers `{events, seq, epoch, missed, files,
-  proposals}`:
+- **`POST /__tamber/events`** `{after, epoch?, wait?, client?, held?}` answers `{events, seq, epoch, missed,
+  files, held, proposals?}` (`proposals` left out when `held` names the current revision, *1.12*):
   - with the events after `after`, once there is one, or after 25 s with none;
   - at once with `wait: false` (*1.1*), for a client's first ask.
 - **`missed`.** These are answered `missed: true`, with no events and the current `files`, and the

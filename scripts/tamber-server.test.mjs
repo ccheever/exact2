@@ -294,6 +294,9 @@ const post = async request => {
   return { status: res.status, ...(await res.json()) };
 };
 
+/** The long poll's answer. */
+const poll = async request => (await fetch(`${origin}/__tamber/events`, { method: 'POST', headers, body: JSON.stringify(request) })).json();
+
 /** The change stream's events as they come. */
 async function subscribe() {
   const res = await fetch(`${origin}/__tamber/subscribe`, { method: 'POST', headers });
@@ -871,12 +874,22 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   expect(held.status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('#1b1b1b');
   await stream.until(e => e.some(x => x.event === 'proposal' && x.proposal === held.ok.proposal));
+  // The long poll's held revision (tamber/1.12): a poll that names it gets
+  // no list while it is unchanged; another run's epoch, or a change, the list.
+  const at = await poll({ after: 0, wait: false, client: 'tool' });
+  expect(at.proposals.map(p => p.proposal)).toContain(held.ok.proposal);
+  const same = await poll({ after: at.seq, epoch: at.epoch, wait: false, client: 'tool', held: at.held });
+  expect([same.held, same.proposals]).toEqual([at.held, undefined]);
+  expect((await poll({ after: at.seq, epoch: 'another', wait: false, client: 'tool', held: at.held })).proposals).toEqual(at.proposals);
   const taken = await post({ method: 'accept', client: 'person', proposal: held.ok.proposal });
   expect(taken.status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('ink = #1b1b1b');
   await stream.until(e => e.some(x => x.client === 'agent' && x.acceptedBy === 'person'));
   await stream.until(e => e.some(x => x.event === 'proposal-dropped' && x.proposal === held.ok.proposal && x.reason === 'accepted'));
   expect((await post({ method: 'accept', client: 'person', proposal: held.ok.proposal })).status).toBe(404);
+  const moved = await poll({ after: same.seq, epoch: at.epoch, wait: false, client: 'tool', held: at.held });
+  expect(moved.held).not.toBe(at.held);
+  expect(moved.proposals.map(p => p.proposal)).not.toContain(held.ok.proposal);
   // Stale: the file moves after review; the accept gives a new diff to accept.
   const second = await post({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'edge', value: '#1c1c1c' }] });
   writeFileSync(join(dir, 'app.tamber'), readFileSync(join(dir, 'app.tamber'), 'utf8').replace('#1b1b1b', '#1d1d1d'));
