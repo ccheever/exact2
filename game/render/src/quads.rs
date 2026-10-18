@@ -265,7 +265,8 @@ impl Quads {
         parent_changed: bool,
     ) -> Result<(), RenderError> {
         self.hz = w.hz();
-        self.primitives.feed(w, initial, next_tick, parent_changed)?;
+        self.primitives
+            .feed(w, initial, next_tick, parent_changed)?;
         feed(w, &mut self.particles, initial, next_tick, parent_changed);
         feed(w, &mut self.looks, initial, next_tick, parent_changed);
         self.particles.retain(|item| match item.value.validate() {
@@ -460,7 +461,8 @@ impl Quads {
                     .saturating_add(u64::from(emitter.state.burst))
             })
             .sum::<u64>()
-            .min(u64::from(exact_game::emitter::PARTICLE_BUDGET)) as usize + self.primitives.len();
+            .min(u64::from(exact_game::emitter::PARTICLE_BUDGET)) as usize
+            + self.primitives.len();
         if particles > 0 {
             let arena = self
                 .particle_arena
@@ -801,7 +803,8 @@ impl Quads {
                 });
             });
         }
-        self.primitives.frame(f, &camera, cull, &mut self.particle_data, &mut self.order);
+        self.primitives
+            .frame(f, &camera, cull, &mut self.particle_data, &mut self.order);
         if ASSETS {
             for (index, item) in self.sprites.iter().enumerate() {
                 let s = &item.value;

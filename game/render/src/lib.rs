@@ -33,8 +33,6 @@ mod pipeline;
 mod placed;
 #[cfg(test)]
 mod quad_tests;
-#[cfg(test)]
-mod translucent_tests;
 mod quads;
 mod renderer;
 mod shadows;
@@ -44,6 +42,8 @@ mod ssao;
 mod surface;
 mod timing;
 mod trace;
+#[cfg(test)]
+mod translucent_tests;
 pub mod world;
 
 /// Simulation vocabulary, also used by module! without a direct dependency.
