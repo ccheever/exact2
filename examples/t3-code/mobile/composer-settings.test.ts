@@ -305,6 +305,9 @@ describe('staged mobile model option memory', () => {
       .toEqual([{ type: 'thread.model-selection.set', commandId: expect.any(String), threadId: 'thread',
         modelSelection: { instanceId: 'provider', model: 'b', options: high } }]);
     expect(f.client.draft).toBe('Keep the draft');
+    const controls = f.client.local.composerControls;
+    expect({ sticky: JSON.stringify({ provider: controls.stickyProvider, choices: controls.stickyByProvider }), memory: controls.stickyOptionsByModel.provider?.b })
+      .toEqual({ sticky: f.sticky, memory: high });
   });
   test('invalid options, permission loss and changed owners do not remember or persist a staged choice', async () => {
     for (const refusal of ['unknown', 'unoffered', 'injected', 'read-only', 'owner']) {

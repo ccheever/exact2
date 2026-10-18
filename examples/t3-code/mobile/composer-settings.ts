@@ -6,7 +6,6 @@ import { arr, obj, str, type Obj } from './shared/domain';
 import { ClientError, providerAvailable, type Native, type Files } from './shared/protocol';
 import { favoriteKeys } from './shared/model-catalog';
 import { applyOptionChoice, lockedProviderReason } from './shared/composer-controls-commands';
-import { rememberOptions } from './shared/composer-controls';
 import { resolvedCurrent, optionLabel, reportedSelection, type Selection } from './shared/r3-composer-controls-model';
 import { runtimeModes } from './shared/composer-presentation';
 import { letGo } from './shared/let-go';
@@ -173,8 +172,10 @@ export async function mobileComposerSettingsAction(kind: string, id: string, val
         const pending = state.pending, entry = catalog(client).find(entry => entry.provider.instanceId === pending.instanceId && entry.model.slug === pending.model);
         if (!entry || entry.unavailable) throw new ClientError('Set up this provider on web or desktop, or select another model.');
         const reason = selectionReason(client, entry.provider, entry.model); if (reason) throw new ClientError(reason);
-        // Shared rememberModel reads this memory when its single model-selection command is built.
-        rememberOptions(client, pending.instanceId, pending.model, pending.options);
+        // Shared rememberModel reads this memory when its single model-selection command is built;
+        // that accepted command, not Save, writes New Task's sticky model.
+        const memory = client.local.composerControls.stickyOptionsByModel;
+        memory[pending.instanceId] = { ...memory[pending.instanceId], [pending.model]: pending.options.map(option => ({ ...option })) };
         const response = await command('model', pending.model, pending.instanceId); if (response.message) throw new ClientError(response.message);
         if (state.owner !== owner(client)) throw new ClientError('The draft changed while settings were saving.');
         const supported = entry.provider.supportedRuntimeModes;

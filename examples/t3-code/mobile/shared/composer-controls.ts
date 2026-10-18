@@ -1,5 +1,6 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/composer-controls.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Adapted body from examples/t3-code/composer-controls.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Mobile 365aa87982: only New Task writes the sticky model; an existing thread keeps per-model options.
 // Composer selection, follow-up dispatch and primary-action state (lane
 // composer-controls), adapted from T3 Code (MIT); see LICENSE-T3. Sources:
 // apps/web/src/composerDraftStore.ts (sticky model memory, applyStickyState),
@@ -70,21 +71,19 @@ function prefs(client: T3Client): ComposerControlsPrefs {
 
 // ── Sticky model memory ────────────────────────────────────────────────────
 
-/** setStickyModelSelection: a picked model becomes the next draft's model; its own remembered traits come back with it. */
+/** withRememberedModelOptions: a picked model brings back its own remembered traits. In New Task
+ * (setStickyComposerModelSelection) it also becomes the next draft's model; a thread pick does not. */
 export function rememberModel(client: T3Client, providerId: string, modelId: string): Obj[] {
   const state = prefs(client);
   const remembered = state.stickyOptionsByModel[providerId]?.[modelId] ?? [];
-  state.stickyByProvider[providerId] = { model: modelId, options: remembered };
-  state.stickyProvider = providerId;
+  if (!client.threadId) { state.stickyByProvider[providerId] = { model: modelId, options: remembered }; state.stickyProvider = providerId; }
   return remembered.map(option => ({ ...option }));
 }
-/** setProviderModelOptions(..., persistSticky): traits stick to the sticky model and are remembered for this model. */
+/** rememberModelOptions: traits are remembered for this model. In New Task this model and its traits also stick. */
 export function rememberOptions(client: T3Client, providerId: string, modelId: string, chosen: Obj[]): void {
   const state = prefs(client);
-  const base = state.stickyByProvider[providerId]?.model || modelId;
-  state.stickyByProvider[providerId] = { model: base, options: chosen.map(option => ({ ...option })) };
   state.stickyOptionsByModel[providerId] = { ...state.stickyOptionsByModel[providerId], [modelId]: chosen.map(option => ({ ...option })) };
-  state.stickyProvider = providerId;
+  if (!client.threadId) { state.stickyByProvider[providerId] = { model: modelId, options: chosen.map(option => ({ ...option })) }; state.stickyProvider = providerId; }
 }
 /** applyStickyState: a new draft opens on the last picked provider/model, ahead of the configured default. */
 export function applySticky(client: T3Client): void {
