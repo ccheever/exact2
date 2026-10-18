@@ -591,12 +591,7 @@ final class RasterLoader {
         if pixel > interest.offeredPixel * 5 / 4 || pixel * 5 / 4 < interest.offeredPixel { retry(view.id) }
     }
     private static func svgViewport(_ view: NodeView, _ metadata: RasterMetadata) -> CGSize {
-        let uniform = view.number("border_width")
-        let content = view.bounds.insetBy(
-            left: view.number("border_width_left", uniform) + view.number("padding_left"),
-            top: view.number("border_width_top", uniform) + view.number("padding_top"),
-            right: view.number("border_width_right", uniform) + view.number("padding_right"),
-            bottom: view.number("border_width_bottom", uniform) + view.number("padding_bottom"))
+        let content = view.contentBox()
         let size = content.width > 0 && content.height > 0
             ? RasterGeometry.rect(natural: metadata.naturalSize, content: content, fit: view.style["object_fit"]?.string ?? "fill").size
             : metadata.naturalSize
