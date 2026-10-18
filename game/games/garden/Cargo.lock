@@ -926,6 +926,7 @@ dependencies = [
  "skrifa",
  "swash",
  "tiny-skia",
+ "unicode-segmentation",
  "vello",
  "wgpu 29.0.4",
  "windows-sys 0.61.2",
@@ -1038,6 +1039,7 @@ dependencies = [
  "exact-runner",
  "exact-textflow",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
