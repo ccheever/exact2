@@ -3465,7 +3465,7 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
     - `outline` finds a node from a `uses` location that is a part's row.
     - The JS target's CSSOM token and tuple writes call the glue's `repaintPress`.
     - The wasm looks sheet is written once per batch (a microtask).
-  - theme2's 07:06 question: a node's own `:active` where it has no `press` (nor `href`) never holds, and is `lower-state-dead` (a lint, as `:disabled`'s); a class's part is not judged.
+  - theme2's 07:06 question: a node's own `:active` where it has no `press` never holds, and is `lower-state-dead` (a lint, as `:disabled`'s); a class's part is not judged. A pressable link (`link`, `button`) with an `href` and no `press` is linted too, as unreliable: only Apple presses it, and the web by touch (theme2's 11:48 ruling; the hosts' disagreement is LLP 1061's, on QUEUE); a `text` link never holds it.
   - **Deviation (QUEUE):** on the web, a node's own `transition` on a property a look sets times the look's change. The look rule can't keep it out.
 - **The JS target** (`host/web-js`):
   - The static tree applies each node's looks rows (`SetLooks`), and the template carries their declarations. A varying token's sentinel becomes its `var()`, as in a class, and look declarations join the sentinel scan.
