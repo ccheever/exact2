@@ -78,6 +78,7 @@ private fun Inline(id: String) {
         "text-field-disabled" -> Field("Moby-Dick", enabled = false)
         "text-field-focused" -> Field("Moby-Dick", focused = true)
         "filled-button" -> Button(onClick = {}) { Text("Save") }
+        "filled-button-disabled" -> Button(onClick = {}, enabled = false) { Text("Save") }
         "checkbox-checked" -> Checkbox(checked = true, onCheckedChange = {})
         "checkbox-unchecked" -> Checkbox(checked = false, onCheckedChange = {})
         "defect-missing-control" -> Box(Modifier.size(48.dp))

@@ -92,7 +92,7 @@ extension Agent {
     /// and `overlays-content`, which insets nothing, all count it
     /// (LLP 1086.000.000 D2).
     func visiblePort(_ sv: UIScrollView) -> CGRect {
-        var port = sv.bounds.inset(by: sv.adjustedContentInset)
+        var port = sv.pageBounds.inset(by: sv.adjustedContentInset)
         guard let window = sv.window else { return port }
         var covers = bars(over: sv).map { $0.convert($0.bounds, to: nil) }
         if let top = keyboardTopInWindow() {

@@ -147,7 +147,7 @@ extension Agent {
         let point = CGPoint(x: request["x"] as? Double ?? start.x + (request["dx"] as? Double ?? 0),
                             y: request["y"] as? Double ?? start.y + (request["dy"] as? Double ?? 0))
         guard point.x.isFinite, point.y.isFinite else { return ["error": "pointer needs finite coordinates"] }
-        let inWindow = vp.convert(CGPoint(x: point.x + vp.contentOffset.x, y: point.y + vp.contentOffset.y), to: nil)
+        let inWindow = vp.convert(CGPoint(x: point.x + vp.pageOrigin.x, y: point.y + vp.pageOrigin.y), to: nil)
         if !continuing {
             guard let hit = window.hitTest(inWindow, with: nil), hit === node || (node.isSurfaceControl && hit.isDescendant(of: node)) else { return ["error":"control or canvas is covered"] }
         }

@@ -322,7 +322,7 @@ extension NodeView {
         guard let parent = superview else { return .zero }
         let box = CGRect(x: -bounds.width / 2, y: -bounds.height / 2, width: bounds.width, height: bounds.height)
             .applying(hostPlacement).offsetBy(dx: center.x, dy: center.y)
-        return parent.convert(box, to: viewport).offsetBy(dx: -viewport.bounds.minX, dy: -viewport.bounds.minY)
+        return parent.convert(box, to: viewport).offsetBy(dx: -viewport.pageOrigin.x, dy: -viewport.pageOrigin.y)
     }
     /// Whether a touch is inside the box as it stands unpressed. The pressed
     /// box is smaller, so testing against it would release a finger resting

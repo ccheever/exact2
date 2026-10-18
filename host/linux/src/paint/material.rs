@@ -118,7 +118,7 @@ pub(crate) struct Labels {
 
 /// Where a field's label and value were painted, in the viewport's points,
 /// for an inspector (the Material oracle's specimen door): what a text
-/// node's box is to any other text. A value the shell's own field shows
+/// node's box is to any other text. A Material button's title is its label. A value the shell's own field shows
 /// (LLP 1115.001 D8) is that field's, not here.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct FieldTexts {
@@ -226,6 +226,11 @@ impl Labels {
     pub(super) fn value(&mut self, id: ViewId, text: FieldText) {
         self.walking.entry(id).or_default().value = Some(text);
     }
+
+    /// The walk painted `id`'s label: a button's title.
+    pub(super) fn label(&mut self, id: ViewId, text: FieldText) {
+        self.walking.entry(id).or_default().label = Some(text);
+    }
 }
 
 /// What a field showing a value has at its end.
@@ -303,20 +308,8 @@ impl super::Painter {
         shape
     }
 
-    /// `v`, an x (or with `vertical` a y) in the coordinates `ts` maps,
-    /// moved to the nearest edge between device pixels; as it is where `ts`
-    /// turns or skews.
     fn on_grid(&self, v: f32, ts: Transform, vertical: bool) -> f32 {
-        let (scale, offset) = if vertical {
-            (ts.sy, ts.ty)
-        } else {
-            (ts.sx, ts.tx)
-        };
-        if ts.kx != 0.0 || ts.ky != 0.0 || scale == 0.0 {
-            return v;
-        }
-        let device = ((v * scale + offset) * self.scale).round();
-        (device / self.scale - offset) / scale
+        on_grid(v, ts, vertical, self.scale)
     }
 
     /// `node`'s label in its field's box `rect`, where it has one: resting
@@ -465,6 +458,117 @@ impl super::Painter {
             Icon::Menu => self.glyph_face(role_path(MENU, true), node.style, at, tint, ts),
         }
     }
+}
+
+/// `v`, an x (or with `vertical` a y) in the coordinates `ts` maps, moved to
+/// the nearest edge between device pixels (`scale` a point); as it is where
+/// `ts` turns or skews.
+pub(super) fn on_grid(v: f32, ts: Transform, vertical: bool, scale: f32) -> f32 {
+    let (s, offset) = if vertical {
+        (ts.sy, ts.ty)
+    } else {
+        (ts.sx, ts.tx)
+    };
+    if ts.kx != 0.0 || ts.ky != 0.0 || s == 0.0 {
+        return v;
+    }
+    let device = ((v * s + offset) * scale).round();
+    (device / scale - offset) / s
+}
+
+/// Material 3's checkbox in `content` (`Checkbox.kt` at the pinned
+/// version): a box the `mark-size` row's (20) with the `checkbox-corner`
+/// row's corners. Checked, it is filled in `primary` (an authored
+/// `accent-color` wins) with the check in `onPrimary`; unchecked, an
+/// outline in `onSurfaceVariant`. Disabled, both are `onSurface` at the
+/// `checkbox-disabled-opacity` row's 38 % and the check `surface`. The
+/// outline and the check are the `checkbox-stroke` row's 2 dp floored to
+/// whole pixels and the box's edges on the pixel grid, as Compose lays it
+/// out, drawn as the library draws them: the outline a stroke inside the
+/// box, the check a mitred stroke with square ends through the library's
+/// three points. Its 2 dp padding and 48 dp touch size are not drawn.
+pub(super) fn checkbox(
+    backend: &mut dyn super::Backend,
+    node: &NodeRef<'_>,
+    content: Rect4,
+    ts: Transform,
+    dark: bool,
+    on: bool,
+    scale: f32,
+) {
+    let (x, y, w, h) = content;
+    let side = w.min(h);
+    let (x, y) = (x + (w - side) / 2.0, y + (h - side) / 2.0);
+    let grid = |v, vertical| on_grid(v, ts, vertical, scale);
+    let (left, top) = (grid(x, false), grid(y, true));
+    let (w, h) = (grid(x + side, false) - left, grid(y + side, true) - top);
+    if w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    let radius = dp(metric::CHECKBOX_CORNER).min(w.min(h) / 2.0);
+    let width = (dp(metric::CHECKBOX_STROKE) * scale).floor().max(1.0) / scale;
+    let faded = |mut c: [u8; 4]| {
+        c[3] = (f32::from(c[3]) * opacity(metric::CHECKBOX_DISABLED_OPACITY)).round() as u8;
+        c
+    };
+    let (accent, on_accent) = super::control::accents(super::control::accent(node, dark), dark);
+    let stroke = |backend: &mut dyn super::Backend, d: String, color: [u8; 4], cap: u8| {
+        let path = exact_kernel::svg::parse_d(&d);
+        let paint = super::SvgPaint {
+            path: &path,
+            fill: None,
+            even_odd: false,
+            stroke: Some(super::Ink::Solid(color)),
+            order: [0, 1, 2],
+            width,
+            cap,
+            join: 0,
+            miter: 4.0,
+            dash: Vec::new(),
+            phase: 0.0,
+        };
+        backend.svg_path(&paint, ts);
+    };
+    let off = disabled(node);
+    let whole = Shape::new((left, top, w, h), [radius; 4]);
+    if !on {
+        let line = match off {
+            true => faded(look::role("CanvasText", dark)),
+            false => look::role("-exact-secondary-label", dark),
+        };
+        // Too small for a ring inside it: all outline.
+        if w.min(h) <= 2.0 * width {
+            backend.fill(&whole, line, ts);
+            return;
+        }
+        let (i, r) = (width / 2.0, (radius - width / 2.0).max(0.0));
+        let (l, t, e, b) = (left + i, top + i, left + w - i, top + h - i);
+        let d = format!(
+            "M{} {t}H{}A{r} {r} 0 0 1 {e} {}V{}A{r} {r} 0 0 1 {} {b}H{}A{r} {r} 0 0 1 {l} {}V{}A{r} {r} 0 0 1 {} {t}Z",
+            l + r,
+            e - r,
+            t + r,
+            b - r,
+            e - r,
+            l + r,
+            b - r,
+            t + r,
+            l + r,
+        );
+        stroke(backend, d, line, 0);
+        return;
+    }
+    let (fill, check) = match off {
+        true => (
+            faded(look::role("CanvasText", dark)),
+            look::role("Canvas", dark),
+        ),
+        false => (accent, on_accent),
+    };
+    backend.fill(&whole, fill, ts);
+    let at = |fx: f32, fy: f32| (left + w * fx, top + h * fy);
+    let ((ax, ay), (bx, by), (cx, cy)) = (at(0.2, 0.5), at(0.4, 0.7), at(0.8, 0.3));
+    stroke(backend, format!("M{ax} {ay}L{bx} {by}L{cx} {cy}"), check, 2);
 }
 
 /// A 24-unit path drawn as a role's is: stroked, or filled even-odd.

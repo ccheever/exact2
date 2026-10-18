@@ -225,7 +225,7 @@ extension Presenter {
             // keyboard) obstruct the viewport used for CSS alignment.
             let owner = (sv.superview as? NodeView).flatMap { $0.scrollView === sv ? $0 : nil }
             let inset = owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset
-            let port = IntoView.inset(sv.bounds.inset(by: inset), style: owner?.style ?? [:], family: "scroll_padding")
+            let port = IntoView.inset(sv.pageBounds.inset(by: inset), style: owner?.style ?? [:], family: "scroll_padding")
             let area = IntoView.inset(frame, style: target.style, family: "scroll_margin", outward: true)
             let x = IntoView.aligned(inline, target: area.minX, area.maxX, port: port.minX, size: port.width) - (port.minX - sv.bounds.minX)
             let y = IntoView.aligned(block, target: area.minY, area.maxY, port: port.minY, size: port.height) - (port.minY - sv.bounds.minY)
