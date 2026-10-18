@@ -185,7 +185,7 @@ component Inheritance
             box width="0.875rem" height="0.875rem"
               if layer.effective
                 LucideCheck(size=14, color="light-dark(#1b4ed8, #346bf1)")
-  
+
 // SettingsRow over a scoped server setting.
 component ScopedSettingRow
   inject

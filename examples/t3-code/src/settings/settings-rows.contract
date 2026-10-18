@@ -644,4 +644,3 @@ component PanelPreview
         row height=(open ? "0.5rem" : "0px") align-items="center" padding-left="0.5rem" padding-right="0.5rem" border-top-width=(open ? 1 : 0) border-top-style="solid" border-color=pal.cardBorder background-color=pal.highlight overflow="hidden" transition=`height ${duration}ms ease-out` id="paint-PanelPreview-3" data-paint="border text" data-pick="text"
           box height=1 width="66%" background-color=pal.line
       box height="100%" width=(open ? "1.25rem" : "0px") border-radius="0.375rem" background-color=pal.output flex-shrink=0 transition=`width ${duration}ms ease-out` id="paint-PanelPreview-4" data-paint="secondary" data-pick="secondary"
-
