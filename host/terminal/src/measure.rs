@@ -474,7 +474,7 @@ mod tests {
     #[test]
     fn discretionary_breaks_have_ink_only_when_a_soft_hyphen_is_taken() {
         let paragraph = Paragraph::from_style(&StyleProps::default());
-        // CSS Text 3 §5.3: a taken SHY contributes the visible hyphen's width.
+        // CSS Text 3, Hyphenation: a taken SHY contributes the visible hyphen's width.
         for (text, limit, expected) in [
             ("ab\u{ad}cdef", 4, vec![("ab-", 3), ("cdef", 4)]),
             ("ab\u{ad}cdef", 6, vec![("abcdef", 6)]),
