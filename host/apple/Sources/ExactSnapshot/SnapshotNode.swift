@@ -29,7 +29,7 @@ struct SnapshotNodeView: View {
     /// border box, `clip-path` over all of it, then its semantics.
     @ViewBuilder
     private var decorated: some View {
-        let nested = !isRoot && [.systemMedium, .systemLarge, .systemExtraLarge].contains(environment.family)
+        let nested = !isRoot && environment.takesLinks
         let link = nested && !environment.placeholder ? SnapshotLinks.url(node.props["href"], base: environment.linkBase) : nil
         content
             .frame(width: node.frame.width, height: node.frame.height, alignment: .topLeading)
