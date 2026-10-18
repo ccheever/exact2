@@ -1,3 +1,5 @@
+import {gameNonInput, proofInputFiles} from '../game/inputs.mjs';
+export {gameNonInput} from '../game/inputs.mjs';
 import {readStatus, formatStatus} from '../game/status.mjs';
 // Session setup shared by the agent CLI and its programmatic driver.
 import { widgetArguments, validateWidget } from './agent-widget.mjs';
@@ -794,15 +796,14 @@ export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hash
  * its proof, pins, documents, tests, shots, tools, repros, and helper scripts
  * outside the built trees. The proof's input digest (game/proof.mjs), the web
  * staleness check and a game's native receipt share it. */
-export function gameNonInput(path) {
-  path = path.replaceAll('\\', '/');
-  return /^(shots|tools|repros)\//.test(path)
-    || /(^|\/)(pins\.json|status\.json|proof\.mjs|[^/]*\.test\.(?:mjs|js|ts|rs|contract)|[^/]*\.md)$/.test(path)
-    || (/\.(?:m?js|sh|ops)$/.test(path) && !/^(logic|data|gpu|render|art|assets|deck)\//.test(path));
-}
 /** What a web build of `app` reads, modified after `since` (every file by default):
  * the app's own files and the shared host/runtime roots, as shown paths. */
 export function webInputs(app, js, since = -Infinity) {
+  if (app.manifest?.game) {
+    const files = proofInputFiles(ROOT, app.dir).map(file => resolve(ROOT, file));
+    const admitted = since === -Infinity ? files : files.filter(file => statSync(file).mtimeMs > since);
+    return {app:admitted.filter(file => file.startsWith(app.dir + '/')), shared:admitted.filter(file => !file.startsWith(app.dir + '/'))};
+  }
   const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'svg-filter', 'plan', 'motion', 'num', 'contract'];
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   const notInput = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));

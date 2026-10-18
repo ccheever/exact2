@@ -429,7 +429,13 @@ seek's length is not bounded by a host's answer window (Chrome's 15 s).
 `PASS` means the complete saved baseline was checked. Partial/build-only runs and
 baseline collection report `UNVERIFIED`; failed assertions report `FAIL`. A
 screenshot alone is not a verified simulation. `prove.mjs` prints its unique
-`ARTIFACTS` directory; direct `proof.mjs` runs use `artifacts/<host>/`.
+`ARTIFACTS` directory. Its `src/` copy supplies the game inputs and proof program;
+edits to the original game do not change a running proof. `legs.json` records each
+host/mode/profile result. Resume with `bun game/prove.mjs <game> --continue <run-directory>`;
+completed legs are reused and failed or interrupted legs rerun. Continuation refuses
+changed game/SDK inputs, changed proof helpers, a changed matrix or damaged receipts.
+The SDK stays in its checkout and must remain unchanged throughout the run.
+Direct `proof.mjs` runs use `artifacts/<host>/`.
 Use `--report` on `prove.mjs` to explain recorded stalls and refusals.
 `ios` selects the simulator; `--device` selects a paired phone and requires an
 accessible development signing key. Direct proofs accept `ios --device --phone
