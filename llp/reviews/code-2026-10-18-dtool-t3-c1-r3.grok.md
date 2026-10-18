@@ -4,7 +4,7 @@
 - **Method:** one brief (sha256 `a006ec781c9a3f315c2fa6f7d99e3718497953995b6ba8ecc97871b66d3263f7`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer.
 - **Transcription:** the final message, unedited (the run compacted its context once).
 - **Verdict:** nothing blocks; smaller points.
-- **Disposition:** taken in `ff449500e`: a describe whose files are not those its read was for is not kept (and is tried again); a write's files read the params again (the server's publish); two params whose page property would be one are named by neither in a page's text, so the suffixed one never takes the other's name; a held state's rows (stage 8 E, which the rebase brought) are scrubbed as the selection's. The stale comment is corrected. The param tests moved to scripts/tamber-param-rung.test.mjs (`8238fc96d`, the line cap), with a test of the files mismatch.
+- **Disposition:** taken in `5684f39d3`: a describe whose files are not those its read was for is not kept (and is tried again); a write's files read the params again (the server's publish); two params whose page property would be one are named by neither in a page's text, so the suffixed one never takes the other's name; a held state's rows (stage 8 E, which the rebase brought) are scrubbed as the selection's. The stale comment is corrected. The param tests moved to scripts/tamber-param-rung.test.mjs (`a8cfb59f7`, the line cap), with a test of the files mismatch.
 
 Nothing blocks. The four round-2 defects are fixed in this tree, and the fixes do not bring the alias or the intermediate name back.
 

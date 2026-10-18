@@ -1248,3 +1248,65 @@ T2c went before T2b's JS half (the lead's order, 2026-10-17).
 | A motion edit rebuilds | **Met**: "Rebuilds" before the gesture, no scrub, Apply only. |
 | Icons read only | **Met**: the clone's 64 icons, listed with their sources. |
 | theme-fixture's JS-loop e2e | **Met** (`kindsOnTheJsLoop`, every run of scripts/design-tool.test.mjs). |
+
+### T3, components (step 1 `4600797f5`, `fcfca3753`, `80544178c`, `5684f39d3`, `a8cfb59f7`, `18bf8d9d8`; steps 2-3 `a8c3a089a`, `31290cd65`, `ed742c171`, `5dc1d9dc4`; step 4 `212c41b73`, `8e20080a6`, `b372bf692`, `f45cc65ed`, `8209bcef9`; optional *1.11* rung `param`)
+
+- **The param rung** (D6, step 1, the server's join): a row the node itself sets to one component
+  param joins as `{rung: "param", param, short, token?, modes}`. `token` is the token the param
+  aliases directly (its value as the app has it, the line's or the default, when that names one
+  token, a role override by any spelling of its role; none for a param with `when` lines). The
+  server reads the app's components by `describe` when its files change, for a new plan, and
+  after a failed read. A row's names and text, in `selection`, `selected` and a held state's rows,
+  name a param in full, never by the IR token a plan names it by (`param.f<hash>.…`), also inside a
+  synthetic token's expression or the custom property a JS page writes for it, and in a plan
+  reply's `changed` (a held proposal, a `changed` event).
+- **The component panel** (D7, step 2; `components.ts`): every component with params, a native
+  view's declared in the design (`app.tamber#Name`) too, by group and priority (3 behind "more"),
+  each param with its declared control. `control=token` (the default), and every kind the dials
+  have no control for, is a field for a token or a literal; a duration's slider or stepper writes
+  ms; an icon param shows its sources. An edit is `set-param`, proposed with its chip, scrubbed
+  when live; a duration or easing param rebuilds. A set param says so, with Reset (`unset-param`,
+  one undo), and a literal that no longer follows the tokens its default reads is marked pinned.
+  The panel is the app design's: it shows while that is open.
+- **The param as the default rung** (step 3): a selected row that reads a param opens the param in
+  the branch editor on the branch that won for the copy, its edit `set-param`, its typed fields and
+  Only this mode as a token's (a param's first `when` line writes its own line first, in the one
+  reviewed transaction, which has no scrub). The token it aliases is offered beside it, never the
+  default. A param whose value is an expression offers its inputs there (Follows / Pin).
+- **Re-scope** (step 4; `rescope.ts`): the last edit of a param whose value there aliases one token
+  offers "Apply to the token … instead"; the last edit of a token one param aliases there offers
+  "Apply to … instead". One transaction: the edit's inverse, then the same value at the other rung,
+  on the same `when`; the other rung's value is the one the moved line's copies show (its most
+  specific `when` the edit's holds). It is worked out from the revision the edit was reviewed on,
+  and it `requires` every file it read, so another write, a hand edit or a component's source
+  changed since refuses it, and a refusal withdraws the offer. It is a write of its own: one undo
+  takes back the move, a second the edit. A redo offers none.
+- **The workbench** (D7) in T3 is the component panel and the canvas with the component's
+  instances outlined (theme2's 10:36 ruling). A preview screen of one component alone needs a host
+  route that renders it, which stage 12's component library brings: it moves there.
+- **Known limits:**
+  - a param's first `when` line (two operations) offers no re-scope;
+  - a `when` of the other rung that only partly overlaps the edited line's (it covers some of its
+    copies, not all) does not count: the move takes the most specific `when` that covers the
+    edited line, else the unconditional value, and two equally specific ones offer no move;
+  - a loop through another token (`radius.alias = radius.md`, then the param set to `radius.alias`
+    and moved to `radius.md`) is refused by the server rather than foreseen;
+  - promote a row to a param and detach a param to a template wait for T5's `set-row`;
+  - the clone declares no native component, so a native's params in the panel are shown by the
+    stub's `MapCard` only.
+
+### T3's gate: met (2026-10-18; the run is `~/x2theme/t3-gate-run.txt`)
+
+On a fresh copy of the clone (`dt3-gate`, its main `f473895` with a `PostButton.fade` duration param
+added).
+
+| Gate line | Result |
+|---|---|
+| `PostButton`'s params appear as declared | **Met**: Fill (a select of `primary_500`, `contrast_900`, `positive_500`), Height (a slider, 24px – 48px · step 1px) and Fade (a field), in their groups, with Controls and Drawer listed beside it. |
+| A param edit re-scoped to the token it aliases is one transaction and one undo | **Met** on the JS loop, the wasm loop and with the iOS simulator's and the Mac's builds attached: `PostButton.fill = contrast_900`, moved, wrote `primary_500 = contrast_900` and dropped the param's line in one write. One undo gave the param edit's bytes back; a second gave the original. |
+| A duration param's chip says "rebuilds" | **Met**: `PostButton.fade` to 300ms says Rebuilds, with Scrub disabled. |
+| (review2) Reset restores the file byte for byte in one undo | **Met**: `Controls.hit`'s line, after a Keep, went with Reset; one undo put it back byte for byte. |
+| (review2) A native-declared component's params | The clone declares none: the stub's `MapCard` (`app.tamber#MapCard`) shows them (contract tests). |
+| A live param scrubbed on the web and the natives | **Met**: `Controls.hit` (the post action buttons' padding) 5 → 10px, the frame's padding following and every build's design digest the served one: the JS loop, the wasm loop, the iOS simulator, the Mac. Keep wrote one line. |
+| The param rung from the canvas | **Met** on the JS and wasm loops and with the iOS simulator attached: a post's reply button inspected offers "Edit Controls.hit" on its padding rows and "Edit Controls.radius" on its radius rows. |
+

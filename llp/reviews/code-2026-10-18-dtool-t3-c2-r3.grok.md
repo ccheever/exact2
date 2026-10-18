@@ -4,7 +4,7 @@
 - **Method:** one brief (sha256 `bb57ca48414d0065e045f26fdcb4fc834e22ec017d783fd3f5d5f01d390f91ae`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer.
 - **Transcription:** the final message, unedited (the run compacted its context once).
 - **Verdict:** nothing blocks; smaller points.
-- **Disposition:** taken in `f044d508a`: a param's first when line is proposed only from the params of the proposal's own revision (else 'the design changed: reading it again'); a default that reads another param (named in full) is no line Only this mode can write, and the proposal says so; a param named in full is an expression's input in the branch editor (Follows / Pin); a length or number slider or stepper with no amount to start from (a rem, a token) is a field; the stub's duration param rebuilds. Kept: the two-operation edit's disabled Scrub has no sentence of its own (the button is disabled, nothing is sent).
+- **Disposition:** taken in `5dc1d9dc4`: a param's first when line is proposed only from the params of the proposal's own revision (else 'the design changed: reading it again'); a default that reads another param (named in full) is no line Only this mode can write, and the proposal says so; a param named in full is an expression's input in the branch editor (Follows / Pin); a length or number slider or stepper with no amount to start from (a rem, a token) is a field; the stub's duration param rebuilds. Kept: the two-operation edit's disabled Scrub has no sentence of its own (the button is disabled, nothing is sent).
 
 Nothing blocks. At `5c7138e94` (which contains `471ce36a4`; later commits do not undo these fixes), every round-1 and round-2 correctness point is fixed, and the fix matches the server.
 
