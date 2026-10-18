@@ -195,4 +195,38 @@ describe('transcript attachments', () => {
     await expect(importDroppedThread(client, native, 'fleet:remote:source')).rejects.toThrow('up to 100 files');
     expect(pendingThreadImports(client)).toBe(0);
   });
+  test('questions share import reservations and cannot attach a 101st file', async () => {
+    remote(); const { client, native } = await opened(), original = native.later.bind(native);
+    client.projection.runtimeRequests = [{ id: 'r', kind: 'user_input', status: 'pending', responseCapability: { type: 'live' } }];
+    client.projection.turnItems = [{ id: 'request', type: 'user_input_request', requestId: 'r', questions: [{ id: 'q1', question: 'One' }, { id: 'q2', question: 'Two' }] }];
+    client.answers.r = { selected: [], custom: '', index: 0 };
+    for (let index = 0; index < 99; index++) stageTextAttachment(client, 'x', `file-${index}`, 'text/plain', `file-${index}`);
+    const finishes: ((value: unknown) => void)[] = [];
+    native.later = async input => obj(input).op === 'http' ? new Promise(resolve => finishes.push(resolve)) : original(input);
+    const first = importDroppedThread(client, native, 'fleet:remote:first');
+    obj(client.answers.r).index = 1;
+    const second = importDroppedThread(client, native, 'fleet:remote:second').then(value => ({ value, error: '' }), error => ({ value: '', error: String(error) }));
+    obj(client.answers.r).index = 0;
+    finishes[0]!({ ok: true, generation: 2, value: { threadId: 'first', updatedAt: '2026-01-01', items: [] } });
+    expect(await first).toContain('.jsonl](t3-context://v1/file/');
+    obj(client.answers.r).index = 1;
+    finishes[1]?.({ ok: true, generation: 2, value: { threadId: 'second', updatedAt: '2026-01-01', items: [] } });
+    const refused = await second;
+    expect(draftFiles(client.local)).toHaveLength(100);
+    expect(refused.error).toContain('up to 100 files');
+    expect(finishes).toHaveLength(1);
+    expect(pendingThreadImports(client)).toBe(0);
+  });
+  test('a source response rechecks capacity filled while its read was pending', async () => {
+    remote(); const { client, native } = await opened(), original = native.later.bind(native);
+    for (let index = 0; index < 99; index++) stageTextAttachment(client, 'x', `file-${index}`, 'text/plain', `file-${index}`);
+    let finish: (value: unknown) => void = () => {};
+    native.later = async input => obj(input).op === 'http' ? new Promise(resolve => { finish = resolve; }) : original(input);
+    const imported = importDroppedThread(client, native, 'fleet:remote:late');
+    stageTextAttachment(client, 'x', 'late-file', 'text/plain', 'late-file');
+    finish({ ok: true, generation: 2, value: { threadId: 'late', updatedAt: '2026-01-01', items: [] } });
+    await expect(imported).rejects.toThrow('up to 100 files');
+    expect(draftFiles(client.local)).toHaveLength(100);
+    expect(pendingThreadImports(client)).toBe(0);
+  });
 });

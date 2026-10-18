@@ -17,6 +17,14 @@ const target = (client: T3Client) => {
   return `${client.snapshotOwner}:${question?.input.requestId ?? ''}:${question?.active?.id ?? ''}`;
 };
 export function pendingThreadImports(client: T3Client): number { return imports.get(client)?.get(target(client)) ?? 0; }
+function reservedThreadImports(client: T3Client): number {
+  const owner = `${client.snapshotOwner}:`;
+  return [...imports.get(client)?.entries() ?? []].reduce((total, [key, count]) => total + (key.startsWith(owner) ? count : 0), 0);
+}
+function stagedAttachments(client: T3Client): number {
+  const files = draftFiles(client.local).filter(file => file.draftKey === client.draftKey).length;
+  return Math.max(reservedAttachments(client), client.snapshotDrafts.length + files);
+}
 export function threadTranscriptAttachment(environmentId: string, transcript: Obj): { name: string; text: string } {
   if (!str(transcript.threadId) || !str(transcript.updatedAt) || !Array.isArray(transcript.items)) throw new ClientError('The environment returned an invalid thread transcript.');
   const text = `${JSON.stringify({ title: transcript.title, environmentId, threadId: transcript.threadId, updatedAt: transcript.updatedAt,
@@ -33,8 +41,7 @@ export async function importDroppedThread(client: T3Client, native: Native, id: 
   if (!access) throw new ClientError('Check that its environment is connected and up to date, then try again.');
   const owner = target(client), generation = client.generation, sourceGeneration = access.entry.generation;
   let pending = imports.get(client); if (!pending) imports.set(client, pending = new Map());
-  const files = draftFiles(client.local).filter(file => file.draftKey === client.draftKey).length;
-  if (Math.max(reservedAttachments(client), client.snapshotDrafts.length + files) + pendingThreadImports(client) >= MAX_ATTACHMENTS) throw new ClientError(`You can attach up to ${MAX_ATTACHMENTS} files per message.`);
+  if (stagedAttachments(client) + reservedThreadImports(client) >= MAX_ATTACHMENTS) throw new ClientError(`You can attach up to ${MAX_ATTACHMENTS} files per message.`);
   pending.set(owner, (pending.get(owner) ?? 0) + 1);
   try {
     const reply = await bridgeReply(EnvironmentFleet.native(native, access.entry.key), { op: 'http', path: `/api/orchestration/threads/${encodeURIComponent(ref.threadId)}/transcript`, long: true, generation: sourceGeneration });
@@ -43,6 +50,7 @@ export async function importDroppedThread(client: T3Client, native: Native, id: 
     if (!reply.ok) throw new ClientError(reply.error!.reason === 'thread_transcript_too_large' ? 'This thread exceeds the attachment size limit. Try a shorter thread.' : 'Check that its environment is connected and up to date, then try again.');
     const attachment = threadTranscriptAttachment(ref.environmentId, obj(reply.value)), limit = attachStagingLimit(client);
     if (utf8Length(attachment.text) > limit) throw new ClientError('This thread exceeds the attachment size limit. Try a shorter thread.');
+    if (stagedAttachments(client) >= MAX_ATTACHMENTS) throw new ClientError(`You can attach up to ${MAX_ATTACHMENTS} files per message.`);
     return fileChipLink(stageTextAttachment(client, attachment.text, attachment.name, 'application/x-ndjson', uuid()));
   } finally {
     const remaining = (pending.get(owner) ?? 0) - 1;
