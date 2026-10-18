@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
 afterEach(resetPrimary);
 import { environmentIndicator, shellDetails } from '../../src/details/shell-details';
-import { lineageView, statusLabel, formatElapsed, liveSubagent, latestMergeBackRun } from '../../src/details/shell-lineage';
+import { lineageView, statusLabel, formatElapsed, currentSubagent, latestMergeBackRun } from '../../src/details/shell-lineage';
 import { adoptShellPrefs, inlineOpen, shellPrefs, toggleInline } from '../../src/shell/shell-prefs';
 import { nightlyMobileBetaNotice, NIGHTLY_NOTICE } from '../../src/shell/shell-nightly';
 import { pushToast, toasts } from '../../src/shell/toast';
@@ -53,7 +53,20 @@ describe('lineage (upstream d3071275d5)', () => {
     expect(kid).toMatchObject({ group: 'active', title: 'Fix Tests', driver: 'codex', status: 'Running', agent: true, elapsed: '2m 00s' });
     expect(view.lineage.find(row => row.id === 'done-kid')).toMatchObject({ group: 'previous', elapsed: '2m 00s', status: 'Done' });
     expect(view.previousCount).toBe(1);
-    expect(liveSubagent({ status: 'completed', result: 'x' }, { activityRunStatus: 'starting' })).toMatchObject({ status: 'pending', startedAt: null, result: null });
+    expect(currentSubagent({ status: 'completed', result: 'x' }, { activityRunStatus: 'starting' })).toMatchObject({ status: 'pending', startedAt: null, result: null });
+  });
+
+  test('a queued follow-up and a finished one follow the child thread; a rolled-back child reads as stopped (#17696)', () => {
+    const task = { status: 'completed', startedAt: at(1), completedAt: at(2), result: 'ok' };
+    expect(currentSubagent(task, { status: 'queued', latestRunRequestedAt: at(3) })).toMatchObject({ status: 'pending', startedAt: null, completedAt: null, result: null });
+    expect(currentSubagent(task, { status: 'failed', latestRunRequestedAt: at(3), latestRunStartedAt: at(4), latestRunCompletedAt: at(6) }))
+      .toMatchObject({ status: 'failed', startedAt: at(4), completedAt: at(6), result: null });
+    expect(currentSubagent(task, { status: 'rolled_back', latestRunRequestedAt: at(3) })).toMatchObject({ status: 'interrupted' });
+    // A child run requested before the task settled is the task's own.
+    expect(currentSubagent(task, { status: 'completed', latestRunRequestedAt: at(1) })).toBe(task);
+    const threads = [shell('me'), shell('kid', { status: 'rolled_back', latestRunId: 'r2', lineage: { parentThreadId: 'me', relationshipToParent: 'subagent' } })];
+    const projection = { thread: { id: 'me', lineage: {} }, runs: [], contextTransfers: [], subagents: [{ childThreadId: 'kid', status: 'completed' }] };
+    expect(lineageView(threads, projection, 'me', [], Date.parse(at(10))).lineage.find(row => row.id === 'kid')).toMatchObject({ status: 'Stopped', group: 'previous' });
   });
 
   test('labels, elapsed format and the merge-back run', () => {

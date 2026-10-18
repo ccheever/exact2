@@ -118,9 +118,11 @@ component AlertStack
     dismissProvider: action
     command: action
     openSetup: action
+    // The chat lane's end inset (a docked workspace card): the banners stay in the lane beside it (.chat-banner-lane).
+    inset: number
   view
     // Hooked and clipped to its banners' span, so the side gutters leave presses to the transcript (laid-out-widths.ts alertClip).
-    column position="absolute" top="3.25rem" left=0 right=0 align-items="center" z-index=10 pointer-events="none" hatch="t3-anchor" data-anchor="alerts" clip-path=data.alertClip
+    column position="absolute" top="3.25rem" left=0 right=inset align-items="center" z-index=10 pointer-events="none" hatch="t3-anchor" data-anchor="alerts" clip-path=data.alertClip
       if data.providerBannerKey != "" and data.providerBannerKey != dismissed
         column max-width="calc(100% - 32px)" padding-top="0.75rem" pointer-events="auto" hatch="t3-anchor" data-anchor="alert:provider"
           row padding-left="0.875rem" padding-right="0.875rem" padding-top="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" gap="0.5rem" align-items="flex-start" border-radius="0.875rem" border-style="solid" border-width=1 border-color=(data.providerBannerWarning ? "light-dark(#fe9a0052, #fe9a0052)" : "light-dark(#fb2c3652, #fb414a52)") background-color=(data.providerBannerWarning ? "light-dark(#fcf8f2, #14100a)" : "light-dark(#fcf4f4, #140c0d)") testId="provider-status-banner" role=(data.providerBannerAlert ? "alert" : "status")

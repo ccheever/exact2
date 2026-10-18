@@ -85,6 +85,10 @@ shape Activity
   startedMs: number
   // The trailing button's text for targetId ("Open chat" for a created thread, "Open subagent").
   targetLabel: string
+  // A thread read's label in parts (`<linkPrefix> “<linkTitle>”`); the title opens linkThreadId.
+  linkPrefix: string
+  linkTitle: string
+  linkThreadId: string
 shape Message
   id: string
   kind: string
