@@ -121,6 +121,8 @@ test('JS target socket mutations, mapper replies and answers echo ordered frames
         text "ask many"
       button press=askFor("refuse 4") testId="ask-refuse"
         text "ask refused"
+      button press=askFor("probe 5") testId="ask-probe"
+        text "ask probe"
 `);
   writeFileSync(resolve(dir, 'app.ts'), `export const appId = 'test.socket';
 export const grants = ${JSON.stringify(`net.websocket ${url}\nnet.fetch http://127.0.0.1:${peer.port}`)};
@@ -137,6 +139,7 @@ export function answer(name: string, args: any): any {
     const [what, n] = String(args[0]).split(' ');
     if (!answers || !what) return '';
     if (what === 'many') { try { for (let i = 0; i < 257; i++) answers.send('many'); } catch (e: any) { return e.message; } }
+    if (what === 'probe') { const before = answers.bufferedAmount; answers.send('abc'); return before + ':' + answers.bufferedAmount; }
     answers.send('request ' + n);
     return new Promise(resolve => waiters.set(n, resolve)).then(got => {
       if (what !== 'later') return 'got ' + got;
@@ -262,7 +265,10 @@ export function answer(name: string, args: any): any {
     expect((await until(s => s.resources.asked !== later.resources.asked)).resources.asked).toBe('socket answer exceeds 256 operations');
     await browser.tap('ask-refuse');
     await until(() => asked.includes('request 4'));
-    expect(asked).toEqual(['request 1', 'request 2', ...Array(256).fill('many'), 'request 4']);
+    await browser.tap('ask-probe');
+    expect((await until(s => s.resources.asked === '0:3')).resources.asked).toBe('0:3');
+    await until(() => asked.includes('abc'));
+    expect(asked).toEqual(['request 1', 'request 2', ...Array(256).fill('many'), 'request 4', 'abc']);
     const answerLogs = (await browser.logs()).lines.join('\n');
     expect(answerLogs).toContain('refused ');
     expect(answerLogs).toContain('deliberate commit refusal');

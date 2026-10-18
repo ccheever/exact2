@@ -63,11 +63,11 @@ function handle(transport, owner) {
     // what the turn stages on it.
     if (operations.reduce((n, x) => n + x.size, 0) + size > 1048576) throw over(new DOMException(`socket ${kind} exceeds 1 MiB`, 'QuotaExceededError'));
     try { transport.check(operations.reduce((n, x) => x.transport === transport ? n + x.size : n, 0) + size); } catch (e) { throw over(e); }
-    if (answer && !operations.length) outgoing(Object.assign(() => {
+    if (!mapper && !answer && !operations.length) (call.effects ??= []).push(publish(operations));
+    operations.push({ transport, owner, op, data, reason, size });
+    if (answer && operations.length === 1) outgoing(Object.assign(() => {
       try { publish(operations)(); } catch (e) { journal.push(`t=${clock.now} answer ${call.name} failed: ${e?.message ?? e}; socket frames were refused`); }
     }, { keep: true }));
-    else if (!mapper && !operations.length) (call.effects ??= []).push(publish(operations));
-    operations.push({ transport, owner, op, data, reason, size });
   };
   return Object.freeze({
     get readyState() { return owner.signal.aborted ? 3 : transport.readyState; },

@@ -632,3 +632,26 @@ fn a_waiting_mutation_sends_as_an_answer() {
         format!("message report 1 {ONLY}")
     );
 }
+
+/// A promise the mapper settles resumes the code that awaited it in the
+/// next turn the module runs. Here no answer is asked before the waiting
+/// answer's re-ask, which runs with no answer current, so the send after the
+/// await refuses. A let-go answer whose reply another answer's turn settles
+/// resumes in that turn and sends as that answer.
+#[test]
+fn where_an_answer_s_continuation_runs() {
+    let (mut r, ticket, side) = boot_both();
+    open(&mut r, ticket);
+    open(&mut r, side);
+    let waiting = ask(&mut r, "chain 5");
+    assert_eq!(sends(&mut r), [answer("reply", &["request 5"])]);
+    settle_waiting(&mut r, &waiting[0], ticket, "direct 5 hi");
+    assert_eq!(reply(&r), format!("Error: {ONLY}"));
+    assert!(sends(&mut r).is_empty());
+
+    ask(&mut r, "chain 6");
+    assert_eq!(sends(&mut r), [answer("reply", &["request 6"])]);
+    assert!(ask(&mut r, "").is_empty(), "new arguments let it go");
+    frame(&mut r, side, "reply 6 late");
+    assert_eq!(sends(&mut r), [answer("deliver", &["thanks 6"])]);
+}

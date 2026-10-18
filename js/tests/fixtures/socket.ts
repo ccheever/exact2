@@ -54,8 +54,9 @@ function feed(id: string): unknown {
       if (e.type === "close") return `close ${e.code} ${e.reason} ${e.wasClean}${late}`;
       if (e.type === "error") return `error ${e.kind}: ${e.message}${late}`;
       const data = typeof e.data === "string" ? e.data : "bytes " + Array.from(new Uint8Array(e.data)).join(",");
-      // A server's reply to an answer's request, settled by `deliver`'s turn.
+      // A server's reply to an answer's request, settled by `deliver`'s turn, or (`direct`) by this mapper.
       if (data.startsWith("reply ")) { const [, n, ...rest] = data.split(" "); queue.push(() => waiters.get(n)?.(rest.join(" "))); }
+      if (data.startsWith("direct ")) { const [, n, ...rest] = data.split(" "); waiters.get(n)?.(rest.join(" ")); }
       const said = socket && id !== "quiet" ? reply(socket, e.type, data) : "";
       if (data === "mapper misshapen") { socket?.send("never"); return 123; }
       return `${e.type} ${data} ${socket?.readyState}${said}`;

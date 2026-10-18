@@ -896,8 +896,12 @@ commit stands or not, and nothing the answer does afterwards takes it back.
 Natively its turns are a resource's source call and each delivery of its
 own `fetch` or storage step; a mutation's source still stages for its
 commit, so a mutation sends as an answer only after its source returns a
-promise. Code that resumes from an `await` sends as the answer whose turn
-settled what it awaited, and code that runs in no answer's turn refuses.
+promise. Code that resumes from an `await` runs in the next turn the
+module runs (the delivery that settled what it awaited, or for a promise a
+mapper or another answer settled, the next answer's) and sends as that
+turn's answer; code that runs in no answer's turn refuses. An answer asked
+again after a refused commit sends again, so key a request that must not
+repeat.
 On the web build only a resource's synchronous source call may send; a
 continuation refuses, since the page cannot tell whose it is. An answer
 the runner lets go (new arguments, `refresh`, a newer send, leaving the

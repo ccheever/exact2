@@ -841,9 +841,12 @@ impl Module {
         if let Some(store) = store.as_deref() {
             self.host.socket_buffered = socket::snapshot(&self.streams, store);
         }
-        // A mutation's synchronous source may send on a socket (D7).
+        // A mutation's synchronous source may send on a socket (D7), and so
+        // may a resource's answer and a mutation's after its source (the
+        // amendment of 2026-10-18); a call for no target sends nothing.
         let mutation = match target {
             Some(Target::Mutation(_)) if session => "mutation",
+            Some(Target::Resource(_)) if session => "answer",
             _ => "",
         };
         let started = Instant::now();

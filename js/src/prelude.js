@@ -605,7 +605,7 @@
     function stage(op) {
       var call = turn(), mapper = !!mapping && call === mapping;
       // A turn of an answer the runner still holds, in no mapper call: a resource's, or a mutation's after a source that answered with a promise.
-      var answer = !mapper && !inMapper && !!call && call !== background && !call.replied && !call.letGo && (!call.mutation || !call.sync && call.status === "pending");
+      var answer = !mapper && !inMapper && !!call && !call.replied && !call.letGo && (call.answer || call.mutation && !call.sync && call.status === "pending");
       if (!call || !mapper && !answer && (!call.mutation || !call.sync)) throw new Error("socket." + (op.op === "close" ? "close" : "send") + " is only available in a mutation's synchronous source, its socket's own mapper or an answer in flight");
       if (owner.state !== 1 || answer && byMutation) throw closed();
       if (answer) return sendNow(call, op);
@@ -1220,7 +1220,7 @@
   // answer still waiting on nothing of its own.
   global.__exact_call = function (source, argsJson, mutation) {
     initializing = false;
-    var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false, mutation: mutation === "mutation", sync: false, socketOps: null, epoch: gcEpoch() };
+    var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false, mutation: mutation === "mutation", answer: mutation === "answer", sync: false, socketOps: null, epoch: gcEpoch() };
     var result;
     currentCall = call;
     try {
