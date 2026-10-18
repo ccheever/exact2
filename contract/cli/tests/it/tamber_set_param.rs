@@ -548,3 +548,48 @@ fn a_contract_edit_is_read_again_by_the_next_request() {
         "a file a new use reaches"
     );
 }
+
+/// Review round 1 of the walk: what decides the params and the server's own
+/// files beyond the Contract sources' bytes is read again too: a native
+/// component's params in the design, a `package.json` that makes a file a
+/// package's, and a root that comes after the server started.
+#[test]
+fn the_walk_follows_the_design_a_manifest_and_a_late_root() {
+    let dir = std::env::temp_dir().join(format!("exact2-walk-inputs-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("vendor/p")).unwrap();
+    let card = |inset: &str| {
+        format!("tamber t\n\ntheme\n  ink = #111111\n\ncomponent MapCard\n  params\n    inset: length = {inset}  in 0..24\n")
+    };
+    std::fs::write(dir.join("app.tamber"), card("8px")).unwrap();
+    let mut s = Serve::start(&dir);
+    let files = |s: &mut Serve| s.ask(json!({"method": "hello"}))["ok"]["files"].clone();
+    assert!(files(&mut s).get("app.contract").is_none(), "no root yet");
+    std::fs::write(
+        dir.join("vendor/p/index.contract"),
+        "component Badge\n  view\n    text \"b\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Badge from \"./vendor/p/index.contract\"\n\ncomponent App\n  view\n    column\n      text \"a\" color=\"ink\"\n      Badge()\n",
+    )
+    .unwrap();
+    let now = files(&mut s);
+    assert!(now.get("app.contract").is_some(), "the late root: {now}");
+    assert!(now.get("vendor/p/index.contract").is_some(), "{now}");
+    let inset = |s: &mut Serve| {
+        let r = s.ask(json!({"method": "resolve", "token": "MapCard.inset"}));
+        r["ok"]["tuples"][0]["value"].clone()
+    };
+    assert_eq!(inset(&mut s), "8px");
+    std::fs::write(dir.join("app.tamber"), card("12px")).unwrap();
+    assert_eq!(inset(&mut s), "12px", "the design's default");
+    std::fs::write(dir.join("vendor/p/package.json"), "{\"name\": \"p\"}").unwrap();
+    let now = files(&mut s);
+    assert!(
+        now.get("vendor/p/index.contract").is_none(),
+        "a package's now: {now}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
