@@ -3,8 +3,8 @@
 import { arr, effectiveWorktreeRules, num, obj, str, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import { bridgeReply, ClientError, type Files, type Native } from '../client/protocol';
-import { liveEnvironments } from '../client/live-streams';
-import { environmentClient } from './projects-fleet';
+import { liveEnvironments, type LiveEnvironment } from '../client/live-streams';
+import { fleet } from '../connections/settings-b-fleet';
 import { shellPrefs } from '../shell/shell-prefs';
 import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
@@ -21,9 +21,13 @@ export function cleanupHasRules(settings: Obj): boolean {
   return typeof storage.browserArtifactsAfterDays === 'number' || typeof storage.logsAfterDays === 'number' || enabled(effectiveWorktreeRules(settings, {}))
     || Object.values(obj(settings.projectSettingsOverrides)).some(raw => { const policy = obj(obj(raw).worktreeCleanup); return policy.mode === 'custom' && enabled(obj(policy.rules)); });
 }
+export function cleanupPermitted(client: Pick<T3Client, 'scopes'>, environment: Pick<LiveEnvironment, 'focused' | 'key'>): boolean {
+  const scopes = environment.focused ? client.scopes : fleet.entries.get(environment.key)?.scopes ?? [];
+  return scopes.includes('environment:maintain');
+}
 export async function runCleanup(client: T3Client, native: Native, environmentIds: readonly string[]): Promise<void> {
   const environments = liveEnvironments(client, native).filter(environment => environmentIds.includes(environment.environmentId) && environment.connected
-    && obj(obj(environment.config.environment).capabilities).storageCleanupRun === true && environmentClient(client, environment.environmentId, native).writable);
+    && obj(obj(environment.config.environment).capabilities).storageCleanupRun === true && cleanupPermitted(client, environment));
   if (!environments.length) throw new ClientError('Connect an environment with permission to run cleanup.');
   await Promise.all(environments.map(async environment => {
     try {

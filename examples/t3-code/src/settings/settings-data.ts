@@ -3,7 +3,7 @@ import { effectiveWorktreeRules, arr, obj, str, num, applyShell, initialShell, t
 import type { Native } from '../client/protocol';
 import { projectIdentity } from '../client/presentation';
 import { liveEnvironments, watchStorageReports, watchDatabaseStorage } from '../client/live-streams';
-import { databaseNotice, cleanupHasRules } from './storage-maintenance';
+import { databaseNotice, cleanupHasRules, cleanupPermitted } from './storage-maintenance';
 import { shellPrefs } from '../shell/shell-prefs';
 import { resolveScope, serverContext, scopeTarget } from './settings-core';
 import { environmentClient, groupOfMember } from './projects-fleet';
@@ -203,7 +203,7 @@ export async function storageSettings(client: T3Client, native: Native | null | 
     });
     const showRules = !project || mode === 'custom';
     const databaseNotices = project ? [] : selected.map(environment => databaseNotice(environment.database.value?.[0], environment.environmentId, environment.label, shellPrefs(client).databaseStorageDismissals)).filter(notice => notice.show);
-    const writable = environments.filter(environment => environmentClient(client, environment.environmentId, native).writable);
+    const writable = environments.filter(environment => cleanupPermitted(client, environment));
     const hasRules = writable.some(environment => cleanupHasRules(obj(environment.config.settings)));
     const directoryMixed = context.targets.some(target => str(target.settings.worktreesDirectory) !== str(settings.worktreesDirectory));
     const keep = str(rules.worktreeKeepWhen, 'uncommitted-changes');

@@ -99,7 +99,7 @@ test('deliveries load through their owner, retain the list, and expose the rende
 });
 
 
-import { cleanupHasRules, databaseNotice } from '../../src/settings/storage-maintenance';
+import { cleanupHasRules, databaseNotice, cleanupPermitted } from '../../src/settings/storage-maintenance';
 import { adoptShellPrefs, shellPrefs } from '../../src/shell/shell-prefs';
 
 test('cleanup recognizes zero-day settled and custom project rules while off suppresses inherited worktree rules', () => {
@@ -135,4 +135,10 @@ test('Stop ends visible PR watches even when a thread has never run', async () =
   await composerCommand(client, {} as Native, {} as Files, 'stop-background', '', '');
   expect(commands).toEqual([{ type: 'thread.pull-request.watch', commandId: 'command-1', threadId: 'thread', host: 'github.com', repository: 'org/repo', number: 12, watching: false }]);
   expect(presentBackgroundWork([{ kind: 'monitor', description: 'Watching pull request #12' }])?.title).toBe('Watching pull request #12');
+});
+
+test('cleanup uses its maintenance permission independently of orchestration writes', () => {
+  const focused = { focused: true, key: '' };
+  expect(cleanupPermitted({ scopes: ['orchestration:operate'] }, focused)).toBe(false);
+  expect(cleanupPermitted({ scopes: ['environment:maintain'] }, focused)).toBe(true);
 });
