@@ -358,7 +358,7 @@ const sources: Sources = {
     args[0] === true, String(args[1] ?? ''), Number(args[2]), Number(args[3])),
   automationPrepare: (args, _store, storage, nativeInput) => {
     const native = sourceNative('automationPrepare', args, nativeInput);
-    return mobileAutomationPrepare(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), String(args[4] ?? ''), Number(args[5]), native);
+    return mobileAutomationPrepare(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), String(args[4] ?? ''), Number(args[5]), native, String(args[8] ?? ''), String(args[9] ?? ''));
   },
   automationSnapshot: (args, _store, storage, nativeInput) => {
     const native = sourceNative('automationSnapshot', args, nativeInput);
@@ -367,7 +367,7 @@ const sources: Sources = {
   },
   automationCommand: (args, _store, storage, nativeInput) => {
     const native = sourceNative('automationCommand', args, nativeInput);
-    return mobileAutomationCommand(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), Number(args[4]), native).then(result => ({ ...result, requestRoute: String(args[5] ?? '') }));
+    return mobileAutomationCommand(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), Number(args[4]), native, String(args[5] ?? '')).then(result => ({ ...result, requestRoute: String(args[5] ?? '') }));
   },
   scheduledHeader: (args, _store, storage, nativeInput) => {
     const native = sourceNative('scheduledHeader', args, nativeInput);

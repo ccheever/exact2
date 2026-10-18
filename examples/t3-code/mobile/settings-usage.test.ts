@@ -1,12 +1,13 @@
 import { afterEach, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { mobileClient } from './client';
+import { answer } from './app';
 import { obj, type Obj } from './shared/domain';
 import type { Native } from './shared/protocol';
 import { collectLimitAccounts, collectLimitPools, displayLimitWindows, type LimitPresentations } from './settings-usage-limits';
 import { mobileUsageConfig } from './settings-usage-types';
 import { mobileUsage, mobileUsageCommand, mobileUsageSelection, mobileUsageSnapshot, mobileUsageWindow, usageGrant } from './settings-usage';
-import { mobileUsagePresentation, mobileUsageAccount, mobileUsageProviderRows, mobileUsageReveal } from './settings-usage-view';
+import { mobileUsagePresentation, mobileUsageAccount, mobileUsageProviderRows } from './settings-usage-view';
 import { formatDateTimeShort, formatHourShort, formatUsd, mergeUsage } from './shared/pages-usage';
 import { mobileAutomationPrepare, mobileAutomationSnapshot, mobileAutomationCommand } from './settings-scheduled-flow';
 import { ClientError } from './shared/protocol';
@@ -122,18 +123,18 @@ test('pooled Limits segments use Claude orange or Codex neutral and bind the bad
 test('Account detail becomes unavailable when its captured window disappears while the account remains',()=>{
   const at=Date.parse('2026-10-07T12:00:00Z'),session={...window('session',50),label:'Session'},weekly={...window('weekly',25),id:'weekly',label:'Weekly'};
   const initial=presentedLimits([nativeAccount({...limits,windows:[session,weekly]})],at,true),key=initial.pools[0]!.windows[0]!.columns[0]!.key;
-  expect(mobileUsageAccount(key,'primary','session',at).present).toBe(true);
+  expect(mobileUsageAccount(key,'primary','session',at,false).present).toBe(true);
   const changed=presentedLimits([nativeAccount({...limits,windows:[weekly]})],at,true);
   expect(changed.pools[0]!.windows[0]!.columns[0]!.key).toBe(key);
   for(const [id,kind] of [['primary','session'],['weekly','session'],['missing','weekly']]){
-    const detail=mobileUsageAccount(key,id!,kind!,at);
+    const detail=mobileUsageAccount(key,id!,kind!,at,false);
     expect([detail.present,detail.error]).toEqual([false,'This account is no longer reporting limits on the selected environments.']);
   }
 });
 test('Account detail remains unavailable when the captured native account disappears',()=>{
   const at=Date.parse('2026-10-07T12:00:00Z'),initial=presentedLimits([nativeAccount(limits)],at,true),key=initial.pools[0]!.windows[0]!.columns[0]!.key;
   presentedLimits([],at,true);
-  const detail=mobileUsageAccount(key,'primary','session',at);
+  const detail=mobileUsageAccount(key,'primary','session',at,false);
   expect([detail.present,detail.error]).toEqual([false,'This account is no longer reporting limits on the selected environments.']);
 });
 test('Account detail omits restoration when its reset restores zero or no reset is reported',()=>{
@@ -142,7 +143,7 @@ test('Account detail omits restoration when its reset restores zero or no reset 
     const providers=[nativeAccount({...limits,windows:[{...window('session',usedPercent),resetsAt}]}),
       {...nativeAccount({...limits,windows:[{...window('session',75),resetsAt:reset}]},'second@example.test'),instanceId:'two'}];
     const before=JSON.stringify(providers);presentedLimits(providers,at,true);
-    const detail=mobileUsageAccount('a:one','primary','session',at);
+    const detail=mobileUsageAccount('a:one','primary','session',at,false);
     expect(detail.present).toBe(true);expect(detail.restores).toBe('');expect(JSON.stringify(providers)).toBe(before);
   }
 });
@@ -152,7 +153,7 @@ test('Account detail preserves positive pooled restoration for future and past r
     const reset=new Date(at+delta*60_000).toISOString(),providers=[nativeAccount({...limits,windows:[{...window('session',50),resetsAt:reset}]}),
       {...nativeAccount({...limits,windows:[{...window('session',75),resetsAt:reset}]},'second@example.test'),instanceId:'two'}];
     const before=JSON.stringify(providers);presentedLimits(providers,at,true);
-    const detail=mobileUsageAccount('a:one','primary','session',at);
+    const detail=mobileUsageAccount('a:one','primary','session',at,false);
     expect([detail.present,detail.error,detail.restores]).toEqual([true,'','Restores 25% of the pool']);
     expect(detail.resets.length).toBeGreaterThan(0);expect(JSON.stringify(providers)).toBe(before);
   }
@@ -170,7 +171,7 @@ test('Account detail keeps native environment rows separate and names a hub sour
   ]){
     const before=JSON.stringify([...item.presentations]);
     mobileUsagePresentation({tab:'limits',window:mobileUsageWindow(30,at),metric:'cost',now:at,presentations:item.presentations,external:false,sources:[]},true);
-    const detail=mobileUsageAccount(item.key,'primary','session',at);
+    const detail=mobileUsageAccount(item.key,'primary','session',at,false);
     expect(detail.present).toBe(true);expect(detail.sourceTitle).toBe(item.title);expect(detail.sourceItems).toEqual(item.rows);
     expect(JSON.stringify([...item.presentations])).toBe(before);
   }
@@ -180,31 +181,30 @@ test('Account detail uses pooled driver labels and medium-date short-time reset 
   const resetText=new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'short'}).format(Date.parse(resetsAt));
   for(const [driver,label] of [['codex','Codex'],['claudeAgent','Claude'],['cursor','cursor'],['grok','grok']] as const){
     const providers=[{...nativeAccount({...limits,windows:[{...window('session',37.4),resetsAt}]},'detail@example.test'),driver}],before=JSON.stringify(providers);
-    presentedLimits(providers,at,true);const detail=mobileUsageAccount('a:one','primary','session',at);
+    presentedLimits(providers,at,true);const detail=mobileUsageAccount('a:one','primary','session',at,false);
     expect([detail.driver,detail.label,detail.windowLabel,detail.remaining,detail.resets]).toEqual([driver,label,'Allowance','63% left',resetText]);
     expect(JSON.stringify(providers)).toBe(before);
   }
   presentedLimits([{...nativeAccount({...limits,windows:[{...window(),resetsAt:undefined}]}),driver:'claudeAgent',displayName:'Configured Claude'}],at,true);
-  const named=mobileUsageAccount('a:one','primary','session',at);expect(named.label).toBe('Configured Claude');expect(named.resets).toBe('');
+  const named=mobileUsageAccount('a:one','primary','session',at,false);expect(named.label).toBe('Configured Claude');expect(named.resets).toBe('');
 });
-test('Account detail masks email as the primary does while preserving the existing per-key reveal state',()=>{
+test('Account detail projects only the supplied reveal state and keeps pooled email masked',()=>{
   const at=Date.parse('2026-10-07T12:00:00Z'),providers=[nativeAccount(limits,'first@example.test'),{...nativeAccount(limits,'second@example.test'),instanceId:'two'}],before=JSON.stringify(providers);
-  presentedLimits(providers,at,true);
-  const hidden=mobileUsageAccount('a:one','primary','session',at);expect([hidden.hasEmail,hidden.revealed,hidden.email]).toEqual([true,false,'••••••@••••••']);
-  mobileUsageReveal('a:one');
-  expect(mobileUsageAccount('a:one','primary','session',at).email).toBe('first@example.test');
-  expect(mobileUsageAccount('a:two','primary','session',at).email).toBe('••••••@••••••');
-  presentedLimits(providers,at,true);expect(mobileUsageAccount('a:one','primary','session',at).revealed).toBe(true);
-  mobileUsageReveal('a:one');expect(mobileUsageAccount('a:one','primary','session',at).email).toBe('••••••@••••••');
+  const data=presentedLimits(providers,at,true);
+  const hidden=mobileUsageAccount('a:one','primary','session',at,false);expect([hidden.hasEmail,hidden.revealed,hidden.email]).toEqual([true,false,'••••••@••••••']);
+  expect(mobileUsageAccount('a:one','primary','session',at,true).email).toBe('first@example.test');
+  expect(mobileUsageAccount('a:two','primary','session',at,false).email).toBe('••••••@••••••');
+  expect(mobileUsageAccount('a:one','primary','session',at,false).revealed).toBe(false);
+  expect(data.pools[0]?.windows[0]?.columns.map(column=>column.email)).toEqual(['••••••••','••••••••']);
   expect(JSON.stringify(providers)).toBe(before);
   presentedLimits([{...nativeAccount(limits),auth:{status:'authenticated'}}],at,true);
-  const absent=mobileUsageAccount('a:one','primary','session',at);expect([absent.hasEmail,absent.email]).toEqual([false,'']);
+  const absent=mobileUsageAccount('a:one','primary','session',at,true);expect([absent.hasEmail,absent.email]).toEqual([false,'']);
 });
 function creditDetail(config:Obj,key='a:one',connected=true,canManage=true,sourceId='a'){
   const at=Date.parse('2026-10-07T12:00:00Z'),parsed=mobileUsageConfig(config),presentations:LimitPresentations=new Map([['a',{entry:{target:{label:'A'}},serverConfig:parsed}]]);
   mobileUsagePresentation({tab:'limits',window:mobileUsageWindow(30,at),metric:'cost',now:at,presentations,external:false,
     sources:[{id:sourceId,label:'A',connected,summary:null,error:'',canRead:true,canWrite:false,canManage,config:parsed}]},true);
-  return mobileUsageAccount(key,'primary','session',at);
+  return mobileUsageAccount(key,'primary','session',at,false);
 }
 test.each([
   ['native without credits',false,undefined,true,false,false],
@@ -247,7 +247,7 @@ test('explicit empty selection stays empty; diagnostic permissions distinguish o
   expect(usageGrant({authenticated:true,scopes:['orchestration:read']})).toBe(true);expect(usageGrant({authenticated:true,scopes:['orchestration:read'],auth:{serverUpdateScope:'environment:maintain'}})).toBe(false);expect(usageGrant({authenticated:true,scopes:['diagnostics:read'],permissions:[]})).toBe(false);
 });
 const original={origin:mobileClient.origin,environmentId:mobileClient.environmentId,connection:mobileClient.connection,config:mobileClient.config,generation:mobileClient.generation};
-afterEach(async()=>{await mobileAutomationPrepare('settings','{}','','','',0,null);await mobileUsage('null','limits','{}','cost',0,null,false,false);Object.assign(mobileClient,original);});
+afterEach(async()=>{await mobileAutomationPrepare('settings','{}','','','',0,null,'','');await mobileUsage('null','limits','{}','cost',0,null,false,false);Object.assign(mobileClient,original);});
 let generation=201;
 function transport(permissions=['diagnostics:read','providers:manage']){const calls:Obj[]=[];const id=`usage-${++generation}`,config={settings:{},providers:[nativeAccount(limits)]};Object.assign(mobileClient,{origin:'http://usage.test',environmentId:id,connection:'connected',generation,config});let ratesFail=false;let intercept:((request:Obj)=>Promise<void>)|null=null;
   const native:Native={available:true,watch(){},async later(input){const request=obj(input);calls.push(request);await intercept?.(request);if(request.method==='server.refreshUsageRates'&&ratesFail)return {ok:false,generation,error:{kind:'server',message:'Rates offline'}};
@@ -266,7 +266,7 @@ test('usage rescan still runs after pricing refresh failure; selected empty set 
 });
 test('reset credit requires confirmation and current permission; real noCredit outcome is not success',async()=>{
   const {id,native,calls,permissions}=transport();const data=await mobileUsage('null','limits',windowJSON,'cost',now,native),key=data.pools[0]!.windows[0]!.columns[0]!.key;
-  expect(mobileUsageAccount(key,'primary','session',now).email).toBe('••••••@••••••');expect((await mobileUsageCommand('redeem',id,key,now,native)).message).toContain('confirmation');expect(calls.some(call=>call.method==='provider.consumeResetCredit')).toBe(false);
+  expect(mobileUsageAccount(key,'primary','session',now,false).email).toBe('••••••@••••••');expect((await mobileUsageCommand('redeem',id,key,now,native)).message).toContain('confirmation');expect(calls.some(call=>call.method==='provider.consumeResetCredit')).toBe(false);
   permissions.splice(permissions.indexOf('providers:manage'),1);expect((await mobileUsageCommand('redeem-confirmed',id,key,now,native)).message).toContain('permission');
   permissions.push('providers:manage');expect((await mobileUsageCommand('redeem-confirmed',id,key,now,native)).message).toBe('No reset credit left.');expect(calls.filter(call=>call.method==='provider.consumeResetCredit')).toHaveLength(1);
 });
@@ -277,9 +277,9 @@ test('future usage contract cannot render made-up zero totals',()=>{
 
 test('compact flow keeps local metric changes out of async preparation',async()=>{
   const {mobileAutomationPrepare,mobileAutomationSnapshot,mobileAutomationCommand}=await import('./settings-scheduled-flow');
-  const {native,calls}=transport();await mobileAutomationPrepare('settingsUsage','{}','','','',now,native);const count=calls.length;
+  const {native,calls}=transport();await mobileAutomationPrepare('settingsUsage','{}','','','',now,native,'','');const count=calls.length;
   const change=await mobileAutomationCommand('usage-local','metric','tokens','',now,native);expect(change.refresh).toBe(false);expect(mobileAutomationSnapshot().usage.metric).toBe('tokens');expect(calls).toHaveLength(count);
-  await mobileAutomationPrepare('settings','{}','','','',now,native);expect(mobileAutomationSnapshot().usage.ready).toBe(false);
+  await mobileAutomationPrepare('settings','{}','','','',now,native,'','');expect(mobileAutomationSnapshot().usage.ready).toBe(false);
 });
 
 
@@ -288,11 +288,11 @@ test('opening a usage link preserves the selected time window and does not reque
   const {native,calls}=transport(),url='https://usage.example.test/account';
   mobileClient.config={settings:{},providers:[nativeAccount({...limits,externalUsage:{label:'Account usage',url}})]};
   const opener:Native={...native,async later(input){if(obj(input).op==='mobileOpenURL'){calls.push(obj(input));return {ok:true,generation:mobileClient.generation,value:{opened:true}};}return native.later(input);}};
-  await mobileAutomationPrepare('settingsUsage','{}','','','',now,opener);const before=calls.length;
+  await mobileAutomationPrepare('settingsUsage','{}','','','',now,opener,'','');const before=calls.length;
   const change=await mobileAutomationCommand('usage-command','open-link','',url,now+60_000,opener);
   expect(change.message).toBe('');expect(change.refresh).toBe(false);expect(mobileAutomationSnapshot().now).toBe(now);
   expect(calls.slice(before).map(call=>call.op)).toEqual(['mobileOpenURL']);
-  await mobileAutomationPrepare('settings','{}','','','',now,opener);
+  await mobileAutomationPrepare('settings','{}','','','',now,opener,'','');
 });
 
 test('Cursor prompts retain ready-provider eligibility, account suppression and selected-environment labels',()=>{
@@ -776,17 +776,114 @@ for(const [label,value,expected,hasCost] of [
   expect(cost.costBySpeed.map(item=>item.value)).toEqual(hasCost?[expected]:[]);
 });
 
+// Exercise the actual source adapter's revision/refresh/entry/roster slots and captured command route.
+async function prepareEmailAccount(native:Native,key:string,entry:string,live=[entry],at=now){
+  return answer('automationPrepare',['settingsUsageAccount','{}',key,'primary','session',at,0,0,entry,live.join('|')],undefined,undefined,native);
+}
+async function coverEmailAccounts(native:Native,live:string[],at=now){
+  return answer('automationPrepare',['settingsUsage','{}','','','',at,0,0,'',live.join('|')],undefined,undefined,native);
+}
+async function revealEmailAccount(native:Native,key:string,entry:string){
+  return answer('automationCommand',['usage-reveal',key,'','',now,entry],undefined,undefined,native);
+}
+test('Account email ownership starts masked and keeps same-entry reveal through refresh and snapshot reads',async()=>{
+  const fixture=transport(),key=`${fixture.id}:one`,entry='email-refresh-1';
+  await prepareEmailAccount(fixture.native,key,entry);
+  expect([mobileAutomationSnapshot().account.key,mobileAutomationSnapshot().account.email,mobileAutomationSnapshot().account.revealed]).toEqual([key,'••••••@••••••',false]);
+  const reply=await revealEmailAccount(fixture.native,key,entry);expect(reply.requestRoute).toBe(entry);
+  const reads=fixture.calls.length;expect(mobileAutomationSnapshot().account.email).toBe(' A@Example.test ');
+  expect(mobileAutomationSnapshot().account.revealed).toBe(true);expect(fixture.calls).toHaveLength(reads);
+  mobileUsagePresentation(null);
+  await prepareEmailAccount(fixture.native,key,entry,[entry],now+60_000);
+  expect([mobileAutomationSnapshot().account.email,mobileAutomationSnapshot().account.revealed]).toEqual([' A@Example.test ',true]);
+});
+test('Account email ownership restores B2 after A1 to B2 to A3 and keeps navigation intent out of captures',async()=>{
+  const fixture=transport(),first=`${fixture.id}:one`,second=`${fixture.id}:two`,a1='email-stack-a1',b2='email-stack-b2',a3='email-stack-a3';
+  mobileClient.config={settings:{},providers:[nativeAccount(limits),{...nativeAccount(limits,'second@example.test'),instanceId:'two'}]};
+  await prepareEmailAccount(fixture.native,first,a1);await revealEmailAccount(fixture.native,first,a1);
+  const intent=await answer('automationCommand',['usage-account',second,'primary','session',now,a1],undefined,undefined,fixture.native);
+  expect([intent.route,intent.accountKey,intent.windowId,intent.windowKind]).toEqual(['settingsUsageAccount',second,'primary','session']);
+  expect([mobileAutomationSnapshot().account.key,mobileAutomationSnapshot().account.revealed]).toEqual([first,true]);
+  await prepareEmailAccount(fixture.native,second,b2,[a1,b2]);await revealEmailAccount(fixture.native,second,b2);
+  await prepareEmailAccount(fixture.native,first,a3,[a1,b2,a3]);
+  expect([mobileAutomationSnapshot().account.key,mobileAutomationSnapshot().account.revealed]).toEqual([first,false]);
+  await prepareEmailAccount(fixture.native,second,b2,[a1,b2]);
+  expect([mobileAutomationSnapshot().account.key,mobileAutomationSnapshot().account.email,mobileAutomationSnapshot().account.revealed]).toEqual([second,'second@example.test',true]);
+  await prepareEmailAccount(fixture.native,first,a1,[a1]);expect(mobileAutomationSnapshot().account.revealed).toBe(true);
+});
+test('Account email ownership isolates two retained entries of the same account key',async()=>{
+  const fixture=transport(),key=`${fixture.id}:one`,first='email-same-key-1',second='email-same-key-2';
+  await prepareEmailAccount(fixture.native,key,first);await revealEmailAccount(fixture.native,key,first);
+  await prepareEmailAccount(fixture.native,key,second,[first,second]);expect(mobileAutomationSnapshot().account.revealed).toBe(false);
+  await revealEmailAccount(fixture.native,key,second);
+  await prepareEmailAccount(fixture.native,key,first,[first,second]);expect(mobileAutomationSnapshot().account.revealed).toBe(true);
+  await revealEmailAccount(fixture.native,key,first);expect(mobileAutomationSnapshot().account.revealed).toBe(false);
+  await prepareEmailAccount(fixture.native,key,second,[first,second]);expect(mobileAutomationSnapshot().account.revealed).toBe(true);
+});
+test('Account email ownership clears active state off Account, retires popped entries and masks a fresh reopen',async()=>{
+  const fixture=transport(),key=`${fixture.id}:one`,first='email-pop-1',reopen='email-pop-2';
+  await prepareEmailAccount(fixture.native,key,first);await revealEmailAccount(fixture.native,key,first);
+  await coverEmailAccounts(fixture.native,[first]);expect(mobileAutomationSnapshot().account.present).toBe(false);
+  await expect(revealEmailAccount(fixture.native,key,first)).rejects.toMatchObject({kind:'superseded'});
+  await prepareEmailAccount(fixture.native,key,first);expect(mobileAutomationSnapshot().account.revealed).toBe(true);
+  await coverEmailAccounts(fixture.native,[]);
+  await prepareEmailAccount(fixture.native,key,reopen);expect([mobileAutomationSnapshot().account.email,mobileAutomationSnapshot().account.revealed]).toEqual(['••••••@••••••',false]);
+});
+test('Account email ownership rejects stale same-key actions and active-entry key mismatches',async()=>{
+  const fixture=transport(),key=`${fixture.id}:one`,old='email-stale-1',current='email-stale-2';
+  await prepareEmailAccount(fixture.native,key,old);
+  await prepareEmailAccount(fixture.native,key,current,[old,current]);await revealEmailAccount(fixture.native,key,current);
+  const reads=fixture.calls.length;
+  await expect(revealEmailAccount(fixture.native,key,old)).rejects.toMatchObject({kind:'superseded'});
+  await expect(revealEmailAccount(fixture.native,`${fixture.id}:other`,current)).rejects.toMatchObject({kind:'superseded'});
+  await expect(revealEmailAccount(fixture.native,key,'')).rejects.toMatchObject({kind:'superseded'});
+  expect(mobileAutomationSnapshot().account.revealed).toBe(true);expect(fixture.calls).toHaveLength(reads);
+});
+test('Account email ownership rejects an active ID absent from the actual live roster',async()=>{
+  const fixture=transport(),key=`${fixture.id}:one`,entry='email-not-live-1';
+  await prepareEmailAccount(fixture.native,key,entry,[]);expect(mobileAutomationSnapshot().account.present).toBe(false);
+  await expect(revealEmailAccount(fixture.native,key,entry)).rejects.toMatchObject({kind:'superseded'});
+  await prepareEmailAccount(fixture.native,key,entry,[entry]);expect(mobileAutomationSnapshot().account.revealed).toBe(false);
+});
+test('Account email ownership ignores a held old preparation after its revealed successor is active',async()=>{
+  const fixture=transport(),key=`${fixture.id}:one`,first='email-late-1',second='email-late-2';
+  await prepareEmailAccount(fixture.native,key,first);await revealEmailAccount(fixture.native,key,first);
+  const gate=refreshBarrier();let held=false;
+  fixture.intercept(async request=>{if(request.op==='environments'&&!held){held=true;await gate.wait();}});
+  const old=prepareEmailAccount(fixture.native,key,first).catch(error=>error);await gate.entered;
+  try{
+    await prepareEmailAccount(fixture.native,key,second,[first,second]);await revealEmailAccount(fixture.native,key,second);
+    expect([mobileAutomationSnapshot().account.key,mobileAutomationSnapshot().account.revealed]).toEqual([key,true]);
+  }finally{gate.release();await old;}
+  expect([mobileAutomationSnapshot().account.key,mobileAutomationSnapshot().account.revealed]).toEqual([key,true]);
+  await prepareEmailAccount(fixture.native,key,first,[first]);expect(mobileAutomationSnapshot().account.revealed).toBe(true);
+});
+test('Account email ownership retains each captured clock across coverage and Usage window changes',async()=>{
+  const fixture=transport(),key=`${fixture.id}:one`,first='email-clock-1',second='email-clock-2';
+  mobileClient.config={settings:{},providers:[nativeAccount({...limits,resetCredits:{availableCount:1,nextExpiresAt:new Date(now+2*3_600_000).toISOString()}})]};
+  await prepareEmailAccount(fixture.native,key,first);await revealEmailAccount(fixture.native,key,first);
+  expect(mobileAutomationSnapshot().account.credits).toBe('1 reset credit banked · next expires in 2h 0m');
+  await coverEmailAccounts(fixture.native,[first],now+3_600_000);
+  await mobileAutomationCommand('usage-local','days','7','',now+3_600_000,fixture.native);
+  await coverEmailAccounts(fixture.native,[first],now+3_600_000);
+  await prepareEmailAccount(fixture.native,key,second,[first,second],now+3_600_000);
+  expect([mobileAutomationSnapshot().account.revealed,mobileAutomationSnapshot().account.credits]).toEqual([false,'1 reset credit banked · next expires in 1h 0m']);
+  await prepareEmailAccount(fixture.native,key,first,[first],now+3*3_600_000);
+  expect([mobileAutomationSnapshot().account.revealed,mobileAutomationSnapshot().account.credits]).toEqual([true,'1 reset credit banked · next expires in 2h 0m']);
+  expect(mobileAutomationSnapshot().now).toBe(now+3_600_000);
+});
+
 function refreshBarrier(){
   let enter!:()=>void,release!:()=>void;
   const entered=new Promise<void>(resolve=>{enter=resolve;}),closed=new Promise<void>(resolve=>{release=resolve;});
   return {entered,release,wait:async()=>{enter();await closed;}};
 }
 async function openUsage(native:Native,tab='usage',days='1'){
-  await mobileAutomationPrepare('settings','{}','','','',now,native);
-  await mobileAutomationPrepare('settingsUsage','{}','','','',now,native);
+  await mobileAutomationPrepare('settings','{}','','','',now,native,'','');
+  await mobileAutomationPrepare('settingsUsage','{}','','','',now,native,'','');
   await mobileAutomationCommand('usage-local','tab',tab,'',now,native);
   await mobileAutomationCommand('usage-local','days',days,'',now,native);
-  await mobileAutomationPrepare('settingsUsage','{}','','','',now,native);
+  await mobileAutomationPrepare('settingsUsage','{}','','','',now,native,'','');
 }
 test('pull refresh availability follows diagnostics permission rather than summary availability',async()=>{
   const fixture=transport([]);await openUsage(fixture.native);
@@ -833,7 +930,7 @@ for(const change of ['departure','tab','days','environment'] as const)test(`held
   const gate=refreshBarrier();fixture.intercept(async request=>{if(request.method==='server.refreshUsageRates')await gate.wait();});
   const pending=mobileAutomationCommand('usage-refresh','','','',now+60_000,fixture.native);await gate.entered;
   try{
-    if(change==='departure')await mobileAutomationPrepare('settings','{}','','','',now+120_000,fixture.native);
+    if(change==='departure')await mobileAutomationPrepare('settings','{}','','','',now+120_000,fixture.native,'','');
     else if(change==='tab')await mobileAutomationCommand('usage-local','tab','limits','',now+120_000,fixture.native);
     else if(change==='days')await mobileAutomationCommand('usage-local','days','7','',now+120_000,fixture.native);
     else{
@@ -845,7 +942,7 @@ for(const change of ['departure','tab','days','environment'] as const)test(`held
   const result=await pending;expect(result.message).toBe('');expect(result.refresh).toBe(false);
   expect(fixture.calls.some(call=>call.method==='server.getUsageSummary')).toBe(false);
   const snapshot=mobileAutomationSnapshot();
-  if(change==='departure'){expect(snapshot.route).toBe('settings');expect(snapshot.usage.ready).toBe(false);await mobileAutomationPrepare('settingsUsage','{}','','','',now+180_000,fixture.native);expect(mobileAutomationSnapshot().now).toBe(now+180_000);}
+  if(change==='departure'){expect(snapshot.route).toBe('settings');expect(snapshot.usage.ready).toBe(false);await mobileAutomationPrepare('settingsUsage','{}','','','',now+180_000,fixture.native,'','');expect(mobileAutomationSnapshot().now).toBe(now+180_000);}
   else if(change==='tab')expect(snapshot.tab).toBe('limits');
   else if(change==='days'){expect(snapshot.days).toBe(7);expect(snapshot.now).toBe(now+120_000);}
   else expect(snapshot.selection).toBe('[]');
@@ -864,7 +961,7 @@ test('a held final refresh read cannot replace a newer selected window',async()=
   const pending=mobileAutomationCommand('usage-refresh','','','',now+60_000,fixture.native);await gate.entered;
   try{
     await mobileAutomationCommand('usage-local','days','7','',now+120_000,fixture.native);
-    await mobileAutomationPrepare('settingsUsage','{}','','','',now+120_000,fixture.native);
+    await mobileAutomationPrepare('settingsUsage','{}','','','',now+120_000,fixture.native,'','');
     expect(mobileAutomationSnapshot().days).toBe(7);expect(mobileAutomationSnapshot().usage.chartTitle).toBe('Daily cost');
   }finally{gate.release();}
   const result=await pending;expect(result.refresh).toBe(false);expect(result.message).toBe('');
@@ -883,7 +980,7 @@ for(const transition of ['same-minute range','tab roundtrip'] as const)test(`cur
       await mobileAutomationCommand('usage-local','tab','limits','',refreshedAt+5_000,fixture.native);
       await mobileAutomationCommand('usage-local','tab','usage','',refreshedAt+5_000,fixture.native);
     }
-    load=mobileAutomationPrepare('settingsUsage','{}','','','',refreshedAt+5_000,fixture.native).then(value=>{settled=true;return value;});
+    load=mobileAutomationPrepare('settingsUsage','{}','','','',refreshedAt+5_000,fixture.native,'','').then(value=>{settled=true;return value;});
     await new Promise<void>(resolve=>setImmediate(resolve));
     expect(settled).toBe(false);
     expect(fixture.calls.filter(call=>call.method==='server.getUsageSummary')).toHaveLength(1);
@@ -901,7 +998,7 @@ for(const rejectRetry of [false,true])test(`current summary waiter retries a can
   let load:Promise<unknown>|undefined;
   try{
     await mobileAutomationCommand('usage-local','days','1','',refreshedAt+5_000,fixture.native);
-    load=mobileAutomationPrepare('settingsUsage','{}','','','',refreshedAt+5_000,fixture.native).catch(error=>error);
+    load=mobileAutomationPrepare('settingsUsage','{}','','','',refreshedAt+5_000,fixture.native,'','').catch(error=>error);
     await new Promise<void>(resolve=>setImmediate(resolve));expect(summaries).toBe(1);
   }finally{gate.release();}
   const [oldResult,newResult]=await Promise.all([refresh,load]);
@@ -917,7 +1014,7 @@ test('a current summary waiter reports a shared network failure without retrying
   let load:Promise<unknown>|undefined;
   try{
     await mobileAutomationCommand('usage-local','days','1','',refreshedAt+5_000,fixture.native);
-    load=mobileAutomationPrepare('settingsUsage','{}','','','',refreshedAt+5_000,fixture.native);
+    load=mobileAutomationPrepare('settingsUsage','{}','','','',refreshedAt+5_000,fixture.native,'','');
     await new Promise<void>(resolve=>setImmediate(resolve));
   }finally{gate.release();}
   await Promise.all([refresh,load]);expect(summaries).toBe(1);
@@ -929,7 +1026,7 @@ test('a new environment selection cannot refresh the previous prepared sources w
   await mobileAutomationCommand('usage-environments','','','',now,chooser);fixture.calls.length=0;
   const gate=refreshBarrier();let held=false;
   fixture.intercept(async request=>{if(request.op==='environments'&&!held){held=true;await gate.wait();}});
-  const load=mobileAutomationPrepare('settingsUsage','{}','','','',now,fixture.native);await gate.entered;
+  const load=mobileAutomationPrepare('settingsUsage','{}','','','',now,fixture.native,'','');await gate.entered;
   try{
     const snapshot=mobileAutomationSnapshot();expect(snapshot.selection).toBe('[]');expect(snapshot.usage.tab).toBe('usage');
     expect(snapshot.usage.ready).toBe(false);expect(snapshot.usage.canRefresh).toBe(false);
