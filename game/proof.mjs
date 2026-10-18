@@ -518,14 +518,16 @@ export function worldJournal(chunks) {
   return chunks.map(({from, next, lines, tick}) => Object.fromEntries(
     Object.entries({from, next, lines:lines?.filter(line => !isTellLine(line)), tick}).filter(([,value]) => value !== undefined)));
 }
-// The tells one reply's frame told: a settle's or a screenshot's lines, or a
-// look frame's own. A reduced (contact-sheet) frame and a look frame from
-// another view than the game's camera are pictures, and tell none.
+// The frames one reply judged and their tells: a settle's or a screenshot's
+// lines, a film's frames (`lookFrames`), or a look frame's own. A reduced
+// (contact-sheet) frame and a look frame from another view than the game's
+// camera are pictures, and judge nothing. With them, every gap and failed look
+// frame the reply names.
 export function frameTells(reply) {
-  if (reply?.view) return {tells:[], gaps:[]}; // a look frame from another view than the game's camera
-  const look = reply?.look;
-  const lines = Array.isArray(look) ? look : look?.reduced ? [] : (look?.tells ?? []).map(t => t.line);
-  return {tells:lines.map(tellOf).filter(Boolean), gaps:[...(Array.isArray(look) ? [] : look?.gaps ?? []), ...reply?.lookGaps ?? [], ...reply?.lookFailed ?? []]};
+  const look = reply?.look, own = look && !Array.isArray(look) && !look.reduced && !reply.view ? look : null;
+  const frames = reply?.lookFrames ?? (Array.isArray(look) ? [look] : own ? [(own.tells ?? []).map(t => t.line)] : []);
+  return {frames:frames.map(lines => lines.map(tellOf).filter(Boolean)),
+    gaps:[...own?.gaps ?? [], ...reply?.lookGaps ?? [], ...reply?.lookFailed ?? []]};
 }
 // The look result beside the simulation result (LLP 1127.000 D5). `worlds` is
 // each world every session showed at its close, with its picture or why it has
@@ -533,8 +535,9 @@ export function frameTells(reply) {
 // not measure. A tell no silence names fails it; it passes only when every
 // world was seen and every measurement taken, and is otherwise unverified.
 export function lookResult({worlds, tells, gaps = []}, silence) {
-  // One entry a tell: its first line and how many frames told it.
-  const byName = list => [...Map.groupBy(list, t => t.name).values()].map(all => ({...all[0], times:all.length}));
+  // One entry a tell: its first line and how many distinct frames told it.
+  const byName = list => [...Map.groupBy(list, t => t.name).values()]
+    .map(all => ({...all[0], times:new Set(all.map((t, i) => t.frame ?? `entry ${i}`)).size}));
   const loud = byName(tells.filter(t => !silence.has(t.name))), quiet = byName(tells.filter(t => silence.has(t.name)));
   // Worlds without a picture, one line a canvas and reason: `sessions 1, 2 world: no picture on this host: …`.
   const unseen = Map.groupBy(worlds.filter(w => !w.picture), w => `${w.canvas}: ${w.unavailable ?? w.error ?? 'no picture'}`);
@@ -546,12 +549,20 @@ export function lookResult({worlds, tells, gaps = []}, silence) {
   return {status, detail, loud, quiet, missing};
 }
 // The look result across hosts and runs (prove.mjs): a FAIL anywhere fails
-// it, and it passes only when every run's look passed.
-export function lookAcrossRuns(looks) {
-  return looks.some(l => l?.status === 'FAIL') ? 'FAIL' : looks.length && looks.every(l => l?.status === 'PASS') ? 'PASS' : 'UNVERIFIED';
+// it; it passes only when every expected run ({host, repeat}) has a summary
+// whose look passed, and a run with none, or none with a look, is a named gap.
+export function lookAcrossRuns(rows, expected = rows.map(r => ({host:r.host, repeat:r.repeat}))) {
+  const gaps = expected.filter(e => !rows.some(r => r.host === e.host && r.repeat === e.repeat && r.look))
+    .map(e => `${e.host} run ${e.repeat}: no look result`);
+  const looks = rows.map(r => r.look).filter(Boolean);
+  const status = looks.some(l => l.status === 'FAIL') ? 'FAIL'
+    : looks.length && !gaps.length && looks.every(l => l.status === 'PASS') ? 'PASS' : 'UNVERIFIED';
+  return {status, gaps};
 }
-// A run that failed by its look alone: its simulation passed.
-export const lookOnlyFailure = summary => summary?.simulation === 'PASS' && summary.look?.status === 'FAIL';
+// A run that failed by its look alone: no simulation assertion failed, whether
+// its simulation passed or was collecting a baseline (UNVERIFIED).
+export const lookOnlyFailure = summary => summary?.look?.status === 'FAIL'
+  && summary.simulation !== 'FAIL' && !(summary.failures ?? []).length;
 
 export function proofCommand(script, ...args) {
   return ['bun', relative(process.cwd(), script), ...args]
@@ -617,9 +628,15 @@ export async function proof(meta, script) {
   const {pins, pin, pinSave} = pinRecorder(previousPins, app, check, collecting);
   // The look step runs once per proof mode 0: the paranoid modes check the simulation.
   const silence = lookSilence(app), looking = (process.env.EXACT_GAME_PARANOID ?? '0') === '0';
-  const looks = {worlds:[], pictures:[], pages:[], sheets:[], tells:[], gaps:[]};
-  // A judged frame's tells, one entry a frame (a tell several frames told counts each), and its gaps.
-  const noteFrame = ({tells, gaps}) => { looks.tells.push(...tells); looks.gaps.push(...gaps); };
+  const looks = {closing:new Map(), pictures:[], pages:[], sheets:[], tells:[], gaps:[], frames:0};
+  // Each judged frame's tells, marked with the frame (a tell several frames told counts each), and its gaps.
+  const noteFrame = ({frames, gaps}) => {
+    for (const tells of frames) { looks.frames += 1; looks.tells.push(...tells.map(t => ({...t, frame:looks.frames}))); }
+    looks.gaps.push(...gaps);
+  };
+  // Every world a session showed, by session and canvas id, and the ones a judged frame looked at.
+  const shown = new Map(), lookedAt = new Set();
+  const show = (session, id, canvas = id) => { if (!shown.has(`${session}:${id}`)) shown.set(`${session}:${id}`, {session, id, canvas}); };
   // One look frame of a session's world, from `view` ({}, {top}, {yaw, pitch, distance}), into the artifacts. Only
   // the game's own camera is judged: another view is a picture.
   const look = async (session, view = {}, label = 'look', canvas = 'world') => {
@@ -631,10 +648,12 @@ export async function proof(meta, script) {
   // At a session's close: each world's look frame from its own camera at the held tick, which is judged; the page
   // as composited where the canvas draws; and a contact sheet over 600 ms at half resolution, which is a picture.
   const lookStep = async (raw, id) => {
-    const canvases = ((await raw.tree()).nodes ?? []).filter(n => n.world).map(n => n.props?.testId ?? n.id);
-    for (const canvas of canvases) {
-      const label = `look-${id}${canvases.length > 1 ? `-${canvas}` : ''}`, world = {session:id, canvas};
-      looks.worlds.push(world);
+    const nodes = ((await raw.tree()).nodes ?? []).filter(n => n.world);
+    for (const node of nodes) {
+      const canvas = node.props?.testId ?? node.id;
+      const label = `look-${id}${nodes.length > 1 ? `-${canvas}` : ''}`, world = {session:id, id:node.id, canvas};
+      show(id, node.id, canvas);
+      looks.closing.set(`${id}:${node.id}`, world);
       try {
         world.picture = (await look(raw, {}, label, canvas)).picture;
         if (!['linux', 'windows'].includes(host)) looks.pages.push((await raw.screenshot(resolve(out, `${label}-page.png`))).screenshot);
@@ -828,9 +847,18 @@ export async function proof(meta, script) {
     });
     const partial = process.argv.some(arg => ['--build-only','--screenshot-only','--capture40'].includes(arg));
     const simulation = proofStatus({failures, expected:previousPins, pins, collecting, partial});
-    // The frames the script's settles, screenshots and look requests judged (agent-inspect.mjs worldTells).
-    for (const r of replies) if (['clock', 'screenshot', 'state'].includes(r.method)) noteFrame(frameTells(r.reply));
-    const seen = lookResult(looks, silence), lookFailures = [];
+    // The frames the script's settles, screenshots and look requests judged (agent-inspect.mjs worldTells), and the
+    // worlds every reply showed: a settle's or a state's world list, a tree's canvases.
+    for (const r of replies) {
+      if (['clock', 'screenshot', 'state'].includes(r.method)) noteFrame(frameTells(r.reply));
+      for (const w of Array.isArray(r.reply?.world) ? r.reply.world : []) if (w?.canvas != null) show(r.session, w.canvas);
+      if (r.method === 'tree') for (const n of r.reply?.nodes ?? []) if (n.world) show(r.session, n.id, n.props?.testId ?? n.id);
+      for (const id of r.reply?.lookSeen ?? []) lookedAt.add(`${r.session}:${id}`);
+    }
+    // A world counts as seen by its closing look frame or a judged frame; one shown and never looked at is a gap.
+    const worlds = [...shown].map(([key, w]) => looks.closing.get(key)
+      ?? (lookedAt.has(key) ? {...w, picture:'a judged settle or screenshot'} : {...w, error:'shown, and never looked at'}));
+    const seen = lookResult({...looks, worlds}, silence), lookFailures = [];
     // A tell fails the look, never the simulation: its own list, its own line.
     for (const tell of seen.loud) {
       const label = `${tell.line}${tell.times > 1 ? ` (and ${tell.times - 1} more frames)` : ''}; silence ${tell.name} in app.json's game.look.silence only if the look is intended`;
@@ -839,7 +867,7 @@ export async function proof(meta, script) {
     lookFailed = looking && seen.status === 'FAIL';
     const status = lookFailed ? 'FAIL' : simulation;
     if (!compareParanoid && process.env.EXACT_PROOF_COMPARE !== '1') finalWorlds.push(...observations.values());
-    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), status, inputs:inputDigest, sourceInputs:sourceInputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable, simulation, ...(looking ? {look:{status:seen.status, detail:seen.detail, failures:lookFailures, tells:looks.tells, silenced:seen.quiet.map(t => t.name), missing:seen.missing, worlds:looks.worlds, pictures:looks.pictures, pages:looks.pages, sheets:looks.sheets}} : {})}, null, 2)+'\n');
+    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), status, inputs:inputDigest, sourceInputs:sourceInputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable, simulation, ...(looking ? {look:{status:seen.status, detail:seen.detail, failures:lookFailures, tells:looks.tells, silenced:seen.quiet.map(t => t.name), missing:seen.missing, frames:looks.frames, worlds, pictures:looks.pictures, pages:looks.pages, sheets:looks.sheets}} : {})}, null, 2)+'\n');
     if (process.argv.includes('--report')) for (const hint of facilityReport(replies)) say(`REPORT ${hint}`);
     if (looking) {
       say(`simulation: ${simulation} · look: ${seen.status}, ${seen.detail}`);

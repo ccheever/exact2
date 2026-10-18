@@ -93,7 +93,8 @@ if (repin) {
     }, host);
     if (!unavailable) exercised.push(host);
   }
-  try { rows.push(await run(native, 1, false, '0', 'release')); } catch (error) { errors.push(error); }
+  try { rows.push(await run(native, 1, false, '0', 'release')); }
+  catch (error) { if (lookOnlyFailure(error.summary)) rows.push(error.summary); else errors.push(error); }
   for (const error of errors) console.error(error.message);
   if (errors.length) throw new Error(`repin refused: mode/host proof failed; pins.json unchanged; inspect ${root}/*/run.log and rerun the named proof with --paranoid`);
   const candidate = agreePins(rows, before, hosts, app);
@@ -135,10 +136,12 @@ for (const row of rows) {
   console.log(`| ${row.device ? 'ios-device' : row.host} | ${row.repeat} | ${row.seconds.toFixed(3)} | ${hashOK ? 'equal' : 'FAIL'} | ${args.includes('--compare-saves') ? (saveOK ? 'identical' : 'FAIL') : 'not requested'} | ${row.simulation ?? row.status ?? 'UNVERIFIED'} | ${row.look ? `${row.look.status}, ${row.look.detail}` : 'not taken'} |`);
 }
 // The look result (LLP 1127.000 D5): a tell no game.look.silence names fails the proof; it passes only when every
-// host's every run saw every world it showed, whole.
+// requested host's every run saw every world it showed, whole. A run with no summary is a gap.
 const looks = rows.map(row => row.look);
 for (const look of looks.filter(Boolean)) for (const picture of [...look.pages ?? [], ...look.pictures ?? []]) console.log(`LOOK ${picture}`);
-const lookStatus = lookAcrossRuns(looks);
+const expected = hosts.flatMap(host => Array.from({length:repeat}, (_, i) => ({host, repeat:i + 1})));
+const {status:lookStatus, gaps:lookGaps} = lookAcrossRuns(rows, expected);
+for (const gap of lookGaps) console.log(`look: unverified, ${gap}`);
 for (const failure of failures) console.error(failure.reason);
 if (hosts.length > 1) {
   const entry = await import(script);
@@ -149,7 +152,7 @@ const status = failed || lookStatus === 'FAIL' ? 'FAIL' : rows.length && rows.ev
 console.log(`simulation: ${failed ? 'FAIL' : rows.length && rows.every(row => (row.simulation ?? row.status) === 'PASS') ? 'PASS' : 'UNVERIFIED'} · look: ${lookStatus}${looks.some(Boolean) ? '' : ', no look taken'}`);
 console.log(`PROOF ${status} ${name}`);
 if (status === 'UNVERIFIED') console.log(`No complete tick/save baseline was checked. Generate it with ${proofCommand(import.meta.path, local ? app : name, '--repin')}`);
-writeFileSync(resolve(root, 'summary.json'), JSON.stringify({status, look:lookStatus, rows}, null, 2)+'\n');
+writeFileSync(resolve(root, 'summary.json'), JSON.stringify({status, look:lookStatus, lookGaps, rows}, null, 2)+'\n');
 process.exitCode = status === 'PASS' ? 0 : 1;
 
 }
