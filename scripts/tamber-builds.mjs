@@ -44,6 +44,9 @@ const QUEUED = 64, QUEUE_BYTES = 128 * 1024;
 // writes each frame it relays as one event, which Apple bounds at 64 KiB
 // (PlanURL.swift). A frame over it goes as a notice.
 const POLL_BYTES = 32 * 1024;
+// A long poll (`wait`) is held at most this long: well under the 5 s a
+// polled stream lives unpolled, and the 5 s a client's request lasts.
+const WAIT_MS = 4_000;
 // A report's body: at most this many bytes, read within this long.
 const REPORT_BYTES = 64 * 1024, REPORT_MS = 10_000;
 const KINDS = new Set(['register', 'status', 'unsupported', 'selected']);
@@ -65,8 +68,9 @@ function pinRefused(pin) {
 
 const live = f => String(f.kind).startsWith('tamber-');
 // A live-table frame's notice: no tokens, so a build at another design asks
-// for the snapshot.
-const notice = f => ({ kind: 'tamber-batch', structure: f.structure, base: f.design, design: f.design, tokens: [] });
+// for the snapshot; a scrub frame's keeps its mark (*1.11*), so a build
+// still orders it.
+const notice = f => ({ kind: 'tamber-batch', structure: f.structure, base: f.design, design: f.design, tokens: [], ...(f.scrub ? { scrub: f.scrub } : {}) });
 /** A frame as one poll may carry it: a live-table frame over the bound as
  * its notice; any other, which is never that large, as it is. */
 function bounded(f) {
@@ -122,7 +126,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
     const open = polled.filter(([k]) => streams.has(k)).sort((a, b) => a[1].seen - b[1].seen);
     for (const [k] of open.slice(0, Math.max(0, open.length - POLLED + room))) close(k);
   };
-  const close = (k) => { const s = streams.get(k); streams.delete(k); if (s?.build) announce(); };
+  const close = (k) => { const s = streams.get(k); streams.delete(k); s?.unwait?.(); if (s?.build) announce(); };
   const shown = b => ({ id: b.id, host: b.host, capabilities: b.capabilities, inspector: inspectors.get(b.id) ?? null, plan: b.plan, planDigest: b.planDigest ?? null, design: b.design, status: b.status ?? null, pin: pins.get(b.id)?.pin ?? null, pinRevision: sent.get(b.id) ?? 0, unsupported: b.unsupported ? { what: b.unsupported.what, detail: b.unsupported.detail } : null });
   // A build is connected while the stream it registered on still names it.
   const connected = b => streams.get(b.nonce)?.build === b.id;
@@ -160,6 +164,8 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
     openPolled() {
       sweep(1);
       let queue = []; // [{f, n}], n its bytes
+      // The long poll held for this stream, woken by the next frame.
+      let waiting = null;
       const opened = this.open((f) => {
         f = bounded(f);
         // Only the latest pin matters: it replaces the whole set.
@@ -167,6 +173,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
         // Likewise inspect: the latest on/off, and one refresh.
         if (f.kind === 'inspect') queue = queue.filter(q => q.f.kind !== 'inspect' || !!q.f.refresh !== !!f.refresh);
         queue.push({ f, n: Buffer.byteLength(JSON.stringify(f)) });
+        queueMicrotask(() => waiting?.());
         if (queue.length <= QUEUED && queue.reduce((sum, q) => sum + q.n, 0) <= QUEUE_BYTES) return;
         // Over its bound: the live-table frames pending are one notice of
         // the latest's design, and the build fetches the snapshot.
@@ -194,6 +201,24 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
         last = { seq: ++seq, frames: queue.splice(0, n).map(q => q.f) };
         return last;
       };
+      // A long poll: answered at once when there is an answer to give (one
+      // unacknowledged, or frames queued), else at the next frame or after
+      // `ms`. One is held per stream: a newer one answers the older now.
+      s.wait = (ack, ms) => new Promise((done) => {
+        s.seen = Date.now();
+        waiting?.();
+        if ((last && ack < last.seq) || queue.length || ms <= 0) { done(s.poll(ack)); return; }
+        let timer = null;
+        const answer = () => {
+          if (waiting !== answer) return;
+          waiting = null;
+          clearTimeout(timer);
+          done(streams.has(opened.nonce) ? s.poll(ack) : null);
+        };
+        waiting = answer;
+        timer = setTimeout(answer, ms);
+      });
+      s.unwait = () => waiting?.();
       // The design to run, as a stream's hello says it (a notice).
       const hello = greeting();
       if (hello) s.write(hello);
@@ -206,6 +231,15 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
       sweep();
       const k = Number(ack);
       return streams.get(n)?.poll?.(Number.isSafeInteger(k) && k >= 0 ? k : 0) ?? null;
+    },
+    /** The same as a long poll (*1.10*): held until a frame is queued for
+     * it or `ms` (at most 4 s) passes. Resolves null for a nonce no stream
+     * holds. */
+    async waitPoll(n, ack = 0, ms = 0) {
+      sweep();
+      const k = Number(ack), s = streams.get(n);
+      if (!s?.wait) return null;
+      return s.wait(Number.isSafeInteger(k) && k >= 0 ? k : 0, Math.min(Math.max(0, Number(ms) || 0), WAIT_MS));
     },
     /** `POST /__dev/report`'s body: `{status, body}`. */
     report(body) {
@@ -428,12 +462,17 @@ export async function serveReport(channel, req, res) {
  * `hello`'s fields), 503 with 256 streams open; a poll's answer `{seq,
  * frames}` to `?nonce=&ack=`, 404 with `null` for a nonce no stream holds
  * (its build says hello again). */
-export function serveCommands(channel, url, res, hello = {}) {
+export async function serveCommands(channel, url, res, hello = {}) {
   let status = 200, answer;
   if (url.pathname === '/__dev/hello') {
     const opened = channel.openPolled();
     answer = opened ? { hello: true, ...hello, nonce: opened.nonce } : { message: 'the dev loop holds as many streams as it keeps' };
     if (!opened) status = 503;
+  } else if (url.searchParams.has('wait')) {
+    // A long poll (*1.10*): held until a frame comes or `wait` ms pass.
+    answer = await channel.waitPoll(url.searchParams.get('nonce') ?? '', url.searchParams.get('ack') ?? 0, url.searchParams.get('wait'));
+    if (!answer) status = 404;
+    if (res.destroyed) return;
   } else {
     answer = channel.poll(url.searchParams.get('nonce') ?? '', url.searchParams.get('ack') ?? 0);
     if (!answer) status = 404;
@@ -447,7 +486,9 @@ export function serveCommands(channel, url, res, hello = {}) {
  * (`main`, its origin), and that loop's commands for it are polled, each
  * answer acknowledged by the next poll, and written to it (`write(frame)`).
  * Its reports go to that loop directly: the device's origin is that loop's.
- * Batches are this loop's own, as it watches the same files. Its nonce and
+ * That loop makes every batch; this one makes none. Each poll is a long
+ * poll, held there until a frame comes (`wait`), so a frame reaches the
+ * device at once; `every` ms pass after a poll that failed. Its nonce and
  * `close()`, or null when that loop keeps no channel; `ended()` when that
  * loop no longer holds the nonce. */
 export async function relayChannel(main, write, every = 250, ended = () => {}) {
@@ -458,7 +499,7 @@ export async function relayChannel(main, write, every = 250, ended = () => {}) {
     (async () => {
       while (going) {
         try {
-          const response = await fetch(`${main}/__dev/commands?nonce=${encodeURIComponent(opened.nonce)}&ack=${ack}`, { signal: AbortSignal.timeout(5000) });
+          const response = await fetch(`${main}/__dev/commands?nonce=${encodeURIComponent(opened.nonce)}&ack=${ack}&wait=${WAIT_MS}`, { signal: AbortSignal.timeout(WAIT_MS + 5000) });
           // The nonce gone (that loop restarted, or the poll lapsed): the
           // device's stream ends, so it connects again for a new one.
           if (response.status === 404) { going = false; ended(); return; }
@@ -469,10 +510,25 @@ export async function relayChannel(main, write, every = 250, ended = () => {}) {
             ack = answer.seq;
             for (const f of answer.frames) write(f);
           }
+          continue;
         } catch { /* that loop restarting: asked again */ }
         await new Promise(ok => setTimeout(ok, every));
       }
     })();
     return { nonce: opened.nonce, close: () => { going = false; } };
   } catch { return null; }
+}
+
+/** Unread bytes past which a build reading an event stream is behind. */
+export const BEHIND = 64 * 1024;
+/** A live-table frame (its JSON `text`) written to an event stream `res`,
+ * unless the build reading it is behind (a slow or stopped reader, with
+ * more than BEHIND bytes unread): then nothing more is queued for it until
+ * the stream drains, and it is sent `latest()` then, the latest design's
+ * notice, which asks for its snapshot, never the frames between. */
+export function streamFrame(res, text, latest) {
+  if (res.behind) return;
+  if (res.writableLength <= BEHIND) { res.write(`data: ${text}\n\n`); return; }
+  res.behind = true;
+  res.once('drain', () => { res.behind = false; const f = latest(); if (f) res.write(`data: ${JSON.stringify(f)}\n\n`); });
 }

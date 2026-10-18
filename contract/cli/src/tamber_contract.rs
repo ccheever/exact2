@@ -43,9 +43,9 @@ impl ContractOp {
 /// is its package's: one in a directory, below the app's, whose
 /// `package.json` names a package (installed, linked or vendored, as a
 /// component's identity reads it, LLP 1121 D15), or one a `node_modules`
-/// entry links to, however a `use` reached it.
-pub(crate) fn owned(dir: &Path) -> (Vec<String>, bool) {
-    let graph = contract::source_graph(&dir.join("app.contract"));
+/// entry links to, however a `use` reached it. `graph` is the app's
+/// (`contract::source_graph` of its `app.contract`).
+pub(crate) fn owned(dir: &Path, graph: &contract::SourceGraph) -> (Vec<String>, bool) {
     let app = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
     let mut packages: Vec<PathBuf> = graph.packages.iter().map(|p| p.root.clone()).collect();
     let installed = |d: &Path| std::fs::read_dir(d).into_iter().flatten().flatten();
@@ -89,8 +89,11 @@ pub(crate) fn owned(dir: &Path) -> (Vec<String>, bool) {
 /// [`owned`], and where the graph stopped loading (a syntax error) the
 /// files the last whole one listed while they are there, so their pending
 /// writes stay the session's; `last` is that list.
-pub(crate) fn owned_kept(dir: &Path, last: &std::cell::RefCell<Vec<String>>) -> Vec<String> {
-    let (mut out, whole) = owned(dir);
+pub(crate) fn owned_kept(
+    dir: &Path,
+    (mut out, whole): (Vec<String>, bool),
+    last: &std::cell::RefCell<Vec<String>>,
+) -> Vec<String> {
     if whole {
         *last.borrow_mut() = out.clone();
         return out;

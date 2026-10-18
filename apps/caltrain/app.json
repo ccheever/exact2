@@ -22,6 +22,8 @@
   "widgets": [
     {
       "kind": "next-trains",
+      "title": "Next Trains",
+      "description": "See the next departures from your station at a glance.",
       "families": [
         "systemSmall",
         "systemMedium",

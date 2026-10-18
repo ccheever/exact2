@@ -178,11 +178,18 @@ public final class Agent {
         }
         if req["widget"] != nil {
             #if EXACT_WIDGET_GALLERY && (os(iOS) || os(macOS))
-            Agent.reply(WidgetGallery.answer(op, request: req, agent: self))
+            if op != "clock" {
+                Agent.reply(WidgetGallery.answer(op, request: req, agent: self))
+                return
+            }
             #else
-            Agent.reply(["error": "widget gallery is unavailable in this build"])
+            #if os(iOS)
+            Agent.reply(["error": "widget gallery is unavailable; rebuild: bun host/apple/build.mjs --ios --widget-gallery"])
+            #else
+            Agent.reply(["error": "widget gallery is unavailable; rebuild: bun host/apple/build.mjs --widget-gallery"])
             #endif
             return
+            #endif
         }
         guard session.canvases.waitUntilReady() else {
             Agent.reply(["error": "canvas creation is still in flight"])

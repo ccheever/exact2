@@ -225,6 +225,9 @@ impl Modes {
             parts = projected?;
             for p in parts.iter_mut().flatten() {
                 p.css = self.substitute(&p.css);
+                for (_, look) in &mut p.looks {
+                    *look = self.substitute(look);
+                }
                 p.props.retain(|_, v| {
                     *v = self.substitute(v);
                     true
@@ -572,6 +575,38 @@ fn css_of(entry: &exact_kernel::style::theme::Entry) -> String {
 /// [`rules`] writes them. The dev loop sends the changed ones as a batch.
 pub fn design(plan: &Plan) -> serde_json::Value {
     use exact_runner::design;
+    let tokens = design::tokens(plan);
+    serde_json::json!({
+        "structure": design::structure(plan),
+        "shape": design::shape(plan),
+        "digest": design::digest(&tokens),
+        "tokens": rows(plan, &Declared::of(plan), None),
+    })
+}
+
+/// What [`rows`] reads of a plan besides its design values: which token
+/// each property declares, which a type token's rows write, which are
+/// written inline. A plan whose values alone changed keeps it.
+pub struct Declared {
+    props: Vec<(String, String)>,
+    types: Vec<(String, StyleId, String)>,
+    inline: Vec<(String, String)>,
+}
+
+impl Declared {
+    pub fn of(plan: &Plan) -> Declared {
+        Declared {
+            props: properties(plan),
+            types: crate::measures::type_properties(plan, every_token()),
+            inline: crate::measures::inline_tokens(plan),
+        }
+    }
+}
+
+/// The design rows of `plan`'s tokens, as [`design`] gives them: every one,
+/// or those `only` names.
+pub fn rows(plan: &Plan, declared: &Declared, only: Option<&[String]>) -> Vec<serde_json::Value> {
+    use exact_runner::design;
     // The app's profiles, as `rules` reads a profile colour.
     let _profiles = exact_kernel::style::profiled::declarations(
         plan.profiles
@@ -579,14 +614,17 @@ pub fn design(plan: &Plan) -> serde_json::Value {
             .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
     );
     let tokens = design::tokens(plan);
-    let props = properties(plan);
-    let types = crate::measures::type_properties(plan, every_token());
-    let inline = crate::measures::inline_tokens(plan);
+    let Declared {
+        props,
+        types,
+        inline,
+    } = declared;
     let tables: Vec<_> = (0..bridge::tuples(plan))
         .map(|tuple| bridge::theme_table_at(plan, tuple))
         .collect();
-    let rows: Vec<serde_json::Value> = tokens
+    tokens
         .iter()
+        .filter(|t| only.is_none_or(|only| only.contains(&t.name)))
         .map(|t| {
             let mut row = serde_json::json!({"name": t.name, "value": t.value, "slices": t.slices});
             let parts: Vec<serde_json::Value> = types
@@ -643,13 +681,7 @@ pub fn design(plan: &Plan) -> serde_json::Value {
             }
             row
         })
-        .collect();
-    serde_json::json!({
-        "structure": design::structure(plan),
-        "shape": design::shape(plan),
-        "digest": design::digest(&tokens),
-        "tokens": rows,
-    })
+        .collect()
 }
 
 /// The sheet property of the tint's override `name` (`AccentColor`), if it
@@ -695,6 +727,9 @@ fn written(parts: &[Option<Parts>]) -> String {
         out.push_str(&p.css);
         for v in p.props.values() {
             out.push_str(v);
+        }
+        for (_, look) in &p.looks {
+            out.push_str(look);
         }
     }
     out

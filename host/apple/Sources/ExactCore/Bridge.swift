@@ -149,7 +149,6 @@ package final class Runtime {
         // Its paragraphs' line boxes too, for multi-column flows (LLP 1093 D6).
         on { () -> Void in
             exact_set_measure(rt, measure, UnsafeMutableRawPointer(bitPattern: ctx))
-            // The platform's time formats (LLP 1126 D6), for the kernel's reservations.
             exact_set_time_format(rt, TimeFormatting.format)
             exact_set_lines(rt, measure == nil ? nil : TextEngine.linesText)
             // A system symbol's box, measured before layout as a paragraph's is
@@ -236,25 +235,27 @@ package final class Runtime {
     }
     /// Boot a snapshot entry's plan by its kind (LLP 1126 D2): the headless
     /// session's boot, which a running host's `bootPlan` refuses.
-    package func bootEntry(_ bytes: Data, kind: String, width: CGFloat, height: CGFloat) -> Batch {
+    package func bootEntry(_ bytes: Data, kind: String, props: Data? = nil, width: CGFloat, height: CGFloat) -> Batch {
         let batch = on { () -> Batch in
-            let kindBytes = Data(kind.utf8)
-            _ = write(bytes + kindBytes)
-            return read(exact_boot_entry(rt, bytes.count, kindBytes.count, Float(width), Float(height)))
+            let name = Data(kind.utf8)
+            var payload = bytes; payload.append(name); payload.append(props ?? Data())
+            _ = write(payload)
+            return read(exact_boot_entry(rt, bytes.count, name.count, props?.count ?? 0, Float(width), Float(height)))
         }
         return islands(batch)
     }
-    package func refreshEntry(at date: Date, size: CGSize) -> (Batch, [String: Any]) {
-        on(busy: (Self.busy, [:])) {
-            let len = exact_refresh_entry(rt, date.timeIntervalSince1970 * 1000, Float(size.width), Float(size.height))
-            let bytes = Data(bytes: exact_out(rt), count: Int(len))
-            let result = (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
-            // A pending refresh returns metadata alone, with no layout turn.
-            let batch = result["ops"] == nil ? Batch(ops: [], timers: false, motion: false, clock: nil, error: result["error"] as? String) : read(len)
-            return (batch, result)
+    package func previewTimeline(at now: Double) -> Data {
+        on(busy: Data()) {
+            let count = exact_refresh_entry(rt, now)
+            return Data(bytes: exact_out(rt), count: Int(count))
         }
     }
-
+    package func entryTimeline(at now: Double) -> Data {
+        on(busy: Data()) {
+            let count = exact_entry_timeline(rt, now)
+            return Data(bytes: exact_out(rt), count: Int(count))
+        }
+    }
     package func preparePlan(_ bytes: Data, width: CGFloat, height: CGFloat, token: UInt64 = 0) -> Batch {
         return on {
             let n = write(bytes)

@@ -39,7 +39,9 @@ pub(crate) fn app_dirs(app_id: &str) -> Result<Option<([PathBuf; 3], Option<Path
     {
         return Err(DataError::Unavailable("unsafe app storage identity".into()));
     }
-    let home = std::env::var_os("HOME")
+    let home = crate::store::group_root(app_id)
+        .map(|p| p.into_os_string())
+        .or_else(|| std::env::var_os("HOME"))
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .ok_or_else(|| DataError::Unavailable("app storage needs an absolute HOME".into()))?;

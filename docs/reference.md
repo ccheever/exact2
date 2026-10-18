@@ -192,7 +192,8 @@ same array, one per TypeScript diagnostic (`id` `typescript-TS<n>`). Exit codes 
 `build --map -o <file.plan>` also writes `<file.plan>.map.json`, keyed by
 SHA-256 of the plan bytes. Each plan node has its original file and range,
 component call-site chain, and the winning style row's origin (`own`,
-`class:<Name>`, or `tag`). Slots, derives and actions retain their declarations,
+`class:<Name>`, or `tag`); a row an `:active` part lowered to the press paint
+also has `"state": "active"` and `at`, where that row is written (LLP 1121 D8). Slots, derives and actions retain their declarations,
 including state and actions lifted from child components. Maps are separate
 files; ordinary compilation collects neither instantiation provenance nor lowering sites. The compiler API's
 `compile_path_mapped` and `compile_path_source_mapped` return the map alongside
@@ -334,6 +335,9 @@ Widget entries are top-level `app.json` `widgets` rows. For example:
  "preview":{"station":"Mountain View","departures":[]}}
 ```
 
+Optional `title` and `description` strings supply the widget gallery's labels;
+each defaults to the humanised `kind` when omitted.
+
 `component` and the `props` shape are declared or imported by `app.contract`;
 every component prop must match a field of that shape. `preview` supplies all
 fields, with their declared types. `refresh` names a data-source function taking
@@ -352,7 +356,7 @@ The render's props slot is named `snapshot_props`; find it by name, since a
 `path(...)` link also needs a router slot. Its initial value is the preview; reached bindings cannot use that reserved name.
 The bake writes `plans/<kind>.plan` beside `app.plan`. The envelope's `plans`
 map indexes these authenticated assets in the app's compatibility cohort.
-Kinds and families are binary compatibility inputs; views and preview props
+Kinds, families and gallery labels are binary compatibility inputs; views and preview props
 are plan contents. A running host refuses a snapshot plan at decode, and a
 snapshot reader requires its exact kind and refresh signature.
 

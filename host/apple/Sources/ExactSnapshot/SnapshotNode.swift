@@ -55,7 +55,7 @@ struct SnapshotNodeView: View {
         case "image": SnapshotImageView(node: node, environment: environment)
         default:
             if node.props["type"] == "progress" {
-                SnapshotProgressView(node: node)
+                SnapshotProgressView(node: node, environment: environment)
             } else {
                 let children = node.children.compactMap { tree.nodes[$0] }
                 FrameLayout(frames: children.map(\.frame), size: node.frame.size) {

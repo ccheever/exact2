@@ -111,12 +111,12 @@ public final class HeadlessSession {
     private var language = ""
 
     /// Boots the supplied plan, or the linked app's baked plan when nil.
-    public convenience init(plan: Data? = nil, entry: String? = nil, size: CGSize, facts: SessionFacts, assets: AssetResolver) throws {
-        try self.init(plan: plan, entry: entry, size: size, facts: facts, assets: assets, presentation: nil)
+    public convenience init(plan: Data? = nil, entry: String? = nil, props: Data? = nil, size: CGSize, facts: SessionFacts, assets: AssetResolver) throws {
+        try self.init(plan: plan, entry: entry, props: props, size: size, facts: facts, assets: assets, presentation: nil)
     }
 
     /// A package composition may install Markdown expansion without a presenter.
-    package init(plan: Data? = nil, entry: String? = nil, size: CGSize, facts: SessionFacts, assets: AssetResolver,
+    package init(plan: Data? = nil, entry: String? = nil, props: Data? = nil, size: CGSize, facts: SessionFacts, assets: AssetResolver,
                  presentation: TextPresentation?) throws {
         self.size = size; rootFontSize = facts.rootFontSize
         let runtime = Runtime(hooks: .headless)
@@ -130,7 +130,7 @@ public final class HeadlessSession {
             try facts.prime(runtime)
             if let entry {
                 guard let plan else { return Batch(ops: [], timers: false, motion: false, clock: nil, error: "an entry requires a plan") }
-                return runtime.bootEntry(plan, kind: entry, width: size.width, height: size.height)
+                return runtime.bootEntry(plan, kind: entry, props: props, width: size.width, height: size.height)
             }
             return plan.map { runtime.bootPlan($0, width: size.width, height: size.height) }
                 ?? runtime.boot(width: size.width, height: size.height)
@@ -138,22 +138,22 @@ public final class HeadlessSession {
         Owner.shared.sync { text.commitFonts() }
     }
 
-    public convenience init(plan: Data? = nil, entry: String? = nil, size: CGSize, facts: SessionFacts,
+    public convenience init(plan: Data? = nil, entry: String? = nil, props: Data? = nil, size: CGSize, facts: SessionFacts,
                             assetRoot: URL = Bundle.main.bundleURL) throws {
-        try self.init(plan: plan, entry: entry, size: size, facts: facts, assets: AssetResolver(root: assetRoot))
+        try self.init(plan: plan, entry: entry, props: props, size: size, facts: facts, assets: AssetResolver(root: assetRoot))
     }
 
     public static let defaultRootFontSize = SessionFacts.defaultRootFontSize
 
     /// A display-free convenience; a host with destination facts should supply them explicitly.
-    public convenience init(plan: Data? = nil, entry: String? = nil, size: CGSize, rootFontSize: CGFloat? = nil,
+    public convenience init(plan: Data? = nil, entry: String? = nil, props: Data? = nil, size: CGSize, rootFontSize: CGFloat? = nil,
                             assets: AssetResolver) throws {
-        try self.init(plan: plan, entry: entry, size: size,
+        try self.init(plan: plan, entry: entry, props: props, size: size,
                       facts: SessionFacts(displayScale: 1, preferences: [], rootFontSize: Double(rootFontSize ?? Self.defaultRootFontSize)), assets: assets)
     }
-    public convenience init(plan: Data? = nil, entry: String? = nil, size: CGSize, rootFontSize: CGFloat? = nil,
+    public convenience init(plan: Data? = nil, entry: String? = nil, props: Data? = nil, size: CGSize, rootFontSize: CGFloat? = nil,
                             assetRoot: URL = Bundle.main.bundleURL) throws {
-        try self.init(plan: plan, entry: entry, size: size, rootFontSize: rootFontSize, assets: AssetResolver(root: assetRoot))
+        try self.init(plan: plan, entry: entry, props: props, size: size, rootFontSize: rootFontSize, assets: AssetResolver(root: assetRoot))
     }
 
     /// The reader's body size, including Dynamic Type.
@@ -164,6 +164,15 @@ public final class HeadlessSession {
             if batch.error == nil { rootFontSize = Double(px) }
             return batch
         }
+    }
+
+    /// Typed source refresh; the render boot itself never opens the store.
+    public func timeline(at date: Date) throws -> Data {
+        let bytes = core.runtime.entryTimeline(at: date.timeIntervalSince1970 * 1000)
+        if let object = try JSONSerialization.jsonObject(with: bytes) as? [String: Any], let error = object["error"] as? String {
+            throw Failure(description: error)
+        }
+        return bytes
     }
 
     public func close() {
@@ -201,17 +210,21 @@ public final class HeadlessSession {
         try turn { core.runtime.press(node, now: now) }
     }
 
-    /// The refresh's status and typed timeline. Pending or unavailable data
-    /// leaves the preview intact; this does not execute network requests.
-    public func refreshEntry(at date: Date = .now) throws -> [String: Any] {
-        try Owner.shared.sync {
-            Result {
-                let (batch, result) = core.runtime.refreshEntry(at: date, size: size)
-                if let error = batch.error { throw Failure(description: error) }
-                try apply(batch)
-                return result
-            }
-        }.get()
+    /// Gallery refresh never opens the app's storage or executes requests.
+    package func previewTimeline(at date: Date) throws -> [String: Any] {
+        let bytes = core.runtime.previewTimeline(at: date.timeIntervalSince1970 * 1000)
+        let result = try JSONSerialization.jsonObject(with: bytes) as? [String: Any] ?? [:]
+        if let error = result["error"] as? String { throw Failure(description: error) }
+        return result
+    }
+    /// Advance a pure snapshot without activating the host's deferred I/O.
+    @discardableResult
+    package func advance(to now: Double) throws -> Snapshot {
+        try turn { core.runtime.advance(now: now) }
+    }
+    package func agentFacts() -> [String: Any] {
+        let bytes = Data(core.runtime.agent("{\"op\":\"tags\"}").utf8)
+        return (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
     }
 
     private func turn(size: CGSize? = nil, _ body: () throws -> Batch) throws -> Snapshot {

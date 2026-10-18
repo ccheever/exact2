@@ -10,14 +10,14 @@ use exact_plan::Plan;
 pub(crate) enum PlanBytes<'a> {
     Copied(&'a [u8]),
     Static(&'static [u8]),
-    Entry(&'a [u8], &'a str),
+    Entry(&'a [u8], &'a str, Option<&'a [u8]>),
 }
 
 impl<'a> PlanBytes<'a> {
     /// Bytes from the input buffer: an entry's when a kind names one.
     pub(crate) fn input(bytes: &'a [u8], entry: Option<&'a str>) -> Self {
         match entry {
-            Some(kind) => PlanBytes::Entry(bytes, kind),
+            Some(kind) => PlanBytes::Entry(bytes, kind, None),
             None => PlanBytes::Copied(bytes),
         }
     }
@@ -26,7 +26,7 @@ impl<'a> PlanBytes<'a> {
         match self {
             PlanBytes::Copied(bytes) => Plan::decode(bytes),
             PlanBytes::Static(bytes) => Plan::decode_static(bytes),
-            PlanBytes::Entry(bytes, kind) => Plan::decode_snapshot(bytes, kind),
+            PlanBytes::Entry(bytes, kind, _) => Plan::decode_snapshot(bytes, kind),
         }
     }
 }

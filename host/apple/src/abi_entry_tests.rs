@@ -1,10 +1,13 @@
 use super::*;
 
 #[test]
-fn entry_refresh_replaces_only_a_typed_first_timeline_value() {
+fn entry_refresh_answers_without_mutating_the_preview() {
     #[derive(Default)]
-    struct Timeline(u8);
+    struct Timeline(u8, String);
     impl exact_runner::DataSource for Timeline {
+        fn app_id(&self) -> &str {
+            &self.1
+        }
         fn answer(
             &mut self,
             _: &mut Store,
@@ -31,8 +34,15 @@ fn entry_refresh_replaces_only_a_typed_first_timeline_value() {
             }
         }
     }
+    let app_id = format!("org.exact.wp6-refresh-{}", std::process::id());
+    let (roots, _) = crate::picker::app_dirs(&app_id).unwrap().unwrap();
+    let picked = roots[2].join("picked/survives");
+    std::fs::create_dir_all(picked.parent().unwrap()).unwrap();
+    std::fs::write(&picked, b"running app pick").unwrap();
     let widget = contract::Widget {
         kind: "test-entry".into(),
+        title: None,
+        description: None,
         families: vec!["systemSmall".into()],
         component: "Card".into(),
         props: "Props".into(),
@@ -47,7 +57,8 @@ fn entry_refresh_replaces_only_a_typed_first_timeline_value() {
         bridge.boot_entry(
             bytes.len(),
             10,
-            Timeline(response),
+            0,
+            Timeline(response, app_id.clone()),
             Hooks::none(),
             158.0,
             158.0,
@@ -59,21 +70,13 @@ fn entry_refresh_replaces_only_a_typed_first_timeline_value() {
             .runner()
             .slot("snapshot_props")
             .cloned();
-        let n = bridge.refresh_entry(Timeline(response), Hooks::none(), 1000.0, 158.0, 158.0);
+        let n = bridge.refresh_entry(Timeline(response, app_id.clone()), 1000.0);
         let result: serde_json::Value =
             serde_json::from_slice(bridge.output_bytes(n as usize)).unwrap();
+        assert_eq!(std::fs::read(&picked).unwrap(), b"running app pick");
         if response == 0 {
             assert_eq!(result["entryRefresh"], "timeline");
             assert_eq!(result["timeline"][0]["props"]["title"], "Refreshed train");
-            assert_eq!(
-                bridge
-                    .host
-                    .as_ref()
-                    .unwrap()
-                    .runner()
-                    .slot("snapshot_props"),
-                Some(&Value::record(vec![Value::str("Refreshed train")]))
-            );
         } else {
             assert_eq!(
                 bridge
@@ -86,11 +89,15 @@ fn entry_refresh_replaces_only_a_typed_first_timeline_value() {
                 before
             );
             match response {
-                1 => assert_eq!(result["entryRefresh"], "unavailable"),
-                2 => assert_eq!(result["entryRefresh"], "empty"),
+                1 => {
+                    assert_eq!(result["entryRefresh"], "unavailable");
+                    assert_eq!(result["reason"], "offline");
+                }
+                2 => assert_eq!(result["timeline"], serde_json::json!([])),
                 4 => assert_eq!(result["entryRefresh"], "pending"),
                 _ => assert!(result["error"].as_str().unwrap().contains("conform")),
             }
         }
     }
+    std::fs::remove_dir_all(roots[2].parent().unwrap()).unwrap();
 }

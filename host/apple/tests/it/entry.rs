@@ -6,6 +6,8 @@ use crate::host::{handles, out, put};
 fn entry_plan() -> Vec<u8> {
     let widget = contract::Widget {
         kind: "card".into(),
+        title: None,
+        description: None,
         families: vec!["systemSmall".into()],
         component: "Card".into(),
         props: "Props".into(),
@@ -29,7 +31,7 @@ fn an_entry_plan_boots_by_its_kind_and_a_running_boot_refuses_it() {
     put(rt, &bytes);
     let refused = out(
         rt,
-        handles::exact_boot_entry(rt, plan.len(), 5, 200.0, 100.0),
+        handles::exact_boot_entry(rt, plan.len(), 5, 0, 200.0, 100.0),
     );
     assert!(refused.contains("WrongEntry"), "{refused}");
 
@@ -38,7 +40,7 @@ fn an_entry_plan_boots_by_its_kind_and_a_running_boot_refuses_it() {
     put(rt, &bytes);
     let batch = out(
         rt,
-        handles::exact_boot_entry(rt, plan.len(), 4, 200.0, 100.0),
+        handles::exact_boot_entry(rt, plan.len(), 4, 0, 200.0, 100.0),
     );
     assert!(batch.contains("\"text\":\"Hello\""), "{batch}");
     assert!(batch.contains("\"error\":null"), "{batch}");

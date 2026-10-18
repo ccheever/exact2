@@ -2,8 +2,17 @@
 //! stage 4): every token it carries set in one commit, no plan published.
 
 use super::{DataSource, Runner, RunnerError};
-use crate::design::{self, Edit};
+use crate::design::{self, Edit, Scrub};
 use exact_kernel::CommitReceipt;
+
+/// Whether a build takes live batches, and the last scrub frame it applied.
+#[derive(Debug, Default)]
+pub(crate) struct Live {
+    pub(crate) admitted: bool,
+    scrubbed: Option<Scrub>,
+    /// The runs whose frames a later run's has followed: theirs are older.
+    retired: Vec<String>,
+}
 
 /// Why a build does not apply a batch.
 #[derive(Debug, PartialEq)]
@@ -37,7 +46,7 @@ impl<D: DataSource> Runner<D> {
     /// Admit live batches unless `compat` names a production build: the
     /// live table is development's only (`rules/DEFERRED.md` §Runtime).
     pub fn admit_live(&mut self, compat: Option<&str>) {
-        self.live = !compat.is_some_and(crate::delivery::production);
+        self.live.admitted = !compat.is_some_and(crate::delivery::production);
     }
 
     /// Its role overrides, its own (LLP 1121 stage 5): what a host that
@@ -80,7 +89,7 @@ impl<D: DataSource> Runner<D> {
 
     /// Apply a batch, or a snapshot, from the dev stream.
     pub fn apply_live(&mut self, edit: &Edit) -> Result<LiveApplied, LiveRefusal> {
-        if !self.live {
+        if !self.live.admitted {
             return Err(LiveRefusal::Refused(
                 "a release build takes no live batch".into(),
             ));
@@ -88,19 +97,40 @@ impl<D: DataSource> Runner<D> {
         if edit.structure != design::shape(&self.plan) {
             return Err(LiveRefusal::Structure);
         }
+        let nothing = || LiveApplied {
+            receipt: CommitReceipt::default(),
+            rows: 0,
+            roles: false,
+            full: false,
+        };
+        // A frame sent before the last applied (its run's, or with none its
+        // scrub's): what it shows has been shown over already, a later
+        // scrub's or end's included, and is dropped.
+        if let (Some(frame), Some(last)) = (&edit.scrub, &self.live.scrubbed) {
+            if frame.older(last, &self.live.retired) {
+                return Ok(nothing());
+            }
+        }
         let running = self.design();
         if edit.base.as_ref().is_some_and(|base| *base != running) {
             return Err(LiveRefusal::Stale);
         }
+        if let Some(frame) = &edit.scrub {
+            // A new run's frame retires the run before it (a few kept).
+            if let Some(run) = self.live.scrubbed.as_ref().and_then(|l| l.run.clone()) {
+                if frame.run.as_ref() != Some(&run) && !self.live.retired.contains(&run) {
+                    self.live.retired.push(run);
+                    if self.live.retired.len() > 8 {
+                        self.live.retired.remove(0);
+                    }
+                }
+            }
+            self.live.scrubbed = Some(frame.clone());
+        }
         // No tokens (a notice), or the design it runs already (a snapshot
         // polled again): nothing to set.
         if edit.tokens.is_empty() || edit.design == running {
-            return Ok(LiveApplied {
-                receipt: CommitReceipt::default(),
-                rows: 0,
-                roles: false,
-                full: false,
-            });
+            return Ok(nothing());
         }
         let refusals = exact_kernel::style::wide::refusals();
         let roles = self.roles().generation();

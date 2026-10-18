@@ -18,6 +18,7 @@ struct WidgetEntry {
     let kind: String
     let families: [String]
     let preview: [String: Any]
+    let assets: AssetResolver
 }
 
 struct WidgetVariant: Hashable, Identifiable {
@@ -52,28 +53,51 @@ final class WidgetPreview: ObservableObject {
     let props: [String: Any]
     let refresh: String
     let refreshReason: String?
-    init(_ variant: WidgetVariant, entry: WidgetEntry, app: ExactApp = .shared) throws {
-        self.variant = variant
-        guard let plan = app.resolver.bytes("plans/\(entry.kind).plan") else {
+    let clock: Double
+    let epochAtZero: Double
+    let suppliedProps: String?
+    let generation: String
+    init(_ variant: WidgetVariant, entry: WidgetEntry, appSession: ExactSession, props suppliedProps: String? = nil) throws {
+        self.variant = variant; self.suppliedProps = suppliedProps
+        generation = entry.assets.publicationID
+        clock = appSession.now(); epochAtZero = appSession.dateNow().epoch
+        guard let family = SnapshotEnvironment.Family(rawValue: variant.family) else {
+            throw HeadlessSession.Failure(description: "invalid widget family: \(variant.family)")
+        }
+        guard let plan = entry.assets.bytes("plans/\(entry.kind).plan") else {
             throw HeadlessSession.Failure(description: "missing widget plan: \(entry.kind); rebuild the app")
         }
-        let date = Date()
+        let place = appSession.launchPlace
+        let date = Date(timeIntervalSince1970: (epochAtZero + clock) / 1000)
         let facts = SessionFacts(displayScale: 1, preferences: variant.scheme == "dark" ? [.dark] : [],
-                                 rootFontSize: Double(SnapshotDriver.rootFontSize(for: variant.typeSize)), date: date)
-        let session = try HeadlessSession(plan: plan, entry: entry.kind, size: variant.contentSize, facts: facts, assets: app.resolver)
-        self.session = session
+            rootFontSize: Double(SnapshotDriver.bodySize(for: variant.typeSize)),
+            date: Date(timeIntervalSince1970: epochAtZero / 1000),
+            timeZone: TimeZone(identifier: place.timeZone) ?? TimeZone(secondsFromGMT: 0)!, locale: place.locale, seed: place.seed)
+        let initial = try HeadlessSession(plan: plan, entry: entry.kind, size: variant.contentSize, facts: facts, assets: entry.assets)
         do {
-            let result = try session.refreshEntry(at: date)
-            refresh = result["entryRefresh"] as? String ?? "preview"
-            refreshReason = result["reason"] as? String
+            let result = try initial.previewTimeline(at: date)
             let first = (result["timeline"] as? [[String: Any]])?.first
-            props = first?["props"] as? [String: Any] ?? entry.preview
-            let entryDate = (result["entryDate"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) } ?? date
-            environment = SnapshotEnvironment(family: SnapshotEnvironment.Family(rawValue: variant.family)!,
-                linkBase: URL(string: ExactEnv.appMetadata["ExactOrigin"] as? String ?? ""), imageRoots: [app.assetRoot],
+            var given: [String: Any]?
+            if let suppliedProps {
+                guard let object = try JSONSerialization.jsonObject(with: Data(suppliedProps.utf8)) as? [String: Any] else {
+                    throw HeadlessSession.Failure(description: "widget --props: expected a JSON object")
+                }
+                given = object
+            }
+            props = given ?? (first?["props"] as? [String: Any]) ?? entry.preview
+            refresh = suppliedProps != nil ? "props" : first != nil ? "timeline" : result["entryRefresh"] as? String == "timeline" ? "empty" : result["entryRefresh"] as? String ?? "preview"
+            refreshReason = result["reason"] as? String
+            let bytes = try JSONSerialization.data(withJSONObject: props, options: [.sortedKeys])
+            initial.close()
+            session = try HeadlessSession(plan: plan, entry: entry.kind, props: bytes, size: variant.contentSize, facts: facts, assets: entry.assets)
+            try session.advance(to: clock)
+            let entryDate = (first?["date"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) } ?? date
+            environment = SnapshotEnvironment(family: family,
+                linkBase: URL(string: ExactEnv.appMetadata["ExactOrigin"] as? String ?? ""), imageRoots: [entry.assets.root],
                 contentMargins: EdgeInsets(top: variant.margin, leading: variant.margin, bottom: variant.margin, trailing: variant.margin),
-                rootFontSize: SnapshotDriver.rootFontSize(for: variant.typeSize), entryDate: entryDate)
-        } catch { session.close(); throw error }
+                rootFontSize: SnapshotDriver.bodySize(for: variant.typeSize), entryDate: entryDate,
+                frozenDate: appSession.clock == nil ? nil : date)
+        } catch { initial.close(); throw error }
     }
     deinit { session.close() }
 }
@@ -87,7 +111,10 @@ struct WidgetPreviewView: View {
     var body: some View {
         let variant = preview.variant
         ZStack {
-            if variant.mode == "fullColor" { Color.clear.background(.background) }
+            if variant.mode == "fullColor" {
+                if variant.margin > 0 { RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.background) }
+                else { Rectangle().fill(.background) }
+            }
             else { Color(white: 0.35) }
             SnapshotDriver.view(session: preview.session, displaySize: variant.displaySize, environment: preview.environment)
         }
@@ -96,7 +123,6 @@ struct WidgetPreviewView: View {
         .environment(\.colorScheme, variant.mode == "fullColor" ? (variant.scheme == "dark" ? .dark : .light) : .dark)
         .environment(\.dynamicTypeSize, variant.typeSize)
         .environment(\.widgetRenderingMode, variant.renderingMode)
-        .clipShape(RoundedRectangle(cornerRadius: variant.margin > 0 ? 22 : 0))
     }
 }
 
@@ -104,6 +130,7 @@ struct WidgetPreviewView: View {
 private struct WidgetGalleryCell: View {
     let variant: WidgetVariant
     let entry: WidgetEntry
+    let appSession: ExactSession
     @State private var preview: WidgetPreview?
     @State private var failure: String?
     var body: some View {
@@ -117,7 +144,7 @@ private struct WidgetGalleryCell: View {
         }
         .task {
             guard preview == nil, failure == nil else { return }
-            do { preview = try WidgetPreview(variant, entry: entry) }
+            do { preview = try WidgetPreview(variant, entry: entry, appSession: appSession) }
             catch { failure = String(describing: error) }
         }
     }
@@ -125,7 +152,9 @@ private struct WidgetGalleryCell: View {
 
 @MainActor
 private struct WidgetGalleryView: View {
-    let entries: [WidgetEntry]
+    let appSession: ExactSession
+    @State private var revision = 0
+    private var entries: [WidgetEntry] { WidgetGallery.entries(in: appSession.app.resolver) }
     let close: () -> Void
     var body: some View {
         VStack(spacing: 0) {
@@ -142,26 +171,27 @@ private struct WidgetGalleryView: View {
                             ForEach(["fullColor", "accented", "vibrant"], id: \.self) { mode in
                                 ForEach(["light", "dark"], id: \.self) { scheme in
                                     ForEach(["large", "xxxl"], id: \.self) { size in
-                                        WidgetGalleryCell(variant: WidgetVariant(entry: entry.kind, family: family, mode: mode, scheme: scheme, size: size), entry: entry)
+                                        WidgetGalleryCell(variant: WidgetVariant(entry: entry.kind, family: family, mode: mode, scheme: scheme, size: size), entry: entry, appSession: appSession)
                                     }
                                 }
                             }
                         }
                     }
-                }.padding()
+                }.padding().id(appSession.app.resolver.publicationID + String(revision))
             }
-        }
+        }.onReceive(NotificationCenter.default.publisher(for: Notification.Name("ExactWidgetGeneration"))) { _ in revision += 1 }
     }
 }
 
 enum WidgetGallery {
-    static var entries: [WidgetEntry] {
-        guard let data = try? Data(contentsOf: ExactApp.shared.assetRoot.appendingPathComponent("widget-gallery.json")),
+    static var entries: [WidgetEntry] { entries(in: ExactApp.shared.resolver) }
+    static func entries(in assets: AssetResolver) -> [WidgetEntry] {
+        guard let data = assets.bytes("plans/widgets.json"),
               let values = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
         return values.compactMap { value in
             guard let kind = value["kind"] as? String, let families = value["families"] as? [String],
                   let preview = value["preview"] as? [String: Any] else { return nil }
-            return WidgetEntry(kind: kind, families: families, preview: preview)
+            return WidgetEntry(kind: kind, families: families, preview: preview, assets: assets)
         }
     }
     static var available: Bool { !entries.isEmpty }
@@ -170,18 +200,19 @@ enum WidgetGallery {
     #endif
     static func show() {
         MainActor.assumeIsolated {
+            guard let appSession = DevMenu.session else { return }
             #if os(iOS)
             guard let controller = DevMenu.controller else { return }
-            let host = UIHostingController(rootView: WidgetGalleryView(entries: entries) { [weak controller] in controller?.dismiss(animated: true) })
+            let host = UIHostingController(rootView: WidgetGalleryView(appSession: appSession) { [weak controller] in controller?.dismiss(animated: true) })
             // The action sheet finishes its dismissal before this presentation.
             let present = { controller.present(host, animated: true) }
             if controller.presentedViewController != nil { controller.dismiss(animated: true, completion: present) }
             else { present() }
             #else
-            if let window { window.makeKeyAndOrderFront(nil); return }
+            window?.close()
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 700), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             window.title = "Widgets"; window.isReleasedWhenClosed = false
-            window.contentView = NSHostingView(rootView: WidgetGalleryView(entries: entries) { self.window?.close() })
+            window.contentView = NSHostingView(rootView: WidgetGalleryView(appSession: appSession) { self.window?.close() })
             self.window = window
             window.center(); window.makeKeyAndOrderFront(nil)
             #endif
@@ -191,6 +222,7 @@ enum WidgetGallery {
     static func answer(_ op: String, request: [String: Any], agent: Agent) -> [String: Any] {
         MainActor.assumeIsolated {
             do {
+                let entries = entries(in: agent.session.app.resolver)
                 guard let address = request["widget"] as? [String: String], let kind = address["entry"],
                       let entry = entries.first(where: { $0.kind == kind }) else {
                     throw HeadlessSession.Failure(description: "unknown widget; available: \(entries.map(\.kind).joined(separator: ", "))")
@@ -202,12 +234,18 @@ enum WidgetGallery {
                       ["large", "xxxl"].contains(variant.size) else {
                     throw HeadlessSession.Failure(description: "invalid widget variant; families: \(entry.families.joined(separator: ", ")); modes: fullColor, accented, vibrant; schemes: light, dark; sizes: large, xxxl")
                 }
-                guard ["tree", "screenshot", "state", "tags", "logs"].contains(op) else {
-                    throw HeadlessSession.Failure(description: "widget gallery supports tree, screenshot and state")
+                guard ["tree", "screenshot", "state"].contains(op) else {
+                    throw HeadlessSession.Failure(description: "widget gallery supports tree, screenshot, state and app clock")
                 }
-                if agent.widgetPreview?.variant != variant { agent.widgetPreview = try WidgetPreview(variant, entry: entry, app: agent.session.app) }
+                let old = agent.widgetPreview
+                if old?.variant != variant || old?.clock != agent.session.now() || old?.epochAtZero != agent.session.dateNow().epoch
+                    || old?.generation != entry.assets.publicationID || old?.suppliedProps != address["props"] {
+                    agent.widgetPreview = try WidgetPreview(variant, entry: entry, appSession: agent.session, props: address["props"])
+                }
                 let preview = agent.widgetPreview!
-                var result: [String: Any] = ["widget": ["entry": variant.entry, "family": variant.family, "mode": variant.mode, "scheme": variant.scheme, "size": variant.size], "clock": 0, "epoch": 1, "incarnation": 1]
+                var result: [String: Any] = ["widget": ["entry": variant.entry, "family": variant.family, "mode": variant.mode, "scheme": variant.scheme, "size": variant.size]]
+                let facts = preview.session.agentFacts()
+                for name in ["clock", "epoch", "incarnation"] { result[name] = facts[name] }
                 switch op {
                 case "tree":
                     let snapshot = try preview.session.snapshot()
@@ -237,7 +275,6 @@ enum WidgetGallery {
                     guard CGImageDestinationFinalize(destination) else { throw HeadlessSession.Failure(description: "could not write widget screenshot") }
                     result["screenshot"] = path; result["w"] = variant.displaySize.width; result["h"] = variant.displaySize.height; result["scale"] = 1
                     result["rendering"] = "in-process WidgetKit container stand-in"
-                case "logs": result["lines"] = []; result["next"] = 0
                 default: break
                 }
                 return result

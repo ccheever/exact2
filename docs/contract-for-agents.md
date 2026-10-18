@@ -2391,8 +2391,10 @@ down" "screenshot x.png" "tap up"` shows it. Nothing waits on the runner and no
 state changes. `-exact-press-color` reaches the node's text as `color` does
 (a text with its own colour keeps it). Any of them, 1 included, replaces the
 platform's unsaid press: iOS's dim, the Mac's darkening, a list row's cell
-highlight. Contract has no `:active` and no pressed block, so these are paint
-only; a press that changes layout is app state. Do not draw a press from
+highlight. An `:active` state part (below) says the same paint, with an
+opacity that is what the node shows pressed rather than a share; write each
+paint one way or the other, not both. These are paint only; a press that
+changes layout is app state. Do not draw a press from
 `pointerdown`/`pointerup` state: each touch then waits on the runner. Say
 nothing to get the platform's own.
 
@@ -3102,11 +3104,21 @@ component App
 `aria-pressed` true) are the runner's: they take `background-color`, `color`,
 `border-color`, `opacity`, `box-shadow` and `-exact-tint-color`, `:checked`
 under `:disabled`, and `:disabled` is your own disabled look (no default dim).
-`:active` (the host's press), `:hover` and `:focus-visible` are the host's:
-their rows never inherit (`background-color`, `border-color`, `opacity`,
-`box-shadow`, `-exact-press-scale`) and are literals, tokens included; the
-plan records them, and the hosts apply them on their own tracking from stage
-8 B. A part
+`:active` is the host's own press of the innermost node with a `press`: it takes
+`background-color`, `color`, `opacity` and `-exact-press-scale`, which become the
+node's pressed paint (LLP 1061 D7), eased on the press curve (under Reduce
+Motion too, as the press is feedback) and replacing the host's unsaid press (no
+65% dim on top); its `opacity` is the opacity it shows pressed, not a share.
+Say each once: `:active background-color` beside `-exact-press-background-color`
+is refused (`lower-state-press-paint`), as is a border or shadow there, which the
+press cannot paint yet. `:hover` and `:focus-visible` take `background-color`,
+`border-color`, `opacity` and `box-shadow`, shown at once while they hold (on
+the web a `transition` of the node's own on one of those rows still times it), the
+focus's over the hover's, under the press. Each host applies them on its own
+tracking, over the node's rows (rows a part doesn't name show the base, also a
+base that changes while pressed); their rows are literals, tokens included. A
+disabled node takes none. The web (both targets) does this today; Apple, Linux
+and Android follow (LLP 1121 stage 8 B). A part
 on a native control or a list's row is refused (their states are the
 platform's); a node's own part whose state it never writes (`:disabled` with no
 `disabled`) is warned of (`lower-state-dead`).

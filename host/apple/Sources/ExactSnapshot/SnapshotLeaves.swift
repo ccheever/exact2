@@ -24,7 +24,7 @@ struct SnapshotTextView: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        if let live = SnapshotLive.presentation(node, entryDate: environment.entryDate) {
+        if environment.frozenDate == nil, let live = SnapshotLive.presentation(node, entryDate: environment.entryDate) {
             SnapshotLiveText(node: node, presentation: live).widgetAccentable()
         } else {
             let box = node.contentBox
@@ -176,10 +176,14 @@ struct SnapshotLiveText: View {
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct SnapshotProgressView: View {
     let node: HeadlessSession.Node
+    let environment: SnapshotEnvironment
 
     var body: some View {
         Group {
-            if let interval = SnapshotLive.interval(node) {
+            if let interval = SnapshotLive.interval(node), let date = environment.frozenDate {
+                let fraction = min(1, max(0, date.timeIntervalSince(interval.lowerBound) / max(0.001, interval.upperBound.timeIntervalSince(interval.lowerBound))))
+                ProgressView(value: (node.props["timeFormat"] ?? node.props["format"]) == "countdown" ? 1 - fraction : fraction)
+            } else if let interval = SnapshotLive.interval(node) {
                 ProgressView(timerInterval: interval, countsDown: (node.props["timeFormat"] ?? node.props["format"]) == "countdown") { EmptyView() } currentValueLabel: { EmptyView() }
             } else if let value = Double(node.props["value"] ?? "") {
                 ProgressView(value: min(value, total), total: total)

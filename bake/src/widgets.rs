@@ -18,6 +18,10 @@ pub(crate) fn emit(
         plans.insert(kind.clone(), card.clone());
         assets.push(card);
     }
+    if !entries.is_empty() {
+        let bytes = std::fs::read(out.join("plans/widgets.json")).map_err(|e| e.to_string())?;
+        assets.push(json!({"name":"plans/widgets.json", "sha256":exact_update::sha256_hex(&bytes), "bytes":bytes.len()}));
+    }
     Ok((assets, Value::Object(plans)))
 }
 
@@ -117,8 +121,12 @@ mod tests {
                     compat.embedded["plans"]["card"]["sha256"],
                     exact_update::sha256_hex(&bytes)
                 );
-                assert_eq!(compat.embedded["assets"].as_array().unwrap().len(), 1);
-                assert!(!out.join("plans/widgets.json").exists());
+                assert_eq!(compat.embedded["assets"].as_array().unwrap().len(), 2);
+                let registry: Value =
+                    serde_json::from_slice(&std::fs::read(out.join("plans/widgets.json")).unwrap())
+                        .unwrap();
+                assert_eq!(registry[0]["kind"], "card");
+                assert_eq!(registry[0]["families"], json!(["systemSmall"]));
             } else {
                 assert!(compat.embedded.get("plans").is_none());
                 assert!(!out.join("plans").exists());

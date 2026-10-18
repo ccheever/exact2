@@ -44,14 +44,16 @@ let gallery = ProcessInfo.processInfo.environment["EXACT_UPDATE_TRUST"] != "prod
     && (testing || ProcessInfo.processInfo.environment["EXACT_WIDGET_GALLERY"] == "1")
 let gallerySettings: [SwiftSetting] = gallery ? [.define("EXACT_WIDGET_GALLERY")] : []
 
+let widgetCore = ProcessInfo.processInfo.environment["EXACT_WIDGET_CORE"] == "1"
+let sharedCore = ProcessInfo.processInfo.environment["EXACT_CORE_FRAMEWORK"]
 let core: [Target] = [
     .systemLibrary(name: "CExact", path: "Sources/CExact"),
-    .target(
+    sharedCore.map { .binaryTarget(name: "ExactCore", path: $0) } ?? .target(
         name: "ExactCore",
         dependencies: ["CExact"],
         path: "Sources/ExactCore",
-        swiftSettings: [.unsafeFlags(["-application-extension"])],
-        linkerSettings: [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName), .linkedLibrary("c++"), .linkedFramework("ImageIO")]
+        swiftSettings: [.unsafeFlags(["-application-extension"])] + (widgetCore ? [.define("EXACT_WIDGETS")] : []),
+        linkerSettings: (widgetCore ? [.unsafeFlags(["-Xlinker", "-force_load", "-Xlinker", libDir + "/lib" + libName + ".a"])] : [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName)]) + [.linkedLibrary("c++"), .linkedFramework("ImageIO")]
     ),
     // The snapshot driver (LLP 1126 D4, D5): SwiftUI over a headless
     // session's node model, for WidgetKit's archive. Linked by an app with
@@ -97,7 +99,7 @@ let tests: [Target] = [
 let package = Package(
     name: "Exact",
     platforms: [.macOS(.v14), .iOS(.v17), .tvOS(.v17), .watchOS(.v10), .visionOS(.v1)],
-    products: [.library(name: "ExactCore", targets: ["ExactCore"]), .library(name: "ExactSnapshot", targets: ["ExactSnapshot"])] + (testing ? [.library(name: "ExactKit", targets: ["ExactKit"])] : [
+    products: [.library(name: "ExactCore", type: widgetCore ? .dynamic : nil, targets: ["ExactCore"]), .library(name: "ExactSnapshot", type: widgetCore ? .static : nil, targets: ["ExactSnapshot"])] + (testing ? [.library(name: "ExactKit", targets: ["ExactKit"])] : [
         .library(name: "ExactKit", targets: ["ExactKit"]),
         .library(name: "ExactUpdates", targets: ["ExactUpdates"]),
         .library(name: "ExactGroupedLists", targets: ["ExactGroupedLists"]),

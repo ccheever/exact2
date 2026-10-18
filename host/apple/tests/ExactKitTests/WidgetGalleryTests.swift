@@ -1,40 +1,69 @@
-#if EXACT_WIDGET_GALLERY && os(macOS)
+#if EXACT_WIDGET_GALLERY && (os(macOS) || os(iOS))
 import XCTest
-import AppKit
 import SwiftUI
 import ExactCore
+import ExactSnapshot
 @testable import ExactKit
 
 @MainActor
 final class WidgetGalleryTests: XCTestCase {
-    func testGalleryOpensWithTheBakedEntryAndLeavesTheAppAssetsIntact() throws {
+    func testReadsUseTheRefreshAtTheAppClockAndTheCurrentGeneration() throws {
+        #if os(macOS)
         _ = NSApplication.shared
+        #endif
         let plan = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_SNAPSHOT_TRAINS_PLAN"]))
         let manifest = try JSONSerialization.jsonObject(with: Data(contentsOf: plan.deletingLastPathComponent().appendingPathComponent("entries/caltrain/app.json"))) as! [String: Any]
-        let directory = plan.deletingLastPathComponent().appendingPathComponent("widget-gallery-\(UUID().uuidString)")
+        let directory = plan.deletingLastPathComponent().appendingPathComponent("gallery-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory.appendingPathComponent("plans"), withIntermediateDirectories: true)
         try FileManager.default.copyItem(at: plan, to: directory.appendingPathComponent("plans/next-trains.plan"))
-        try JSONSerialization.data(withJSONObject: try XCTUnwrap(manifest["widgets"])).write(to: directory.appendingPathComponent("widget-gallery.json"))
-        let app = ExactApp.shared, previous = ExactApp.shared.assetRoot
+        try JSONSerialization.data(withJSONObject: try XCTUnwrap(manifest["widgets"])).write(to: directory.appendingPathComponent("plans/widgets.json"))
+        let app = ExactApp.shared, previous = app.assetRoot
         defer { app.assetRoot = previous; try? FileManager.default.removeItem(at: directory) }
         app.assetRoot = directory
-        XCTAssertTrue(WidgetGallery.available)
-        let entry = try XCTUnwrap(WidgetGallery.entries.first)
-        let preview = try WidgetPreview(WidgetVariant(entry: entry.kind, family: "systemMedium", mode: "accented", scheme: "dark", size: "xxxl"), entry: entry)
-        XCTAssertEqual(preview.props["station"] as? String, "Mountain View")
-        XCTAssertEqual(try preview.session.snapshot().nodes.count, 8)
-        WidgetGallery.show()
-        let window = try XCTUnwrap(NSApp.windows.first { $0.title == "Widgets" })
-        defer { window.close() }
-        XCTAssertTrue(window.isVisible)
-        let view = try XCTUnwrap(window.contentView)
-        view.layoutSubtreeIfNeeded()
-        XCTAssertGreaterThan(view.bounds.height, 600)
-        if let output = ProcessInfo.processInfo.environment["EXACT_WP6_OUT"],
-           let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
-            view.cacheDisplay(in: view.bounds, to: bitmap)
-            try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: output).appendingPathComponent("gallery-macos.png"))
+        // 09:05 UTC: the next departure is the refresh's train 121, absent from preview.
+        let epoch = 1_787_907_900_000.0
+        let place = LaunchPlace(environment: ["EXACT_AGENT":"1", "EXACT_AGENT_EPOCH":String(epoch)])
+        let session = ExactSession(app: app, label: "widget-test", launchPlace: place)
+        session.clock = 0
+        defer { session.destroy() }
+        let agent = Agent(session: session)
+        let address = ["entry":"next-trains", "family":"systemMedium", "mode":"accented", "scheme":"dark", "size":"xxxl"]
+        func read(_ op: String, path: String? = nil) -> [String: Any] {
+            WidgetGallery.answer(op, request: ["widget":address, "path":path as Any], agent: agent)
         }
+        let state = read("state")
+        XCTAssertNil(state["error"])
+        XCTAssertEqual(state["refresh"] as? String, "timeline")
+        let props = try XCTUnwrap(state["props"] as? [String: Any])
+        let trains = try XCTUnwrap(props["departures"] as? [[String: Any]])
+        XCTAssertEqual(trains.first?["train"] as? Int, 121)
+        XCTAssertEqual(trains.first?["at"] as? Double, epoch + 180_000)
+        let preview = try XCTUnwrap(agent.widgetPreview)
+        XCTAssertEqual(preview.environment.rootFontSize, SnapshotDriver.bodySize(for: .xxxLarge))
+        XCTAssertEqual(preview.environment.rootFontSize, 23)
+        let tree = read("tree")
+        XCTAssertNil(tree["error"])
+        XCTAssertEqual(tree["clock"] as? Double, 0)
+        XCTAssertNotNil(tree["epoch"]); XCTAssertNotNil(tree["incarnation"])
+        let roots = try XCTUnwrap(tree["roots"] as? [UInt32])
+        let nodes = try XCTUnwrap(tree["nodes"] as? [[String: Any]])
+        XCTAssertFalse(roots.isEmpty)
+        XCTAssertTrue(roots.allSatisfy { root in nodes.contains { ($0["id"] as? UInt32) == root && ($0["type"] as? String) == "view" } })
+        XCTAssertTrue(nodes.contains { ($0["type"] as? String) == "text" && ($0["props"] as? [String: String])?["semanticTag"] == "time" && ($0["props"] as? [String: String])?["text"] == "03:00" })
+        let png = directory.appendingPathComponent("entry.png")
+        let image = read("screenshot", path: png.path)
+        XCTAssertNil(image["error"])
+        XCTAssertEqual(image["w"] as? CGFloat, 338); XCTAssertEqual(image["h"] as? CGFloat, 158)
+        XCTAssertGreaterThan(try Data(contentsOf: png).count, 100)
+        session.clock = 600_000
+        let later = read("state")
+        XCTAssertEqual(later["clock"] as? Double, 600_000)
+        let laterProps = try XCTUnwrap(later["props"] as? [String: Any])
+        XCTAssertNotEqual((laterProps["departures"] as? [[String: Any]])?.first?["train"] as? Int, 121)
+        // A complete resolver can add entries without consulting the embedded directory.
+        let registry = try JSONSerialization.data(withJSONObject: [["kind":"added", "families":["systemSmall"], "preview":[:]]])
+        let assets = AssetResolver(root: directory, names: ["plans/widgets.json"], generation: "reload") { _ in registry }
+        XCTAssertEqual(WidgetGallery.entries(in: assets).map(\.kind), ["added"])
     }
 }
 #endif
