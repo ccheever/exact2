@@ -545,6 +545,8 @@ pub struct Painter {
     /// The control under a pointer that hovers, and the one a contact holds
     /// down (`presenter/feedback.rs`), which the neutral look washes.
     pub(crate) feedback: (Option<ViewId>, Option<ViewId>),
+    /// The control a held `active` presses (`presenter/held.rs`), beside a contact's.
+    pub(crate) held_press: Option<ViewId>,
     /// The background the last box painted shows, its states' over its own,
     /// which its `background-clip: text` fills with (`text_clip`).
     clipped: Option<(ViewId, [u8; 4])>,
@@ -663,6 +665,7 @@ impl Painter {
             flatten: None,
             ringless: None,
             feedback: (None, None),
+            held_press: None,
             clipped: None,
             field_content: HashMap::new(),
             field_text: HashMap::new(),
@@ -1089,7 +1092,10 @@ impl Painter {
         if paints_self {
             paint.paint(self.backend.as_mut(), &surface, ts);
             self.column_rules(walk.scene.kernel, node, rect, ts);
-            let (dark, feedback) = (self.dark, self.feedback);
+            let (dark, feedback) = (
+                self.dark,
+                (self.feedback.0, self.presses(node.id).then_some(node.id)),
+            );
             let kernel = walk.scene.kernel;
             neutral::row(
                 self.backend.as_mut(),

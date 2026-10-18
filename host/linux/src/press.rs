@@ -68,6 +68,8 @@ pub(crate) struct Held {
     pub revision: Option<u64>,
     pub over: bool,
     pub focused: bool,
+    /// The build channel's stream it was held on (`Link::stream`).
+    pub stream: u64,
 }
 
 /// The looks that hold: the pointer's (`:hover`), the focus's

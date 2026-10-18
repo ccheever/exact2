@@ -45,18 +45,19 @@ impl<D: DataSource> Presenter<D> {
         None
     }
 
-    /// The control a press shows on: a contact's, else a held `active`'s
-    /// (HeldState, as the real press it stands for).
-    pub(super) fn pressed_feedback(&self) -> Option<ViewId> {
-        let contact = self
-            .contact_hit()
-            .and_then(|key| self.host.kernel().node_by_key(key).map(|node| node.id));
-        let held = self
-            .held()
-            .filter(|h| h.state == crate::host::press::HoldState::Active);
-        contact
-            .or(held.map(|h| h.view))
+    /// The control a contact's press shows on.
+    fn pressed_feedback(&self) -> Option<ViewId> {
+        self.contact_hit()
+            .and_then(|key| self.host.kernel().node_by_key(key).map(|node| node.id))
             .and_then(|id| self.feedback_at(id))
+    }
+
+    /// The control a held `active` shows pressed (`presenter/held.rs`), as
+    /// the real press it stands for, beside any contact's.
+    pub(super) fn held_press_feedback(&self) -> Option<ViewId> {
+        (self.held())
+            .filter(|h| h.state == crate::host::press::HoldState::Active)
+            .and_then(|h| self.feedback_at(h.view))
     }
 
     /// Read both again, after anything that moved the pointer or a contact.

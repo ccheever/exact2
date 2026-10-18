@@ -123,6 +123,7 @@ final class TextField: UITextField {
     }
     override func deleteBackward() {
         owner?.presenter?.supersedePress()
+        owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go (HeldState.swift)
         if heard != "Backspace", let owner, !owner.disabled, owner.presenter?.keyDown(at: owner, "Backspace") == true { return }
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
@@ -179,6 +180,7 @@ package final class TextArea: UITextView {
 
     package override func deleteBackward() {
         owner?.presenter?.supersedePress()
+        owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go, a deletion that changes nothing included (HeldState.swift)
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
         } else { super.deleteBackward() }

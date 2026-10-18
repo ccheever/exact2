@@ -57,6 +57,14 @@ fn boot() -> Presenter<()> {
     .unwrap();
     assert!(error.is_none(), "{error:?}");
     p.set_development(Some("http://127.0.0.1:9/".into()), Some("plan-a".into()));
+    // A stream, as a registration opens one: hold reports are its.
+    p.dev
+        .as_mut()
+        .unwrap()
+        .link
+        .as_mut()
+        .unwrap()
+        .settle_nonce_for_test("n1");
     p
 }
 
@@ -466,7 +474,78 @@ fn a_held_press_on_a_painted_control_shows_its_pressed_look() {
     let native = view(&p, "native");
     let held = target(&p, "native", "active");
     assert_eq!(serve(&mut p, vec![hold(1, held)])[0]["state"], "active");
-    assert_eq!(p.brush.feedback.1, Some(native));
+    assert!(p.brush.presses(native));
+    // A contact's press on another control leaves it pressed too.
+    let at = ground(&mut p, "card");
+    p.pointer_down(at.0, at.1, 0.).unwrap();
+    assert!(p.brush.presses(native));
+    p.pointer_up(at.0, at.1, 10.).unwrap();
     serve(&mut p, vec![hold(2, Value::Null)]);
-    assert_eq!(p.brush.feedback.1, None);
+    assert!(!p.brush.presses(native));
+}
+
+/// A same-plan generation on a display that acknowledges pictures: a held
+/// `active` named on a node inside the press is taken again (the kernel's
+/// parents, not the last picture's), with no `gone`.
+#[test]
+fn a_held_press_named_inside_survives_a_displayed_generation() {
+    let mut p = boot();
+    let first = p.display_frame().unwrap();
+    assert!(p.display_complete(&first));
+    let child = target(&p, "child", "active");
+    assert_eq!(serve(&mut p, vec![hold(4, child)])[0]["state"], "active");
+    p.painted = true;
+    p.pending_dev = Some(crate::fetch::Generation {
+        identity: "gen-b".into(),
+        plan: plan(APP),
+        module: None,
+    });
+    p.poll_development(|| ());
+    assert!(p.pending_dev.is_none(), "installed");
+    assert_eq!(
+        reports(&mut p),
+        [json!({"kind": "held", "state": "active", "revision": 4})]
+    );
+    assert!(p.held().is_some());
+}
+
+/// A frame for another plan leaves the frame kept and what is held alone;
+/// a hold's let-go on an earlier stream says nothing on the new one.
+#[test]
+fn a_frame_of_another_plan_and_an_earlier_streams_let_go_say_nothing() {
+    let mut p = boot();
+    let card = target(&p, "card", "hover");
+    assert_eq!(
+        serve(&mut p, vec![hold(2, card.clone())])[0]["state"],
+        "hover"
+    );
+    let mut other = hold(3, card);
+    other["plan"] = json!("another");
+    assert!(serve(&mut p, vec![other]).is_empty());
+    assert!(p.held().is_some(), "still held");
+    let kept = p
+        .dev
+        .as_ref()
+        .unwrap()
+        .link
+        .as_ref()
+        .unwrap()
+        .hold
+        .as_ref()
+        .map(|h| h.0);
+    assert_eq!(kept, Some(2), "the frame kept is the one held");
+    // A new stream (a reconnect): the old hold's let-go is no news to it.
+    p.dev
+        .as_mut()
+        .unwrap()
+        .link
+        .as_mut()
+        .unwrap()
+        .settle_nonce_for_test("n2");
+    p.tap(view(&p, "disable")).unwrap();
+    p.frame();
+    assert!(reports(&mut p).is_empty(), "{:?}", p.held());
+    // Nor is a frame kept on the old stream taken again on the new one.
+    p.rehold();
+    assert!(p.held().is_none() && reports(&mut p).is_empty());
 }

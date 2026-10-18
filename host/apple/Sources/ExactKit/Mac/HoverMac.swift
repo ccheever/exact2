@@ -27,8 +27,17 @@ extension Presenter {
     func pointerOver(_ node: NodeView) -> Bool? {
         guard pointerHeld == nil, pointerSource == nil else { return nil }
         guard let p = restingPointer(), let content = viewport.window?.contentView,
-              let hit = content.hitTest(content.superview?.convert(p, from: nil) ?? p) else { return false }
+              let hit = TableRowCell.whatIsThere({ content.hitTest(content.superview?.convert(p, from: nil) ?? p) }) else { return false }
         return MainActor.assumeIsolated { HeldState.within(hit, node) }
+    }
+    /// A button going down (the window's monitor, ExactViewMac): a held node
+    /// it lands on or in lets its hold go (HeldState.swift). Its hit is what
+    /// the hover path and the driver's aim see, a pressable table row's own
+    /// views where AppKit's hit test gives the table (`TableRowCell.whatIsThere`).
+    func heldPointerDown(_ event: NSEvent) {
+        guard let content = event.window?.contentView else { return }
+        let hit = TableRowCell.whatIsThere { content.hitTest(content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow) }
+        MainActor.assumeIsolated { HeldState.input(at: hit) }
     }
     /// The `:hover` looks of the path from `leaf` in its own window (a
     /// sheet's, a popover's): it and its authored ancestors.

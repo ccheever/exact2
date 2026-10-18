@@ -35,8 +35,13 @@ enum HeldState {
     /// (`frame`, `ExactApp.rehold`); under another the server replays it,
     /// its site corresponded.
     static var swapping = false
-    /// The build channel's hold frame held now, and the plan it was held under.
-    static var frame: (frame: [String: Any], plan: String?)?
+    /// The build channel's hold frame held now, the plan it was held under,
+    /// and the stream it came on.
+    static var frame: (frame: [String: Any], plan: String?, stream: String?)?
+    /// The stream the last hold frame came on (`ExactApp.holdStream`).
+    static var stream: String?
+    /// The stream the tests stand in for the connection's.
+    static var testStream: String?
     /// The revision of the hold frame being applied: the same frame taken
     /// again (resent, or `rehold`'s) replaces nothing.
     static var applying: Int?
@@ -253,13 +258,17 @@ extension Presenter {
 }
 
 extension ExactApp {
+    /// The stream a hold frame comes on and its reports go back on: the
+    /// connection's nonce (`PlanURL`; the tests stand one in).
+    var holdStream: String? { MainActor.assumeIsolated { HeldState.testStream } ?? connection?.nonce }
+
     /// After a dev loop's new generation: the build channel's hold frame
     /// taken again, under the same plan (under another, the server's replay).
     func rehold() {
         #if EXACT_INSPECT && !os(tvOS)
         let plan = BuildChannel.planDigest(self)
         MainActor.assumeIsolated {
-            guard HeldState.view == nil, let kept = HeldState.frame, kept.plan == plan else { return }
+            guard HeldState.view == nil, let kept = HeldState.frame, kept.plan == plan, kept.stream == holdStream else { return }
             holdCommand(kept.frame)
         }
         #endif

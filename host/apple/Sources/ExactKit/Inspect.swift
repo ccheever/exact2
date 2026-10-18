@@ -170,7 +170,14 @@ extension ExactApp {
     /// this host can't hold is said so (`unsupported`).
     func holdCommand(_ frame: [String: Any]) {
         let revision = (frame["revision"] as? NSNumber)?.intValue
+        // The stream the frame came on (LLP 1122 D4; host/web/dev.js binds its holds the same way): its revisions are
+        // its own. A new one (a reconnect, a restarted server, which may number from where an old one did) forgets the
+        // revisions ended on the one before, and what a hold of an old stream says later (its let-go) is said to none.
+        let stream = holdStream
+        let live = { [weak self] in self?.holdStream == stream }
+        MainActor.assumeIsolated { if HeldState.stream != stream { HeldState.stream = stream; HeldState.ended = [] } }
         let report: ([String: Any]) -> Void = { [weak self] body in
+            guard live() else { return }
             var body = body
             body["revision"] = revision.map { $0 as Any } ?? NSNull()
             self?.connection?.report(body)
@@ -185,10 +192,10 @@ extension ExactApp {
         }
         if ended, frame["hold"] is [String: Any] { return }
         let plan = BuildChannel.planDigest(self), addressed = frame["plan"] as? String
-        MainActor.assumeIsolated { HeldState.frame = frame["hold"] is [String: Any] ? (frame, addressed ?? plan) : nil }
-        // A hold addressing another plan (one swapped in since) is nothing, unsaid: the server's replay after the
-        // status that names this plan corresponds it (and `rehold` takes it should that plan come back).
+        // A hold addressing another plan (one swapped in since) is nothing, unsaid: the hold held and the frame kept for
+        // `rehold` stay as they are, and the server's replay after the status that names this plan corresponds it.
         if frame["hold"] is [String: Any], let addressed, addressed != plan { return }
+        MainActor.assumeIsolated { HeldState.frame = frame["hold"] is [String: Any] ? (frame, addressed ?? plan, stream) : nil }
         guard let h = frame["hold"] as? [String: Any], let state = h["state"] as? String else {
             MainActor.assumeIsolated { HeldState.letGo("replaced") }
             report(["kind": "held", "state": NSNull()])
@@ -218,6 +225,7 @@ extension ExactApp {
         defer { MainActor.assumeIsolated { HeldState.applying = nil } }
         let r = MainActor.assumeIsolated { HeldState.hold(state, on: found[0].id, in: found[0].presenter) { reason in
             if reason == "replaced", MainActor.assumeIsolated({ HeldState.applying }) == revision { return }
+            guard live() else { return } // (a hold of an old stream: its revision is no longer the server's)
             MainActor.assumeIsolated {
                 if HeldState.frame.map({ ($0.frame["revision"] as? NSNumber) == (frame["revision"] as? NSNumber) }) == true { HeldState.frame = nil }
                 if reason != "replaced" { HeldState.end(revision) }

@@ -20,10 +20,11 @@ import XCTest
 final class HeldStateTests: XCTestCase {
     #if os(iOS)
     private var window: UIWindow!
-    override func tearDown() { MainActor.assumeIsolated { window = nil; HeldState.letGo("replaced"); HeldState.swapping = false; HeldState.heard = nil; HeldState.frame = nil } }
+    override func tearDown() { MainActor.assumeIsolated { window = nil; HeldState.letGo("replaced"); HeldState.swapping = false; HeldState.heard = nil; HeldState.frame = nil; HeldState.testStream = nil } }
     #else
     private var window: NSWindow!
-    override func tearDown() { MainActor.assumeIsolated { window?.close(); window = nil; HeldState.letGo("replaced"); HeldState.swapping = false; HeldState.heard = nil; HeldState.frame = nil } }
+    override func tearDown() { MainActor.assumeIsolated { window?.close(); window = nil; HeldState.letGo("replaced"); HeldState.swapping = false; HeldState.heard = nil; HeldState.frame = nil; HeldState.testStream = nil; tableFixture?.close(); tableFixture = nil } }
+    private var tableFixture: TableFixture?
     #endif
 
     private let blue: [Double] = [37, 99, 235, 255], navy: [Double] = [29, 78, 216, 255], green: [Double] = [0, 255, 0, 255]
@@ -66,6 +67,11 @@ final class HeldStateTests: XCTestCase {
             ["op": "frame", "id": 7, "x": 0.0, "y": 0.0, "w": 50.0, "h": 20.0],
             ["op": "frame", "id": 8, "x": 270.0, "y": 170.0, "w": 100.0, "h": 40.0],
             ["op": "frame", "id": 9, "x": 50.0, "y": 280.0, "w": 100.0, "h": 40.0],
+            ["op": "create", "id": 10, "kind": "textarea", "props": ["value": "notes", "testId": "notes"]],
+            ["op": "create", "id": 11, "kind": "control", "handlers": ["change"], "props": ["type": "checkbox", "testId": "check"]],
+            ["op": "children", "id": 4, "ids": [10, 11]],
+            ["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 60.0, "h": 40.0],
+            ["op": "frame", "id": 11, "x": 64.0, "y": 0.0, "w": 30.0, "h": 30.0],
             ["op": "frame", "id": 1, "x": 50.0, "y": 50.0, "w": 200.0, "h": 100.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 50.0, "h": 50.0],
             ["op": "frame", "id": 3, "x": 60.0, "y": 0.0, "w": 50.0, "h": 50.0],
@@ -377,9 +383,11 @@ final class HeldStateTests: XCTestCase {
         })
         return (session, p, card, child)
     }
-    private func hold(_ app: ExactApp, _ session: ExactSession, _ id: UInt32, revision: Int) {
+    private func hold(_ app: ExactApp, _ session: ExactSession, _ id: UInt32, revision: Int, plan: String? = nil) {
         let node = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"node\",\"id\":\(id)}").utf8))) as? [String: Any] ?? [:]
-        app.holdCommand(["kind": "hold", "revision": revision, "hold": ["site": node["site"] ?? NSNull(), "instance": node["instance"] ?? [], "state": "active"]])
+        var frame: [String: Any] = ["kind": "hold", "revision": revision, "hold": ["site": node["site"] ?? NSNull(), "instance": node["instance"] ?? [], "state": "active"]]
+        if let plan { frame["plan"] = plan }
+        app.holdCommand(frame)
     }
 
     /// On the build channel: an exit then a destroy, and a session's end, each say `gone` once, at the held revision.
@@ -406,6 +414,38 @@ final class HeldStateTests: XCTestCase {
         XCTAssertEqual(heard.last?["revision"] as? Int, 10)
     }
 
+    /// Holds are their stream's: after a reconnect (a new nonce; a restarted
+    /// server numbers from where the old one did) an old hold's let-go says
+    /// nothing, its ended revisions are forgotten, and the same revision on
+    /// the new stream is taken.
+    @MainActor func testAHoldIsItsStreamsAndAReconnectReusingItsRevisionIsTaken() throws {
+        var heard: [[String: Any]] = []
+        HeldState.heard = { heard.append($0) }
+        let (session, _, card, _) = try booted("held-stream")
+        defer { session.destroy() }
+        HeldState.testStream = "a"
+        hold(ExactApp.shared, session, card.id, revision: 5)
+        XCTAssertTrue(card.holds("active"))
+        // Reconnected: the old hold's late release goes to no one.
+        HeldState.testStream = "b"
+        HeldState.input(at: card)
+        XCTAssertEqual(heard.count, 1, "\(heard)")
+        hold(ExactApp.shared, session, card.id, revision: 5)
+        XCTAssertTrue(card.holds("active"), "the new stream's revision 5 is taken: \(heard)")
+        HeldState.input(at: card)
+        XCTAssertEqual(heard.map { $0["reason"] as? String }, [nil, nil, "input"], "\(heard)")
+        // Ended on stream b; a stream c that reuses revision 5 takes it.
+        HeldState.testStream = "c"
+        hold(ExactApp.shared, session, card.id, revision: 5)
+        XCTAssertTrue(card.holds("active"), "\(heard)")
+        XCTAssertEqual(heard.count, 4, "\(heard)")
+        // A frame for another plan leaves the hold and its kept frame as they are.
+        hold(ExactApp.shared, session, card.id, revision: 6, plan: "another plan")
+        XCTAssertTrue(card.holds("active"))
+        XCTAssertEqual(HeldState.frame?.frame["revision"] as? Int, 5)
+        XCTAssertEqual(heard.count, 4, "\(heard)")
+    }
+
     #if os(iOS)
     /// The agent's tap lets a hold go at its down, on the press or on its
     /// flat child; and the agent's `layout` of that flat child answers, with
@@ -423,12 +463,56 @@ final class HeldStateTests: XCTestCase {
         XCTAssertEqual((node["native"] as? [String: Any])?["flatLeaf"] as? Bool, true)
         let rows = try XCTUnwrap((node["held"] as? [String: Any])?["rows"] as? [[String: Any]], "\(node)")
         XCTAssertEqual(rows.first?["value"] as? String, "#0000ff")
-        _ = agent.tap(["id": Int(leaf)])
-        XCTAssertEqual(dropped, ["input"], "the agent's tap on the flat child")
-        p.views[card.id]?.pressed = false
+        // A tap refused (its point outside the node) lets nothing go.
+        let refused = agent.tap(["id": Int(card.id), "at": [900.0, 900.0]])
+        XCTAssertNotNil(refused["error"], "\(refused)")
+        XCTAssertEqual(dropped, [])
+        XCTAssertTrue(card.holds("active"))
+        // A long press or a double tap nothing there hears (no handler, no text to select) is refused, and lets nothing go.
+        for event in ["contextmenu", "dblclick"] {
+            let unheard = agent.tap(["id": Int(card.id), event: true])
+            XCTAssertNotNil(unheard["error"], "\(event): \(unheard)")
+        }
+        XCTAssertEqual(dropped, [])
+        XCTAssertTrue(card.holds("active"))
+        func count() -> Bool { session.agent("{\"op\":\"tree\"}").contains("n 1") }
+        // The flat child is no view to tap (refused, nothing let go); a tap on the press at its point lands there.
+        XCTAssertNotNil(agent.tap(["id": Int(leaf)])["error"])
+        XCTAssertEqual(dropped, [])
+        let tapped = agent.tap(["id": Int(card.id), "at": [10.0, 10.0]])
+        XCTAssertNil(tapped["error"], "\(tapped)")
+        XCTAssertEqual(dropped, ["input"], "the agent's tap on the flat child's point, where its finger landed")
+        p.settlePump()
+        XCTAssertTrue(count(), "and the press ran: \(session.agent("{\"op\":\"tree\"}"))")
         XCTAssertEqual(card.hold("active") { dropped.append($0) }.held, "active")
-        _ = agent.tap(["id": Int(card.id)])
+        let again = agent.tap(["id": Int(card.id)])
+        XCTAssertNil(again["error"], "\(again)")
         XCTAssertEqual(dropped, ["input", "input"], "the agent's tap on the press")
+    }
+
+    /// A host activation (a checkbox's, which UIKit's control takes) lets a
+    /// hold go once it took, and only then; and the textarea's backspace,
+    /// even one that deletes nothing.
+    @MainActor func testAHostActivationAndABackspaceLetAHoldGo() throws {
+        let session = ExactApp.shared.makeSession(label: "held-activation")
+        defer { session.destroy() }
+        let (p, _, _) = try fixture(session: session)
+        let check = try XCTUnwrap(p.views[11]), notes = try XCTUnwrap(p.views[10])
+        var dropped: [String] = []
+        XCTAssertEqual(check.hold("focus-visible") { dropped.append($0) }.held, "focus-visible")
+        let reply = Agent(session: session).tap(["id": 11])
+        XCTAssertEqual(reply["delivery"] as? String, "host-activation", "\(reply)")
+        XCTAssertEqual(reply["native"] as? String, "control", "\(reply)")
+        // (The control's own action is UIKit's target-action, which a bare test bundle has no application to send.)
+        XCTAssertEqual(dropped, ["input"])
+        let area = try XCTUnwrap(notes.textArea)
+        XCTAssertEqual(notes.hold("focus-visible") { dropped.append($0) }.held, "focus-visible")
+        area.deleteBackward()
+        XCTAssertEqual(dropped, ["input", "input"])
+        area.text = ""
+        XCTAssertEqual(notes.hold("focus-visible") { dropped.append($0) }.held, "focus-visible")
+        area.deleteBackward()
+        XCTAssertEqual(dropped, ["input", "input", "input"], "a backspace that deletes nothing")
     }
     #endif
     #endif
@@ -460,6 +544,57 @@ final class HeldStateTests: XCTestCase {
         XCTAssertEqual(inner.hold("hover") { dropped.append($0) }.held, "hover")
         p.setHoverPath([inner, card])
         XCTAssertEqual(dropped, ["input", "input", "input"])
+    }
+
+    /// Events from the application's queue, delivered, until `done`.
+    private func pump(_ seconds: Double = 2, until done: () -> Bool = { true }) {
+        let limit = Date().addingTimeInterval(seconds)
+        while Date() < limit {
+            if let event = NSApp.nextEvent(matching: .any, until: Date().addingTimeInterval(0.01), inMode: .default, dequeue: true) { NSApp.sendEvent(event) }
+            else if done() { return }
+        }
+    }
+
+    /// A pressable table row (its hit test gives the table): a real click on
+    /// it lets its held press go and presses it; a hover held on it keeps as
+    /// the pointer moves within it.
+    @MainActor func testATableRowsClickLetsItsHoldGoAndAMoveWithinKeepsItsHover() throws {
+        let f = try TableFixture(count: 20)
+        tableFixture = f
+        NSApp.setActivationPolicy(.accessory)
+        NSApp.activate(ignoringOtherApps: true)
+        f.window.makeKeyAndOrderFront(nil)
+        pump(3) { f.window.isKeyWindow && NSApp.isActive }
+        try XCTSkipUnless(f.window.isKeyWindow && NSApp.isActive, "this process cannot bring a window to the front and make it key")
+        XCTAssertTrue(f.window.makeFirstResponder(f.table))
+        f.settle()
+        let row = try f.node("row-12"), title = try f.node("title-12")
+        let point = title.convert(NSPoint(x: title.bounds.midX, y: title.bounds.midY), to: nil)
+        XCTAssertTrue(f.window.contentView?.hitTest(f.window.contentView?.superview?.convert(point, from: nil) ?? point) === f.table, "AppKit's hit test gives the table")
+        var dropped: [String] = []
+        XCTAssertEqual(row.hold("active") { dropped.append($0) }.held, "active")
+        let mouse = { (type: NSEvent.EventType) in
+            NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: f.window.windowNumber,
+                               context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)!
+        }
+        var up = false
+        let timer = Timer(timeInterval: 0.05, repeats: false) { _ in NSApp.postEvent(mouse(.leftMouseUp), atStart: false); up = true }
+        RunLoop.main.add(timer, forMode: .common)
+        NSApp.sendEvent(mouse(.leftMouseDown))
+        pump { up }
+        f.settle()
+        XCTAssertEqual(dropped, ["input"], "the click on the row")
+        XCTAssertTrue(f.status.hasPrefix("opened 12 presses 1 "), f.status)
+        // A hover held on the row with the pointer on its text: a move within keeps it.
+        f.presenter.agentPointer = point
+        XCTAssertEqual(row.hold("hover") { dropped.append($0) }.held, "hover")
+        XCTAssertTrue(HeldState.over, "the pointer is over the row")
+        var path: [NodeView] = []
+        var at: NSView? = title
+        while let v = at { if let n = v as? NodeView { path.append(n) }; at = v.superview }
+        f.presenter.setHoverPath(path)
+        XCTAssertTrue(row.holds("hover"))
+        XCTAssertEqual(dropped, ["input"])
     }
 
     private func plan(_ label: String) throws -> Data {

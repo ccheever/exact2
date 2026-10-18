@@ -77,11 +77,15 @@ pub(crate) struct Link {
     pub held: Option<(u64, Pin)>,
     /// The hold frame held (*1.11*), by revision, and the plan digest it was
     /// held under: taken again on a new generation's runner of that plan.
-    pub hold: Option<(u64, HoldTarget, String)>,
+    /// And the stream it came on (`Link::stream`).
+    pub hold: Option<(u64, HoldTarget, String, u64)>,
     /// The hold revisions this host ended itself (input, disabled, gone, a
     /// refusal): not taken again when their frame comes again (a resent
     /// answer). A lower revision is a new server's, and forgets them.
     pub ended: Vec<u64>,
+    /// Which stream this is: one more each time the nonce changes (a
+    /// reconnect, a restarted loop), so a hold of an earlier one says nothing.
+    streams: u64,
     /// The plan digest a registration names (the last status's).
     pub plan_digest: Option<String>,
     /// The scheme (dark), contrast and root font size the last status named.
@@ -111,6 +115,7 @@ impl Link {
             held: None,
             hold: None,
             ended: Vec::new(),
+            streams: 0,
             plan_digest: None,
             facts: None,
             modes: None,
@@ -183,8 +188,29 @@ impl Link {
         })
     }
 
+    /// The stream a hold is held on (`streams`).
+    pub(crate) fn stream(&self) -> u64 {
+        self.streams
+    }
+
+    /// Queue a hold report, for the stream it is of: one a newer nonce
+    /// would carry is dropped instead (`Exchange::tick`).
+    pub(crate) fn report_hold(&mut self, mut report: Value) {
+        // (None while there is no stream: such a report is no stream's, and goes nowhere.)
+        report["_nonce"] = self.nonce.clone().into();
+        self.report(report);
+    }
+
     /// Take a tick's answer back.
     pub fn settle(&mut self, answer: Answer) {
+        // A new stream (or none: a lost one) may be a new server's: a hold of the old one
+        // is no news to it, and the revisions ended on the old one are forgotten.
+        // A hold command still waiting from the old one is no command of the new one's.
+        if answer.nonce != self.nonce {
+            self.streams += 1;
+            self.ended.clear();
+            self.frames.retain(|f| f["kind"] != "hold");
+        }
         self.nonce = answer.nonce;
         self.ack = answer.ack;
         self.quiet_until = answer.off.then(|| Instant::now() + QUIET);
@@ -327,6 +353,13 @@ impl Exchange {
             let mut expired = false;
             while !self.reports.is_empty() {
                 let mut body = self.reports[0].clone();
+                // A hold report of another stream's goes nowhere (`Link::report_hold`).
+                if let Some(of) = body.as_object_mut().and_then(|b| b.remove("_nonce")) {
+                    if of.as_str() != Some(nonce.as_str()) {
+                        self.reports.remove(0);
+                        continue;
+                    }
+                }
                 body["nonce"] = nonce.clone().into();
                 match send(&report, Some(&body)).map(|r| r.0) {
                     Some(403) => {
@@ -378,9 +411,18 @@ fn commands_answer(body: &[u8]) -> Option<(u64, Vec<Value>)> {
 
 #[cfg(test)]
 impl Exchange {
-    /// The reports this tick would send.
+    /// The reports this tick would send, as it sends them: a hold report
+    /// of this stream's untagged, one of another stream's (or of none) gone.
     pub fn reports_for_test(self) -> Vec<Value> {
-        self.reports
+        let nonce = self.nonce;
+        (self.reports.into_iter())
+            .filter_map(
+                |mut r| match r.as_object_mut().and_then(|o| o.remove("_nonce")) {
+                    Some(of) if of.as_str() != nonce.as_deref() => None,
+                    _ => Some(r),
+                },
+            )
+            .collect()
     }
 }
 
@@ -1015,5 +1057,18 @@ mod tests {
         link.report(json!({"kind": "status"}));
         assert!(link.exchange().is_none(), "quiet after a 404 hello");
         assert!(link.outbox.is_empty());
+    }
+}
+
+#[cfg(test)]
+impl Link {
+    /// As if a tick's answer came on stream `nonce` (a reconnect).
+    pub(crate) fn settle_nonce_for_test(&mut self, nonce: &str) {
+        if self.nonce.as_deref() != Some(nonce) {
+            self.streams += 1;
+            self.ended.clear();
+            self.frames.retain(|f| f["kind"] != "hold");
+        }
+        self.nonce = Some(nonce.to_string());
     }
 }

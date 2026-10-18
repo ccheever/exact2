@@ -63,7 +63,9 @@ impl<D: DataSource> Presenter<D> {
                 if handlers.contains(&EventKind::Press) {
                     break;
                 }
-                at = self.display.parent(kernel, id);
+                // (The kernel's parent: the display's is the last picture's, none before a new
+                // generation's first is acknowledged.)
+                at = node.parent;
             }
         }
         let node = at.and_then(|id| kernel.node(id)).ok_or("gone")?;
@@ -73,6 +75,9 @@ impl<D: DataSource> Presenter<D> {
         }
         let over = self.pointer_in(view);
         let focused = self.focus.is_some_and(|f| self.within(f, view));
+        let stream = (self.dev.as_ref())
+            .and_then(|dev| dev.link.as_ref())
+            .map_or(0, |link| link.stream());
         self.host.looks_shown.held = Some(Held {
             view,
             asked,
@@ -81,6 +86,7 @@ impl<D: DataSource> Presenter<D> {
             revision,
             over,
             focused,
+            stream,
         });
         if state == HoldState::Active {
             let now = self.host.now();
@@ -116,6 +122,10 @@ impl<D: DataSource> Presenter<D> {
         let Some(link) = self.dev.as_mut().and_then(|dev| dev.link.as_mut()) else {
             return;
         };
+        // A hold of an earlier stream's (a reconnect, a restarted server) is no news to this one.
+        if held.stream != link.stream() {
+            return;
+        }
         // Let go, it is not taken again under a new generation, nor when its frame comes again.
         if link.hold.as_ref().is_some_and(|h| h.0 == revision) {
             link.hold = None;
@@ -123,14 +133,16 @@ impl<D: DataSource> Presenter<D> {
         if reason != "replaced" {
             link.end(revision);
         }
-        link.report(json!({"kind": "held", "state": null, "reason": reason, "revision": revision}));
+        link.report_hold(
+            json!({"kind": "held", "state": null, "reason": reason, "revision": revision}),
+        );
     }
 
     /// The painted control's pressed look, as the hold now stands.
     fn held_feedback(&mut self) {
-        let pressed = self.pressed_feedback();
-        if self.brush.feedback.1 != pressed {
-            self.brush.feedback.1 = pressed;
+        let pressed = self.held_press_feedback();
+        if self.brush.held_press != pressed {
+            self.brush.held_press = pressed;
             self.dirty = true;
         }
     }
@@ -228,13 +240,14 @@ impl<D: DataSource> Presenter<D> {
         let digest = self.host.runner().inspection_digest().to_string();
         // A hold addressing another plan (one installed since) is nothing, unsaid: the server's replay after the
         // status that names this plan corresponds it (and `rehold` takes it should that plan come back).
+        // (It leaves the frame kept and what is held as they are.)
         let addressed = target.as_ref().and_then(|t| t.plan.clone());
-        if let Some(link) = self.dev.as_mut().and_then(|dev| dev.link.as_mut()) {
-            link.hold = (target.clone())
-                .map(|t| (revision, t, addressed.clone().unwrap_or(digest.clone())));
-        }
         if addressed.is_some_and(|plan| plan != digest) {
             return;
+        }
+        if let Some(link) = self.dev.as_mut().and_then(|dev| dev.link.as_mut()) {
+            let stream = link.stream();
+            link.hold = (target.clone()).map(|t| (revision, t, digest.clone(), stream));
         }
         let views = (target.as_ref()).map_or(Vec::new(), |t| self.views_at(t.site, &t.instance));
         let state = target.as_ref().map(|t| HoldState::parse(&t.state));
@@ -271,20 +284,23 @@ impl<D: DataSource> Presenter<D> {
         }
         let mut report = report;
         report["revision"] = revision.into();
-        link.report(report);
+        link.report_hold(report);
     }
 
     /// After a new generation's host (whose tree holds nothing, unsaid): the
     /// last hold frame taken again under the same plan. Under another the
     /// server replays it, its site corresponded, once the status names it.
     pub(crate) fn rehold(&mut self) {
-        let kept = (self.dev.as_ref())
-            .and_then(|dev| dev.link.as_ref())
-            .and_then(|link| link.hold.clone());
-        let Some((revision, target, digest)) = kept else {
+        // (A new generation's host holds none: the painted control's held press goes with it.)
+        self.held_feedback();
+        let link = self.dev.as_ref().and_then(|dev| dev.link.as_ref());
+        let kept = link.and_then(|link| link.hold.clone().map(|h| (h, link.stream())));
+        let Some(((revision, target, digest, of), stream)) = kept else {
             return;
         };
-        if self.held().is_none() && digest == self.host.runner().inspection_digest() {
+        // (One of an earlier stream's is the new stream's server's to send again.)
+        if of == stream && self.held().is_none() && digest == self.host.runner().inspection_digest()
+        {
             self.hold_frame(revision, Some(target));
         }
     }

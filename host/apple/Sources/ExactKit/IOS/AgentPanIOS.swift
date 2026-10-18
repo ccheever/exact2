@@ -306,6 +306,7 @@ extension Agent {
         let p = vp.convert(CGPoint(x: start.x + vp.contentOffset.x, y: start.y + vp.contentOffset.y), to: nil)
         if let why = offscreen(v, box: CGRect(origin: start, size: .zero), hit: win.hitTest(p, with: nil)) { return ["error": "drag #\(v.id): \(why)"] }
         if let hit = win.hitTest(p, with: nil), let why = obscured(v, at: p, hit: hit) { return ["error": "drag #\(v.id) at (\(Agent.r2(start.x)), \(Agent.r2(start.y))): \(why)"] }
+        MainActor.assumeIsolated { HeldState.input(at: win.hitTest(p, with: nil)) } // the finger's accepted down: real input, which lets a held state go
         let scrollsX = (sv as? ScrollView)?.scrollsX ?? false, scrollsY = (sv as? ScrollView)?.scrollsY ?? true
         let inRange = { (p: CGPoint) -> CGPoint in
             let i = sv.adjustedContentInset

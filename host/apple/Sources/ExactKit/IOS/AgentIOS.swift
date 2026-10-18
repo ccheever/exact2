@@ -537,9 +537,11 @@ extension Agent {
         // Each synthetic contact ends a live press's handoff before it is
         // delivered, as a real one's touch-down does (PressHandoffIOS).
         presenter.supersedePress()
-        // A press the agent makes, whichever way below delivers it, lets a hold on the node it names go at its down (HeldState.swift).
-        if req["wheel"] == nil, req["hover"] == nil, (req["phase"] as? String ?? "down") == "down", let id = req["id"] as? Int {
-            MainActor.assumeIsolated { HeldState.input(on: UInt32(id), in: presenter) }
+        // A press delivered lets a hold go where it lands (HeldState.swift), never one refused: a host activation
+        // once it took (`delivered`), a finger once its hit is checked (below and `recognizedPan`).
+        let delivered = { [presenter] (reply: [String: Any], at: UIView?) -> [String: Any] in
+            if reply["error"] == nil { MainActor.assumeIsolated { if let node = at as? NodeView { HeldState.input(on: node.id, in: presenter) } else { HeldState.input(at: at) } } }
+            return reply
         }
         if req["scrollDrag"] != nil { return scrollDrag(req) }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
@@ -555,7 +557,8 @@ extension Agent {
                 return ["error": "tap #\(node.id): its middle is outside the viewport; scroll it into view first"]
             }
         }
-        if let reply = canvasTap(req) { return reply }
+        // (A canvas's down or one-shot press lets a hold go; its hover, wheel or a contact's later phase does not.)
+        if let reply = canvasTap(req) { return req["wheel"] == nil && req["hover"] == nil && (req["phase"] as? String ?? "down") == "down" ? delivered(reply, view(req)) : reply }
         if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil, req["at"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
             guard node.window != nil, !node.inert, !(req["contextmenu"] as? Bool == true ? node.formDisabled : node.disabled), !run.hidden else { return ["error": "inline node #\(id) is unavailable"] }
@@ -563,7 +566,7 @@ extension Agent {
                 presenter.hoverInline(run.handlers.contains("hover") ? id : nil)
                 return ["tapped": Int(id), "hover": true]
             }
-            if node.activateInline(id) { return ["tapped": Int(id), "delivery": "host-activation", "native": "inline-text"] }
+            if node.activateInline(id) { return delivered(["tapped": Int(id), "delivery": "host-activation", "native": "inline-text"], node) }
         }
 
         // A held contact (LLP 1035.003 D1) needs a touch that stays down
@@ -583,20 +586,20 @@ extension Agent {
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
            let activated = presenter.menus.activate(node) {
-            return activated ? ["tapped": id, "delivery": "host-activation", "native": "confirmation"]
+            return activated ? delivered(["tapped": id, "delivery": "host-activation", "native": "confirmation"], node)
                 : ["error": "confirmation #\(id) is unavailable, transitioning, or its source is no longer active; `clock settle` first waits out a push or sheet still moving"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
            let reply = presenter.groupedLists?.activate(node) {
-            return reply
+            return delivered(reply, node)
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
            tapHitsControl(node, request: req),
            let activated = presenter.controls.activate(node) {
             if let unsupported = presenter.controls.unopened(node) { return unsupported }
-            return activated ? ["tapped": id, "delivery": "host-activation", "native": "control"]
+            return activated ? delivered(["tapped": id, "delivery": "host-activation", "native": "control"], node)
                 : ["error": "control #\(id) is disabled, inert or not shown"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
@@ -607,13 +610,13 @@ extension Agent {
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
            let activated = presenter.segments.activate(node) {
-            return activated ? ["tapped": id, "delivery": "host-activation", "native": "segmented-control"]
+            return activated ? delivered(["tapped": id, "delivery": "host-activation", "native": "segmented-control"], node)
                 : ["error": "native segment #\(id) is unavailable"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
            let reply = presenter.navigation.activateChrome(node) {
-            return reply
+            return delivered(reply, node)
         }
         if let id = req["id"] as? Int, presenter.swipeActions.ownsAction(UInt32(id)),
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil {
@@ -623,7 +626,7 @@ extension Agent {
                 // it, as the web's tap scrolls the row to it (splitter rough
                 // 12). A real swipe is `tap <row> drag …` (`--touch platform`).
                 if presenter.views[UInt32(id)]?.disabled == false, presenter.swipeActions.perform(UInt32(id)) == true {
-                    return ["tapped": id, "pressed": id, "delivery": "host-activation", "native": "swipe-action", "revealed": false]
+                    return delivered(["tapped": id, "pressed": id, "delivery": "host-activation", "native": "swipe-action", "revealed": false], presenter.views[UInt32(id)])
                 }
                 return ["error": "native swipe action #\(id) is not offered: disabled, hidden or inert, or its name is not unique"]
             }
@@ -631,7 +634,7 @@ extension Agent {
             guard let hit = window.hitTest(point, with: nil), hit === button || hit.isDescendant(of: button) else { return ["error": "native swipe action #\(id) is occluded"] }
             let event: UIControl.Event = button.allControlEvents.contains(.primaryActionTriggered) ? .primaryActionTriggered : .touchUpInside
             button.sendActions(for: event)
-            return ["tapped": id, "at": [Agent.r2(b.midX), Agent.r2(b.midY)], "delivery": "host-activation", "native": "swipe-action"]
+            return delivered(["tapped": id, "at": [Agent.r2(b.midX), Agent.r2(b.midY)], "delivery": "host-activation", "native": "swipe-action"], source)
         }
         // A wheel on what a grouped list draws scrolls that list, even when
         // the node is a custom row's view its cell's reuse took off screen.
@@ -700,7 +703,9 @@ extension Agent {
             #if os(iOS)
             selection = presenter.agentSelect(hit, at: p, event: event)
             #endif
-            if let selection, event == "contextmenu" { return ["tapped": Int((hit as? NodeView)?.id ?? v.id), "event": event, "delivery": "recognized", "selection": selection, "at": at] }
+            // Delivered (a handler heard it, or it selected): a long press or a double tap lets a hold where it landed go (HeldState.swift).
+            let landed = { MainActor.assumeIsolated { HeldState.input(at: hit) } }
+            if let selection, event == "contextmenu" { landed(); return ["tapped": Int((hit as? NodeView)?.id ?? v.id), "event": event, "delivery": "recognized", "selection": selection, "at": at] }
             var next: UIView? = hit
             while let node = next {
                 // A context menu's popover (LLP 1021 §5.1) answers it too: the
@@ -714,12 +719,13 @@ extension Agent {
                         // One behind a modal hears it, but its popover would open inert.
                         if target.inert || !presenter.menus.agentContext(target), !handled { next = presenter.listenerParent(of: node); continue }
                     } else { presenter.dblclick(target.id) }
+                    landed()
                     return ["tapped": Int(target.id), "event": event, "injected": true, "at": at].merging(selection.map { ["selection": $0] } ?? [:]) { a, _ in a }
                 }
                 // What a finger reaches, out of a sheet or a lifted popover too (`MountRelay`)
                 next = presenter.listenerParent(of: node)
             }
-            if let selection { return ["tapped": Int((hit as? NodeView)?.id ?? v.id), "event": event, "delivery": "recognized", "selection": selection, "at": at] }
+            if let selection { landed(); return ["tapped": Int((hit as? NodeView)?.id ?? v.id), "event": event, "delivery": "recognized", "selection": selection, "at": at] }
             return ["error": "no \(event) handler at view \(v.id)"]
         }
         if let scale = req["pinch"] as? Double {
@@ -732,7 +738,7 @@ extension Agent {
             let offset = (req["at"] as? [Double]).map { CGPoint(x: $0[0], y: $0[1]) } ?? CGPoint(x: handle.bounds.midX, y: handle.bounds.midY)
             let point = handle.convert(offset, to: clip)
             if let error = DragLink.installed?.recognizedPinch(handle, scale: scale, focal: CGPoint(x: point.x - clip.bounds.midX, y: point.y - clip.bounds.midY)) { return ["error": error] }
-            return ["tapped": Int(handle.id), "pinch": scale, "at": at, "delivery": "recognized"]
+            return delivered(["tapped": Int(handle.id), "pinch": scale, "at": at, "delivery": "recognized"], hit)
         }
         if req["hover"] as? Bool == true {
             // The pointer onto the target: the node with a hover handler at
@@ -753,10 +759,10 @@ extension Agent {
             if ExactEnv.agentFreezes { presenter.settlePump() }
             return ["tapped": Int(v.id), "wheel": wheel, "at": at]
         }
-        if v.kind == "iframe" { return session.webviews.tap(v, request: req, at: at) }
+        if v.kind == "iframe" { return delivered(session.webviews.tap(v, request: req, at: at), hit) }
         #if os(iOS)
         // A finger on a number input's stepper steps it (LLP 1116.007 D4).
-        if plain, req["at"] != nil, let stepped = steppedTap(v, hit: hit, at: p, tapped: at) { return stepped }
+        if plain, req["at"] != nil, let stepped = steppedTap(v, hit: hit, at: p, tapped: at) { return delivered(stepped, hit) }
         #endif
         // What the finger reaches, taken where it lands (`fingerReach`):
         // what the pointer events below do to the tree never sends the press
@@ -773,6 +779,7 @@ extension Agent {
         if let why = unreached, fingers.isEmpty { return ["error": "unsupported: tap #\(v.id) at (\(at[0]), \(at[1])) \(why)"] }
         // An iPad's hardware keys held through the tap (gallery F20).
         let held = Agent.heldPrefix(req)
+        MainActor.assumeIsolated { HeldState.input(at: hit) } // the finger lands where its hit was checked: a held node there lets go (HeldState.swift)
         fingerPointer(.down, fingers, at: p, held: held)
         fingerPointer(.up, fingers, at: p, held: held)
         var reply: [String: Any] = ["tapped": Int(v.id), "at": at].merging(lift(reach, at: p, held: held)) { a, _ in a }
