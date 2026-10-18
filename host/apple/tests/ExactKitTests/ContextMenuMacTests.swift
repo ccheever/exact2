@@ -288,6 +288,70 @@ final class ContextMenuMacTests: XCTestCase {
         p.viewport.mouseMoved(with: moved)
         XCTAssertEqual(heard.last, "hover 20 true", "hover follows the pointer once the menu has closed")
     }
+    /// The frame, in screen points, of this process's open menu. AppKit's
+    /// menu window is not in `NSApp.windows`; the window server lists it at
+    /// the pop-up menu level, from the primary screen's top left.
+    private func menuFrame() -> NSRect? {
+        let pid = ProcessInfo.processInfo.processIdentifier, level = Int(CGWindowLevelForKey(.popUpMenuWindow))
+        let listed = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
+        guard let info = listed.first(where: { $0[kCGWindowOwnerPID as String] as? pid_t == pid && $0[kCGWindowLayer as String] as? Int == level }),
+              let bounds = info[kCGWindowBounds as String] as? NSDictionary, let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary),
+              let primary = NSScreen.screens.first else { return nil }
+        return NSRect(x: rect.minX, y: primary.frame.maxY - rect.maxY, width: rect.width, height: rect.height)
+    }
+    /// A right press's menu is where AppKit puts a hand-built view's context
+    /// menu (`menu(for:)`, `popUpContextMenu`): its top left at the pointer,
+    /// the pointer just outside it and over no item. `popUp(positioning:at:in:)`
+    /// put the pointer in the first row, highlighted, and a right release
+    /// half a second after the press chose that row. The release is measured
+    /// with real input: NSMenu's tracking reads no event posted to the app.
+    /// A request from the keyboard still puts the menu's top left at the
+    /// middle of the node (#235).
+    func testARightPressPlacesItsMenuAsAppKitPlacesAContextMenu() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent presents painted popovers")
+        let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
+        // Room below the source, so the menu opens downward.
+        let screen = try XCTUnwrap(NSScreen.main).visibleFrame
+        window.setFrameTopLeftPoint(NSPoint(x: screen.minX + 40, y: screen.maxY - 40))
+        window.orderFrontRegardless()
+        var frame: NSRect?, closed = 0
+        let center = NotificationCenter.default
+        let began = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { [unowned self] note in
+            guard let menu = note.object as? NSMenu else { return }
+            // Its window is ordered in after tracking begins; nothing says when.
+            let deadline = Date(timeIntervalSinceNow: 5)
+            func look() {
+                frame = self.menuFrame()
+                if frame != nil || Date() > deadline { return menu.cancelTracking() }
+                RunLoop.current.add(Timer(timeInterval: 0.02, repeats: false) { _ in look() }, forMode: .common)
+            }
+            look()
+        }
+        let ended = center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { _ in closed += 1 }
+        defer { center.removeObserver(began); center.removeObserver(ended) }
+        func opened(_ open: () -> Void) throws -> NSRect {
+            frame = nil
+            let before = closed, deadline = Date(timeIntervalSinceNow: 10)
+            open()
+            while closed == before && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+            turn()
+            return try XCTUnwrap(frame, "the menu's window was on screen")
+        }
+        let at = source.convert(NSPoint(x: 30, y: 15), to: nil)
+        let down = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: at, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        let pressed = try opened { source.rightMouseDown(with: down) }
+        let pointer = window.convertPoint(toScreen: at)
+        XCTAssertFalse(NSMouseInRect(pointer, pressed, false), "the pointer is outside the menu: \(pointer) by \(pressed)")
+        XCTAssertEqual(pressed.minX, pointer.x, accuracy: 4, "its left edge at the pointer")
+        XCTAssertEqual(pressed.maxY, pointer.y, accuracy: 12, "its top at the pointer")
+
+        XCTAssertTrue(window.makeFirstResponder(source))
+        let keyed = try opened { XCTAssertTrue(p.routeKey(contextKey(window), focused: true)) }
+        let middle = window.convertPoint(toScreen: source.convert(NSPoint(x: source.bounds.midX, y: source.bounds.midY), to: nil))
+        XCTAssertEqual(keyed.minX, middle.x, accuracy: 4, "a key's menu: its left edge at the node's middle")
+        XCTAssertEqual(keyed.maxY, middle.y, accuracy: 12, "and its top")
+    }
     /// Return's key-up, made the current event as `NSApp.nextEvent` makes it.
     private func keyUpIsCurrent(in window: NSWindow) -> NSEvent.EventType? {
         if let up = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: [], timestamp: 0,
