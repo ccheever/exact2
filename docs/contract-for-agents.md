@@ -1319,6 +1319,18 @@ the agent both paint in the page as before; `--chrome platform` on `macos`
 shows them, `tap`, `type` and `tree` reach what is in them, and `screenshot
 "file" window` draws them over the window.
 
+`popover` alone also accepts an optional string. For example,
+`popover=(expanded ? some("manual") : none)` keeps the same mounted box:
+`some("manual")` adds the property, and `none` removes it. An empty string
+still declares a popover; it does not restore inline layout. After setting
+`expanded = true`, call `showPopover(id)` in the same action. Setting it back
+to false closes the presentation and restores the box to its inline parent.
+An iframe kept in that box, with the same `src`, retains its mounted guest.
+Use explicit viewport bounds and admitted absolute positioning for an expanded
+box; this does not add `position="fixed"`. The
+[resident iframe fixture](../scripts/fixtures/iframe-resident-popover.contract)
+shows the complete enter/exit action and layout.
+
 For an invoker popover with an authored CSS area, use
 `position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline"`.
 A fresh opening takes the first fitting attempt, retaining the base if none fits.
