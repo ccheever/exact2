@@ -137,22 +137,3 @@ export function keptGameCrates({ root, env, profile, triple, flags, directory = 
     },
   };
 }
-
-// Explicit setup work: ordinary SDK setup never compiles the optional engine.
-if (import.meta.main) {
-  if (process.argv[2] !== '--warm') throw new Error('Usage: bun game/app/crates.mjs --warm');
-  const {mkdtempSync} = await import('node:fs');
-  const {createGame} = await import('../new.mjs');
-  const {resolveApp, buildBake, bakeTarget, developmentBuildEnv} = await import('../../scripts/app.mjs');
-  const directory = resolve(homedir(), '.cache/exact/game-crates');
-  mkdirSync(directory,{recursive:true});
-  const stage = mkdtempSync(resolve(directory,'primer-'));
-  try {
-    const game = resolve(stage,'game-cache-primer');
-    createGame(game,undefined,{assets:true});
-    process.env.EXACT_APP_DIR = game;
-    const app = resolveApp(), target = bakeTarget('linux');
-    console.log(`game/cache: warming ${target} gpu-dev`);
-    buildBake(app,'linux',target,{profile:'gpu-dev',env:developmentBuildEnv()});
-  } finally { rmSync(stage,{recursive:true,force:true}); }
-}

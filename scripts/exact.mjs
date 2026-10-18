@@ -39,7 +39,7 @@ import { createHash } from 'node:crypto';
 import { BINARYEN } from '../host/web/stages.mjs';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
+import { bakeTarget, buildBake, developmentBuildEnv, cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
 import { applyPattern, createApp, createGame, patternList, wireSnapback } from '../game/new.mjs';
 import { sdkFetch } from '../game/app/shells.mjs';
 import { appleArtifacts, assertAppleIdentity, stripForDistribution } from '../host/apple/build.mjs';
@@ -419,7 +419,24 @@ export function setup({check = false, game = false} = {}) {
     console.log('cargo fetch (the game SDK lock, game/app/shells.lock)');
     const fetched = sdkFetch();
     if (!fetched.ok) throw new Error(`cargo fetch of the game SDK lock failed${fetched.message ? `: ${fetched.message}` : ''}`);
-    if (game) run(process.execPath, [resolve(ROOT, 'game/app/crates.mjs'), '--warm']);
+    if (game) {
+      const directory = resolve(homedir(), '.cache/exact/game-crates');
+      mkdirSync(directory, {recursive: true});
+      const stage = mkdtempSync(resolve(directory, 'primer-'));
+      const previous = process.env.EXACT_APP_DIR;
+      try {
+        const path = resolve(stage, 'game-cache-primer');
+        createGame(path, undefined, {assets: true});
+        process.env.EXACT_APP_DIR = path;
+        const app = resolveApp(), target = bakeTarget('linux');
+        console.log(`game/cache: warming ${target} gpu-dev`);
+        buildBake(app, 'linux', target, {profile: 'gpu-dev', env: developmentBuildEnv()});
+      } finally {
+        if (previous === undefined) delete process.env.EXACT_APP_DIR;
+        else process.env.EXACT_APP_DIR = previous;
+        rmSync(stage, {recursive: true, force: true});
+      }
+    }
   }
   const report = sdkReport();
   printReport(report);
