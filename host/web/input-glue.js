@@ -118,11 +118,12 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (!(heard ? navigate(to) : go(to))?.ops?.some(op => op.op === "router")) wasm.exact_log(writeIn(`history: link ${JSON.stringify(to)} refused`));
   }, true);
   document.addEventListener("keydown", (event) => {
-    // Flowed copies revisit live ancestors after a commit; page capture already heard the source.
-    if (event.exactFlowCapture) return;
     if (event.key === "Tab") { radioStops(root); tabStops(root); } // a radio group's one stop, and a tablist's, before the focus moves
     if (event.isComposing || !ready() || event.defaultPrevented) return;
     if (event.key === "Enter" || event.key === " ") note(event, true); // a key's press begins (`arrive`, below)
+    // A commit may restore the authored runs: refresh their Tab stops and press origin above.
+    // Shortcuts already heard the source event.
+    if (event.exactFlowCapture) return;
     const editing = event.composedPath().some(el => el?.isContentEditable || el?.matches?.("input, textarea, [role=textbox], [role=searchbox], [role=combobox]"));
     const physical = physicalKey(event);
     const matches = (chord) => {

@@ -726,13 +726,13 @@ for (const scenario of ['redispatch', 'retained copies', 'commits']) browserTest
   );
 }, 60000);
 
-for (const consumer of ['shortcuts', 'gpu', 'trace', 'reorder']) browserTest(`flowed keys reach page ${consumer} capture once`, async () => {
+browserTest('flowed keys reach page capture consumers once', async () => {
   const results = await inChrome(flowKeyFixture, undefined, {
     '/glue.js': new URL('./glue.js', import.meta.url).pathname,
   }, true);
   for (const { runtime, nested, pageCaptures } of results) {
-    for (const { kind, connected, type, unflowed, first, repeat } of pageCaptures.filter(c => c.kind === consumer)) {
-      expect({ runtime, nested, connected, type, first }).toEqual({ runtime, nested, connected, type,
+    for (const { kind, connected, type, unflowed, first, repeat } of pageCaptures) {
+      expect({ runtime, nested, kind, connected, type, first }).toEqual({ runtime, nested, kind, connected, type,
         first: { calls: kind === 'trace' || kind === 'reorder' ? 1 : 0, capture: type === 'keydown' ? 1 : 0, bubble: 1, prevented: kind === 'trace' || kind === 'reorder' } });
       expect(first).toEqual(unflowed);
       expect(repeat.calls).toBe(1);
@@ -740,6 +740,71 @@ for (const consumer of ['shortcuts', 'gpu', 'trace', 'reorder']) browserTest(`fl
     }
   }
 }, 60000);
+
+browserTest('flowed Enter restores Back focus and Tab normalizes restored stops', async () => {
+  expect(await inChrome(flowFocusFixture)).toEqual(
+    ['link', 'pressable', 'radio', 'tab'].flatMap(kind => [false, true].map(flowed =>
+      kind === 'link' || kind === 'pressable'
+        ? { kind, flowed, pushes: 1, pushedFocus: 'detail-title', returnFocus: 'original', connected: true }
+        : { kind, flowed, stops: [0, -1], connected: true })),
+  );
+}, 20000);
+
+async function flowFocusFixture() {
+  const { createTextFlow } = await import('/textflow-glue.js');
+  const { createInputHandlers } = await import('/input-glue.js');
+  const root = document.getElementById('root'), results = [];
+  const input = createInputHandlers({ root, views: new Map(), retiredViews: new WeakSet(), ready: () => true,
+    inertAncestor: el => el.closest('[inert]'), dispatch() {} });
+  for (const kind of ['link', 'pressable', 'radio', 'tab']) for (const flowed of [false, true]) {
+    const navigation = kind === 'link' || kind === 'pressable';
+    root.innerHTML = '<main navigationBack="back" navigationKey="list"><section navigationKey="list"><header><h1 id="list-title">List</h1></header><div id="context" style="position:relative"><div id="paragraph" style="width:200px;height:100px;font:16px/24px serif"></div><div id="ball" style="position:absolute;left:80px;top:0;width:20px;height:20px"></div></div></section></main>';
+    const nav = root.firstElementChild, page = nav.firstElementChild, context = page.lastElementChild;
+    const paragraph = context.firstElementChild, ball = context.lastElementChild;
+    paragraph.innerHTML = kind === 'link' ? '<a id="original" href="#detail" tabindex="0">flowed link</a>'
+      : kind === 'pressable' ? '<span id="original" tabindex="0" data-exact-on="press">flowed link</span>'
+      : `<span role="${kind === 'radio' ? 'radiogroup' : 'tablist'}"><span id="original" role="${kind}" tabindex="0" aria-${kind === 'radio' ? 'checked' : 'selected'}="true">flowed</span><span id="next" role="${kind}" tabindex="-1" aria-${kind === 'radio' ? 'checked' : 'selected'}="false"> link</span></span>`;
+    const original = paragraph.querySelector('#original'), next = paragraph.querySelector('#next');
+    if (next) original.tabIndex = -1; // the source normalizes the clones' stops before capture restores the originals
+    original.exactFlowEvents = ['keydown'];
+    original.exactHandlers = kind === 'pressable' ? ['press', 'key'] : ['key'];
+    const views = new Map([[1, context], [2, paragraph], [3, ball]]);
+    const request = op => op === 0 ? { ranges: [[0, 11, 0, 11]], graphemes: Array.from({ length: 11 }, (_, i) => [i, i + 1, i, i + 1]) }
+      : op === 1 ? { prepared: true } : { shapes: [{ kind: 'Circle', cx: 90, cy: 10, r: 10 }], complete: true, height: 24, line_height: 24,
+        fragments: [{ start: 0, end: 11, utf16_start: 0, utf16_end: 11, paint_start: 0, paint_end: 11, x: 0, y: 0, width: 70, available: 80, line: 0 }] };
+    const flow = createTextFlow({ views, request, agentMode: true, advance() {} });
+    if (flowed) {
+      flow.afterBatch({ ops: [{ op: 'textflow', contexts: [{ id: 1, exclusions: [3], paragraphs: [{ id: 2, definite: true }] }] }], timers: false });
+      await flow.settle();
+    }
+    const target = flowed ? paragraph.querySelector(navigation ? '[data-flow-fragment] [tabindex]' : `[data-flow-fragment] [role="${kind}"]`) : original;
+    if (!target || flowed && (target === original || original.isConnected)) throw Error('must start from a flowed clone');
+    let detail, pushes = 0;
+    const push = () => {
+      pushes++;
+      detail = document.createElement('section'); detail.setAttribute('navigationKey', 'detail');
+      detail.innerHTML = '<header><h2 id="detail-title">Detail</h2></header>';
+      nav.append(detail); nav.setAttribute('navigationKey', 'detail'); input.arrive();
+    };
+    original.addEventListener('keydown', e => { if (kind === 'link') { e.preventDefault(); push(); } });
+    if (kind === 'pressable') original.addEventListener('click', push);
+    context.addEventListener('keydown', e => {
+      if (e.exactFlowCapture) return; // the authored ancestor only hears the source, as both runtimes enforce
+      const batch = { ops: [{ op: 'textflow', contexts: [] }] };
+      flow.beforeBatch(batch); ball.remove(); flow.afterBatch(batch);
+    }, true);
+    input.arrive(); target.focus();
+    const event = new KeyboardEvent('keydown', { key: navigation ? 'Enter' : 'Tab', bubbles: true, cancelable: true });
+    target.dispatchEvent(event);
+    if (navigation) {
+      const pushedFocus = document.activeElement.id;
+      detail?.remove(); nav.setAttribute('navigationKey', 'list'); input.arrive();
+      results.push({ kind, flowed, pushes, pushedFocus, returnFocus: document.activeElement.id, connected: original.isConnected });
+    } else results.push({ kind, flowed, stops: [original.tabIndex, next.tabIndex], connected: original.isConnected });
+    flow.dispose();
+  }
+  return results;
+}
 
 async function flowKeyFixture() {
   const { createTextFlow } = await import('/textflow-glue.js');
