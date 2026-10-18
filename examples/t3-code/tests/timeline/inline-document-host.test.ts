@@ -15,7 +15,7 @@ function fixture(readOnly: boolean) {
   client.rpc = async (native, method, payload, write = false) => { calls.push({ native, method, payload, write }); return method === 'mcpApps.toolInfo' ? { callable: true, readOnly } : { content: [{ type: 'text', text: 'done' }] }; };
   const runtime = makeDocumentRuntime(client, { app: { attachmentId: 'a', server: 'weather', tool: 'forecast', resourceUri: 'ui://weather' }, sourceThreadId: 'source', conversationThreadId: 'conversation', itemId: 'item',
     post: value => { sent.push(value); replied(); }, theme: () => htmlRenderTheme(STANDARD.dark, 'dark'), owned: () => owned, width: () => 728, viewportHeight: () => 500, canExpand: () => true, height: () => {} });
-  return { runtime, calls, sent, reply, leave: () => { owned = false; disposeDocumentRuntime(runtime); } };
+  return { client, runtime, calls, sent, reply, loseOwner: () => { owned = false; }, leave: () => { owned = false; disposeDocumentRuntime(runtime); } };
 }
 const call = { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'forecast', arguments: { city: 'Oslo' } } };
 
@@ -61,4 +61,29 @@ test('declining or leaving a document never runs its queued mutating tool', asyn
   await drainDocumentRuntime(closed.runtime, ticket('stale'), 101);
   expect(closed.calls).toHaveLength(1);
   expect(closed.sent).toEqual([]);
+});
+
+test('losing ownership during a read cancels later jobs and an existing approval', async () => {
+  const { client, runtime, calls, sent, loseOwner } = fixture(false);
+  runtime.host.receive(call);
+  await drainDocumentRuntime(runtime, ticket('permission'), 100);
+  expect(runtime.permission).not.toBeNull();
+  let release!: () => void, started!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const firstStarted = new Promise<void>(resolve => { started = resolve; });
+  const rpc = client.rpc;
+  client.rpc = async (native, method, payload, write) => {
+    const result = await rpc(native, method, payload, write);
+    if (method === 'mcpApps.readResource') { started(); await gate; }
+    return result;
+  };
+  for (const id of [4, 5]) runtime.host.receive({ jsonrpc: '2.0', id, method: 'resources/read', params: { uri: `ui://weather/${id}` } });
+  const draining = drainDocumentRuntime(runtime, ticket('old-connection'), 101);
+  await firstStarted;
+  loseOwner(); release();
+  await draining;
+  expect(calls.filter(value => value.method === 'mcpApps.readResource')).toHaveLength(1);
+  expect(runtime.permission).toBeNull();
+  expect(runtime.closed).toBe(true);
+  expect(sent).toEqual([]);
 });

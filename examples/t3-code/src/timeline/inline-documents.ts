@@ -18,7 +18,7 @@ import { htmlRenderFromToolItem, mcpAppFromToolItem } from './inline-tool-output
 export type InlineReference = { kind: 'html'; reference: HtmlRenderReference } | { kind: 'mcp'; reference: McpAppReference };
 export type InlineDocumentView = { key: string; kind: string; title: string; src: string; ready: boolean; error: string; height: number; posts: { key: string; text: string }[]; permission: string; permissionSerial: number; fullscreen: boolean; closed: boolean; shortcut: string; shortcutSerial: number; outline: { key: string; kind: string; x: number; y: number; width: number; height: number; lines: number }[] };
 type Frame = { token: string; url: string; expiresAt: number; src: string; ready: boolean; error: string; height?: number; reading: boolean; lastTheme?: string; lastShortcuts?: string; shortcut?: string; shortcutSerial?: number; posts: { key: string; text: string }[]; serial: number; runtime?: DocumentRuntime; fullscreen?: boolean; width?: number; inlineWidth?: number; viewportHeight?: number };
-type State = { generation: number; environment: string; frames: Map<string, Frame> };
+type State = { generation: number; environment: string; origin: string; frames: Map<string, Frame> };
 const states = new WeakMap<T3Client, State>();
 const MIN_URL_LIFE = 5 * 60_000;
 const LIMIT = 64;
@@ -51,9 +51,9 @@ function updateHtmlTheme(client: T3Client, frame: Frame): void {
 
 function state(client: T3Client): State {
   let value = states.get(client);
-  if (!value || value.generation !== client.generation || value.environment !== client.environmentId) {
+  if (!value || value.generation !== client.generation || value.environment !== client.environmentId || value.origin !== client.origin) {
     if (value) for (const frame of value.frames.values()) if (frame.runtime) disposeDocumentRuntime(frame.runtime);
-    value = { generation: client.generation, environment: client.environmentId, frames: new Map() };
+    value = { generation: client.generation, environment: client.environmentId, origin: client.origin, frames: new Map() };
     states.set(client, value);
   }
   return value;
@@ -92,6 +92,7 @@ export async function syncInlineDocuments(client: T3Client, native: Native, now:
     if (cached?.src || cached?.reading || cached?.error) continue;
     const frame: Frame = cached ?? { token: `${held.generation}:${++nextDocument}`, url: '', expiresAt: 0, src: '', ready: false, error: '', reading: false, posts: [], serial: 0 };
     held.frames.set(key, frame); frame.reading = true;
+    const owned = () => client.generation === held.generation && client.environmentId === held.environment && client.origin === held.origin && client.threadId === threadId && states.get(client) === held && held.frames.get(key) === frame;
     while (held.frames.size > LIMIT) held.frames.delete(held.frames.keys().next().value!);
     try {
       if (!frame.url || frame.expiresAt - now <= MIN_URL_LIFE) {
@@ -101,11 +102,11 @@ export async function syncInlineDocuments(client: T3Client, native: Native, now:
         frame.url = assetUrl(client.origin, str(answer.relativeUrl)); frame.expiresAt = num(answer.expiresAt);
         if (!frame.url) throw new Error('Document URL unavailable.');
       }
-      if (client.generation !== held.generation || client.environmentId !== held.environment || client.threadId !== threadId || states.get(client) !== held) return;
+      if (!owned()) return;
       if (ref.kind === 'mcp' && !frame.runtime) {
         frame.runtime = makeDocumentRuntime(client, { app: ref.reference, sourceThreadId: str(row.sourceThreadId) || threadId, itemId: str(item.id), conversationThreadId: threadId,
-          post: message => { if (states.get(client) !== held || held.frames.get(key) !== frame) return; postToDocument(client, frame, message); },
-          theme: () => inlineTheme(client), owned: () => states.get(client) === held && held.frames.get(key) === frame && client.threadId === threadId,
+          post: message => { if (owned()) postToDocument(client, frame, message); },
+          theme: () => inlineTheme(client), owned,
           width: () => frame.width ?? 728, viewportHeight: () => frame.viewportHeight ?? 700, canExpand: () => ![...held.frames.values()].some(other => other.runtime?.permission || other !== frame && (other.fullscreen || other.runtime?.fullscreen)), height: height => { frame.height = height; client.revision++; } });
         const result = obj(item.output);
         frame.runtime.host.setToolCall({ arguments: item.input, result: { ...result, content: arr(result.content) } });
