@@ -106,16 +106,22 @@ test('the JS loop: an edit stops a young build, leaving dist as it was; a value 
     await new Promise(ok => setTimeout(ok, 30));
     writeFileSync(join(dir, 'app.contract'), view('qz-three'));
     await until(() => said().includes('(aborted)'), 60_000);
+    // The stopped build ends (set aside) and the next begins; an edit in
+    // that one sets it aside too, but stops it not.
+    await until(() => count(/edit → a build superseded/g) >= 1, 60_000);
     await new Promise(ok => setTimeout(ok, 300));
     writeFileSync(join(dir, 'app.contract'), view('qz-four'));
     await until(() => said().includes('edit → plan ready'), 300_000);
     expect(count(/\(aborted\)/g)).toBe(1);
+    expect(count(/edit → a build superseded/g)).toBe(2);
     clearInterval(sampler);
     // dist was the first build's until the last one published: never the
     // stopped build's, nor a half-written one.
     const last = bytes();
     expect([...seen].every(b => b === first || b === last)).toBe(true);
     expect(last).not.toBe(first);
+    const holds = (text) => { const walk = (d) => readdirSync(d, { withFileTypes: true }).some(e => e.isDirectory() ? walk(join(d, e.name)) : readFileSync(join(d, e.name)).includes(text)); return walk(dist); };
+    expect(holds('qz-four')).toBe(true);
     // A value-only edit (its batch, then its verifying build, held at its
     // end) and another while that build runs: the second's batch applies
     // at once, the build is set aside, and the next carries the value.
@@ -130,10 +136,30 @@ test('the JS loop: an edit stops a young build, leaving dist as it was; a value 
     // build could end.
     await until(() => count(/edit → batch ready .*no build/g) >= 2, 60_000);
     expect(Date.now() - held).toBeLessThan(3000);
+    // Served at once (the pages' snapshot), before the held build ends.
+    expect(JSON.stringify(await (await fetch(`${base}/__dev/design`)).json())).toContain('#303030');
     await until(() => count(/edit → a build superseded/g) > supersededBefore, 60_000);
     await until(() => said().includes('edit → checked'), 120_000);
     const served = await (await fetch(`${base}/__dev/design`)).json();
     expect(JSON.stringify(served)).toContain('#303030');
+    // And during a full build (app.json's, which leaves the design's shape):
+    // the batch applies at once, and the build after serves it.
+    const batches = count(/edit → batch ready .*no build/g), plans = count(/edit → plan ready/g);
+    const readers = count(/design reader ready/g), asideBefore = count(/edit → a build superseded/g);
+    writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Stopped again', app: { id: 'com.exact.stopped', name: 'Stopped' } }));
+    // Past the age an edit stops a build at, with the design reader built
+    // again after it (any edit but a design's builds it), and the build
+    // still running (held at its end).
+    await new Promise(ok => setTimeout(ok, 2200));
+    await until(() => count(/design reader ready/g) > readers, 60_000);
+    expect(count(/edit → plan ready|edit → checked/g)).toBe(plans + 1);
+    const full = Date.now();
+    writeFileSync(join(dir, 'app.tamber'), design('#404040'));
+    await until(() => count(/edit → batch ready .*no build/g) > batches, 60_000);
+    expect(Date.now() - full).toBeLessThan(3000);
+    await until(() => count(/edit → plan ready|edit → checked/g) > plans + 1, 300_000);
+    expect(count(/edit → a build superseded/g)).toBe(asideBefore + 1);
+    expect(JSON.stringify(await (await fetch(`${base}/__dev/design`)).json())).toContain('#404040');
   } finally {
     await loop?.stop().catch(() => {});
     rmSync(dir, { recursive: true, force: true });

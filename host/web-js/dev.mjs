@@ -33,7 +33,13 @@ const skipped = /(^|\/)(target|dist(?:\.previous)?|node_modules|conformance)(\/|
 
 let building = null; // the build in flight, stopped with the server
 /** Stop the build in flight and what it runs (its own process group). */
-const stopBuild = (signal = 'SIGTERM') => { if (!building) return; try { process.kill(-building.pid, signal); } catch { building.kill(signal); } };
+const stopBuild = (signal = 'SIGTERM') => {
+  if (!building) return;
+  const pid = building.pid;
+  try { process.kill(-pid, signal); } catch { building.kill(signal); }
+  // One that does not stop is killed in 5 s, its group with it.
+  if (signal !== 'SIGKILL') setTimeout(() => { try { process.kill(-pid, 'SIGKILL'); } catch { /* gone */ } }, 5000).unref();
+};
 
 /** The Contract packages a build read (LLP 1091 D10), outside the app and
  * its skipped `node_modules`: the dev loop watches them too. */
@@ -65,12 +71,16 @@ function mapDesignSource(app, dir) {
  * logic)`, when it says so, keeps the build in `dist` (a value-only design
  * edit, LLP 1121 stage 4: the page takes a batch instead). `superseded()`,
  * when it says so as the build ends (an input moved since it began, or it
- * was stopped for one), leaves `dist` as it was and resolves
- * `{superseded}`: what it read is older than the files. */
-function build(app, dist, keep = () => false, compiler = null, superseded = () => false) {
+ * was stopped for one), or a source it read moved since, leaves `dist` as
+ * it was and resolves `{superseded}`: what it read is older than the files.
+ * With none, it is published whatever moved. */
+function build(app, dist, keep = () => false, compiler = null, superseded = null) {
   const stage = resolve(app.target, 'web-js-dev-stage');
   rmSync(stage, { recursive: true, force: true });
   const began = Date.now();
+  // The app's own inputs beside its Contract sources, and which were there.
+  const own = [designPath(app.dir), resolve(app.dir, 'app.ts'), resolve(app.dir, 'app.json'), resolve(app.dir, '.exact/backend-origin')].filter(Boolean);
+  const there = new Set(own.filter((path) => existsSync(path)));
   return new Promise((done) => {
     // The JS target's build itself, rendering no pages (every route is the
     // shell), with the completion marker host/web/build.mjs writes.
@@ -85,30 +95,48 @@ function build(app, dist, keep = () => false, compiler = null, superseded = () =
     // outlive a stopped leader for a moment, holding Cargo's lock): waited
     // for, 5 s at most before they are killed.
     const groupGone = (then, until = Date.now() + 5000) => {
-      try { process.kill(-child.pid, 0); } catch { return then(); }
+      try { process.kill(-child.pid, 0); } catch (e) { if (e.code === 'ESRCH') return then(); }
       if (Date.now() > until) { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } }
       setTimeout(() => groupGone(then, until), 20);
     };
     child.on('exit', (code) => groupGone(() => setTimeout(() => {
       building = null;
       const packages = devPackages(stage);
-      // Or a source it read is newer than it (a watcher's event can come
-      // after the build ends): its Contract sources, the design, app.ts and
-      // app.json, by their times.
-      const newer = () => [...packages.sources, designPath(app.dir), resolve(app.dir, 'app.ts'), resolve(app.dir, 'app.json')]
-        .some((path) => { try { const s = statSync(path); return Math.max(s.mtimeMs, s.ctimeMs) >= began; } catch { return false; } });
-      if (superseded() || (code === 0 && newer())) { rmSync(stage, { recursive: true, force: true }); return done({ superseded: true, packages }); }
+      // Or a source it read moved since it began (a watcher's event can come
+      // after the build ends): its Contract sources (one gone is moved), and
+      // the design, app.ts, app.json and the backend's origin (one come or
+      // gone is moved), by their times. Asked again just before it is
+      // published or kept, after the work before that.
+      // A time past now is a file dated ahead (an archive's, a clock's),
+      // which this build read as it is: only one since it began and by now
+      // is a change.
+      const since = (path) => { const s = lstatSync(path), t = Math.max(s.mtimeMs, s.ctimeMs); return t >= began && t <= Date.now() + 1; };
+      const newer = () => packages.sources.some((path) => { try { return since(path); } catch { return true; } })
+        || own.some((path) => { try { lstatSync(path); } catch { return there.has(path); } return !there.has(path) || since(path); });
+      const setAside = () => { rmSync(stage, { recursive: true, force: true }); done({ superseded: true, packages }); };
+      const moved = () => superseded && (superseded() || newer());
+      // A failed one too: its errors may be of files since edited.
+      if (moved()) return setAside();
       // The one line a build says when it rewrote the types app.ts imports, built or not (LLP 1116.001 D4.5).
       const types = /^app\.contract\.d\.ts: .*$/m.exec(log)?.[0];
       if (types) console.log(types);
       if (code !== 0) { rmSync(stage, { recursive: true, force: true }); return done({ packages, error: log.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l) && !compilerWarnings(l).length).slice(-12).join('\n') || `build exited ${code}` }); }
       const logic = readFileSync(resolve(stage, '.exact-dev-logic.json'), 'utf8').trim();
       const design = devDesign(stage), designSource = mapDesignSource(app, stage);
-      if (keep(design, logic)) { rmSync(stage, { recursive: true, force: true }); return done({ error: null, logic, packages, design, designSource, kept: true, warnings: compilerWarnings(log) }); }
+      if (keep(design, logic)) {
+        return setImmediate(() => {
+          if (moved()) return setAside();
+          rmSync(stage, { recursive: true, force: true }); done({ error: null, logic, packages, design, designSource, kept: true, warnings: compilerWarnings(log) });
+        });
+      }
       writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
         manifestSha256: appManifestDigest(app), files: buildFileCards(stage) }) + '\n');
-      replaceBuild(stage, dist);
-      done({ error: null, logic, packages, design, designSource, warnings: compilerWarnings(log) });
+      // Once more after the watchers' events queued meanwhile are taken.
+      setImmediate(() => {
+        if (moved()) return setAside();
+        replaceBuild(stage, dist);
+        done({ error: null, logic, packages, design, designSource, warnings: compilerWarnings(log) });
+      });
     }, hold)));
   });
 }
@@ -141,10 +169,13 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // errors in the page and builds again at the next edit. One an app source
   // moved during (the watchers come after it) is built again before the
   // loop serves anything.
+  // At most three times: a build that writes one of its own inputs (a
+  // build script's generated file) is served after that.
   let built;
-  for (let moved = false; ; moved = false) {
-    const early = watch(app.dir, { recursive: true }, (_, name) => { if (name && !skipped.test(String(name)) && String(name) !== 'app.contract.d.ts') moved = true; });
-    try { built = await build(app, dist, () => false, null, () => moved); } finally { early.close(); }
+  for (let moved = false, tries = 1; ; moved = false, tries++) {
+    const input = (name) => name && ((!skipped.test(String(name)) && String(name) !== 'app.contract.d.ts') || /^\.exact(?:[\\/]backend-origin)?$/.test(String(name)));
+    const early = [watch(app.dir, { recursive: true }, (_, name) => { if (input(name)) moved = true; }), watch(resolve(root, 'host/web-js'), { recursive: true }, (_, name) => { if (name && !skipped.test(String(name))) moved = true; })];
+    try { built = await build(app, dist, () => false, null, tries < 3 ? () => moved : null); } finally { for (const w of early) w.close(); }
     if (!built.superseded) break;
     console.log('a source moved while the first build ran: building again');
   }
@@ -370,7 +401,10 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // An edit stops the build in flight, once in a burst and only while it
   // is young (under 2 s, and under half the last build's time): one past
   // that finishes, set aside, so sustained edits never starve a build.
-  let inputs = 0, buildBegan = 0, lastBuildMs = 0, stopped = false;
+  // After three builds set aside in a row, the next is published whatever
+  // moved (a build that writes one of its own inputs would never be), and
+  // the build after it takes what moved.
+  let inputs = 0, buildBegan = 0, lastBuildMs = 0, stopped = false, asideRun = 0;
   const stopYoungBuild = () => {
     const age = Date.now() - buildBegan;
     if (!building || building.exitCode !== null || building.signalCode !== null || stopped || age >= 2000 || (lastBuildMs && age >= lastBuildMs / 2)) return;
@@ -417,9 +451,13 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       try { next = existsSync(file) ? await designOf(text = readFileSync(file, 'utf8')) : { error: 'no design' }; } catch (e) { next = { error: e.message }; } finally { designing = false; }
       // The loop stopped while it read: no build follows.
       if (stopping) return;
-      // An edit came while it read: this read is behind it, and the next
-      // one, with that edit's, runs now (not after a build in flight).
-      if (inputs !== readAt) {
+      // An edit came while it read (its event, or the file's bytes, which an
+      // event can trail): this read is behind it, and the next one, with
+      // that edit's, runs now (not after a build in flight).
+      let still = false;
+      try { still = text === null ? !existsSync(file) : readFileSync(file, 'utf8') === text; } catch { /* gone */ }
+      if (inputs !== readAt || !still) {
+        edited.add(file);
         for (const p of pendingEdits) edited.add(p);
         for (const p of pendingAppeared) appeared.add(p);
         again = false;
@@ -440,7 +478,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
           tamber?.channel.broadcast(batch);
         }
         // A check already under way is set aside, and done again after it.
-        if (building) { for (const p of pendingEdits) edited.add(p); again = true; return; }
+        if (building) { for (const p of pendingEdits) edited.add(p); for (const p of pendingAppeared) appeared.add(p); again = true; return; }
       }
     }
     if (building) { for (const p of pendingEdits) edited.add(p); for (const p of pendingAppeared) appeared.add(p); again = true; return; }
@@ -472,8 +510,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       && next.structure === design.structure && next.tokens.length === design.tokens.length
       && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent) && (!t.inline || same(t, design.tokens[i])));
     buildBegan = Date.now();
-    built = await build(app, dist, keep, compiler, () => inputs !== began);
-    if (!built.superseded) { stopped = false; lastBuildMs = Date.now() - buildBegan; }
+    built = await build(app, dist, keep, compiler, asideRun < 3 ? () => inputs !== began : null);
+    if (built.superseded) asideRun++;
+    else { stopped = false; lastBuildMs = Date.now() - buildBegan; asideRun = 0; }
     // An input moved while it built (a value-only edit's batch included):
     // what it read is behind the files, and nothing of it is published (not
     // dist, which a fresh page loads, nor the design or a reload). The
