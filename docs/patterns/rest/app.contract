@@ -1,7 +1,8 @@
 // Starter: list-detail over your own REST server (server.ts), polled, every failure in words.
-// app.ts fetches with a bearer token, the persona's, and answers a refusal or a lost server
-// as data. Who is signed in is the bar button that shows their name, a pull-down menu, kept
-// with `persist` across launches; it shows names from the data module, never the token. `bun server.ts` serves the dev loop; `test` and `verify` run it
+// app.ts fetches with a bearer token, the persona's. Read failures fail the resource so a
+// same-persona refresh keeps its last valid list; writes answer refusals for the form.
+// Who is signed in is the bar's pull-down menu, kept with `persist` across
+// launches; the menu shows each person's name from the data module, never the token. `bun server.ts` serves the dev loop; `test` and `verify` run it
 // themselves, on an empty database. A smaller app deletes what it doesn't need: the persona
 // switcher (`persona`, `people`, `signIn`, its bar button and menu, the `persona` argument of every
 // source), the delete (`askRemove`,
@@ -24,10 +25,8 @@ shape Item
   locked: bool
 
 shape Items
-  // True in every answer, so the first frame's placeholder is told from an empty list.
-  loaded: bool
-  ok: bool
-  error: string
+  // Gate retained rows while another persona's list is loading.
+  owner: string
   items: Item[]
 
 shape Reply
@@ -48,15 +47,16 @@ component App
   state refusal = ""
   state persona = "ada" persist
   resource people = loadPeople() as shape Person[] else empty()
-  resource lib = loadItems(persona) as shape Items else empty(ok=true)
+  resource lib = loadItems(persona) as shape Items else empty()
   mutation added as shape Reply refreshes lib then afterSave
   mutation removed as shape Reply refreshes lib
   mutation lockSaved as shape Reply refreshes lib
   derive selected = match stack(nav).filter(e => e.name == "item").at(-1) { case some(e) => e.params.id, case none => "" }
   derive saveError = match added { case some(r) => r.error, case none => "" }
   derive removeError = match removed { case some(r) => r.error, case none => "" }
-  // A failed poll keeps the last list, its reason above it; a refused delete says why there too.
-  derive listError = pending(removed) ? "" : removeError != "" ? removeError : lib.error
+  // Exact keeps a failed read's last answer; hide it until its owner matches.
+  derive sameOwner = lib.owner == persona
+  derive listError = pending(removed) ? "" : removeError != "" ? removeError : (pending(lib) ? "" : match failure(lib) { case some(f) => f.code == "offline" ? "Can't reach the server. Check your connection and try again." : "Couldn't refresh the list. Try again.", case none => "" })
   // Why Save is disabled, under the field (not red: nothing has been refused).
   derive saveHint = pending(added) ? "Saving…" : draftTitle.trim() == "" ? "Enter a title to save." : ""
 
@@ -109,23 +109,29 @@ component App
             // the bar and the list. A control that stays goes in the bar; one that may scroll away, in the list.
             header display="flex" align-items="center" padding="8px 16px"
               text "Starter" role="heading" aria-level=1 flex=1
-              // Who is signed in, by name: a person icon alone does not say who.
               button popovertarget="persona-menu" aria-label=`Signed in as ${nameOf(people, persona)}` testId="persona"
-                text nameOf(people, persona)
+                image "symbol:person"
               button press=openAdd aria-label="Add Item" testId="add-item"
                 image "symbol:add"
-            // In the list's place: the first load, a server that fails with nothing to show, no items.
-            if not lib.loaded
-              column flex=1 justify-content="center" align-items="center"
-                progress aria-label="Loading" testId="items-loading"
-            else if lib.items.length == 0 and lib.error != ""
-              EmptyState(symbol="symbol:alert", title="Can’t Load Items", message=lib.error)
-                button press=pull testId="retry"
-                  text "Try Again"
+            // Never show another persona's retained rows while this one loads or fails.
+            if not sameOwner
+              if pending(lib)
+                column flex=1 justify-content="center" align-items="center"
+                  progress aria-label="Loading" testId="items-loading"
+              else
+                EmptyState(symbol="symbol:alert", title="Can’t Load Items", message=(listError != "" ? listError : "Couldn't load this person's list. Try again."))
+                  button press=pull testId="retry"
+                    text "Try Again"
             else if lib.items.length == 0
-              EmptyState(symbol="symbol:document", title="No Items", message="Items anyone adds appear here.")
-                button press=openAdd testId="empty-add"
-                  text "Add Item"
+              column flex=1
+                if listError != ""
+                  row gap=8
+                    text listError color="-exact-system-red" flex=1 min-width=0 testId="list-error"
+                    button press=pull testId="retry-list"
+                      text "Try Again"
+                EmptyState(symbol="symbol:document", title="No Items", message="Items anyone adds appear here.")
+                  button press=openAdd testId="empty-add"
+                    text "Add Item"
             else
               list id="items-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
                 // A failed poll or a refused delete, in red over the rows it is about.
@@ -133,6 +139,8 @@ component App
                   section
                     row
                       text listError color="-exact-system-red" flex=1 min-width=0 testId="list-error"
+                      button press=pull testId="retry-list"
+                        text "Try Again"
                 section
                   // A title over its notes; the chevron says the row pushes. It only navigates, so it is a link.
                   for it in lib.items key=it.id
@@ -147,11 +155,19 @@ component App
                       image "symbol:forward-chevron"
         if e.name == "item"
           column navigationKey=`${e.id}` navigationScroll="item-detail" position="absolute" inset=0
-            header display="flex" align-items="center" padding="8px 16px"
-              text titleOf(lib.items, e.params.id) role="heading" aria-level=2
-            list id="item-detail" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
-              for it in lib.items.filter(x => x.id == e.params.id) key=it.id
-                ItemSections(item=it, setLock=setLock, askRemove=askRemove)
+            if sameOwner
+              header display="flex" align-items="center" padding="8px 16px"
+                text titleOf(lib.items, e.params.id) role="heading" aria-level=2
+              list id="item-detail" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                for it in lib.items.filter(x => x.id == e.params.id) key=it.id
+                  ItemSections(item=it, setLock=setLock, askRemove=askRemove)
+            else if pending(lib)
+              column flex=1 justify-content="center" align-items="center"
+                progress aria-label="Loading" testId="item-loading"
+            else
+              EmptyState(symbol="symbol:alert", title="Can’t Load Item", message=(listError != "" ? listError : "Couldn't load this person's list. Try again."))
+                button press=pull testId="item-retry"
+                  text "Try Again"
         if e.name == "add"
           column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0
             // Cancel (the xmark), title and Save (the checkmark): three items, so `space-between`
