@@ -247,6 +247,48 @@ fn compile_file(
         children: vec![],
         span,
     }];
+    // A component that injects `snapshot_viewport` reads the family's content
+    // size: the wrapper declares the fact and provides it (LLP 1126 D3). The
+    // shape is the injecting components' own, and must be one shape.
+    let mut viewport: Option<(TypeExpr, Span)> = None;
+    for c in &file.components {
+        for inject in c.injects.iter().filter(|p| p.name == super::VIEWPORT_SLOT) {
+            let Some(ty) = &inject.ty else {
+                return Err(vec![refusal(
+                    "snapshot-viewport",
+                    format!(
+                        "`{}` needs its shape: `inject` with `{}: <shape>` of `width` and `height`",
+                        super::VIEWPORT_SLOT,
+                        super::VIEWPORT_SLOT
+                    ),
+                    inject.span,
+                )]);
+            };
+            match &viewport {
+                Some((first, _)) if !same_type(first, ty) => {
+                    return Err(vec![refusal("snapshot-viewport", format!("`{}` is declared with another shape in `{}`; every component reads the family's size through one shape", super::VIEWPORT_SLOT, c.name), inject.span)]);
+                }
+                Some(_) => {}
+                None => viewport = Some((ty.clone(), inject.span)),
+            }
+        }
+    }
+    if let Some((shape, at)) = viewport {
+        wrapper.resources.push(contract_syntax::ResourceDecl {
+            name: super::VIEWPORT_SLOT.into(),
+            source: exact_runner::viewport::SOURCE.into(),
+            args: vec![],
+            identity: None,
+            shape,
+            placeholder: None,
+            span: at,
+        });
+        wrapper.provides.push(Binding {
+            name: super::VIEWPORT_SLOT.into(),
+            expr: Expr::Ident(super::VIEWPORT_SLOT.into(), at),
+            span: at,
+        });
+    }
     file.components.insert(0, wrapper);
     super::paragraphs::check(&file, &widget.families)?;
     let strings = match app {

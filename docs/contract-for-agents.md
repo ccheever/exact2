@@ -2427,9 +2427,7 @@ stored size again. Do not multiply a scale factor into every size instead.
 
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
 `exactSurface`, `exactTime`); the bake refuses a declared field the source does
-not have. A component below the root may declare `exactViewport()` too (a
-widget entry's root does): the fact is the page's, so the compiler moves the
-declaration to the root and injects it. `exactViewport().displayMode` is a string: the current CSS display
+not have. `exactViewport().displayMode` is a string: the current CSS display
 mode on the web, `fullscreen` or `standalone` on macOS, `standalone` on other
 native hosts. Declare it on the resource's shape; `state.device.displayMode`
 reports it too. `prefer display-mode fullscreen` substitutes it on Apple;

@@ -236,35 +236,24 @@ final class SnapshotDriverTests: XCTestCase {
         XCTAssertEqual(layout(try session.resize(to: Family.all[0].content.size)), ["layout-small"])
     }
 
-    /// A rendered session leaves no memory behind: the process footprint
-    /// after N renders in one process is a high-water mark, not a climb.
-    /// Each render boots a session, lays it out, draws the driver's view and
-    /// drops both, as the extension does for every family, mode and size.
-    func testRenderedSessionsReleaseTheirMemory() throws {
+    /// A rendered session leaves nothing behind: once the driver's view and
+    /// the session are dropped, the session and its runtime (the Rust
+    /// runner, kernel and text engine behind it) are deallocated. The
+    /// extension renders every family, mode and size this way, so a retained
+    /// session would be a leak per render.
+    func testADroppedRenderedSessionIsReleased() throws {
         let plan = try Self.plan("SNAPSHOT_QUESTION_MEDIUM"), family = Family.all[1]
-        func footprint() -> Double {
-            var info = task_vm_info_data_t()
-            var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
-            let status = withUnsafeMutablePointer(to: &info) { pointer in
-                pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
-            }
-            return status == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : 0
+        weak var session: HeadlessSession?
+        weak var runtime: Runtime?
+        try autoreleasepool {
+            let live = try HeadlessSession(plan: plan, entry: "question-medium", size: family.content.size)
+            session = live; runtime = live.core.runtime
+            let view = SnapshotDriver.view(session: live, displaySize: family.size, environment: environment(family, type: .xxxLarge))
+            XCTAssertNotNil(render(StandIn(family: family, mode: .accented, scheme: .dark, type: .large, content: .answered, inner: view), size: family.size))
+            XCTAssertNotNil(session)
         }
-        var series: [Double] = []
-        for i in 0..<40 {
-            try autoreleasepool {
-                let session = try HeadlessSession(plan: plan, entry: "question-medium", size: family.content.size)
-                let view = SnapshotDriver.view(session: session, displaySize: family.size, environment: environment(family, type: i % 2 == 0 ? .large : .xxxLarge))
-                let image = render(StandIn(family: family, mode: Mode.allCases[i % 3], scheme: i % 2 == 0 ? .light : .dark, type: .large, content: .answered, inner: view), size: family.size)
-                XCTAssertNotNil(image)
-            }
-            series.append(footprint())
-        }
-        let text = series.map { String(format: "%.1f", $0) }.joined(separator: " ")
-        try Data(text.utf8).write(to: Self.out.appending(path: "footprint-series.txt"))
-        // After the warm-up (fonts, symbols, the shaper), the second half holds.
-        let early = series[10...19].reduce(0, +) / 10, late = series[30...39].reduce(0, +) / 10
-        XCTAssertLessThan(late - early, 1.5, "MiB grew over 20 renders: \(text)")
+        XCTAssertNil(session, "the session is retained after its view and owner are gone")
+        XCTAssertNil(runtime, "the runtime is retained after its session is gone")
     }
 
     /// A running host's boot refuses an entry plan, and the entry boots by

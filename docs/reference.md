@@ -379,13 +379,17 @@ snapshot reader requires its exact kind and refresh signature.
 
 The `snapshot` columns on the style and prop rows declare admission. Unsupported
 rows, scrolling, sticky positioning, timers, requests, native modules and handlers
-fail with an edit. A render reads one source, `exactViewport()`, declared on the
-entry's root component as a page declares it: `width` and `height` are the
+fail with an edit. A snapshot declares no resource. The one fact a render reads
+is the family's size, through the reserved inject `snapshot_viewport`: write
+`inject` with `snapshot_viewport: <shape>` on the entry's component (or one it
+uses; every injecting component names one shape), and the entry's plan
+declares `exactViewport()` for it and provides it. `width` and `height` are the
 family's content size in points, inside the system margins, given at boot and
 again when the family's size changes; the preference fields are a still page's.
 Choose a layout by them as `docs/recipes/responsive-columns.md` does for a page
 (a Lock Screen row is under 100 pt tall; a medium widget is over 250 wide), so
-one entry serves every family it declares. Every other resource is refused. A `performanceNow()` call is refused everywhere, including
+one entry serves every family it declares. The app's own plan is untouched: an
+unused component's inject is not demanded by the app's view. A `performanceNow()` call is refused everywhere, including
 inside `time` and `progress`; pass instants from refresh for platform time
 presentation. A variable's name imposes no restriction. A class is a style name
 or `class=(condition ? A : B)`. Only literal font families reached through the

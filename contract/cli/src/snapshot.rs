@@ -11,6 +11,11 @@ pub use refresh::{bake_app, check_refreshes, entries, source_plan};
 pub const PROPS_SLOT: &str = "snapshot_props";
 #[cfg(test)]
 mod tests;
+
+/// The reserved inject a component reads the family's size from
+/// (`inject` with `snapshot_viewport: <shape>`): the entry's wrapper answers
+/// it with `exactViewport()`, so the render stays pure (LLP 1126 D3).
+pub const VIEWPORT_SLOT: &str = "snapshot_viewport";
 pub use entry::{compile, compile_widgets, write_entries, Entry};
 
 use crate::CompileError;
@@ -172,14 +177,14 @@ fn check(file: &File, styles: &HashSet<String>) -> Result<(), Vec<CompileError>>
         for t in &c.tasks {
             errors.push(refusal("snapshot-timer", "a snapshot has no timer or `every`; return dated entries from the refresh function and use `time` for ticking text", t.span));
         }
-        // The one source a render reads: the family's content size and a
-        // still page's preferences, a fact the driver gives at boot (LLP
-        // 1126 D3), so a layout chooses by width and height as a page does.
         for r in &c.resources {
-            if r.source == exact_runner::viewport::SOURCE && r.args.is_empty() {
+            // The family's size is the one fact a render reads (LLP 1126 D3):
+            // the entry's wrapper declares it and the component injects it.
+            if r.source == exact_runner::viewport::SOURCE {
+                errors.push(refusal("snapshot-request", format!("`{}`: a snapshot declares no resource; write `inject` with `{}: <shape>` and read the family's width and height from it", r.name, VIEWPORT_SLOT), r.span));
                 continue;
             }
-            errors.push(refusal("snapshot-request", format!("`{}` requests data during render; move it into the refresh function and pass its answer as props (`exactViewport()` alone is answered: the entry's width and height)", r.name), r.span));
+            errors.push(refusal("snapshot-request", format!("`{}` requests data during render; move it into the refresh function and pass its answer as props", r.name), r.span));
         }
         if !c.mutations.is_empty() || !c.sequences.is_empty() || !c.persist.is_empty() {
             errors.push(refusal("snapshot-effect", "a snapshot render is read-only; move mutations, sequences and persisted writes into the refresh function", c.span));
