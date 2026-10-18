@@ -8,7 +8,7 @@ final class HeadlessParityIOSTests: XCTestCase {
         let traits = UITraitCollection(traitsFrom: [.init(userInterfaceStyle: .dark), .init(displayGamut: .P3), .init(displayScale: 3)])
         let preferences = Preferences(traits: traits, reducedMotion: true, reducedTransparency: true,
             increasedContrast: true, boldText: true, highDynamicRange: true, displayMode: .fullscreen)
-        XCTAssertEqual(preferences.rawValue, 1 | 2 | 4 | 16 | 32 | 128 | 256 | 1024 | 4096 | 16384)
+        XCTAssertEqual(preferences.rawValue, UInt32(0x55B7))
         let facts = SessionFacts(traits: traits)
         XCTAssertEqual(facts.displayScale, 3)
         XCTAssertTrue(facts.preferences.contains([.dark, .p3]))
