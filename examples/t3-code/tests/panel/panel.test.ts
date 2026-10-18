@@ -25,6 +25,7 @@ function fakeClient(over: Record<string, unknown> = {}) {
   const calls: Call[] = [];
   const replies: Record<string, (payload: Record<string, unknown>) => unknown> = {};
   const client = {
+    scopes: ['filesystem:read', 'filesystem:write', 'preview:operate', 'terminal:read', 'terminal:operate'],
     environmentId: 'env', threadId: 't1', projectId: 'p1', ready: true, revision: 0, generation: 1, diffOpen: false, diffText: '', diffError: '', diffLoading: false,
     get draftKey() { return `env:${this.threadId || `new:${this.projectId}`}`; },
     config: { environment: { capabilities: { threadPullRequests: true, threadPullRequestWatch: true } } },

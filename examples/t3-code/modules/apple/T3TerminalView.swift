@@ -195,6 +195,7 @@ final class T3TerminalView: ExactNativeInstance {
         T3Terminals.shared.add(self)
         web.load(URLRequest(url: T3TerminalAssets.pageURL))
         bindSession()
+        if previous["read-only"] != next["read-only"], sessionMode, session != nil { bindSession() }
         synchronizeAuthOutput()
         configureAuthInput()
     }
@@ -439,7 +440,7 @@ final class T3TerminalView: ExactNativeInstance {
         let env = props["env"].flatMap { $0.data(using: .utf8) }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] } ?? [:]
         let bound = sessions.bind(self, environment: props["environment"] ?? "", thread: props["thread"] ?? "", terminal: identity,
                                   cwd: props["cwd"] ?? "", worktreePath: props["worktree"] ?? "", env: env,
-                                  providerInstance: props["provider-instance"] ?? "")
+                                  providerInstance: props["provider-instance"] ?? "", readOnly: props["read-only"] == "true")
         session = bound
         // TerminalViewport setup: the retained output as one reset, the error, then exit handling from "closed".
         let initial = bound.output.read(from: .initial)

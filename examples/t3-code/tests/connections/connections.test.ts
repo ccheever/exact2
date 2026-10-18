@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 import { afterEach, test, expect } from 'bun:test';
 
 afterEach(resetPrimary);
@@ -12,11 +13,11 @@ import { AUTH_STANDARD_CLIENT_SCOPES, LEGACY_CLIENT_SCOPES, encodeOAuthScope } f
 const STANDARD_SCOPE = encodeOAuthScope(AUTH_STANDARD_CLIENT_SCOPES), LEGACY_SCOPE = encodeOAuthScope(LEGACY_CLIENT_SCOPES);
 
 const host = (connection = 'connected', extra: Partial<ConnectionHost> = {}): ConnectionHost => ({
-  connection, origin: 'http://127.0.0.1:14796', environmentId: 'env-a', statusMessage: 'Connected.', scopes: ['orchestration:read', 'orchestration:operate'],
+  connection, origin: 'http://127.0.0.1:14796', environmentId: 'env-a', statusMessage: 'Connected.', scopes: [...AUTH_STANDARD_CLIENT_SCOPES],
   config: { environment: { label: 'Fixture A', platform: { machine: 'laptop' }, serverVersion: '0.1.1', capabilities: { environmentIcon: true } } }, ...extra,
 });
 const entry = (key: string, extra: Partial<FleetEntry> = {}): FleetEntry => ({ key, origin: key.split('\n')[0]!, environmentId: key.split('\n')[1]!, phase: 'connected', message: '', traceId: '',
-  generation: 1, synchronized: 1, lastEvent: 0, subscriptions: {}, config: {}, shell: initialShell(), scopes: [], error: '', requested: true, ...extra });
+  generation: 1, synchronized: 1, lastEvent: 0, subscriptions: {}, config: {}, shell: initialShell(), scopes: [...AUTH_STANDARD_CLIENT_SCOPES], error: '', requested: true, ...extra });
 
 class FakeTransport implements Native {
   available = true; calls: Obj[] = []; saved: Obj[] = []; prefs = '{}';

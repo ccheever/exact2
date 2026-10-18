@@ -241,7 +241,7 @@ export function effectiveSetting(settings: Obj, projectId: string, key: string, 
 
 /** One control's context: the representative target's settings (display) and every connected target (mixed, writes). */
 export type ServerContext = { settings: Obj; scope: CoreScope; files: Map<string, Obj | null>; capabilities: Obj; providers: Obj[]; environmentLabel: string;
-  targets: readonly ScopedSettingsTarget[]; restartEverywhere: boolean;
+  targets: readonly ScopedSettingsTarget[]; restartEverywhere: boolean; settingsWritable: boolean;
   /** Each known environment's advertised providers: a model choice must exist on every target (useScopedModelDisabledReason). */
   catalogs: Map<string, Obj[]> };
 /** A target's value for a key: its effective value, a file-backed key's built-in when nothing set it (effectiveSetting). */
@@ -264,7 +264,7 @@ function serverState(context: ServerContext, key: string) {
     : project && source === 't3.json' ? ['inherited', "Inherited from the repository's t3.json"]
     : project && scoped ? ['inherited', `Inherited from ${context.environmentLabel}`]
     : customized ? ['environment', 'Set on the environment'] : ['default', 'Built-in default'];
-  const note = !scope.connected ? 'Reconnect the selected environment to change this setting.' : environmentWide ? 'Environment-wide setting. Select an environment to change it.' : '';
+  const note = !context.settingsWritable ? 'This connection requires settings:write.' : !scope.connected ? 'Reconnect the selected environment to change this setting.' : environmentWide ? 'Environment-wide setting. Select an environment to change it.' : '';
   return { value: first, mixed, source, inheritance, note, inert: note !== '', resettableProject: project && scoped && (source === 'project' || source === 'mixed') };
 }
 const MERGE_METHOD_LABELS: Record<string, string> = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' };
@@ -497,6 +497,7 @@ export function serverContext(client: T3Client, scope: CoreScope, files: Map<str
   const restartEverywhere = connected.length > 0 && connected.every(entry => obj(obj((entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config).environment).capabilities).threadRestartContinuation === true);
   return { settings: raw, scope, files, capabilities: obj(environment.capabilities), providers: arr(config.providers), environmentLabel: representative?.label || str(environment.label, 'environment'),
     targets: resolveScopedSettingsTargets(scope.resolved, connectedOf(client, scope, settings), files), restartEverywhere,
+    settingsWritable: connected.length > 0 && connected.every(entry => entry.scopes?.includes('settings:write') === true),
     catalogs: new Map(scope.environments.map(entry => [entry.environmentId, arr((entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config).providers)])) };
 }
 /**

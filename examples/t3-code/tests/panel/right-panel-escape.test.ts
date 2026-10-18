@@ -74,6 +74,7 @@ const native = { available: true } as unknown as Native;
 function filesClient() {
   const calls: string[] = [];
   const client = {
+    scopes: ['filesystem:read'],
     environmentId: 'env', threadId: 't1', projectId: 'p1', ready: true, revision: 0, generation: 1, diffOpen: false, diffText: '', diffError: '', diffLoading: false, origin: 'http://127.0.0.1:9',
     get draftKey() { return `env:${this.threadId || `new:${this.projectId}`}`; },
     config: {}, presentation: {}, local: { clientSettings: { ...decodeClientPrefs({}), wordWrap: true } },

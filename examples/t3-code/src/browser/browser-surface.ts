@@ -1,3 +1,4 @@
+import { can, requirePermission } from '../connections/command-permissions';
 // The right panel's Browser tabs over a native WKWebView (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/web/src/components/preview/{addBrowserSurface,openPreviewSession,closePreviewSession,usePreviewBridge,
 // PreviewView}.ts(x), apps/web/src/rightPanelStore.ts `openBrowser`/`reconcileBrowserSurfaces`,
@@ -153,6 +154,7 @@ export function reconcileBrowserSurfaces(state: PanelState, tabIds: readonly str
 
 /** addBrowserSurface (the "+" menu's Browser row, B): a new session under the profile, then its tab. */
 export async function addBrowserSurface(client: T3Client, native: Native, state: PanelState, profileId?: string): Promise<string> {
+  requirePermission(client.scopes, 'preview:operate');
   // A new thread's draft has its id from the start in the reference (activeThreadRef); here it is allocated now.
   if (!client.threadId && !activeRef(client) && client.environmentId) await ensureDraftThreadId(client, native);
   const ref = activeRef(client);
@@ -271,6 +273,7 @@ async function applyTabDefaults(client: T3Client, native: Native, created: reado
   }
 }
 async function nativeOp(client: T3Client, native: Native, request: Obj): Promise<Obj> {
+  if (request.op !== 'browserClose') requirePermission(client.scopes, 'preview:operate');
   const reply = await client.raw(native, request);
   return reply.ok ? obj(reply.value) : {};
 }
@@ -367,7 +370,7 @@ export function browserView(client: T3Client, surface: Surface | null, now = 0):
 
 /** The panel's effects before it projects (usePreviewSession, the reconcile effect, usePreviewBridge, ElectronBrowserHost). */
 export async function browserPrepare(client: T3Client, native: Native | null | undefined, state: PanelState): Promise<void> {
-  if (!native?.available) return;
+  if (!native?.available || !can(client, 'preview:operate')) return;
   const ref = activeRef(client), host = browserHost(client);
   installBrowserCleanup(client, native);
   adoptAutomationTabs(client); // tabs the previewAutomation host opened (browser-automation.ts)
@@ -393,6 +396,7 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
 
 // ── The chrome row's commands (`surface-browser-<op>`, PreviewView's handlers) ───────────────────
 export async function browserLocal(client: T3Client, native: Native, state: PanelState, op: string, id: string, value: string): Promise<string> {
+  if (!op.startsWith('artifact-') && op !== 'annotation-held') requirePermission(client.scopes, 'preview:operate');
   const host = browserHost(client);
   if (op === 'open') return addBrowserSurface(client, native, state, value || undefined);
   // Part 3: a toast's artifact buttons (id = the file) and the floating player's pill (id = its runtime tab).

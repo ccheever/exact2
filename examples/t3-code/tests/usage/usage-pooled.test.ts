@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // The Usage page across environments (usage-environments.ts, usage-pooled-view.ts, usage-replies.ts)
 // driven through `usagePage` with a focused client and a background environment of EnvironmentFleet.
 // The last block ports T3 Code 1e2ecbd975 (MIT, see LICENSE-T3)
@@ -44,6 +45,7 @@ class Rig {
     this.configA = configA;
     const rig = this;
     this.client = {
+      scopes: [...AUTH_STANDARD_CLIENT_SCOPES],
       environmentId: 'env-a', connection: 'connected', ready: true, generation: 1, revision: 0, presentation: {}, config: configA,
       local: { deviceSettings: { timestampFormat: '24-hour' } },
       async ids() { return [`id-${++rig.serial}`]; },
@@ -63,7 +65,7 @@ class Rig {
   }
   background(config: Obj, phase = 'connected') {
     fleet.entries.set(KEY_B, { key: KEY_B, origin: 'http://10.0.0.2:3773', environmentId: 'env-b', phase: phase as 'connected', message: '', traceId: '', generation: 7, synchronized: 7,
-      lastEvent: 0, subscriptions: {}, config, shell: initialShell(), scopes: [], error: '', requested: true });
+      lastEvent: 0, subscriptions: {}, config, shell: initialShell(), scopes: [...AUTH_STANDARD_CLIENT_SCOPES], error: '', requested: true });
   }
   page(input: Partial<{ open: boolean; metric: string; windowDays: number; refresh: number; now: number; viewport: number; sidebar: number }> = {}) {
     const { open = true, metric = 'limits', windowDays = 30, refresh = 0, now = NOW, viewport = 1280, sidebar = 256 } = input;

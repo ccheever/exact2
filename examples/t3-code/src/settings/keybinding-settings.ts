@@ -1,3 +1,4 @@
+import { can } from '../connections/command-permissions';
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
@@ -97,7 +98,7 @@ export async function keybindingSettings(client: T3Client, native: Native | null
     const draftKeyValue = draftKey.trim(), draftWhenValue = when.error ? '' : printWhen(parseWhen(draftWhen.trim()) || undefined);
     const conflict = draftRow || draftCommand ? conflictText(conflictLabels(all, { id: draftRow || 'new', key: draftKeyValue, when: draftWhenValue })) : '';
     const count = rows.length + (draftCommand !== '' || draftRow === 'new' ? 1 : 0);
-    return { ...empty, available: true, writable: client.writable, path: str(config.keybindingsConfigPath), count: `${count} ${count === 1 ? 'binding' : 'bindings'}`, rows,
+    return { ...empty, available: true, writable: can(client, 'settings:write'), path: str(config.keybindingsConfigPath), count: `${count} ${count === 1 ? 'binding' : 'bindings'}`, rows,
       commands: commandOptions(bindings).map(option => ({ ...option, selected: option.value === draftCommand })), draftConflict: conflict, draftValid: !when.error,
       draftCommandLabel: draftCommand ? commandLabel(draftCommand) : 'new keybinding', draftKeyLabel: draftKeyValue ? shortcutLabel(draftKeyValue) : '', whenView: when };
   } catch (error) { return { ...empty, error: error instanceof Error ? error.message : 'Could not load keybindings.' }; }

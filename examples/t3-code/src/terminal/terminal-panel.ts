@@ -1,3 +1,4 @@
+import { can, requirePermission } from '../connections/command-permissions';
 import { terminalLayout, terminalSplitLabel, terminalTabs } from './terminal-layout';
 import { recordTerminalFocus, clearTerminalFocus } from './terminal-focus';
 // T3 Code 1e2ecbd975 rightPanelStore and ChatView terminal surface actions.
@@ -41,6 +42,7 @@ export function terminalSurfaceCloseCopy(client: T3Client, surface: Surface): { 
   return { closeTitle, closeBody };
 }
 export async function addTerminalSurface(client: T3Client, native: Native): Promise<void> {
+  requirePermission(client.scopes, 'terminal:operate');
   const ref = await ensureTerminalRef(client, native);
   if (!ref || !launchFor(client, ref.threadId)) return;
   const terminalId = nextTerminalId(allocatableIds(client, ref));
@@ -92,6 +94,7 @@ export function installTerminalPanelCleanup(client: T3Client, native: Native, st
   } });
 }
 export async function terminalPanelLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
+  if (['new', 'split', 'split-vertical', 'close'].includes(op)) requirePermission(client.scopes, 'terminal:operate');
   const ref = activeRef(client), state = panelState(client);
   if (!ref) return '';
   if (op === 'focus-in' || op === 'focus-out') {
@@ -160,7 +163,7 @@ export function terminalPanelView(client: T3Client, base: TerminalDrawerView, su
     closeTitle, closeBody, sessionKey: JSON.stringify([ref.environmentId, ref.threadId, terminalId]), focusRequest: focus.get(client) ?? 0,
     closeLabel: keyClose ? `Close Terminal (${keyClose})` : 'Close Terminal', newLabel: keyNew ? `New Terminal (${keyNew})` : 'New Terminal',
     keybindings: terminalKeybindings(client), commandPrefix: 'terminalpanellocal', surface: surface.id, panes, tabs, direction: layout.direction,
-    showTabs: layout.showTabs, splitDisabled: layout.splitDisabled,
+    showTabs: layout.showTabs, splitDisabled: !can(client, 'terminal:operate') || layout.splitDisabled,
     splitLabel: terminalSplitLabel(false, layout.splitDisabled, terminalShortcut(client, 'terminal.split')),
     splitVerticalLabel: terminalSplitLabel(true, layout.splitDisabled, terminalShortcut(client, 'terminal.splitVertical')) };
 }
