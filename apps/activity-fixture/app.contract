@@ -1,3 +1,5 @@
+use FixtureActivity, FixtureState from "./activities.contract"
+
 // The packaging fixture for an app with Live Activities and no widgets (LLP
 // 1126.001 WP13): one text node, so an iOS build of it is the app, the
 // shared ExactCore framework and the WidgetKit extension with no widget in
@@ -6,28 +8,3 @@
 component ActivityFixture
   view
     text "Activity fixture"
-
-shape FixtureState
-  label: string
-
-component FixtureActivity
-  props
-    label: string
-  view
-    view slot="lockScreen"
-      text label
-    view slot="compactLeading"
-      text label
-    view slot="compactTrailing"
-      text label
-    view slot="minimal"
-      text label
-    view slot="expanded"
-      view slot="leading"
-        text label
-      view slot="trailing"
-        text label
-      view slot="center"
-        text label
-      view slot="bottom"
-        text label
