@@ -703,3 +703,88 @@ fn intrinsic_flex_ratio_transfers_keep_padding_and_border() {
     ];
     check(cases, &[("canvas", NodeType::Canvas, 0)]);
 }
+
+// Chrome 151.0.7922.34, 2026-10-18: an 800×600 positioned block holds
+// an absolute flex row and two canvases. Only a definite height sizes the
+// row's intrinsic width probe; a maximum alone leaves its width at 640px.
+#[test]
+fn absolute_flex_intrinsic_width_uses_the_clamped_definite_height() {
+    use crate::browser_cases::{css_rows as rows, props};
+    use exact_kernel::{Offer, Op};
+
+    let natural: Frames = &[
+        [0.0, 0.0, 360.0, 100.0],
+        [0.0, 0.0, 180.0, 100.0],
+        [180.0, 0.0, 180.0, 100.0],
+    ];
+    let border_box: Frames = &[
+        [0.0, 0.0, 400.0, 100.0],
+        [0.0, 0.0, 200.0, 100.0],
+        [200.0, 0.0, 200.0, 100.0],
+    ];
+    let capped_auto: Frames = &[
+        [0.0, 0.0, 640.0, 100.0],
+        [0.0, 0.0, 320.0, 100.0],
+        [320.0, 0.0, 320.0, 100.0],
+    ];
+    let mut cases = Vec::new();
+    for height in [
+        "height:100px",
+        "top:0;bottom:500px",
+        "height:200px;max-height:100px",
+        "height:60px;min-height:100px",
+        "height:60px;min-height:100px;max-height:80px",
+        "top:0;bottom:400px;max-height:100px",
+        "top:0;bottom:540px;min-height:100px",
+        "height:50%;max-height:100px",
+        "height:100px;top:0;bottom:0",
+    ] {
+        cases.extend([
+            (height, "flex-grow:1;padding:10px", natural),
+            (height, "flex-grow:0;padding:10px", natural),
+            (
+                height,
+                "flex-grow:1;padding:10px;box-sizing:border-box;aspect-ratio:2/1",
+                border_box,
+            ),
+        ]);
+    }
+    cases.extend([
+        ("max-height:100px", "flex-grow:1;padding:10px", capped_auto),
+        (
+            "max-height:100px",
+            "flex-grow:1;padding:10px;box-sizing:border-box;aspect-ratio:2/1",
+            capped_auto,
+        ),
+    ]);
+    let mut failures = Vec::new();
+    for (height, item, frames) in cases {
+        let mut k = lay_out_held("direct", item, NodeType::Canvas, false);
+        k.apply(
+            0,
+            3,
+            &[
+                Op::SetStyle {
+                    id: 1,
+                    patch: Box::new(props(&rows("position:relative;width:800px;height:600px"))),
+                },
+                Op::SetStyle {
+                    id: 2,
+                    patch: Box::new(props(&rows(&format!(
+                        "position:absolute;display:flex;{height}"
+                    )))),
+                },
+            ],
+        )
+        .unwrap();
+        k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
+        let want: Vec<_> = (2..).zip(frames.iter().copied()).collect();
+        failures.extend(mismatches(&format!("{height}; {item}"), &k, &want));
+    }
+    assert!(
+        failures.is_empty(),
+        "{}\n{} failures",
+        failures.join("\n"),
+        failures.len()
+    );
+}

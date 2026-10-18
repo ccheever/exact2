@@ -1177,6 +1177,22 @@ inside a shrink-to-fit block, including column sizing and zero-grow controls.
 floors against narrow definite offers and cyclic percentage widths, including
 an offer wide enough to expose the full max-content contribution.
 
+## Patch 40: retain the definite height in absolute shrink-to-fit probes
+
+An absolute non-replaced box's intrinsic width probes receive its authored
+height, or the height between top and bottom insets, clamped by min/max and
+floored by padding and border. A flex row can then stretch its items and
+transfer their ratios when computing its intrinsic width. An automatic height
+with only min/max constraints is still passed as unknown.
+
+**Held by** `browser_replaced::constraints::absolute_flex_intrinsic_width_uses_the_clamped_definite_height`:
+literal Chrome 151.0.7922.34 frames measured on 2026-10-18 for two padded
+canvases in an absolute flex row. The 29 cases cover authored and between-insets
+heights, min/max clamping, a minimum above the maximum, a percentage height,
+an authored height overriding insets, growing and zero-grow items, authored
+border-box ratios, and automatic-height controls with only a maximum.
+The separate automatic-height constraint gaps are recorded in `QUEUE.md`.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
