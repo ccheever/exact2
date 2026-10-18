@@ -357,8 +357,10 @@ fn compute_preliminary(tree: &mut impl LayoutFlexboxContainer, node: NodeId, inp
     // EXACT PATCH 4: retain capacity, never results, across flex layouts.
     let mut flex_items = flex_item_scratch::Scratch::take();
     generate_anonymous_flex_items(tree, node, &constants, &mut flex_items);
-    for child in flex_items.iter_mut() {
-        if let Some(width) = crate::compute::ratio::minimum_ratio_width(tree, child.node, constants.node_inner_size) {
+    // EXACT PATCH 54: a column's automatic inline minimum depends on the
+    // flexed height. Resolve it during cross sizing, not before main sizing.
+    for child in flex_items.iter_mut().filter(|_| constants.is_row) {
+        if let Some(width) = crate::compute::ratio::minimum_ratio_width(tree, child.node, constants.node_inner_size, None) {
             child.min_size.width = Some(width).maybe_max(child.min_size.width);
         }
     }
@@ -850,11 +852,10 @@ fn generate_anonymous_flex_items(
                 .maybe_resolve(percent_resolution_size, |val, basis| tree.calc(val, basis))
                 .maybe_add(box_sizing_adjustment);
             let (mut size, _, _) = sizes_through_ratio(&child_style, pb_sum, given, min_size, max_size);
-            // EXACT PATCH 37: a replaced item's automatic cross size follows
-            // its flexed main size (§9.4), not its preferred main size. Keeping
-            // the derived cross size also feeds that preferred size back into
-            // the content minimum, preventing shrinking (§4.5).
-            if child_style.is_compressible_replaced() {
+            // EXACT PATCH 37 + 54: a replaced item's cross size, or a column
+            // item's width, follows its flexed main size (§9.4). The preferred
+            // main size must not feed back into its automatic minimum (§4.5).
+            if child_style.is_compressible_replaced() || constants.is_column {
                 size.set_cross(constants.dir, given.cross(constants.dir));
             }
             FlexItem {
@@ -2105,6 +2106,15 @@ fn determine_hypothetical_cross_size(
     available_space: Size<AvailableSpace>,
 ) {
     for child in line.items.iter_mut() {
+        // EXACT PATCH 54: retain Patch 50's content floor, transferring the
+        // used height rather than the preferred height (Flexbox §9.4).
+        if constants.is_column {
+            if let Some(width) = crate::compute::ratio::minimum_ratio_width(
+                tree, child.node, constants.node_inner_size, Some(child.target_size.height),
+            ) {
+                child.min_size.width = Some(width).maybe_max(child.min_size.width);
+            }
+        }
         let padding_border_sum = (child.padding + child.border).cross_axis_sum(constants.dir);
 
         let child_known_main = constants.container_size.main(constants.dir).into();

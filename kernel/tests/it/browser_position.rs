@@ -37,6 +37,10 @@
 //! columns, reversed columns, alignment overrides, auto and fixed margins,
 //! width and height bounds, padding, wider content, intrinsic widths,
 //! wrapping, block and grid.
+//! `Chrome 151 ratio column shrink` was measured on 2026-10-19 with Chrome
+//! 151.0.7922.34. It covers preferred heights in shorter columns, definite
+//! stretch versus wrapping, alignment and auto margins, content minima,
+//! authored widths, shrink opt-outs, padding, borders and row controls.
 //!
 //! `Chrome 151 intrinsic flex basis` uses that version and date for shrink-to-fit
 //! rows, a block wrapper, growth and shrink limits, automatic minima, bounds,
