@@ -237,9 +237,16 @@ function still(apply) {
     sheet.textContent = "[data-x-scrub],[data-x-scrub] *,[data-x-scrub] *::before,[data-x-scrub] *::after{transition:none!important}";
     document.head.append(sheet);
   }
+  // Off through the drag (one style change of the whole page as it starts
+  // and one as it rests, not two each frame), its last values styled before
+  // transitions come back.
   root.setAttribute("data-x-scrub", "");
-  try { const out = apply(); void root.offsetWidth; return out; } finally { root.removeAttribute("data-x-scrub"); }
+  const out = apply();
+  clearTimeout(StillUntil);
+  StillUntil = setTimeout(() => { void root.offsetWidth; root.removeAttribute("data-x-scrub"); }, 150);
+  return out;
 }
+let StillUntil = null;
 /** Set a frame's tokens in every tuple's rule, in one style update. */
 function setTokens(frame) {
   const rules = tupleRules();

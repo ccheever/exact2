@@ -279,10 +279,12 @@ if (es) {
     if (!still()) return { live: "structure" };
     if (typeof x.wasm?.exact_design_rows !== "function") return { live: "unsupported" };
     const n = x.wasm.exact_design_rows(x.writeIn(JSON.stringify(frame))), out = JSON.parse(x.readOut(n));
-    if (out.live === "applied") { if (frame.scrub) unmoving(() => x.send(n)); else x.send(n); }
     // A scrub's frames say the design once the drag rests (a status reads the
-    // root's computed style and posts, each frame otherwise).
-    if (typeof out.design === "string" && out.design !== x.designDigest) { x.designDigest = out.design; clearTimeout(statusLater); if (frame.scrub) statusLater = setTimeout(status, 150); else status(); }
+    // root's computed style and posts, each frame otherwise), the commit's
+    // own report included (armed before the frame is sent).
+    if (frame.scrub && out.live === "applied") { clearTimeout(statusLater); statusLater = setTimeout(status, 150); }
+    if (out.live === "applied") { if (frame.scrub) unmoving(() => x.send(n)); else x.send(n); }
+    if (typeof out.design === "string" && out.design !== x.designDigest) { x.designDigest = out.design; if (!frame.scrub) status(); }
     if (out.unsupported) { console.warn("exact dev: the wide colour table is full: a colour was refused, its rows keep their value"); report({ kind: "unsupported", what: "batch", detail: "the wide colour table is full: a colour was refused" }); }
     return out;
   };
@@ -297,9 +299,15 @@ if (es) {
       sheet.textContent = "[data-x-scrub],[data-x-scrub] *,[data-x-scrub] *::before,[data-x-scrub] *::after{transition:none!important}";
       document.head.append(sheet);
     }
+    // Off through the drag (one style change of the whole page as it starts
+    // and one as it rests, not two each frame), its last values styled
+    // before transitions come back.
     root.setAttribute("data-x-scrub", "");
-    try { apply(); void root.offsetWidth; } finally { root.removeAttribute("data-x-scrub"); }
+    apply();
+    clearTimeout(stillUntil);
+    stillUntil = setTimeout(() => { void root.offsetWidth; root.removeAttribute("data-x-scrub"); }, 150);
   };
+  let stillUntil = null;
   // One at a time, in the stream's order: a snapshot fetched is never older
   // than a batch applied before it.
   // A snapshot asked for under one generation is that generation's: one
@@ -396,14 +404,15 @@ if (es) {
     const contrast = matchMedia("(prefers-contrast: more)").matches ? "more" : matchMedia("(prefers-contrast: less)").matches ? "less" : "no-preference";
     return { kind: "status", scheme, contrast, mode: await modes(), rootFontSize: parseFloat(rootStyle.fontSize), plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow(), revision: channel.revision };
   };
-  const status = async () => { const body = await facts(); channel.told = JSON.stringify(body); report(body); };
+  const status = async () => { clearTimeout(statusLater); statusLater = null; const body = await facts(); channel.told = JSON.stringify(body); report(body); };
   // The facts change under the page too, and by the app's own `setScheme`,
   // `setMode` and `setRootFontSize`: after its commits, once a turn, a status
   // when they moved.
   for (const query of ["(prefers-color-scheme: dark)", "(prefers-contrast: more)", "(prefers-contrast: less)"]) matchMedia(query).addEventListener?.("change", () => { if (channel.nonce) status(); });
   let due = false;
   const committed = () => {
-    if (due || !channel.nonce) return;
+    // A scrub's status is said once it rests (`statusLater`), these facts with it.
+    if (due || !channel.nonce || statusLater) return;
     due = true;
     setTimeout(() => {
       designing = designing.then(async () => {
