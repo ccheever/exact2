@@ -255,7 +255,7 @@ pub struct World {
     entities_revision: u64,
     pub(crate) presentation_generation: u64,
 }
-const MAGIC: &[u8; 8] = b"EXGAME\0\x05";
+const MAGIC: &[u8; 8] = b"EXGAME\0\x06";
 
 impl World {
     /// Measure a named region of the tick; nested spans account exclusive time.
@@ -1214,12 +1214,14 @@ impl World {
         if bytes.len() > crate::data::MAX_LOAD_BYTES {
             return Err(DataError::new("save exceeds load size limit"));
         }
-        if bytes.starts_with(b"EXGAME\0\x04") {
-            return Err(DataError::new("restore refused: EXGAME v4 predates v5 development-edit provenance; no cross-version migration before 1.0: recreate with `screenshot checkpoint.world world save`; inspect `state`"));
+        for version in [4, 5] {
+            if bytes.starts_with(&[b'E', b'X', b'G', b'A', b'M', b'E', 0, version]) {
+                return Err(DataError::new(format!("restore refused: EXGAME v{version} predates v6 tableInputs; no cross-version migration before 1.0: recreate with `screenshot checkpoint.world world save`; inspect `state`")));
+            }
         }
         bytes.strip_prefix(MAGIC).ok_or_else(|| {
             DataError::new(format!(
-                "unsupported world save format (expected EXGAME v5; saw {:02x?})",
+                "unsupported world save format (expected EXGAME v6; saw {:02x?})",
                 &bytes[..bytes.len().min(8)]
             ))
         })
