@@ -3,6 +3,7 @@ import {readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, rmSync}
 import {resolve} from 'node:path';
 import {createHash} from 'node:crypto';
 import {spawn, spawnSync} from 'node:child_process';
+import {loadavg} from 'node:os';
 import {tableOperation, watchTables} from '../../../game/app/tables.mjs';
 import {filesystem} from '../../../scripts/filesystem.mjs';
 import {pendingBuildInputs} from '../../../scripts/app.mjs';
@@ -102,8 +103,17 @@ test('real game dev journals rejected edits and reloads tables after a gpu-dev p
     drive=await open({host:'web',app:'beacons',url:url+'/',size:[1280,720]});await drive.tap('play');
     let world=drive.world('world');
     const valid=speed=>JSON.stringify({speed:[[0,speed],[1,speed]],jump:1.2});
-    writeFileSync(table,valid(8));await until(async()=>(await world.snapshot()).tableEdits===1);
-    await world.run(17);expect((await world.get('player','Character')).speed).toBe(8);
+    const editToObserved=async(speed,edits,label)=>{
+      const load=loadavg()[0],started=performance.now();
+      writeFileSync(table,valid(speed));
+      await until(async()=>(await world.snapshot()).tableEdits===edits);
+      await world.run(17);
+      expect((await world.get('player','Character')).speed).toBe(speed);
+      const milliseconds=performance.now()-started;
+      console.log(`table edit-to-observed ${label}: ${milliseconds.toFixed(1)} ms; load ${load.toFixed(2)} -> ${loadavg()[0].toFixed(2)}`);
+      if(milliseconds>=1000)throw Error(`table edit-to-observed exceeded 1000 ms: ${milliseconds.toFixed(1)} ms`);
+    };
+    await editToObserved(8,1,'warm');
     for(const [text,path] of [
       ['{"speed":"wrong","jump":1.2}','movement.json.Movement.speed'],
       ['{"speed":[[0,8],[1,8]]}','movement.json.Movement.jump'],
@@ -114,7 +124,19 @@ test('real game dev journals rejected edits and reloads tables after a gpu-dev p
       expect((await world.snapshot()).tableEdits).toBe(1);
       await world.run(17);expect((await world.get('player','Character')).speed).toBe(8);
     }
-    writeFileSync(table,originals[0].text);await until(async()=>(await world.snapshot()).tableEdits===2);
+    // Delay actual table transport, keeping the same file-to-gameplay oracle.
+    await drive.carrier.evaluate(`globalThis.tableFetch=globalThis.fetch;globalThis.delayedTables=0;
+      globalThis.fetch=async(...args)=>{
+        if(String(args[0]).includes('exact-tables.json')){globalThis.delayedTables++;await new Promise(ok=>setTimeout(ok,1100));}
+        return globalThis.tableFetch(...args);
+      };`);
+    try {
+      await expect(editToObserved(10,2,'delayed')).rejects.toThrow('table edit-to-observed exceeded 1000 ms');
+      expect(await drive.carrier.evaluate('globalThis.delayedTables')).toBeGreaterThan(0);
+    } finally {
+      await drive.carrier.evaluate('globalThis.fetch=globalThis.tableFetch;delete globalThis.tableFetch;delete globalThis.delayedTables');
+    }
+    writeFileSync(table,originals[0].text);await until(async()=>(await world.snapshot()).tableEdits===3);
     const offset=log.length;
     writeFileSync(rust,originals[1].text+'\n// Exercise the primary development rebuild.\n');
     await until(()=>log.slice(offset).includes('rust: rebuilt'),600000);
@@ -126,8 +148,7 @@ test('real game dev journals rejected edits and reloads tables after a gpu-dev p
     drive=await open({host:'web',app:'beacons',url:url+'/',size:[1280,720]});
     await drive.tap('play');world=drive.world('world');
     // Removing tuning.reload() leaves the watcher closed after the primary build.
-    writeFileSync(table,valid(9));await until(async()=>(await world.snapshot()).tableEdits===1);
-    await world.run(17);expect((await world.get('player','Character')).speed).toBe(9);
+    await editToObserved(9,1,'after primary rebuild');
     expect(log).toMatch(/table: validated and published in .*subprocesses 0/);
   } finally {
     await drive?.close();
