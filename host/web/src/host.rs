@@ -8,7 +8,6 @@
 //! only where the host's per-view cache says something changed. The kernel
 //! is the single source of truth; the cache is a memo of what the page has
 //! already been told.
-
 use crate::batch::Batch;
 use crate::css;
 use crate::motion::{Lowered, Motion, Still};
@@ -1366,6 +1365,10 @@ impl<D: DataSource> Host<D> {
                 let kernel = self.runner.kernel();
                 let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
                 let mut props = props_for(&node);
+                if let Some(raw) = props.get("data-decoration-styles") {
+                    let css = crate::css::decoration_styles(raw, &self.font_names);
+                    props.insert("data-decoration-styles".into(), css);
+                }
                 svg_props(self.runner.kernel(), &node, &mut props);
                 let css = host_css(kernel, &node, css, tag);
                 let css = element::folded_css(kernel, &node, css, !kinds.is_empty());
@@ -1427,6 +1430,10 @@ impl<D: DataSource> Host<D> {
             .zip(crate::link::linked().materials)
             .and_then(|(name, material)| (material.1)(name));
         let mut props = props_for(&node);
+        if let Some(raw) = props.get("data-decoration-styles") {
+            let css = crate::css::decoration_styles(raw, &self.font_names);
+            props.insert("data-decoration-styles".into(), css);
+        }
         element::router_press(&mut props, self.runner.press_writes_router(id));
         svg_props(self.runner.kernel(), &node, &mut props);
         let css = self.view_css(&node);
