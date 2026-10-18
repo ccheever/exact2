@@ -202,7 +202,7 @@ server to come back on the new version and shares that state with Settings › C
   `device.configure` / `subscribeDeviceState`; Escape closes it; after onboarding a row
   opens its simulator with `device.open`, then the workspace shows the hub's H.264 screen
   decoded with VideoToolbox (iOS: serve-sim's AVCC body, MJPEG when the description cannot be
-  decoded or the decoder stays behind for a second, `T3DeviceDecodeBacklog.swift`; Android: serve-emu's SEMU-framed socket) as the 3D phone (SceneKit over the
+  decoded; a sustained decode backlog or stalled body resubscribes at a fresh IDR and keeps the last frame and 3D viewer, `T3DeviceDecodeBacklog.swift`; Android: serve-emu's SEMU-framed socket) as the 3D phone (SceneKit over the
   connected server's own device models, never bundled; a procedural body for other devices)
   or flat, with Home, Rotate (Android: Back, Recents and a Portrait / Landscape menu),
   appearance, text size, the Tools drawer (foreground app, open URL, launch, terminate,

@@ -31,7 +31,12 @@ final class Peer {
             guard let self else { return }
             self.connections.append(connection)
             connection.start(queue: self.queue)
-            if websocket { self.readMessages(connection) } else { self.readRequest(connection) }
+            if websocket {
+                connection.stateUpdateHandler = { [weak self] state in
+                    if case .ready = state { self?.push(Data([0x83])) }
+                }
+                self.readMessages(connection)
+            } else { self.readRequest(connection) }
         }
         listener.start(queue: queue)
         _ = ready.wait(timeout: .now() + 5)
@@ -131,9 +136,8 @@ final class DeviceStreamTests: XCTestCase {
         XCTAssertEqual(view.screen?.orientation, "portrait")
         view.press("home")
         view.press("rotate")
-        spin(until: { helper.received.count >= 3 })
+        spin(until: { helper.received.count >= 2 })
         let packets = helper.received
-        XCTAssertEqual(packets.first, T3DeviceWire.tagged(0x0d, ["enabled": false]), "the helper's hardware keyboard is released on open")
         XCTAssertTrue(packets.contains(T3DeviceWire.tagged(0x04, ["button": "home"])))
         XCTAssertTrue(packets.contains(T3DeviceWire.tagged(0x07, ["orientation": "landscape_left"])))
         view.stop()

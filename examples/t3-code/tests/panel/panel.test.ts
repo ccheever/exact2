@@ -10,7 +10,7 @@ import { deviceThreadId } from '../../src/device/device-session';
 import { toasts } from '../../src/shell/toast';
 import { treeRows, searchRows, searchMatches, crumbs, codeLines, sortEntries, filesState, editFile, pendingPaths, setMarkdownTaskChecked } from '../../src/panel/files-surface';
 import { resolveChains, listLines, prsView, prCommandPayload } from '../../src/panel/linked-prs';
-import { platformSetupStatus, hubStatusLabel, configureInput, deviceStateEvent, watchDevice, deviceReady, DEVICE_STATE_KEY } from '../../src/device/device-surface';
+import { platformSetupStatus, hubStatusLabel, deviceHubReadiness, deviceLocal, deviceView, configureInput, deviceStateEvent, watchDevice, deviceReady, DEVICE_STATE_KEY } from '../../src/device/device-surface';
 import { parseDelimited } from '../../src/panel/rendered-previews';
 import { surfaces } from '../../src/shell/shell';
 import { decodeClientPrefs } from '../../src/settings/settings-core';
@@ -304,13 +304,42 @@ describe('Linked pull requests', () => {
 
 describe('Device setup', () => {
   test('platform status and hub labels match DeviceSetup', () => {
-    const state = { hostStatus: 'ready', hosts: [{ platforms: [{ platform: 'ios', available: true }, { platform: 'android', available: false, reason: 'Install the Android SDK.' }] }], devices: [] };
+    const state = { hostStatus: 'ready', hosts: [{ id: 'local', kind: 'local', platforms: [{ platform: 'ios', available: true }, { platform: 'android', available: false, reason: 'Install the Android SDK.' }] }], devices: [] };
     expect(platformSetupStatus(state, 'ios').message).toBe('Xcode is installed, but no iOS Simulator is available. Install a runtime in Xcode Settings → Components.');
     expect(platformSetupStatus(state, 'android')).toEqual({ ready: false, message: 'Install the Android SDK.' });
-    expect(hubStatusLabel('ready', false)).toBe('Device hub is ready.');
-    expect(hubStatusLabel('installing', true)).toBe('Installing device hub…');
+    expect(hubStatusLabel({ hostStatus: 'ready' }, false)).toBe('Device hub is ready.');
+    expect(hubStatusLabel({ hostStatus: 'installing' }, true)).toBe('Installing device hub…');
+    expect(hubStatusLabel({ hostStatus: 'idle', hostStatuses: { mini: { status: 'ready' } } }, false)).toBe('Device hub is ready.');
     expect(configureInput('hub', 'false')).toEqual({ enabled: false, agentAccessEnabled: false });
     expect(configureInput('complete', '')).toEqual({ onboardingCompleted: true });
+  });
+  // IntegrationsSettings.test.tsx "counts a remote device host when this machine has no simulator tooling".
+  const remoteOnly = () => ({
+    hostStatus: 'idle', hostStatuses: { macmini: { status: 'ready' } }, sessions: [], onboardingCompleted: false, agentAccessEnabled: false,
+    hosts: [
+      { id: 'local', kind: 'local', label: 'This Mac', platforms: [{ platform: 'ios', available: false, reason: 'Xcode was not found.' }, { platform: 'android', available: false, reason: 'Android SDK was not found.' }] },
+      { id: 'macmini', kind: 'ssh', label: 'Mac Mini', hubInstalled: true, agentDeviceInstalled: true, platforms: [{ platform: 'ios', available: true }, { platform: 'android', available: false, reason: 'Android SDK was not found.' }] },
+    ],
+    devices: [{ hostId: 'macmini', id: 'iphone', platform: 'ios', name: 'iPhone 16 Pro', version: 'iOS 27.0', booted: true, physical: false }],
+  });
+  test('a ready remote device host is enough: readiness, the platform names it, Continue moves on', async () => {
+    const state = remoteOnly();
+    expect(deviceHubReadiness(state)).toEqual({ ready: true, busy: false });
+    expect(platformSetupStatus(state, 'ios')).toEqual({ ready: true, message: 'Xcode and iOS Simulator are available on Mac Mini.' });
+    expect(platformSetupStatus(state, 'android').ready).toBe(false);
+    expect(deviceHubReadiness({ hostStatus: 'idle', hostStatuses: { macmini: { status: 'starting' } } })).toEqual({ ready: false, busy: true });
+    expect(deviceHubReadiness({ hostStatus: 'starting', hostStatuses: { macmini: { status: 'ready' } } })).toEqual({ ready: true, busy: false });
+    const { client, calls } = fakeClient();
+    await surfaceLocal(client, native, 'open', 'm', '');
+    deviceStateEvent(client, { subscriptionId: '1-9', key: DEVICE_STATE_KEY, value: state });
+    const view = await panelView(client, native, 0);
+    expect(view.device).toMatchObject({ canContinue: true, hubReady: true, hubStatus: 'Device hub is ready.', busy: false });
+    expect(view.device.platforms[0]!.message).toBe('Xcode and iOS Simulator are available on Mac Mini.');
+    // DeviceSetup probes once while it is open with the hub enabled; remote hosts report platforms only after one.
+    await panelView(client, native, 0);
+    expect(calls.filter(call => call.method === 'device.list').length).toBe(1);
+    await deviceLocal(client, native, 'continue', '', '');
+    expect((await deviceView(client, native)).step).toBe(1);
   });
   test('Device opens the wizard until onboarding is complete; the stream decides readiness', async () => {
     const { client, calls } = fakeClient();
