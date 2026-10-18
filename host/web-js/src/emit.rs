@@ -550,6 +550,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     if [
         "x_frame",
         "x_measure",
+        "x_rangeFrame",
         "x_elementFromPoint",
         "x_elementsFromPoint",
     ]
@@ -1173,6 +1174,16 @@ impl Em<'_> {
         self.editor(i, element, &e)?;
         for (k, b) in row.bindings.iter().enumerate() {
             let b = plan.binding(b);
+            if b.kind == BindingKind::Prop && b.id == PropId::Decorations as u16 {
+                let value = self.f(b.expr, scope)?;
+                let p = self.uses.rt("P");
+                let record = self.uses.rt("decorationRecord");
+                let _ = write!(
+                    self.out,
+                    "{p}({e},\"data-decorations\",()=>{record}(({value})()));"
+                );
+                continue;
+            }
             // tvOS's focus guide has no DOM property, whether literal or bound.
             if b.kind == BindingKind::Prop && b.id == PropId::FocusGuide as u16 {
                 continue;

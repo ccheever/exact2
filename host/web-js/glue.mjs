@@ -9,7 +9,7 @@ import { resolve } from 'node:path';
 
 export const HOST_WEB_GLUE = [
   // Loaded after first paint: motion.js, a pan, `select`, text flow, rt.js `pr`, native.js, rt.js `geo`, media.js, notify.js, sounds.js; wakelock.js imports wakelock-glue.js.
-  'frames.js', 'motion-glue.js', 'group-glue.js', 'input-glue.js', 'markup-editor.js', 'textflow-glue.js', 'timer-glue.js',
+  'frames.js', 'motion-glue.js', 'group-glue.js', 'input-glue.js', 'markup-editor.js', 'decoration-editor.js', 'textflow-glue.js', 'timer-glue.js',
   'presence-glue.js', 'native-glue.js', 'geometry-glue.js', 'resize-glue.js', 'intersect-glue.js', 'media-glue.js',
   'notify-glue.js', 'sound-glue.js', 'midi-glue.js', 'prompt-glue.js', 'wakelock-glue.js',
   // Virtualized lists' browser half; animated images on the agent's clock (agent.js only); Canvas 2D's replayer.

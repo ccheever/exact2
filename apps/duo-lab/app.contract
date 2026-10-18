@@ -1,6 +1,6 @@
 // Duo Lab (LLP 1078 D8): the first consumer of `device-posture` and the
 // viewport segments, and the iPhone Duo's stress fixture — what
-// `bun scripts/smoke.mjs duo` drives through open, book, half and closed.
+// `bun scripts/smoke.mjs duo` drives fully open, partially folded and closed.
 //
 // Four screens behind routes. Fold reads the three fields `exactViewport`
 // gained and lays two panes on the segments with `env(viewport-segment-*)`,

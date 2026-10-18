@@ -115,12 +115,12 @@
   /* Fields and `select`: 36 px in every engine (a said line height again), the control's line, the field's own ground
      and ink (the page's `color` does not tint a surface the host paints; the node's own, inline or its class's,
      still wins; the ground and ink are the design's Field and FieldText where it overrides them, LLP 1121 D9). */
-  #exact-root input[data-native], #exact-root textarea[data-native], #exact-root select:not([multiple]), #exact-root input[data-exact-field] { border-color: var(--exact-line); background-color: var(--exact-field, var(--exact-secondary-grouped-background)); color: var(--exact-field-text); }
-  #exact-root input[data-native], #exact-root textarea[data-native] { padding: .4375em .75em; line-height: 1.25; }
+  #exact-root input[data-native], #exact-root :is(textarea, .exact-decoration-editor)[data-native], #exact-root select:not([multiple]), #exact-root input[data-exact-field] { border-color: var(--exact-line); background-color: var(--exact-field, var(--exact-secondary-grouped-background)); color: var(--exact-field-text); }
+  #exact-root input[data-native], #exact-root :is(textarea, .exact-decoration-editor)[data-native] { padding: .4375em .75em; line-height: 1.25; }
   #exact-root input[data-exact-field] { height: 2.25em; }
   #exact-root :is(input, textarea)::placeholder { color: var(--exact-placeholder-color, var(--exact-placeholder)); opacity: 1; }
   @media (pointer: coarse) { #exact-root input[data-native] { padding-block: .6875em; } #exact-root input[data-exact-field] { height: 44px; } #exact-root select:not([multiple]) { line-height: 2.625; } }
-  #exact-root input[data-native]:disabled, #exact-root textarea[data-native]:disabled, #exact-root select:not([multiple]):disabled, #exact-root input[data-exact-field]:disabled { color: var(--exact-gray-text); background-color: var(--exact-field, var(--exact-secondary-background)); border-color: var(--exact-separator); }
+  #exact-root input[data-native]:disabled, #exact-root :is(textarea, .exact-decoration-editor)[data-native]:is(:disabled, [disabled]), #exact-root select:not([multiple]):disabled, #exact-root input[data-exact-field]:disabled { color: var(--exact-gray-text); background-color: var(--exact-field, var(--exact-secondary-background)); border-color: var(--exact-separator); }
   /* The select's caret, in the secondary label's ink, at the inline end. */
   #exact-root select:not([multiple]) { background-image: linear-gradient(45deg, #0000 50%, var(--exact-secondary-label) 50%), linear-gradient(135deg, var(--exact-secondary-label) 50%, #0000 50%); }
 

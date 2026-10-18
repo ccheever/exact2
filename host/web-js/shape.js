@@ -58,3 +58,13 @@ export function failureCode(e) {
 /** `failure(x).reason`: a string the thrown value carries as `reason` (the snapback4 driver's refusal code, `SLOT_FULL`),
  * else empty; as js/src/prelude.js `fail` reads it (the author's ruling of 2026-10-12). */
 export const failureReason = e => e && typeof e === "object" && typeof e.reason === "string" ? e.reason : "";
+
+/** The compiler's positional TextDecorations record as the shared named JSON. */
+export function decorationRecord(v) {
+  if (v == null) return null;
+  const named = ([name, start, end]) => ({ name, start, end });
+  return JSON.stringify({ value: v[0], spans: v[1].map(named),
+    blocks: v[2].map(item => ({ ...named(item), marker: item[3] || null })),
+    hidden: v[3].map(([start, end, reveal]) => ({ start, end, reveal: reveal == null ? null : { start: reveal[0], end: reveal[1] } })),
+    atoms: v[4].map(item => ({ ...named(item), label: item[3] })) });
+}
