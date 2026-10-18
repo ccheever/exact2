@@ -71,33 +71,35 @@ final class WidgetPreview: ObservableObject {
         let date = Date(timeIntervalSince1970: (epochAtZero + clock) / 1000)
         let facts = SessionFacts(displayScale: 1, preferences: variant.scheme == "dark" ? [.dark] : [],
             rootFontSize: Double(SnapshotDriver.bodySize(for: variant.typeSize)),
-            date: Date(timeIntervalSince1970: epochAtZero / 1000),
+            date: date, clock: clock,
             timeZone: TimeZone(identifier: place.timeZone) ?? TimeZone(secondsFromGMT: 0)!, locale: place.locale, seed: place.seed)
-        let initial = try HeadlessSession(plan: plan, entry: entry.kind, size: variant.contentSize, facts: facts, assets: entry.assets)
-        do {
-            let result = try initial.previewTimeline(at: date)
-            let first = (result["timeline"] as? [[String: Any]])?.first
-            var given: [String: Any]?
-            if let suppliedProps {
-                guard let object = try JSONSerialization.jsonObject(with: Data(suppliedProps.utf8)) as? [String: Any] else {
-                    throw HeadlessSession.Failure(description: "widget --props: expected a JSON object")
-                }
-                given = object
+        var result: [String: Any] = [:]
+        if suppliedProps == nil {
+            let initial = try HeadlessSession(plan: plan, entry: entry.kind, size: variant.contentSize, facts: facts, assets: entry.assets)
+            defer { initial.close() }
+            result = try initial.previewTimeline(at: date)
+        }
+        let first = (result["timeline"] as? [[String: Any]])?.first
+        var given: [String: Any]?
+        if let suppliedProps {
+            guard let object = try JSONSerialization.jsonObject(with: Data(suppliedProps.utf8)) as? [String: Any] else {
+                throw HeadlessSession.Failure(description: "widget --props: expected a JSON object")
             }
-            props = given ?? (first?["props"] as? [String: Any]) ?? entry.preview
-            refresh = suppliedProps != nil ? "props" : first != nil ? "timeline" : result["entryRefresh"] as? String == "timeline" ? "empty" : result["entryRefresh"] as? String ?? "preview"
-            refreshReason = result["reason"] as? String
-            let bytes = try JSONSerialization.data(withJSONObject: props, options: [.sortedKeys])
-            initial.close()
-            session = try HeadlessSession(plan: plan, entry: entry.kind, props: bytes, size: variant.contentSize, facts: facts, assets: entry.assets)
-            try session.advance(to: clock)
-            let entryDate = (first?["date"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) } ?? date
-            environment = SnapshotEnvironment(family: family,
-                linkBase: URL(string: ExactEnv.appMetadata["ExactOrigin"] as? String ?? ""), imageRoots: [entry.assets.root],
-                contentMargins: EdgeInsets(top: variant.margin, leading: variant.margin, bottom: variant.margin, trailing: variant.margin),
-                rootFontSize: SnapshotDriver.bodySize(for: variant.typeSize), entryDate: entryDate,
-                frozenDate: appSession.clock == nil ? nil : date)
-        } catch { initial.close(); throw error }
+            given = object
+        }
+        props = given ?? (first?["props"] as? [String: Any]) ?? entry.preview
+        refresh = suppliedProps != nil ? "props" : first != nil ? "timeline" : result["entryRefresh"] as? String == "timeline" ? "empty" : result["entryRefresh"] as? String ?? "preview"
+        refreshReason = result["reason"] as? String
+        let bytes = try JSONSerialization.data(withJSONObject: props, options: [.sortedKeys])
+        let rendered = try HeadlessSession(plan: plan, entry: entry.kind, props: bytes, size: variant.contentSize, facts: facts, assets: entry.assets)
+        do { try rendered.advance(to: clock) } catch { rendered.close(); throw error }
+        session = rendered
+        let entryDate = (first?["date"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) } ?? date
+        environment = SnapshotEnvironment(family: family,
+            linkBase: URL(string: ExactEnv.appMetadata["ExactOrigin"] as? String ?? ""), imageRoots: [entry.assets.root],
+            contentMargins: EdgeInsets(top: variant.margin, leading: variant.margin, bottom: variant.margin, trailing: variant.margin),
+            rootFontSize: SnapshotDriver.bodySize(for: variant.typeSize), entryDate: entryDate,
+            frozenDate: appSession.clock == nil ? nil : date)
     }
     deinit { session.close() }
 }
@@ -237,6 +239,7 @@ enum WidgetGallery {
                 guard ["tree", "screenshot", "state"].contains(op) else {
                     throw HeadlessSession.Failure(description: "widget gallery supports tree, screenshot, state and app clock")
                 }
+                if request["availability"] as? Bool == true { return ["available": true] }
                 let old = agent.widgetPreview
                 if old?.variant != variant || old?.clock != agent.session.now() || old?.epochAtZero != agent.session.dateNow().epoch
                     || old?.generation != entry.assets.publicationID || old?.suppliedProps != address["props"] {

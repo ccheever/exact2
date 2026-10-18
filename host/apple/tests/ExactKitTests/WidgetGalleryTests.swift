@@ -7,6 +7,41 @@ import ExactSnapshot
 
 @MainActor
 final class WidgetGalleryTests: XCTestCase {
+    #if os(macOS)
+    func testDevelopMenuShowsTheFirstEntryAfterGenerationNotification() throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let empty = root.appendingPathComponent("empty"), added = root.appendingPathComponent("added")
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: added.appendingPathComponent("plans"), withIntermediateDirectories: true)
+        let app = ExactApp.shared, previousRoot = app.assetRoot, previousMenu = NSApp.mainMenu, previousSession = DevMenu.session
+        defer { app.assetRoot = previousRoot; NSApp.mainMenu = previousMenu; DevMenu.session = previousSession; try? FileManager.default.removeItem(at: root) }
+        app.assetRoot = empty
+        let session = ExactSession(app: app, label: "menu-reload")
+        defer { session.destroy() }
+        DevMenu.install(session: session, planPath: nil)
+        func widgets() -> NSMenuItem? { NSApp.mainMenu?.items.first { $0.submenu?.title == "Develop" }?.submenu?.item(withTitle: "Widgets…") }
+        XCTAssertNil(widgets())
+        try Data("[{\"kind\":\"added\",\"families\":[\"systemSmall\"],\"preview\":{}}]".utf8).write(to: added.appendingPathComponent("plans/widgets.json"))
+        app.assetRoot = added
+        NotificationCenter.default.post(name: Notification.Name("ExactWidgetGeneration"), object: app)
+        XCTAssertNotNil(widgets())
+    }
+    #endif
+    func testGivenPropsSkipARefusingRefresh() throws {
+        let plan = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_SNAPSHOT_REFUSING_PLAN"]))
+        let assets = AssetResolver(root: plan.deletingLastPathComponent(), names: ["plans/refusing.plan"], generation: "refusing") { _ in try? Data(contentsOf: plan) }
+        let entry = WidgetEntry(kind: "refusing", families: ["systemSmall"], preview: ["title":"Preview"], assets: assets)
+        let session = ExactSession(app: ExactApp.shared, label: "given-props", launchPlace: LaunchPlace(environment: ["EXACT_AGENT":"1"]))
+        session.clock = 0
+        defer { session.destroy() }
+        let variant = WidgetVariant(entry: "refusing", family: "systemSmall")
+        XCTAssertThrowsError(try WidgetPreview(variant, entry: entry, appSession: session))
+        let preview = try WidgetPreview(variant, entry: entry, appSession: session, props: "{\"title\":\"Given\"}")
+        XCTAssertEqual(preview.refresh, "props")
+        XCTAssertEqual(preview.props["title"] as? String, "Given")
+        XCTAssertTrue(try preview.session.snapshot().nodes.values.contains { $0.props["text"] == "Given" })
+    }
     func testReadsUseTheRefreshAtTheAppClockAndTheCurrentGeneration() throws {
         #if os(macOS)
         _ = NSApplication.shared
@@ -53,7 +88,7 @@ final class WidgetGalleryTests: XCTestCase {
         let png = directory.appendingPathComponent("entry.png")
         let image = read("screenshot", path: png.path)
         XCTAssertNil(image["error"])
-        XCTAssertEqual(image["epoch"] as? UInt64, preview.session.agentFacts()["epoch"] as? UInt64)
+        XCTAssertEqual(try XCTUnwrap(image["epoch"] as? UInt64), preview.session.agentFacts()["epoch"] as? UInt64)
         XCTAssertEqual(image["w"] as? CGFloat, 338); XCTAssertEqual(image["h"] as? CGFloat, 158)
         XCTAssertGreaterThan(try Data(contentsOf: png).count, 100)
         session.clock = 600_000

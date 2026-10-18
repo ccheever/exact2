@@ -2,6 +2,24 @@ use super::*;
 
 #[test]
 fn entry_refresh_answers_without_mutating_the_preview() {
+    // Picker roots are process-global; isolate this check from parallel picker tests.
+    if std::env::var_os("EXACT_ENTRY_ROOTS_TEST").is_none() {
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "entry_refresh_answers_without_mutating_the_preview",
+                "--test-threads=1",
+            ])
+            .env("EXACT_ENTRY_ROOTS_TEST", "1")
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+        return;
+    }
     #[derive(Default)]
     struct Timeline(u8, String);
     impl exact_runner::DataSource for Timeline {
@@ -70,9 +88,11 @@ fn entry_refresh_answers_without_mutating_the_preview() {
             .runner()
             .slot("snapshot_props")
             .cloned();
+        let picker_roots = crate::picker::roots();
         let n = bridge.refresh_entry(Timeline(response, app_id.clone()), 1000.0);
         let result: serde_json::Value =
             serde_json::from_slice(bridge.output_bytes(n as usize)).unwrap();
+        assert_eq!(crate::picker::roots(), picker_roots);
         assert_eq!(std::fs::read(&picked).unwrap(), b"running app pick");
         if response == 0 {
             assert_eq!(result["entryRefresh"], "timeline");
