@@ -1,4 +1,5 @@
 import { snapshotSettings } from './src/snapshot/snapshot-settings';
+import { promptLinkView, promptLinksReady } from './src/prompt-links/prompt-link-handler';
 import { keyboardSettings, keybindingSettings } from './src/settings/keybinding-settings';
 import { claimBoldChord, richTextComposer } from './src/shell/button-chords'; // ⌘B bolds in the rich-text composer
 import { taskFromArguments } from './src/settings/scheduled-settings';
@@ -89,6 +90,8 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   adoptAppFiles(_storage); // the app's own files: Save's bytes, a draft's staged copy (save-file.ts)
   const storage = native?.available ? nativeFiles(native) : _storage;
   if (source === 'highlightSlice') return highlightSlice(); // a background highlight turn
+  if (source === 'promptLinkView') return promptLinkView(client);
+  if (source === 'promptLinksReady') return promptLinksReady(client);
   startHighlightTurn(); // any other answer tokenizes code within one turn's budget
   if (source === 'snapshot') {
     noteNow(client, Number(args[0]) || 0);
