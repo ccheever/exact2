@@ -4,16 +4,16 @@
     "90": "0xf3f4dced8f1d65f5"
   },
   "saves": {
-    "continuation": "2fd4a239b89fffaf3b9e80d3d30c4502af454bdae19a39f288c2737bd7508868"
+    "continuation": "58541e03bf39d36fe17f91584063d932b774b10ff53698d3725de093bc933a33"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "85cae94511234476b953339e04f058c9f41fcafce3d90c9c364bf36d2a57787d",
-  "sourceInputs": "8d182282fbd2dde281dde20db893accd54aca7786d564fbc2dac4f5c9a102f51",
+  "inputs": "174059382706123ca63899d0da0fbb3298e513e804a93831f578096c3afb7613",
+  "sourceInputs": "387eda9a42716e29f8a548101178f80fb87cc81856a6826ce93c09828e88ca3b",
   "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
-  "at": "e20726da10868d94532f8f0085cf099745e0df73",
-  "reason": "888b99e80: persist module-qualified table type identity in retained inputs; active table bytes and gameplay tick hashes are unchanged"
+  "at": "59daedfa21d58e41350bce03ce2c2b7ed737d4ed",
+  "reason": "b5aabfcf3: persist engine-declared table identities from module_path and type identifiers instead of std::any::type_name in unshipped EXGAME v5; active table bytes and gameplay tick hashes are unchanged"
 }
