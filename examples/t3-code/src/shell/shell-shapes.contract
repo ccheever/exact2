@@ -90,6 +90,7 @@ shape ShellEditor
   label: string
   selected: bool
 shape ShellView
+  openGuideSelected: string
   toasts: ShellToast[]
   toastCount: number
   ticking: bool

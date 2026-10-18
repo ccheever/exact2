@@ -1,0 +1,289 @@
+// T3 Code 9c161462c9 (MIT, LICENSE-T3): PullRequestGuideTab and guide/{GuideTour,GuideRail,GuideStop,GuideNotes}.
+use ShellIcon from "../shell/shell-icons.contract"
+use PgIcon from "../shared/pages-icons.contract"
+use ChatMarkdown, ChatDocument, CodeHighlight, MarkdownEnv from "../timeline/markdown.contract"
+
+shape GuideRailStop
+  key: string
+  index: number
+  number: string
+  title: string
+  subline: string
+  seen: bool
+  current: bool
+  attention: bool
+shape GuideQuestion
+  key: string
+  text: string
+shape GuideNote
+  key: string
+  marker: string
+  title: string
+  bodyId: string
+  path: string
+  line: number
+shape GuideView
+  enabled: bool
+  phase: string
+  error: string
+  running: bool
+  canWrite: bool
+  stale: bool
+  failure: string
+  hasGuide: bool
+  key: string
+  headSha: string
+  generatedAt: string
+  position: number
+  stopCount: number
+  readCount: number
+  previous: bool
+  next: bool
+  nextTitle: string
+  title: string
+  summaryId: string
+  attention: string
+  attentionNote: string
+  stops: GuideRailStop[]
+  questions: GuideQuestion[]
+  notes: GuideNote[]
+  canAsk: bool
+  canFinish: bool
+  finishNonce: number
+
+fn pgtInk(): string = "light-dark(#27272a, #f5f5f5)"
+fn pgtMuted(): string = "light-dark(#71717b, #818181)"
+fn pgtBorder(): string = "light-dark(#e4e4e799, #ffffff12)"
+fn pgtWarning(): string = "light-dark(#a65f00, #ffb900)"
+
+keyframes guideTourSpin
+  from rotate=0
+  to rotate=360
+
+component GuideTour
+  slot
+  inject
+    rem: number
+  props
+    guide: GuideView
+    width: number
+    scheme: string
+    still: bool
+    navigate: action
+    write: action
+    ask: action
+    finish: action
+    documents: ChatDocument[]
+    code: CodeHighlight[]
+    env: MarkdownEnv
+    local: action
+  state railOpen = false
+  derive wide = width >= 56 * rem
+  derive sideNotes = width >= 90 * rem
+  action toggleRail()
+    railOpen = not railOpen
+  action go(target: number)
+    let position = max(0, min(target, guide.stopCount - 1))
+    railOpen = false
+    navigate(position)
+    focus(wide ? `guide-stop-${position}` : "guide-tour-picker")
+    scrollIntoView("guide-tour-scroll", "guide-tour-top", block="start")
+  view
+    scroll id="guide-tour-scroll" width="100%" height="100%" min-height=0 testId="pull-request-guide-scroll"
+      if not guide.hasGuide
+        column min-height="12rem" padding-left="1rem" padding-right="1rem" padding-top="2.5rem" padding-bottom="2.5rem" box-sizing="border-box" align-items="center" justify-content="center" gap="0.5rem" testId="pull-request-guide-empty"
+          if guide.phase == "loading"
+            GuideTourSpinner(still=still)
+          else
+            text (guide.running ? "Writing a review guide" : "No review guide yet") font-size="0.875rem" line-height="1.25rem" font-weight=500 color=pgtInk() role="heading" aria-level=2
+            text (guide.failure != "" ? guide.failure : guide.error != "" ? guide.error : guide.running ? "An agent is reading the change. A large one takes a few minutes. You can leave; you will be told when it is ready." : "A guide is a tour of the change: stops through the code in reading order, with the calls only a maintainer can make.") max-width="28rem" font-size="0.75rem" line-height="1rem" color=pgtMuted() text-align="center" role=(guide.failure != "" or guide.error != "" ? "alert" : "status")
+            if guide.canWrite
+              GuideTourWrite(label=(guide.failure != "" ? "Try again" : "Write guide"), running=guide.running, still=still, write=write, testId="pull-request-guide-write")
+      else
+        row id="guide-tour-top" width="100%" max-width="100rem" margin-left="auto" margin-right="auto" padding=(sideNotes ? "1.5rem" : "1rem") box-sizing="border-box" align-items="flex-start" gap=(sideNotes ? "2rem" : "1.5rem")
+          if wide
+            column width="16rem" flex-shrink=0 position="sticky" top="1rem" align-self="flex-start"
+              GuideTourRail(guide=guide, compact=false, navigate=go)
+          column flex=1 min-width=0 gap="1rem"
+            if guide.running or guide.stale or guide.failure != ""
+              row width="100%" align-items="center" gap="0.75rem" padding="0.75rem" box-sizing="border-box" border-width=1 border-style="solid" border-color=(guide.running ? "light-dark(#155dfc40, #51a2ff40)" : "light-dark(#d0870040, #ffb90040)") border-radius="0.5rem" background-color=(guide.running ? "light-dark(#155dfc08, #51a2ff0c)" : "light-dark(#d0870008, #ffb9000c)") role="status" testId="pull-request-guide-banner"
+                if guide.running
+                  GuideTourSpinner(still=still)
+                else
+                  ShellIcon(name="triangle-alert", size=16, color=pgtWarning())
+                text (guide.running ? "Rewriting this guide. You will be told when the new one is ready." : guide.failure != "" ? guide.failure : "Written before the latest push.") flex=1 min-width=0 font-size="0.75rem" line-height="1rem" color=pgtMuted()
+                if not guide.running and guide.canWrite
+                  GuideTourWrite(label="Rewrite", running=false, still=still, write=write, testId="pull-request-guide-rewrite")
+            if guide.error != ""
+              text guide.error font-size="0.75rem" line-height="1rem" color=pgtMuted() role="alert" testId="pull-request-guide-error"
+            if guide.stopCount == 0
+              text "This change has no files to tour." font-size="0.875rem" line-height="1.25rem" color=pgtMuted()
+            else
+              row width="100%" align-items="flex-start" gap="2rem"
+                column flex=1 min-width=0 gap="1.25rem" testId="pull-request-guide-stop"
+                  column width="100%" gap="0.75rem"
+                    row width="100%" align-items="center" justify-content="space-between" gap="0.5rem"
+                      if wide
+                        text `Stop ${guide.position + 1} of ${guide.stopCount}` font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=pgtMuted() testId="pull-request-guide-position"
+                      else
+                        button id="guide-tour-picker" press=toggleRail aria-label="Choose review stop" aria-expanded=railOpen aria-controls="guide-tour-stop-list" testId="pull-request-guide-picker" border-width=0 border-radius="0.375rem" background-color="#00000000" padding-left="0.375rem" padding-right="0.375rem" height="1.5rem" gap="0.375rem" display="flex" align-items="center"
+                          text `Stop ${guide.position + 1} of ${guide.stopCount}` font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=pgtMuted()
+                          box rotate=(railOpen ? 180 : 0) transition=(still ? "none" : "rotate 150ms ease-out")
+                            ShellIcon(name="chevron-down", size=14, color=pgtMuted())
+                      row align-items="center" gap="0.25rem"
+                        GuideTourButton(label="", ariaLabel="Previous stop", icon="chevron-up", disabled=(not guide.previous), primary=false, press=go(guide.position - 1), testId="pull-request-guide-previous")
+                        GuideTourButton(label="", ariaLabel="Next stop", icon="chevron-down", disabled=(not guide.next), primary=false, press=go(guide.position + 1), testId="pull-request-guide-next")
+                        if width >= 30 * rem
+                          row margin-left="0.25rem" gap="0.125rem" aria-hidden=true
+                            GuideTourKey(label="J")
+                            GuideTourKey(label="K")
+                    if not wide and railOpen
+                      column id="guide-tour-stop-list" width="100%" testId="pull-request-guide-stop-list"
+                        GuideTourRail(guide=guide, compact=true, navigate=go)
+                  column max-width="60rem" width="100%" min-width=0 gap="0.5rem"
+                    text guide.title font-size="1.125rem" line-height="1.75rem" font-weight=600 color=pgtInk() role="heading" aria-level=2 testId="pull-request-guide-title"
+                    for document in documents.filter((doc) => doc.id == guide.summaryId) key=document.id
+                      ChatMarkdown(document=document, local=local, code=code, env=env)
+                  if guide.attention != ""
+                    row width="100%" min-width=0 align-items="flex-start" gap="0.75rem" padding="0.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pgtBorder() testId="pull-request-guide-attention"
+                      box margin-top="0.125rem"
+                        ShellIcon(name="eye", size=16, color=pgtInk())
+                      column flex=1 min-width=0 gap="0.25rem"
+                        text guide.attention font-size="0.875rem" line-height="1.25rem" font-weight=500 color=pgtInk()
+                        text guide.attentionNote font-size="0.875rem" line-height="1.25rem" color=pgtMuted()
+                  children
+                  if not sideNotes and guide.notes.length > 0
+                    GuideTourNotes(notes=guide.notes, documents=documents, code=code, env=env, local=local)
+                  if guide.questions.length > 0 or guide.canAsk
+                    column width="100%" min-width=0 align-items="flex-start" gap="0.375rem" testId="pull-request-guide-questions"
+                      if guide.questions.length > 0
+                        text "Questions to consider" font-size="0.75rem" line-height="1rem" font-weight=500 color=pgtMuted() role="heading" aria-level=3
+                      for question in guide.questions key=question.key
+                        if guide.canAsk
+                          button press=ask(question.text) aria-label=`Ask an agent: ${question.text}` testId=`pull-request-guide-question-${question.key}` padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" max-width="100%" border-width=1 border-style="solid" border-color=pgtBorder() border-radius="0.5rem" background-color="#00000000" display="flex" align-items="flex-start" gap="0.5rem" text-align="left"
+                            box margin-top="0.125rem"
+                              ShellIcon(name="message-circle-question", size=14, color=pgtMuted())
+                            text question.text min-width=0 font-size="0.875rem" line-height="1.25rem" color=pgtInk()
+                        else
+                          text question.text font-size="0.875rem" line-height="1.25rem" color=pgtInk()
+                      if guide.canAsk
+                        GuideTourButton(label="Ask about this stop", ariaLabel="", icon="message-circle-question", disabled=false, primary=false, press=ask(""), testId="pull-request-guide-ask")
+                  row width="100%" min-width=0 flex-wrap="wrap" justify-content="flex-end" gap="0.75rem" padding-top="1rem" border-top-width=1 border-top-style="solid" border-color=pgtBorder()
+                    if guide.next
+                      GuideTourButton(label=`Next: ${guide.nextTitle}`, ariaLabel="", icon="arrow-right", disabled=false, primary=true, press=go(guide.position + 1), testId="pull-request-guide-next-title")
+                    else if guide.canFinish
+                      GuideTourButton(label="Finish review", ariaLabel="", icon="message-square", disabled=false, primary=true, press=finish, testId="pull-request-guide-finish")
+                if sideNotes and guide.notes.length > 0
+                  column width="20rem" flex-shrink=0 position="sticky" top="1rem" align-self="flex-start"
+                    GuideTourNotes(notes=guide.notes, documents=documents, code=code, env=env, local=local)
+
+component GuideTourRail
+  props
+    guide: GuideView
+    compact: bool
+    navigate: action
+  view
+    column width="100%" min-width=0 gap="1rem" role="navigation" aria-label="Review tour" testId="pull-request-guide-rail"
+      if not compact
+        text `${guide.readCount} of ${guide.stopCount} read` font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=pgtMuted()
+      column width="100%" min-width=0 gap="0.125rem" role="list"
+        for stop in guide.stops key=stop.key
+          row width="100%" role="listitem"
+            GuideTourRailRow(stop=stop, press=navigate(stop.index))
+
+component GuideTourRailRow
+  props
+    stop: GuideRailStop
+    press: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button id=`guide-stop-${stop.index}` press=press hover=hover aria-current=(stop.current ? "step" : "false") aria-label=`Stop ${stop.number}: ${stop.title}${stop.seen ? ", read" : ""}` testId=`pull-request-guide-stop-${stop.key}` width="100%" min-width=0 padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(stop.current ? "light-dark(#f4f4f5, #ffffff0a)" : over ? "light-dark(#f4f4f580, #ffffff05)" : "#00000000") display="flex" align-items="flex-start" gap="0.5rem" text-align="left"
+      box width="1.25rem" height="1.25rem" flex-shrink=0 border-width=1 border-style="solid" border-color=(stop.seen ? "light-dark(#00996666, #00d49266)" : pgtBorder()) border-radius="50%" display="flex" align-items="center" justify-content="center" aria-hidden=true
+        if stop.seen
+          ShellIcon(name="check", size=12, color="light-dark(#007a55, #00d492)")
+        else
+          text stop.number font-size="0.625rem" line-height="1rem" font-variant-numeric="tabular-nums" color=pgtMuted()
+      column flex=1 min-width=0 gap="0.125rem"
+        text stop.title font-size="0.875rem" line-height="1.25rem" color=pgtInk()
+        row flex-wrap="wrap" align-items="center" gap="0.375rem"
+          if stop.attention
+            text "Look closely" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#d0870040, #ffb90040)" background-color="light-dark(#d087000a, #ffb9000a)" font-size="0.625rem" line-height="0.875rem" font-weight=500 color=pgtWarning()
+          text stop.subline font-size="0.75rem" line-height="1rem" color=pgtMuted()
+
+component GuideTourNotes
+  props
+    notes: GuideNote[]
+    documents: ChatDocument[]
+    code: CodeHighlight[]
+    env: MarkdownEnv
+    local: action
+  view
+    column width="100%" min-width=0 gap="0.5rem" testId="pull-request-guide-notes"
+      row width="100%" align-items="baseline" justify-content="space-between" gap="0.5rem"
+        text "Notes on this stop" font-size="0.75rem" line-height="1rem" font-weight=500 color=pgtInk() role="heading" aria-level=4
+        text `${notes.length} ${notes.length == 1 ? "note" : "notes"}` font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=pgtMuted()
+      column width="100%" min-width=0 gap="0.75rem" role="list"
+        for note in notes key=note.key
+          row min-width=0 width="100%" gap="0.5rem" align-items="flex-start" role="listitem" testId=`pull-request-guide-note-${note.key}`
+            box width="1.125rem" height="1.125rem" flex-shrink=0 border-radius="50%" background-color="light-dark(#155dfc29, #51a2ff29)" display="flex" align-items="center" justify-content="center" aria-hidden=true
+              text note.marker font-size="0.5625rem" line-height="1rem" font-weight=500 font-variant-numeric="tabular-nums" color="light-dark(#155dfc, #8ec5ff)"
+            column flex=1 min-width=0 gap="0.125rem"
+              row width="100%" min-width=0 flex-wrap="wrap" align-items="baseline" column-gap="0.5rem"
+                text note.title font-size="0.75rem" line-height="1rem" font-weight=500 color=pgtInk()
+                text `${note.path.split("/").slice(-1).join("")}:${note.line}` min-width=0 font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color=pgtMuted() overflow="hidden" text-overflow="ellipsis" white-space="nowrap"
+              for document in documents.filter((doc) => doc.id == note.bodyId) key=document.id
+                ChatMarkdown(document=document, local=local, code=code, env=env)
+
+component GuideTourKey
+  props
+    label: string
+  view
+    text label min-width="1rem" height="1rem" box-sizing="border-box" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.25rem" background-color="light-dark(#f4f4f5, #ffffff0a)" font-family="ui-monospace" font-size="0.625rem" line-height="1rem" text-align="center" color=pgtMuted()
+
+component GuideTourSpinner
+  props
+    still: bool
+  view
+    box animation=(still ? "none" : "guideTourSpin 1s linear infinite") role="status" aria-label="Reading the change"
+      ShellIcon(name="loader", size=14, color=pgtMuted())
+
+component GuideTourWrite
+  props
+    label: string
+    running: bool
+    still: bool
+    write: action
+    testId: string
+  view
+    button press=write disabled=running testId=testId height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(running ? 0.64 : 1) display="flex" align-items="center" gap="0.375rem"
+      if running
+        GuideTourSpinner(still=still)
+      else
+        ShellIcon(name="sparkles", size=14, color=pgtMuted())
+      text (running ? "Reading the change..." : label) font-size="0.875rem" line-height="1.25rem" font-weight=500 color=pgtInk() white-space="nowrap"
+
+component GuideTourButton
+  props
+    label: string
+    ariaLabel: string
+    icon: string
+    disabled: bool
+    primary: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover disabled=disabled aria-label=(label == "" ? ariaLabel : label) title="" testId=testId width=(label == "" ? "1.5rem" : "auto") max-width="100%" min-width=0 height=(label == "" ? "1.5rem" : "1.75rem") padding-left=(label == "" ? "0px" : "0.625rem") padding-right=(label == "" ? "0px" : "0.625rem") box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(primary ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#d4d4d8, #ffffff14)") background-color=(primary ? (over ? "light-dark(#3f3f46, #e4e4e7)" : "light-dark(#27272a, #f5f5f5)") : over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.5 : 1) display="flex" align-items="center" justify-content="center" gap="0.375rem"
+      if label != "" and icon != "arrow-right"
+        if icon == "message-square"
+          PgIcon(name=icon, size=14, color=(primary ? "light-dark(#fafafa, #27272a)" : pgtMuted()))
+        else
+          ShellIcon(name=icon, size=14, color=(primary ? "light-dark(#fafafa, #27272a)" : pgtMuted()))
+      if label != ""
+        text label min-width=0 font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(primary ? "light-dark(#fafafa, #27272a)" : pgtInk()) white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+      if label == "" or icon == "arrow-right"
+        ShellIcon(name=icon, size=14, color=(primary ? "light-dark(#fafafa, #27272a)" : pgtMuted()))
