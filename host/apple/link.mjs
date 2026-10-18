@@ -38,7 +38,7 @@ export function appleComposition(graph, production, ahead = [], granted = false)
 /** The system frameworks only a capability's Swift half brings, and so
  * absent from an executable whose composition does not link it (LLP
  * 1047.001.000 §6, the check's first form). */
-const CAPABILITY_FRAMEWORKS = [['ExactMediaPicker', 'PhotosUI'], ['ExactAuthSession', 'AuthenticationServices'], ['ExactNumerals', 'SwiftUI']];
+const CAPABILITY_FRAMEWORKS = [['ExactMediaPicker', 'PhotosUI'], ['ExactAuthSession', 'AuthenticationServices'], ['ExactNumerals', 'SwiftUI'], ['ExactSnapshot', 'WidgetKit'], ['ExactActivity', 'ActivityKit']];
 
 /** The dylibs an executable's load commands name (`LC_LOAD_DYLIB` and its
  * weak, re-export, lazy and upward forms), every slice of a universal one.

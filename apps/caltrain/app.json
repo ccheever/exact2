@@ -27,7 +27,10 @@
       "families": [
         "systemSmall",
         "systemMedium",
-        "accessoryRectangular"
+        "accessoryRectangular",
+        "accessoryCircular",
+        "accessoryInline",
+        "accessoryCorner"
       ],
       "component": "NextTrains",
       "props": "NextTrainsProps",

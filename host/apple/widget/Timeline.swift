@@ -3,7 +3,6 @@ import ExactSnapshot
 import Foundation
 import SwiftUI
 import WidgetKit
-import UIKit
 import os
 #if EXACT_INSPECT
 import Darwin
@@ -24,16 +23,17 @@ struct ExactWidgetEntry: TimelineEntry {
 private func embeddedRoot() -> URL {
     Bundle.main.bundleURL
 }
-private func facts(_ traits: UITraitCollection, at date: Date) -> SessionFacts {
-    SessionFacts(displayScale: max(1, traits.displayScale), preferences: Preferences(traits: traits),
-                 rootFontSize: UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits).pointSize, date: date)
-}
 private func snapshotFamily(_ family: WidgetFamily) -> SnapshotEnvironment.Family {
     switch family {
+    #if !os(watchOS)
     case .systemSmall: .systemSmall
     case .systemMedium: .systemMedium
     case .systemLarge: .systemLarge
     case .systemExtraLarge, .systemExtraLargePortrait: .systemExtraLarge
+    #endif
+    #if os(watchOS)
+    case .accessoryCorner: .accessoryCorner
+    #endif
     case .accessoryCircular: .accessoryCircular
     case .accessoryRectangular: .accessoryRectangular
     case .accessoryInline: .accessoryInline
@@ -53,6 +53,7 @@ private func widgetSnapshotView(_ entry: ExactWidgetEntry, displaySize: CGSize, 
         linkBase: (Bundle.main.object(forInfoDictionaryKey: "ExactLinkBase") as? String).flatMap(URL.init(string:)),
         imageRoots: [entry.root, embeddedRoot(), embeddedRoot().deletingLastPathComponent().deletingLastPathComponent()], appGroup: WidgetContainer.root, entryDate: entry.date)
     #if EXACT_INSPECT
+    widgetLog.notice("render family=\(String(describing: family), privacy: .public) width=\(contentSize.width) height=\(contentSize.height)")
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
         widgetLog.notice("afterArchive pid=\(getpid()) now=\(footprintNow()) peak=\(footprint())")
     }
@@ -109,7 +110,7 @@ struct ExactTimelineProvider: TimelineProvider {
         #if EXACT_INSPECT
         let start = DispatchTime.now()
         #endif
-        let size = context.displaySize, date = Date(), inputs = facts(.current, at: Date())
+        let size = context.displaySize, date = Date(), inputs = SessionFacts(displayScale: 2, preferences: .platformInput, date: date)
         // Privacy modifiers can suppress redaction: an unredacted placeholder
         // would show fixture values as live account data. Fail with "Open app".
         var unavailable = preview(context, placeholder: true)
@@ -188,9 +189,9 @@ private func footprint() -> UInt64 {
 #endif
 // SwiftUI has no public gamut environment key. The configuration seeds this
 // from the archive's traits; no app or screen lookup is involved.
-private struct WidgetDisplayGamut: EnvironmentKey { static let defaultValue = UIDisplayGamut.SRGB }
+private struct WidgetDisplayGamut: EnvironmentKey { static let defaultValue = "srgb" }
 extension EnvironmentValues {
-    var widgetDisplayGamut: UIDisplayGamut {
+    var widgetDisplayGamut: String {
         get { self[WidgetDisplayGamut.self] }
         set { self[WidgetDisplayGamut.self] = newValue }
     }
@@ -215,7 +216,7 @@ struct ExactWidgetView: View {
                 let size = CGSize(width: max(1, geometry.size.width - margins.leading - margins.trailing), height: max(1, geometry.size.height - margins.top - margins.bottom))
                 let preferences = Preferences(reducedMotion: motion, reducedTransparency: transparency,
                     contrast: contrast == .increased ? "more" : "no-preference", dark: scheme == .dark,
-                    gamut: gamut == .P3 ? "p3" : "srgb", highDynamicRange: false, boldText: legibility == .bold)
+                    gamut: gamut, highDynamicRange: false, boldText: legibility == .bold)
                 let facts = SessionFacts(displayScale: scale, preferences: preferences, rootFontSize: bodySize, date: entry.date)
                 if let view = try? widgetSnapshotView(entry, displaySize: geometry.size, contentSize: size, facts: facts, family: family) {
                     view.redacted(reason: entry.placeholder ? .placeholder : [])

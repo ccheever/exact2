@@ -321,7 +321,9 @@ fn manifest_and_preview_are_checked_and_no_widgets_is_unchanged() {
             .unwrap()
             .remove(key);
     }
+    labels.json["widgets"][0]["families"] = json!(["accessoryCorner"]);
     let entries = labels.widgets().unwrap();
+    assert_eq!(entries[0].families, ["accessoryCorner"]);
     assert!(entries[0].title.is_none() && entries[0].description.is_none());
     let src = source("    text title", "", "");
     let mut w = widget();
@@ -364,7 +366,8 @@ fn caltrain_entry_reaches_only_its_departure_card() {
     for app_only in ["board-north", "seededEpoch", "change-station", "Caltrain"] {
         assert!(!entry.strings.iter().any(|s| s == app_only), "{app_only}");
     }
-    assert_eq!(entry.resources.len(), 0);
+    assert_eq!(entry.resources.len(), 1);
+    assert_eq!(entry.str(entry.resources[0].source), "exactViewport");
     assert_eq!(entry.actions.len(), 0);
     assert_eq!(entry.slots.len(), 1);
 }
@@ -1017,6 +1020,7 @@ fn snapshot_v1_classes_components_and_families_cannot_bypass_limits() {
         "accessoryCircular",
         "accessoryRectangular",
         "accessoryInline",
+        "accessoryCorner",
     ] {
         let mut w = widget();
         w.families = vec!["systemMedium".into(), family.into()];

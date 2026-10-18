@@ -384,6 +384,17 @@ Kinds, families and gallery labels are binary compatibility inputs; views and pr
 are plan contents. A running host refuses a snapshot plan at decode, and a
 snapshot reader requires its exact kind and refresh signature.
 
+`bun host/apple/build.mjs --watchos --no-install` builds a watch simulator
+companion inside the iOS bundle. `--watchos --run --sim <iPhone udid>
+--watch-sim <watch udid>` installs it on an existing, booted pair and opens its
+placeholder gallery. Add a complication through the watch face's editor.
+The watch extension keeps the accessory families (`accessoryCircular`,
+`accessoryRectangular`, `accessoryInline`, `accessoryCorner`); iOS drops
+`accessoryCorner`. TypeScript entries are named and omitted from the watch
+bundle until the watch Hermes gate passes (LLP 1126.001 §5 Q3). Rust entries
+refresh against the watch's own App Group and store. No account transfer is
+performed. The watch app is a placeholder gallery until the live driver lands.
+
 The `snapshot` columns on the style and prop rows declare admission. Unsupported
 rows, scrolling, sticky positioning, timers, requests, native modules and handlers
 fail with an edit. A snapshot declares no resource. The one fact a render reads

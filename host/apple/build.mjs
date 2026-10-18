@@ -36,7 +36,7 @@
 // its own (AppDrop, a store's resigner). The simulator and phone helpers live
 // in devices.mjs, shared with scripts/agent.mjs, which launches the same bundle.
 // These developer builds explicitly allow unsigned updates. --release (or EXACT_UPDATE_TRUST=production) builds a signed-update-only artifact.
-import { widgetEntries, widgetGroup, prepareWidgetCore, sharedWidgetCore } from './widgets.mjs';
+import { widgetEntries, platformWidgetEntries, widgetGroup, prepareWidgetCore, sharedWidgetCore } from './widgets.mjs';
 import { assembleMac, assembleIOS } from './bundle.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -648,10 +648,11 @@ async function main(args) {
     console.error('--archive needs --device and EXACT_IDENTITY and EXACT_PROFILE (or --unsigned, which needs --archive), and takes neither --run nor --host');
     process.exitCode = 1; return;
   }
-  const app = quietFor(resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive', '--optimize', '--link'].includes(args[i - 1]))), root);
+  const app = quietFor(resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive', '--optimize', '--link', '--watch-sim'].includes(args[i - 1]))), root);
+  if (args.includes('--watchos')) return (await import('./watch.mjs')).buildWatch(app, args, { runApple, appleArtifacts, appleBuildLock, receipt });
   if (args.includes('--prebuild')) { process.exitCode = await (await import('../../scripts/agent-build.mjs')).prebuild(app, args); return; } // LLP 1116.003 D1.2
   const gallery = process.env.EXACT_UPDATE_TRUST !== 'production' && !tv && (args.includes('--widget-gallery') || process.env.EXACT_WIDGET_GALLERY === '1');
-  const widgets = ios && !tv && widgetEntries(app).length > 0;
+  const widgets = ios && !tv && platformWidgetEntries(app).length > 0;
   if (widgets && device) { console.error('Widget device builds require explicit app and extension profiles granting the shared App Group and Keychain access group; device provisioning is not implemented yet (LLP 1126 WP5).'); process.exitCode = 1; return; }
   const release = appleBuildLock(app);
   const cleanup = [], beside = []; // what to remove, and the steps started beside the build, when it ends
@@ -1370,7 +1371,7 @@ async function test(args) {
   } finally { cargoRelease?.(); release(); }
 }
 if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
-  const args = guardFlags(['--ios', '--device', '--tvos'].some((flag) => process.argv.includes(flag)) ? 'ios' : 'mac', process.argv.slice(2));
+  const args = guardFlags(['--ios', '--device', '--tvos', '--watchos'].some((flag) => process.argv.includes(flag)) ? 'ios' : 'mac', process.argv.slice(2));
   useXcode(); if (args.includes('--release')) process.env.EXACT_UPDATE_TRUST = 'production'; // the build that ships: Cargo's release profile, no development trust
   (args.includes('--test') ? test(args) : main(args)).catch((error) => { console.error(error.message); process.exitCode = 1; });
 }

@@ -80,6 +80,8 @@ public enum SnapshotDriver {
     public static func rootFontSize(for size: DynamicTypeSize) -> CGFloat {
         #if os(macOS)
         return 13 * bodySize(for: size) / 17
+        #elseif os(watchOS)
+        return 16 * bodySize(for: size) / 17
         #else
         return bodySize(for: size)
         #endif

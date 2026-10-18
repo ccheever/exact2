@@ -217,6 +217,27 @@ test.each([null, 'intermediate', 'output/intermediate'])('copied wasm with build
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
 
+test('watch archives from nightly require matching bytes and the exact compiler unit', async () => {
+  const { unitDepInfo } = await import('./app.mjs');
+  const root = mkdtempSync(resolve(tmpdir(), 'exact-watch-dep-'));
+  try {
+    const directory = resolve(root, 'aarch64-apple-watchos-sim/host-dev');
+    const out = resolve(directory, 'build/caltrain-apple/a11ce/out');
+    mkdirSync(out, { recursive: true });
+    const file = resolve(directory, 'libcaltrain_apple.a'), unit = resolve(out, 'libcaltrain_apple-a11ce.a');
+    const dep = resolve(out, 'caltrain_apple-a11ce.d'), src = resolve(root, 'lib.rs');
+    const metadata = { target_directory: root, build_directory: root, packages: [{ id: 'caltrain', name: 'caltrain-apple' }] };
+    const message = { package_id: 'caltrain', filenames: [file], target: { name: 'caltrain_apple', src_path: src } };
+    writeFileSync(file, 'selected archive'); writeFileSync(unit, 'different bytes');
+    writeFileSync(dep, `${dep}: ${src}\n`);
+    assert.throws(() => unitDepInfo(message, root, metadata), /no matching rustc unit/);
+    writeFileSync(unit, 'selected archive');
+    assert.equal(unitDepInfo(message, root, metadata), dep);
+    writeFileSync(dep, `${dep}: ${root}/wrong.rs\n`);
+    assert.throws(() => unitDepInfo(message, root, metadata), /no matching rustc unit/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test.each([null, 'intermediate', 'output/intermediate'])('rustc unit dep-info accepts spaces and build directory %s', async split => {
   const { unitDepInfo } = await import('./app.mjs');
   const { spawnSync } = await import('node:child_process');

@@ -175,7 +175,6 @@ export function patchLines(from) {
   return Object.entries(root.patch?.['crates-io'] ?? {}).map(([name, spec]) =>
     `${name} = { path = ${JSON.stringify(pathFrom(from, resolve(ROOT, spec.path)))} }`);
 }
-
 /** How an outside workspace at `from` names a path in this checkout: relative, with `/`
  * (Windows reads it; a Mac can't read Skirmish's `..\\exact2`), when the two share a directory
  * below the root (a checkout beside the app moves with it), absolute when they share nothing,
@@ -186,7 +185,6 @@ export function pathFrom(from, to) {
   const shared = a.split('/')[1] === b.split('/')[1] && a.split('/')[1] !== '';
   return shared ? (relative(a, b) || '.').split(sep).join('/') : b;
 }
-
 /** An outside workspace's patches and toolchain, against this checkout's.
  * Refuses with the exact text to paste rather than letting Cargo fail later
  * on a duplicate crate or a missing wasm target. */
@@ -206,7 +204,6 @@ export function outsideWorkspaceProblems(workspace) {
   if (PINNED_RUST && channel !== PINNED_RUST) problems.push(`${toolchain}: ${channel ? `pins ${channel}` : 'is missing'}; exact2 builds with ${PINNED_RUST}. Copy ${resolve(ROOT, 'rust-toolchain.toml')} there (\`bun exact.mjs update\` does).`);
   return problems;
 }
-
 /** Resolve a binding lock, fetching its missing sources once without updating it. */
 export function lockedMetadata(workspace, noDeps = false, env = process.env) {
   const args = ['metadata', '--locked', '--offline', ...(noDeps ? ['--no-deps'] : []), '--format-version', '1'];
@@ -220,7 +217,6 @@ export function lockedMetadata(workspace, noDeps = false, env = process.env) {
   }
   return result;
 }
-
 /** Finding an outside app never changes its lock, except to resolve the copy an offline
  * `exact new` left (below). Dependency updates are explicit. */
 function checkOutsideLock(workspace) {
@@ -1026,24 +1022,27 @@ export function unitDepInfo(message, workspace, metadata) {
     if (matches.length === 1) return matches[0];
     if (matches.length > 1) throw new Error(`ambiguous rustc unit dep-info for ${message.target.name}`);
   }
-  // The pinned web Cargo puts cdylib units in build/<package>/<hash>/out,
-  // while reporting only the copied wasm. Keep the same byte/source identity
-  // requirement as native copied roots; a summary .d is not compiler evidence.
+  // The pinned nightly puts units under build/<package>/<hash>/out,
+  // reporting only the copied product. Watch archives use that layout too.
   const pkg = metadata?.packages?.find(p => p.id === message.package_id);
-  for (const file of message.filenames.filter(path => path.endsWith('.wasm'))) {
+  for (const file of message.filenames.filter(path => /\.(wasm|a|rlib)$/.test(path))) {
     if (!pkg) continue;
     const directory = resolve(dirname(intermediate(file)), 'build', pkg.name);
     if (!existsSync(directory)) continue;
-    const bytes = readFileSync(file), matches = [];
+    const bytes = readFileSync(file), matches = [], extension = file.slice(file.lastIndexOf('.'));
     for (const hash of readdirSync(directory)) {
       if (!/^[a-f0-9]+$/.test(hash)) continue;
-      const product = resolve(directory, hash, 'out', basename(file));
-      const candidate = product.replace(/\.wasm$/, '.d');
-      if (!existsSync(product) || !existsSync(candidate)
-          || statSync(product).size !== bytes.length || !readFileSync(product).equals(bytes)) continue;
-      const dep = readFileSync(candidate, 'utf8'), output = dep.slice(0, dep.indexOf(': '));
-      if ((resolve(workspace, output) === candidate || compilerPaths('unit: ' + output, workspace).includes(candidate))
-          && compilerPaths(dep, workspace).includes(resolve(message.target.src_path))) matches.push(candidate);
+      const out = resolve(directory, hash, 'out');
+      if (!existsSync(out)) continue;
+      const stem = basename(file, extension);
+      for (const name of readdirSync(out).filter(name => name === basename(file) || name === `${stem}-${hash}${extension}`)) {
+        const product = resolve(out, name);
+        const candidate = resolve(out, name.replace(/\.[^.]+$/, '.d').replace(extension === '.wasm' ? /^$/ : /^lib/, ''));
+        if (!existsSync(candidate) || statSync(product).size !== bytes.length || !readFileSync(product).equals(bytes)) continue;
+        const dep = readFileSync(candidate, 'utf8'), output = dep.slice(0, dep.indexOf(': '));
+        if ((resolve(workspace, output) === candidate || compilerPaths('unit: ' + output, workspace).includes(candidate))
+            && compilerPaths(dep, workspace).includes(resolve(message.target.src_path))) matches.push(candidate);
+      }
     }
     if (matches.length === 1) return matches[0];
     if (matches.length > 1) throw new Error(`ambiguous rustc unit dep-info for ${message.target.name}`);
@@ -1267,7 +1266,8 @@ export function buildBake(app, platform, target, options = {}) {
   // `kind` names another crate for the platform's cohort: Android's Canvas host bakes as Linux from `<app>-android`.
   const kind=options.kind??platformCrateKind(app.dir,platform), apple=['apple','ios','macos','tvos'].includes(kind);
   let env={...process.env,...options.env};env.CARGO_TARGET_DIR=app.target;env.EXACT_BAKE_OUTPUT=options.output??bakeOutput(app,env);
-  if(platform==='web')env=webToolchainEnv(env);
+  const watch = target.includes('apple-watchos');
+  if(platform==='web'||watch)env=webToolchainEnv(env);
   if(options.analysis && env.EXACT_UPDATE_TRUST==='production')env.EXACT_BAKE_ANALYSIS='1';else delete env.EXACT_BAKE_ANALYSIS;
   mkdirSync(env.EXACT_BAKE_OUTPUT,{recursive:true});
   const rustBundle=prepareRustBundle(app,platform,target,env);
@@ -1311,7 +1311,7 @@ export function buildBake(app, platform, target, options = {}) {
     // which every developer tool builds with; only a bake builds for an Apple target
     // at `release`, so nothing is compiled under both.
     const whole=apple&&(options.profile??'release')==='release'?['--config','profile.release.lto="fat"']:[];
-    const args=[archive?'rustc':options.check?'check':'build',...(archive?['--crate-type','staticlib']:[]),...cargoReproducibilityFlags(app),...injectedProfiles(app),...whole,...(sized?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(['linux','windows'].includes(kind)&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
+    const args=[archive?'rustc':options.check?'check':'build',...(archive?['--crate-type','staticlib']:[]),...cargoReproducibilityFlags(app),...injectedProfiles(app),...whole,...(sized||watch?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(['linux','windows'].includes(kind)&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
     if(archive&&options.link&&!env.EXACT_RUST_BUNDLE&&linkable(app,pkg))env.EXACT_BAKED=bakeOutside(app,platform,target,env);else delete env.EXACT_BAKED; // `link`: a TypeScript app's plan, which the link carries
     const result=buildCommand('cargo',args,app,env,'inherit');
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});

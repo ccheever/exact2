@@ -83,6 +83,7 @@ const WEB_APPS = ['realworld', 'weatherlight', 'completion-storm', 'video-player
 // each `apps/<app>/linux`), Zig compiling Hermes's C++ bindings too.
 export function tierTwoChecks() {
   return [
+    ['watchos', 'bun', ['host/apple/build.mjs', '--watchos', '--no-install']],
     ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos']],
     ['linux', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_unknown_linux_gnu=zig cc -target x86_64-linux-gnu', 'CXX_x86_64_unknown_linux_gnu=zig c++ -target x86_64-linux-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-unknown-linux-gnu', '-p', '*-linux']],
     ['windows', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_pc_windows_gnu=zig cc -target x86_64-windows-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-pc-windows-gnu', '-p', 'exact-windows', '-p', 'windows-desk']],

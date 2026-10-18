@@ -75,6 +75,7 @@ let core: [Target] = [
 ]
 
 let executables: [Target] = [
+    .executableTarget(name: "ExactWatch", dependencies: ["ExactCore", "ExactSnapshot"], path: "Sources/ExactWatch", swiftSettings: devTools),
     .executableTarget(name: "ExactMac", dependencies: ["ExactKit", "ExactComposition"], path: "Sources/ExactMac"),
     .executableTarget(name: "ExactIOS", dependencies: ["ExactKit", "ExactComposition"], path: "Sources/ExactIOS"),
     .executableTarget(name: "ExactHostMac", dependencies: ["ExactKit", "ExactComposition"], path: "Sources/ExactHostMac"),
@@ -109,6 +110,7 @@ let package = Package(
         .library(name: "ExactMediaPicker", targets: ["ExactMediaPicker"]),
         .library(name: "ExactAuthSession", targets: ["ExactAuthSession"]),
         .library(name: "ExactNumerals", targets: ["ExactNumerals"]),
+        .executable(name: "ExactWatch", targets: ["ExactWatch"]),
         .executable(name: "ExactMac", targets: ["ExactMac"]),
         .executable(name: "ExactIOS", targets: ["ExactIOS"]),
         .executable(name: "ExactHostMac", targets: ["ExactHostMac"]),

@@ -110,6 +110,7 @@ impl Manifest {
                                         | "accessoryCircular"
                                         | "accessoryRectangular"
                                         | "accessoryInline"
+                                        | "accessoryCorner"
                                 )
                             })
                             .ok_or_else(|| format!("{at}.families: use a WidgetKit family name"))?;

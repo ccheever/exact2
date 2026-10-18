@@ -360,3 +360,19 @@ test('widget reload artifact is cached by source and target triple', async () =>
     widgetReload({ ...options, triple: 'arm64-apple-ios17.0' }); assert.equal(builds, 3);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('watch entries keep accessory families and omit TypeScript pending the Hermes gate', async () => {
+  const { platformWidgetEntries } = await import('../host/apple/widgets.mjs');
+  const { watchEntries } = await import('../host/apple/watch.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-watch-entry-'));
+  try {
+    const app = { dir, manifest: { widgets: [
+      { kind: 'home', families: ['systemSmall'] },
+      { kind: 'train', families: ['systemSmall', 'accessoryCircular', 'accessoryRectangular', 'accessoryInline', 'accessoryCorner'] },
+    ] } };
+    assert.deepEqual(platformWidgetEntries(app).map(e => e.families), [['systemSmall'], ['systemSmall', 'accessoryCircular', 'accessoryRectangular', 'accessoryInline']]);
+    assert.deepEqual(watchEntries(app).map(e => [e.kind, e.families]), [['train', ['accessoryCircular', 'accessoryRectangular', 'accessoryInline', 'accessoryCorner']]]);
+    writeFileSync(resolve(dir, 'app.ts'), '');
+    assert.deepEqual(watchEntries(app), []);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
