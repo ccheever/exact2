@@ -305,9 +305,17 @@ pub fn compute_flexbox_layout(
     let mut known_dimensions_are_definite = inputs
         .known_dimensions_are_definite
         .zip_map(known_dimensions, |is_definite, known_dimension| is_definite || known_dimension.is_none());
-    // EXACT PATCH 44: equal or inverted height bounds fix a row's used height,
-    // but do not make its automatic cross size definite for flex basis sizing.
-    if style.flex_direction().is_row() && known_dimensions.height.is_none() && clamped_style_size.height.is_none() {
+    // EXACT PATCH 44: height bounds and an absolute row's measured, capped
+    // auto height supply a used cross size, not a definite flex basis input.
+    // Authored sizes, ratios and opposing insets still supply definite heights.
+    let measured_absolute_height = style.position() == Position::Absolute
+        && style_size.height.is_none()
+        && style.aspect_ratio().is_none()
+        && max_size.height.is_some()
+        && (style.inset().top.is_auto() || style.inset().bottom.is_auto());
+    if style.flex_direction().is_row()
+        && (measured_absolute_height || (known_dimensions.height.is_none() && clamped_style_size.height.is_none()))
+    {
         known_dimensions_are_definite.height = false;
     }
     drop(style);

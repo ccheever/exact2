@@ -1266,13 +1266,13 @@ bounded 200px width.
 
 ## Patch 44: distinguish a flex row's used height from a definite height
 
-An absolute box's final layout retains whether its height was known before
-content measurement. Authored heights, opposing insets and resolved ratios stay
-definite; a measured automatic height stays indefinite even after min/max
-clamping. The existing `known_dimensions_are_definite` input carries this
-information through the layout cache. A flex row's equal or inverted height
-bounds also supply only a used height, unless a preferred or caller-supplied
-height makes it definite. Width and column bound promotion are unchanged.
+A flex row distinguishes a used height from a definite cross size at its own
+layout entry. An absolute row's automatic height with a maximum stays indefinite
+for flex basis sizing unless an authored size, ratio or opposing insets makes it
+definite. Equal or inverted height bounds likewise supply only a used height
+unless a preferred or caller-supplied height makes it definite. This uses the
+existing `known_dimensions_are_definite` input within flex layout; the absolute
+solver continues to supply definite used dimensions to blocks, grids and columns.
 
 Flex items therefore keep the main sizes determined before final cross-axis
 stretching, as [CSS Flexbox §9.4](https://www.w3.org/TR/css-flexbox-1/#cross-sizing)
@@ -1286,6 +1286,12 @@ and growing canvases, natural and authored border-box ratios, a maximum alone,
 equal and inverted bounds, absolute rows, rows inside absolute blocks and normal
 flow rows. The existing patch 40 and 41 cases retain authored and opposing-inset
 heights, wrapping and auto-margin controls; patch 43's column cases still pass.
+
+`browser_position::positioned_boxes_roots_and_ratios_match_chrome` also holds
+22 Chrome 151 cases for absolute column wrapping and clamped ratio percentage
+bases, including reversed directions, `wrap-reverse`, equal bounds, authored
+heights, minima and block/flex/grid controls. Maximum-only columns hold item
+frames; their pre-existing container-height discrepancy is recorded in `QUEUE.md`.
 
 ## Cargo workspace boundary
 

@@ -1,5 +1,6 @@
 # Queue
 
+- **An absolute wrapping flex column keeps its maximum as its used height** (Chrome 151.0.7922.34, 2026-10-18; reproduced on c0a8fabee). In an 800×600 positioned block, `position:absolute;display:flex;flex-direction:column;flex-wrap:wrap;width:300px;max-height:100px;align-content:flex-start` with three `width:100px;height:60px;flex-shrink:0` items wraps into three columns, but the kernel container is 300×100 versus Chrome’s 300×60. With `column-reverse`, kernel item y=40 versus Chrome y=0; both place items at x=0/100/200. `wrap-reverse` also reproduces. Equal min/max heights of 100px agree. This predates patch 44 and is separate from its final-layout wrapping regression.
 - **Android reader agent locale** (LLP 1126 D6): device configuration overrides `--locale`; honor the drive locale or make the refusal explicit. Per-app Android locales currently drive locale checks.
 - **Linux desktop locale for dates** (LLP 1126 D6): `time` and `formatDate` format in English whatever the viewer locale.
 
