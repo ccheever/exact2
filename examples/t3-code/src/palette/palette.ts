@@ -22,6 +22,7 @@ export type PaletteRow = {
   icon: string; prefix: string; title: string; bold: string; description: string; shortcut: string; timestamp: string; trailing: string;
   /** The chord that runs this row from the field (thread.jump.N on a project pick, aria grammar: `Meta+1`); '' for none. */
   jump: string;
+  publishHost: string; publishHostLabel: string; publishHosts: { value: string; label: string; selected: boolean }[];
   terminalCount: number;
   badge: string; badgeOp: string; checkbox: boolean; checked: boolean; project: string; projectInk: string; projectSurface: string; env: string;
   branch: string; provider: string; current: boolean; matchLabel: string; matchParts: PalettePart[]; titleParts: PalettePart[]; line: string; orbs: Orb[]; top: number; height: number;
@@ -39,7 +40,7 @@ export type PaletteView = {
 
 export const RECENT_THREAD_LIMIT = 12;
 const blankRow: PaletteRow = { key: '', index: -1, header: '', headerGap: false, kind: 'action', op: '', arg: '', arg2: '', icon: '', prefix: '', title: '', bold: '',
-  terminalCount: 0, description: '', shortcut: '', jump: '', timestamp: '', trailing: '', badge: '', badgeOp: '', checkbox: false, checked: false, project: '', projectInk: '', projectSurface: '', env: '',
+  publishHost: '', publishHostLabel: '', publishHosts: [], terminalCount: 0, description: '', shortcut: '', jump: '', timestamp: '', trailing: '', badge: '', badgeOp: '', checkbox: false, checked: false, project: '', projectInk: '', projectSurface: '', env: '',
   branch: '', provider: '', current: false, matchLabel: '', matchParts: [], titleParts: [], line: '', orbs: [], top: 0, height: 32 };
 export function row(fields: Partial<PaletteRow>): PaletteRow { return { ...blankRow, ...fields }; }
 

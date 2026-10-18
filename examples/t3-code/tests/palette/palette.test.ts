@@ -40,6 +40,16 @@ class Fake implements Native {
 }
 const files = (): Files => ({ fs: { async mkdir() {}, async readFile() { throw new Error('none'); }, async atomicWriteFile() {} } });
 
+test('a new project picks its ready publish host beside the publish toggle', async () => {
+  const c = client(), native = new Fake();
+  native.replies['server.discoverSourceControl'] = { sourceControlProviders: ['github', 'gitcafe'].map(kind => ({ kind, status: 'available', auth: { status: 'authenticated', account: 'fixture' } })) };
+  const view = await addProjectView(c, native, { page: 'add-project/new-project', query: 'App', highlighted: false });
+  expect(view.rows.find(row => row.arg === 'toggle-publish')).toMatchObject({ title: 'Create private repository', publishHost: 'github', publishHosts: [{ value: 'github', selected: true }, { value: 'gitcafe', selected: false }] });
+  await paletteCommand(c, native, files(), 'publish-host', 'gitcafe', '');
+  const changed = await addProjectView(c, native, { page: 'add-project/new-project', query: 'App', highlighted: false });
+  expect(changed.rows.find(row => row.arg === 'toggle-publish')).toMatchObject({ publishHost: 'gitcafe', publishHostLabel: 'GitCafe', checked: false });
+});
+
 describe('command palette root', () => {
   test('actions follow the reference order with shortcut labels, then recent threads', () => {
     const view = commandView(client(), { page: '', query: '', now: NOW, scheme: 'dark', matches: new Map(), matchQuery: '', searching: false });

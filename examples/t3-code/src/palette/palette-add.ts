@@ -183,8 +183,9 @@ export async function addProjectView(client: T3Client, native: Native | null | u
     const groups: Group[] = [];
     if (target && root) {
       groups.push({ value: 'new-project-options', label: 'Options', items: [{ terms: [], row: row({ key: 'publish', op: 'flow', arg: 'toggle-publish', icon: `source-${target.definition.kind}`,
-        title: `Create private repository on ${target.definition.label}`, description: name ? `${target.owner}/${preview.split('/').pop()}` : target.owner, checkbox: true, checked: flow.publish }) }] });
-      if (targets.length > 1) groups.push({ value: 'new-project-hosts', label: 'Host for the new repository', items: targets.map(candidate => ({ terms: [], row: row({ key: candidate.definition.kind, op: 'flow', arg: 'publish-host', arg2: candidate.definition.kind, icon: `source-${candidate.definition.kind}`, title: candidate.definition.label, checkbox: true, checked: candidate === target }) })) });
+        title: targets.length > 1 ? 'Create private repository' : `Create private repository on ${target.definition.label}`, description: name ? `${target.owner}/${preview.split('/').pop()}` : target.owner, checkbox: true, checked: flow.publish,
+        publishHost: target.definition.kind, publishHostLabel: target.definition.label,
+        publishHosts: targets.length > 1 ? targets.map(candidate => ({ value: candidate.definition.kind, label: candidate.definition.label, selected: candidate === target })) : [] }) }] });
     }
     groups.push({ value: 'new-project-existing', label: '', items: [{ terms: [], row: row({ key: 'existing', op: 'page', arg: parent.endsWith('add-project') ? parent : 'add-project', icon: 'folder-plus',
       title: 'Add existing project', description: 'Open a folder or clone a repository', trailing: 'chevron' }) }] });
