@@ -80,14 +80,18 @@ fn bake(args: &[String]) -> Result<(), String> {
     source
         .activate()
         .map_err(|e| format!("module activation: {e:?}"))?;
-    let baked = contract::bake(plan, source)
-        .map_err(|e| {
-            map.as_ref().map_or_else(
-                || format!("bake: {e:?}"),
-                |map| map.bake_error(&e).to_string(),
-            )
-        })?
-        .encode();
+    let baked = contract::snapshot::bake_app(
+        Path::new(&args[0]).parent().unwrap_or(Path::new(".")),
+        plan,
+        source,
+    )
+    .map_err(|e| {
+        map.as_ref().map_or_else(
+            || format!("bake: {e:?}"),
+            |map| map.bake_error(&e).to_string(),
+        )
+    })?
+    .encode();
     // The caller owns a private output directory and publishes only after this
     // request succeeds. A map failure must not report a complete candidate.
     if let Some(map) = map {

@@ -334,21 +334,31 @@ Widget entries are top-level `app.json` `widgets` rows. For example:
 every component prop must match a field of that shape. `preview` supplies all
 fields, with their declared types. `refresh` names a data-source function taking
 an epoch-millisecond number and returning a timeline: records with `date` (epoch
-milliseconds) and `props` (the declared shape), in that field order. Work and
-requests belong in refresh; the render receives a typed `snapshot_props` slot.
-The bake writes `plans/<kind>.plan` and `plans/widgets.json` beside `app.plan`.
-The envelope's `plans` map indexes those plans in its authenticated asset roster.
-Kinds and families are binary compatibility inputs; views and preview data are
-bundle contents. A running host refuses a snapshot plan at decode, and a snapshot
-reader requires its exact kind.
+milliseconds) and `props` (the declared shape), in that field order. The plan's
+`snapshot_refresh` header selects its typed source row; the render has no resource
+for it. A data bake checks the refresh against that signature at epoch zero.
+Rust build scripts call `contract::snapshot::check_refreshes(app, &mut data)`
+before baking the app; `snapshot::bake_app` combines both steps. The TypeScript
+and replaceable Rust producers do the same check.
 
-The `snapshot` profile admits boxes, text, images, links, flex and grid. Unsupported
-style rows, scrolling, sticky positioning, timers, requests, native modules and
-handlers fail with an edit. Use `time` or interval `progress` for ticking content
-when those elements are available; otherwise pass a departure instant and display
-`formatTime`. Button/toggle intents and the reserved `live_activities` key are
-stage 2. This bake produces entry artifacts; WidgetKit packaging and presentation
-follow in LLP 1126's later work packages.
+The render's props slot is named `snapshot_props`; find it by name, since a
+`path(...)` link also needs a router slot. Its initial value is the preview.
+The bake writes `plans/<kind>.plan` beside `app.plan`. The envelope's `plans`
+map indexes these authenticated assets in the app's compatibility cohort.
+Kinds and families are binary compatibility inputs; views and preview props
+are plan contents. A running host refuses a snapshot plan at decode, and a
+snapshot reader requires its exact kind and refresh signature.
+
+The `snapshot` columns on the style and prop rows declare admission. Unsupported
+rows, scrolling, sticky positioning, timers, requests, native modules and handlers
+fail with an edit. A `performanceNow()` call is refused everywhere, including
+inside `time` and `progress`; pass instants from refresh for platform time
+presentation. A variable's name imposes no restriction. A class is a style name
+or `class=(condition ? A : B)`. Only literal font families reached through the
+entry are bundled; a dynamic font string selects installed or generic families.
+Images use a bundle-relative path, an `app:/` path written by refresh, or a
+`symbol:` source. Computed paths need a fixed local prefix; refresh downloads
+remote images. Snapshot handlers are refused; use a link to open the app.
 
 App icons come from `app.json`'s Web App Manifest `icons` array: Apple uses
 the first square raster of at least 512 px. To select an

@@ -26,7 +26,9 @@ fn entry_is_small_pure_and_gated_at_decode() {
     assert_eq!(entry.nodes.len(), 2);
     assert_eq!(entry.slots.len(), 1);
     assert!(entry.resources.is_empty() && entry.actions.is_empty() && entry.timers.is_empty());
-    assert!(entry.encode().len() < app.encode().len());
+    for app_only in ["nowMs", "ticker", "tick"] {
+        assert!(!entry.strings.iter().any(|name| name == app_only));
+    }
     assert_eq!(
         Plan::decode(&entry.encode()),
         Err(exact_plan::PlanError::WrongEntry)
@@ -352,4 +354,103 @@ fn fonts_keep_only_reachable_literal_families() {
         let entries = compile_widgets(&temp.0, &manifest).unwrap();
         assert_eq!(entries["next-trains"].plan.faces.len(), count);
     }
+}
+
+#[test]
+fn refresh_sources_are_typed_and_data_changes_fail_the_bake() {
+    use exact_plan::{TypeKind, Value};
+    use exact_runner::{DataError, DataSource};
+    struct Data {
+        broken_shape: bool,
+    }
+    impl DataSource for Data {
+        fn query(&mut self, name: &str, args: &[Value]) -> Result<Value, DataError> {
+            if name != "refreshCard" {
+                return Err(DataError::UnknownSource(name.into()));
+            }
+            assert_eq!(args, &[Value::Number(0.0)]);
+            let mut fields = vec![
+                Value::Number(0.0),
+                Value::record(vec![Value::str("Next train")]),
+            ];
+            if self.broken_shape {
+                fields.swap(0, 1);
+            }
+            Ok(Value::list(vec![Value::record(fields)]))
+        }
+    }
+    let temp = TempDir::new();
+    let path = temp.0.join("app.contract");
+    std::fs::write(&path, source("    text title", "", "")).unwrap();
+    let mut manifest = json!({"app":{"id":"test.refresh","name":"Test"},"widgets":[{"kind":"next-trains","families":["systemSmall"],"component":"Card","props":"Props","refresh":"refreshCard","preview":{"title":"Next train"}}]});
+    std::fs::write(temp.0.join("app.json"), manifest.to_string()).unwrap();
+    let app = crate::compile_path(&path).unwrap();
+    let plan =
+        &compile_widgets(&temp.0, &Manifest::read(&temp.0).unwrap()).unwrap()["next-trains"].plan;
+    let source = plan.source(plan.snapshot_refresh.unwrap());
+    assert_eq!(plan.str(source.name), "refreshCard");
+    assert_eq!(source.params.len, 1);
+    assert_eq!(
+        plan.type_(plan.source_param(source.params.iter().next().unwrap()).ty)
+            .kind,
+        TypeKind::Number
+    );
+    let result = plan.type_(source.ty);
+    assert_eq!(result.kind, TypeKind::List);
+    let fields: Vec<_> = plan
+        .type_(result.elem.unwrap())
+        .fields
+        .iter()
+        .map(|id| plan.field(id))
+        .collect();
+    assert_eq!(
+        fields.iter().map(|f| plan.str(f.name)).collect::<Vec<_>>(),
+        ["date", "props"]
+    );
+    assert_eq!(
+        fields[1].ty,
+        plan.slots
+            .iter()
+            .find(|s| plan.str(s.name) == PROPS_SLOT)
+            .unwrap()
+            .ty
+    );
+    assert!(plan.resources.is_empty());
+    let declarations = crate::typescript(&source_plan(&temp.0, &app).unwrap()).unwrap();
+    assert!(declarations.contains("refreshCard"));
+    let baked = bake_app(
+        &temp.0,
+        app.clone(),
+        Data {
+            broken_shape: false,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        baked.encode(),
+        crate::bake(
+            app.clone(),
+            Data {
+                broken_shape: false
+            }
+        )
+        .unwrap()
+        .encode()
+    );
+    let err = bake_app(&temp.0, app.clone(), Data { broken_shape: true }).unwrap_err();
+    assert!(err.to_string().contains("field order"), "{err}");
+    manifest["widgets"][0]["refresh"] = json!("renamedRefresh");
+    std::fs::write(temp.0.join("app.json"), manifest.to_string()).unwrap();
+    let err = bake_app(
+        &temp.0,
+        app,
+        Data {
+            broken_shape: false,
+        },
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("renamedRefresh") && err.to_string().contains("implement"),
+        "{err}"
+    );
 }

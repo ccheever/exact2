@@ -10,6 +10,8 @@ fn main() {
         Ok(p) => p,
         Err(e) => panic!("app.contract:{e}"),
     };
+    contract::snapshot::check_refreshes(std::path::Path::new(".."), &mut caltrain_data::Caltrain)
+        .unwrap_or_else(|e| panic!("widget refresh: {e}"));
     let baked =
         contract::bake(plan, caltrain_data::Caltrain).unwrap_or_else(|e| panic!("bake: {e:?}"));
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());

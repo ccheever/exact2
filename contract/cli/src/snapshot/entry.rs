@@ -200,7 +200,7 @@ fn compile_file(
         .remove(0);
     wrapper.name = format!("__snapshot_{}", widget.kind);
     wrapper.states.push(Binding {
-        name: "snapshot_props".into(),
+        name: super::PROPS_SLOT.into(),
         expr: preview,
         span,
     });
@@ -212,7 +212,7 @@ fn compile_file(
             .map(|p| Attr {
                 name: p.name.clone(),
                 value: Expr::Member(
-                    Box::new(Expr::Ident("snapshot_props".into(), span)),
+                    Box::new(Expr::Ident(super::PROPS_SLOT.into(), span)),
                     p.name.clone(),
                     span,
                 ),
@@ -228,9 +228,27 @@ fn compile_file(
         Some(app) => crate::strings::load(app, &app.join("app.contract"))?,
         None => None,
     };
-    let (mut plan, _) =
+    let (plan, _) =
         crate::compile_file_output(&file, app, strings, false, contract_lower::Profile::Web)?;
+    let props = plan
+        .slots
+        .iter()
+        .find(|slot| plan.str(slot.name) == super::PROPS_SLOT)
+        .expect("props slot")
+        .ty;
+    let mut builder = exact_plan::builder::PlanBuilder::from_plan(plan);
+    let number = builder.primitive(exact_plan::TypeKind::Number);
+    let entry = builder.record(
+        "SnapshotTimelineEntry",
+        &[("date", number), ("props", props)],
+    );
+    let timeline = builder.list(entry);
+    let refresh = builder.source(&widget.refresh, &[number], timeline);
+    let mut plan = builder
+        .finish()
+        .map_err(|e| vec![fail(format!("invalid refresh signature: {e:?}"))])?;
     plan.snapshot_entry.clone_from(&widget.kind);
+    plan.snapshot_refresh = Some(refresh);
     // The snapshot reader exercises the same validating decoder as its host.
     Plan::decode_snapshot(&plan.encode(), &widget.kind)
         .map_err(|e| vec![fail(format!("invalid snapshot plan: {e:?}"))])

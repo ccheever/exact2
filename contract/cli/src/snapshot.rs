@@ -2,6 +2,11 @@
 //! column; absence refuses a row before an archive can silently omit it.
 
 mod entry;
+mod refresh;
+pub use refresh::{bake_app, check_refreshes, source_plan};
+
+/// Find the props slot by this name; a route URL may add a preceding router slot.
+pub const PROPS_SLOT: &str = "snapshot_props";
 #[cfg(test)]
 mod tests;
 pub use entry::{compile, compile_widgets, Entry};

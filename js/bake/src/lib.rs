@@ -1020,7 +1020,8 @@ fn bake_in(
             .as_bytes(),
     )?;
     let exported = contract::design_exports(&app.join("app.contract"));
-    let mut declarations = contract::typescript_exporting(&plan, exported.as_deref())?;
+    let source_plan = contract::snapshot::source_plan(&app, &plan)?;
+    let mut declarations = contract::typescript_exporting(&source_plan, exported.as_deref())?;
     // Canvas 2D (LLP 1056 D1): a module that exports `draw` and `surfaces`
     // speaks ABI 2, and only it carries the recorder.
     let app_ts = String::from_utf8_lossy(&captured[Path::new("app.ts")]).into_owned();
@@ -1096,9 +1097,11 @@ fn bake_in(
     // step 0): the app's composer in a Cargo bake; the previous plan's
     // values for the Rust half a development producer cannot run.
     let plan = match (composer, seed) {
-        (Some(composer), _) => contract::bake(plan, Composed((composer.compose)(module))),
-        (None, Some(seed)) => contract::bake(plan, Seeded { module, seed }),
-        (None, None) => contract::bake(plan, module),
+        (Some(composer), _) => {
+            contract::snapshot::bake_app(&app, plan, Composed((composer.compose)(module)))
+        }
+        (None, Some(seed)) => contract::snapshot::bake_app(&app, plan, Seeded { module, seed }),
+        (None, None) => contract::snapshot::bake_app(&app, plan, module),
     }
     .map_err(|e| {
         source_map

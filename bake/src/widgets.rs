@@ -26,7 +26,6 @@ pub(crate) fn emit(
     std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
     let mut assets = Vec::new();
     let mut plans = Map::new();
-    let mut widgets = Map::new();
     for (kind, entry) in entries {
         let name = format!("plans/{kind}.plan");
         let bytes = entry.plan.encode();
@@ -35,12 +34,7 @@ pub(crate) fn emit(
             json!({"name":name,"sha256":exact_update::sha256_hex(&bytes),"bytes":bytes.len()});
         plans.insert(kind.clone(), card.clone());
         assets.push(card);
-        widgets.insert(kind, json!({"families":entry.widget.families,"component":entry.widget.component,
-            "props":entry.widget.props,"refresh":entry.widget.refresh,"preview":entry.widget.preview}));
     }
-    let bytes = serde_json::to_vec(&widgets).map_err(|e| e.to_string())?;
-    std::fs::write(directory.join("widgets.json"), &bytes).map_err(|e| e.to_string())?;
-    assets.push(json!({"name":"plans/widgets.json","sha256":exact_update::sha256_hex(&bytes),"bytes":bytes.len()}));
     Ok((assets, Value::Object(plans)))
 }
 
@@ -62,40 +56,88 @@ pub(crate) fn copy(out: &Path, destination: &Path, assets: &[Value]) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use exact_runner::{DataError, DataSource, Value as DataValue};
+
+    struct TempDir(std::path::PathBuf);
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    struct Refresh;
+    impl DataSource for Refresh {
+        fn query(&mut self, name: &str, _: &[DataValue]) -> Result<DataValue, DataError> {
+            assert_eq!(name, "refresh");
+            Ok(DataValue::list(vec![DataValue::record(vec![
+                DataValue::Number(0.0),
+                DataValue::record(vec![DataValue::str("Hello")]),
+            ])]))
+        }
+    }
 
     #[test]
-    fn bake_keeps_the_app_bytes_and_removes_obsolete_entries() {
-        let dir = std::env::temp_dir().join(format!("exact-widget-bake-{}", std::process::id()));
-        let out = dir.join("out");
+    fn receipt_keeps_app_bytes_and_removes_obsolete_entries() {
+        let dir =
+            TempDir(std::env::temp_dir().join(format!("exact-widget-bake-{}", std::process::id())));
+        let out = dir.0.join("out");
         std::fs::create_dir_all(&out).unwrap();
         let source = "shape Props\n  title: string\ncomponent App\n  view\n    text \"app\"\ncomponent Card\n  props\n    title: string\n  view\n    text title\n";
-        std::fs::write(dir.join("app.contract"), source).unwrap();
-        let manifest = Manifest {
-            id: "test.widget".into(),
-            name: "Test".into(),
-            declared: true,
-            json: json!({"widgets":[{"kind":"card","component":"Card","props":"Props","families":["systemSmall"],"refresh":"refresh","preview":{"title":"Hello"}}]}),
-        };
-        let app = contract::compile(source).unwrap().encode();
-        std::fs::write(out.join("app.plan"), &app).unwrap();
-        let (assets, plans) = emit(&dir, &out, &manifest).unwrap();
-        assert_eq!(assets.len(), 2);
-        let bytes = std::fs::read(out.join("plans/card.plan")).unwrap();
-        assert_eq!(plans["card"]["sha256"], exact_update::sha256_hex(&bytes));
-        assert!(exact_plan::Plan::decode_snapshot(&bytes, "card").is_ok());
-        assert_eq!(std::fs::read(out.join("app.plan")).unwrap(), app);
-        let (assets, plans) = emit(
-            &dir,
-            &out,
-            &Manifest {
-                json: json!({}),
-                ..manifest
-            },
-        )
-        .unwrap();
-        assert!(assets.is_empty() && plans.as_object().unwrap().is_empty());
-        assert!(!out.join("plans").exists());
-        assert_eq!(std::fs::read(out.join("app.plan")).unwrap(), app);
-        std::fs::remove_dir_all(dir).unwrap();
+        std::fs::write(dir.0.join("app.contract"), source).unwrap();
+        let widgets = json!([{"kind":"card","component":"Card","props":"Props","families":["systemSmall"],"refresh":"refresh","preview":{"title":"Hello"}}]);
+        let mut before = None;
+        for enabled in [false, true, false] {
+            let mut json = json!({"app":{"id":"test.widget","name":"Test"}});
+            if enabled {
+                json["widgets"] = widgets.clone();
+            }
+            std::fs::write(dir.0.join("app.json"), json.to_string()).unwrap();
+            let manifest = Manifest::read(&dir.0).unwrap();
+            let plan = contract::compile_path(&dir.0.join("app.contract")).unwrap();
+            let baked = contract::snapshot::bake_app(&dir.0, plan, Refresh).unwrap();
+            std::fs::write(out.join("app.plan"), baked.encode()).unwrap();
+            let mut compat = crate::Compat {
+                id: "a".repeat(32),
+                inputs: json!({"trust":"development"}),
+                channel: "development".into(),
+                origin: None,
+                activate: "next-launch".into(),
+                target: String::new(),
+                embedded: Value::Null,
+                reach: Value::Null,
+            };
+            crate::receipt::emit(
+                &mut compat,
+                "development",
+                &dir.0,
+                "web",
+                "wasm32-unknown-unknown",
+                &manifest,
+                &out,
+            )
+            .unwrap();
+            let bytes = std::fs::read(out.join("app.plan")).unwrap();
+            if let Some(before) = &before {
+                assert_eq!(&bytes, before);
+            } else {
+                before = Some(bytes);
+            }
+            if enabled {
+                let bytes = std::fs::read(out.join("plans/card.plan")).unwrap();
+                let entry = exact_plan::Plan::decode_snapshot(&bytes, "card").unwrap();
+                assert_eq!(
+                    entry.str(entry.source(entry.snapshot_refresh.unwrap()).name),
+                    "refresh"
+                );
+                assert_eq!(
+                    compat.embedded["plans"]["card"]["sha256"],
+                    exact_update::sha256_hex(&bytes)
+                );
+                assert_eq!(compat.embedded["assets"].as_array().unwrap().len(), 1);
+                assert!(!out.join("plans/widgets.json").exists());
+            } else {
+                assert!(compat.embedded.get("plans").is_none());
+                assert!(!out.join("plans").exists());
+            }
+        }
     }
 }
