@@ -6,6 +6,7 @@ import type { ComposerChipPress } from './composer-chip-state';
 import { composerChipStore as entry, type ComposerChipPreview } from './composer-chip-store';
 import type { ComposerCitationEffect } from './composer-citation-receipts';
 import { composerSourceSession } from './composer-rich-state';
+import { composerChipFaces } from './composer-chip-presentation';
 
 type Frame = readonly [number, number, number, number];
 type Entry = ReturnType<typeof entry>;
@@ -46,7 +47,11 @@ export function composerChipOpen(client: T3Client, value: unknown): ComposerChip
   const current = surface === 'preview' ? preview(client, state) : composerFieldCurrent(client, composerFieldOwner(client));
   const session = composerSourceSession(client, surface), frame = geometry(value.frame);
   if (!current || !frame || current.owner !== value.owner || current.value !== value.value || !session.matches(current.owner, current.value) || session.mode === 'literal') return null;
-  return state.presses.open(current, surface, session.chips, { start: value.start, end: value.end, source: value.source }, frame, { comment: value.comment });
+  const index = session.chips.findIndex(chip => chip.start === value.start && chip.end === value.end && chip.source === value.source);
+  const faces = composerChipFaces(client, current.value, session.chips, surface === 'preview'), face = faces[index];
+  if (!face?.interactive || value.comment && !face.comment) return null;
+  const chips = session.chips.map((chip, at) => ({ ...chip, label: faces[at]!.label, ...(chip.kind === 'context' ? { contextKind: faces[at]!.kind } : {}) }));
+  return state.presses.open(current, surface, chips, { start: value.start, end: value.end, source: value.source }, frame, { comment: value.comment });
 }
 
 export function composerChipCurrent(client: T3Client): ComposerChipPress | null {

@@ -1,18 +1,17 @@
 import type { T3Client } from '../client/client';
 import { obj } from '../client/domain';
-import { selectedProvider, workspaceCwd } from './composer-editor';
-import { skillChipLabels } from './composer-editor-menu';
-import { workspaceValues } from './composer-workspace-snapshots';
 import { composerInput } from './requests';
 import { composerRichProjection, type ComposerRichProjection } from './composer-rich-projection';
 import { composerSourceSession } from './composer-rich-state';
 import { composerHistoryAvailability } from './composer-prompt-history';
 import { CODE_BLOCK_LANGUAGES } from './composer-code-languages';
+import { composerChipFaces, type ComposerChipFace } from './composer-chip-presentation';
 
 type ComposerSourceChipView = {
   kind: string; start: number; end: number; source: string; label: string;
   name: string; path: string; href: string; contextKind: string; contextId: string;
   image: boolean; comment: string; quote: string;
+  face: ComposerChipFace;
 };
 export type ComposerRichView = Omit<ComposerRichProjection, 'chips'> & {
   generation: number; historyPrevious: boolean; historyNext: boolean; chips: ComposerSourceChipView[];
@@ -29,18 +28,22 @@ export function composerRichSource(client: T3Client, input: {
   const literal = !current || !preview && composerInput(client)?.active?.initialAnswer !== undefined;
   const session = composerSourceSession(client, preview ? 'preview' : 'composer');
   if (current) session.observe(input.owner, input.value, input.inputType, literal ? 'literal' : styling ? 'rich' : 'plain');
+  const chips = current ? session.chips : [];
+  const appearances = composerChipFaces(client, input.value, chips, preview);
   const projection = composerRichProjection({
     owner: current ? input.owner : '', value: input.value,
     styling, literal,
-    skills: current ? skillChipLabels(workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills')) : {},
+    skills: {}, chipFaces: appearances,
     literalRanges: current ? session.literalRanges : [],
-    chips: current ? session.chips : [],
+    chips,
   });
-  return { ...projection, generation: client.generation, languages: CODE_BLOCK_LANGUAGES, ...(!current || preview || composerInput(client) ? { historyPrevious: false, historyNext: false } : composerHistoryAvailability(client, input.owner, input.value)), chips: projection.chips.map(chip => ({
+  const faces = composerChipFaces(client, input.value, projection.chips, preview);
+  return { ...projection, generation: client.generation, languages: CODE_BLOCK_LANGUAGES, ...(!current || preview || composerInput(client) ? { historyPrevious: false, historyNext: false } : composerHistoryAvailability(client, input.owner, input.value)), chips: projection.chips.map((chip, index) => ({
     kind: chip.kind, start: chip.start, end: chip.end, source: chip.source, label: chip.label,
     name: chip.kind === 'skill' ? chip.name : '', path: chip.kind === 'mention' ? chip.path : '',
     contextKind: chip.kind === 'context' ? chip.contextKind : '', contextId: chip.kind === 'context' ? chip.contextId : '',
     image: chip.kind === 'context' && chip.image, href: chip.kind === 'citation' ? chip.href : '',
     comment: chip.kind === 'citation' ? chip.comment ?? '' : '', quote: chip.kind === 'citation' ? chip.quote : '',
+    face: faces[index]!,
   })) };
 }

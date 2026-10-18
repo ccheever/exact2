@@ -13,7 +13,7 @@ type Active = { snapshot: ComposerFieldSnapshot; press: ComposerChipPress; citat
 const sameOwner = (a: ComposerFieldSnapshot, b: ComposerFieldSnapshot) => a.generation === b.generation && a.snapshotOwner === b.snapshotOwner && a.owner === b.owner;
 const validFrame = (frame: Frame) => frame.every(Number.isFinite) && frame[2] > 0 && frame[3] > 0;
 const copy = (press: ComposerChipPress): ComposerChipPress => ({ ...press, frame: [...press.frame], anchorFrame: [...press.anchorFrame] });
-const actions = new Set(['mention', 'thread', 'citation', 'pull-request', 'image', 'file', 'video']);
+const actions = new Set(['mention', 'thread', 'citation', 'pull-request', 'image', 'file', 'video', 'pr-open', 'pr-draft', 'pr-merged', 'pr-closed']);
 
 /** Product presses retain source identity and measured geometry. The shared
  *  field still owns selection, source edits, atom hit testing and undo. */
