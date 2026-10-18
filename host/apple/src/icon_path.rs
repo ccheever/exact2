@@ -15,8 +15,13 @@ pub(crate) fn commands(name: &str) -> Option<(String, &str)> {
     }
     let path = exact_kernel::symbol_path(name).filter(|p| p.filled && !p.even_odd)?;
     let mut out = String::new();
-    // Each of the SVG's paths, filled nonzero; together, one path's union.
-    for d in path.d.split(';') {
+    // Each of the SVG's paths, `;` between them: each is filled nonzero on its
+    // own, as Linux and the web fill them (one winding over all would cut an
+    // opposite path's overlap out).
+    for (i, d) in path.d.split(';').enumerate() {
+        if i > 0 && !out.is_empty() {
+            out.push_str("; ");
+        }
         for seg in exact_kernel::svg::parse_d(d).0 {
             use exact_kernel::svg::Seg::*;
             let _ = match seg {
@@ -36,18 +41,17 @@ pub(crate) fn commands(name: &str) -> Option<(String, &str)> {
             };
         }
     }
-    let out = out.trim_end().to_string();
+    let out = out.trim_end().trim_end_matches(';').trim_end().to_string();
     (!out.is_empty()).then_some((out, path.view_box))
 }
 
-/// A coordinate, to thousandths, without a trailing zero.
+/// A coordinate, the shortest text that reads back as the same `f32` (no
+/// fixed precision: a viewBox may be any size).
 fn n(v: f32) -> String {
-    let s = format!("{:.3}", v);
-    let s = s.trim_end_matches('0').trim_end_matches('.');
-    if s == "-0" {
+    if v == 0.0 {
         "0".into()
     } else {
-        s.into()
+        format!("{v}")
     }
 }
 
@@ -64,6 +68,13 @@ mod tests {
         assert_eq!(vb, "0 0 24 24");
         assert!(d.starts_with("M 2 2 C "), "{d}");
         assert_eq!(d.matches('M').count(), 2, "{d}");
+        assert_eq!(d.matches(';').count(), 1, "each path its own: {d}");
+        // A tiny viewBox keeps its coordinates.
+        let (d, _) = commands(
+            "icon||0 0 0.0004 0.0004|M0.0001 0.0001 L0.0003 0.0001 L0.0003 0.0003 Z|icons/x.svg",
+        )
+        .unwrap();
+        assert_eq!(d, "M 0.0001 0.0001 L 0.0003 0.0001 L 0.0003 0.0003 Z");
         assert!(!d.contains('Q') && !d.contains('A'), "{d}");
         // An `sf` source wins; a file that is no template has no path; a role is Apple's symbol.
         assert_eq!(

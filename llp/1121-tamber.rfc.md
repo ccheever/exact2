@@ -800,8 +800,9 @@ icons
   icon.reply = icon(sf "bubble.left", material "chat_bubble_outline", svg "icons/reply.svg")
 ```
 
-  An SF Symbol on Apple and an SVG under `assets/` everywhere else, Android included: the
-  reader paints SVG paths (`host/android/README.md`). A `material` name is an annotation
+  An SF Symbol on Apple where one is given, and an SVG under `assets/` everywhere else, Android
+  included (the reader paints SVG paths, `host/android/README.md`), Apple's too where no SF Symbol
+  is given (a one-colour SVG's path, stage 9 A). A `material` name is an annotation
   kept in the IR for a host that draws Material Symbols one day; nothing resolves it now.
 - **Missing sources fail at build.** An icon token with no source for a target the app ships
   (`app.json`) and no `svg` fallback is refused (`tamber-icon-missing: icon.share has no
@@ -2983,7 +2984,8 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   keys for their Apple names) for a computed `sf/` it does not hold; a role's entry keeps its two
   fields, so an app without icons emits what it did.
 - **Apple** reads the SF Symbol as before, through the kernel (`content_region.rs`,
-  `kernel/src/grouped.rs`).
+  `kernel/src/grouped.rs`); since stage 9 A an icon with no `sf` draws its path (`symbolPath` under
+  `symbolViewBox`), each of its SVG's paths filled nonzero on its own.
 ### Stage 6, commit G: bindings and the DTCG export of every kind
 
 - **The DTCG export** (`tamber/src/export_kinds.rs`) writes every kind as its DTCG type, one value in
@@ -3121,7 +3123,7 @@ No host binary shipped between them, so users see one break. Both digests are no
 **Known limits carried:**
 - the JS target writes type and family tokens, and inline font weights and SVG attributes, as literals, so they rebuild there and refuse to vary by axis;
 - a bare `font-size` style fills nothing on the JS target;
-- Apple draws only an icon's SF Symbol;
+- Apple drew only an icon's SF Symbol (stage 9 A draws its one-colour SVG's path where no `sf` is given; a multicolour file still needs an `sf` there);
 - a varying type or family token is refused on a container's inherited rows (`tamber-inherited-axis`);
 - `calc()` with `rem` waits on QUEUE's item.
 
@@ -3884,4 +3886,10 @@ Built to the approved plan (`~/x2theme/x2p4-s9a-plan.md`; theme2's 17:03 ruling 
 - **The lint** (`icons.rs`): a template SVG is a source for Apple targets; a non-template one needs an `sf` there, the message saying so.
 - **Docs**: D10's per-target note and stage 6 F's §10 note (the symbols recipe, at its byte cap, already says an icon token draws everywhere). QUEUE: "Apple hosts draw icon paths" closed; a non-template SVG's rasterising into the asset catalog added.
 - **Tests**: `icon_path.rs` (an svg-only icon's commands, a quadratic and an arc as cubics, two paths; none with an `sf`, for a non-template file, for a role); `tamber_icons.rs` (an svg-only icon builds for ios; a multicolour file is refused naming the SF Symbol); `IconPathTests` (Mac and iOS: the path drawn as an em-square template image, tinted by its tint, else its colour, tinted again by a new tint; an `sf` icon still its symbol; the path's fit).
-
+- **After review round 1 (Astra, Grok):**
+  - Each of an icon's SVG paths is filled nonzero on its own (`;` between them in `symbolPath`), as Linux and the web fill them: two paths of opposite winding that overlap stay solid.
+  - Coordinates are the shortest text that reads back as the `f32` (a tiny viewBox keeps its path).
+  - iOS draws the path again at the box it fills (UIKit scales a bitmap); the Mac's image is vector already. The widget snapshot draws the path too. The core (`IconPath`) moved to ExactCore for both.
+  - A path icon with no tint row takes its text colour, else the platform's text colour (live), never the SF Symbol's unsaid grey.
+  - The lint keeps requiring an `sf` for a watch (no watch host draws the path yet).
+  - Tests: an asymmetric bar's pixels (right side up), two opposite-winding paths solid, an accent tint; docs (D10, the known-limits line, stage 6 F3's Apple bullet).

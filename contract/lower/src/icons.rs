@@ -179,11 +179,11 @@ pub(crate) fn declare(
             }
         };
         for target in targets.iter().map(|t| t.name.as_str()) {
-            // Every host draws a template's path (Apple too, where no SF
-            // Symbol is given: stage 9 A), Apple an SF Symbol, and the web a
-            // file as written.
+            // Every host draws a template's path (Apple's page and widget
+            // hosts too, where no SF Symbol is given: stage 9 A; not yet a
+            // watch's), Apple an SF Symbol, and the web a file as written.
             let template = svg.as_ref().is_some_and(|s| s.not_template.is_none());
-            let drawn = template
+            let drawn = (template && target != "watchos")
                 || if apple(target) {
                     icon.sf.is_some()
                 } else {

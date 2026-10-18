@@ -78,12 +78,18 @@ fn a_shipped_target_without_a_source_is_refused() {
     let svg_only = "  icon.svg = icon(svg \"icons/reply.svg\")\n";
     let path = app("apple", "\"ios\": {}", svg_only, &view("symbol:icon.svg"));
     let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
-    assert!(plan.strings.iter().any(|s| s.starts_with("symbol:icon||")), "an svg-only icon, no sf");
+    assert!(
+        plan.strings.iter().any(|s| s.starts_with("symbol:icon||")),
+        "an svg-only icon, no sf"
+    );
     let two = "  icon.two = icon(svg \"icons/two.svg\")\n";
     let path = app("apple-two", "\"ios\": {}", two, &view("symbol:icon.two"));
     let e = contract::compile_path(&path).unwrap_err();
     assert_eq!(e.id, "tamber-icon-svg", "{e:?}");
-    assert!(e.message.contains("ios") && e.message.contains("an SF Symbol"), "{e:?}");
+    assert!(
+        e.message.contains("ios") && e.message.contains("an SF Symbol"),
+        "{e:?}"
+    );
     let path = app("web-only", "\"web\": {}", design, &view("symbol:icon.two"));
     let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
     assert!(

@@ -22,7 +22,7 @@ extension NodeView {
             symbolKey = key; loadGeneration += 1
             let generation = loadGeneration
             // An icon with no SF Symbol draws its own path (D10, stage 9 A).
-            image = name.isEmpty ? iconPathImage(points: points) : symbolImage(name, symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight)))
+            image = name.isEmpty ? iconPathImage(side: points) : symbolImage(name, symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight)))
             symbolFound = image != nil; if points <= 0 { image = nil }
             if name.isEmpty, props["symbolPath"] == nil, !source.hasPrefix("symbol:sf/"), symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
             if !name.isEmpty || source.hasPrefix("symbol:sf/") { symbolRefusal = nil }
@@ -41,7 +41,7 @@ extension NodeView {
             }
         }
         // An icon path is the node's tint, else its colour (D10).
-        symbolView?.contentTintColor = props["symbolPath"] != nil ? iconPathTint ?? unsaidSymbolTint : symbolTint ?? unsaidSymbolTint
+        symbolView?.contentTintColor = props["symbolPath"] != nil ? iconPathTint : symbolTint ?? unsaidSymbolTint
         if let leaf = symbolView { applySymbolEffect(leaf) }
         layoutSymbol()
     }

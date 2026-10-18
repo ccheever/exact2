@@ -5,6 +5,7 @@ import UIKit
 import AppKit
 #endif
 import XCTest
+import ExactCore
 @testable import ExactKit
 
 /// Stage 9 A (LLP 1121 D10): an icon token with no `sf` source and a
@@ -83,6 +84,9 @@ final class IconPathTests: XCTestCase {
         XCTAssertTrue(tinted.symbolFound)
         XCTAssertEqual(rgb(tint(tinted)), [52, 199, 89], "`-exact-tint-color`")
         XCTAssertEqual(rgb(tint(coloured)), [232, 28, 36], "no tint written: its `color`")
+        // A tint that names the accent follows the accent, live, as an SF Symbol's does.
+        let accent = presenter(icon(4, ["tint_color": ["sys": "@tint"]]))
+        XCTAssertEqual(rgb(tint(accent.views[4])), rgb(accent.views[4]?.inheritedTint), "the accent")
         // A new tint (a token's retheme reaches it as any row) tints it again.
         p.apply(wireBatch([["op": "style", "id": 2, "style": ["font_size": 24.0, "tint_color": [0, 122, 255, 255]]]]))
         XCTAssertEqual(rgb(tint(tinted)), [0, 122, 255])
@@ -103,6 +107,36 @@ final class IconPathTests: XCTestCase {
         let t = IconPath.fitted(IconPath.viewBox("0 0 24 24"), in: CGRect(x: 0, y: 0, width: 48, height: 24))
         XCTAssertEqual(CGPoint(x: 0, y: 0).applying(t), CGPoint(x: 12, y: 0))
         XCTAssertNil(IconPath.path("Q 1 2"), "a verb it doesn't send")
+    }
+
+    /// The image's pixels: an asymmetric bar near its top inks its top rows
+    /// only (right side up on both platforms), and two paths of opposite
+    /// winding that overlap stay solid, each filled on its own.
+    func testTheImageInksItsPathsRightSideUpEachOnItsOwn() throws {
+        let bar = "M 0 2 L 24 2 L 24 6 L 0 6 Z"
+        let rows = try inked(bar, at: [3, 4, 12, 20])
+        XCTAssertEqual(rows, [true, true, false, false], "the bar at the top, nothing below")
+        // An outer square clockwise and an inner one counter-clockwise, as two paths: solid where they overlap.
+        let two = "M 2 2 L 22 2 L 22 22 L 2 22 Z; M 8 8 L 8 16 L 16 16 L 16 8 Z"
+        XCTAssertEqual(try inked(two, at: [12]), [true], "the overlap is filled, not cut")
+    }
+
+    /// Whether the image at 24 points inks the middle column at each row.
+    private func inked(_ commands: String, at rows: [Int]) throws -> [Bool] {
+        let image = try XCTUnwrap(IconPath.image(commands, viewBox: "0 0 24 24", size: CGSize(width: 24, height: 24)))
+        let side = 24
+        #if os(iOS)
+        let cg = try XCTUnwrap(image.cgImage)
+        #else
+        var rect = CGRect(x: 0, y: 0, width: side, height: side)
+        let cg = try XCTUnwrap(image.cgImage(forProposedRect: &rect, context: nil, hints: nil))
+        #endif
+        let ctx = try XCTUnwrap(CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
+        // (The context's own buffer holds its top row first.)
+        let pixels = try XCTUnwrap(ctx.data).assumingMemoryBound(to: UInt8.self)
+        return rows.map { row in pixels[(row * side + side / 2) * 4 + 3] > 128 }
     }
 }
 #endif
