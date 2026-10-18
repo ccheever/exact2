@@ -491,18 +491,21 @@ test('GPU reloads refresh their includes while retaining the current app input g
       const file=join(target,'wasm32-unknown-unknown',profile,'fixture_'+kind+'.d');
       mkdirSync(resolve(file,'..'),{recursive:true});writeFileSync(file,`unit: ${paths.map(p=>join(dir,p)).join(' ')}\n`);
     };
-    input('web','web',['host.rs','shared.rs']);input('gpu','web',['game.rs','shared.rs']);
-    input('gpu','gpu-dev',['game.rs','shared.rs','new-include.rs']);
+    input('web','web',['host.rs','shared.rs']);
+    input('gpu','gpu-dev',['game.rs','shared.rs']);
     let classifications=0;
     const start=source.indexOf('function readGpuInputs('), end=source.indexOf('\nfunction gameRuntimeInputs(',start);
     const api=new Function('app','resolve','existsSync','compilerPaths','readFileSync','gameRuntimeInputs','gpuModules',`
+      const buildEnv={EXACT_GAME_PROOF_PROFILE:'gpu-dev'};
       let appInputs=new Set(),gpuInputs=new Set();
       ${source.slice(start,end)}
       const gpuOnly=files=>files.length>0&&appInputs.size>0&&files.every(p=>p.endsWith('.rs')&&gpuInputs.has(p)&&!appInputs.has(p));
       return {refresh:readGpuInputs,gpuOnly,app:()=>[...appInputs]};
     `)(app,resolve,existsSync,compilerPaths,(path,...args)=>{reads.push(path);return readFileSync(path,...args);},inputs=>{classifications++;return inputs;},gpuModules);
-    api.refresh();const hostInputs=api.app();reads.length=0;
-    api.refresh('gpu-dev');
+    api.refresh();const hostInputs=api.app();
+    assert.equal(api.gpuOnly([join(dir,'game.rs')]),true,'initial build reads gpu-dev without a shipping GPU artifact');
+    reads.length=0;input('gpu','gpu-dev',['game.rs','shared.rs','new-include.rs']);
+    api.refresh('gpu-dev',['gpu']);
     assert.deepEqual(api.app(),hostInputs);
     assert.equal(api.gpuOnly([join(dir,'new-include.rs')]),true);
     for(const name of ['host.rs','shared.rs','unknown.rs','Cargo.toml'])assert.equal(api.gpuOnly([join(dir,name)]),false,name);
@@ -512,7 +515,8 @@ test('GPU reloads refresh their includes while retaining the current app input g
     api.refresh();
     assert.deepEqual(api.app(),[join(dir,'new-host.rs'),join(dir,'new-include.rs')]);
     assert.equal(classifications,2,'a completed full build refreshes the host inputs');
-    api.refresh('gpu-dev');assert.equal(api.gpuOnly([join(dir,'new-include.rs')]),false);
+    api.refresh('gpu-dev',['gpu']);assert.equal(api.gpuOnly([join(dir,'new-include.rs')]),false);
+    input('gpu','web',['game.rs','shared.rs']);
     api.refresh('web');assert.equal(classifications,3,'the web-profile fallback remains conservative');
   } finally {rmSync(dir,{recursive:true,force:true});}
 });

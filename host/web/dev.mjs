@@ -145,12 +145,12 @@ let gpuVersion = Date.now(), gpuBuildChild = null;
 // Side builds by version: which artifact, and where. `gpuSides` is each
 // artifact's newest, which a page connecting later loads first.
 const gpuTimings = new Map(), gpuVersions = new Map(), gpuSides = new Map();
-function readGpuInputs(profile = 'web', stems = null) {
+function readGpuInputs(profile = buildEnv.EXACT_GAME_PROOF_PROFILE === 'gpu-dev' ? 'gpu-dev' : 'web', stems = null) {
   const inputs = (kind, profile) => {
     const path = resolve(app.target, 'wasm32-unknown-unknown', profile, app.crate(kind).replaceAll('-', '_') + '.d');
     return existsSync(path) ? new Set(compilerPaths(readFileSync(path, 'utf8'), app.workspace)) : new Set();
   };
-  if (profile === 'web') appInputs = gameRuntimeInputs(inputs('web', 'web'));
+  if (!stems) appInputs = gameRuntimeInputs(inputs('web', 'web'));
   if (!stems) gpuArtifactInputs = new Map();
   for (const { stem, kind } of gpuArtifacts()) if (!stems || stems.includes(stem)) gpuArtifactInputs.set(stem, inputs(kind, profile));
   gpuInputs = new Set([...gpuArtifactInputs.values()].flatMap(set => [...set]));

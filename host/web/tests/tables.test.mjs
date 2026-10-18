@@ -1,5 +1,5 @@
 import {test, expect} from 'bun:test';
-import {readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync} from 'node:fs';
+import {readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, rmSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {createHash} from 'node:crypto';
 import {spawn, spawnSync} from 'node:child_process';
@@ -87,7 +87,7 @@ test('real game dev journals rejected edits and reloads tables after a gpu-dev p
   const {open} = await import('../../../scripts/agent.mjs');
   const app=resolve(import.meta.dir,'../../../game/games/beacons');
   const table=resolve(app,'movement.json'),rust=resolve(app,'logic/src/lib.rs');
-  const originals=[table,rust].map(path=>({path,text:readFileSync(path,'utf8'),stat:statSync(path)}));
+  const originals=[table,rust].map(path=>({path,text:readFileSync(path,'utf8')}));
   const oldApp=process.env.EXACT_APP_DIR;
   const env={...process.env,PATH:`${process.env.HOME}/.cargo/bin:${process.env.PATH}`,EXACT_APP_DIR:app};delete env.EXACT_GAME_PROOF_PROFILE;
   let child,drive,log='';
@@ -97,7 +97,7 @@ test('real game dev journals rejected edits and reloads tables after a gpu-dev p
     child=spawn(process.execPath,[resolve(import.meta.dir,'../../../game/dev.mjs'),'beacons'],{env,stdio:['ignore','pipe','pipe']});
     for(const stream of [child.stdout,child.stderr])stream.on('data',bytes=>{log+=bytes;});
     await until(()=>log.includes('plan ready'),600000);
-    const url=log.match(/http:\/\/127\.0\.0\.1:\d+/)?.[0];expect(url).toBeTruthy();
+    const url=await until(()=>log.match(/http:\/\/127\.0\.0\.1:\d+/)?.[0]);expect(url).toBeTruthy();
     drive=await open({host:'web',app:'beacons',url:url+'/',size:[1280,720]});await drive.tap('play');
     let world=drive.world('world');
     const valid=speed=>JSON.stringify({speed:[[0,speed],[1,speed]],jump:1.2});
@@ -131,7 +131,59 @@ test('real game dev journals rejected edits and reloads tables after a gpu-dev p
   } finally {
     await drive?.close();
     if(child?.exitCode===null){const ended=new Promise(ok=>child.once('exit',ok));child.kill('SIGTERM');await ended;}
-    for(const {path,text,stat} of originals){writeFileSync(path,text);utimesSync(path,stat.atime,stat.mtime);}
+    for(const {path,text} of originals)writeFileSync(path,text);
+    // Proofs may reuse a build receipt, so restore the generated tables through its validator too.
+    const restored=await watchTables({app,dist:resolve(app,'dist'),publish:()=>false,refused:error=>{throw new Error(error);}});
+    restored.close();
     if(oldApp===undefined)delete process.env.EXACT_APP_DIR;else process.env.EXACT_APP_DIR=oldApp;
   }
 }, 1_500_000);
+
+test('clean no-table game carries its world and tick across a gameplay Rust edit', async () => {
+  const {createGame} = await import('../../../game/new.mjs');
+  const {open} = await import('../../../scripts/agent.mjs');
+  // The dev watcher excludes target/; generate the authored sources beside the games.
+  const root=mkdtempSync(resolve(import.meta.dir,'../../../game/games/dev-carry-'));
+  const app=resolve(root,'carry-game'),rust=resolve(app,'logic/src/lib.rs');
+  const oldApp=process.env.EXACT_APP_DIR;
+  const env={...process.env,PATH:`${process.env.HOME}/.cargo/bin:${process.env.PATH}`,EXACT_APP_DIR:app};
+  delete env.EXACT_GAME_PROOF_PROFILE;delete env.CARGO_TARGET_DIR;
+  let child,drive,log='',passed=false;
+  const until=async(read,ms=60000)=>{const end=Date.now()+ms;while(Date.now()<end){if(child?.exitCode!==null&&child?.exitCode!==undefined)throw Error('dev exited '+child.exitCode+':\n'+log);const value=await read();if(value)return value;await Bun.sleep(50);}throw Error('dev condition missing:\n'+log.slice(-4000));};
+  try {
+    createGame(app);
+    expect(existsSync(resolve(app,'target'))).toBe(false);
+    const shipping=resolve(app,'target/wasm32-unknown-unknown/web/carry_game_gpu.d');
+    expect(existsSync(shipping)).toBe(false);
+    process.env.EXACT_APP_DIR=app;
+    child=spawn(process.execPath,[resolve(import.meta.dir,'../../../game/dev.mjs'),app],{env,stdio:['ignore','pipe','pipe']});
+    for(const stream of [child.stdout,child.stderr])stream.on('data',bytes=>{log+=bytes;});
+    await until(()=>log.includes('plan ready'),1_200_000);
+    expect(existsSync(shipping)).toBe(false);
+    expect(existsSync(resolve(app,'target/wasm32-unknown-unknown/gpu-dev/carry_game_gpu.d'))).toBe(true);
+    const url=await until(()=>log.match(/http:\/\/127\.0\.0\.1:\d+/)?.[0]);expect(url).toBeTruthy();
+    drive=await open({host:'web',app:'carry-game',url:url+'/',size:[1280,720]});
+    await drive.tap('play');const world=drive.world('world');
+    await world.hold('KeyW',500);
+    const before=await world.snapshot(),position=await world.local_position('player');
+    expect(before.tick).toBeGreaterThan(0);expect(position[2]).toBeLessThan(0);
+    // Keep the driver clock, but accept the ordinary dev client's automatic GPU swaps.
+    await drive.carrier.evaluate("const url=new URL(location.href);url.searchParams.delete('agent');history.replaceState(null,'',url)");
+    const source=readFileSync(rust,'utf8'),offset=log.length;
+    writeFileSync(rust,source.replace('        w.character("player")', '        w.require_mut::<Character>("player").speed = 7.0;\n        w.character("player")'));
+    await until(()=>log.slice(offset).includes('· swapped in'),600000);
+    expect(log.slice(offset)).not.toContain('rust: rebuilt');
+    const after=await world.snapshot();
+    expect(after.tick).toBe(before.tick);expect(after.hash).toBe(before.hash);
+    expect(await world.local_position('player')).toEqual(position);
+    await world.run(9);expect((await world.get('player','Character')).speed).toBe(7);
+    expect(existsSync(shipping)).toBe(false);
+    passed=true;
+  } finally {
+    await drive?.close();
+    if(child?.exitCode===null){const ended=new Promise(ok=>child.once('exit',ok));child.kill('SIGTERM');await ended;}
+    writeFileSync(resolve(root,'dev.log'),log);
+    if(oldApp===undefined)delete process.env.EXACT_APP_DIR;else process.env.EXACT_APP_DIR=oldApp;
+    if(passed)rmSync(root,{recursive:true,force:true});else console.error(`dev carry evidence: ${root}`);
+  }
+}, 2_000_000);
