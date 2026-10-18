@@ -151,7 +151,7 @@ export async function storageSettings(client: T3Client, native: Native | null | 
       mode, modeLabel: modeLabels[mode] || 'Inherit',
       modeDescription: mode === 'off' ? "Keep this project's worktrees until you delete them manually." : mode === 'custom' ? 'Use these rules for this project.' : "Use each machine's worktree cleanup settings.",
       modes: ['inherit', 'off', 'custom'].map(value => ({ value, label: modeLabels[value], selected: value === mode })),
-      worktrees: showRules ? view(storageDefinitions.slice(0, 5).filter(([key]) => key !== 'worktreeSettledAfterDays' || capabilities.settledWorktreeCleanup === true), !projectId) : [],
+      worktrees: showRules ? view(storageDefinitions.slice(0, 5).filter(([key]) => key !== 'worktreeSettledAfterDays' || capabilities.settledWorktreeCleanup === true), !projectId && capabilities.worktreesDirectory !== true) : [],
       artifacts: projectId ? [] : view(storageDefinitions.slice(5), true) };
   } catch(error) { return { ...empty, error: errorMessage(error) }; }
 }
