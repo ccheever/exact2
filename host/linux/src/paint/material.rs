@@ -118,7 +118,7 @@ pub(crate) struct Labels {
 
 /// Where a field's label and value were painted, in the viewport's points,
 /// for an inspector (the Material oracle's specimen door): what a text
-/// node's box is to any other text. A value the shell's own field shows
+/// node's box is to any other text. A Material button's title is its label. A value the shell's own field shows
 /// (LLP 1115.001 D8) is that field's, not here.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct FieldTexts {
@@ -225,6 +225,11 @@ impl Labels {
     /// The walk painted `id`'s value.
     pub(super) fn value(&mut self, id: ViewId, text: FieldText) {
         self.walking.entry(id).or_default().value = Some(text);
+    }
+
+    /// The walk painted `id`'s label: a button's title.
+    pub(super) fn label(&mut self, id: ViewId, text: FieldText) {
+        self.walking.entry(id).or_default().label = Some(text);
     }
 }
 
@@ -458,7 +463,7 @@ impl super::Painter {
 /// `v`, an x (or with `vertical` a y) in the coordinates `ts` maps, moved to
 /// the nearest edge between device pixels (`scale` a point); as it is where
 /// `ts` turns or skews.
-fn on_grid(v: f32, ts: Transform, vertical: bool, scale: f32) -> f32 {
+pub(super) fn on_grid(v: f32, ts: Transform, vertical: bool, scale: f32) -> f32 {
     let (s, offset) = if vertical {
         (ts.sy, ts.ty)
     } else {

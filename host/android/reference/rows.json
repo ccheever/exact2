@@ -26,6 +26,12 @@
     "top-title-inset": { "source": "AppBar.kt", "name": "TopAppBarTitleInset" },
     "top-icon": { "token": "AppBarTokens.IconSize" },
     "mark-size": { "source": "Checkbox.kt", "name": "CheckboxSize" },
+    "filled-button-height": { "defaults": "ButtonDefaults.MinHeight" },
+    "filled-button-min-width": { "defaults": "ButtonDefaults.MinWidth" },
+    "filled-button-padding-inline": { "defaults": "ButtonDefaults.ContentPadding.start" },
+    "filled-button-padding-block": { "defaults": "ButtonDefaults.ContentPadding.top" },
+    "filled-button-disabled-container": { "token": "FilledButtonTokens.DisabledContainerOpacity" },
+    "filled-button-disabled-label": { "token": "FilledButtonTokens.DisabledLabelTextOpacity" },
     "checkbox-corner": { "source": "Checkbox.kt", "name": "RadiusSize" },
     "checkbox-stroke": { "defaults": "CheckboxDefaults.StrokeWidth" },
     "checkbox-disabled-opacity": { "token": "CheckboxTokens.SelectedDisabledContainerOpacity" }

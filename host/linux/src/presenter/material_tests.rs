@@ -1,16 +1,28 @@
-//! The Material look's controls (LLP 1115.001 D9, S2): a checkbox takes
-//! Material's size and colours. The
+//! The Material look's controls (LLP 1115.001 D9, S2): a checkbox and a
+//! filled button take Material's size and colours, and what the author
+//! wrote wins. The
 //! look is the process's (`app::show_material_look`), so these run in a
 //! child process of their own.
 use super::*;
 
-const APP: &str = r#"component App
+const APP: &str = r##"component App
   view
     column padding=10 align-items="flex-start"
       input type="checkbox" checked=true testId="on"
       input type="checkbox" testId="off"
       input type="checkbox" checked=true disabled=true testId="faded"
-"#;
+      button buttonStyle="filled" testId="save"
+        text "Save"
+      button buttonStyle="filled" -exact-control-size="large" testId="large"
+        text "Save"
+      button buttonStyle="filled" disabled=true accent-color="#ff0000" testId="red"
+        text "Save"
+      button buttonStyle="filled" -exact-corner-style="small" testId="small"
+        text "Save"
+      button buttonStyle="filled" disabled=true testId="quiet"
+        text "Save"
+        text "Later"
+"##;
 
 /// Whether this is the child process that shows the Material look; the
 /// parent runs the test there and returns false.
@@ -64,7 +76,7 @@ fn pixel(p: &mut Presenter<()>, x: f32, y: f32) -> [u8; 4] {
 }
 
 #[test]
-fn materials_checkbox_takes_its_size_and_colours() {
+fn materials_checkbox_and_filled_button_take_its_size_and_colours() {
     if !material_process() {
         return;
     }
@@ -97,4 +109,42 @@ fn materials_checkbox_takes_its_size_and_colours() {
     p.frame();
     let off = p.rect_of(view).unwrap();
     assert_eq!((off.2, off.3), (20.0, 20.0));
+    // The filled button: Material's 40 tall, at least 58 wide, a pill in
+    // the accent.
+    let save = p.rect_of(id(&p, "save")).unwrap();
+    assert_eq!(save.3, 40.0);
+    assert!(save.2 >= 58.0, "{save:?}");
+    assert_eq!(pixel(&mut p, save.0 + 12.0, save.1 + 20.0), accent);
+    assert_eq!(
+        pixel(&mut p, save.0 + 1.0, save.1 + 1.0),
+        page,
+        "a pill's corner"
+    );
+    // A larger control size is a larger button.
+    let large = p.rect_of(id(&p, "large")).unwrap();
+    assert!(large.3 > save.3 && large.2 > save.2, "{large:?} {save:?}");
+    // An authored accent stays when disabled; an authored corner style wins.
+    let red = p.rect_of(id(&p, "red")).unwrap();
+    assert_eq!(pixel(&mut p, red.0 + 12.0, red.1 + 20.0), [255, 0, 0, 255]);
+    let small = p.rect_of(id(&p, "small")).unwrap();
+    assert_ne!(
+        pixel(&mut p, small.0 + 1.5, small.1 + 1.5),
+        page,
+        "small corners"
+    );
+    // Disabled, the subtitle is fainter than the title, not stronger.
+    let quiet = p.rect_of(id(&p, "quiet")).unwrap();
+    let frame = (*p.frame()).clone();
+    let ink = |from: f32, to: f32| {
+        let at = |v: f32| (v * 2.4375) as u32;
+        let mut darkest = 255u8;
+        for y in at(from)..at(to) {
+            for x in at(quiet.0 + 20.0)..at(quiet.0 + quiet.2 - 20.0) {
+                darkest = darkest.min(frame.pixel(x, y).unwrap().demultiply().red());
+            }
+        }
+        darkest
+    };
+    let middle = quiet.1 + quiet.3 / 2.0;
+    assert!(ink(middle, quiet.1 + quiet.3 - 6.0) >= ink(quiet.1 + 6.0, middle));
 }

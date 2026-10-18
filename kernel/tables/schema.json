@@ -5943,6 +5943,12 @@
     ["top-edge", "length", "unset", "unset", "unset", "unset", 4],
     ["top-title-inset", "length", "unset", "unset", "unset", "unset", 12],
     ["top-icon", "length", "unset", "unset", "unset", "unset", 24],
+    ["filled-button-height", "length", "unset", "unset", "unset", "unset", 40],
+    ["filled-button-min-width", "length", "unset", "unset", "unset", "unset", 58],
+    ["filled-button-padding-inline", "length", "unset", "unset", "unset", "unset", 24],
+    ["filled-button-padding-block", "length", "unset", "unset", "unset", "unset", 8],
+    ["filled-button-disabled-container", "number", "unset", "unset", "unset", "unset", 0.1],
+    ["filled-button-disabled-label", "number", "unset", "unset", "unset", "unset", 0.38],
     ["checkbox-corner", "length", "unset", "unset", "unset", "unset", 2],
     ["checkbox-stroke", "length", "unset", "unset", "unset", "unset", 2],
     ["checkbox-disabled-opacity", "number", "unset", "unset", "unset", "unset", 0.38]
