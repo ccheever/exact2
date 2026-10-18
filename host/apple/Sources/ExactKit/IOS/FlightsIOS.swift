@@ -346,7 +346,7 @@ extension Presenter {
             if let sv = current as? UIScrollView, sv.isScrollEnabled || sv === viewport {
                 let r = sv.convert(slot.bounds, from: slot)
                 let inset = sv.adjustedContentInset
-                let visible = sv.bounds.inset(by: inset)
+                let visible = sv.pageBounds.inset(by: inset)
                 var offset = sv.contentOffset
                 func nearest(_ lo: CGFloat, _ hi: CGFloat, _ vlo: CGFloat, _ vhi: CGFloat) -> CGFloat {
                     if lo >= vlo && hi <= vhi { return 0 }

@@ -6,11 +6,7 @@ use super::*;
 /// Fixed geometry used by Linux's own painters. Text-bearing controls are
 /// measured from their painted labels in `size_controls` instead.
 fn fixed_painted_size(kind: exact_kernel::ControlKind) -> Option<(f32, f32)> {
-    use exact_kernel::ControlKind::{Checkbox, Radio, Range, Switch};
-    // Under the neutral look a mark is sized by its font, which the kernel
-    // reads from the look's rows as it lays the control out (LLP 1115.000
-    // D17): nothing fixed is reported over that.
-    if crate::paint::look::neutral() && matches!(kind, Checkbox | Radio | Switch | Range) {
+    if kernel_sized(kind) {
         return None;
     }
     match kind {
@@ -24,6 +20,16 @@ fn fixed_painted_size(kind: exact_kernel::ControlKind) -> Option<(f32, f32)> {
         exact_kernel::ControlKind::Range => Some((129.0, 16.0)),
         _ => None,
     }
+}
+
+/// Whether the kernel sizes `kind` from the look's rows as it lays it out,
+/// with nothing reported over that: under the neutral look a mark, sized by
+/// its font (LLP 1115.000 D17), and under the Material look its checkbox,
+/// Material's (`paint/material.rs`).
+fn kernel_sized(kind: exact_kernel::ControlKind) -> bool {
+    use exact_kernel::ControlKind::{Checkbox, Radio, Range, Switch};
+    (crate::paint::look::neutral() && matches!(kind, Checkbox | Radio | Switch | Range))
+        || (crate::paint::look::material() && kind == Checkbox)
 }
 
 impl<D: DataSource> Presenter<D> {
@@ -370,6 +376,9 @@ impl<D: DataSource> Presenter<D> {
     /// painter was designed for; fields measure the text they paint.
     pub(crate) fn size_controls(&mut self) {
         let mut sizes = Vec::new();
+        // What the kernel sizes forgets what was reported for it (a switch
+        // that became a checkbox).
+        let mut forgotten = Vec::new();
         {
             let kernel = self.host.kernel();
             let mut text = self.text.borrow_mut();
@@ -392,6 +401,10 @@ impl<D: DataSource> Presenter<D> {
                 }
                 if let Some(size) = fixed_painted_size(kind) {
                     sizes.push((id, size));
+                    continue;
+                }
+                if kernel_sized(kind) {
+                    forgotten.push(id);
                     continue;
                 }
                 // And its date fields are the kernel's size for one, the
@@ -462,8 +475,10 @@ impl<D: DataSource> Presenter<D> {
                 ));
             }
         }
-        for (id, size) in sizes {
-            if let Some(e) = self.host.set_intrinsic(id, Some(size)) {
+        let reports = (sizes.into_iter().map(|(id, size)| (id, Some(size))))
+            .chain(forgotten.into_iter().map(|id| (id, None)));
+        for (id, size) in reports {
+            if let Some(e) = self.host.set_intrinsic(id, size) {
                 self.host.log(e);
             }
         }
@@ -623,3 +638,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "material_tests.rs"]
+mod material_tests;

@@ -27,7 +27,7 @@ extension Agent {
             if presenter.views[id] == nil { rootKind = "inline-owner" }
         } else {
             let vp = presenter.viewport
-            reply = ["clock": session.now(), "viewport": ["w": Agent.r2(vp.bounds.width), "h": Agent.r2(vp.bounds.height)], "node": runner]
+            reply = ["clock": session.now(), "viewport": ["w": Agent.r2(vp.pageSize.width), "h": Agent.r2(vp.pageSize.height)], "node": runner]
             if let parent = presenter.flats.inspectionParent(of: id), let pv = presenter.views[parent] {
                 root = pv; rootKind = "flat-run"; flatOnly = id
             } else {
@@ -52,7 +52,7 @@ extension Agent {
 
     func agreement(limit: Int) -> [String: Any] {
         let vp = presenter.viewport
-        var reply: [String: Any] = ["clock": session.now(), "viewport": ["w": Agent.r2(vp.bounds.width), "h": Agent.r2(vp.bounds.height)]]
+        var reply: [String: Any] = ["clock": session.now(), "viewport": ["w": Agent.r2(vp.pageSize.width), "h": Agent.r2(vp.pageSize.height)]]
         let scale = vp.window?.screen.scale ?? vp.traitCollection.displayScale
         // A pixel, and the layout unit an edge is taken to before it is
         // rounded to one (`PixelGridIOS.swift`).

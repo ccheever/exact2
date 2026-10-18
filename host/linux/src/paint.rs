@@ -1211,6 +1211,7 @@ impl Painter {
                 self.dark,
                 walk.scene.controls.get(&node.id).copied(),
                 self.feedback.0 == Some(node.id),
+                self.scale,
             ),
             _ => {}
         }

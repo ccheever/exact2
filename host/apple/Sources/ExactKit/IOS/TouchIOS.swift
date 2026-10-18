@@ -207,7 +207,7 @@ extension Agent {
             }
             let p = CGPoint(x: box.midX, y: box.midY), vp = presenter.viewport, q = vp.convert(p, from: nil)
             let label = presenter.menus.given[pop.id]?.first { $0.row == row.id }?.label ?? ""
-            return aimed(v, at: p, local: CGPoint(x: q.x - vp.contentOffset.x, y: q.y - vp.contentOffset.y), in: win, space: space,
+            return aimed(v, at: p, local: CGPoint(x: q.x - vp.pageOrigin.x, y: q.y - vp.pageOrigin.y), in: win, space: space,
                          hit: nil, native: ["kind": "menuItem", "label": label, "row": Int(row.id)])
         }
         // The point: the request's, else the middle of the target — of a
@@ -266,7 +266,7 @@ extension Agent {
             return ["error": "tap #\(req["id"] ?? v.id): no visible text fragment; scroll it into view first"]
         }
         let vp = presenter.viewport
-        var p = vp.convert(CGPoint(x: local.x + vp.contentOffset.x, y: local.y + vp.contentOffset.y), to: nil)
+        var p = vp.convert(CGPoint(x: local.x + vp.pageOrigin.x, y: local.y + vp.pageOrigin.y), to: nil)
         awaitAppOverlay(at: p, in: win)
         var seen = win.hitTest(p, with: nil)
         if !presenter.reach(of: v).contains(local) || seen == nil {
@@ -282,7 +282,7 @@ extension Agent {
                 if let middle {
                     avoided = middle
                     local = q
-                    p = vp.convert(CGPoint(x: q.x + vp.contentOffset.x, y: q.y + vp.contentOffset.y), to: nil)
+                    p = vp.convert(CGPoint(x: q.x + vp.pageOrigin.x, y: q.y + vp.pageOrigin.y), to: nil)
                     seen = win.hitTest(p, with: nil)
                 }
             }
@@ -315,7 +315,7 @@ extension Agent {
     private func aimed(_ v: NodeView, at p: CGPoint, local: CGPoint, in win: UIWindow, space: UICoordinateSpace, hit seen: UIView?,
                        avoided: PressReach? = nil, native: [String: Any]? = nil) -> [String: Any] {
         let vp = presenter.viewport, s = win.convert(p, to: space), fixed = win.convert(p, to: win.screen.fixedCoordinateSpace)
-        let origin = vp.convert(CGPoint(x: vp.contentOffset.x, y: vp.contentOffset.y), to: space)
+        let origin = vp.convert(vp.pageOrigin, to: space)
         var aim: [String: Any] = [
             "seq": TouchLog.seq, "session": session.label, "generation": session.generation,
             "orientation": Agent.orientation(win.windowScene),
@@ -324,7 +324,7 @@ extension Agent {
             "fixed": [Agent.r2(fixed.x), Agent.r2(fixed.y)], // the screen's portrait space, where XCTest's synthesizer presses (touches.swift)
             "at": [Agent.r2(local.x), Agent.r2(local.y)], // the viewport point, as `tap` replies it
             "window": [Agent.r2(p.x), Agent.r2(p.y)], // the window point, as the dispatch log records touches
-            "viewport": [Agent.r2(vp.bounds.width), Agent.r2(vp.bounds.height)], // where a drag must end
+            "viewport": [Agent.r2(vp.pageSize.width), Agent.r2(vp.pageSize.height)], // where a drag must end
             // The Exact node the window's hit test finds there: where the dispatch log must see the touch land.
             "hit": TouchLog.landing(seen)["node"] ?? NSNull(),
             // In a grouped list, the row and part it must land on too.

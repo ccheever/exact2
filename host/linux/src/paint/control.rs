@@ -1,7 +1,8 @@
 //! Form controls, painted (LLP 1069.001 D7): this host has no platform
 //! controls to show. Where it has no platform at all (the Linux desktop,
 //! Windows) each is the web's neutral look's (`neutral.rs`; LLP 1115.000
-//! D17). Else, which is Android's reader until its controls are Material's,
+//! D17). Under the Material look a checkbox is Material's (`material.rs`).
+//! Else, which is Android's reader until its other controls are Material's,
 //! a checkbox is Chrome's rounded square, a radio its circle and a switch a
 //! pill with a thumb, filled with `accent-color`, else the platform's accent
 //! where the host reported one ([`accents`]). `appearance: none` draws
@@ -394,7 +395,9 @@ impl super::Painter {
 
 /// Paint `node`'s control in its content box; `held` is an unbound
 /// checkbox's own state, which the host keeps as a browser does, and
-/// `hovered` whether a pointer that hovers is over it.
+/// `hovered` whether a pointer that hovers is over it. `scale` is device
+/// pixels a point.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn paint(
     backend: &mut dyn Backend,
     node: &NodeRef<'_>,
@@ -403,6 +406,7 @@ pub(super) fn paint(
     dark: bool,
     held: Option<bool>,
     hovered: bool,
+    scale: f32,
 ) {
     if node.style.appearance == Appearance::None {
         return;
@@ -415,6 +419,11 @@ pub(super) fn paint(
             neutral::mark(backend, node, content, ts, dark, on, hovered);
         }
         return;
+    }
+    let role = node.props.str(PropId::AccessibilityRole);
+    let checkbox = role != Some("switch") && node.props.str(PropId::Type) != Some("radio");
+    if checkbox && look::material() {
+        return super::material::checkbox(backend, node, content, ts, dark, on, scale);
     }
     let disabled = node.props.bool(PropId::Disabled) == Some(true);
     let (accent, on_accent) = accents(accent(node, dark), dark);

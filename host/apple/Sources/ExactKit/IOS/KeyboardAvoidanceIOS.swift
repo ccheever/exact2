@@ -76,7 +76,7 @@ extension Presenter {
     /// there (a grouped list's), or the nearest painted box above it (a
     /// route's backdrop), never a row's own. Nil where nothing is painted.
     func bottomEdgeColor() -> UIColor? {
-        let b = viewport.bounds
+        let b = viewport.bounds.inset(by: pageMargins) // the page's area, not the band under it
         guard b.height > 1, let hit = viewport.hitTest(CGPoint(x: b.midX, y: b.maxY - 1), with: nil) else { return nil }
         let chain = Array(sequence(first: hit, next: { $0 === self.viewport ? nil : $0.superview }))
         let from = chain.firstIndex { $0 is UIScrollView } ?? 0
@@ -95,7 +95,7 @@ extension Presenter {
     func pinnedCover(over sv: UIScrollView, field node: NodeView) -> CGFloat {
         guard let window = sv.window else { return 0 }
         let owner = (sv.superview as? NodeView).flatMap { $0.scrollView === sv ? $0 : nil }
-        let port = sv.convert(sv.bounds.inset(by: owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset), to: window)
+        let port = sv.convert(sv.pageBounds.inset(by: owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset), to: window)
         guard port.height > 1, port.width > 1 else { return 0 }
         var top = port.maxY
         func consider(_ box: NodeView) {
@@ -136,7 +136,7 @@ extension Presenter {
     private func show(_ node: NodeView, rect: CGRect? = nil, in sv: UIScrollView, keep: Bool, covered: CGFloat = 0) -> Bool {
         let field = node.convert(rect ?? node.bounds, to: sv)
         let owner = (sv.superview as? NodeView).flatMap { $0.scrollView === sv ? $0 : nil }
-        var visible = sv.bounds.inset(by: owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset)
+        var visible = sv.pageBounds.inset(by: owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset)
         visible.size.height = max(0, visible.height - covered)
         var r = field.insetBy(dx: 0, dy: -8)
         if keep, let span = Self.kept(node, field: field, in: sv) {
@@ -214,16 +214,18 @@ extension Presenter {
 final class PinnedRoom {
     private struct Grown {
         weak var scroll: UIScrollView?
-        var base: CGFloat, added: CGFloat
+        var added: CGFloat
     }
     private var grown: [ObjectIdentifier: Grown] = [:]
 
     /// `extra` more points below the content, on top of what it already took.
+    /// Only its own share of the inset is added and taken back: a page band
+    /// may change the rest meanwhile (LLP 1130 D3).
     func grow(_ sv: UIScrollView, by extra: CGFloat) {
         let id = ObjectIdentifier(sv)
-        var room = grown[id] ?? Grown(scroll: sv, base: sv.contentInset.bottom, added: 0)
+        var room = grown[id] ?? Grown(scroll: sv, added: 0)
         room.added += extra
-        sv.contentInset.bottom = room.base + room.added
+        sv.contentInset.bottom += extra
         grown[id] = room
     }
 
@@ -232,7 +234,7 @@ final class PinnedRoom {
     func release() {
         for room in grown.values {
             guard let sv = room.scroll else { continue }
-            sv.contentInset.bottom = room.base
+            sv.contentInset.bottom -= room.added
             let high = max(-sv.adjustedContentInset.top, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)
             if sv.contentOffset.y > high { sv.contentOffset.y = high }
         }

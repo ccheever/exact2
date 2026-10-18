@@ -126,7 +126,8 @@ final class StickyHost {
         guard v.superview === presenter.root else { return .zero }
         let page = presenter.viewport.contentView.bounds.origin
         #else
-        if let sv = v.scrollView { return sv.contentOffset }
+        // Past a page band, as the kernel is told the offset (LLP 1130 D3).
+        if let sv = v.scrollView { return CGPoint(x: sv.contentOffset.x, y: sv.contentOffset.y + v.pageBand.top) }
         guard v.superview === presenter.root else { return .zero }
         let page = presenter.viewport.contentOffset
         #endif

@@ -143,7 +143,7 @@ extension Agent {
     /// A viewport point (`box`'s space) in the window.
     func windowPoint(_ at: CGPoint) -> CGPoint {
         let vp = presenter.viewport
-        return vp.convert(CGPoint(x: at.x + vp.contentOffset.x, y: at.y + vp.contentOffset.y), to: nil)
+        return vp.convert(CGPoint(x: at.x + vp.pageOrigin.x, y: at.y + vp.pageOrigin.y), to: nil)
     }
 
     /// A finger's `pointerdown` or `pointerup` at `window` (a window point)
@@ -303,7 +303,7 @@ extension Agent {
         // Where the finger goes down: the request's point in the viewport, else the middle.
         let b = box(v), vp = presenter.viewport
         let start = (req["from"] as? [Double]).map { CGPoint(x: $0[0], y: $0[1]) } ?? CGPoint(x: b.midX, y: b.midY)
-        let p = vp.convert(CGPoint(x: start.x + vp.contentOffset.x, y: start.y + vp.contentOffset.y), to: nil)
+        let p = vp.convert(CGPoint(x: start.x + vp.pageOrigin.x, y: start.y + vp.pageOrigin.y), to: nil)
         if let why = offscreen(v, box: CGRect(origin: start, size: .zero), hit: win.hitTest(p, with: nil)) { return ["error": "drag #\(v.id): \(why)"] }
         if let hit = win.hitTest(p, with: nil), let why = obscured(v, at: p, hit: hit) { return ["error": "drag #\(v.id) at (\(Agent.r2(start.x)), \(Agent.r2(start.y))): \(why)"] }
         MainActor.assumeIsolated { HeldState.input(at: win.hitTest(p, with: nil)) } // the finger's accepted down: real input, which lets a held state go
