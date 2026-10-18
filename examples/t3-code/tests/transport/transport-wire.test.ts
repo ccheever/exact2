@@ -31,6 +31,11 @@ describe('Exit failures as Cause.squash reports them', () => {
   });
 });
 
+test('secret request errors use stable reason text without exposing their cause', () => {
+  expect(failure({ _tag: 'Fail', error: { _tag: 'SecretRequestError', reason: 'store_failed', cause: { message: 'private-value' } } }).message).toBe('Could not store the secret.');
+  expect(failure({ _tag: 'SecretRequestError', reason: 'unknown', message: 'private-value', detail: 'private-value', cause: 'private-value' }).message).toBe('Could not answer the request. Try again.');
+});
+
 describe('addresses', () => {
   test('an origin is http(s), lowercased, without a path', () => {
     expect(origin('HTTP://Example.COM:3773/path?x#y')).toBe('http://example.com:3773');

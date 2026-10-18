@@ -5,6 +5,7 @@
 // (extractToolActivityPresentation), MessagesTimeline.logic.ts (the work-toggle row's icons),
 // V2ItemInspector.tsx (search results and file changes) and AgentElapsed.tsx (formatElapsedSeconds).
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { COMPUTER_USE_TOOL_SOURCE, dynamicToolSurface } from './tool-activity';
 
 const isRecord = (value: unknown): value is Obj => value !== null && typeof value === 'object' && !Array.isArray(value);
 const nonEmpty = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
@@ -123,8 +124,12 @@ function activitySource(value: unknown): Obj | undefined {
 }
 export interface ToolActivityPresentation { toolSurface?: 'browser' | 'computer'; toolIcon?: Obj; toolSource?: Obj }
 export function extractToolActivityPresentation(item: Obj): ToolActivityPresentation {
-  const surface = item.toolSurface === 'browser' || item.toolSurface === 'computer' ? item.toolSurface : undefined;
-  const icon = activityIcon(item.toolIcon), source = activitySource(item.toolSource);
+  const retained = activitySource(item.toolSource);
+  const surface = item.toolSurface === 'browser' || item.toolSurface === 'computer' ? item.toolSurface
+    : retained?.kind === 'computer' || retained?.kind === 'browser' ? retained.kind
+      : item.type === 'dynamic_tool' ? dynamicToolSurface(item.toolName, item.input) : undefined;
+  const source = surface === 'computer' && retained?.kind !== 'computer' ? COMPUTER_USE_TOOL_SOURCE : retained;
+  const icon = activityIcon(item.toolIcon);
   return { ...(surface ? { toolSurface: surface } : {}), ...(icon ? { toolIcon: icon } : {}), ...(source ? { toolSource: source } : {}) };
 }
 
