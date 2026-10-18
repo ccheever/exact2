@@ -7,6 +7,13 @@ import ExactSnapshot
 
 @MainActor
 final class WidgetGalleryTests: XCTestCase {
+    func testCaltrainGalleryListsOnlyItsPlatformFamilies() throws {
+        let plan = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_SNAPSHOT_TRAINS_PLAN"]))
+        let manifest = try JSONSerialization.jsonObject(with: Data(contentsOf: plan.deletingLastPathComponent().appendingPathComponent("entries/caltrain/app.json"))) as! [String: Any]
+        let registry = try JSONSerialization.data(withJSONObject: try XCTUnwrap(manifest["widgets"]))
+        let assets = AssetResolver(root: plan.deletingLastPathComponent(), names: ["plans/widgets.json"], generation: "platform-families") { _ in registry }
+        XCTAssertEqual(WidgetGallery.entries(in: assets).first?.families, ["systemSmall", "systemMedium", "accessoryRectangular"])
+    }
     #if os(macOS)
     func testDevelopMenuShowsTheFirstEntryAfterGenerationNotification() throws {
         _ = NSApplication.shared

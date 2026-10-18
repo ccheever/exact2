@@ -311,9 +311,24 @@
                 "systemExtraLarge",
                 "accessoryCircular",
                 "accessoryRectangular",
-                "accessoryInline"
+                "accessoryInline",
+                "accessoryCorner"
               ]
             }
+          },
+          "watchFamilies": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "accessoryCircular",
+                "accessoryRectangular",
+                "accessoryInline",
+                "accessoryCorner"
+              ]
+            },
+            "description": "Optional watchOS families; defaults to the accessory families in families."
           },
           "preview": {
             "type": "object"

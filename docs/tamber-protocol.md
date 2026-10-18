@@ -749,7 +749,7 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 | `proposal-dropped` | `proposal`, `client` (null when it `expired`, went `stale` or was one `too many held`), `reason`: `accepted`, `dropped`, `replaced` (with `replacedBy`), `stale`, `expired` or `too many held` |
 | `down` | `message`: the design server stopped or never started |
 | `builds` | `builds`: the registered builds, as `hello` lists them, after one registers, goes, or its pins change |
-| `build-status` | `build`: one build, after its `status` report |
+| `build-status` | `build`: one build, after its `status` report (one that moves only the design, up to 150 ms after: see the build channel's reports) |
 | `unsupported` | `build`, `what` (a command's kind, `pin.mode`, `pin.contrast`, `batch`), `detail` |
 | `selected` | `build`, `selected` (LLP 1122 D5; *1.3*: the wasm web page in inspect mode, see the build channel) |
 | `selection` | `build`, `node`, `site`, `instance`, `tuple`, `source`, `rows`, `readOnly`, `trimmed` (*1.3*, LLP 1122 D5: a current `selected` report joined to source; see the build channel) |
@@ -893,7 +893,12 @@ The tool drives no input into an app; a command changes only what `prefer` would
     and the pin `revision` it applied.
     Sent on connect and on any change, the app's own `setScheme`, `setMode` and
     `setRootFontSize` included (at most once a turn). A scrub's frames move the design without a
-    status each: the web pages report it once, about 150 ms after the drag rests.
+    status each: the web pages report it once, about 150 ms after the drag rests. A native host
+    reports every scrub frame's; the server tells clients a `build-status` whose only change is
+    the design 150 ms after the first such status waiting, with the latest design then (a later
+    one replaces it without restarting the wait). Any other change, and any other report from
+    that build (a selection, a held state, a refusal), is told at once, after the design waiting.
+    `hello` and the `builds` list are not held: they have the design last reported.
   - `unsupported`: a command or batch it can't apply, by name (`what`), with the pin frame's
     `revision` when it is one (*1.3*, optional).
   - `selected` (*1.3*, LLP 1122 D5; the wasm web page and the iOS and Mac hosts send it in inspect mode):

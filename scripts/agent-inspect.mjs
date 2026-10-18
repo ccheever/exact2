@@ -247,7 +247,7 @@ export function render(op, r, how = {}) {
       return lines.join('\n');
     }
     case 'logs':
-      return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => w.lines.map((line) => 'world ' + line)), ...(r.host ?? []).map((l) => '  ' + l), ...(r.crash ?? [])].join('\n') || '(nothing new)';
+      return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => Array.isArray(w.lines) ? w.lines.map((line) => 'world ' + line) : []), ...(r.host ?? []).map((l) => '  ' + l), ...(r.crash ?? [])].join('\n') || '(nothing new)';
     case 'state': {
       if (!r || typeof r !== 'object') return q(r);
       if (Array.isArray(r)) return stateCap(q(r), r, how);

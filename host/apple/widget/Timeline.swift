@@ -3,7 +3,6 @@ import ExactSnapshot
 import Foundation
 import SwiftUI
 import WidgetKit
-import UIKit
 import os
 #if EXACT_INSPECT
 import Darwin
@@ -19,25 +18,33 @@ struct ExactWidgetEntry: TimelineEntry {
     let root: URL
     let preview: Bool
     let placeholder: Bool
+    // Inline archives ask for intrinsic content; GeometryReader receives zero.
+    var displaySize = CGSize.zero
     var unavailable = false
 }
 private func embeddedRoot() -> URL {
     Bundle.main.bundleURL
 }
-private func facts(_ traits: UITraitCollection, at date: Date) -> SessionFacts {
-    SessionFacts(displayScale: max(1, traits.displayScale), preferences: Preferences(traits: traits),
-                 rootFontSize: UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits).pointSize, date: date)
-}
 private func snapshotFamily(_ family: WidgetFamily) -> SnapshotEnvironment.Family {
     switch family {
+    #if !os(watchOS)
     case .systemSmall: .systemSmall
     case .systemMedium: .systemMedium
     case .systemLarge: .systemLarge
     case .systemExtraLarge, .systemExtraLargePortrait: .systemExtraLarge
+    #endif
+    #if os(watchOS)
+    case .accessoryCorner: .accessoryCorner
+    #endif
     case .accessoryCircular: .accessoryCircular
     case .accessoryRectangular: .accessoryRectangular
     case .accessoryInline: .accessoryInline
-    @unknown default: .systemSmall
+    @unknown default:
+        #if os(watchOS)
+        .accessoryRectangular
+        #else
+        .systemSmall
+        #endif
     }
 }
 
@@ -47,12 +54,13 @@ private func widgetSnapshotView(_ entry: ExactWidgetEntry, displaySize: CGSize, 
     let session = try HeadlessSession(plan: entry.plan, entry: entry.kind, props: entry.props,
                                       size: contentSize, facts: facts, assetRoot: entry.root)
     let environment = SnapshotEnvironment(
-        family: snapshotFamily(family),
+        family: snapshotFamily(family), entryName: entry.kind,
         // Both sample paths contain no account data. Only placeholder(in:) is redacted.
         placeholder: entry.preview,
         linkBase: (Bundle.main.object(forInfoDictionaryKey: "ExactLinkBase") as? String).flatMap(URL.init(string:)),
         imageRoots: [entry.root, embeddedRoot(), embeddedRoot().deletingLastPathComponent().deletingLastPathComponent()], appGroup: WidgetContainer.root, entryDate: entry.date)
     #if EXACT_INSPECT
+    widgetLog.notice("render family=\(String(describing: family), privacy: .public) width=\(contentSize.width) height=\(contentSize.height)")
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
         widgetLog.notice("afterArchive pid=\(getpid()) now=\(footprintNow()) peak=\(footprint())")
     }
@@ -65,21 +73,12 @@ private enum WidgetRefresh {
     static let queue = DispatchQueue(label: "exact.widget-refresh", qos: .userInitiated)
     /// The group's environment is set once, before any refresh reads it.
     static let configured: Void = WidgetContainer.configure()
-    static let lock = NSLock()
-    static var waiting: [WidgetTimelineCache: [(Timeline<ExactWidgetEntry>) -> Void]] = [:]
-    static func begin(_ cache: WidgetTimelineCache, completion: @escaping (Timeline<ExactWidgetEntry>) -> Void) -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        let first = waiting[cache] == nil
-        waiting[cache, default: []].append(completion)
-        return first
+    static let waiters = WidgetTimelineWaiters<ExactWidgetEntry> { entry, size in
+        var entry = entry
+        entry.displaySize = size
+        return entry
     }
-    static func finish(_ cache: WidgetTimelineCache, _ timeline: Timeline<ExactWidgetEntry>, fallback: Timeline<ExactWidgetEntry>) {
-        lock.lock()
-        let callbacks = waiting.removeValue(forKey: cache) ?? []
-        lock.unlock()
-        for callback in callbacks { callback(cache.isCurrent ? timeline : fallback) }
-    }
-    static func entries(_ bytes: Data, kind: String, plan: Data, root: URL) throws -> [ExactWidgetEntry] {
+    static func entries(_ bytes: Data, kind: String, plan: Data, root: URL, size: CGSize) throws -> [ExactWidgetEntry] {
         guard bytes.count <= 1 << 20,
               let rows = try JSONSerialization.jsonObject(with: bytes) as? [[String: Any]],
               !rows.isEmpty, rows.count <= 100 else {
@@ -92,7 +91,7 @@ private enum WidgetRefresh {
             }
             last = ms
             return ExactWidgetEntry(date: Date(timeIntervalSince1970: ms / 1000), kind: kind, plan: plan,
-                props: try JSONSerialization.data(withJSONObject: props, options: [.sortedKeys]), root: root, preview: false, placeholder: false)
+                props: try JSONSerialization.data(withJSONObject: props, options: [.sortedKeys]), root: root, preview: false, placeholder: false, displaySize: size)
         }
     }
 }
@@ -100,8 +99,11 @@ struct ExactTimelineProvider: TimelineProvider {
     let kind: String
     private func preview(_ context: Context, placeholder: Bool) -> ExactWidgetEntry {
         let date = Date(), root = embeddedRoot()
+        #if EXACT_INSPECT
+        widgetLog.notice("context family=\(String(describing: context.family), privacy: .public) width=\(context.displaySize.width) height=\(context.displaySize.height)")
+        #endif
         let plan = (try? Data(contentsOf: root.appendingPathComponent("plans/\(kind).plan"))) ?? Data()
-        return ExactWidgetEntry(date: date, kind: kind, plan: plan, props: nil, root: root, preview: true, placeholder: placeholder)
+        return ExactWidgetEntry(date: date, kind: kind, plan: plan, props: nil, root: root, preview: true, placeholder: placeholder, displaySize: context.displaySize)
     }
     func placeholder(in context: Context) -> ExactWidgetEntry { preview(context, placeholder: true) }
     func getSnapshot(in context: Context, completion: @escaping (ExactWidgetEntry) -> Void) { completion(preview(context, placeholder: false)) }
@@ -109,7 +111,8 @@ struct ExactTimelineProvider: TimelineProvider {
         #if EXACT_INSPECT
         let start = DispatchTime.now()
         #endif
-        let size = context.displaySize, date = Date(), inputs = facts(.current, at: Date())
+        // Refresh computes data, not pixels; the view supplies display traits at render.
+        let size = context.displaySize, date = Date(), inputs = SessionFacts(displayScale: 2, preferences: .platformInput, date: date)
         // Privacy modifiers can suppress redaction: an unredacted placeholder
         // would show fixture values as live account data. Fail with "Open app".
         var unavailable = preview(context, placeholder: true)
@@ -127,7 +130,7 @@ struct ExactTimelineProvider: TimelineProvider {
             completion(fallback)
             return
         }
-        guard WidgetRefresh.begin(cache, completion: completion) else { return }
+        guard WidgetRefresh.waiters.begin(cache, size: size, completion: completion) else { return }
         WidgetRefresh.queue.async {
             // Kinds share this queue: each refresh's 900 ms, boot included,
             // starts when it leaves the queue, not while another kind runs.
@@ -142,10 +145,10 @@ struct ExactTimelineProvider: TimelineProvider {
                         defer { refresh.close() }
                         let module = Bundle.main.object(forInfoDictionaryKey: "ExactWidgetTypeScript") as? Bool == true ? root : nil
                         let bytes = try refresh.timeline(at: date, moduleRoot: module, deadline: deadline)
-                        _ = try WidgetRefresh.entries(bytes, kind: kind, plan: plan, root: root)
+                        _ = try WidgetRefresh.entries(bytes, kind: kind, plan: plan, root: root, size: size)
                         return bytes
                     }
-                    let entries = try WidgetRefresh.entries(bytes, kind: kind, plan: plan, root: root)
+                    let entries = try WidgetRefresh.entries(bytes, kind: kind, plan: plan, root: root, size: size)
                     #if EXACT_INSPECT
                     measurement("getTimeline", start: start.uptimeNanoseconds, details: "kind=\(kind) entries=\(entries.count) bytes=\(plan.count)")
                     #endif
@@ -158,7 +161,7 @@ struct ExactTimelineProvider: TimelineProvider {
                     return fallback
                 }
             }
-            WidgetRefresh.finish(cache, timeline, fallback: fallback)
+            WidgetRefresh.waiters.finish(cache, timeline, fallback: fallback)
         }
     }
 }
@@ -188,9 +191,9 @@ private func footprint() -> UInt64 {
 #endif
 // SwiftUI has no public gamut environment key. The configuration seeds this
 // from the archive's traits; no app or screen lookup is involved.
-private struct WidgetDisplayGamut: EnvironmentKey { static let defaultValue = UIDisplayGamut.SRGB }
+private struct WidgetDisplayGamut: EnvironmentKey { static let defaultValue = "srgb" }
 extension EnvironmentValues {
-    var widgetDisplayGamut: UIDisplayGamut {
+    var widgetDisplayGamut: String {
         get { self[WidgetDisplayGamut.self] }
         set { self[WidgetDisplayGamut.self] = newValue }
     }
@@ -208,16 +211,20 @@ struct ExactWidgetView: View {
     @Environment(\.dynamicTypeSize) private var textSize
     @Environment(\.widgetContentMargins) private var margins
     private var unavailable: some View { Text("Open \(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "the app")") }
-    var body: some View {
-        GeometryReader { geometry in
+    @ViewBuilder var body: some View {
+        if family == .accessoryInline { content(size: entry.displaySize).fixedSize() }
+        else { GeometryReader { geometry in content(size: geometry.size) } }
+    }
+    private func content(size displaySize: CGSize) -> some View {
+        Group {
             if entry.unavailable { unavailable.padding(margins).containerBackground(.background, for: .widget) }
             else {
-                let size = CGSize(width: max(1, geometry.size.width - margins.leading - margins.trailing), height: max(1, geometry.size.height - margins.top - margins.bottom))
+                let size = CGSize(width: max(1, displaySize.width - margins.leading - margins.trailing), height: max(1, displaySize.height - margins.top - margins.bottom))
                 let preferences = Preferences(reducedMotion: motion, reducedTransparency: transparency,
                     contrast: contrast == .increased ? "more" : "no-preference", dark: scheme == .dark,
-                    gamut: gamut == .P3 ? "p3" : "srgb", highDynamicRange: false, boldText: legibility == .bold)
+                    gamut: gamut, highDynamicRange: false, boldText: legibility == .bold)
                 let facts = SessionFacts(displayScale: scale, preferences: preferences, rootFontSize: bodySize, date: entry.date)
-                if let view = try? widgetSnapshotView(entry, displaySize: geometry.size, contentSize: size, facts: facts, family: family) {
+                if let view = try? widgetSnapshotView(entry, displaySize: displaySize, contentSize: size, facts: facts, family: family) {
                     view.redacted(reason: entry.placeholder ? .placeholder : [])
                 } else {
                     unavailable.padding(margins).containerBackground(.background, for: .widget)

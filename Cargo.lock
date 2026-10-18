@@ -1388,6 +1388,7 @@ dependencies = [
  "exact-runner",
  "exact-svg-raster",
  "exact-textflow",
+ "exact-update",
  "fontconfig-parser",
  "fontique",
  "getrandom 0.3.4",
@@ -1519,6 +1520,7 @@ version = "0.1.0"
 name = "exact-markdown-editor"
 version = "0.1.0"
 dependencies = [
+ "exact-kernel",
  "exact-markdown",
 ]
 
@@ -2978,6 +2980,16 @@ dependencies = [
  "exact-web",
  "exact-web-capabilities",
  "markdown-data",
+]
+
+[[package]]
+name = "material-specimens-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "hello-data",
 ]
 
 [[package]]

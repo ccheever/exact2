@@ -540,7 +540,7 @@ export function wrapFramework(frameworks, loose, name, app, platform = 'iPhoneOS
   }));
 }
 
-/** The bake's GPU digest (bake/src/receipt.rs, `code_digest`): the bytes, less a signed 64-bit
+/** The bake's GPU digest (update/src/gpu.rs, `code_digest`): the bytes, less a signed 64-bit
  *  Mach-O's code signature and the three sizes that follow it, so a re-signer (AppDrop) keeps it. */
 export function codeDigest(bytes) {
   const word = (at) => at + 4 <= bytes.length ? bytes.readUInt32LE(at) : null;

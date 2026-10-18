@@ -1,17 +1,19 @@
 {
   "ticks": {
-    "0": "0xdd3bb86ac949b93b",
-    "4500": "0x1297ea42b0978dee"
+    "0": "0x537fcdc3493f9d36",
+    "4500": "0xc94561739993adcf"
   },
   "saves": {
-    "night": "9dcb4370104dae7a5df39544af94f33b33008cb9784b50df3735c07528ce70d4"
+    "night": "7373bc7dca6c43be5af515176efdecfd5848061a56b5fe40fa417fd4d877cfb4"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "0e0016121ce4976b673617ee3218a9ed7ea004906e08d1d29b2310edc3807d79",
+  "inputs": "ff5dd26942caeb61a87d3ae8f1e6b3630d2f031bb45f2e03b3d82bb9ad93bb60",
+  "sourceInputs": "c38bac7834faef02608daf63753288b020a70bc08a848de9bad39d27b16b65a2",
   "game": "forest",
   "generated": "bun game/prove.mjs forest --repin --hosts 'linux,web'",
-  "at": "2c19c834853f9a169c70704b58f0ed255a8d7daa"
+  "at": "54f5ffb45da59380d0dc2c2fd1b5336bf9bb0d4e",
+  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream; MeshData.outline, MaterialData.rim and Node.posable extend saved model identities"
 }

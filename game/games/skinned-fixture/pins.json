@@ -1,17 +1,19 @@
 {
   "ticks": {
-    "60": "0x0e6efd40d47f5dd7",
-    "120": "0xf8baf228b103fe37"
+    "60": "0xfaca59677d1c344f",
+    "120": "0x5cd6ed3af60b820a"
   },
   "saves": {
-    "continuation": "94d92ef6986d34858999cb5988e1142172dbe67c91462c8c6daadb3ee03d1ef4"
+    "continuation": "432f2afdd22376557f5cee68d07a977c35d6c56b7cb8d88d7cebef85fb4d2059"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "1bcda3637bea8d8b8da44aa19eda7536b2b4cc51cf07ee1bdef33f3128fd248a",
+  "inputs": "fe95aa9418b196d9ebe2872f2fde898bf1a2f8e27b85cd02f46c96f17f3eef5e",
+  "sourceInputs": "5a0f19058475dfde7604829b5376e0db649dccea8a3e208121706cca2a5b6b08",
   "game": "skinned-fixture",
   "generated": "bun game/prove.mjs skinned-fixture --repin --hosts 'linux,web'",
-  "at": "bd6d0aee7e5d2d0c71fda875800b889543052e52"
+  "at": "658ffa7cee8d46cf61a6be63a6c5a95da771f93d",
+  "reason": "07170a2db: saved Environment.tone_mapping (Aces) extends the world hash stream and simulation save; fog is None, and delivered fox.model has no saved model identity"
 }

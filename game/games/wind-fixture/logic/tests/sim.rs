@@ -2,6 +2,13 @@ use exact_game::*;
 use wind_fixture_logic::{WindGame, SIDE};
 
 #[test]
+fn proof_endpoint_pin() {
+    let mut sim = Sim::<WindGame>::new(()).unwrap();
+    sim.run(5000.);
+    sim.assert_pin(include_str!("../../pins.json"));
+}
+
+#[test]
 fn the_field_is_still_in_the_simulation() {
     let mut sim = Sim::<WindGame>::new(()).unwrap();
     sim.run(1000.);

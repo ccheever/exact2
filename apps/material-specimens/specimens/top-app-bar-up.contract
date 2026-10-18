@@ -1,0 +1,21 @@
+routes nav
+  tab library "/"
+    detail "/detail"
+component App
+  action back
+    nav = back(nav)
+  action open
+    nav = push(nav, "/detail")
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%" position="relative"
+      for t in nav.tabs key = t.name
+        for e in t.stack key = e.id
+          column navigationKey=`${e.id}` position="absolute" inset=0 display="flex" flex-direction="column"
+            if e.name == "library"
+              header
+                text "Library" role="heading" aria-level=1
+              button press=open margin-top=400 testId="push"
+                text "Open"
+            if e.name == "detail"
+              header
+                text "Detail" role="heading" aria-level=1

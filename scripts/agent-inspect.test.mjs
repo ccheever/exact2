@@ -1,7 +1,15 @@
 // `state <name>` (agent-inspect.mjs `stateOp`, LLP 1116.007 D3.9): a state, derive or resource (or a field of the record)
 // reads by name, down a dotted path, as `expect state` does, even where a view carries the name; a plain view's is the record.
 import { test, expect } from 'bun:test';
-import { renderTrace, stateOp } from './agent-inspect.mjs';
+import { render, renderTrace, stateOp } from './agent-inspect.mjs';
+
+test('log rendering skips canvas error rows and preserves journal order', () => {
+  const error = { canvas: 7, error: 'journal unavailable' };
+  const row = lines => ({ canvas: 7, lines });
+  expect(render('logs', { lines: ['host entry'], world: [error, row(['first']), error, row(['second']), { canvas: 8, lines: null }] }))
+    .toBe('host entry\nworld first\nworld second');
+  expect(render('logs', { lines: [], world: [error] })).toBe('(nothing new)');
+});
 
 const record = { slots: { liked: true, draft: '' }, derives: { left: 2 }, resources: { groceries: [{ title: 'Eggs', done: false }, { title: 'Milk', done: true }], weather: { temp: 21 } }, mediaSession: { owner: null }, transport: { state: 'stopped' }, clock: 0 };
 // A session whose views are `like` and `transport` (testIds); asking `state` of anything else is refused as a missing view, as

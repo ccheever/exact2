@@ -9,6 +9,7 @@ fn widget() -> Widget {
         title: None,
         description: None,
         families: vec!["systemSmall".into()],
+        watch_families: vec![],
         component: "Card".into(),
         props: "Props".into(),
         refresh: "refreshCard".into(),
@@ -320,7 +321,9 @@ fn manifest_and_preview_are_checked_and_no_widgets_is_unchanged() {
             .unwrap()
             .remove(key);
     }
+    labels.json["widgets"][0]["families"] = json!(["accessoryCorner"]);
     let entries = labels.widgets().unwrap();
+    assert_eq!(entries[0].families, ["accessoryCorner"]);
     assert!(entries[0].title.is_none() && entries[0].description.is_none());
     let src = source("    text title", "", "");
     let mut w = widget();
@@ -358,12 +361,30 @@ fn caltrain_entry_reaches_only_its_departure_card() {
     let app = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/caltrain");
     let manifest = Manifest::read(&app).unwrap();
     let entries = compile_entries(&app, &manifest).unwrap();
+    let out = TempDir::new();
+    write_entries(&entries, &out.0).unwrap();
+    let registry: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(out.0.join("plans/widgets.json")).unwrap()).unwrap();
+    assert_eq!(
+        registry[0]["families"],
+        json!(["systemSmall", "systemMedium", "accessoryRectangular"])
+    );
+    assert_eq!(
+        registry[0]["watchFamilies"],
+        json!([
+            "accessoryRectangular",
+            "accessoryCircular",
+            "accessoryInline",
+            "accessoryCorner"
+        ])
+    );
     let entry = &entries["next-trains"].plan;
     assert!(entry.strings.iter().any(|s| s == "Mountain View"));
     for app_only in ["board-north", "seededEpoch", "change-station", "Caltrain"] {
         assert!(!entry.strings.iter().any(|s| s == app_only), "{app_only}");
     }
-    assert_eq!(entry.resources.len(), 0);
+    assert_eq!(entry.resources.len(), 1);
+    assert_eq!(entry.str(entry.resources[0].source), "exactViewport");
     assert_eq!(entry.actions.len(), 0);
     assert_eq!(entry.slots.len(), 1);
 }
@@ -1016,6 +1037,7 @@ fn snapshot_v1_classes_components_and_families_cannot_bypass_limits() {
         "accessoryCircular",
         "accessoryRectangular",
         "accessoryInline",
+        "accessoryCorner",
     ] {
         let mut w = widget();
         w.families = vec!["systemMedium".into(), family.into()];
@@ -1099,5 +1121,28 @@ fn round3_border_none_literals_slash_radii_and_template_images() {
                 .any(|e| e.id == id && e.message.contains(edit)),
             "{view}: {errors:?}"
         );
+    }
+}
+
+#[test]
+fn inline_admission_evaluates_size_branches_with_preview_props() {
+    let mut w = widget();
+    w.families = vec!["accessoryRectangular".into()];
+    w.watch_families = vec!["accessoryInline".into()];
+    let shape = "shape Viewport\n  width: number\n  height: number";
+    let inject = "  inject\n    snapshot_viewport: Viewport\n";
+    let valid = "    column\n      if snapshot_viewport.height < 40\n        text title\n        image \"symbol:sf/tram\"\n      else\n        text title\n        text \"Rectangular\"";
+    let admitted = compile(&source(valid, shape, inject), &w);
+    assert!(admitted.is_ok(), "{admitted:?}");
+    for view in [
+        "    row\n      text title\n      text \"Extra\"",
+        "    column\n      if snapshot_viewport.height >= 20\n        text title\n        text \"Extra\"\n      else\n        text title",
+        "    row\n      text title\n      hr",
+        "    row\n      text title\n      progress value=0.5 max=1",
+        "    view",
+        "    row\n      text title\n      image \"symbol:sf/tram\"\n      image \"symbol:sf/tram\"",
+    ] {
+        let errors = compile(&source(view, shape, inject), &w).unwrap_err();
+        assert!(errors.iter().any(|e| e.id == "snapshot-inline" && e.message.contains("emit exactly one")), "{errors:?}");
     }
 }

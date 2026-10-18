@@ -20,6 +20,10 @@ final class MenuHost {
     private var overlays: [UInt32: UIButton] = [:]
     /// The target and press shape each overlay's menu was built for.
     private var menuShapes: [UInt32: String] = [:]
+    #if os(iOS)
+    /// Native buttons that are pull-downs (`nativeMenu`), by node.
+    private var nativeMenus: [UInt32: NativeButtonIOS] = [:]
+    #endif
     private var confirmation: Confirmation?
     /// A press another invoker activates (`activating`): it invokes nothing.
     var invocationOwner: NodeView?
@@ -225,14 +229,23 @@ final class MenuHost {
         }
         // In the order they opened, so a submenu stays above its menu.
         for entry in lifting.sorted(by: { $0.order < $1.order }) { lift(entry) }
-        var live = Set<UInt32>()
+        var live = Set<UInt32>(), liveNative = Set<UInt32>()
         for v in presenter.carrying("popovertarget") + presenter.carrying("commandfor").filter({ $0.props["popovertarget"] == nil }) {
             guard let target = target(of: v), let pop = popovers[target],
                   // A row that only hides its popover (a menu item closing
                   // itself, the spec's way) is not an invoker.
                   opens(v, pop)
             else { continue }
-            if v.isNativeButton { continue } // Its own primary action invokes after activation (D13).
+            if v.isNativeButton {
+                #if os(iOS)
+                if pop.props["accessibilityRole"] == "menu", !isConfirmation(pop), let native = presenter.controls.controls[v.id] as? NativeButtonIOS {
+                    let heading = pop.props["accessibilityLabel"] ?? ""
+                    nativeMenu(native, of: v, popover: pop, shape: "\(target)|\(heading)", heading: heading)
+                    nativeMenus[v.id] = native; liveNative.insert(v.id)
+                }
+                #endif
+                continue // Its own primary action invokes after activation (D13).
+            }
             live.insert(v.id)
             if isConfirmation(pop) {
                 let button = overlays[v.id] ?? InvokerButton(type: .custom)
@@ -306,6 +319,9 @@ final class MenuHost {
             menuShapes[id] = nil
         }
         #if os(iOS)
+        for (id, b) in nativeMenus where !liveNative.contains(id) || presenter.controls.controls[id] !== b {
+            Self.endNativeMenu(b); nativeMenus[id] = nil
+        }
         context.sync()
         #endif
     }
@@ -393,6 +409,7 @@ final class MenuHost {
             else { drop(name) }
             #if os(iOS)
             for case let button as MenuButton in overlays.values where button.popover === pop { button.dismissMenu() }
+            for button in nativeMenus.values where button.popover === pop { button.dismissMenu() }
             context.close(pop)
             #endif
         } else if !isOpen(pop), !pop.inert, pop.window != nil, source.map({ eligible($0) }) ?? true {
@@ -591,6 +608,9 @@ final class MenuHost {
             $0.removeFromSuperview()
         }
         overlays.removeAll()
+        #if os(iOS)
+        nativeMenus.values.forEach(Self.endNativeMenu); nativeMenus.removeAll()
+        #endif
         for name in Array(agentOpen.keys) { drop(name) }
         #if os(iOS)
         context.reset()
@@ -783,6 +803,7 @@ final class MenuHost {
         if pendingConfirmation?.popover === node || confirmation?.popover === node && confirmation?.finishing == false || sheets.isOpen(node) { return true }
         #if os(iOS)
         if context.isOpen(node) || overlays.values.contains(where: { ($0 as? MenuButton).map { $0.popover === node && $0.isMenuOpen } == true }) { return true }
+        if nativeMenus.values.contains(where: { $0.popover === node && $0.isMenuOpen }) { return true }
         #endif
         return node.props["id"].map { agentOpen[$0] != nil } == true
     }
