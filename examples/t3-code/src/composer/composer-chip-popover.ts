@@ -14,7 +14,7 @@
 // their details the same way, and the other chips' presses are actions (composer-chip-details.ts).
 import type { T3Client } from '../client/client';
 import { obj, str, type Obj } from '../client/domain';
-import { bridgeReply, ClientError, type Native } from '../client/protocol';
+import { ClientError, type Native } from '../client/protocol';
 import { workspaceValues } from './composer-workspace-snapshots';
 import { selectedProvider, workspaceCwd } from './composer-editor';
 import { openFileSurface } from '../panel/panel-surfaces';
@@ -22,8 +22,11 @@ import { clearCitationDraft, noteCitationDraft, registerCitationDraft } from '..
 import { citationCommentLocal, citationPopover, citedStart } from '../timeline/citation-comment';
 import { chipAct, composerImageStep, performChipAct, contextDetails, draftContextRecords } from './composer-chip-details';
 import { composerFileLocal } from './composer-chip-file';
+import { composerChipCurrent, composerChipFinishNoEdit, composerChipFinishView } from './composer-chip-bridge';
+import { composerChipStore, NO_CHIP_FINISH, type ComposerChipFinish } from './composer-chip-store';
 
 export type ChipPopover = {
+  finish: ComposerChipFinish;
   /** The press's sequence (newest across the composer and the prompt sample); 0 before any. */
   seq: number;
   open: boolean;
@@ -66,7 +69,7 @@ export type ChipPopover = {
   /** An action press the window has not yet sent (closed, `open` false): "mention", "thread", "citation", "image"… */
   act: string;
 };
-export const NO_CHIP: ChipPopover = { seq: 0, open: false, surface: '', label: '', title: '', description: '', path: '', x: 0, y: 0, width: 0, height: 0,
+export const NO_CHIP: ChipPopover = { finish: NO_CHIP_FINISH, seq: 0, open: false, surface: '', label: '', title: '', description: '', path: '', x: 0, y: 0, width: 0, height: 0,
   kind: '', comment: '', anchor: '', ax: 0, ay: 0, aw: 0, ah: 0, message: '', quote: '', at: -1, lines: '', rows: 0, diff: '', image: '', aspect: 0, act: '' };
 export const NO_DESCRIPTION = 'No description is available for this skill.';
 
@@ -106,19 +109,12 @@ export function terminalPopover(press: Obj, record: Obj): ChipPopover {
     x: frame[0] || 0, y: frame[1] || 0, width: frame[2] || 0, height: frame[3] || 0 };
 }
 
-/** The window's `chip` resource: re-asked when a press opens, moves or closes (`t3.chip`). */
-export async function chipPopoverView(client: T3Client, native: Native | null | undefined): Promise<ChipPopover> {
-  if (!native?.available) return NO_CHIP;
-  native.watch('t3.chip');
-  let press: Obj;
-  try {
-    const reply = await bridgeReply(native, { op: 'editorChip' });
-    if (!reply.ok) return NO_CHIP;
-    press = obj(reply.value);
-  } catch { return NO_CHIP; }
+/** The root's measured controls and shared source own the current press. */
+export function chipPopoverView(client: T3Client): ChipPopover {
+  const press = composerChipCurrent(client);
+  if (!press) return { ...NO_CHIP, seq: composerChipStore(client).presses.latest, finish: composerChipFinishView(client) ?? NO_CHIP_FINISH };
   // The composer's press is the thread's on screen; the sample's skills are none.
   const composer = str(press.surface) === 'composer';
-  if (composer && str(press.owner) && str(press.owner) !== client.snapshotOwner) return { ...NO_CHIP, seq: Number(press.seq) || 0 };
   registerCitationDraft(client, press);
   return chipPopover(press, composer ? workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills') : [], citation => citedStart(client, citation),
     composer ? draftContextRecords(client) : {});
@@ -135,7 +131,7 @@ export async function chipPopoverLocal(client: T3Client, native: Native, op: str
   }
   if (op.startsWith('chip-cite-') && ['save', 'send', 'commit', 'cancel', 'escape'].includes(op.slice(10))) {
     clearCitationDraft(client, Number(id) || 0);
-    return citationCommentLocal(native, op, id, value);
+    return citationCommentLocal(client, native, op, id, value);
   }
   if (op === 'chip-act') return chipAct(client, native, Number(id) || 0); // a mention, thread, citation, pull request or attachment press (composer-chip-details.ts)
   if (op === 'chip-image-open') return performChipAct(client, native, { act: 'image', context: `image_${id}` }); // a shelf thumbnail's Preview button
@@ -143,7 +139,11 @@ export async function chipPopoverLocal(client: T3Client, native: Native, op: str
   if (op === 'chip-file') return composerFileLocal(client, native, id, value); // a file chip's preview (composer-chip-file.ts)
   if (op !== 'chip-close' && op !== 'chip-instructions') throw new ClientError(`Unknown editor action: ${op}`);
   // Escape gives the prompt the focus back with the chip selected (PopoverPopup's finalFocus: the chip, its trigger).
-  await bridgeReply(native, { op: 'editorChipClose', seq: Number(id) || 0, ...(op === 'chip-close' && value === 'escape' ? { escape: true } : {}) }).catch(() => undefined);
-  if (op === 'chip-instructions' && value) await openFileSurface(client, native, value, 0);
+  const press = composerChipCurrent(client);
+  if (!composerChipFinishNoEdit(client, Number(id) || 0, { send: false, focus: op === 'chip-close' && value === 'escape' ? 'select' : op === 'chip-instructions' ? 'none' : 'outside' })) return '';
+  if (op === 'chip-instructions' && value && press?.kind === 'skill' && press.seq === Number(id)) {
+    const skill = workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills').find(candidate => str(candidate.name) === press.name);
+    if (str(skill?.path) === value) await openFileSurface(client, native, value, 0);
+  }
   return '';
 }

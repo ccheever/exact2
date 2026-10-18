@@ -18,7 +18,10 @@ export function composerFieldReplacement(request: unknown, context: Context): Co
   if (!record(request) || request.op !== 'editorEdit' && request.op !== 'editorInsert') return refused('field command invalid');
   if (!snapshot.live) return refused('no composer');
   if (snapshot.composing) return refused('field composing');
-  if (request.owner !== undefined && (typeof request.owner !== 'string' || request.owner && request.owner !== context.draftOwner)) return refused('another composer');
+  if (request.snapshotOwner !== undefined && request.snapshotOwner !== snapshot.snapshotOwner
+    || request.fieldOwner !== undefined && request.fieldOwner !== snapshot.owner
+    || request.value !== undefined && request.value !== snapshot.value) return refused('field source changed');
+  if (request.owner !== undefined && (typeof request.owner !== 'string' || request.owner && request.owner !== snapshot.snapshotOwner)) return refused('another composer');
   if (request.text !== undefined && typeof request.text !== 'string') return refused('field text invalid');
   const source = snapshot.value, body = typeof request.text === 'string' ? request.text : '';
   const insert = request.op === 'editorInsert';
@@ -31,6 +34,7 @@ export function composerFieldReplacement(request: unknown, context: Context): Co
   if (request.fold !== undefined && (!integer(request.fold) || request.fold < 0)) return refused('field fold invalid');
   if (request.history !== undefined && (!integer(request.history) || request.history < 0)) return refused('field history invalid');
   if (request.citation !== undefined && (!integer(request.citation) || request.citation < 0)) return refused('field citation invalid');
+  if (request.completion !== undefined && (!integer(request.completion) || request.completion < 0)) return refused('field completion invalid');
   const then = request.then ?? '';
   if (then !== '' && then !== 'models' && then !== 'mode-plan' && then !== 'mode-default') return refused('field action invalid');
   const all = request.all === true;
@@ -53,7 +57,7 @@ export function composerFieldReplacement(request: unknown, context: Context): Co
   }
   const size = source.length - (end - start) + text.length;
   const caret = !insert && integer(request.caret) ? Math.max(0, Math.min(request.caret, size)) : start + text.length;
-  return { kind: 'edit', focus: insert || request.focus !== false, then, history: typeof request.history === 'number' ? request.history : 0, citation: typeof request.citation === 'number' ? request.citation : 0,
+  return { kind: 'edit', focus: insert || request.focus !== false, then, history: typeof request.history === 'number' ? request.history : 0, citation: typeof request.citation === 'number' ? request.citation : 0, completion: typeof request.completion === 'number' ? request.completion : 0,
     fold: !insert && integer(request.fold) ? request.fold : null,
     edit: { generation: snapshot.generation, snapshotOwner: snapshot.snapshotOwner, owner: snapshot.owner,
       value: source, start, end, text, selectionStart: caret, selectionEnd: caret } };

@@ -9,7 +9,6 @@ final class T3Composer {
     private weak var launcher: ExactElement?
     private let changed: (String) -> Void
     private weak var composer: ExactElement?
-    private weak var send: ExactElement?
     private final class Anchor {
         weak var element: ExactElement?
         var observer: NSObjectProtocol?
@@ -20,7 +19,7 @@ final class T3Composer {
     /// open above the trigger, start-aligned, so the view needs both edges).
     private(set) var anchorFrames: [String: [Double]] = [:]
     private var keyMonitor: Any?
-    /// The prompt editor's behaviours (T3ComposerEditor.swift).
+    /// OS paste and drop facts around the shared field.
     let editor: T3ComposerEditor
 
     init(changed: @escaping (String) -> Void = { _ in }) {
@@ -46,8 +45,6 @@ final class T3Composer {
                 anchors[name] = anchor
             }
             measure()
-        } else if element.hatch == .t3Send {
-            send = element
         } else if element.hatch == .t3Launcher {
             launcher = element
         } else if element.hatch == .t3Composer {
@@ -69,7 +66,6 @@ final class T3Composer {
             anchors[name] = nil
         }
         if !ended.isEmpty { measure() }
-        if send === element { send = nil }
         if launcher === element { launcher = nil }
         if composer === element {
             composer = nil
@@ -83,7 +79,6 @@ final class T3Composer {
         for anchor in anchors.values { if let observer = anchor.observer { NotificationCenter.default.removeObserver(observer) } }
         anchors.removeAll()
         composer = nil
-        send = nil
         launcher = nil
     }
 
@@ -98,13 +93,6 @@ final class T3Composer {
         guard next != anchorFrames else { return }
         anchorFrames = next
         changed("t3.status")
-    }
-
-    /// The composer's Send, pressed as its Return presses it (a citation comment's ⌘↵, submitCitationAndSend).
-    func pressSend() -> Bool {
-        guard let send, send.isLive else { return false }
-        send.click()
-        return true
     }
 
     private func stopMonitoring() {
@@ -146,7 +134,6 @@ final class T3Composer {
         if flags == .command, key == "v" {
             guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return nil }
             window.makeFirstResponder(view)
-            view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
             view.paste(nil)
             return Routed(event: nil)
         }
@@ -156,7 +143,6 @@ final class T3Composer {
         // composes it there. Inserted as text, the first jamo of Korean 2-Set's 한 stood alone and the input method
         // went on from the next key (ㅎㅏㄴ).
         window.makeFirstResponder(view)
-        view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
         return Routed(event: event)
     }
 
@@ -194,36 +180,25 @@ final class T3Composer {
         let generation = request["generation"] as? Int ?? 0
         var value: [String: Any] = [:]
         switch request["op"] as? String {
-        case "editorState": value = editor.state; value["text"] = editor.textView?.string ?? ""
-        case "editorSync":
-            if let literal = request["literal"] as? Bool { editor.styler.literal = literal }
-            if let rich = request["richText"] as? Bool { editor.styler.richText = rich }
-            if let local = request["localEnvironment"] as? Bool { editor.localEnvironment = local }
-            if let contexts = request["contexts"] as? [String: String] { editor.styler.contexts = contexts }
-            if let icons = request["fileIcons"] as? [String: String] { editor.styler.fileIcons = icons }
-            if let skills = request["skills"] as? [String: String] { editor.styler.skills = skills }
-            if let limit = request["foldLimit"] as? Int { editor.foldLimit = limit }
-            value = editor.state
-            value["notices"] = editor.takeNotices()
-            value["folds"] = editor.folds
-            value["pastes"] = editor.pastedFiles.count
-            value["mentions"] = editor.styler.chips.filter { $0.kind == "mention" }.map(\.detail)
-        case "editorEdit": value = editor.edit(request)
-        case "editorInsert": value = editor.insert(request)
+        case "editorSync": value = editor.sync(request)
         case "editorForgetFold": editor.forgetFold(request["id"] as? Int ?? -1)
         case "editorPoke":
             let delay = max(0, min(2000, request["afterMs"] as? Int ?? 0))
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay)) { [weak self] in self?.changed("t3.editor") }
-        case "editorFocus":
-            if let view = editor.textView, let window = view.window {
-                window.makeFirstResponder(view)
-                if request["end"] as? Bool == true { view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0)) }
-            }
         default: return ["ok": false, "generation": generation, "error": ["kind": "Editor", "message": "Unknown editor request.", "uncertain": false]]
         }
         return ["ok": true, "generation": generation, "value": value]
     }
 
     deinit { destroy() }
+}
+
+/// Empty-editor Select All needs a weak registry, not a second editing owner.
+final class T3ComposerPreview {
+    private weak var element: ExactElement?
+    var textView: NSTextView? { element?.isLive == true ? element?.textView : nil }
+    func install(_ element: ExactElement) { if element.hatch == .t3PromptPreview { self.element = element } }
+    func remove(_ element: ExactElement) { if self.element === element { self.element = nil } }
+    func destroy() { element = nil }
 }
 #endif

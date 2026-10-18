@@ -50,6 +50,16 @@ private final class ComposerFixture {
         controller.install(send)
     }
 
+    func activate() -> Bool {
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while !(NSApp.isActive && NSApp.keyWindow === window), Date() < deadline {
+            if let event = NSApp.nextEvent(matching: .any, until: Date(timeIntervalSinceNow: 0.01), inMode: .default, dequeue: true) { NSApp.sendEvent(event) }
+        }
+        return NSApp.isActive && NSApp.keyWindow === window && window.firstResponder === editor
+    }
+
     func event(key: UInt16 = 36, modifiers: NSEvent.ModifierFlags = [], repeatKey: Bool = false) -> NSEvent {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
             timestamp: 0, windowNumber: window.windowNumber, context: nil,
@@ -154,6 +164,9 @@ final class ComposerTests: XCTestCase {
         let fixture = ComposerFixture()
         fixture.editor.string = "Prompt"
         fixture.editor.setSelectedRange(NSRange(location: 6, length: 0))
+        // Application delivery needs an active key window; a hidden fixture drops
+        // the event before the text system, even without the adapter installed.
+        XCTAssertTrue(fixture.activate(), "Return is routed through the active key window to its editor")
         // This fixture has no Contract key handler, so ordinary AppKit inserts the newline.
         NSApp.sendEvent(fixture.event())
         XCTAssertEqual(fixture.clicks.pointee, 0)
@@ -232,27 +245,25 @@ final class ComposerTests: XCTestCase {
     }
 }
 
-// A citation comment's Command/Ctrl+Enter presses Send as the composer's Return does (submitCitationAndSend).
-final class ComposerSendPressTests: XCTestCase {
-    func testPressSendClicksTheLiveSendButtonOnly() {
-        let fixture = ComposerFixture()
-        XCTAssertTrue(fixture.controller.pressSend())
-        XCTAssertEqual(fixture.clicks.pointee, 1)
-        fixture.send.ended = true
-        XCTAssertFalse(fixture.controller.pressSend(), "an ended Send is not pressed")
-        fixture.send.ended = false
-        fixture.controller.remove(fixture.send)
-        XCTAssertFalse(fixture.controller.pressSend())
-        XCTAssertEqual(fixture.clicks.pointee, 1)
+private func runComposerTests() {
+    var executed = 0, failures = 0, succeeded = true
+    for suite in [ComposerTests.defaultTestSuite, ComposerEditorTests.defaultTestSuite, ComposerImageChipTests.defaultTestSuite, ImageAccentTests.defaultTestSuite, PromptPreviewEditorTests.defaultTestSuite, ComposerQueueKeyTests.defaultTestSuite, ComposerPasteTests.defaultTestSuite] {
+        suite.run()
+        guard let run = suite.testRun, run.executionCount == suite.testCaseCount else { exit(1) }
+        executed += run.executionCount; failures += run.totalFailureCount; succeeded = succeeded && run.hasSucceeded
     }
+    guard executed >= 14 else { exit(1) }
+    print("Composer: \(executed) tests, \(failures) failures")
+    exit(succeeded ? 0 : 1)
 }
 
-var executed = 0, failures = 0, succeeded = true
-for suite in [ComposerTests.defaultTestSuite, ComposerEditorTests.defaultTestSuite, ComposerImageChipTests.defaultTestSuite, ComposerChipTipTests.defaultTestSuite, ImageAccentTests.defaultTestSuite, PromptPreviewEditorTests.defaultTestSuite, ComposerChipPressTests.defaultTestSuite, ComposerCitationTests.defaultTestSuite, ComposerSendPressTests.defaultTestSuite, ComposerChipAccessibilityTests.defaultTestSuite, ComposerChipActionTests.defaultTestSuite, ComposerPasteTests.defaultTestSuite] {
-    suite.run()
-    guard let run = suite.testRun, run.executionCount == suite.testCaseCount else { exit(1) }
-    executed += run.executionCount; failures += run.totalFailureCount; succeeded = succeeded && run.hasSucceeded
+final class ComposerTestApplicationDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        DispatchQueue.main.async { runComposerTests() }
+    }
 }
-guard executed >= 14 else { exit(1) }
-print("Composer: \(executed) tests, \(failures) failures")
-exit(succeeded ? 0 : 1)
+let composerTestApplication = NSApplication.shared
+composerTestApplication.setActivationPolicy(.regular)
+let composerTestDelegate = ComposerTestApplicationDelegate()
+composerTestApplication.delegate = composerTestDelegate
+composerTestApplication.run()

@@ -123,6 +123,7 @@ shape ComposerChipFace
   icon: string
   fileToken: string
   imageId: string
+  atomLabel: string
   available: bool
   interactive: bool
   comment: bool
@@ -190,6 +191,7 @@ shape ComposerFieldCommand
   ready: bool
   history: number
   citation: number
+  completion: number
 
 shape ComposerFieldResult
   applied: bool

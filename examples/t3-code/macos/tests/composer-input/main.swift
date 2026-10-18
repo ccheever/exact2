@@ -51,9 +51,9 @@ final class ComposerFixture {
         element.view = scroller; element.platform = editor
         element.data = ExactData(["snapshot-owner": "owner-a"])
         composer.install(element) // the real delegate proxy goes in front of the node
-        composer.editor.styler.richText = true
         composerInput.install(element)
     }
+    deinit { composerInput.destroy(); composer.destroy(); window.close() }
     func key(_ characters: String, _ ignoring: String, _ code: UInt16, _ flags: NSEvent.ModifierFlags = [.command]) -> NSEvent {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber, context: nil,
             characters: characters, charactersIgnoringModifiers: ignoring, isARepeat: false, keyCode: code)!
@@ -79,6 +79,19 @@ final class ComposerInputTests: XCTestCase {
         f.window.makeFirstResponder(f.editor); tick()
         XCTAssertEqual(f.node.events.filter { $0 == "focus" }.count, 2, "each return of the focus is a new focus")
         XCTAssertEqual(f.composerInput.bridged, 2)
+    }
+
+    func testRemovedComposerStopsPendingFocusBridge() {
+        let f = ComposerFixture()
+        f.window.makeFirstResponder(f.button); tick()
+        let before = f.composerInput.bridged
+        f.composerInput.remove(f.element)
+        f.window.makeFirstResponder(f.editor)
+        f.composerInput.responderChanged(f.window); tick()
+        XCTAssertEqual(f.composerInput.bridged, before)
+        XCTAssertFalse(f.composerInput.composerFocused)
+        f.composerInput.install(f.element)
+        XCTAssertTrue(f.composerInput.composerFocused)
     }
 
     func testChordKeyUnderAKoreanSource() {

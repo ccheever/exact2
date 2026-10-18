@@ -8,11 +8,15 @@ import { composerEditorView } from '../../src/composer/composer-editor';
 import { acceptAttachedFile } from '../../src/composer/composer-editor-attach';
 import { draftFiles } from '../../src/composer/composer-editor-files';
 import { obj, str, type Obj } from '../../src/client/domain';
+import { acceptComposerEdit, observeComposer } from '../support/composer-field-fixture';
+import { fileChipLink } from '../../src/composer/composer-editor-files';
+import { toasts } from '../../src/shell/toast';
 
 const uuid = (n: number) => `1b4e28ba-2fa1-11d2-883f-0016d3cca42${n}`;
 
 /** The client fixture's server, with the native editor's sync, paste take and insert answered here. */
 class EditorBackend extends Backend {
+  client: T3Client | null = null;
   state: Obj = { empty: false };
   pasted: Obj[] = [];
   /** Runs as the native editor reads its state for a sync (before the reply reaches TypeScript). */
@@ -20,10 +24,11 @@ class EditorBackend extends Backend {
   onTake: () => void = () => {};
   override async later(input: unknown): Promise<unknown> {
     const request = obj(input);
-    if (request.op === 'editorSync') { this.calls.push(request); this.onSync(); return this.good({ owner: '', ...this.state, pastes: this.pasted.length }); }
+    if (request.op === 'editorSync') { this.calls.push(request); this.onSync(); return this.good({ snapshotOwner: request.snapshotOwner, fieldOwner: request.fieldOwner, ...this.state, pastes: this.pasted.length }); }
     if (request.op === 'composerPasteTake') { this.calls.push(request); this.onTake(); const files = this.pasted; this.pasted = []; return this.good({ files }); }
-    if (request.op === 'editorInsert') { this.calls.push(request); return this.good({ applied: true }); }
+    if (request.op === 'editorInsert' || request.op === 'editorEdit') { this.calls.push(request); return this.good({ applied: this.client && acceptComposerEdit(this.client, request) }); }
     if (request.op === 'composerAttachRemove') { this.calls.push(request); return this.good({ removed: true }); }
+    if (request.op === 'editorForgetFold') { this.calls.push(request); return this.good({}); }
     return super.later(input);
   }
 }
@@ -33,11 +38,29 @@ async function opened() {
   await client.refresh(native, disk.files);
   await client.command('select-thread', 't1', '', 0, native, disk.files);
   await client.refresh(native, disk.files);
+  native.client = client;
+  observeComposer(client, client.draft);
   return { client, native, disk };
 }
 const ops = (native: EditorBackend, op: string) => native.calls.filter(call => call.op === op);
 
 describe('a paste with files on the pasteboard (onComposerPaste)', () => {
+  test('interleaved drop and fold records are consumed by OS id; stale later source is refused once', async () => {
+    const { client, native } = await opened();
+    client.local.drafts[client.draftKey] = 'seed';
+    const current = observeComposer(client, 'seed', true);
+    const fact = { snapshotOwner: current.snapshotOwner, fieldOwner: current.owner, value: current.value, start: 4, end: 4, expect: '' };
+    native.state = { drops: [{ ...fact, id: 1, paths: ['/A B'] }], folds: [{ ...fact, id: 2, text: 'x'.repeat(40_000) }] };
+    await composerEditorView(client, native);
+    expect(ops(native, 'editorEdit').map(call => call.text)).toEqual(['@"/A B" ']);
+    expect(ops(native, 'editorForgetFold').map(call => call.id)).toEqual([1, 2]);
+    expect(client.draft).toBe('seed @"/A B" ');
+    expect(draftFiles(client.local)).toEqual([]);
+    expect(toasts(client).map(toast => toast.title)).toEqual(['Paste was not added']);
+    await composerEditorView(client, native);
+    expect(ops(native, 'editorEdit')).toHaveLength(1);
+    expect(toasts(client)).toHaveLength(1);
+  });
   test('the sync takes the held files: a plain file becomes a chip at the caret, an image joins the shelf', async () => {
     const { client, native } = await opened();
     native.pasted = [
@@ -61,6 +84,7 @@ describe('a paste with files on the pasteboard (onComposerPaste)', () => {
   test('Paste as Text attaches the files too, and its image gets no chip even beside prose (skipImageInlineChip)', async () => {
     const { client, native } = await opened();
     client.local.drafts[client.draftKey] = 'look at this';
+    observeComposer(client, client.draft, true);
     native.pasted = [
       { kind: 'file', id: uuid(1), name: 'notes.md', mimeType: 'text/markdown', sizeBytes: 8, asText: true },
       { kind: 'image', id: uuid(2), name: 'image.png', sizeBytes: 120, asText: true },
@@ -125,6 +149,7 @@ describe('an emptied draft\'s files', () => {
     expect(ops(native, 'composerAttachRemove')).toMatchObject([{ id: old.id }]);
     // The next sync sees the chip in the editor's text, so the file keeps its record (and its chip its name and size).
     native.state = { empty: false };
+    observeComposer(client, fileChipLink(added!) + ' ', true);
     native.onSync = () => {};
     await composerEditorView(client, native);
     expect(draftFiles(client.local)).toEqual([added!]);

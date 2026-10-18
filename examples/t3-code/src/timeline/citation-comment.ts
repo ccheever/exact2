@@ -4,9 +4,17 @@
 // Escape and Cancel cancel), ComposerPromptEditorTiptap.tsx ComposerCitationNodeView (onSave rewrites the chip with
 // withAssistantCitationComment; after Cite, Cancel removes the chip: `removeOnCancel`; onRestoreFocus puts the caret
 // after the chip) and ChatComposer.tsx (citeAssistantText opens it under the cited text; submitCitationAndSend).
-// The chip is drawn by the native composer, which reports its comment button's press, or Cite's opening, with the
-// anchor's window frame (T3ComposerChipPress.swift); the window draws the popover there (citation-comment.contract).
+// Shared field facts identify the chip and measured anchor; the root draws its comment popover.
 import { obj, str, type Obj } from '../client/domain';
+import type { T3Client } from '../client/client';
+import { composerFieldOwner } from '../composer/auto-balance-owner';
+import { composerFieldCurrent } from '../composer/composer-field-bridge';
+import { composerChipCurrent, composerCitationNoEdit, composerCitationPrepare } from '../composer/composer-chip-bridge';
+import { composerChipStore } from '../composer/composer-chip-store';
+import { insertCitation } from '../composer/composer-source-chips';
+import type { ComposerEdit } from '../composer/composer-markdown-edit';
+import type { ComposerCitationEffect } from '../composer/composer-citation-receipts';
+import type { ComposerFieldSnapshot } from '../composer/composer-field-commands';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
 import { ASSISTANT_CITATION_MAX_COMMENT_LENGTH, parseAssistantCitationHref, serializeAssistantCitation, withAssistantCitationComment, type AssistantCitation } from './diff-citations';
 import type { ChipPopover } from '../composer/composer-chip-popover';
@@ -49,36 +57,64 @@ export function citationPopover(press: Obj, base: ChipPopover, startOf: (citatio
   };
 }
 
-/**
- * The popover's Save (`chip-cite-save`; `chip-cite-send` saves and sends; `chip-cite-commit` is an outside press
- * committing a changed draft, which leaves the focus where the press put it unless it put it nowhere: then the prompt takes
- * it after the chip, PopoverPopup's `finalFocus`), Cancel (`chip-cite-cancel`) and the window's Escape (`chip-cite-escape`:
- * the editor's Cancel in its textarea, else Base UI's escape-key dismissal, which keeps the chip; the native editor knows
- * where the focus is): `id` is the press's sequence, `value` the comment.
- */
-export async function citationCommentLocal(native: Native, op: string, id: string, value: string): Promise<string> {
-  const seq = Number(id) || 0;
-  const reply = await bridgeReply(native, { op: 'editorChip' });
-  const press = reply.ok ? obj(reply.value) : {};
-  if (press.open !== true || str(press.kind) !== 'citation' || Number(press.seq) !== seq) return '';
-  let text: string | undefined;
-  if (op === 'chip-cite-cancel' || op === 'chip-cite-escape') text = press.removeOnCancel === true ? '' : undefined;
-  else {
-    if (value.length > ASSISTANT_CITATION_MAX_COMMENT_LENGTH) throw new ClientError(`Comments can contain up to ${ASSISTANT_CITATION_MAX_COMMENT_LENGTH.toLocaleString('en-US')} characters.`);
-    const citation = citationOfLink(str(press.link));
-    if (!citation) throw new ClientError('This citation can no longer be edited.');
-    text = serializeAssistantCitation(withAssistantCitationComment(citation, value));
+/** Queue one exact source edit. Opening, closing and sending happen only in
+ *  the independent field ACK, even if this caller is no longer waiting. */
+async function editCitation(client: T3Client, native: Native, current: ComposerFieldSnapshot, edit: ComposerEdit, effect: ComposerCitationEffect, focus: boolean): Promise<boolean> {
+  const expected = current.value.slice(0, edit.start) + edit.text + current.value.slice(edit.end);
+  const receipt = composerCitationPrepare(client, current.value, expected, effect);
+  if (!receipt) return false;
+  try {
+    const reply = await bridgeReply(native, { op: 'editorEdit', snapshotOwner: current.snapshotOwner, fieldOwner: current.owner, value: current.value,
+      start: edit.start, end: edit.end, expect: current.value.slice(edit.start, edit.end), text: edit.text,
+      caret: edit.selection.end, focus, citation: receipt.citation });
+    if (!reply.ok || obj(reply.value).applied !== true) throw new ClientError('The prompt could not be updated.');
+    return true;
+  } catch (error) {
+    composerChipStore(client).citations.refuse(receipt);
+    throw error;
   }
-  const finish = await bridgeReply(native, { op: 'editorChipFinish', seq, ...(text === undefined ? {} : { text }), focus: op !== 'chip-cite-commit', send: op === 'chip-cite-send', ...(op === 'chip-cite-escape' ? { escape: true } : {}) });
-  if (!finish.ok || obj(finish.value).applied !== true) throw new ClientError('The prompt could not be updated.');
+}
+
+/** Save/send replace the current chip; fresh Cancel removes its owned spaces.
+ *  Root focus facts distinguish comment Cancel from an Escape that only closes. */
+export async function citationCommentLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
+  if (!['chip-cite-save', 'chip-cite-send', 'chip-cite-commit', 'chip-cite-cancel'].includes(op)) return '';
+  const seq = Number(id), press = composerChipCurrent(client), current = composerFieldCurrent(client, composerFieldOwner(client));
+  if (!Number.isSafeInteger(seq) || seq <= 0 || !press?.open || press.kind !== 'citation' || press.surface !== 'composer'
+    || press.seq !== seq || !current || current.composing || press.owner !== current.snapshotOwner || press.fieldOwner !== current.owner
+    || current.value.slice(press.start, press.end) !== press.link) return '';
+  const send = op === 'chip-cite-send', focus = op !== 'chip-cite-commit';
+  let edit: ComposerEdit;
+  if (op === 'chip-cite-cancel') {
+    if (!press.removeOnCancel) {
+      composerCitationNoEdit(client, seq, { send: false, focus: 'after' });
+      return '';
+    }
+    const cancellation = composerChipStore(client).presses.cancel(current, seq);
+    if (!cancellation) return '';
+    edit = cancellation;
+  } else {
+    if (value.length > ASSISTANT_CITATION_MAX_COMMENT_LENGTH) throw new ClientError(`Comments can contain up to ${ASSISTANT_CITATION_MAX_COMMENT_LENGTH.toLocaleString('en-US')} characters.`);
+    const citation = citationOfLink(press.link);
+    if (!citation) throw new ClientError('This citation can no longer be edited.');
+    const text = serializeAssistantCitation(withAssistantCitationComment(citation, value));
+    if (text === press.link) {
+      composerCitationNoEdit(client, seq, { send, focus: focus ? 'after' : 'outside' });
+      return '';
+    }
+    edit = { start: press.start, end: press.end, text, selection: { start: press.start + text.length, end: press.start + text.length } };
+  }
+  await editCitation(client, native, current, edit, { kind: 'finish', seq, send }, focus);
   return '';
 }
 
-/**
- * Cite's second half (ChatComposer citeAssistantText → requestCitationComment): the chip just inserted opens its
- * comment under the cited text, `source` the text's window frame [x, top, width, height] as the answer measured it.
- */
-export async function openCitationComment(native: Native, href: string, source: number[]): Promise<boolean> {
-  const reply = await bridgeReply(native, { op: 'editorCiteOpen', href, source: source.length === 4 && source.every(Number.isFinite) ? source : [] });
-  return reply.ok && obj(reply.value).opened === true;
+/** Cite inserts once at the selection start and lets its independent input ACK
+ *  open the fresh comment under the measured source, without a caller callback. */
+export async function openCitationComment(client: T3Client, native: Native, href: string, source: number[]): Promise<boolean> {
+  const citation = parseAssistantCitationHref(href), current = composerFieldCurrent(client, composerFieldOwner(client));
+  if (!citation || !current || current.composing || source.length !== 4 || !source.every(Number.isFinite)
+    || !(source[2]! > 0) || !(source[3]! > 0)) return false;
+  const inserted = insertCitation(current.value, current.start, serializeAssistantCitation(citation));
+  return editCitation(client, native, current, inserted.edit, { kind: 'open', fresh: inserted.citation,
+    sourceFrame: [source[0]!, source[1]!, source[2]!, source[3]!] }, true);
 }

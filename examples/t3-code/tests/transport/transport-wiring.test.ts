@@ -27,7 +27,7 @@ describe('app.contract', () => {
     const exempt = new Set(['promptLinkPage', 'promptLinksReady', 'wallTime', 'viewport', 'page', 'delivery', 'markdown', 'questionMarkdown', 'prMarkdown', 'filesMarkdown', 'highlightSliced', 'transportInbox', 'transportPumped', 'serverBrowserLive', 'serverBrowserMiniLive', 'serverBrowserChanged', 'serverBrowserMaintained', 'serverBrowserMiniMaintained']);
     // Shared field delivery can wait on an app edit, never a server reply;
     // source projection, intent and accepted-input ACKs are local too.
-    for (const name of ['composerFieldNext', 'richComposer', 'richPromptPreview', 'composerEdited', 'composerFieldChanged', 'composerFieldAck']) exempt.add(name);
+    for (const name of ['composerFieldNext', 'richComposer', 'richPromptPreview', 'composerEdited', 'composerFieldChanged', 'composerFieldAck', 'chipObserved', 'chipPressed']) exempt.add(name);
     expect(contract).toMatch(/task transportAnswered key=transportAnswering\n    after\(1, transportPump\)/);
     expect(contract).toMatch(/task transportRepublish when transportInbox\.table > transportTable\.rev key=transportInbox\.table\n    after\(1, transportPump\)/);
     expect(contract).not.toMatch(/every\(16, transportPump\)/);

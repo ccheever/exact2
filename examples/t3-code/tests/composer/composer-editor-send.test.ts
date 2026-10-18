@@ -109,6 +109,6 @@ describe('a Send press carries its own pointer modifiers', () => {
     const app = await Bun.file(appPath('app.contract')).text();
     expect(app).toContain('  action send(held: string)');
     expect(app).toContain('send changed = command("send", held == "" ? "" : `pointer:${held}`, composerText, 0)');
-    expect(app).toContain('    else\n      send("")\n'); // the annotation's send: no press
+    expect(app).toContain('command("send-annotation", `${shell.panel.annotationSend}`, "", 0)');
   });
 });

@@ -6,8 +6,8 @@ export type ComposerFieldEdit = ComposerFieldIdentity & {
   value: string; start: number; end: number; text: string;
   selectionStart: number; selectionEnd: number;
 };
-export type ComposerFieldEffects = { focus: boolean; then: '' | 'models' | 'mode-plan' | 'mode-default'; history?: number; citation?: number };
-export type ComposerFieldCommand = ComposerFieldEdit & ComposerFieldEffects & { seq: number; ready: boolean; history: number; citation: number };
+export type ComposerFieldEffects = { focus: boolean; then: '' | 'models' | 'mode-plan' | 'mode-default'; history?: number; citation?: number; completion?: number };
+export type ComposerFieldCommand = ComposerFieldEdit & ComposerFieldEffects & { seq: number; ready: boolean; history: number; citation: number; completion: number };
 export type ComposerFieldResult = { applied: boolean; reason: string; value: string; start: number; end: number };
 type Issued = { command: ComposerFieldCommand; delivered: boolean; observedInput: boolean; resolve: (result: ComposerFieldResult) => void };
 type Waiting = { after: number; identity: ComposerFieldIdentity; resolve: (command: ComposerFieldCommand) => void };
@@ -55,7 +55,7 @@ export class ComposerFieldCommands {
     if (!rangeValid(edit.value, edit.start, edit.end) || !rangeValid(value, edit.selectionStart, edit.selectionEnd)) return refused('field range invalid');
     if (this.requests.length >= 16) return refused('field request queue full');
     return new Promise(resolve => {
-      this.requests.push({ command: { ...edit, ...effects, history: effects.history ?? 0, citation: effects.citation ?? 0, seq: ++this.sequence, ready: true }, delivered: false, observedInput: false, resolve });
+      this.requests.push({ command: { ...edit, ...effects, history: effects.history ?? 0, citation: effects.citation ?? 0, completion: effects.completion ?? 0, seq: ++this.sequence, ready: true }, delivered: false, observedInput: false, resolve });
       this.deliver();
     });
   }
@@ -88,7 +88,7 @@ export class ComposerFieldCommands {
     return { applied, reason, value: this.snapshot?.value ?? '', start: this.snapshot?.start ?? 0, end: this.snapshot?.end ?? 0 };
   }
   private empty(seq: number, identity: ComposerFieldIdentity): ComposerFieldCommand {
-    return { ...identity, seq, ready: false, focus: false, then: '', history: 0, citation: 0, value: '', start: 0, end: 0, text: '', selectionStart: 0, selectionEnd: 0 };
+    return { ...identity, seq, ready: false, focus: false, then: '', history: 0, citation: 0, completion: 0, value: '', start: 0, end: 0, text: '', selectionStart: 0, selectionEnd: 0 };
   }
   private reject(request: Issued, reason: string): void {
     request.resolve(this.result(false, reason));

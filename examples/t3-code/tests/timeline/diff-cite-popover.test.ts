@@ -5,11 +5,12 @@
 // its Cite fixture answer (a paragraph with inline code, a ```ts block, a closing paragraph), 1280×840.
 import { describe, expect, test } from 'bun:test';
 import type { Obj } from '../../src/client/domain';
-import type { Native } from '../../src/client/protocol';
-import { chipPopover, chipPopoverLocal, NO_CHIP } from '../../src/composer/composer-chip-popover';
+import { chipPopover, NO_CHIP } from '../../src/composer/composer-chip-popover';
 import { citationCommentLocal, citationOfLink, citationPopover, citedStart, openCitationComment, rememberCitedStart } from '../../src/timeline/citation-comment';
-import { createAssistantTextSelector, formatAssistantCitationHref, parseAssistantCitationHref, resolveAssistantCitationCommentDismissal, type AssistantCitation } from '../../src/timeline/diff-citations';
+import { createAssistantTextSelector, formatAssistantCitationHref, resolveAssistantCitationCommentDismissal, type AssistantCitation } from '../../src/timeline/diff-citations';
 import { parseCiteValue } from '../../src/diff/diff-review';
+import { composerChipClose, composerChipCurrent, composerChipFinishView, takeComposerChipFinish } from '../../src/composer/composer-chip-bridge';
+import { citationField } from './citation-field.fixture';
 import { contractFn } from '../support/contract-fn-fixture';
 import { appPath } from '../support/app-files';
 
@@ -20,19 +21,6 @@ const href = formatAssistantCitationHref(citation);
 const link = (h: string) => `[Assistant quote](${h})`;
 const press = (extra: Obj = {}): Obj => ({ seq: 7, open: true, surface: 'composer', owner: 'draft:t1', kind: 'citation', name: 'parser keeps parsePatch pure',
   label: 'parser keeps parsePatch pure', frame: [293, 694, 245, 17], link: link(href), anchor: 'chip', anchorFrame: [516.5, 695.5, 14, 14], removeOnCancel: false, ...extra });
-
-/** A native editor stand-in: `editorChip` answers `state`, `editorChipFinish` is recorded. */
-function editor(state: Obj, applied = true) {
-  const calls: Obj[] = [];
-  const native = { available: true, watch() {}, async later(request: Obj) {
-    calls.push(request);
-    if (request.op === 'editorChip') return { ok: true, generation: 0, value: state };
-    if (request.op === 'editorChipFinish') return { ok: true, generation: 0, value: { applied, sent: request.send === true } };
-    if (request.op === 'editorCiteOpen') return { ok: true, generation: 0, value: { opened: true } };
-    return { ok: true, generation: 0, value: {} };
-  } } as unknown as Native;
-  return { native, calls, finishes: () => calls.filter(call => call.op === 'editorChipFinish') };
-}
 
 describe('the citation chip\'s comment popover', () => {
   test('a citation press is the comment\'s popover: its saved comment, its anchor and the cited answer', () => {
@@ -59,89 +47,186 @@ describe('the citation chip\'s comment popover', () => {
     expect(citedStart(owner, citation)).toBe(-1); // only the newest 64
   });
 
-  test('Save rewrites the chip with the comment (withAssistantCitationComment), the focus after it', async () => {
-    const { native, finishes } = editor(press());
-    await chipPopoverLocal({} as never, native, 'chip-cite-save', '7', '  Check the pure claim ');
-    const [finish] = finishes();
-    expect(finish).toMatchObject({ op: 'editorChipFinish', seq: 7, focus: true, send: false });
-    const saved = parseAssistantCitationHref(/\((t3-citation:[^)]+)\)$/.exec(String(finish!.text))![1]!);
-    expect(saved).toEqual({ ...citation, comment: 'Check the pure claim' });
-    // An empty comment removes it (the chip reads the quote again).
-    const second = editor(press({ link: String(finish!.text) }));
-    await chipPopoverLocal({} as never, second.native, 'chip-cite-save', '7', '   ');
-    expect(parseAssistantCitationHref(/\((t3-citation:[^)]+)\)$/.exec(String(second.finishes()[0]!.text))![1]!)).toEqual(citation);
+  test('Cite inserts once at selection start and opens only from its independent input ACK', async () => {
+    const state = citationField('left right', 4, 10), waiting = state.next();
+    let complete = false;
+    const pending = openCitationComment(state.client, state.native, href, [412, 180.5, 540, 22]).then(value => { complete = true; return value; });
+    const command = await waiting;
+    expect(command).toMatchObject({ start: 4, end: 5, focus: true });
+    expect(state.current().value).toBe('left right');
+    expect(composerChipCurrent(state.client)).toBeNull();
+    state.input(command);
+    await Promise.resolve();
+    expect(complete).toBe(false);
+    expect(state.current().value).toBe(`left ${link(href)} right`);
+    expect(composerChipCurrent(state.client)).toBeNull();
+    expect(state.ack(command)).toMatchObject({ applied: true, send: false });
+    expect(composerChipCurrent(state.client)).toMatchObject({ kind: 'citation', open: true, removeOnCancel: true, anchor: 'source', anchorFrame: [412, 180.5, 540, 22] });
+    expect(await pending).toBe(true);
+    expect(state.calls).toEqual([]);
   });
 
-  test('Command/Ctrl+Enter saves and sends; an outside press commits without asking for the focus (the native editor gives it only when the press left it nowhere)', async () => {
-    const send = editor(press());
-    await citationCommentLocal(send.native, 'chip-cite-send', '7', 'why?');
-    expect(send.finishes()[0]).toMatchObject({ focus: true, send: true });
-    const commit = editor(press());
-    await citationCommentLocal(commit.native, 'chip-cite-commit', '7', 'why?');
-    expect(commit.finishes()[0]).toMatchObject({ focus: false, send: false });
+  test('Cite preserves a selected atom instead of replacing its source', async () => {
+    const state = citationField('$skill prose', 0, 6), waiting = state.next();
+    const pending = openCitationComment(state.client, state.native, href, [10, 20, 80, 18]);
+    const command = await waiting;
+    expect(command).toMatchObject({ start: 0, end: 0 });
+    state.input(command); state.ack(command); await pending;
+    expect(state.current().value).toBe(`${link(href)} $skill prose`);
+    expect(state.session.chips.map(chip => chip.kind)).toEqual(['citation', 'skill']);
   });
 
-  test('Cancel and Escape: after Cite the chip goes again (removeOnCancel), from the pencil it stays', async () => {
-    const cited = editor(press({ anchor: 'source', removeOnCancel: true }));
-    await citationCommentLocal(cited.native, 'chip-cite-cancel', '7', '');
-    expect(cited.finishes()).toEqual([{ op: 'editorChipFinish', seq: 7, text: '', focus: true, send: false }]);
-    const pencil = editor(press());
-    await citationCommentLocal(pencil.native, 'chip-cite-cancel', '7', 'ignored draft');
-    expect(pencil.finishes()).toEqual([{ op: 'editorChipFinish', seq: 7, focus: true, send: false }]);
+  test('fresh and existing saves replace only the UTF-16 chip range; send is admitted once by ACK', async () => {
+    for (const fresh of [false, true]) for (const op of ['chip-cite-save', 'chip-cite-send', 'chip-cite-commit']) {
+      const prefix = 'before 😀 ', state = citationField(fresh ? `${prefix}after` : `${prefix}${link(href)} after`, prefix.length);
+      if (fresh) {
+        const waiting = state.next(), opened = openCitationComment(state.client, state.native, href, [10, 20, 80, 18]);
+        const insertion = await waiting;
+        state.input(insertion); state.ack(insertion); await opened;
+      } else state.press();
+      const current = composerChipCurrent(state.client);
+      if (!current) throw new Error('Expected the current citation comment');
+      expect(current.removeOnCancel).toBe(fresh);
+      const waiting = state.next();
+      const pending = citationCommentLocal(state.client, state.native, op, String(current.seq), '  Check the pure claim ');
+      const command = await waiting;
+      expect(command).toMatchObject({ start: prefix.length, end: prefix.length + link(href).length, focus: op !== 'chip-cite-commit' });
+      expect(citationOfLink(command.text)).toEqual({ ...citation, comment: 'Check the pure claim' });
+      state.input(command);
+      expect(state.current().value).toBe(`${prefix}${command.text} after`);
+      expect(state.ack(command)).toMatchObject({ applied: true, send: op === 'chip-cite-send' });
+      expect(composerChipCurrent(state.client)).toBeNull();
+      expect(state.ack(command).send).toBe(false);
+      await pending;
+      expect(state.calls).toEqual([]);
+    }
   });
 
-  test('the window\'s Escape asks the native editor, which knows where the focus is: in the textarea the editor\'s Cancel, elsewhere Base UI\'s escape-key close', async () => {
-    // The native editor drops `text` (the chip stays) and asks no focus when the textarea does not hold it
-    // (T3ComposerChipPress.finishCitation `escape`; the AppKit test covers that half).
-    const cited = editor(press({ anchor: 'source', removeOnCancel: true }));
-    await chipPopoverLocal({} as never, cited.native, 'chip-cite-escape', '7', '');
-    expect(cited.finishes()).toEqual([{ op: 'editorChipFinish', seq: 7, text: '', focus: true, send: false, escape: true }]);
-    const pencil = editor(press());
-    await citationCommentLocal(pencil.native, 'chip-cite-escape', '7', 'a draft past the limit'.repeat(400));
-    expect(pencil.finishes()).toEqual([{ op: 'editorChipFinish', seq: 7, focus: true, send: false, escape: true }]);
-    const window = await source('app-window.contract');
-    // The popover is not hidden first: its textarea must still hold the focus when the native editor looks (run 3 found it).
-    expect(window).toContain('  action chipEscape\n    if chip.kind == "citation"\n      editorOp("chip-cite-escape", `${chip.seq}`, "")\n    else');
+  test('clearing a saved comment retains its original quote selector', async () => {
+    const commented = formatAssistantCitationHref({ ...citation, comment: 'saved' });
+    const state = citationField(link(commented)), press = state.press(), waiting = state.next();
+    const pending = citationCommentLocal(state.client, state.native, 'chip-cite-save', String(press.seq), '   ');
+    const command = await waiting;
+    expect(citationOfLink(command.text)).toEqual(citation);
+    state.input(command); state.ack(command); await pending;
+    expect(state.current().value).toBe(link(href));
   });
 
-  test('only the comment the window showed; past 8,000 characters nothing is saved', async () => {
-    const stale = editor(press({ seq: 8 }));
-    await citationCommentLocal(stale.native, 'chip-cite-save', '7', 'x');
-    expect(stale.finishes()).toEqual([]);
-    const closed = editor({ seq: 7, open: false });
-    await citationCommentLocal(closed.native, 'chip-cite-cancel', '7', '');
-    expect(closed.finishes()).toEqual([]);
-    const long = editor(press());
-    await expect(citationCommentLocal(long.native, 'chip-cite-save', '7', 'x'.repeat(8001))).rejects.toThrow('Comments can contain up to 8,000 characters.');
-    expect(long.finishes()).toEqual([]);
-    const failed = editor(press(), false);
-    await expect(citationCommentLocal(failed.native, 'chip-cite-save', '7', 'x')).rejects.toThrow('The prompt could not be updated.');
+  test('fresh Cancel removes only its adjacent owned spaces after surrounding inputs', async () => {
+    const state = citationField('left right', 4, 10), waiting = state.next();
+    const opened = openCitationComment(state.client, state.native, href, [10, 20, 80, 18]);
+    const insertion = await waiting;
+    state.input(insertion); state.ack(insertion); await opened;
+    state.type(`prefix ${state.current().value}`);
+    state.type(`${state.current().value} suffix`);
+    const current = composerChipCurrent(state.client);
+    expect(current).toMatchObject({ kind: 'citation', removeOnCancel: true });
+    const cancellation = state.next();
+    const pending = citationCommentLocal(state.client, state.native, 'chip-cite-cancel', String(current?.seq), 'ignored');
+    const command = await cancellation;
+    expect(command.text).toBe('');
+    state.input(command);
+    expect(state.current().value).toBe('prefix left right suffix');
+    expect(state.ack(command)).toMatchObject({ applied: true, send: false });
+    await pending;
   });
 
-  test('Cite opens the chip just inserted under the cited text', async () => {
-    const { native, calls } = editor({});
-    expect(await openCitationComment(native, href, [412, 180.5, 540, 22])).toBe(true);
-    expect(calls.at(-1)).toEqual({ op: 'editorCiteOpen', href, source: [412, 180.5, 540, 22] });
-    await openCitationComment(native, href, [1, Number.NaN, 3, 4]);
-    expect(calls.at(-1)).toEqual({ op: 'editorCiteOpen', href, source: [] });
+  test('unchanged save/send, existing Cancel and unchanged outside commit use one no-edit completion', async () => {
+    for (const op of ['chip-cite-save', 'chip-cite-send', 'chip-cite-cancel', 'chip-cite-commit']) {
+      const state = citationField(link(href)), current = state.press(), before = state.current();
+      await citationCommentLocal(state.client, state.native, op, String(current.seq), '   ');
+      const finish = composerChipFinishView(state.client);
+      expect(finish).toMatchObject({ seq: current.seq, value: link(href), send: op === 'chip-cite-send', focus: op === 'chip-cite-commit' ? 'outside' : 'after' });
+      expect(state.current()).toEqual(before);
+      expect(composerChipCurrent(state.client)).toBeNull();
+      expect(takeComposerChipFinish(state.client, current.seq)).toEqual(finish);
+      expect(takeComposerChipFinish(state.client, current.seq)).toBeNull();
+      expect(state.calls).toEqual([]);
+    }
+  });
+
+  test('a queued no-edit send cannot survive replacement, typing, IME, unmount or a newer press', async () => {
+    for (const situation of ['owner', 'input', 'composition', 'unmounted', 'newer']) {
+      const state = citationField(`${link(href)} $skill `), press = state.press();
+      await citationCommentLocal(state.client, state.native, 'chip-cite-send', String(press.seq), '');
+      expect(composerChipFinishView(state.client)?.send).toBe(true);
+      if (situation === 'owner') { state.client.threadId = 'replacement'; state.observe({ owner: state.owner() }); }
+      if (situation === 'input') state.type(`${state.current().value}later`);
+      if (situation === 'composition') state.observe({ composing: true });
+      if (situation === 'unmounted') state.observe({ live: false });
+      if (situation === 'newer') state.press('skill');
+      expect(composerChipFinishView(state.client)).toBeNull();
+      expect(takeComposerChipFinish(state.client, press.seq)).toBeNull();
+      expect(state.calls).toEqual([]);
+    }
+  });
+
+  test('an accepted insertion cannot displace a newer press or explicit dismissal at ACK', async () => {
+    for (const situation of ['newer', 'dismissed']) {
+      const state = citationField('$skill '), previous = state.press('skill'), waiting = state.next();
+      const pending = openCitationComment(state.client, state.native, href, [10, 20, 80, 18]);
+      const command = await waiting;
+      state.input(command);
+      const newer = situation === 'newer' ? state.press('skill') : null;
+      if (situation === 'dismissed') composerChipClose(state.client, previous.seq);
+      expect(state.ack(command).applied).toBe(true);
+      expect(await pending).toBe(true);
+      expect(composerChipCurrent(state.client)?.seq).toBe(newer?.seq);
+    }
+  });
+
+  test('owner, newer input, composition, unmount and shared input refusal cannot open a fresh comment', async () => {
+    for (const situation of ['owner', 'input', 'composition', 'unmounted', 'refused']) {
+      const state = citationField('kept'), waiting = state.next();
+      const pending = openCitationComment(state.client, state.native, href, [10, 20, 80, 18]);
+      const refused = pending.then(() => null, error => error);
+      const command = await waiting;
+      if (situation === 'owner') { state.client.threadId = 'replacement'; state.observe({ owner: state.owner() }); }
+      if (situation === 'input') state.type('newer input');
+      if (situation === 'composition') state.observe({ composing: true });
+      if (situation === 'unmounted') state.observe({ live: false });
+      expect(state.ack(command, situation !== 'refused').applied).toBe(false);
+      expect(await refused).toMatchObject({ message: 'The prompt could not be updated.' });
+      expect(composerChipCurrent(state.client)).toBeNull();
+      expect(composerChipFinishView(state.client)).toBeNull();
+      expect(state.calls).toEqual([]);
+    }
+  });
+
+  test('late typing or dismissal suppresses a changed save-and-send completion', async () => {
+    for (const situation of ['typing', 'dismissed', 'newer']) {
+      const state = citationField(`${link(href)} $skill `), current = state.press(), waiting = state.next();
+      const pending = citationCommentLocal(state.client, state.native, 'chip-cite-send', String(current.seq), 'saved');
+      const command = await waiting;
+      state.input(command);
+      if (situation === 'typing') state.type(`${state.current().value}later`);
+      if (situation === 'dismissed') composerChipClose(state.client, current.seq);
+      const newer = situation === 'newer' ? state.press('skill') : null;
+      expect(state.ack(command)).toMatchObject({ applied: true, send: false });
+      await pending;
+      expect(composerChipCurrent(state.client)?.seq).toBe(newer?.seq);
+    }
+  });
+
+  test('stale press and overlong comment cannot queue an edit; invalid geometry never inserts', async () => {
+    const state = citationField(link(href)), current = state.press();
+    await citationCommentLocal(state.client, state.native, 'chip-cite-save', String(current.seq + 1), 'x');
+    await expect(citationCommentLocal(state.client, state.native, 'chip-cite-save', String(current.seq), 'x'.repeat(8001))).rejects.toThrow('Comments can contain up to 8,000 characters.');
+    for (const frame of [[], [1, Number.NaN, 3, 4], [1, 2, 0, 4]]) expect(await openCitationComment(state.client, state.native, href, frame)).toBe(false);
+    expect(state.current().value).toBe(link(href));
+    expect(composerChipCurrent(state.client)?.seq).toBe(current.seq);
     expect(parseCiteValue(`16-44|568.5,175,320,22|stream|with bars`)).toEqual({ ranges: [[16, 44]], source: [568.5, 175, 320, 22], stream: 'stream|with bars' });
     expect(parseCiteValue('16-44||s')).toEqual({ ranges: [[16, 44]], source: [], stream: 's' });
     expect(parseCiteValue('16-44|s')).toBeNull();
+    expect(state.calls).toEqual([]);
   });
 
   test('the window settles the draft as Base UI\'s onOpenChange with resolveAssistantCitationCommentDismissal does', async () => {
-    const window = await source('app-window.contract');
-    // Untouched (the reference's null draft) or unchanged: close; changed: commit; too long: keep open.
-    expect(window).toContain('  action citeSettle\n    if citeShown and (citeDraftSeq != chip.seq or citeDraft.trim() == chip.comment.trim())\n      chipClose(false)\n    else if citeShown and citeDraft.length <= 8000\n      chipClosed = chip.seq\n      editorOp("chip-cite-commit", `${chip.seq}`, citeDraft)');
     expect(resolveAssistantCitationCommentDismissal({ reason: 'outside-press', draft: null, savedComment: 'a' })).toEqual({ kind: 'close' });
     expect(resolveAssistantCitationCommentDismissal({ reason: 'outside-press', draft: ' a ', savedComment: 'a' })).toEqual({ kind: 'close' });
     expect(resolveAssistantCitationCommentDismissal({ reason: 'outside-press', draft: 'b', savedComment: 'a' })).toEqual({ kind: 'commit', comment: 'b' });
     expect(resolveAssistantCitationCommentDismissal({ reason: 'outside-press', draft: 'x'.repeat(8001), savedComment: undefined })).toEqual({ kind: 'keep-open' });
-    // Escape closes whatever the draft (in the textarea the editor's onCancel, elsewhere escape-key); an outside press here or
-    // the textarea's blur settles.
     expect(resolveAssistantCitationCommentDismissal({ reason: 'escape-key', draft: 'x'.repeat(8001), savedComment: undefined })).toEqual({ kind: 'close' });
-    expect(window).toContain('CitationCommentLayer(chip=chip, draft=citeText, viewportWidth=viewport.width, viewportHeight=viewport.height, edit=citeEdit, save=citeSave, cancel=citeCancel, settle=citeSettle)');
-    expect(window).toContain('derive citeText = citeDraftSeq == chip.seq ? citeDraft : chip.comment');
   });
 
   test('its place: align end on the anchor, 4 pt off, under the cited text or above the chip\'s button, flipped and kept 5 pt inside', async () => {

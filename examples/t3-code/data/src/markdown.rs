@@ -39,6 +39,8 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "composerFieldAcknowledged",
             "composerIntent",
             "composerChip", // a skill chip's details popover (composer-chip-popover.ts)
+            "composerChipObserved",
+            "composerChipPressed",
             "composerWorkspace",
             "refreshComposerWorkspace",
             "refreshTimelineReads",
@@ -80,7 +82,6 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "serverBrowserText",
             "serverBrowserUpload",
             "serverBrowserWheel",
-
             "shellDetails",
             "chatCanvas",
             "threadFind",
@@ -874,9 +875,8 @@ fn flow_tokens(block: &markdown_parse::Block) -> Option<Vec<markdown_parse::Run>
     Some(collapse_spaces(tokens))
 }
 
-/// CSS `white-space: normal` for the flowed words: a run of spaces is one
-/// space, across token boundaries too (a chip followed by "  next" keeps one),
-/// and none starts a line. Code spans and chips keep their text.
+/// Collapse prose spaces across tokens and omit line-leading spaces.
+/// Code spans and chips retain whitespace.
 fn collapse_spaces(tokens: Vec<markdown_parse::Run>) -> Vec<markdown_parse::Run> {
     let mut previous_space = true;
     let mut collapsed = Vec::with_capacity(tokens.len());

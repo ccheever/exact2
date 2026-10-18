@@ -126,6 +126,7 @@ component T3Window
     scrollToEnd: action
     editor: ComposerEditorView
     chip: ChipPopover
+    chipFocusChanged: action
     // Settings or a page covers the composer's chip (app.contract chipCover closes it).
     chipCovered: bool
     composerKey: action
@@ -391,6 +392,7 @@ component T3Window
   state dialogFrames: DialogFocusFrame[] = []
   state dialogSeated: string[] = []
   action windowFocused(e: FocusEvent)
+    chipFocusChanged(e.target)
     dialogFocusId = e.target
     dialogFocusOwner = ""
     dialogFocusPopup = ""
@@ -399,12 +401,14 @@ component T3Window
   // A menu within a live dialog retains that parent; a previously closed dialog is not its owner.
   action dialogMenuEntered(popup: string, invoker: string, e: FocusEvent)
     stopPropagation()
+    chipFocusChanged(e.target)
     dialogFocusId = e.target
     dialogFocusOwner = (frame(dialogFocusOwner).unavailable or frame(dialogFocusOwner).width == 0 or frame(dialogFocusOwner).height == 0) ? "" : dialogFocusOwner
     dialogFocusPopup = popup
     dialogFocusInvoker = invoker
   action windowBlurred(e: FocusEvent)
     if e.relatedTarget == none and querySelectorAll("[data-dialog-focus~=\"open\"]").length == 0
+      chipFocusChanged("")
       dialogFocusId = ""
   action dialogOpened(owner: string)
     if dialogFrames.filter(item => item.owner == owner).length == 0
@@ -415,6 +419,7 @@ component T3Window
       dialogFrames = dialogFrames.filter(item => not frame(item.owner).unavailable and frame(item.owner).width > 0 and frame(item.owner).height > 0).concat([dialogFrame(owner, returns)])
   action dialogEntered(owner: string, e: FocusEvent)
     stopPropagation()
+    chipFocusChanged(e.target)
     if dialogFrames.filter(item => item.owner == owner).length == 0
       let previous = dialogLineage(dialogFrames, dialogFocusOwner)
       let previousBox = frame(dialogFocusOwner)
@@ -568,13 +573,11 @@ component T3Window
     chipClosed = chip.seq
     editorOp(instructions ? "chip-instructions" : "chip-close", `${chip.seq}`, instructions ? chip.path : "")
   // The window's Escape (ChipPopoverEscape): a citation's comment cancels when its textarea has the focus, as its editor's
-  // Escape does; elsewhere (the prompt's, or none: a draft past 8,000 characters held open) it closes as Base UI's escape-key
-  // dismissal and keeps the chip (the native editor tells which: T3ComposerChipPress.finishCitation `escape`). The popover
-  // stays drawn until the native editor closes it, so its textarea still holds the focus when the editor looks. Other
-  // details close at once and the prompt takes the focus back with the chip selected (PopoverPopup's `finalFocus`).
+  // Escape does; elsewhere it keeps the chip. Existing focus events identify
+  // the field; shared completion metadata lets the root restore its selection.
   action chipEscape
-    if chip.kind == "citation"
-      editorOp("chip-cite-escape", `${chip.seq}`, "")
+    if chip.kind == "citation" and dialogFocusId == "citation-comment-text"
+      citeCancel()
     else
       chipClosed = chip.seq
       editorOp("chip-close", `${chip.seq}`, "escape")

@@ -24,6 +24,7 @@ import { composerFieldOwner } from './src/composer/auto-balance-owner';
 import { composerFieldAcknowledged, composerFieldNative, composerFieldObserved, composerFieldResource } from './src/composer/composer-field-bridge';
 import { composerIntentAnswer } from './src/composer/composer-intent-source';
 import { chipPopoverView } from './src/composer/composer-chip-popover'; // a skill chip's details popover
+import { composerChipObserved, composerChipPressed } from './src/composer/composer-chip-events';
 import { composerBranches } from './src/composer/composer-controls-branch';
 import { providerFieldValues } from './src/providers/providers';
 import { providersRoute, scopedAcpRegistry, scopedProviderPage, scopedProviderWizard, scopedSetupOp, scopedUpkeepOp } from './src/providers/providers-scope';
@@ -142,7 +143,9 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'composerFieldObserved') return composerFieldObserved(client, args, composerFieldOwner(client));
   if (source === 'composerFieldAcknowledged') return composerFieldAcknowledged(client, args, composerFieldOwner(client));
   if (source === 'composerIntent') return composerIntentAnswer(client, args);
-  if (source === 'composerChip') return chipPopoverView(client, native); // composer-chip-popover.ts: args[0] re-asks on each revision
+  if (source === 'composerChip') return chipPopoverView(client);
+  if (source === 'composerChipObserved') return composerChipObserved(client, args[0]);
+  if (source === 'composerChipPressed') return composerChipPressed(client, args[0]);
   if (source === 'snapshotSettings') return snapshotSettings(client, native, args[0] === true);
   const scoped = PROJECT_SCOPED_PAGES.has(source) ? settingsPageClient(client, native, args) : { client, args }; // a background environment's project (projects-fleet.ts)
   const pageClient = scoped.client; args = scoped.args;

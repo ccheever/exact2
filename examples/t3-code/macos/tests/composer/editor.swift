@@ -1,9 +1,8 @@
 import AppKit
 import XCTest
 
-// The prompt editor's behaviours (T3ComposerEditor.swift, T3ComposerText.swift,
-// T3ComposerStyler.swift) on a real AppKit text view behind the real
-// delegate proxy, driven by real key events through NSWindow.sendEvent.
+// The OS attachment boundary on a real AppKit text view behind the
+// forwarding delegate. Source edits and grammar belong to the shared field.
 
 var pressedNodes: [UInt32] = [] // queuekey.swift reads it too
 private let editorResolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
@@ -17,15 +16,12 @@ private let editorDelegate: ExactHatches.DelegateFn = { _, _, _ in }
 /// Stands in for Exact's node: the text view's real delegate.
 final class InnerDelegate: NSObject, NSTextViewDelegate {
     var changes = 0, selections = 0
+    var allowsChange = true
+    var commands: [Selector] = []
+    func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString text: String?) -> Bool { allowsChange }
+    func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool { commands.append(selector); return true }
     func textDidChange(_ notification: Notification) { changes += 1 }
     func textViewDidChangeSelection(_ notification: Notification) { selections += 1 }
-}
-
-/// VO-Space on `element`: its AXPress, then the run loop turn the chip's press waits for (it runs after the request).
-func axPress(_ element: NSAccessibilityElement) -> Bool {
-    let pressed = element.accessibilityPerformPress()
-    RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005))
-    return pressed
 }
 
 final class EditorFixture {
@@ -63,7 +59,16 @@ final class EditorFixture {
         element = ExactElement(hatch: .t3Composer, id: "composer", node: 1, hatches: hooks)
         element.view = scroller
         element.platform = editor
-        element.data = ExactData(["snapshot-owner": "owner-a"])
+        element.data = ExactData(["snapshot-owner": "owner-a", "owner": "field-a"])
+        composer.install(element)
+    }
+
+    var identity: [String: Any] { ["snapshotOwner": "owner-a", "fieldOwner": "field-a"] }
+    @discardableResult func sync(_ policy: [String: Any] = [:]) -> [String: Any] {
+        composer.editor.sync(identity.merging(policy) { _, value in value })
+    }
+    func replaceOwner(_ snapshot: String = "owner-b", _ field: String = "field-b") {
+        element.data = ExactData(["snapshot-owner": snapshot, "owner": field])
         composer.install(element)
     }
 
@@ -98,512 +103,155 @@ final class EditorFixture {
 }
 
 final class ComposerEditorTests: XCTestCase {
-    func testPrefilledProviderAnswerStaysLiteralAndRestoresNormalDraftParsing() {
-        let fixture = EditorFixture()
-        _ = fixture.composer.perform(["op": "editorSync", "literal": true])
-        let text = "  **Keep** $imagegen [README.md](README.md)\n- [ ] literal task\n"
-        fixture.type(text)
-        let styler = fixture.composer.editor.styler
-        XCTAssertEqual(fixture.editor.string, text)
-        XCTAssertTrue(styler.chips.isEmpty)
-        XCTAssertTrue(styler.marks.isEmpty)
-        XCTAssertTrue(styler.tasks.isEmpty)
-        _ = fixture.composer.perform(["op": "editorSync", "literal": false])
-        XCTAssertFalse(styler.chips.isEmpty)
-        XCTAssertFalse(styler.marks.isEmpty)
-        XCTAssertEqual(fixture.editor.string, text)
+    func testOSRecordIdsRefuseBeyondJavaScriptsExactIntegerRange() {
+        XCTAssertEqual(T3ComposerEditor.nextRecordID(after: 0), 1)
+        XCTAssertEqual(T3ComposerEditor.nextRecordID(after: T3ComposerEditor.maxRecordID - 1), T3ComposerEditor.maxRecordID)
+        XCTAssertNil(T3ComposerEditor.nextRecordID(after: T3ComposerEditor.maxRecordID))
+        XCTAssertNil(T3ComposerEditor.nextRecordID(after: Int.max))
     }
-    func testContextInsertionRetainsCaretAndSelectionAfterComposerBlur() {
-        for blurred in [false, true] {
-            for selecting in [false, true] {
-                let fixture = EditorFixture()
-                fixture.type("LEFT RIGHT")
-                let range = NSRange(location: 5, length: selecting ? 5 : 0)
-                fixture.editor.setSelectedRange(range)
-                if blurred {
-                    let terminal = NSTextView(frame: NSRect(x: 0, y: 140, width: 100, height: 30))
-                    fixture.window.contentView?.addSubview(terminal)
-                    XCTAssertTrue(fixture.window.makeFirstResponder(terminal))
-                    XCTAssertEqual(fixture.editor.selectedRange(), range)
-                }
-                let result = fixture.composer.editor.insert(["text": "[Terminal 1](t3-context://v1/terminal/probe)"])
-                XCTAssertEqual(result["applied"] as? Bool, true)
-                XCTAssertEqual(fixture.editor.string, "LEFT [Terminal 1](t3-context://v1/terminal/probe) RIGHT",
-                               "insertion goes in at the retained selection's start, deleting nothing, even after a terminal menu takes focus")
-                XCTAssertTrue(fixture.window.firstResponder === fixture.editor)
-                XCTAssertEqual(fixture.editor.selectedRange().length, 0)
-            }
+
+    func testDelegateForwardsTextSelectionAndCommandsWithoutNativeGrammar() {
+        let fixture = EditorFixture()
+        XCTAssertTrue(fixture.editor.delegate !== fixture.inner)
+        fixture.type("**bold** [file](src/file) $skill")
+        XCTAssertGreaterThan(fixture.inner.changes, 0)
+        fixture.editor.setSelectedRange(NSRange(location: 3, length: 0))
+        XCTAssertGreaterThan(fixture.inner.selections, 0)
+        XCTAssertEqual(fixture.editor.selectedRange(), NSRange(location: 3, length: 0))
+        let source = fixture.editor.string
+        let command = #selector(NSResponder.insertTab(_:))
+        XCTAssertEqual(fixture.editor.delegate?.textView?(fixture.editor, doCommandBy: command), true)
+        XCTAssertEqual(fixture.inner.commands, [command], "shared command delegate remains authoritative")
+        fixture.inner.allowsChange = false
+        XCTAssertFalse(fixture.editor.shouldChangeText(in: NSRange(location: 3, length: 0), replacementString: "ordinary"))
+        XCTAssertEqual(fixture.editor.string, source)
+        for op in ["editorState", "editorEdit", "editorInsert", "editorChip", "editorChipFinish", "editorCiteOpen", "editorFocus"] {
+            XCTAssertEqual(fixture.composer.perform(["op": op, "text": "changed"])["ok"] as? Bool, false)
         }
-        // A caller naming its composer (a sidebar row's dropped files) never types into another's.
-        let fixture = EditorFixture()
-        fixture.type("KEEP")
-        let refused = fixture.composer.editor.insert(["text": "[a.txt](t3-context://v1/file/x)", "owner": "owner-b"])
-        XCTAssertEqual(refused["applied"] as? Bool, false)
-        XCTAssertEqual(fixture.editor.string, "KEEP", "another thread's chips stay out of this editor")
-        XCTAssertEqual(fixture.composer.editor.insert(["text": "[a.txt](t3-context://v1/file/x)", "owner": "owner-a"])["applied"] as? Bool, true)
-        // A text that brings its own trailing space (a review comment's chip) gets no second one.
-        let spaced = EditorFixture()
-        spaced.type("A B")
-        spaced.editor.setSelectedRange(NSRange(location: 2, length: 0))
-        _ = spaced.composer.editor.insert(["text": "[x L1](t3-context://v1/review-comment/r) "])
-        XCTAssertEqual(spaced.editor.string, "A [x L1](t3-context://v1/review-comment/r) B")
-    }
-
-    // MARK: Pure rules
-
-    func testTriggerDetectionMatchesComposerLogic() {
-        func t(_ text: String, _ cursor: Int? = nil) -> T3ComposerTrigger? { T3ComposerText.trigger(text as NSString, cursor: cursor ?? (text as NSString).length) }
-        XCTAssertEqual(t("/"), T3ComposerTrigger(kind: "slash-command", query: "", start: 0, end: 1))
-        XCTAssertEqual(t("/mo"), T3ComposerTrigger(kind: "slash-command", query: "mo", start: 0, end: 3))
-        XCTAssertEqual(t("a\n/plan"), T3ComposerTrigger(kind: "slash-command", query: "plan", start: 2, end: 7))
-        XCTAssertNil(t("/model x"), "a space ends the command token")
-        XCTAssertEqual(t("hello /x"), T3ComposerTrigger(kind: "slash-command", query: "x", start: 6, end: 8))
-        XCTAssertEqual(t("Use\t/skill:review later", 17), T3ComposerTrigger(kind: "slash-command", query: "skill:review", start: 4, end: 17))
-        XCTAssertNil(t("Use/review"))
-        XCTAssertNil(t("https://example.com/review"))
-        XCTAssertNil(t("Use /review "))
-        XCTAssertEqual(t("see #12"), T3ComposerTrigger(kind: "pull-request", query: "12", start: 4, end: 7))
-        XCTAssertEqual(t("#"), T3ComposerTrigger(kind: "pull-request", query: "", start: 0, end: 1))
-        XCTAssertNil(t("#-x"))
-        XCTAssertEqual(t("use $sk"), T3ComposerTrigger(kind: "skill", query: "sk", start: 4, end: 7))
-        XCTAssertEqual(t("€x"), T3ComposerTrigger(kind: "skill", query: "x", start: 0, end: 2))
-        XCTAssertEqual(t("@fix"), T3ComposerTrigger(kind: "path", query: "fix", start: 0, end: 4))
-        XCTAssertEqual(t("x @"), T3ComposerTrigger(kind: "path", query: "", start: 2, end: 3))
-        XCTAssertNil(t("@fix ", 5))
-        XCTAssertEqual(t("@fix more", 4), T3ComposerTrigger(kind: "path", query: "fix", start: 0, end: 4))
-    }
-
-    func testListContinuationAndIndent() {
-        func enter(_ text: String) -> T3ComposerListEdit? { T3ComposerText.listContinuation(text, cursor: (text as NSString).length) }
-        XCTAssertEqual(enter("- one"), T3ComposerListEdit(start: 5, end: 5, replacement: "\n- "))
-        XCTAssertEqual(enter("  * two"), T3ComposerListEdit(start: 7, end: 7, replacement: "\n  * "))
-        XCTAssertEqual(enter("1. a"), T3ComposerListEdit(start: 4, end: 4, replacement: "\n2. "))
-        XCTAssertEqual(enter("09) a"), T3ComposerListEdit(start: 5, end: 5, replacement: "\n10) "))
-        XCTAssertEqual(enter("- [x] done"), T3ComposerListEdit(start: 10, end: 10, replacement: "\n- [ ] "))
-        XCTAssertEqual(enter("- one\n- "), T3ComposerListEdit(start: 6, end: 8, replacement: ""), "an empty item exits the list")
-        XCTAssertNil(enter("plain"))
-        XCTAssertNil(T3ComposerText.listContinuation("- one", cursor: 1), "inside the marker")
-        XCTAssertEqual(T3ComposerText.listIndent("- one", start: 3, end: 3), T3ComposerListEdit(start: 0, end: 0, replacement: "  "))
-        XCTAssertNil(T3ComposerText.listIndent("- one", start: 1, end: 3))
-        XCTAssertNil(T3ComposerText.listIndent("one", start: 3, end: 3))
-    }
-
-    func testHistorySteps() {
-        let entries = [T3ComposerText.HistoryEntry(id: "1", prompt: "first"), T3ComposerText.HistoryEntry(id: "2", prompt: "second")]
-        let back = T3ComposerText.historyStep(backward: true, entries: entries, position: nil, current: "")!
-        XCTAssertEqual(back.prompt, "second")
-        let older = T3ComposerText.historyStep(backward: true, entries: entries, position: back.position, current: "second")!
-        XCTAssertEqual(older.prompt, "first")
-        XCTAssertNil(T3ComposerText.historyStep(backward: true, entries: entries, position: older.position, current: "first"), "stops at the oldest")
-        XCTAssertEqual(T3ComposerText.historyStep(backward: false, entries: entries, position: older.position, current: "first")?.prompt, "second")
-        let past = T3ComposerText.historyStep(backward: false, entries: entries, position: back.position, current: "second")!
-        XCTAssertNil(past.position); XCTAssertEqual(past.prompt, "")
-        XCTAssertNil(T3ComposerText.historyStep(backward: true, entries: entries, position: nil, current: "draft"), "a typed draft never recalls")
-        XCTAssertNil(T3ComposerText.historyStep(backward: false, entries: entries, position: back.position, current: "edited"), "editing ends recall")
-    }
-
-    func testChipTokens() {
-        let thread = "[fixture complete](t3-context://v1/thread/thread_abc)"
-        let text = "see \(thread) and [a.md](docs/a.md) @README.md @scope/pkg $deploy $20 [ext](https://x.y) end"
-        let chips = T3ComposerText.chips(text)
-        XCTAssertEqual(chips.map(\.kind), ["context", "mention", "mention", "skill"])
-        XCTAssertEqual(chips.map(\.label), ["fixture complete", "a.md", "README.md", "deploy"])
-        XCTAssertEqual(chips[0].detail, "thread")
-        XCTAssertEqual(chips[1].detail, "docs/a.md")
-        XCTAssertEqual((text as NSString).substring(with: chips[0].range), thread)
-        XCTAssertTrue(T3ComposerText.chips("[a.md](docs/a.md)").isEmpty, "a file link becomes a chip once a delimiter follows")
-        XCTAssertEqual(T3ComposerText.chips("[Assistant quote](t3-citation://v1/e/t/m?text=hello%20there&start=0&end=5&prefix=&suffix=) ").first?.label, "hello there")
-    }
-
-    func testInlineMarksHideTheirMarkers() {
-        let (marks, hidden) = T3ComposerStyler.inlineMarks("**bold** and `code` and *it* ~~st~~ x", excluding: [])
-        XCTAssertEqual(marks.map(\.kind).sorted(), ["bold", "code", "italic", "strike"])
-        XCTAssertEqual(marks.first { $0.kind == "bold" }?.range, NSRange(location: 2, length: 4))
-        XCTAssertEqual(marks.first { $0.kind == "code" }?.range, NSRange(location: 14, length: 4))
-        XCTAssertEqual(hidden.count, 8)
-        let (unclosed, none) = T3ComposerStyler.inlineMarks("**open and `x", excluding: [])
-        XCTAssertTrue(unclosed.isEmpty); XCTAssertTrue(none.isEmpty, "unmatched markers stay literal")
-        XCTAssertEqual(T3ComposerStyler.taskLines("- [ ] task\n- [x] done\n- [ ]", excluding: []).map(\.checked), [false, true])
-    }
-
-    // MARK: The editor on a real text view
-
-    func testProxyForwardsTheNodesNotificationsAndReportsTheTrigger() {
-        let fixture = EditorFixture()
-        XCTAssertTrue(fixture.editor.delegate !== fixture.inner, "the proxy stands in")
-        fixture.type("/")
-        XCTAssertGreaterThan(fixture.inner.changes, 0, "Exact's node still hears every change")
-        XCTAssertEqual(fixture.composer.editor.trigger?.kind, "slash-command")
-        XCTAssertTrue(fixture.topics.contains("t3.editor"))
-        let state = fixture.composer.perform(["op": "editorState"])
-        let value = state["value"] as? [String: Any]
-        XCTAssertEqual((value?["trigger"] as? [String: Any])?["kind"] as? String, "slash-command")
-        XCTAssertEqual(value?["owner"] as? String, "owner-a")
-        XCTAssertEqual(value?["atStart"] as? Bool, true)
+        XCTAssertEqual(fixture.editor.string, source)
+        let state = fixture.sync()
+        XCTAssertNil(state["trigger"]); XCTAssertNil(state["text"]); XCTAssertNil(state["caret"])
+        XCTAssertEqual(state["snapshotOwner"] as? String, "owner-a")
+        XCTAssertEqual(state["fieldOwner"] as? String, "field-a")
+        XCTAssertEqual(state["composing"] as? Bool, false)
         fixture.composer.remove(fixture.element)
-        XCTAssertTrue(fixture.editor.delegate === fixture.inner, "removal restores Exact's delegate")
+        XCTAssertTrue(fixture.editor.delegate === fixture.inner)
     }
 
-    func testMenuKeysFollowLiveContractButtonsWithoutANativeTrigger() {
-        let fixture = EditorFixture()
-        fixture.key("ArrowDown", node: 11); fixture.key("ArrowUp", node: 12); fixture.key("Enter", node: 13); fixture.key("Escape", node: 14)
-        fixture.type("ordinary source")
-        XCTAssertNil(fixture.composer.editor.trigger)
-        fixture.down(); fixture.up(); fixture.returnKey(); fixture.tab()
-        XCTAssertEqual(pressedNodes, [11, 12, 13, 13])
-        XCTAssertEqual(fixture.editor.string, "ordinary source", "the menu keys never edit the prompt")
-        let send = ExactElement(hatch: .t3Send, id: "send-message", node: 2, hatches: fixture.hooks)
-        let sendView = NSView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
-        fixture.window.contentView?.addSubview(sendView)
-        send.view = sendView
-        fixture.composer.install(send)
-        let ret = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: fixture.window.windowNumber,
-            context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
-        XCTAssertTrue(fixture.composer.handle(ret) === ret)
-        XCTAssertFalse(pressedNodes.contains(2))
-        fixture.escape()
-        XCTAssertEqual(pressedNodes, [11, 12, 13, 13, 14])
-        fixture.composer.remove(fixture.composer.editor.key("Escape")!)
-        XCTAssertFalse(fixture.composer.editor.command(#selector(NSResponder.cancelOperation(_:)), in: fixture.editor))
-    }
-
-    func testPickedRowsReplaceOnlyTheTriggerTheyWereBuiltFor() {
-        let fixture = EditorFixture()
-        fixture.type("hi @fix more")
-        fixture.editor.setSelectedRange(NSRange(location: 7, length: 0))
-        let trigger = fixture.composer.editor.trigger!
-        XCTAssertEqual(trigger, T3ComposerTrigger(kind: "path", query: "fix", start: 3, end: 7))
-        let stale = fixture.composer.perform(["op": "editorEdit", "kind": "path", "start": 3, "end": 6, "text": "x "])
-        XCTAssertEqual((stale["value"] as? [String: Any])?["applied"] as? Bool, false)
-        let applied = fixture.composer.perform(["op": "editorEdit", "kind": "path", "start": 3, "end": 7, "text": "[fixture-result.md](fixture-result.md) ", "extendSpace": true])
-        XCTAssertEqual((applied["value"] as? [String: Any])?["applied"] as? Bool, true)
-        XCTAssertEqual(fixture.editor.string, "hi [fixture-result.md](fixture-result.md) more")
-        XCTAssertEqual(fixture.editor.selectedRange().location, ("hi [fixture-result.md](fixture-result.md) " as NSString).length)
-        fixture.editor.undoManager?.undo()
-        XCTAssertEqual(fixture.editor.string, "hi @fix more", "a pick is one undo step")
-    }
-
-    func testListGrammarBelongsToTheSharedFieldAndPlanKeyStillRoutes() {
-        let fixture = EditorFixture()
-        fixture.key("plan", node: 21)
-        fixture.type("- one")
-        XCTAssertFalse(fixture.composer.editor.command(#selector(NSResponder.insertNewline(_:)), in: fixture.editor))
-        XCTAssertFalse(fixture.composer.editor.command(#selector(NSResponder.insertTab(_:)), in: fixture.editor))
-        XCTAssertEqual(fixture.editor.string, "- one")
-        fixture.backtab()
-        XCTAssertEqual(pressedNodes, [21])
-        fixture.editor.selectAll(nil); fixture.type("plain")
-        fixture.returnKey(.shift)
-        XCTAssertEqual(fixture.editor.string, "plain\n", "other lines take a plain newline")
-    }
-
-    func testArrowKeysDoNotRecallSourceThroughTheNativeAdapter() {
-        let fixture = EditorFixture()
-        fixture.type("two\nlines")
-        fixture.editor.setSelectedRange(NSRange(location: 0, length: 0))
-        fixture.up()
-        XCTAssertEqual(fixture.editor.string, "two\nlines", "Contract owns recall at the first visual line")
-        fixture.editor.setSelectedRange(NSRange(location: (fixture.editor.string as NSString).length, length: 0))
-        fixture.down()
-        XCTAssertEqual(fixture.editor.string, "two\nlines", "Contract owns recall at the last visual line")
-    }
-
-    func testChipsAreAtomicForTheCaretAndDeletion() {
-        let fixture = EditorFixture()
-        let chip = "[a.md](docs/a.md)"
-        fixture.type("x \(chip) y")
-        let chipStart = 2, chipEnd = 2 + (chip as NSString).length
-        XCTAssertEqual(fixture.composer.editor.styler.chips.count, 1)
-        fixture.editor.setSelectedRange(NSRange(location: chipEnd, length: 0))
-        fixture.left()
-        XCTAssertEqual(fixture.editor.selectedRange().location, chipStart, "← steps over the chip")
-        fixture.right()
-        XCTAssertEqual(fixture.editor.selectedRange().location, chipEnd, "→ steps over the chip")
-        fixture.editor.setSelectedRange(NSRange(location: chipStart + 3, length: 0))
-        XCTAssertTrue([chipStart, chipEnd].contains(fixture.editor.selectedRange().location), "a caret inside a chip snaps to its edge")
-        fixture.editor.setSelectedRange(NSRange(location: chipEnd, length: 0))
-        fixture.backspace()
-        XCTAssertEqual(fixture.editor.string, "x  y", "⌫ removes the whole chip")
-        // The hidden source keeps zero width; the chip's space is its first character's kern.
-        fixture.editor.selectAll(nil); fixture.type("\(chip) ")
-        let kern = fixture.editor.textStorage?.attribute(.kern, at: 0, effectiveRange: nil) as? CGFloat ?? 0
-        XCTAssertGreaterThan(kern, 40)
-        XCTAssertEqual(fixture.editor.textStorage?.attribute(.foregroundColor, at: 3, effectiveRange: nil) as? NSColor, NSColor.clear)
-    }
-
-    func testRichTextStylesMarksAndTogglesTasks() {
-        let fixture = EditorFixture()
-        fixture.type("**bold** x")
-        let font = fixture.editor.textStorage?.attribute(.font, at: 3, effectiveRange: nil) as? NSFont
-        XCTAssertTrue(font?.fontDescriptor.symbolicTraits.contains(.bold) == true)
-        XCTAssertEqual(fixture.editor.textStorage?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor, NSColor.clear)
-        _ = fixture.composer.perform(["op": "editorSync", "richText": false])
-        let plain = fixture.editor.textStorage?.attribute(.font, at: 3, effectiveRange: nil) as? NSFont
-        XCTAssertFalse(plain?.fontDescriptor.symbolicTraits.contains(.bold) == true, "rich text off is plain text")
-        _ = fixture.composer.perform(["op": "editorSync", "richText": true])
-        fixture.editor.selectAll(nil); fixture.type("- [ ] task")
-        let styler = fixture.composer.editor.styler
-        XCTAssertEqual(styler.tasks.count, 1)
-        fixture.composer.editor.apply(styler.tasks[0].box, "[x]", in: fixture.editor)
-        XCTAssertEqual(fixture.editor.string, "- [x] task")
-    }
-
-    func testInkAuthoredOnAnEmptyPromptReachesTypedText() {
-        let fixture = EditorFixture()
-        fixture.editor.textColor = NSColor(t3Hex: "#f5f5f5") // a dark-scheme ink, written first
-        fixture.tick()
-        let light = NSColor(t3Hex: "#27272a")
-        fixture.editor.textColor = light // the scheme flips while the prompt is empty
-        fixture.tick()
-        fixture.type("/")
-        fixture.tick()
-        XCTAssertEqual(fixture.editor.textStorage?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor, light)
-        fixture.editor.font = NSFont.systemFont(ofSize: 20)
-        fixture.tick()
-        XCTAssertEqual((fixture.editor.textStorage?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)?.pointSize, 20)
-    }
-
-    func testCommandBAndIToggleMarksOnTheSelection() {
-        let fixture = EditorFixture()
-        fixture.type("make this bold")
-        fixture.editor.setSelectedRange(NSRange(location: 10, length: 4))
-        let bold = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: fixture.window.windowNumber,
-            context: nil, characters: "b", charactersIgnoringModifiers: "b", isARepeat: false, keyCode: 11)!
-        XCTAssertNil(fixture.composer.handle(bold))
-        XCTAssertEqual(fixture.editor.string, "make this **bold**")
-        XCTAssertEqual(fixture.editor.selectedRange(), NSRange(location: 12, length: 4))
-        XCTAssertNil(fixture.composer.handle(bold))
-        XCTAssertEqual(fixture.editor.string, "make this bold", "⌘B again unwraps")
-        let italic = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: fixture.window.windowNumber,
-            context: nil, characters: "i", charactersIgnoringModifiers: "i", isARepeat: false, keyCode: 34)!
-        fixture.editor.setSelectedRange(NSRange(location: 14, length: 0))
-        XCTAssertNil(fixture.composer.handle(italic))
-        fixture.type("x")
-        XCTAssertEqual(fixture.editor.string, "make this bold*x*", "an empty selection opens a span for typing")
-        _ = fixture.composer.perform(["op": "editorSync", "richText": false])
-        XCTAssertTrue(fixture.composer.handle(bold) === bold, "plain text composer leaves ⌘B alone")
-    }
-
-    func testPasteBeyondThePromptLimitIsRefusedWithANotice() {
+    func testFoldIsOwnerScopedObservedSourceUntilExplicitAcknowledgement() throws {
         let fixture = EditorFixture()
         fixture.composer.editor.pasteDetector = { _ in true }
+        fixture.type("A😀Z")
+        fixture.sync(["foldLimit": 100_000])
+        let range = NSRange(location: 1, length: 2), large = String(repeating: "x", count: 40_000)
+        XCTAssertFalse(fixture.composer.editor.shouldChange(fixture.editor, range: range, text: large))
+        XCTAssertEqual(fixture.editor.string, "A😀Z")
+        let fact = try XCTUnwrap((fixture.sync()["folds"] as? [[String: Any]])?.first)
+        XCTAssertEqual(fact["snapshotOwner"] as? String, "owner-a")
+        XCTAssertEqual(fact["fieldOwner"] as? String, "field-a")
+        XCTAssertEqual(fact["value"] as? String, "A😀Z")
+        XCTAssertEqual(fact["start"] as? Int, 1); XCTAssertEqual(fact["end"] as? Int, 3)
+        XCTAssertEqual(fact["expect"] as? String, "😀"); XCTAssertEqual(fact["text"] as? String, large)
+        let id = try XCTUnwrap(fact["id"] as? Int)
+        XCTAssertEqual((fixture.sync()["folds"] as? [[String: Any]])?.count, 1)
+        fixture.composer.editor.forgetFold(id - 1)
+        XCTAssertEqual(fixture.composer.editor.folds.count, 1)
+        fixture.composer.editor.forgetFold(id)
+        XCTAssertTrue(fixture.composer.editor.folds.isEmpty)
+        XCTAssertEqual(fixture.editor.string, "A😀Z", "ACK never applies an edit")
+    }
+
+    func testStalePolicyAndOwnerReplacementCannotReuseFoldFacts() {
+        let fixture = EditorFixture(), adapter = fixture.composer.editor
+        adapter.pasteDetector = { _ in true }
+        fixture.sync(["foldLimit": 100_000, "localEnvironment": true])
+        let large = String(repeating: "x", count: 40_000), range = NSRange(location: 0, length: 0)
+        XCTAssertFalse(adapter.shouldChange(fixture.editor, range: range, text: large))
+        let oldID = adapter.folds.first?["id"] as? Int ?? 0
+        fixture.replaceOwner()
+        XCTAssertTrue(adapter.folds.isEmpty)
+        fixture.sync(["foldLimit": 100_000, "localEnvironment": true]) // old pair
+        XCTAssertEqual(adapter.foldLimit, 0); XCTAssertFalse(adapter.localEnvironment)
+        _ = adapter.sync(["snapshotOwner": "owner-b", "fieldOwner": "field-b", "foldLimit": 100_000])
+        XCTAssertFalse(adapter.shouldChange(fixture.editor, range: range, text: large))
+        let nextID = adapter.folds.first?["id"] as? Int ?? 0
+        XCTAssertGreaterThan(nextID, oldID)
+        adapter.forgetFold(oldID)
+        XCTAssertEqual(adapter.folds.first?["id"] as? Int, nextID)
+    }
+
+    func testPromptLimitAndPasteAsTextKeepTheirOSGuard() {
+        let fixture = EditorFixture(), adapter = fixture.composer.editor
+        adapter.pasteDetector = { _ in true }
         fixture.type("abc")
         let huge = String(repeating: "x", count: 120_000)
-        fixture.editor.insertText(huge, replacementRange: fixture.editor.selectedRange())
+        XCTAssertFalse(adapter.shouldChange(fixture.editor, range: NSRange(location: 3, length: 0), text: huge))
+        XCTAssertEqual((fixture.sync()["notices"] as? [[String: String]])?.first?["title"], "Pasted text is too large for this message")
+        adapter.pastingAsText = true
+        XCTAssertTrue(adapter.shouldChange(fixture.editor, range: NSRange(location: 3, length: 0), text: huge))
+        XCTAssertTrue(adapter.folds.isEmpty)
         XCTAssertEqual(fixture.editor.string, "abc")
-        let notices = fixture.composer.editor.takeNotices()
-        XCTAssertEqual(notices.first?["title"], "Pasted text is too large for this message")
-        fixture.composer.editor.pastingAsText = true
-        fixture.editor.insertText(huge, replacementRange: fixture.editor.selectedRange())
-        XCTAssertEqual((fixture.editor.string as NSString).length, 120_003, "⇧⌘V keeps a large paste inline")
     }
 
-    func testLargePasteFoldsIntoAFileChipWhereThePasteWent() {
-        let fixture = EditorFixture()
-        fixture.composer.editor.pasteDetector = { _ in true }
-        fixture.type("before")
-        let large = String(repeating: "lorem ipsum ", count: 3_400) // 40,800 bytes
-        // No file staging: a paste under the prompt limit stays inline.
-        fixture.editor.insertText(large, replacementRange: fixture.editor.selectedRange())
-        XCTAssertEqual((fixture.editor.string as NSString).length, 6 + 40_800)
-        fixture.editor.string = "before"
-        fixture.editor.setSelectedRange(NSRange(location: 6, length: 0))
-        _ = fixture.composer.perform(["op": "editorSync", "foldLimit": 50 * 1024 * 1024])
-        fixture.editor.insertText(large, replacementRange: fixture.editor.selectedRange())
-        XCTAssertEqual(fixture.editor.string, "before", "the paste is held for TypeScript")
-        let synced = fixture.composer.perform(["op": "editorSync"])
-        let folds = (synced["value"] as? [String: Any])?["folds"] as? [[String: Any]] ?? []
-        XCTAssertEqual(folds.count, 1)
-        XCTAssertEqual(folds.first?["start"] as? Int, 6)
-        XCTAssertEqual(folds.first?["expect"] as? String, "")
-        XCTAssertEqual((folds.first?["text"] as? String)?.utf8.count, 40_800)
-        let again = (fixture.composer.perform(["op": "editorSync"])["value"] as? [String: Any])?["folds"] as? [[String: Any]] ?? []
-        XCTAssertEqual(again.count, 1, "a fold stays until an edit names it (a lost sync retries)")
-        let chip = "[pasted-text.txt](t3-context://v1/file/file_abc) "
-        let edited = fixture.composer.perform(["op": "editorEdit", "start": 6, "end": 6, "expect": "", "text": chip, "pad": true, "fold": folds.first?["id"] as? Int ?? -1])
-        XCTAssertEqual((edited["value"] as? [String: Any])?["applied"] as? Bool, true)
-        XCTAssertEqual(fixture.editor.string, "before " + chip)
-        XCTAssertTrue(fixture.composer.editor.folds.isEmpty)
-        // A file larger than the server takes is refused only past the prompt limit.
-        _ = fixture.composer.perform(["op": "editorSync", "foldLimit": 1_000])
-        fixture.editor.insertText(String(repeating: "y", count: 120_001), replacementRange: fixture.editor.selectedRange())
-        XCTAssertEqual(fixture.composer.editor.takeNotices().first?["title"], "Pasted text is too large to attach")
-        // ⇧⌘V never folds.
-        fixture.composer.editor.pastingAsText = true
-        _ = fixture.composer.perform(["op": "editorSync", "foldLimit": 50 * 1024 * 1024])
-        fixture.editor.insertText(large, replacementRange: fixture.editor.selectedRange())
-        XCTAssertTrue(fixture.editor.string.hasSuffix(large))
+    func testFolderDropAndFoldShareBoundedMonotonicAcknowledgedFacts() throws {
+        let fixture = EditorFixture(), adapter = fixture.composer.editor
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("t3-drop-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let drag = NSPasteboard(name: NSPasteboard.Name("t3-drop-\(UUID().uuidString)"))
+        defer { drag.releaseGlobally() }
+        drag.writeObjects([folder as NSURL]); adapter.dragPasteboard = { drag }
+        fixture.type("A😀Z"); fixture.sync(["foldLimit": 100_000, "localEnvironment": true])
+        let range = NSRange(location: 1, length: 2)
+        XCTAssertFalse(adapter.shouldChange(fixture.editor, range: range, text: folder.path))
+        let drop = try XCTUnwrap(adapter.drops.first), firstID = try XCTUnwrap(drop["id"] as? Int)
+        XCTAssertEqual(drop["value"] as? String, "A😀Z"); XCTAssertEqual(drop["expect"] as? String, "😀")
+        XCTAssertEqual(drop["paths"] as? [String], [folder.path])
+        XCTAssertEqual(drop["snapshotOwner"] as? String, "owner-a"); XCTAssertEqual(drop["fieldOwner"] as? String, "field-a")
+        XCTAssertEqual(fixture.editor.string, "A😀Z", "folder source is never inserted by Swift")
+        adapter.pasteDetector = { _ in true }
+        let large = String(repeating: "x", count: 40_000)
+        for _ in 0..<3 { XCTAssertFalse(adapter.shouldChange(fixture.editor, range: range, text: large)) }
+        XCTAssertEqual(adapter.folds.count + adapter.drops.count, 4)
+        let ids = [firstID] + adapter.folds.compactMap { $0["id"] as? Int }
+        XCTAssertEqual(ids, Array(firstID...firstID + 3))
+        XCTAssertFalse(adapter.shouldChange(fixture.editor, range: range, text: folder.path))
+        XCTAssertEqual(adapter.folds.count + adapter.drops.count, 4)
+        XCTAssertEqual((fixture.sync()["notices"] as? [[String: String]])?.first?["title"], "Too many pending pastes or drops")
+        adapter.forgetFold(firstID)
+        XCTAssertTrue(adapter.drops.isEmpty)
+        XCTAssertEqual(adapter.folds.count, 3)
+        fixture.sync(["localEnvironment": false])
+        XCTAssertFalse(adapter.shouldChange(fixture.editor, range: range, text: folder.path))
+        XCTAssertEqual((fixture.sync()["notices"] as? [[String: String]])?.first?["title"], "Folders can't be dropped into remote environments")
     }
 
-    func testChipsSitHalfAnXHeightAboveTheBaseline() {
-        let fixture = EditorFixture()
-        fixture.type("see [a.md](a.md) x\nnext [b.md](b.md) y")
-        let styler = fixture.composer.editor.styler
-        let font = NSFont.systemFont(ofSize: 14)
-        guard let first = styler.baseline(at: 0), let second = styler.baseline(at: 25) else { return XCTFail("no baseline") }
-        let line = styler.segments(NSRange(location: 0, length: 1)).first!
-        XCTAssertGreaterThan(first, line.minY + font.ascender * 0.5)
-        XCTAssertLessThanOrEqual(first, line.maxY)
-        XCTAssertGreaterThan(second - first, 10, "the second line's baseline is a line lower")
-        let top = styler.middleAligned(height: 17, at: 4, fallback: .zero)
-        XCTAssertEqual(top + 8.5, first - font.xHeight / 2, accuracy: 0.01)
+    func testTooManyFoldersRefusesTheEntireDrop() throws {
+        let fixture = EditorFixture(), adapter = fixture.composer.editor
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("t3-folders-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folders = try (0..<101).map { index -> URL in
+            let folder = root.appendingPathComponent(String(index))
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            return folder
+        }
+        let drag = NSPasteboard(name: NSPasteboard.Name("t3-drop-\(UUID().uuidString)"))
+        defer { drag.releaseGlobally() }
+        drag.writeObjects(folders as [NSURL]); adapter.dragPasteboard = { drag }
+        fixture.sync(["localEnvironment": true])
+        XCTAssertFalse(adapter.shouldChange(fixture.editor, range: NSRange(location: 0, length: 0), text: folders.map(\.path).joined(separator: "\n")))
+        XCTAssertTrue(adapter.drops.isEmpty)
+        XCTAssertEqual(fixture.editor.string, "")
+        XCTAssertEqual((fixture.sync()["notices"] as? [[String: String]])?.first?["title"], "Too many folders")
     }
 
-    func testRedrawingAfterTheTextIsReplacedKeepsTextKit2() {
-        let fixture = EditorFixture()
-        let textKit2 = fixture.editor.textLayoutManager != nil
-        fixture.type("see [fixture complete](t3-context://v1/thread/thread_x) and [a.md](a.md) $x")
-        fixture.window.display()
-        // Exact's value write replaces the storage; the underlay may draw before the restyle.
-        fixture.editor.textStorage?.replaceCharacters(in: NSRange(location: 0, length: (fixture.editor.string as NSString).length), with: "**bold** and `code`")
-        fixture.window.display()
-        fixture.tick()
-        fixture.window.display()
-        XCTAssertEqual(fixture.editor.textLayoutManager != nil, textKit2, "drawing never drops the view to TextKit 1")
-        XCTAssertEqual(fixture.composer.editor.styler.chips.count, 0)
-    }
-
-    func testReplacingChipsWithShorterTextNeverSnapsOnTheOldChips() {
-        let fixture = EditorFixture()
-        fixture.type("see [fixture complete](t3-context://v1/thread/thread_x) and [a.md](a.md) $x")
-        // The agent's (and ⌘A then typing's) path: select all, insert. NSTextView moves the
-        // selection before announcing the change, while the chips still describe the old text.
-        fixture.editor.selectAll(nil)
-        fixture.editor.insertText("**bold** and `code`", replacementRange: fixture.editor.selectedRange())
-        fixture.tick()
-        XCTAssertEqual(fixture.editor.string, "**bold** and `code`")
-        XCTAssertEqual(fixture.editor.selectedRange(), NSRange(location: 19, length: 0))
-    }
-
-    func testAChipStaysAChipOnceTheSpaceAfterItIsGone() {
-        let fixture = EditorFixture()
-        fixture.type("see [a.md](a.md) ")
-        let styler = fixture.composer.editor.styler
-        XCTAssertEqual(styler.chips.count, 1)
-        fixture.backspace() // the trailing space
-        XCTAssertEqual(fixture.editor.string, "see [a.md](a.md)")
-        XCTAssertEqual(styler.chips.map(\.label), ["a.md"], "the source alone would not parse at the end, the node stays")
-        fixture.type("x") // typing right after the chip
-        XCTAssertEqual(styler.chips.count, 1)
-        fixture.backspace()
-        fixture.backspace() // now the whole chip
-        XCTAssertEqual(fixture.editor.string, "see ")
-        XCTAssertEqual(styler.chips.count, 0)
-        // A value written from outside is parsed afresh.
-        fixture.editor.string = "[b.md](b.md)"
-        fixture.tick()
-        styler.restyle()
-        XCTAssertEqual(styler.chips.count, 0)
-    }
-
-    func testEditorStateCarriesTheLiveTextForTheStash() {
-        let fixture = EditorFixture()
-        fixture.type("stash two")
-        let state = fixture.composer.perform(["op": "editorState"])["value"] as? [String: Any]
-        XCTAssertEqual(state?["text"] as? String, "stash two")
-    }
-
-    /// ComposerPromptEditorTiptap's skillLabelFor: the selected provider's skill of that name reads as
-    /// its display name; a name the provider does not list is title-cased (formatProviderSkillDisplayName).
-    func testSkillChipsReadTheProvidersDisplayName() {
-        let fixture = EditorFixture()
-        let styler = fixture.composer.editor.styler
-        fixture.type("use $imagegen and $openai-docs then $frontend-design x")
-        XCTAssertEqual(styler.chips.map(\.kind), ["skill", "skill", "skill"])
-        XCTAssertEqual(styler.chips.map(styler.displayLabel), ["Imagegen", "Openai Docs", "Frontend Design"])
-        let font = NSFont.systemFont(ofSize: 14)
-        let before = styler.chipWidth(styler.chips[0], font: font)
-        // Names match exactly, as the reference's `find` does: "Frontend-Design" is not "frontend-design".
-        let synced = fixture.composer.perform(["op": "editorSync", "generation": 1, "skills": ["imagegen": "Image Gen", "openai-docs": "OpenAI Docs", "Frontend-Design": "Not This"]])
-        XCTAssertEqual(synced["ok"] as? Bool, true)
-        XCTAssertEqual(styler.chips.map(styler.displayLabel), ["Image Gen", "OpenAI Docs", "Frontend Design"])
-        let wider = styler.chipWidth(styler.chips[0], font: font)
-        XCTAssertGreaterThan(wider, before, "the pill is as wide as the label it draws")
-        // The sync restyled the text: the space kept for the pill is the new width.
-        let kern = fixture.editor.textStorage?.attribute(.kern, at: styler.chips[0].start, effectiveRange: nil) as? CGFloat
-        XCTAssertEqual(kern ?? 0, wider, accuracy: 0.01)
-        // A provider switch that drops a skill gives its chip the title-cased name back.
-        _ = fixture.composer.perform(["op": "editorSync", "generation": 2, "skills": [String: String]()])
-        XCTAssertEqual(styler.chips.map(styler.displayLabel), ["Imagegen", "Openai Docs", "Frontend Design"])
-    }
-
-    func testFileChipsDrawTheirSizeAndTheTextIcon() {
-        let fixture = EditorFixture()
-        let styler = fixture.composer.editor.styler
-        styler.contexts = ["file/file_abc": "file\t40 KB"]
-        fixture.type("see [pasted-text.txt](t3-context://v1/file/file_abc) x")
-        let chip = styler.chips.first!
-        XCTAssertEqual(styler.chipKind(chip), "file")
-        XCTAssertEqual(styler.chipSuffix(chip), "40 KB")
-        XCTAssertTrue(styler.chipResolved(chip))
-        XCTAssertEqual(T3ComposerIcons.name(for: chip, kind: "file"), "pierre:text")
-        let font = NSFont.systemFont(ofSize: 14)
-        styler.contexts = ["file/file_abc": "file"]
-        XCTAssertLessThan(styler.chipWidth(chip, font: font) + 20, { styler.contexts = ["file/file_abc": "file\t40 KB"]; return styler.chipWidth(chip, font: font) }())
-    }
-
-    func testFinderFolderDropInsertsAFileLinkAtTheEnd() {
-        let fixture = EditorFixture()
-        let folder = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("t3 drop (1)")
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let drag = NSPasteboard(name: NSPasteboard.Name("t3-composer-tests-drag"))
-        drag.clearContents(); drag.writeObjects([folder as NSURL])
-        fixture.composer.editor.dragPasteboard = { drag }
-        fixture.type("see")
-        fixture.editor.setSelectedRange(NSRange(location: 0, length: 0))
-        fixture.editor.insertText(folder.path, replacementRange: fixture.editor.selectedRange())
-        // The drop applies on the next main-queue turn; other run-loop sources may take a turn first.
-        for _ in 0..<5 where fixture.editor.string == "see" { fixture.tick() }
-        XCTAssertEqual(fixture.editor.string, "see [t3 drop (1)](\(folder.path.replacingOccurrences(of: " ", with: "%20").replacingOccurrences(of: "(", with: "%28").replacingOccurrences(of: ")", with: "%29"))) ")
-        fixture.composer.editor.localEnvironment = false
-        fixture.editor.insertText(folder.path, replacementRange: fixture.editor.selectedRange())
-        fixture.tick()
-        XCTAssertEqual(fixture.composer.editor.takeNotices().first?["title"], "Folders can't be dropped into remote environments")
-        drag.releaseGlobally()
-        try? FileManager.default.removeItem(at: folder)
-    }
-
-    func testUndoGroupsSplitBetweenInsertingAndDeleting() {
-        let fixture = EditorFixture()
-        var clock: TimeInterval = 100
-        fixture.composer.editor.now = { clock }
-        for character in "abc" { fixture.type(String(character)); clock += 0.1 }
-        fixture.backspace(); clock += 0.1
-        fixture.type("d"); clock += 2
-        fixture.type("e")
-        XCTAssertEqual(fixture.editor.string, "abde")
-        fixture.editor.undoManager?.undo()
-        XCTAssertEqual(fixture.editor.string, "abd", "a pause over 1 s starts a step")
-        fixture.editor.undoManager?.undo()
-        XCTAssertEqual(fixture.editor.string, "ab", "switching to inserting starts a step")
-        fixture.editor.undoManager?.undo()
-        XCTAssertEqual(fixture.editor.string, "abc", "the deletion was its own step")
-    }
-
-    func testTypeToFocusAndPasteToFocusReachTheComposer() {
-        let fixture = EditorFixture()
-        fixture.type("hi")
-        fixture.window.makeFirstResponder(nil)
-        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: fixture.window.windowNumber,
-            context: nil, characters: "x", charactersIgnoringModifiers: "x", isARepeat: false, keyCode: 7)!
-        // The composer takes the focus with the caret at the end, and the key goes on to it (the window delivers it
-        // there), so an input method composes it as it would any key typed in the prompt.
-        fixture.editor.setSelectedRange(NSRange(location: 0, length: 0))
-        XCTAssertTrue(fixture.composer.handle(event) === event)
-        XCTAssertTrue(fixture.window.firstResponder === fixture.editor)
-        XCTAssertEqual(fixture.editor.selectedRange(), NSRange(location: 2, length: 0))
-        XCTAssertEqual(fixture.editor.string, "hi", "not inserted as text by the monitor")
-        fixture.editor.keyDown(with: event)
-        XCTAssertEqual(fixture.editor.string, "hix")
-        let field = NSTextField(frame: NSRect(x: 0, y: 150, width: 100, height: 20))
-        fixture.window.contentView?.addSubview(field)
-        fixture.window.makeFirstResponder(field)
-        let typed = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: fixture.window.windowNumber,
-            context: nil, characters: "y", charactersIgnoringModifiers: "y", isARepeat: false, keyCode: 16)!
-        XCTAssertTrue(fixture.composer.handle(typed) === typed, "an editable field keeps its keys")
-        fixture.window.makeFirstResponder(nil)
-        let command = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: fixture.window.windowNumber,
-            context: nil, characters: "z", charactersIgnoringModifiers: "z", isARepeat: false, keyCode: 6)!
-        XCTAssertTrue(fixture.composer.handle(command) === command, "chords are not typing")
+    func testCompositionPassesToTheSharedDelegateWithoutFolderOrFoldClaims() {
+        let fixture = EditorFixture(), adapter = fixture.composer.editor
+        adapter.pasteDetector = { _ in true }; fixture.sync(["foldLimit": 100_000])
+        fixture.editor.setMarkedText("한", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(adapter.shouldChange(fixture.editor, range: NSRange(location: 0, length: 1), text: String(repeating: "x", count: 40_000)))
+        XCTAssertTrue(adapter.folds.isEmpty)
+        XCTAssertTrue(fixture.editor.hasMarkedText())
     }
 }
