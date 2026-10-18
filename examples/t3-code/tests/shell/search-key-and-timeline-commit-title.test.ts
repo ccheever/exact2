@@ -47,7 +47,7 @@ function swiftStrings(source: string, opening: string): string[] {
 }
 function client(): T3Client {
   const c = new T3Client();
-  Object.assign(c, { connection: 'connected', configLive: true, shellLive: true, threadLive: true, generation: 1, environmentId: 'env1', origin: 'http://127.0.0.1:1', scopes: ['orchestration:read', 'orchestration:operate'] });
+  Object.assign(c, { connection: 'connected', configLive: true, shellLive: true, threadLive: true, generation: 1, environmentId: 'env1', origin: 'http://127.0.0.1:1', scopes: ['orchestration:read', 'orchestration:operate', 'filesystem:read', 'terminal:read', 'terminal:operate', 'preview:operate'] });
   c.config = { environment: { label: 'Local', capabilities: { threadPinning: true } }, keybindings: keybindingDefaults.map(resolved), settings: {}, scratchWorkspaceRoot: '/scratch', availableEditors: ['vscode'] };
   c.shell = { sequence: 1, projects: [{ id: 'p1', title: 'Widgets', workspaceRoot: '/repo' }],
     threads: [{ id: 't1', projectId: 'p1', title: 'One', updatedAt: '2026-10-03T01:00:00.000Z' }, { id: 't2', projectId: 'p1', title: 'Two', updatedAt: '2026-10-03T00:00:00.000Z' }] };

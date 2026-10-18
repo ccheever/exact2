@@ -1,3 +1,4 @@
+import { providerWritable } from './provider-permissions';
 // T3 Code 9c161462c9 (MIT, LICENSE-T3), ProviderSettingsPanel projected for Contract, and
 // the provider-instance writes it offers. Every write reads fresh server
 // settings first and changes only the selected instance (atomic mutation).
@@ -22,7 +23,7 @@ import { instanceIconUrl, resolveOfficialAcpRegistryIconUrl, resolveProviderInst
 import { hostClient } from './codex-fleet-host';
 
 export interface ProviderHost {
-  config: Obj; ready: boolean; writable: boolean; local: { favoriteModels: string[] };
+  config: Obj; ready: boolean; writable: boolean; scopes?: readonly string[]; local: { favoriteModels: string[] };
   rpc(native: Native, method: string, payload: Obj, write?: boolean): Promise<Obj>;
   /** The native id source the client's command ids come from (client.ts `ids`): new ChatGPT accounts are `codex_<uuid>`. */
   ids?(native: Native, count: number): Promise<string[]>;
@@ -124,19 +125,19 @@ function setupKind(host: ProviderHost, row: Row, provider: Obj | undefined): '' 
   if (row.driver === 'antigravity') return 'antigravity';
   if (row.driver === 'codex' && readCodexSetupMode(row.instance.config) === 'managed') return 'codex';
   const setup = obj(provider?.setup);
-  if (host.writable && provider && (setup.canAuthenticate === true || (provider.driver === 'acpRegistry' && provider.installed === true))) return 'account';
-  if (host.writable && row.driver === 'cursor' && provider && setup.canAuthenticate === false) return 'cursor';
+  if (providerWritable(host) && provider && (setup.canAuthenticate === true || (provider.driver === 'acpRegistry' && provider.installed === true))) return 'account';
+  if (providerWritable(host) && row.driver === 'cursor' && provider && setup.canAuthenticate === false) return 'cursor';
   return '';
 }
 function setupView(host: ProviderHost, row: Row, provider: Obj | undefined) {
   const kind = setupKind(host, row, provider), environmentLabel = environmentLabelOf(host), entry = setupOf(host, row.id);
-  const mode = kind !== 'antigravity' ? '' : !host.writable ? 'unavailable' : !provider || provider.setup === undefined || provider.setup === null ? 'update' : 'actions';
+  const mode = kind !== 'antigravity' ? '' : !providerWritable(host) ? 'unavailable' : !provider || provider.setup === undefined || provider.setup === null ? 'update' : 'actions';
   const live = provider ?? {};
   return {
-    kind, environmentLabel, mode, showEnable: kind === 'antigravity' && !instanceEnabled(row.instance) && host.writable,
+    kind, environmentLabel, mode, showEnable: kind === 'antigravity' && !instanceEnabled(row.instance) && providerWritable(host),
     runtime: mode === 'actions' ? [providerRuntime(live, entry, environmentLabel, configuredBinaryPath(row.instance.config), instanceEnabled(row.instance))] : [],
     account: kind === 'account' || mode === 'actions' ? [providerAccount(row.id, live, entry, environmentLabel)] : [],
-    codex: kind === 'codex' ? [codexSetupView(host, row.id, provider, { presentation: 'settings', mode: 'managed', enabled: instanceEnabled(row.instance), readOnly: !host.writable, allowExistingCli: true, ...setupTargetOf(host, row.id) })] : [],
+    codex: kind === 'codex' ? [codexSetupView(host, row.id, provider, { presentation: 'settings', mode: 'managed', enabled: instanceEnabled(row.instance), readOnly: !providerWritable(host), allowExistingCli: true, ...setupTargetOf(host, row.id) })] : [],
     cursorNote: kind === 'cursor' ? "Using CURSOR_API_KEY. Remove it from this provider's environment to use browser sign-in." : '',
   };
 }
@@ -231,7 +232,7 @@ export function providerPage(host: ProviderHost, selection: string, nowMs: numbe
   const latest = live.reduce((value, provider) => str(provider.checkedAt) > value ? str(provider.checkedAt) : value, '');
   const health = healthInterval(settings);
   return {
-    available: true, writable: host.writable, message: host.writable ? '' : "This session can view this environment's providers but can't change their settings.",
+    available: true, writable: providerWritable(host), message: providerWritable(host) ? '' : "This session can view this environment's providers but can't change their settings.",
     checked: live.length ? checkedLabel(latest, nowMs) : 'Not checked yet', selectedId: selected?.id || '',
     rows: rows.map((row, index) => {
       const provider = live.find(candidate => candidate.instanceId === row.id), status = rowStatus(row, provider);
@@ -296,7 +297,7 @@ export function providerWizard(host: ProviderHost, open: boolean, serial: number
 function chatgptDialog(host: ProviderHost, open: boolean, serial: number) {
   if (!open || chatgptCreated?.serial !== serial) return [];
   const { instanceId, displayName } = chatgptCreated, provider = liveProviders(host).find(candidate => candidate.instanceId === instanceId);
-  const setup = provider?.setup ? [codexSetupView(host, instanceId, provider, { presentation: 'settings', mode: 'managed', enabled: true, readOnly: !host.writable, allowExistingCli: false, ...setupTargetOf(host, instanceId) })] : [];
+  const setup = provider?.setup ? [codexSetupView(host, instanceId, provider, { presentation: 'settings', mode: 'managed', enabled: true, readOnly: !providerWritable(host), allowExistingCli: false, ...setupTargetOf(host, instanceId) })] : [];
   return [{ key: instanceId, instanceId, title: displayName, setup }];
 }
 /** The dialog closes once the destination's snapshot shares a ChatGPT plan (usesChatGptSharing). */

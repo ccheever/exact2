@@ -298,7 +298,7 @@ export async function markdownMediaUrls(client: T3Client, native: Native, root: 
     }
   }
   // An unread grant (no scopes yet) may still ask the host, as useFilesystemReadAccess's pending state does not refuse.
-  const blocked = client.ready && !!client.scopes?.length && !client.scopes.includes('filesystem:read');
+  const blocked = client.ready && !client.scopes?.includes('filesystem:read');
   for (const [key, media] of [...wanted].slice(-32)) {
     if (blocked) { out.push({ id: `media-failed:${key.slice('media:'.length)}`, url: '' }, { id: `media-noaccess:${key.slice('media:'.length)}`, url: '' }); continue; }
     const resource = { ...media.source!.asset!.resource, threadId };
