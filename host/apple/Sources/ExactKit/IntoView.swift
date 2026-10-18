@@ -114,6 +114,17 @@ extension Presenter {
 #elseif os(iOS) || os(tvOS)
 import UIKit
 
+/// A target's box in a scroller: where it is now and where it will be once
+/// the reveals running on it and inside it arrive.
+struct Projected {
+    let view: UIView
+    let now: CGRect
+    let then: CGRect
+}
+private extension CGPoint {
+    static func - (a: CGPoint, b: CGPoint) -> CGPoint { CGPoint(x: a.x - b.x, y: a.y - b.y) }
+}
+
 /// `scrollIntoView` requests held until their targets can be scrolled to
 /// (UIKit's sheets mount a turn after the batch that made them; euxy's
 /// preselected icon was asked in that turn), and carried out once more when a
@@ -139,10 +150,17 @@ final class ElementScrolls {
     func drop(_ name: String) { held.removeAll { $0.name == name } }
     /// A closing sheet or dialog takes its requests with it.
     func cancel(inside root: UIView) { held.removeAll { $0.node?.isDescendant(of: root) ?? true } }
-    func cancelAll() { held.removeAll() }
+    /// A new document: nothing held, and no reveal goes on moving its page.
+    func cancelAll() {
+        held.removeAll()
+        for scroll in reveals.values.compactMap(\.scroll) { cutReveal(scroll) }
+        reveals.removeAll()
+    }
     /// The person took a scroller: a request it would move is dropped and
-    /// stays dropped, so nothing scrolls it back once the gesture ends.
+    /// stays dropped, so nothing scrolls it back once the gesture ends. A
+    /// reveal running on it is over: UIKit stops the animation for the drag.
     func userScrolled(_ scroll: UIScrollView) {
+        reveals[ObjectIdentifier(scroll)] = nil
         held.removeAll { entry in
             guard let node = entry.node else { return true }
             return node.isDescendant(of: scroll) || presenter.groupedLists?.scroller(for: node.id) === scroll
@@ -167,6 +185,76 @@ final class ElementScrolls {
             presenter.scrollIntoView(node, entry.args)
             if !settling { drop(entry.name) }
         }
+    }
+
+    /// Reveals UIKit is animating (`setContentOffset(_:animated: true)`),
+    /// one a scroller: where it is headed and what it does on arriving.
+    /// UIKit reports the end of an animation that finishes, and of one a
+    /// write here stops (`cutting`), but not always of one stopped another
+    /// way (a scroller recycled with its delegate detached, or gone), so a
+    /// reveal counts as running for `revealBound` at most.
+    private struct Reveal {
+        weak var scroll: UIScrollView?
+        let to: CGPoint
+        let until: TimeInterval
+        /// Its target's node id and incarnation.
+        let target: (UInt32, UInt64)
+        /// Where the port aligns its target now, if the target is still there.
+        let realigned: () -> CGPoint?
+        let arrived: () -> Void
+    }
+    private var reveals: [ObjectIdentifier: Reveal] = [:]
+    static let revealBound: TimeInterval = 1
+
+    private func reveal(on scroll: UIScrollView) -> Reveal? {
+        let key = ObjectIdentifier(scroll)
+        guard let reveal = reveals[key] else { return nil }
+        guard reveal.scroll === scroll, CACurrentMediaTime() < reveal.until else { reveals[key] = nil; return nil }
+        return reveal
+    }
+    /// Where a reveal running on `scroll` is headed.
+    func revealing(_ scroll: UIScrollView) -> CGPoint? { reveal(on: scroll)?.to }
+    var revealsInFlight: Bool {
+        reveals.values.compactMap(\.scroll).contains { revealing($0) != nil }
+    }
+    func revealTarget(_ scroll: UIScrollView) -> (UInt32, UInt64)? { reveal(on: scroll)?.target }
+    func revealBegan(_ scroll: UIScrollView, to: CGPoint, target: (UInt32, UInt64), realigned: @escaping () -> CGPoint?, arrived: @escaping () -> Void) {
+        let now = CACurrentMediaTime()
+        reveals = reveals.filter { $0.value.scroll != nil && now < $0.value.until }
+        reveals[ObjectIdentifier(scroll)] = Reveal(scroll: scroll, to: to, until: now + Self.revealBound, target: target, realigned: realigned, arrived: arrived)
+    }
+    /// UIKit's scroll animation on `scroll` ended: the reveal's, if one ran.
+    func revealEnded(_ scroll: UIScrollView) {
+        guard let reveal = reveal(on: scroll) else { return }
+        reveals[ObjectIdentifier(scroll)] = nil
+        reveal.arrived()
+    }
+    /// Content under a running reveal moved (a list's anchor correction,
+    /// scroll anchoring): it heads for where its target now is, from where
+    /// it is, and whether it moved says so. A target gone ends it there.
+    @discardableResult func retarget(_ scroll: UIScrollView) -> Bool {
+        guard let reveal = reveal(on: scroll) else { return false }
+        guard let to = reveal.realigned() else { cutReveal(scroll); return true }
+        guard to != reveal.to else { return false }
+        revealBegan(scroll, to: to, target: reveal.target, realigned: reveal.realigned, arrived: reveal.arrived)
+        cutting = scroll
+        defer { cutting = nil }
+        scroll.setContentOffset(to, animated: true)
+        return true
+    }
+    /// The scroller goes to another list (`NodePool`), its motion stopped.
+    func forget(_ scroll: UIScrollView) { reveals[ObjectIdentifier(scroll)] = nil }
+    /// The scroller a reveal is being cut on: UIKit reports the animation
+    /// ended from inside the write that stops it, and the scroll goes on.
+    private(set) weak var cutting: UIScrollView?
+    /// Stop the reveal running on `scroll` where it is, as another request
+    /// or an authored offset replaces it.
+    func cutReveal(_ scroll: UIScrollView) {
+        guard reveal(on: scroll) != nil else { return }
+        reveals[ObjectIdentifier(scroll)] = nil
+        cutting = scroll
+        defer { cutting = nil }
+        scroll.setContentOffset(scroll.contentOffset, animated: false)
     }
 }
 
@@ -211,46 +299,97 @@ extension Presenter {
             if let grouped, view === grouped.superview, grouped.isScrollEnabled,
                !scrollers.contains(where: { $0 === grouped }) { scrollers.append(grouped) }
         }
-        for sv in scrollers {
-            // Content room belongs to the range; only UI insets (a bar or
-            // keyboard) obstruct the viewport used for CSS alignment.
-            let owner = (sv.superview as? NodeView).flatMap { $0.scrollView === sv ? $0 : nil }
-            // Measured at each call: a layout can size a native row that had an estimated height.
-            func destination() -> CGPoint {
-                let frame: CGRect
-                if let grouped, sv === grouped || grouped.isDescendant(of: sv),
-                   let projected = groupedLists?.projectedRect(for: target, in: grouped) {
-                    // Inner authored scrolls use the target's own box. The native
-                    // row frame projects only into its collection and outer ports.
-                    frame = grouped.convert(projected, to: sv)
-                } else {
-                    frame = target.convert(target.bounds, to: sv)
-                }
-                let area = IntoView.inset(frame, style: target.style, family: "scroll_margin", outward: true)
-                let inset = owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset
-                let port = IntoView.inset(sv.pageBounds.inset(by: inset), style: owner?.style ?? [:], family: "scroll_padding")
-                let x = IntoView.aligned(inline, target: area.minX, area.maxX, port: port.minX, size: port.width) - (port.minX - sv.bounds.minX)
-                let y = IntoView.aligned(block, target: area.minY, area.maxY, port: port.minY, size: port.height) - (port.minY - sv.bounds.minY)
-                let rangeInset = sv.adjustedContentInset
-                let maxX = max(-rangeInset.left, sv.contentSize.width + rangeInset.right - sv.bounds.width)
-                let maxY = max(-rangeInset.top, sv.contentSize.height + rangeInset.bottom - sv.bounds.height)
-                return CGPoint(x: min(max(x, -rangeInset.left), maxX), y: min(max(y, -rangeInset.top), maxY))
-            }
-            let to = destination()
-            guard to != sv.contentOffset else { continue }
-            // UIKit element jumps fall back to instant (LLP 1070.000 §14).
+        let animates = IntoView.animates(args) && target.window != nil
+        // The target's box where it will be once the inner scrollers'
+        // reveals arrive, and where it is now, in the last of them.
+        for (index, sv) in scrollers.enumerated() {
+            // The inner ports, weakly, for a destination asked again later.
+            let inners = scrollers[..<index].map { inner in { [weak inner] in inner } }
+            let projected = projection(target, through: inners.compactMap { $0() }, grouped: grouped, block: block, inline: inline)
+            let to = elementDestination(target, in: sv, grouped: grouped, block: block, inline: inline, projected: projected).to
             let topInset = sv.adjustedContentInset.top
-            sv.setContentOffset(to, animated: false)
+            // Where this port aligns the target now, the inner ports headed
+            // where their reveals are going.
+            let realigned = { [weak self, weak target, weak sv, weak grouped, id = target.id, incarnation = target.incarnation] () -> CGPoint? in
+                guard let self, let target, let sv, self.views[id] === target, target.incarnation == incarnation else { return nil }
+                let projected = self.projection(target, through: inners.compactMap { $0() }, grouped: grouped, block: block, inline: inline)
+                return self.elementDestination(target, in: sv, grouped: grouped, block: block, inline: inline, projected: projected).to
+            }
             // A jump that collapses a large title moves the offset by the
             // inset it took away, past the range's end near the bottom; the
             // next batch's restore clamped it there a moment later. Settle
             // that transition and align once more, against the new port.
-            if sv.adjustedContentInset.top != topInset {
+            let settle = { [weak sv] in
+                guard let sv, sv.adjustedContentInset.top != topInset else { return }
                 sv.layoutIfNeeded()
-                let settled = destination()
-                if settled != sv.contentOffset { sv.setContentOffset(settled, animated: false) }
+                if let settled = realigned(), settled != sv.contentOffset { sv.setContentOffset(settled, animated: false) }
             }
+            let key = (target.id, target.incarnation)
+            // A reveal already headed there goes on: a held request carried
+            // out again, or another target the same offset aligns, which
+            // it now follows.
+            if animates, elementScrolls.revealing(sv) == to {
+                if elementScrolls.revealTarget(sv).map({ $0 != key }) ?? true {
+                    elementScrolls.revealBegan(sv, to: to, target: key, realigned: realigned, arrived: settle)
+                }
+                continue
+            }
+            // A new request replaces a running reveal, even one needing no move.
+            elementScrolls.cutReveal(sv)
+            guard to != sv.contentOffset else { continue }
+            guard animates else { sv.setContentOffset(to, animated: false); settle(); continue }
+            // UIKit's own scroll animation; its end ends the reveal and
+            // releases the scroller's `scrollend` (`ScrollEndIOS.swift`).
+            sv.setContentOffset(to, animated: true)
+            elementScrolls.revealBegan(sv, to: to, target: key, realigned: realigned, arrived: settle)
         }
+    }
+
+    /// Where the target's box will be once the reveals running on `inners`
+    /// (innermost first) arrive, in the outermost of them; where it is, for
+    /// a port none moves.
+    private func projection(_ target: NodeView, through inners: [UIScrollView], grouped: UIScrollView?, block: String, inline: String) -> Projected? {
+        var projected: Projected?
+        for inner in inners {
+            let frame = elementDestination(target, in: inner, grouped: grouped, block: block, inline: inline, projected: projected).frame
+            let at = elementScrolls.revealing(inner) ?? inner.contentOffset
+            projected = Projected(view: inner, now: target.convert(target.bounds, to: inner),
+                                  then: frame.offsetBy(dx: inner.contentOffset.x - at.x, dy: inner.contentOffset.y - at.y))
+        }
+        return projected
+    }
+
+    /// The target's box in `sv` and where `sv`'s offset goes to align it,
+    /// measured now: a layout can size a native row that had an estimated
+    /// height. With `projected`, the box is where the inner reveals take it.
+    private func elementDestination(_ target: NodeView, in sv: UIScrollView, grouped: UIScrollView?, block: String, inline: String,
+                                    projected: Projected?) -> (frame: CGRect, to: CGPoint) {
+        // Content room belongs to the range; only UI insets (a bar or
+        // keyboard) obstruct the viewport used for CSS alignment.
+        let owner = (sv.superview as? NodeView).flatMap { $0.scrollView === sv ? $0 : nil }
+        let frame: CGRect
+        if let grouped, sv === grouped, let row = groupedLists?.projectedRect(for: target, in: grouped) {
+            // Inner authored scrolls use the target's own box. The native
+            // row frame projects only into its collection and outer ports,
+            // moved as far as the inner reveals will move the target.
+            let move = projected.map { $0.view.convert($0.then, to: grouped).origin - $0.view.convert($0.now, to: grouped).origin } ?? .zero
+            frame = row.offsetBy(dx: move.x, dy: move.y)
+        } else if let projected {
+            frame = projected.view.convert(projected.then, to: sv)
+        } else if let grouped, grouped.isDescendant(of: sv), let row = groupedLists?.projectedRect(for: target, in: grouped) {
+            frame = grouped.convert(row, to: sv)
+        } else {
+            frame = target.convert(target.bounds, to: sv)
+        }
+        let area = IntoView.inset(frame, style: target.style, family: "scroll_margin", outward: true)
+        let inset = owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset
+        let port = IntoView.inset(sv.pageBounds.inset(by: inset), style: owner?.style ?? [:], family: "scroll_padding")
+        let x = IntoView.aligned(inline, target: area.minX, area.maxX, port: port.minX, size: port.width) - (port.minX - sv.bounds.minX)
+        let y = IntoView.aligned(block, target: area.minY, area.maxY, port: port.minY, size: port.height) - (port.minY - sv.bounds.minY)
+        let rangeInset = sv.adjustedContentInset
+        let maxX = max(-rangeInset.left, sv.contentSize.width + rangeInset.right - sv.bounds.width)
+        let maxY = max(-rangeInset.top, sv.contentSize.height + rangeInset.bottom - sv.bounds.height)
+        return (frame, CGPoint(x: min(max(x, -rangeInset.left), maxX), y: min(max(y, -rangeInset.top), maxY)))
     }
 }
 #endif

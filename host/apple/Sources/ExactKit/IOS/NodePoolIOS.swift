@@ -231,11 +231,13 @@ final class NodePool {
         #if os(tvOS)
         // tvOS has no refresh control.
         return !sv.isTracking && !sv.isDragging && !sv.isDecelerating && !presenter.collections.correcting
+            && presenter.elementScrolls.revealing(sv) == nil
             && sv.zoomScale == 1
             && list.pendingScrollTop == nil && list.pendingScrollLeft == nil
             && sv.layer.animationKeys()?.isEmpty ?? true
         #else
         return !sv.isTracking && !sv.isDragging && !sv.isDecelerating && !presenter.collections.correcting
+            && presenter.elementScrolls.revealing(sv) == nil
             && sv.refreshControl?.isRefreshing != true && sv.zoomScale == 1
             && list.pendingScrollTop == nil && list.pendingScrollLeft == nil
             && sv.layer.animationKeys()?.isEmpty ?? true
@@ -535,6 +537,7 @@ extension NodeView {
         let delegate = sv.delegate
         sv.delegate = nil
         sv.setContentOffset(.zero, animated: false)
+        presenter?.elementScrolls.forget(sv)
         sv.contentSize = .zero
         sv.delegate = delegate
         content = .zero

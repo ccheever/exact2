@@ -523,7 +523,7 @@ final class NativeListNavigationIOSTests: XCTestCase {
         let collection = try XCTUnwrap(node.scrollView)
         let targetID = node.id + offset
         p.apply(wireBatch([["op": "props", "id": targetID, "set": ["id": "native-nav-reveal-target"]]]))
-        p.scrollElementIntoView(["native-nav-reveal-target", "start", "nearest"])
+        p.scrollElementIntoView(["native-nav-reveal-target", "start", "nearest", "instant"])
         collection.layoutIfNeeded()
         let target = try XCTUnwrap(p.views[targetID])
         func measure() throws -> (CGFloat, CGFloat) {
