@@ -46,25 +46,36 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(item.title, "Last Parked")
         XCTAssertEqual(item.subtitle, "Updated just now")
     }
-    /// A bare row (its second text on an `if` arm keeps it bare in place) is
-    /// still title and subtitle in UIKit's menu, which draws no box: euxy's
-    /// sort menu showed "Date Added Newest first" as a two-line title.
-    func testABareMenuRowsSecondTextIsItsSubtitle() throws {
+    /// A bare row (its second text on an `if` arm keeps it bare in place)
+    /// whose second text is a line under its first is still title and
+    /// subtitle in UIKit's menu, which draws no box: euxy's sort menu showed
+    /// "Date Added Newest first" as a two-line title. Two texts side by side
+    /// (`Inbox` and its count, `Save` and `⌘S`) stay one title.
+    func testABareMenuRowsStackedSecondTextIsItsSubtitle() throws {
+        func row(_ id: Int, _ texts: [String], display: String? = nil) -> [[String: Any]] {
+            let kids = texts.indices.map { 100 * id + $0 }
+            return [["op": "create", "id": id, "kind": "button", "handlers": ["press"], "props": [:],
+                     "style": ["text_color": [0, 0, 0, 255]].merging(display.map { ["display": $0] } ?? [:]) { $1 }]]
+                + zip(kids, texts).map { ["op": "create", "id": $0, "kind": "text", "props": ["text": $1]] }
+                + [["op": "children", "id": id, "ids": kids]]
+        }
+        var column = ButtonFace(); column.placement = "top"
+        var across = ButtonFace(); across.placement = "leading"
         let p = presenter(view(1, ["popover": "auto", "id": "menu"])
-            + [["op": "create", "id": 2, "kind": "button", "handlers": ["press"], "props": [:], "style": ["text_color": [0, 0, 0, 255]]],
-               ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 40.0],
-               ["op": "create", "id": 3, "kind": "image", "props": ["src": "symbol:sf/clock"]],
-               ["op": "create", "id": 4, "kind": "text", "props": ["text": "Date Added"]],
-               ["op": "create", "id": 5, "kind": "text", "props": ["text": "Newest first"]],
-               ["op": "children", "id": 2, "ids": [3, 4, 5]],
-               ["op": "create", "id": 6, "kind": "button", "handlers": ["press"], "props": [:], "style": ["text_color": [0, 0, 0, 255]]],
-               ["op": "create", "id": 7, "kind": "text", "props": ["text": "BPM"]],
-               ["op": "children", "id": 6, "ids": [7]],
-               ["op": "children", "id": 1, "ids": [2, 6]], ["op": "roots", "ids": [1]]], faces: [:])
+            + row(2, ["Date Added", "Newest first"])
+            + row(3, ["BPM"])
+            + row(4, ["Tempo", "Fastest first"], display: "flex")
+            + row(5, ["Inbox", "3"], display: "flex")
+            + [["op": "create", "id": 6, "kind": "button", "handlers": ["press"], "props": [:], "style": ["text_color": [0, 0, 0, 255]]],
+               ["op": "create", "id": 61, "kind": "text", "props": ["text": "Save"]],
+               ["op": "create", "id": 62, "kind": "text", "props": ["text": "⌘S"], "style": ["display": "inline"]],
+               ["op": "children", "id": 6, "ids": [61, 62]],
+               ["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6]], ["op": "roots", "ids": [1]]],
+            faces: [4: column, 5: across])
         defer { window.isHidden = true }
         let items = p.menus.items(of: try XCTUnwrap(p.views[1])).compactMap { $0 as? UIAction }
-        XCTAssertEqual(items.map(\.title), ["Date Added", "BPM"])
-        XCTAssertEqual(items.map(\.subtitle), ["Newest first", nil])
+        XCTAssertEqual(items.map(\.title), ["Date Added", "BPM", "Tempo", "Inbox 3", "Save ⌘S"])
+        XCTAssertEqual(items.map(\.subtitle), ["Newest first", nil, "Fastest first", nil, nil])
     }
     func testCustomHideOnlyButtonClosesNativeContentPopoverInProduction() throws {
         XCTAssertFalse(ExactEnv.agentMode, "this test exercises production handling")

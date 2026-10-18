@@ -126,18 +126,22 @@ extension Runtime {
         return on {
             var bytes = Data(capacity: covers.count * 24)
             for (view, cover) in covers {
-                let (kind, edges): (UInt32, [CGFloat]) = switch cover {
-                case .none: (0, [0, 0, 0, 0])
-                case .edges(let e)?: (1, [e.top, e.right, e.bottom, e.left])
-                case .whole?: (2, [0, 0, 0, 0])
-                case .inset(let top, let bottom)?: (3, [top, 0, bottom, 0])
-                }
-                for word in [view, kind] + edges.map({ Float($0).bitPattern }) {
+                for word in Self.coverRecord(view, cover) {
                     withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }
                 }
             }
             return read(exact_host_covers(rt, write(bytes)))
         }
+    }
+    /// One cover's record at the covers door (`exact_host_covers`).
+    static func coverRecord(_ view: UInt32, _ cover: HostCover?) -> [UInt32] {
+        let (kind, edges): (UInt32, [CGFloat]) = switch cover {
+        case .none: (0, [0, 0, 0, 0])
+        case .edges(let e)?: (1, [e.top, e.right, e.bottom, e.left])
+        case .whole?: (2, [0, 0, 0, 0])
+        case .inset(let top, let bottom)?: (3, [top, 0, bottom, 0])
+        }
+        return [view, kind] + edges.map { Float($0).bitPattern }
     }
     /// The margins UIKit's own list gives each grouped list's cards and
     /// cells, under one layout: the card's left and right insets, then the

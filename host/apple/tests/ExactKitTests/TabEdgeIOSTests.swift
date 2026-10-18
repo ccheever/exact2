@@ -111,5 +111,32 @@ final class TabEdgeIOSTests: XCTestCase {
             try assertClear(pushed, tabs)
         }
     }
+
+    /// The `scrolls` route holds a menu between its header and its scroller
+    /// and a `dialog` after it. Neither takes a place in its flow: the
+    /// scroller keeps both edges, and a menu given back to layout to show in
+    /// Exact's views (a context preview, the agent's painted popover) is laid
+    /// out in a block of its own, as the top layer is, leaving the scroller
+    /// where it was.
+    func testAMenuAndADialogBesideTheScrollerLeaveItItsEdges() throws {
+        let session = try fixture()
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        try assertClear("scrolls", tabs)
+        let content = try node("content-scrolls")
+        let route = try XCTUnwrap(sequence(first: content.next, next: { $0?.next }).compactMap { $0 as? RouteController }.first)
+        XCTAssertTrue(route.edgeScroll === content, "the scroller reaches the bottom edge")
+        XCTAssertTrue(route.collapseScroll === content, "and goes under the bar")
+        let before = box(content)
+        let menu = try node("sort-menu")
+        session.presenter.menus.layOut(menu)
+        spin(0.2)
+        XCTAssertGreaterThan(menu.bounds.height, 0, "the menu is laid out")
+        XCTAssertEqual(box(content), before, "its siblings stay where they were")
+        XCTAssertTrue(route.edgeScroll === content)
+        session.presenter.menus.coverClosed()
+        spin(0.2)
+        XCTAssertEqual(box(content), before)
+        XCTAssertTrue(route.edgeScroll === content)
+    }
 }
 #endif

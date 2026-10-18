@@ -596,6 +596,7 @@ final class MenuHost {
         context.reset()
         #endif
         laidOut.removeAll()
+        blocked.removeAll()
     }
 
     /// The top-layer boxes given back to layout to show in Exact's views.
@@ -603,12 +604,27 @@ final class MenuHost {
     /// closed (`host/apple/src/closed.rs`), as a browser lays out neither:
     /// UIKit's alert and menu read their rows, never their frames.
     private var laidOut = Set<UInt32>()
+    /// The popovers of `laidOut` laid out in a block of their own.
+    private var blocked = Set<UInt32>()
     private var coverPending = false
     /// `box` laid out now, before it shows in Exact's views: a sheet, the
     /// top layer, a context menu's preview.
     func layOut(_ box: NodeView) {
-        guard let session = presenter?.session, laidOut.insert(box.id).inserted else { return }
-        session.apply(session.runtime.covers([(box.id, nil)]))
+        guard let presenter, let session = presenter.session, laidOut.insert(box.id).inserted else { return }
+        // An open popover is in the top layer, out of its parent's flow, so
+        // its siblings stay where they are (a route's scroller keeps its
+        // edges, `NavigationHost.inFlow`): it is laid out in a block of its
+        // own, as wide as its parent's content (the width it had in the
+        // flow), its height its content's, at most the viewport's. A `dialog`
+        // is `position: absolute` already.
+        var blocks: [(UInt32, HostBlock?)] = []
+        if box.props["popover"] != nil, !isDialog(box) {
+            let parent = sequence(first: box.superview, next: { $0?.superview }).lazy.compactMap { $0 as? NodeView }.first
+            let width = parent.map { $0.contentBox().width }.flatMap { $0 > 0 ? $0 : nil } ?? presenter.viewport.bounds.width
+            blocks.append((box.id, HostBlock(width: .size(width), height: .fit(presenter.viewport.bounds.height))))
+            blocked.insert(box.id)
+        }
+        session.apply(session.runtime.blocks(blocks, covers: [(box.id, nil)]))
         var stack: [UIView] = [box]
         while let view = stack.popLast() {
             (view as? NodeView)?.makeWaitingField()
@@ -665,14 +681,15 @@ final class MenuHost {
     private func coverClosedNow() {
         coverPending = false
         guard let presenter, let session = presenter.session else { return }
-        var covers: [(UInt32, HostCover?)] = []
+        var covers: [(UInt32, HostCover?)] = [], blocks: [(UInt32, HostBlock?)] = []
         for id in laidOut {
-            guard let node = presenter.views[id] else { laidOut.remove(id); continue }
+            guard let node = presenter.views[id] else { laidOut.remove(id); blocked.remove(id); continue }
             guard !showsInViews(node) else { continue }
             laidOut.remove(id)
+            if blocked.remove(id) != nil { blocks.append((id, nil)) }
             if node.props["popover"] != nil || isDialog(node) { covers.append((id, .whole)) }
         }
-        if !covers.isEmpty { session.apply(session.runtime.covers(covers)) }
+        if !covers.isEmpty || !blocks.isEmpty { session.apply(session.runtime.blocks(blocks, covers: covers)) }
     }
     private func showsInViews(_ node: NodeView) -> Bool {
         if sheets.owns(node) || agentOpen.values.contains(where: { $0.popover === node }) { return true }
@@ -1424,66 +1441,6 @@ final class MenuHost {
         guard !isConfirmation(sub), !path.contains(where: { $0 === sub }) else { return nil }
         let children = items(of: sub, path: path)
         return children.isEmpty ? nil : children
-    }
-
-    /// A row's item image: its symbol, custom or native (LLP 1069.011.000
-    /// D5), else its `img` — a provider's own icon — once that has loaded.
-    /// The menu reads what the hidden row already holds; opening it never
-    /// fetches, and an image still loading is no image until the next open.
-    private func image(of row: NodeView) -> UIImage? {
-        guard row.isButton else { return nil }
-        if let symbol = row.face?.symbol { return UIImage(systemName: symbol) }
-        guard !row.isNativeButton, let img = Self.firstImage(in: row) else { return nil }
-        if let symbol = img.image, img.imageSource?.hasPrefix("symbol:") == true { return symbol }
-        return img.raster.map { Self.rowImage($0.image.image) }
-    }
-    /// A menu row draws an image at its own size: fit it in the row's icon
-    /// box, keeping its ratio.
-    static func rowImage(_ bitmap: CGImage) -> UIImage {
-        let side: CGFloat = 24, natural = CGSize(width: bitmap.width, height: bitmap.height)
-        let scale = min(side / max(natural.width, 1), side / max(natural.height, 1))
-        let size = CGSize(width: natural.width * scale, height: natural.height * scale)
-        return UIGraphicsImageRenderer(size: size).image { _ in
-            UIImage(cgImage: bitmap).draw(in: CGRect(origin: .zero, size: size))
-        }.withRenderingMode(.alwaysOriginal)
-    }
-    private static func firstImage(in view: UIView) -> NodeView? {
-        for case let node as NodeView in (view as? NodeView)?.container.subviews ?? view.subviews {
-            if node.kind == "image" { return node }
-            if let found = firstImage(in: node) { return found }
-        }
-        return nil
-    }
-
-    /// A menu row's title and subtitle, as UIKit draws an item's: a native
-    /// button's face; a custom button that holds what a face holds (two
-    /// texts and at most one image) its first text and its second, the grey
-    /// line under the title. A menu draws no box, so a row that is bare in
-    /// place (a text on an `if` arm keeps a button bare) is still its face.
-    private func label(of row: NodeView) -> (title: String, subtitle: String?) {
-        if row.isNativeButton { return (title(of: row), row.face?.subtitle) }
-        let kids = row.container.subviews.compactMap { $0 as? NodeView }.filter { $0.props["accessibilityElementsHidden"] != "true" }
-        let texts = kids.filter { $0.kind == "text" }, images = kids.filter { $0.kind == "image" }
-        guard row.isButton, texts.count == 2, images.count <= 1, texts.count + images.count == kids.count else { return (title(of: row), nil) }
-        let subtitle = title(of: texts[1])
-        return (title(of: texts[0]), subtitle.isEmpty ? nil : subtitle)
-    }
-
-    private func title(of v: NodeView) -> String {
-        if v.kind == "text" { return v.paragraphSpec().runs.map(\.text).joined() }
-        // A native button's children are its face, not views: its title, else its label.
-        if v.isNativeButton { return v.face?.shown ?? "" }
-        // A custom button whose face fits shows it too: a symbol-only row its
-        // label (LLP 1069.011.000 D5); other content keeps its text.
-        if v.isButton, let face = v.face, face.fits, let shown = face.shown { return shown }
-        // Its accessible name: an `aria-hidden` child (a submenu row's `›`,
-        // which the platform menu draws itself) is not part of it.
-        return v.container.subviews
-            .compactMap { $0 as? NodeView }
-            .filter { $0.props["accessibilityElementsHidden"] != "true" }
-            .map(title(of:))
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
     }
 }
 #endif

@@ -2280,6 +2280,10 @@ makes it the default button.) Only the alert's shape takes
 one field at a time: with it, a cancel and at most three buttons, no `for`
 (`lower-alertdialog` says which row breaks it).
 
+A menu row's second `text` is its item's grey subtitle on iOS when it is a line
+under the first (two texts in a block `button`, or a `flex-direction="column"`
+one), with or without an `if` around it; two texts side by side in a row stay one title.
+
 A submenu is a row whose `popovertarget` names another menu popover (`Copy ▸
 path / link`): a submenu `NSMenuItem` on macOS, a nested `UIMenu` on iOS, and
 on the web and under the agent the nested popover, opened by `tap <row>`. Place
