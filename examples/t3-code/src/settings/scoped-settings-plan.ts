@@ -16,7 +16,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = ['worktreeCleanup', 'defaultMo
 const NULLABLE_PROJECT_SETTINGS_OVERRIDES = new Set(['defaultModelSelection', 'sourceControlWriterModelSelection', 'reviewGuideModelSelection', 'pullRequestMergeMethod', 'sidebarAutoSettleAfterDays']);
 export const PROJECT_FILE_BACKED_SETTINGS: Record<string, { field: string; builtIn: string }> = {
   defaultThreadEnvMode: { field: 'defaultThreadEnvMode', builtIn: 'local' }, worktreeSubmodules: { field: 'worktreeSubmodules', builtIn: 'recursive' } };
-const SERVER_KEYS = new Set(['worktreesDirectory', 'worktreeCleanup', 'storageCleanup', 'responseStreamingMode', 'enableProviderUpdateChecks', 'continueThreadsAfterServerUpdate', 'enableAgentBrowserAccess',
+const SERVER_KEYS = new Set(['worktreesDirectory', 'favorites', 'providerModelPreferences', 'worktreeCleanup', 'storageCleanup', 'responseStreamingMode', 'enableProviderUpdateChecks', 'continueThreadsAfterServerUpdate', 'enableAgentBrowserAccess',
   'projectAgentBrowserAccessOverrides', 'defaultAutoPull', 'defaultProjectScripts', 'projectScriptOverrides', 'projectAutoPullOverrides', 'defaultModelSelection', 'defaultRuntimeMode',
   'projectSettingsOverrides', 'projectSettingsFolded', 'enableAgentDeviceAccess', 'enableDeviceSupport', 'deviceOnboardingCompleted', 'deviceHosts', 'sidebarAutoSettleAfterDays',
   'snoozeLimitedThreads', 'autoResumeLimitedThreads', 'sidebarAutoSettleOnMerge', 'sidebarAutoSettleKeepPullRequests', 'backgroundActivity', 'automaticGitFetchInterval', 'providerHealthRefreshInterval',

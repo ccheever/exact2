@@ -26,7 +26,7 @@ import { pagesPrefs } from '../pages/pages-prefs';
 import { composerNow } from '../composer/composer-controls';
 import { prState } from '../details/pr-row-actions';
 import {
-  ACTION_FAILURE, PULL_REQUEST_ACTIONS, PULL_REQUEST_MERGE_METHOD_LABELS, actionHint, actionPayload, allowedMergeMethods, allowsSinglePullRequestMerge,
+  canDeletePullRequestBranch, ACTION_FAILURE, PULL_REQUEST_ACTIONS, PULL_REQUEST_MERGE_METHOD_LABELS, actionHint, actionPayload, allowedMergeMethods, allowsSinglePullRequestMerge,
   pullRequestActionMenuHasGroup, pullRequestActionNeedsHostRefresh, readableFailure, resolveBaseFreshness, resolvePullRequestMergeMethod, resolvePullRequestPrimaryControl,
   type MergeMethod, type PrimaryControl, type UpdateMethod,
 } from '../details/pr-row-logic';
@@ -89,6 +89,7 @@ type State = {
   /** The one armed control (per client, as the reference keeps one per panel); `serial` tells its lapse from a later arming's. */
   confirm: { key: string; action: ConfirmAction; control: ConfirmControl; serial: number } | null;
   armSerial: number;
+  deleteBranchConfirm: string;
   /** mergeMethodSelection, per pull request; and the armed method last seen (it becomes the selection). */
   methods: Map<string, MergeMethod>; armed: Map<string, string>;
   overrides: Map<string, ListOverride>; token: number; detailTokens: Map<string, number | null>;
@@ -100,7 +101,7 @@ type State = {
 const states = new WeakMap<object, State>();
 export function actionState(client: object): State {
   let state = states.get(client);
-  if (!state) { state = { pending: null, confirm: null, armSerial: 0, methods: new Map(), armed: new Map(), overrides: new Map(), token: 0, detailTokens: new Map(), noted: new Map(), relist: 0 }; states.set(client, state); }
+  if (!state) { state = { pending: null, confirm: null, armSerial: 0, deleteBranchConfirm: '', methods: new Map(), armed: new Map(), overrides: new Map(), token: 0, detailTokens: new Map(), noted: new Map(), relist: 0 }; states.set(client, state); }
   return state;
 }
 const MERGE_METHODS: readonly MergeMethod[] = ['merge', 'squash', 'rebase'];
@@ -138,6 +139,8 @@ export function emptyActions() {
     refreshing: false, moreLabel: 'More pull request actions', pending: false, open: false,
     draftToggle: '', mergeNow: false, mergeNowLabel: 'Merge now', autoMerge: '', autoMergeLabel: '', methods: [] as { key: string; method: string; label: string; selected: boolean }[], methodsSeparator: false, groupSeparator: false,
     closeItem: false, closeLabel: 'Close pull request', reopenItem: false, revertItem: false, revertLabel: 'Revert changes',
+    deleteBranchItem: false, deleteBranchDisabled: false, deleteBranchLabel: 'Delete branch',
+    dialogOpen: false, dialogTitle: '', dialogDescription: '', dialogConfirm: '', dialogDestructive: false, dialogValue: '',
     freshness: false, freshnessSummary: '', freshnessMethods: [] as { key: string; value: string; label: string }[], stacked: false, baseTip: '',
     approveWorkflows: false, approveLabel: 'Approve workflows to run',
     // The armed confirmation: its control and action ('' for none) and the serial its 3 s lapse names.
@@ -211,6 +214,9 @@ export function presentActions(client: T3Client, input: PresentInput): PrActions
   view.revertLabel = isArmed('revert') ? 'Confirm revert?' : 'Revert changes';
   view.reopenItem = detail.state === 'closed' && can(detail, 'reopen');
   view.revertItem = detail.state === 'merged' && can(detail, 'revert');
+  view.deleteBranchItem = canDeletePullRequestBranch(detail);
+  view.deleteBranchDisabled = actionPending || !client.ready || !client.writable;
+  view.deleteBranchLabel = pendingAction === 'delete-branch' ? 'Deleting branch...' : 'Delete branch';
   // The base branch: the out-of-date mark and its popover, else the plain name (stacked on another branch, or not).
   const freshness = resolveBaseFreshness(detail), base = str(detail.baseBranch);
   view.stacked = query.stacked;
@@ -222,6 +228,9 @@ export function presentActions(client: T3Client, input: PresentInput): PrActions
   }
   view.approveWorkflows = workflows > 0 && !input.checksStale && can(detail, 'approve-workflows');
   view.approveLabel = pendingAction === 'approve-workflows' ? 'Approving...' : isArmed('approve-workflows') ? 'Confirm approve?' : 'Approve workflows to run';
+  if (state.deleteBranchConfirm === input.key) Object.assign(view, { dialogOpen: true, dialogTitle: `Delete branch ${str(detail.headBranch)}?`,
+    dialogDescription: `This deletes ${str(detail.headBranch)} from ${str(detail.headRepositoryNameWithOwner, str(detail.repository))}. Local branches and worktrees are not changed.`,
+    dialogConfirm: 'Delete branch', dialogDestructive: true, dialogValue: 'delete-branch' });
   view.stack = presentStack(client, { key: input.key, reference: input.reference, detail, query, saved, supportsStackActions: stacks, canMergeMethod: can(detail, 'merge') && allowed.length > 0, mergeMethod: method }) as PrStackView;
   return view;
 }
@@ -285,6 +294,7 @@ export async function performAction(client: T3Client, native: Native, ctx: Panel
   const state = actionState(client);
   if (state.pending) return '';
   if (!(PULL_REQUEST_ACTIONS as readonly string[]).includes(action)) throw new ClientError(`Unknown pull request action: ${action}`);
+  if (action === 'delete-branch' && (!client.ready || !client.writable || !ctx.detail || !canDeletePullRequestBranch(ctx.detail))) throw new ClientError('This branch cannot be deleted.');
   state.pending = { key: ctx.key, action };
   return finishAction(client, native, ctx, action, method, updateMethod);
 }
@@ -295,6 +305,7 @@ export async function performAction(client: T3Client, native: Native, ctx: Panel
 export async function finishAction(client: T3Client, native: Native, ctx: PanelContext, action: string, method?: MergeMethod, updateMethod?: UpdateMethod): Promise<string> {
   const state = actionState(client);
   if (state.confirm?.key === ctx.key) state.confirm = null;
+  if (state.deleteBranchConfirm === ctx.key) state.deleteBranchConfirm = '';
   noteActed(client, ctx.listEntry, action, 'sent');
   try {
     await wakePanel(native);
@@ -373,6 +384,8 @@ export const isActionOp = (op: string) => op === 'action' || op === 'stack-run';
 /** `chatlocal:pr-ui-*`: the menu's choices, answered without the command gate. */
 export function prActionUi(client: T3Client, op: string, ctx: { key: string; detail: Obj | null; reference: Obj }, value: string): string {
   const state = actionState(client);
+  if (op === 'ask' && value === 'delete-branch') { if (!state.pending) state.deleteBranchConfirm = ctx.key; return ''; }
+  if (op === 'cancel') { if (state.deleteBranchConfirm === ctx.key) state.deleteBranchConfirm = ''; return ''; }
   // `arm`: "<control>|<action>", the first press. `disarm`: '' for whatever is armed, "serial:<n>" for the arming
   // a lapse was set for, "<control>|<action>" for a control that lost the focus.
   if (op === 'arm') {

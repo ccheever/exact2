@@ -4,7 +4,7 @@ import XCTest
 
 // exact2 #101: every web view the module creates is
 // inspectable from Safari in a development build and never in a release build: the clone's packaged
-// build (`distribution.json`, T3LocalPolicy.packaged), a production-trust bake or a distributed bundle
+// build (the handler/scheme metadata), a legacy inspection-only `distribution.json`, a production-trust bake or a distributed bundle
 // (its receipt), as main #309 decides for the iframe arm. This binary has neither file beside it, so
 // it is a development build, whatever the environment says.
 private let ignoreEvent: ExactNativeEventFn = { _, _, _, _, _ in }
@@ -16,7 +16,7 @@ final class WebInspectionTests: XCTestCase {
         return url
     }
 
-    func testThePackagedFlavorIsTheReleaseLine() throws {
+    func testMetadataAndTheLegacyMarkerBothDisableInspection() throws {
         let packaged = scratch("packaged"), development = scratch("development"), other = scratch("other")
         try #"{"flavor":"packaged"}"#.write(to: packaged.appendingPathComponent("distribution.json"), atomically: true, encoding: .utf8)
         try #"{"flavor":"development"}"#.write(to: other.appendingPathComponent("distribution.json"), atomically: true, encoding: .utf8)
@@ -24,7 +24,10 @@ final class WebInspectionTests: XCTestCase {
         XCTAssertTrue(T3WebInspection.permits(resources: development), "no marker: a development build")
         XCTAssertTrue(T3WebInspection.permits(resources: other), "another flavor is not the packaged build")
         XCTAssertTrue(T3WebInspection.permits(resources: nil))
-        XCTAssertEqual(T3WebInspection.permits(resources: packaged), !T3LocalPolicy.packaged(resources: packaged), "one line with the embedded server's policy")
+        let info: [String: Any] = ["ExactProtocolHandlers": [["protocol": "t3code", "url": "/open?u=%s"]],
+                                   "CFBundleURLTypes": [["CFBundleURLSchemes": ["t3code"]]]]
+        XCTAssertFalse(T3WebInspection.permits(resources: nil, bundleInfo: info), "distribution metadata needs no resource marker")
+        XCTAssertFalse(T3LocalPolicy.packaged(info: [:]), "the legacy inspection marker grants no home access")
     }
 
     /// The receipt's lines, as main #309 draws them for the iframe arm: production trust and a

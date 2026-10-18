@@ -29,6 +29,8 @@ shape BrowserPresetChoice
 shape BrowserPanel
   tabId: string
   runtimeId: string
+  server: bool
+  streamUrl: string
   environment: string
   profileId: string
   profileName: string
@@ -84,6 +86,8 @@ shape BrowserMini
   sourceKey: string
   tabId: string
   runtimeId: string
+  server: bool
+  streamUrl: string
   url: string
   profileId: string
   environment: string

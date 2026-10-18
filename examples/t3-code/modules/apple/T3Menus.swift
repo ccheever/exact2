@@ -275,8 +275,8 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
         if let window { panel.beginSheetModal(for: window, completionHandler: finish) } else { finish(panel.runModal()) }
     }
 
-    /// WORKSPACE_IMAGE_PREVIEW_EXTENSIONS (packages/shared/src/filePreview.ts), without the dot.
-    static let faviconExtensions = ["avif", "gif", "ico", "jpeg", "jpg", "png", "svg", "webp"]
+    /// PROJECT_FAVICON_EXTENSIONS (packages/shared/src/projectFavicon.ts), without the dot.
+    static let faviconExtensions = ["avif", "gif", "icns", "ico", "jpeg", "jpg", "png", "svg", "webp"]
 
     /// pickProjectFavicon (apps/desktop/src/ipc/methods/window.ts): one image file, starting in the
     /// project's workspace root, as a sheet on the main window. The panel is built by `faviconPanel`

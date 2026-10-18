@@ -1,3 +1,4 @@
+import { sourceControlHost } from '../shared/source-control-hosts';
 import { can, requirePermission } from '../connections/command-permissions';
 // The workspace card's Git actions, adapted from T3 Code (MIT; see
 // LICENSE-T3): apps/web/src/components/GitActionsControl.tsx (panel display mode:
@@ -311,7 +312,7 @@ export function gitCardView(client: T3Client, status: Obj | null, error: string,
   const copy = pending ? defaultBranchCopy(pending.action, pending.branchName, pending.includesCommit, term) : { title: 'Run action on default branch?', description: '', continueLabel: 'Continue' };
   const form = state.publish, providers = sortedPublishProviders(form.discovered);
   const chosen = providers.find(option => option.value === form.provider && option.ready) ?? providers.find(option => option.ready) ?? providers.find(option => option.value === (form.provider || 'github'))!;
-  const repository = form.repository ?? (chosen.account ? `${chosen.account}/` : '');
+  const repository = form.repository ?? (sourceControlHost(chosen.value)?.inferOwner && chosen.account ? `${chosen.account}/` : '');
   return {
     writable, repo: status?.isRepo !== false, initLabel: state.initPending ? 'Initializing...' : 'Initialize Git', initPending: state.initPending,
     quickLabel: quick.label, quickIcon: quickActionIcon(quick, status), quickDisabled: !writable || quick.disabled, quickHint: quick.disabled ? (quick.hint ?? 'This action is currently unavailable.') : '',
@@ -331,7 +332,7 @@ export function gitCardView(client: T3Client, status: Obj | null, error: string,
       selected: option.value === chosen.value && option.ready })),
     publishRows: pairs(providers.map(option => ({ value: option.value, label: option.label, ready: option.ready, hint: option.hint || 'Open Settings -> Source Control to configure this provider.',
       selected: option.value === chosen.value && option.ready }))),
-    publishProvider: chosen.value, publishProviderLabel: chosen.label, publishHost: chosen.value === 'forgejo' && chosen.host ? chosen.host : chosen.host || PROVIDER_HOSTS[chosen.value] || '',
+    publishProvider: chosen.value, publishProviderLabel: chosen.label, publishHost: chosen.value === 'forgejo' && chosen.host ? chosen.host : chosen.host || sourceControlHost(chosen.value)?.host || '',
     publishPlaceholder: chosen.placeholder, publishRepository: repository, publishVisibility: form.visibility, publishRemote: form.remote, publishProtocol: form.protocol,
     publishAdvanced: form.advanced, publishPending: form.pending, publishError: form.error, publishAnyReady: providers.some(option => option.ready),
     publishCanNext: chosen.ready, publishCanSubmit: chosen.ready && !form.pending && publishPathValid(repository),
@@ -346,7 +347,6 @@ function pairs<T>(items: T[]): { key: string; first: T; second: T; pair: boolean
   for (let index = 0; index < items.length; index += 2) rows.push({ key: String(index), first: items[index]!, second: items[index + 1] ?? items[index]!, pair: index + 1 < items.length });
   return rows;
 }
-const PROVIDER_HOSTS: Record<string, string> = { forgejo: 'your server', github: 'github.com', gitlab: 'gitlab.com', bitbucket: 'bitbucket.org', 'azure-devops': 'dev.azure.com' };
 
 /** The data source's side work for the card: queued branch metadata and the publish dialog's discovery. */
 export async function gitCardPrepare(client: T3Client, native: Native): Promise<void> {

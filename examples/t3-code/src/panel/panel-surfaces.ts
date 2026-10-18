@@ -32,7 +32,6 @@ import { emptyAttachment, type AttachmentView, type AttachmentMeta } from './att
 import { crumbsHidden } from './files-crumbs-mount'; // The Files preview unmounted
 import { restoreRightPanel } from './saved-panel'; // The panel as the last launch left it
 import { restoredEffects } from './saved-surfaces'; // With its Diff and device
-import { requestDiff } from '../diff/diff-outside-root';
 import { deviceTargetOf, deviceThreadId, miniStoreOf, restoreDeviceTarget, type DeviceTarget } from '../device/device-session';
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
 import type { PrTarget } from './pr-surface';
@@ -170,7 +169,7 @@ async function showDiff(client: T3Client, native: Native): Promise<void> {
   const threadId = client.threadId;
   client.diffLoading = true;
   try {
-    const result = await requestDiff(client.config, request, (method, payload) => client.restAccess(native).request(method, payload)); // diff-outside-root.ts
+    const result = await client.restAccess(native).request(request.method, request.payload)
     if (threadId === client.threadId && client.diffOpen) client.diffText = adoptDiff(client, request, result);
   } catch (error) { if (threadId === client.threadId && !letGo(error)) client.diffError = error instanceof Error ? error.message : String(error); }
   finally { if (threadId === client.threadId) client.diffLoading = false; }
@@ -355,7 +354,7 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   const deviceSetup = store.deviceSetup !== '' && store.deviceSetup === panelKey(client);
   const deviceShown = !!live && open && active.kind === 'device';
   if (!deviceShown) deviceHidden(client); // DevicePanel lists the devices each time it shows (device-surface.ts deviceView)
-  const device = live && (deviceSetup || deviceShown) ? await deviceView(client, live, deviceShown) : emptyDevice();
+  const device = live && (deviceSetup || deviceShown) ? await deviceView(client, live, deviceShown, deviceSetup) : emptyDevice();
   if (live && open && active.kind === 'device' && !deviceSetup) device.session = await deviceSessionView(client, live, deviceStateOf(client) ?? {}, device.loaded, panelKey(client));
   const prs = open && active.kind === 'pull-requests' ? prsView(client, now) : emptyPrs();
   if (live && open && active.kind === 'pull-requests') prs.speedMode = await readSpeedMode(client, live);

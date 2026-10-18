@@ -28,6 +28,8 @@ function dialogKey(file: string, line: string): string {
 }
 const dialogs = files.flatMap(file => source(file).split('\n').flatMap((line, index) =>
   !line.trimStart().startsWith('//') && /role="(dialog|alertdialog)"/.test(line) ? [{ file, index, line, key: dialogKey(file, line) }] : []));
+// Native dialogs use the host's modal focus containment, including streamed page prompts.
+const nativeDialogs = new Set(dialogs.filter(dialog => dialog.line.trimStart().startsWith('dialog ')).map(dialog => dialog.key));
 
 // The FocusGuard pair of each guarded dialog: its key and the guard ids' base.
 const GUARDED: Record<string, string> = {
@@ -73,6 +75,7 @@ const GUARDED: Record<string, string> = {
 // The dialogs that wrap with their own `key` handlers (the older ones, from before the FocusGuard pair): the
 // component and the focus each wrap sends.
 const KEYED: Record<string, { component: string; wraps: string[] }> = {
+  'pages-pr-actions.contract "pr-action-dialog"': { component: 'PrActionDialog', wraps: ['focus(actions.pending ? "pr-action-dialog-cancel" : "pr-action-dialog-confirm")', 'focus("pr-action-dialog-cancel")'] },
   'codex-setup.contract "codex-picker"': { component: 'ChatGptAccountPicker', wraps: ['focus("codex-picker-connect-button")', 'focus(`codex-picker-option-${picker.first}`)'] },
   'codex-setup.contract "chatgpt-plan-dialog"': { component: 'ChatGptPlanDialog', wraps: ['focus(busy ? "chatgpt-plan-usage-button" : "chatgpt-plan-continue-button")', 'focus("chatgpt-plan-usage-button")'] },
   'connections-network-dialogs.contract "network-access-dialog"': { component: 'NetworkAccessDialog', wraps: ['focus("network-access-confirm")', 'focus("network-access-cancel")'] },
@@ -168,11 +171,11 @@ const named = (expression: string) => [...expression.matchAll(/(?:^|[?:])\s*\(?\
 describe('every dialog is classified: a FocusGuard pair, its own key wraps, or no modal in the reference', () => {
   test('each role="dialog" and role="alertdialog" is in exactly one list', () => {
     const keys = dialogs.map(dialog => dialog.key);
-    const unclassified = keys.filter(key => !(key in GUARDED) && !(key in KEYED) && !(key in NOT_MODAL));
+    const unclassified = keys.filter(key => !nativeDialogs.has(key) && !(key in GUARDED) && !(key in KEYED) && !(key in NOT_MODAL));
     expect(unclassified).toEqual([]);
     // Nothing listed has gone away (a renamed dialog would leave its entry behind).
     for (const key of [...Object.keys(GUARDED), ...Object.keys(KEYED), ...Object.keys(NOT_MODAL)]) expect(keys).toContain(key);
-    expect(keys.length).toBe(Object.keys(GUARDED).length + 1 + Object.keys(KEYED).length + Object.keys(NOT_MODAL).length); // palette.contract has two
+    expect(keys.length).toBe(nativeDialogs.size + Object.keys(GUARDED).length + 1 + Object.keys(KEYED).length + Object.keys(NOT_MODAL).length); // palette.contract has two
   });
 });
 
@@ -346,7 +349,7 @@ describe('the reference\'s order of stops', () => {
       expect(source(file).split('\n').find(line => line.includes(testId))).toContain('aria-keyshortcuts="Escape" tabindex=-1');
     const palette = source('palette.contract').split('\n');
     const options = palette.filter(line => /^\s*button\b/.test(line) && line.includes('role="option"'));
-    expect(options.length).toBe(2);
+    expect(options.length).toBe(3); // Regular, repository, and publish-host rows.
     for (const option of options) expect(option).toContain('tabindex=-1');
     expect(palette.find(line => line.includes('testId="palette-accessory"'))).toContain('tabindex=-1');
     expect(source('settings-b-icons.contract').split('\n').find(line => line.includes('role="option"') && line.includes('sb:project-favicon-set'))).toContain('tabindex=-1');
@@ -492,6 +495,7 @@ describe('every modal dialog takes the focus as it opens (Base UI\'s initialFocu
 // can name.
 describe('every modal dialog gives focus back through a surviving observer or its existing close action', () => {
   const owners: Record<string, [string, string[]]> = {
+    'pages-pr-actions.contract "pr-action-dialog"': ['pages-pr-actions.contract', ['pr-action-dialog']],
     'app-overlays.contract "project-dialog"': ['app-overlays.contract', ['project-dialog']],
     'connections-routes.contract "route-remove-dialog"': ['app-settings.contract', ['route-remove-dialog']],
     'connections.contract "environment-remove-dialog"': ['app-settings.contract', ['environment-remove-dialog']],
