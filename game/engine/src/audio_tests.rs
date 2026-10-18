@@ -207,17 +207,13 @@ fn synth_definitions_and_voices_keep_their_encoding() {
     let save = crate::hash::of(&w.save());
     let mut v4 = w.save();
     v4[7] = 4;
-    assert_eq!(
-        crate::hash::of(&v4),
-        0x74c8d1c938b423f9,
-        "only the EXGAME header changed"
-    );
     let pins: BTreeMap<String, String> =
         crate::json::from_str(include_str!("../tests/pins.json")).unwrap();
     for (name, got) in [
         ("definition", definition),
         ("voices", voices),
         ("save", save),
+        ("save-v4", crate::hash::of(&v4)),
         ("world", w.hash()),
     ] {
         let pin = &pins[&format!("synth-only-{name}")];
