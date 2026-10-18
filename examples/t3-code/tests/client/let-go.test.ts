@@ -93,7 +93,7 @@ describe('let go', () => {
 
   test('a send let go mid-flight is neither an error nor a failed operation', async () => {
     const { client, native, disk } = await connected();
-    failOnce(native, request => request.op === 'request', aborted());
+    failOnce(native, request => request.op === 'request' && request.method === 'orchestration.launchThread', aborted());
     const result = await client.command('send', '', 'Hello', 0, letGoAware(native), disk);
     expect(result.message).toBe('');
     expect(client.error).toBe('');
@@ -102,7 +102,7 @@ describe('let go', () => {
 
   test('a send that really fails still shows the error', async () => {
     const { client, native, disk } = await connected();
-    failOnce(native, request => request.op === 'request', new FetchError('Network', 'The network connection was lost.'));
+    failOnce(native, request => request.op === 'request' && request.method === 'orchestration.launchThread', new FetchError('Network', 'The network connection was lost.'));
     await client.command('send', '', 'Hello', 0, letGoAware(native), disk);
     expect(client.error).not.toBe('');
   });

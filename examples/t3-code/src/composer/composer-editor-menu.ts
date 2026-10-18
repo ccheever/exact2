@@ -436,16 +436,19 @@ export function scorePullRequestMatch(entry: Obj, query: string): number {
  * (filterComposerPullRequestMatches); text keeps what the host matched or the
  * row shows, most convincing first (rankPullRequestMatches). Twelve at most.
  */
-export function pullRequestRows(entries: Obj[], projectId: string, repository: string, query: string, providers: Obj[] = []): MenuRow[] {
+export function pullRequestRows(entries: Obj[], projectId: string, repository: string, query: string, providers: Obj[] = [], links: Obj[] = []): MenuRow[] {
   const repo = repository.trim().toLowerCase();
   const scoped = entries.filter(entry => str(entry.projectId) === projectId && str(entry.repository).trim().toLowerCase() === repo);
   const newest = (a: Obj, b: Obj) => str(b.updatedAt).localeCompare(str(a.updatedAt));
   let matches: Obj[];
   if (/^\d*$/.test(query)) {
-    const unique = new Map<number, Obj>();
-    for (const entry of scoped) if (String(entry.number).includes(query) && !unique.has(Number(entry.number))) unique.set(Number(entry.number), entry);
+    const linked = links.filter(link => link.source !== 'stack-dismissed' && link.snapshot != null).map(link => ({ ...obj(link.snapshot), projectId, repository: link.repository, number: link.number, url: link.url, updatedAt: obj(link.snapshot).updatedAt ?? link.linkedAt }));
+    const key = (entry: Obj) => `${str(entry.repository).trim().toLowerCase()}#${String(entry.number)}`;
+    const linkedKeys = new Set(linked.map(key));
+    const unique = new Map<string, Obj>();
+    for (const entry of [...scoped, ...linked]) if (String(entry.number).includes(query) && !unique.has(key(entry))) unique.set(key(entry), entry);
     const exact = (entry: Obj) => Number(String(entry.number) === query);
-    matches = [...unique.values()].sort((a, b) => exact(b) - exact(a) || newest(a, b));
+    matches = [...unique.values()].sort((a, b) => exact(b) - exact(a) || Number(linkedKeys.has(key(b))) - Number(linkedKeys.has(key(a))) || newest(a, b));
   } else {
     matches = scoped.filter(entry => providers.find(provider => str(provider.host) === str(entry.host))?.searchesOnHost === true || matchesPullRequestQuery(entry, query))
       .sort((a, b) => scorePullRequestMatch(b, query) - scorePullRequestMatch(a, query) || newest(a, b));
@@ -453,7 +456,7 @@ export function pullRequestRows(entries: Obj[], projectId: string, repository: s
   return matches.slice(0, 12).map(entry => {
     const state = pullRequestState(entry), [icon, light, dark] = PR_ICON[state] ?? PR_ICON.open!;
     return row({ id: `pull-request:${str(entry.projectId)}:${str(entry.repository)}:${String(entry.number)}`, type: 'pull-request', label: `#${String(entry.number)}`,
-      description: str(entry.title), icon, iconLight: light, iconDark: dark,
+      description: `${str(entry.repository).trim().toLowerCase() === repo ? '' : `${str(entry.repository)} · `}${str(entry.title)}`, icon, iconLight: light, iconDark: dark,
       insert: JSON.stringify({ number: Number(entry.number), title: str(entry.title), url: str(entry.url), headBranch: str(entry.headBranch), baseBranch: str(entry.baseBranch), state: str(entry.state, 'open'), isDraft: entry.isDraft === true }) });
   });
 }

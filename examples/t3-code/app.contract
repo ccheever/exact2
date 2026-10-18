@@ -268,6 +268,7 @@ component T3Code
     streamUpload
     streamMeasured
     codeCopyDone
+    questionDocuments
     welcomeCopyDone
     routeKeyboard
     routeKeyboardInput
@@ -492,6 +493,8 @@ component T3Code
     focus("pr-code-find-query")
     selectText("pr-code-find-query")
   resource markdown = renderMarkdown(data.messages, data.markdownSkills, threadFind.highlight, threadFind.entry, threadFind.occurrence, data.messages.map((message) => MarkdownLabels(id=message.id, chips=message.md.chips))) as shape TranscriptMarkdown
+  resource questionMarkdown = renderQuestionMarkdown(data.questions) as shape TranscriptMarkdown
+  derive questionDocuments = questionMarkdown.documents
   resource attachmentUrls = timelineAttachments(data.threadId, wallTime.epochAtZero + elapsed, data.revision) as shape TimelineAttachmentUrls // Signed preview URLs for the thread's sent images (timeline-attachments.ts).
   resource home = pagesHome(data.revision) as shape PagesHome // Lane pages: the empty main view, the utility pages and the sidebar footer route.
   state utilityPage = ""
