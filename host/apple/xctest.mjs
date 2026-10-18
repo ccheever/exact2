@@ -8,6 +8,21 @@ import { resolve } from 'node:path';
 
 const read = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, ...opts });
 
+/** The fixtures tests boot (scripts/fixtures), compiled at this commit with `run` and named in `env` as `<prefix>_<KEY>_PLAN`:
+ *  a plan carries the kernel schema's digest, so one compiled once and kept in a test goes stale. The snapshot driver's
+ *  entries (LLP 1126.000 WP4) likewise: Caltrain's and the open-question fixture's three families, each an entry plan. */
+export function compileFixtures(root, run, env, dir, prefix) {
+  const contract = (args) => run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', ...args]);
+  for (const [name, key] of [['headless', 'HEADLESS'], ['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE'], ['inline-frame', 'INLINE_FRAME'], ['fieldless', 'FIELDLESS'], ['web-documents', 'WEB_DOCUMENTS'], ['tab-owner', 'TAB_OWNER'], ['grouped-list-reveal', 'GROUPED_REVEAL'], ['due-now', 'DUE_NOW'], ['caret-reveal', 'CARET_REVEAL']]) {
+    contract([resolve(root, `scripts/fixtures/${name}.contract`), '-o', env[`${prefix}_${key}_PLAN`] = resolve(dir, `${name}.plan`)]);
+  }
+  const question = 'host/apple/tests/ExactKitTests/SnapshotFixtures/open-question';
+  for (const [app, kind, key] of [['apps/caltrain', 'next-trains', 'SNAPSHOT_TRAINS'], [question, 'question-small', 'SNAPSHOT_QUESTION_SMALL'],
+    [question, 'question-medium', 'SNAPSHOT_QUESTION_MEDIUM'], [question, 'question-rectangular', 'SNAPSHOT_QUESTION_RECTANGULAR']]) {
+    contract([resolve(root, app, 'app.contract'), '--entry', kind, '-o', env[`${prefix}_${key}_PLAN`] = resolve(dir, `${kind}.plan`)]);
+  }
+}
+
 /** The Swift host tests on this Mac, built under `scratch`: each test class
  *  in an `xctest` process of its own, as many at once as there are cores, so
  *  a crash ends its class and not the run. The classes whose files use what
