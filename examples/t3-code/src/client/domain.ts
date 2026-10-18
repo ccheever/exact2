@@ -33,6 +33,7 @@ export interface Message { id: string; kind: string; title: string; body: string
   local?: boolean;
   code?: { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }[];
   diagrams?: import('../timeline/timeline-mermaid').MermaidDiagramView[];
+  inlineDocuments?: import('../timeline/inline-documents').InlineDocumentView[];
   setup?: import('../timeline/timeline-worktree').SetupView[];
   images?: { id: string; name: string; snapshot: boolean; appName: string; appInitial: string; windowTitle: string; accessible: boolean; video: boolean }[];
   attachFiles?: { id: string; name: string; icon: string }[];

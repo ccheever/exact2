@@ -14,6 +14,7 @@ import { videoMimeType } from '../composer/composer-video'; // sent videos (User
 import { markdownDocument, markdownGallery, markdownMedia, markdownMediaUrls, type GalleryImage, type MediaScope } from '../media/media-views'; // the transcript's host-path media
 import { letGo } from '../client/let-go';
 import { encodeMediaSource, mediaTooltip } from '../media/media-actions';
+import { syncInlineDocuments } from './inline-documents';
 import { draftThreadId } from '../composer/draft-thread-id';
 
 export interface MessageImage { id: string; name: string; snapshot: boolean; appName: string; appInitial: string; windowTitle: string; accessible: boolean; video: boolean }
@@ -44,6 +45,7 @@ const urls = new Map<string, { url: string; expiresAt: number }>();
 type AttachmentUrl = { id: string; url: string; fill: string; hover: string; border: string; ink: string };
 export async function attachmentUrls(client: T3Client, native: Native | null | undefined, now: number): Promise<{ items: AttachmentUrl[] }> {
   if (!native?.available || client.connection !== 'connected') return { items: [] };
+  await syncInlineDocuments(client, native, now);
   if (!client.threadId) return { items: await galleryUrls(client, native, now, new Set()) }; // a draft's Files preview
   const wanted: Obj[] = [];
   for (const row of arr(client.projection.visibleTurnItems)) {
