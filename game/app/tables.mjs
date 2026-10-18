@@ -59,7 +59,8 @@ export async function watchTables({app, dist, publish, refused, reported = () =>
     try {
       const timing = tableOperation(() => {
         const rows = Object.fromEntries(validator.names.map(name => [name, readFileSync(resolve(app, name), 'utf8')]));
-        text = validator.validate(JSON.stringify(rows));
+        text = JSON.stringify(rows);
+        text = validator.validate(text);
         write(resolve(app, tableAsset), text);
         write(resolve(dist, tableAsset), text);
         published = publish(tableAsset, Buffer.from(text));
