@@ -92,11 +92,14 @@ describe('pairing (authorization/remote.ts, resolver.ts)', () => {
 });
 
 describe('requests', () => {
-  test('a request is sent by the tick, and its reply comes back through the delivering answer', async () => {
+  test('the answer that asks sends the request itself, and its reply comes back through the delivering answer with no tick', async () => {
     const { drive, server } = await paired();
     server.methods['orchestration.getSnapshot'] = (_method, payload) => ({ echoed: payload.x });
+    const pumps = { ...drive.pumps }, sent = drive.socketAt(0)!.sent.length;
     let reply: Obj | null = null;
-    void drive.bridge.later({ op: 'request', method: 'orchestration.getSnapshot', payload: { x: 7 } }).then(answer => { reply = answer as Obj; });
+    // The client's own bridge: no tick runs as the op starts or ends.
+    void drive.transport.wrap(drive.module)!.later({ op: 'request', method: 'orchestration.getSnapshot', payload: { x: 7 } }).then(answer => { reply = answer as Obj; });
+    expect(drive.socketAt(0)!.sent.slice(sent)).toMatchObject([{ _tag: 'Request', tag: 'orchestration.getSnapshot', payload: { x: 7 } }]);
     // Nothing resolves outside the delivering answer, even once the Exit is in.
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(reply).toBeNull();
@@ -104,6 +107,22 @@ describe('requests', () => {
     expect(reply!.ok).toBe(true);
     expect(value(reply!)).toEqual({ echoed: 7 });
     expect(server.rpcs.at(-1)).toMatchObject({ method: 'orchestration.getSnapshot', payload: { x: 7 } });
+    expect(drive.pumps).toEqual(pumps);
+  });
+
+  test('a frame no turn may send waits in the outbox, in order, until the mapper sends it after the next frame', async () => {
+    const { drive, server } = await paired();
+    server.methods.first = () => ({ n: 1 });
+    server.methods.second = () => ({ n: 2 });
+    const socket = drive.socketAt(0)!, sent = socket.sent.length;
+    socket.refusing = true; // a turn that may not send (a mutation's synchronous continuation, say)
+    const first = drive.transport.wrap(drive.module)!.later({ op: 'request', method: 'first', payload: {} });
+    socket.refusing = false;
+    const second = drive.transport.wrap(drive.module)!.later({ op: 'request', method: 'second', payload: {} });
+    // The second goes behind the first, which it flushes from its own turn.
+    expect(socket.sent.slice(sent).map(frame => frame.tag)).toEqual(['first', 'second']);
+    await drive.settle();
+    expect([value(await first as Obj), value(await second as Obj)]).toEqual([{ n: 1 }, { n: 2 }]);
   });
 
   test('a typed failure keeps its kind, reason and detail', async () => {
@@ -205,7 +224,8 @@ describe('streams (rpc/client.ts)', () => {
 describe('liveness and the reconnect ladder (supervisor.ts)', () => {
   test('a Ping every ten seconds; a server that stays silent for 35 s is reconnected', async () => {
     const { drive, server } = await paired();
-    await drive.advance(10_250);
+    // The connected tick runs every second, so the Ping goes at its next tick.
+    await drive.advance(11_000);
     expect(drive.socketAt(0)!.sent.filter(frame => frame._tag === 'Ping').length).toBeGreaterThan(0);
     // Silence: the server stops answering Pings.
     server.respond = () => [];

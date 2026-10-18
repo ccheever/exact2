@@ -4,10 +4,12 @@
 // `/oauth/token` for a pairing, `/api/auth/session`, `/api/auth/websocket-ticket`, then `wsTicket` on
 // the socket's URL.
 //
-// Exact drives it, since a data module has no timers and sends only from a mutation or its socket's
-// mapper (LLP 1016.000 D7): an answer runs the HTTP steps (`connectFlow`), a stream resource owns the
-// socket and hands each event to `socketEvent`, and the transport's tick (`tick`, `flush`) sends what
-// the outbox holds, checks deadlines and pings, and starts the next attempt when its backoff is over.
+// Exact drives it, since a data module has no timers (LLP 1016.000 D7 and its amendment of 2026-10-18):
+// an answer runs the HTTP steps (`connectFlow`), a stream resource owns the socket and hands each event
+// to `socketEvent`, the answer that asks for a request sends it on that socket itself, and the
+// transport's tick (`tick`) checks deadlines and pings and starts the next attempt when its backoff is
+// over. A frame no turn may send yet (the socket is not open) waits in the outbox, which the mapper
+// sends when the socket opens and after each frame, as the tick does.
 // Replies that resume an answer are handed to `hooks.deliver`, which a separate answer runs, so the
 // awaiting answer continues inside an answer of its own (exact2's prelude keeps a fetch made after a
 // mapper-resolved await, and only then).
@@ -295,7 +297,7 @@ export class Session {
   }
   /**
    * A connection is being made: a flow runs, its socket has a URL and has not opened, or an attempt waits for the
-   * slot's answer to run its flow (one started again after its answer was let go). The tick runs fast meanwhile.
+   * slot's answer to run its flow (one started again after its answer was let go).
    */
   get establishing(): boolean {
     return this.flowRunning >= 0 || (!!this.url && this.state !== 'connected') || (this.attempt === this.connectAttempt && this.reconnectAt === null && this.wantsFlow(this.attempt));
@@ -540,9 +542,6 @@ export class Session {
     this.send(text);
   }
 
-  /** Whether there is anything for the tick to send. */
-  get hasOutbox(): boolean { return this.outbox.length > 0; }
-
   /** Sends what the outbox holds, within the bound one turn may stage (256 operations, 1 MiB). */
   flush(handle: SocketHandle | null = this.socket): void {
     if (!handle || handle !== this.socket || handle.readyState !== 1) return;
@@ -555,8 +554,16 @@ export class Session {
     }
   }
 
+  /**
+   * Sends `text` now, behind what the outbox holds, when this turn may send on the open socket (an answer's,
+   * the tick's or the mapper's); the outbox keeps it otherwise, as it keeps what a turn's bound refuses.
+   */
   private send(text: string): void {
     if (!this.url) return;
+    if (this.outbox.length) this.flush();
+    if (!this.outbox.length && this.socket?.readyState === 1) {
+      try { this.socket.send(text); return; } catch { /* no turn that may send, or the turn's bound: the outbox keeps it */ }
+    }
     if (this.outbox.length >= 4096 || this.outboxBytes + utf8Length(text) > MAXIMUM_BYTES) {
       return this.connectionFailed(new TransportFailure('Limit', 'The server is not consuming outgoing messages.'), this.generation);
     }

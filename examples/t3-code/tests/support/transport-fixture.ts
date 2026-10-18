@@ -1,7 +1,10 @@
 // A scripted T3 server and the window's side of the transport, for the transport tests: the server
 // answers the HTTP steps and the socket's RPC frames; `Drive` stands in for app.contract's wiring (the
 // tick, each slot's connect answer and socket resource, the delivering answer) and for the runtime that
-// hands each socket event to its mapper.
+// hands each socket event to its mapper. As app.contract runs it, the tick runs every 250 ms while the
+// table says something is near and every second while connected, once when a bridge op starts or ends,
+// and once when the delivering answer reports a table the tick has not published; the delivering answer
+// is asked again only when a socket, a connect answer or the tick has reported a newer delivery count.
 import { Transport, type Table } from '../../src/transport/transport';
 import type { SocketHandle } from '../../src/transport/transport-session';
 import type { SecretStore } from '../../src/transport/transport-catalog';
@@ -23,8 +26,14 @@ export class FakeSocket implements SocketHandle {
   sent: Obj[] = [];
   closed: { code: number; reason: string } | null = null;
   private unread = 0;
+  /** Refuses every send, as exact2's handle does in a turn that may not send. */
+  refusing = false;
   constructor(readonly url: string) {}
-  send(data: string) { if (this.readyState !== 1) throw new Error('InvalidStateError: the socket is not open'); this.sent.push(JSON.parse(data) as Obj); }
+  send(data: string) {
+    if (this.readyState !== 1) throw new Error('InvalidStateError: the socket is not open');
+    if (this.refusing) throw new Error("socket.send is only available in a mutation's synchronous source, its socket's own mapper or an answer in flight");
+    this.sent.push(JSON.parse(data) as Obj);
+  }
   close(code = 1000, reason = '') { this.closed = { code, reason }; this.readyState = 3; }
   take(): Obj[] { const out = this.sent.slice(this.unread); this.unread = this.sent.length; return out; }
 }
@@ -119,6 +128,12 @@ export class Drive {
   private updates: Array<{ step: number; url: string; pending: boolean; socket: FakeSocket | null; socketUrl: string }> = Array.from({ length: 4 }, () => ({ step: -1, url: '', pending: false, socket: null, socketUrl: '' }));
   private socketUrls: string[] = Array.from({ length: 9 }, () => '');
   readonly closedEvents: string[] = [];
+  /** The newest delivery count a socket, a connect or update answer, or the tick reported; the one the delivering answer last saw. */
+  private reported = 0;
+  private delivered = -1;
+  private lastPump = 0;
+  /** Ticks run, by why (`answered`, `republished`, `soon`, `live`). */
+  readonly pumps: Record<string, number> = {};
   /** Answers to the module's ops (`localBearer`, `status`, `links`). */
   module = { available: true, watch(_topic: string) {}, later: async (request: unknown) => this.moduleOp(request as Obj) };
   moduleCalls: Obj[] = [];
@@ -140,7 +155,16 @@ export class Drive {
     this.transport = new Transport({ http, random: () => 0.5, uuid: () => `uuid-${++serial}` });
     this.transport.store = this.store;
     this.table = this.transport.pump(this.now);
+    this.reported = this.table.deliver; this.lastPump = this.now;
   }
+
+  /** The tick, run for `why`. */
+  pump(why: string, reason = '') {
+    this.pumps[why] = (this.pumps[why] ?? 0) + 1;
+    this.table = this.transport.pump(this.now, reason);
+    this.reported = Math.max(this.reported, this.table.deliver); this.lastPump = this.now;
+  }
+  private report(seq: number) { this.reported = Math.max(this.reported, seq); }
 
   private async moduleOp(request: Obj): Promise<unknown> {
     this.moduleCalls.push(request);
@@ -149,7 +173,15 @@ export class Drive {
     return { ok: true, generation: 0, value: {} };
   }
 
-  get bridge() { return this.transport.wrap(this.module)!; }
+  /** The bridge a client answer is handed; the tick publishes the table once as each op starts and once as it ends (transportAnswered). */
+  get bridge() {
+    const inner = this.transport.wrap(this.module)!;
+    return { ...inner, later: (request: unknown) => {
+      const reply = inner.later(request);
+      this.pump('answered');
+      return reply.finally(() => this.pump('answered'));
+    } };
+  }
   /** A bridge op, as the client sends it; its reply once the drive has run, and the window once it is quiet again. */
   async op(request: Obj, rounds = 40): Promise<Obj> {
     let settled: Obj | null = null;
@@ -160,17 +192,21 @@ export class Drive {
     return settled;
   }
 
-  /** Moves the clock and runs the window until nothing changes. */
+  /** Moves the clock, running the tick at its cadences (transportSoon, transportLive), and runs the window until nothing changes. */
   async advance(ms: number, step = 250) {
-    for (let moved = 0; moved < ms; moved += step) { this.now += Math.min(step, ms - moved); await this.turn(); }
+    for (let moved = 0; moved < ms; moved += step) {
+      this.now += Math.min(step, ms - moved);
+      if (this.table.soon) this.pump('soon');
+      else if (this.table.live && this.now - this.lastPump >= 1000) this.pump('live');
+      await this.turn();
+    }
     await this.settle();
   }
   async settle(rounds = 30) { for (let round = 0; round < rounds; round++) if (!await this.turn()) return; }
 
-  /** One turn: the tick, the slots' connect answers and sockets, the servers' replies, the delivering answer. */
+  /** One turn: the slots' connect answers and sockets, the servers' replies, the delivering answer, and the tick it asks for. */
   async turn(): Promise<boolean> {
     let progress = false;
-    this.table = this.transport.pump(this.now);
     for (let index = 0; index < 9; index++) {
       const slot = (this.table as unknown as Record<string, { key: string; attempt: number; check: number; url: string }>)[`s${index}`]!;
       const connect = this.connects[index]!;
@@ -178,6 +214,7 @@ export class Drive {
         connect.pending = true; progress = true;
         const attempt = slot.attempt, check = slot.check;
         void this.transport.connect(index, slot.key, attempt, check, this.module).then(reply => {
+          this.report(reply.seq);
           if (this.connects[index] === connect) Object.assign(connect, { attempt: reply.attempt, check, pending: false });
         });
       }
@@ -193,6 +230,7 @@ export class Drive {
           const session = this.transport.sessionAt(index);
           if (socket) { this.sockets[index] = socket; session?.socketEvent(url, { type: 'open' }, socket); }
           else session?.socketEvent(url, { type: 'error', kind: 'Network', message: 'Could not connect to the server.' }, undefined);
+          this.report(this.transport.seq);
         }
       }
       const socket = this.sockets[index];
@@ -201,16 +239,21 @@ export class Drive {
         if (socket.readyState !== 1 || !server.up) {
           this.sockets[index] = null; this.closedEvents.push(url); progress = true;
           this.transport.sessionAt(index)?.socketEvent(url, { type: 'close', code: 1006, reason: '' }, undefined);
+          this.report(this.transport.seq);
           continue;
         }
         for (const frame of server.respond(socket)) {
           progress = true;
           this.transport.sessionAt(index)?.socketEvent(url, { type: 'message', data: JSON.stringify(frame) }, socket);
+          this.report(this.transport.seq);
         }
       }
     }
     for (let index = 0; index < 4; index++) if (this.updateTurn(index)) progress = true;
-    this.transport.deliver();
+    if (this.reported !== this.delivered) {
+      this.delivered = this.reported;
+      if (this.transport.deliver().table > this.table.rev) { this.pump('republished'); progress = true; }
+    }
     await new Promise(resolve => setTimeout(resolve, 0));
     return progress || this.connects.some(connect => connect.pending) || this.updates.some(update => update.pending);
   }
@@ -222,7 +265,7 @@ export class Drive {
     const update = this.updates[index]!;
     if (slot.key && !update.pending && slot.step !== update.step) {
       update.pending = true; progress = true;
-      void this.transport.updateStep(index, slot.key, slot.step).then(reply => Object.assign(update, { step: reply.step, url: reply.url, pending: false }));
+      void this.transport.updateStep(index, slot.key, slot.step).then(reply => { this.report(reply.seq); Object.assign(update, { step: reply.step, url: reply.url, pending: false }); });
     }
     const url = slot.key && update.step === slot.step ? update.url : '';
     if (url !== update.socketUrl) {
@@ -234,12 +277,13 @@ export class Drive {
         update.socket = server?.accept(url) ?? null;
         if (update.socket) this.transport.outdated.socketEvent(index, url, { type: 'open' }, update.socket);
         else this.transport.outdated.socketEvent(index, url, { type: 'error', message: 'Could not connect.' }, undefined);
+        this.report(this.transport.seq);
       }
     }
     if (update.socket && url) {
       const server = this.servers.get(new URL(url).origin.replace(/^ws/, 'http'))!;
-      if (!server.up) { this.transport.outdated.socketEvent(index, url, { type: 'close', code: 1006 }, undefined); update.socket = null; return true; }
-      for (const frame of server.respond(update.socket)) { progress = true; this.transport.outdated.socketEvent(index, url, { type: 'message', data: JSON.stringify(frame) }, update.socket); }
+      if (!server.up) { this.transport.outdated.socketEvent(index, url, { type: 'close', code: 1006 }, undefined); this.report(this.transport.seq); update.socket = null; return true; }
+      for (const frame of server.respond(update.socket)) { progress = true; this.transport.outdated.socketEvent(index, url, { type: 'message', data: JSON.stringify(frame) }, update.socket); this.report(this.transport.seq); }
     }
     return progress;
   }
