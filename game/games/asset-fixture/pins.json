@@ -1,16 +1,19 @@
 {
   "ticks": {
-    "0": "0xdd18ad0f216a2cd9",
-    "60": "0x483c73a4464f6d73"
+    "0": "0x5afa5f0d9931aba8",
+    "60": "0x2987115a97f93508"
   },
   "saves": {
-    "continuation": "7792fcc2833d0554341c0aacccc912cffc3fb5609f8b4c9d715f2aa4da4ce9ff"
+    "continuation": "4d3596bcd64b499e40ae594705b6c33c8a7a8080345e5f2e6d5a07e47e33f0ca"
   },
   "hosts": [
-    "linux"
+    "linux",
+    "web"
   ],
-  "inputs": "41944440b05d5369a77a8bd7d90dee8fa8f64596980e9074f0c5a3bafac69d6d",
+  "inputs": "f8be8b85be09fc7f85bafc0d3e0154ca8c5d9b25a2e70307034873579c0decd9",
+  "sourceInputs": "b496794c8031dfef5b4a06159e655c1905486499300c0a078b16d4d9779a5537",
   "game": "asset-fixture",
-  "generated": "bun game/prove.mjs asset-fixture --repin --hosts linux",
-  "at": "2c19c834853f9a169c70704b58f0ed255a8d7daa"
+  "generated": "bun game/prove.mjs asset-fixture --repin --hosts 'linux,web'",
+  "at": "04cccf3195442d5d665527b637d45a5cac5a5827",
+  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream"
 }
