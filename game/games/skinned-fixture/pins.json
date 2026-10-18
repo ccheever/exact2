@@ -10,10 +10,10 @@
     "linux",
     "web"
   ],
-  "inputs": "5cd3ebd64bb886d54e53bcc17c42fe5d58df6569af84205440184f8a579fa63e",
-  "sourceInputs": "784c10bc0132ec21f53d045edba3afb14a03bf9489024ac17b1d33ddb57cfb92",
+  "inputs": "fe95aa9418b196d9ebe2872f2fde898bf1a2f8e27b85cd02f46c96f17f3eef5e",
+  "sourceInputs": "5a0f19058475dfde7604829b5376e0db649dccea8a3e208121706cca2a5b6b08",
   "game": "skinned-fixture",
   "generated": "bun game/prove.mjs skinned-fixture --repin --hosts 'linux,web'",
-  "at": "e2208e86c4569591ba21984d531a776a2b0dac1a",
-  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream; MeshData.outline, MaterialData.rim and Node.posable extend saved model identities"
+  "at": "658ffa7cee8d46cf61a6be63a6c5a95da771f93d",
+  "reason": "07170a2db: saved Environment.tone_mapping (Aces) extends the world hash stream and simulation save; fog is None, and delivered fox.model has no saved model identity"
 }
