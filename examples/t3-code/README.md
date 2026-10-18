@@ -228,6 +228,12 @@ server to come back on the new version and shares that state with Settings › C
   server, split and close, the drawer's state kept per thread. The terminal is T3 Code's own
   Ghostty emulator page (`terminal-host/`, built into `assets/`) in a web view
   (`T3TerminalView.swift`); the sessions are native (`T3TerminalSessions.swift`).
+  ANSI colours use VS Code's palette for the scheme. Shift+PageUp and Shift+PageDown page through
+  the scrollback, ⌘⇧Home and ⌘⇧End jump to its start and the latest output (full-screen programs
+  keep these keys), and ⌘A or the context menu's Select all selects the whole history; Jump to
+  latest returns to the current output. The divider drags are native, outside the page, so the
+  view forwards each mouse release in the window to the page, which sends the settled grid to
+  the shell at once, as T3 Code's window listener does.
 - Browser surface: a right-panel Browser tab on a `WKWebView` in the module
   (`T3BrowserSession*.swift`, `browser-*.ts`; T3 Code embeds Chromium, which exact2 does not
   offer, #100): tabs and the chrome row, history and local servers, zoom, appearance, the

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { CompositionKeys, eventKeyNames, keepConversionContext, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
-  terminalInputShortcutData, terminalKeyShortcutData } from "./entry";
+  terminalInputShortcutData, terminalKeyShortcutData, themeFrom } from "./entry";
 
 const key = (init: Partial<KeyboardEvent> & { key: string; code: string }) => ({
   metaKey: false,
@@ -278,5 +278,21 @@ describe("the text the input method converts for ⌥Return", () => {
     input.value = "말";
     input.dispatchEvent(end("말"));
     expect(input.value).toBe("");
+  });
+});
+
+describe("the terminal theme", () => {
+  // ThreadTerminalDrawer terminalThemeFromApp: VS Code's 16 ANSI colours for the app's scheme.
+  test("carries VS Code's ANSI palette for the scheme", () => {
+    const dark = themeFrom({ dark: true }).theme.palette;
+    const light = themeFrom({ dark: false }).theme.palette;
+    expect(dark).toHaveLength(16);
+    expect(light).toHaveLength(16);
+    expect(dark?.[2]).toEqual({ r: 0x0d, g: 0xbc, b: 0x79 });
+    expect(dark?.[12]).toEqual({ r: 0x3b, g: 0x8e, b: 0xea });
+    expect(light?.[2]).toEqual({ r: 0x10, g: 0x7c, b: 0x10 });
+    expect(light?.[15]).toEqual({ r: 0xa5, g: 0xa5, b: 0xa5 });
+    // A custom background keeps the scheme's palette.
+    expect(themeFrom({ dark: true, background: { r: 1, g: 2, b: 3 } }).theme.palette).toEqual(dark);
   });
 });
