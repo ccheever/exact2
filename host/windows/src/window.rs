@@ -559,7 +559,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
             events.set_control_flow(ControlFlow::Wait);
             return;
         }
-        // Pads are polled while the window has focus (below: woken for while one is connected).
+        // Pads are polled while the window has focus (below: when it wakes for them).
         if self.focused {
             self.pads.poll(|index, connected, buttons, axes| {
                 p.hardware_pad(index, connected, buttons, axes)
@@ -583,8 +583,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
         } else {
             events.set_control_flow(ControlFlow::Wait);
         }
-        if self.focused && self.pads.any() {
-            let soon = Instant::now() + Duration::from_millis(8);
+        // While focused the window wakes to poll the pads: often while one is
+        // connected, and steadily for one that connects.
+        if self.focused {
+            let soon = self.pads.next_poll(Instant::now());
             if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= soon) {
                 events.set_control_flow(ControlFlow::WaitUntil(soon));
             }
