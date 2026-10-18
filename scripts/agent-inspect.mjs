@@ -705,7 +705,7 @@ export function withRegions(env) {
 export function renderLook(r) {
   const q = JSON.stringify, head = `tick ${r.tick} · hash ${r.hash}`;
   if (r.visible) return `${head}\n${r.entity?.name ?? '#' + r.entity?.id}: ${r.visible} (${r.reason})`;
-  if (r.draws) return [head, ...r.draws.map((d) => [d.pass.padEnd(13), d.draw, d.winding, d.submitted != null && `submitted ${d.submitted}`, d.kept != null && `kept ${d.kept}`, d.variant != null && `variant ${d.variant}`, 'fragments' in d && `fragments ${d.fragments ?? 'not measured'}`, 'covered' in d && (d.covered == null ? 'coverage not measured' : d.covered ? 'covered' : 'COVERED NOTHING'), `writes ${d.writes}`].filter(Boolean).join(' · '))].join('\n');
+  if (r.draws) return [head, ...r.draws.map((d) => [d.pass.padEnd(13), d.draw, d.winding, d.submitted != null && `submitted ${d.submitted}`, d.kept != null && `kept ${d.kept}`, d.variant != null && `variant ${d.variant}`, 'fragments' in d && `fragments ${d.fragments ?? 'not measured'}`, 'covered' in d && (d.covered == null ? 'coverage not measured' : d.covered ? 'covered' : 'COVERED NOTHING'), d.summary && 'one entry for all its draws', `writes ${d.writes}`].filter(Boolean).join(' · '))].join('\n');
   return [head, ...lookLines(r.look)].join('\n');
 }
 function lookLines(look) {
@@ -734,27 +734,41 @@ export async function worldLook(s, args) {
 
 /** After `clock settle` (`r` its reply) and every pixel `screenshot`, each shown world's tells where its canvas draws (LLP
  * 1127.000 D1): a look frame of the tick the clock reached, whose `look: …` lines reach the world's `logs`. The reply
- * carries them as `look`, what a frame could not measure as `lookGaps`, and a look frame that failed as `lookFailed`.
- * The worlds are the ones shown now (a settle's reply lists them; otherwise `state` does). A canvas that draws no
- * frames (the GPU-less host) answers at once and adds none. */
+ * carries them as `look`, the canvases looked at as `lookSeen`, what a frame could not measure, or a drawing canvas's "no
+ * picture", as `lookGaps`, and a look frame that failed as `lookFailed`. The worlds are the ones shown now (a settle's
+ * reply lists them; otherwise `state` does). A canvas that draws no frames (the GPU-less host) answers at once and adds
+ * none. */
 export async function worldTells(s, r) {
   if (r == null || r.error != null) return r;
-  const lines = [], gaps = [], failed = [];
+  const lines = [], gaps = [], failed = [], seen = [];
   const shown = Array.isArray(r.world) ? r.world : await s.op({ op: 'state' }).then((st) => st.world ?? [], (error) => (failed.push(`worlds: ${error.message}`), []));
   for (const id of shown.map((w) => w.canvas).filter((c) => c != null)) {
     const reply = await s.op({ op: 'state', id, world: true, look: true, drawing: true }).catch((error) => ({ error: error.message }));
-    if (reply.unavailable) continue;
+    if (reply.unavailable) { if (reply.drawing !== false) gaps.push(`canvas ${id}: ${reply.unavailable}`); continue; }
     if (reply.error != null || !reply.look) { failed.push(`canvas ${id}: ${reply.error ?? 'no look in the reply'}`); continue; }
+    seen.push(id);
     lines.push(...reply.look.tells.map((t) => t.line));
     gaps.push(...(reply.look.gaps ?? []).map((g) => `canvas ${id}: ${g}`));
   }
-  return { ...r, ...(lines.length ? { look: lines } : {}), ...(gaps.length ? { lookGaps: gaps } : {}), ...(failed.length ? { lookFailed: failed } : {}) };
+  const tags = [['look', lines], ['lookSeen', seen], ['lookGaps', gaps], ['lookFailed', failed]];
+  return { ...r, ...Object.fromEntries(tags.filter(([, v]) => v.length)) };
 }
 
-/** Several replies' tells, gaps and failures together: a film's live frames (a look frame's `look` is its own). */
+/** A film's frames together (`s.film`): each judged frame's tells as one entry of `lookFrames` (a live frame's lines, or
+ * a look frame from the game's camera at full resolution; a reduced or other view's frame is a picture), all of them as
+ * `look`, and every frame's gaps, failures and canvases looked at. */
 export function lookAcross(replies) {
-  const all = (key) => replies.flatMap((r) => (Array.isArray(r?.[key]) ? r[key] : []));
-  return Object.fromEntries([['look', all('look')], ['lookGaps', all('lookGaps')], ['lookFailed', all('lookFailed')]].filter(([, v]) => v.length));
+  const frames = [], gaps = [], failed = [], seen = [];
+  for (const r of replies) {
+    const own = r?.look && !Array.isArray(r.look) && !r.look.reduced && !r.view ? r.look : null;
+    const judged = Array.isArray(r?.look) ? r.look : own ? (own.tells ?? []).map((t) => t.line) : null;
+    if (judged) frames.push(judged);
+    gaps.push(...(r?.lookGaps ?? []), ...(own?.gaps ?? []));
+    failed.push(...(r?.lookFailed ?? []));
+    seen.push(...(r?.lookSeen ?? []));
+  }
+  const tags = [['look', frames.flat()], ['lookFrames', frames.some((f) => f.length) ? frames : []], ['lookGaps', gaps], ['lookFailed', failed], ['lookSeen', [...new Set(seen)]]];
+  return Object.fromEntries(tags.filter(([, v]) => v.length));
 }
 
 /** One look frame of `target` from `view` ({} the game's camera, {top}, or {yaw, pitch, distance}) written to `path`. */
