@@ -111,6 +111,7 @@ component T3Window
     releaseFold: action
     jumpRequest: number
     composerOwner: string
+    prConfirmDisarm: action
     chatLocal: action
     markdown: TranscriptMarkdown
     earlier: action
