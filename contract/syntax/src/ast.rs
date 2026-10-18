@@ -364,6 +364,13 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `expect refusal "mutation"`: the named send must be refused.
+    ExpectRefusal {
+        /// Mutation name, as reported by the runner.
+        target: String,
+        /// Where.
+        span: Span,
+    },
     /// `expect tree has "testId"` / `expect tree missing "testId"`.
     ExpectTree {
         /// The node, by `testId`.
@@ -1377,44 +1384,6 @@ pub enum TemplatePart {
     Text(String),
     /// `${expr}`.
     Expr(Expr),
-}
-
-impl Step {
-    /// Where: the step's line.
-    pub fn span(&self) -> Span {
-        match self {
-            Step::Tap { span, .. }
-            | Step::Drag { span, .. }
-            | Step::Size { span, .. }
-            | Step::Epoch { span, .. }
-            | Step::TimeZone { span, .. }
-            | Step::Locale { span, .. }
-            | Step::Seed { span, .. }
-            | Step::Fresh { span, .. }
-            | Step::BeforeData { span }
-            | Step::FailFetch { span, .. }
-            | Step::PassFetch { span, .. }
-            | Step::Request { span, .. }
-            | Step::Type { span, .. }
-            | Step::Key { span, .. }
-            | Step::Pick { span, .. }
-            | Step::Clipboard { span, .. }
-            | Step::Clock { span, .. }
-            | Step::Reload { span, .. }
-            | Step::Close { span }
-            | Step::Back { span }
-            | Step::Resize { span, .. }
-            | Step::Screenshot { span, .. }
-            | Step::ExpectTree { span, .. }
-            | Step::ExpectDisabled { span, .. }
-            | Step::ExpectText { span, .. }
-            | Step::ExpectState { span, .. }
-            | Step::ExpectSound { span, .. }
-            | Step::Midi { span, .. }
-            | Step::ExpectMediaSession { span, .. }
-            | Step::ExpectMediaSessionAction { span, .. } => *span,
-        }
-    }
 }
 
 impl Expr {

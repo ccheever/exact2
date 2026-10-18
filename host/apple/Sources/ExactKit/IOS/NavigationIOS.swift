@@ -400,9 +400,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private func installPrimary(_ p: Projection, first: [RouteController]) {
         guard primaryNavigation == nil else { return }
         // Find the containing controller before installing our child.
-        var responder: UIResponder? = p.root
-        while responder != nil && !(responder is UIViewController) { responder = responder?.next }
-        guard let parent = responder as? UIViewController else { return }
+        guard let parent = ViewPresentation.controller(for: p.root) else { return }
         if let tabs = p.tabs {
             installTabs(p, tabs, first: first, in: parent)
             return
@@ -801,12 +799,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// The key of the route a view is mounted under, for `layout <node>`
     /// (LLP 1035.002 D1) — an observation of UIKit's containment.
     func routeKey(containing view: UIView) -> String? {
-        var responder: UIResponder? = view
-        while let current = responder {
-            if let route = current as? RouteController { return route.key }
-            responder = current.next
-        }
-        return nil
+        ViewPresentation.controllers(for: view).compactMap { ($0 as? RouteController)?.key }.first
     }
 
     func isInactiveRoute(containing view: UIView) -> Bool {

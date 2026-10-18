@@ -423,6 +423,25 @@ fn compute_preliminary(tree: &mut impl LayoutFlexboxContainer, node: NodeId, inp
             .maybe_resolve(inner_container_size, |val, basis| tree.calc(val, basis))
             .unwrap_or(0.0);
         constants.gap.set_main(constants.dir, new_gap);
+
+        // EXACT PATCH 47: max-content width uses the unwrapped sum, but its
+        // clamped inner width governs line breaks for both measured height and
+        // final frames. A max-content root need not receive another layout pass.
+        // https://www.w3.org/TR/css-flexbox-1/#main-sizing
+        let rewrap = constants.is_row
+            && constants.is_wrap
+            && available_space.width == AvailableSpace::MaxContent
+            && constants.max_size.width.is_some();
+        #[cfg(feature = "flexbox_balance")]
+        let rewrap = rewrap && !constants.is_balance;
+        if rewrap {
+            drop(flex_lines);
+            flex_lines = collect_flex_lines(
+                &constants,
+                Size { width: AvailableSpace::Definite(inner_container_size), ..available_space },
+                &mut flex_items,
+            );
+        }
     }
 
     // 6. Resolve the flexible lengths of all the flex items to find their used main size.
@@ -1343,6 +1362,15 @@ fn collect_flex_lines<'a>(
         lines
     } else {
         let main_axis_available_space = match constants.max_size.main(constants.dir) {
+            // EXACT PATCH 47: max-content row width is measured without wrapping;
+            // compute_preliminary then wraps at the clamped width to size height
+            // and place items, including when there is no later layout pass.
+            // Columns still wrap at max-height: MaxContent also represents the
+            // indefinite height offered by ordinary block layout.
+            // https://www.w3.org/TR/css-flexbox-1/#intrinsic-main-sizes
+            Some(_) if constants.is_row && available_space.width == AvailableSpace::MaxContent => {
+                AvailableSpace::MaxContent
+            }
             Some(max_size) => AvailableSpace::Definite({
                 let available = available_space.main(constants.dir).into_option().unwrap_or(max_size);
                 // If the container's main size is not definite then it is at most the max main size,
@@ -1386,11 +1414,13 @@ fn collect_flex_lines<'a>(
                         .iter()
                         .enumerate()
                         .find(|&(idx, child)| {
-                            // Gaps only occur between items (not before the first one or after the last one)
-                            // So first item in the line does not contribute a gap to the line length
-                            let gap_contribution = if idx == 0 { 0.0 } else { main_axis_gap };
-                            line_length += child.hypothetical_outer_size.main(constants.dir) + gap_contribution;
-                            line_length > main_axis_available_space && idx != 0
+                            // EXACT PATCH 47: sum items and gaps separately, as intrinsic sizing does.
+                            // Interleaving fractional gaps can round a fitting line above its limit.
+                            line_length += child.hypothetical_outer_size.main(constants.dir);
+                            let gap_sum = sum_axis_gaps(main_axis_gap, idx + 1);
+                            // Allow 1/1024px of f32 roundoff at the fit boundary: sixteen times
+                            // smaller than Chrome's 1/64px layout unit, independent of container size.
+                            line_length + gap_sum - main_axis_available_space > 1.0 / 1024.0 && idx != 0
                         })
                         .map(|(idx, _)| idx)
                         .unwrap_or(flex_items.len());
@@ -3587,6 +3617,52 @@ mod intrinsic_tests {
     use crate::geometry::{Line, Size};
     use crate::prelude::*;
     use crate::tree::{LayoutPartialTreeExt, SizingMode};
+
+    // Chrome 151.0.7922.34, 2026-10-18: rows inside width:max-content wrappers.
+    #[test]
+    fn capped_max_content_rows_measure_their_wrapped_height() {
+        let mut failures = Vec::new();
+        for (width, gap, maximum, expected) in [
+            (60.0, 0.0, 100.0, Size { width: 100.0, height: 90.0 }),
+            (100.0, 0.0, 100.0, Size { width: 100.0, height: 90.0 }),
+            (60.1, 0.1, 300.0, Size { width: 180.5, height: 30.0 }),
+            (60.1, 0.1, 150.0, Size { width: 150.0, height: 60.0 }),
+            (73.33, 0.1, 300.0, Size { width: 220.19, height: 30.0 }),
+            (73.33, 0.1, 150.0, Size { width: 150.0, height: 60.0 }),
+            (60.2, 0.2, 120.6, Size { width: 120.6, height: 60.0 }),
+            (60.4, 0.1, 181.4, Size { width: 181.4, height: 30.0 }),
+            (60.4, 0.125, 181.4, Size { width: 181.4, height: 60.0 }),
+        ] {
+            for direction in [FlexDirection::Row, FlexDirection::RowReverse] {
+                for wrap in [FlexWrap::Wrap, FlexWrap::WrapReverse] {
+                    let mut tree = TaffyTree::<()>::new();
+                    let items: Vec<_> = (0..3).map(|_| tree.new_leaf(Style {
+                        size: Size { width: length(width), height: length(30.0) },
+                        flex_shrink: 0.0,
+                        ..Default::default()
+                    }).unwrap()).collect();
+                    let row = tree.new_with_children(Style {
+                        flex_direction: direction,
+                        flex_wrap: wrap,
+                        align_content: Some(AlignContent::FLEX_START),
+                        max_size: Size { width: length(maximum), height: auto() },
+                        gap: Size { width: length(gap), height: length(0.0) },
+                        ..Default::default()
+                    }, &items).unwrap();
+                    for mode in [SizingMode::ContentSize, SizingMode::InherentSize] {
+                        tree.mark_dirty(row).unwrap();
+                        let size = tree.as_layout_tree().measure_child_size_both(
+                            row, Size::NONE, Size::NONE, Size::MAX_CONTENT, mode, Line::FALSE,
+                        );
+                        if (size.width - expected.width).abs() > 0.001 || size.height != expected.height {
+                            failures.push(format!("{width}; gap {gap}; max {maximum}; {direction:?}; {wrap:?}; {mode:?}: {size:?}"));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
 
     // Chrome 151.0.7922.34, 2026-10-18: a max-content grid item with a
     // bounded width sizes its percentage-width square before its height.

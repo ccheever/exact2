@@ -3329,8 +3329,11 @@ The clone at `d2406b4` was run on exact2 `272f117e3`.
 sections) lands with LLP 1122 T5's `set-row`. A refuses an unread param, so either op only works
 paired with a row rewrite. Its `.contract` ownership infrastructure arrives with stage 8 D.
 
-**Queued:** a stale duration seen once on the JS loop after writes queued behind a slow first
-verifying build (not reproduced in three replays).
+**Queued, then closed:** a stale duration seen once on the JS loop after writes queued behind a
+slow first verifying build (not reproduced in three replays). Closed by rt1's JS-loop builds
+(`7a1c8e84f..bf2e295c2`): a build that started before a newer edit is stopped or set aside, never
+published; the clone's sequence (`Drawer.fade` 400ms then 250ms behind slow builds) now reads 0.25s
+on a fresh page.
 
 **Stage 7 is closed.**
 
@@ -3462,7 +3465,7 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
     - `outline` finds a node from a `uses` location that is a part's row.
     - The JS target's CSSOM token and tuple writes call the glue's `repaintPress`.
     - The wasm looks sheet is written once per batch (a microtask).
-  - theme2's 07:06 question: a node's own `:active` where it has no `press` (nor `href`) never holds, and is `lower-state-dead` (a lint, as `:disabled`'s); a class's part is not judged.
+  - theme2's 07:06 question: a node's own `:active` where it has no `press` never holds, and is `lower-state-dead` (a lint, as `:disabled`'s); a class's part is not judged. A pressable link (`link`, `button`) with an `href` and no `press` is linted too, as unreliable: only Apple presses it, and the web by touch (theme2's 11:48 ruling; the hosts' disagreement is LLP 1061's, on QUEUE); a `text` link never holds it.
   - **Deviation (QUEUE):** on the web, a node's own `transition` on a property a look sets times the look's change. The look rule can't keep it out.
 - **The JS target** (`host/web-js`):
   - The static tree applies each node's looks rows (`SetLooks`), and the template carries their declarations. A varying token's sentinel becomes its `var()`, as in a class, and look declarations join the sentinel scan.
@@ -3603,3 +3606,52 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
 - **Tests:** `contract/cli/tests/it/control_roles.rs` (the Mac's switches warned, never the web's;
   best-effort silent; nothing set, nothing judged; a field's own row exempting its role; the iOS
   disabled glass line).
+
+### Stage 8, commit E1: held states: the `hold` command, the server, the web and the agent's `holdState` (draft for theme2)
+
+Built to the approved plan (`~/x2theme/x2p4-s8e-plan.md`; theme2's 07:48 ruling and its conditions), under the one 1.11 bullet.
+
+- **The server** (`scripts/tamber-builds.mjs`, `scripts/tamber-server.mjs`):
+  - `hold {client, build, site, instance, state}` needs write scope and a present client. It names a build that holds states; another is told (409, `unsupported: "hold"`).
+  - One hold a build, its client's. A new one replaces the old; `state: null` lets it go; the client going lets its holds go.
+  - It's sent as the build channel's `hold {revision, hold}`.
+  - **Replay.** A build that registers again gets the hold under the same plan. A build that runs another plan (a `planDigest` that moved, at a status or a registration) gets it at the one site of the new plan's map at the old site's source location (`correspond`, through `sitesAt`). Otherwise the hold is cleared with `hold-cleared` to every client.
+  - A build's `held` report is every client's event (07:48 (c)). One that lets a hold go for `input`, `disabled` or `gone` ends it at the server.
+  - Holds don't survive a server restart, as pins don't.
+- **The web, both targets.** The input glue's `exact.hold(el, state, dropped)` holds the real state, handlers never told:
+  - `active`: the press of the node the press resolves to (`[data-exact-on~=press]` up from the site's element, as a real press), via `showPress`, so the press paint and scale ease as a real press's, at once on the agent's clock.
+  - `hover` and `focus-visible`: `data-exact-held`, which `looks::rules` now writes beside `:hover` and `:focus-visible` under the same disabled guard (07:48 (b)).
+  - A disabled node refuses one. Real input on the node lets it go: a press, a key, the pointer over it for a hover, the focus for a focus. So does its disabling or going (a mutation observer, only while held).
+  - The wasm page's `dev.js` and the JS target's `inspect-dev.js` resolve a frame's site and instance path to exactly one view, as a refresh does, and report `held`. Both register `hold`.
+- **The agent's form** (LLP 1012 amended): `{"op":"tap","id":V,"holdState":…}`, and `tap <target> hold-state active|hover|focus-visible|none` in the CLI. It calls the same glue and replies `{tapped, holdState, delivery: "recognized"}`.
+- **What is held** (LLP 1122 D8):
+  - `layout`'s node answer, and a selection made in inspect mode, carry `held {state, rows}` by wire name: the press paint's rows for `active`, the look's held rule's rows otherwise.
+  - The server's join gives each row its `state` and its `source`: an `:active` row's part's place (the map's `at`), a look's row its node's.
+- **Tests:**
+  - `tamber-builds.test.mjs`: one a build, refusals, unsupported, `held` to every client, replay under the same plan, at the corresponding site, cleared otherwise, input letting go, the client going.
+  - `tamber-server.test.mjs`: through the method, a present client, the next plan's site.
+  - `host/web/tests/hold.test.mjs` (Chrome): `active` resolved to the press node with its paint and rows; no press there is `gone`; `hover` by its held rule with its rows; real input, disabling and going letting go; a disabled node refusing.
+  - `tamber-inspect.test.mjs` (held rows joined), `agent-keys.test.mjs` (the CLI word), `looks.rs` (the held rules).
+- **After review round 1 (Astra, Grok):**
+  - Revisions: every hold frame, a replay included, has a new one, and only a report naming the last one sent counts (`held` requires it). A late echo or a superseded frame's `replaced` is dropped. A let-go at that revision ends the hold, an agent's hold in its place included.
+  - A registration with no hold is sent `hold: null`; a replay that finds no single site sends `hold: null` as well as `hold-cleared`. A hold or its end announces `builds`.
+  - A hold `unsupported` is checked against the hold revision, not the pin's; it ends the hold and goes to its owner alone (07:48 (c); an event's `only`, which the subscription and the long poll honour).
+  - The wasm dev loop's new generation lets the hold go unsaid (`exact.holdQuiet`, before the tree goes) and takes it again itself under the same plan; under another, the server's replay does once the status names it.
+  - The JS target: hold frames run one at a time, and one a newer frame replaced while it waited is dropped; the runtime is imported from beside `app.js`; `layout` and the selection carry `held`.
+  - No single view there lets the previous hold go too. Instance paths compare with sorted keys.
+  - `active` resolves to the innermost press handler only (07:48), not a bare styled button. A real press on the node as it is held ends there: its release leaves the held paint.
+  - Looks held snap, on and off, an authored transition or not. The pointer or the focus leaving the node lets a hover or a focus go.
+  - Held rows a token or a role writes carry `computed`, and the held answer says `provenance: "incomplete"`.
+- **After review round 2 (Astra, Grok):**
+  - The wasm loop: only the latest hold frame applies (a same-plan replay queued before a newer clear does not), and a frame a generation swap overtook while it waited is left unsaid to `rehold` (same plan) or the server's replay; a clear always applies. Taking the same frame again (resent, or `rehold`'s) reports no `replaced`; the JS target likewise.
+  - The JS target: an instance path that does not resolve matches nothing (not the empty path); an unreadable inspect table lets the previous hold go and refuses this one by name.
+  - The server: a let-go closes its revision (a late applied report of it is dropped); an applied report with no hold kept applies nothing; a hold `unsupported` clears `held`; a hold taken before the build named a plan takes the first plan it names; the owner-only field is `only` (`to` stays the inspect handoff's).
+  - `active` resolves to the innermost press handler only, as the ruling says; `heldOf` answers for the element named too (a label inside the press), with the press's rows.
+  - The wasm agent's `holdState` waits for the glue as the JS agent's does. `hello`'s builds name `hold` and `held`.
+- **After review round 3 (Astra, Grok):**
+  - The wasm loop binds each hold frame, as it arrives, to the generation it addresses and that generation's plan digest. One a generation swap overtook applies only once the swap is done and under that same plan; otherwise it is left unsaid to the server's replay (no `gone` ahead of the new plan's status). `rehold` binds the frame afresh.
+  - A revision the page let go of itself (input, disabled, gone) is not taken again when a poll resends its frame (both targets).
+  - The JS target: a table of a rebuilt plan (the page reloads to it) refuses nothing; the new page's registration replays the hold. A leaving view (`data-exiting`) is no match on either target, and a held node that starts to leave is gone.
+- **After the re-check (Astra):** a frame bound at arrival could still address the old plan once the new runner was in. The server now names the plan a hold's site addresses (`hold {revision, hold, plan}`), and every host takes a frame of another plan as nothing, unsaid, for the replay to correspond. Ended revisions are forgotten at a lower revision (a new server's), and a refusal ends its revision too.
+- **After the second re-check (Astra):** a hold from before a new stream (a server restart, a reconnect) neither ends a revision nor reports a let-go on the new one (ended revisions and reports are scoped to the stream and the server's run), so a new revision of the same number still applies and the new server's hold is not ended by the old one's. The protocol's `hold` bullet names `plan`.
+

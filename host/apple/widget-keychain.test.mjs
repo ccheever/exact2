@@ -10,7 +10,8 @@ test.skipIf(!process.env.EXACT_WIDGET_KIT)('getTimeline reads the secret saved b
   const sim = process.env.EXACT_SIM;
   if (!sim) throw new Error('Create a test simulator and set EXACT_SIM; this test never selects a shared device');
   const dir = resolve(root, 'target/widget-keychain-test'), app = resolve(dir, 'app');
-  const id = 'com.exact.widget-keychain-test', nonce = `keychain-${crypto.randomUUID().slice(0, 8)}`;
+  // AX joins wrapped widget lines with ", "; keep the random secret on one line.
+  const id = 'com.exact.widget-keychain-test', nonce = crypto.randomUUID().slice(0, 8);
   const env = { ...process.env, DEVELOPER_DIR: '/Applications/Xcode.app/Contents/Developer' };
   delete env.EXACT_AGENT; delete env.EXACT_STORE;
   mkdirSync(dir, { recursive: true });
@@ -59,6 +60,7 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
   mkdirSync(resolve(kit, 'out'), { recursive: true });
   cpSync(resolve(process.env.EXACT_WIDGET_KIT), resolve(kit, 'kit'), { recursive: true });
   const control = resolve(kit, 'kit/control.mjs'), state = resolve(kit, 'build/control.json');
+  writeFileSync(resolve(dir, 'controller.log'), '');
   const server = Bun.spawn([process.execPath, control, sim, 'serve'], { cwd: root, env: { ...env, PROBE_APP_ID: id }, stdout: Bun.file(resolve(dir, 'controller.log')), stderr: 'inherit' });
   try {
     let exited = false;

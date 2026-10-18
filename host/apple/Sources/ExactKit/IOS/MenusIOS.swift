@@ -41,6 +41,8 @@ final class MenuHost {
     /// and the web's are, out of its parent and back at its index after.
     private var agentOpen: [String: Lifted] = [:]
     var presented: [NodeView] { agentOpen.values.sorted { $0.order < $1.order }.compactMap(\.popover) }
+    /// The layers lifted over a dialog's sheet: outside the viewport and the route mounts.
+    var sheetLayers: [UIView] { agentOpen.values.sorted { $0.order < $1.order }.map(\.layer).filter { $0.sheet != nil && $0.superview != nil } }
     func logicalParent(of view: UIView) -> UIView? {
         #if os(iOS)
         if let parent = context.logicalParent(of: view) { return parent }
@@ -66,6 +68,8 @@ final class MenuHost {
     private var opened = 0
     private final class Lifted {
         var placement = PositionArea.History()
+        /// Anchored to its opener at least once.
+        var placed = false
         let source: UInt32?
         weak var popover: NodeView?
         weak var parent: UIView?
@@ -76,25 +80,16 @@ final class MenuHost {
         /// one), which hiding hides it with (LLP 1021 §5, "Submenus").
         let order: Int
         let ancestor: String?
-        let layer = TopLayer(frame: .zero)
+        let layer: PopoverLayer
         #if os(iOS)
         var relay: MountRelay?
         #endif
-        init(source: UInt32?, popover: NodeView, order: Int, ancestor: String?) {
+        init(source: UInt32?, popover: NodeView, order: Int, ancestor: String?, presenter: Presenter) {
             self.source = source; self.popover = popover; self.order = order; self.ancestor = ancestor
+            layer = PopoverLayer(presenter: presenter, order: order, popover: popover)
             parent = popover.superview
             index = parent?.subviews.firstIndex(of: popover) ?? 0
             center = popover.center
-        }
-    }
-    /// The top layer takes no touch itself, only what it holds.
-    private final class TopLayer: UIView {
-        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-            guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
-            for child in NodeView.hitOrder(subviews) {
-                if let hit = child.hitTest(convert(point, to: child), with: event) { return hit }
-            }
-            return nil
         }
     }
 
@@ -609,6 +604,8 @@ final class MenuHost {
     /// UIKit's alert and menu read their rows, never their frames.
     private var laidOut = Set<UInt32>()
     private var coverPending = false
+    /// Whether `box`, a `dialog` or popover, is given back to layout now.
+    func isLaidOut(_ box: NodeView) -> Bool { laidOut.contains(box.id) }
     /// `box` laid out now, before it shows in Exact's views: a sheet, the
     /// top layer, a context menu's preview.
     func layOut(_ box: NodeView) {
@@ -713,24 +710,36 @@ final class MenuHost {
             if let i = wanted.firstIndex(where: { $0 === entry.popover }) { entry.index = i } else { drop(name) }
         }
     }
-    /// Into the top layer, above everything of the page's (its routes and
-    /// containers are under the viewport's root) and so in the agent's
-    /// `screenshot`, anchored to its opener by its `position-area` (as
-    /// macOS's; below it by default). Over a modal,
-    /// the modal's view.
+    /// Revisit only the hosts captured at opening, including after UIKit detaches one.
+    func rehostPopovers() {
+        for entry in agentOpen.values.sorted(by: { $0.order < $1.order }) { lift(entry) }
+    }
+
     private func lift(_ entry: Lifted) {
         guard let presenter, let pop = entry.popover else { return }
         #if os(iOS)
         if entry.relay == nil { entry.relay = MountRelay(presenter, mount: entry.layer) }
         #endif
-        let host: UIView = presenter.modals.coordinateView ?? presenter.viewport
-        if entry.layer.superview !== host || host.subviews.last !== entry.layer { host.addSubview(entry.layer) }
-        entry.layer.setPaintForeground()
-        if entry.layer.frame != host.bounds { entry.layer.frame = host.bounds }
+        entry.layer.mount(in: presenter)
         if pop.superview !== entry.layer { entry.layer.addSubview(pop) }
         if pop.isHidden { pop.isHidden = false }
-        guard let source = entry.source.flatMap({ presenter.views[$0] }), source.window != nil else {
-            pop.center = CGPoint(x: entry.layer.bounds.midX, y: entry.layer.bounds.midY); return
+        var placement = entry.layer.bounds
+        if let top = presenter.keyboardTop {
+            let end = entry.layer.convert(CGPoint(x: 0, y: top), from: nil).y
+            placement.size.height = max(0, min(placement.maxY, end) - placement.minY)
+        }
+        defer {
+            if presenter.keyboardTop != nil {
+                let height = pop.bounds.height
+                let y = max(placement.minY + height / 2, min(pop.center.y, placement.maxY - height / 2))
+                if pop.center.y != y { pop.center.y = y }
+            }
+        }
+        let opener = entry.source.flatMap { presenter.views[$0] }
+        guard let source = opener, source.window != nil else {
+            // An opener out of the window for now (its sheet leaving) keeps the place it gave; one gone recentres it.
+            if !entry.placed || opener == nil { pop.center = CGPoint(x: placement.midX, y: placement.midY) }
+            return
         }
         let anchorView: UIView = source.isNativeButton ? presenter.controls.controls[source.id] ?? source : source
         var anchor = anchorView.convert(anchorView.bounds, to: entry.layer)
@@ -740,8 +749,9 @@ final class MenuHost {
         let at = PositionArea.origin(PositionArea.of(pop), anchor: anchor, size: size,
                                     margins: PositionArea.margins(of: pop),
                                     fallbacks: pop.style["position_try_fallbacks"]?.string ?? "none",
-                                    history: &entry.placement, in: entry.layer.bounds)
+                                    history: &entry.placement, in: placement)
         let center = CGPoint(x: at.x + size.width / 2, y: at.y + size.height / 2)
+        entry.placed = true
         if pop.center != center { pop.center = center }
     }
     /// Out of the top layer, hidden, back where it was; the popovers nested
@@ -822,9 +832,9 @@ final class MenuHost {
     }
     private func agentShow(_ pop: NodeView, named name: String, from source: UInt32?) {
         layOut(pop)
-        guard live(pop) else { return }
+        guard let presenter, live(pop) else { return }
         // Nested in the latest open popover holding its opener or itself.
-        let opener = source.flatMap { presenter?.views[$0] }
+        let opener = source.flatMap { presenter.views[$0] }
         let ancestor = agentOpen.filter { _, open in
             guard let outer = open.popover else { return false }
             return opener.map { $0.isDescendant(of: outer) } == true || pop.isDescendant(of: outer)
@@ -835,12 +845,13 @@ final class MenuHost {
             for (other, entry) in agentOpen where entry.popover?.props["popover"] != "manual" && !keep.contains(other) { drop(other) }
         }
         opened += 1
-        let entry = Lifted(source: source, popover: pop, order: opened, ancestor: ancestor)
+        let entry = Lifted(source: source, popover: pop, order: opened, ancestor: ancestor, presenter: presenter)
+        entry.layer.rehost = { [weak self] in self?.rehostPopovers() }
         agentOpen[name] = entry
-        presenter?.popoverEvents.changed(pop, open: true)
+        presenter.popoverEvents.changed(pop, open: true)
         lift(entry)
-        presenter?.controls.syncShown()
-        if let field = Self.autofocus(in: pop) { presenter?.focusNode(field) }
+        presenter.controls.syncShown()
+        if let field = Self.autofocus(in: pop) { presenter.focusNode(field) }
     }
     /// Under the agent, a context menu (LLP 1021 §5.1) is its popover painted
     /// in the top layer, anchored to `node`, as an invoker's (D4): its
@@ -1057,9 +1068,7 @@ final class MenuHost {
     /// The controller a presentation from `view` goes over: its own, or the
     /// dialog sheet that is already up over it.
     private func controller(for view: UIView) -> UIViewController? {
-        var responder: UIResponder? = view
-        while responder != nil && !(responder is UIViewController) { responder = responder?.next }
-        guard let found = responder as? UIViewController else { return nil }
+        guard let found = ViewPresentation.controller(for: view) else { return nil }
         if let top = sheets.top, top !== found, found.presentedViewController != nil, top.view.window === found.view.window { return top }
         return found
     }
@@ -1359,18 +1368,19 @@ final class MenuHost {
             if row.props["contextPreview"] == "true" { continue }
             // A submenu authored inside its parent is no row of it.
             if row.props["popover"] != nil { continue }
+            let face = label(of: row)
             if let children = submenu(of: row, path: path + [pop]) {
                 // UIMenu has no disabled state: a disabled opener is a dimmed action.
                 let element: UIMenuElement = row.props["disabled"] == "true"
-                    ? UIAction(title: title(of: row), image: image(of: row), attributes: .disabled) { _ in }
-                    : UIMenu(title: title(of: row), image: image(of: row), children: children)
-                element.subtitle = row.isNativeButton ? row.face?.subtitle : nil
+                    ? UIAction(title: face.title, image: image(of: row), attributes: .disabled) { _ in }
+                    : UIMenu(title: face.title, image: image(of: row), children: children)
+                element.subtitle = face.subtitle
                 sections[sections.count - 1].append(element)
                 rows.append(GivenRow(row, title: element.title, subtitle: element.subtitle))
             } else if row.handlers.contains("press") || opensConfirmation(row) {
                 let id = row.id, token = row.incarnation
                 let image = image(of: row)
-                let action = UIAction(title: title(of: row), image: image) { [weak self] action in
+                let action = UIAction(title: face.title, image: image) { [weak self] action in
                     // The row this menu showed, not a recycled view's next node,
                     // and still enabled: a disabled button does nothing (HTML)
                     func current() -> NodeView? {
@@ -1393,7 +1403,7 @@ final class MenuHost {
                         _ = self.openConfirmation(from: nil, popover: target, modal: invocation.action == .showModal, anchorItem: anchorItem, dispatchPress: false)
                     }
                 }
-                action.subtitle = row.isNativeButton ? row.face?.subtitle : nil
+                action.subtitle = face.subtitle
                 if row.props["accessibilityChecked"] == "true" { action.state = .on }
                 if row.props["disabled"] == "true" { action.attributes.insert(.disabled) }
                 if row.props["destructive"] == "true" { action.attributes.insert(.destructive) }
@@ -1417,67 +1427,5 @@ final class MenuHost {
         let children = items(of: sub, path: path)
         return children.isEmpty ? nil : children
     }
-
-    /// A row's item image: its symbol, custom or native (LLP 1069.011.000
-    /// D5), else its `img` — a provider's own icon — once that has loaded.
-    /// The menu reads what the hidden row already holds; opening it never
-    /// fetches, and an image still loading is no image until the next open.
-    private func image(of row: NodeView) -> UIImage? {
-        guard row.isButton else { return nil }
-        if let symbol = row.face?.symbol { return UIImage(systemName: symbol) }
-        guard !row.isNativeButton, let img = Self.firstImage(in: row) else { return nil }
-        if let symbol = img.image, img.imageSource?.hasPrefix("symbol:") == true { return symbol }
-        return img.raster.map { Self.rowImage($0.image.image) }
-    }
-    /// A menu row draws an image at its own size: fit it in the row's icon
-    /// box, keeping its ratio.
-    static func rowImage(_ bitmap: CGImage) -> UIImage {
-        let side: CGFloat = 24, natural = CGSize(width: bitmap.width, height: bitmap.height)
-        let scale = min(side / max(natural.width, 1), side / max(natural.height, 1))
-        let size = CGSize(width: natural.width * scale, height: natural.height * scale)
-        return UIGraphicsImageRenderer(size: size).image { _ in
-            UIImage(cgImage: bitmap).draw(in: CGRect(origin: .zero, size: size))
-        }.withRenderingMode(.alwaysOriginal)
-    }
-    private static func firstImage(in view: UIView) -> NodeView? {
-        for case let node as NodeView in (view as? NodeView)?.container.subviews ?? view.subviews {
-            if node.kind == "image" { return node }
-            if let found = firstImage(in: node) { return found }
-        }
-        return nil
-    }
-
-    private func title(of v: NodeView) -> String {
-        if v.kind == "text" { return v.paragraphSpec().runs.map(\.text).joined() }
-        // A native button's children are its face, not views: its title, else its label.
-        if v.isNativeButton { return v.face?.shown ?? "" }
-        // A custom button whose face fits shows it too: a symbol-only row its
-        // label (LLP 1069.011.000 D5); other content keeps its text.
-        if v.isButton, let face = v.face, face.fits, let shown = face.shown { return shown }
-        // Its accessible name: an `aria-hidden` child (a submenu row's `›`,
-        // which the platform menu draws itself) is not part of it.
-        return v.container.subviews
-            .compactMap { $0 as? NodeView }
-            .filter { $0.props["accessibilityElementsHidden"] != "true" }
-            .map(title(of:))
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-    }
 }
-/// Observes UIKit touches without consuming the underlying control's activation.
-final class PopoverTouch: UIGestureRecognizer, UIGestureRecognizerDelegate {
-    private weak var host: MenuHost?
-    init(host: MenuHost) {
-        self.host = host
-        super.init(target: nil, action: nil)
-        cancelsTouchesInView = false; delaysTouchesBegan = false; delaysTouchesEnded = false
-        delegate = self
-    }
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        if let touched = touches.first?.view { host?.lightDismiss(touched) }
-        state = .failed
-    }
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
-}
-
 #endif

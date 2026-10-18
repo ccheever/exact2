@@ -67,15 +67,7 @@ extension Agent {
     private func axRoots(_ view: ExactView) -> [AnyObject] {
         var roots: [AnyObject] = [view]
         #if os(iOS) || os(tvOS)
-        // A presentation mounts its navigation beside the viewport (ModalIOS)
-        for mount in presenter.modals.mountRoots {
-            var v: UIView = mount
-            while let s = v.superview, !(s is UIWindow) { v = s }
-            if v !== view, !view.isDescendant(of: v), !v.isDescendant(of: view),
-               !roots.contains(where: { $0 === v }) { roots.append(v) }
-        }
-        // A `dialog` in its sheet is outside both (DialogSheetIOS.swift).
-        roots += presenter.menus.sheets.roots
+        roots = presenter.accessibilitySurfaces
         #else
         // A dialog's sheet, the sheets on it, and the popovers AppKit shows (LLP 1115.002 D7).
         for sheet in presenter.sheets(on: view.window) { if case .owned(let content) = presenter.axSheet(sheet) { roots.append(content) } }
@@ -577,7 +569,10 @@ extension Presenter {
             if view == nil, let e = obj as? UIAccessibilityElement { view = e.accessibilityContainer as? UIView }
             // A container holding the modal view is around it, not beside it.
             guard let view, !modal.isDescendant(of: view) else { continue }
-            w.elements[k]["outsideModal"] = !(view === modal || view.isDescendant(of: modal))
+            // A lifted subtree can be beside the modal's card while still authored inside it.
+            let inside = surface(containing: view)?.kind == .popover
+                && sequence(first: view, next: { self.listenerParent(of: $0) }).contains { $0 === modal }
+            w.elements[k]["outsideModal"] = !(view === modal || view.isDescendant(of: modal) || inside)
         }
     }
     #endif

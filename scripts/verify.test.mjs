@@ -743,6 +743,28 @@ test('the largest text size: its findings once each with the screens they were o
   assert.equal(web.lines[1], 'largest text size (root font size 53 px at 390x844, iOS\'s body at its largest), 1 screen: nothing spills');
 });
 
+// Round 21's event-rsvp at the largest text size: a centred caption wider than its column runs past both of its sides and
+// 1.7 pt into the next column's caption, which read "GoingMaybe" while verify said nothing spills. Two texts set flush on
+// purpose only touch, and texts whose boxes overlap where their lines are drawn apart (`ink`) do not run together.
+test('the largest text size: a text past its column, and two texts that run into each other', async () => {
+  const { judge, line } = await import('./agent-check.mjs');
+  const { largeRemedy } = await import('./verify.mjs');
+  const obs = { viewport: { w: 402, h: 874 }, target: 44, items: [
+    { id: 13, x: 22.33, y: 314, w: 110, h: 52, text: 'Going', spill: { by: 11, dx: 9.67 } },
+    { id: 16, x: 130.67, y: 314, w: 125.33, h: 52, text: 'Maybe' },
+    { id: 20, x: 16, y: 500, w: 10, h: 20, text: '$' },
+    { id: 21, x: 26, y: 500, w: 20, h: 20, text: '12' },
+    { id: 22, x: 16, y: 600, w: 300, h: 20, text: 'Title', ink: { x: 16, y: 600, w: 40, h: 20 } },
+    { id: 23, x: 50, y: 600, w: 266, h: 20, text: 'Value', ink: { x: 280, y: 600, w: 36, h: 20 } },
+  ] };
+  const nodes = new Map([[11, { id: 11, type: 'View', props: {} }], [13, { id: 13, type: 'Text', props: { text: 'Going' } }], [16, { id: 16, type: 'Text', props: { text: 'Maybe' } }]]);
+  const found = judge(obs, null, { host: 'ios' });
+  assert.deepEqual(found.map((f) => [f.kind, f.id]), [['overflow', 13], ['overlap', 13]]);
+  const lines = found.map((f) => line({ ...f, hint: largeRemedy(f) }, nodes));
+  assert.match(lines[0], /^ {2}overflow Text "Going"#13 \[22,314 110×52\]: runs 10 pt past View#11's side, and nothing there scrolls or clips it; wrap the row/);
+  assert.match(lines[1], /^ {2}overlap {2}Text "Going"#13 \[22,314 110×52\]: overlaps Text "Maybe"#16 by 1\.7×52; wrap the row/);
+});
+
 // LLP 1116.021 follow-up (water-tracker, contacts, round 20): a label a list's row cuts is given an ellipsis or a taller row,
 // never the flex-wrap the row does not take; an iOS test end at a window the phone shows scaled measures no contrast or target.
 test('the largest text size in a list row; a scaled iOS test end', async () => {

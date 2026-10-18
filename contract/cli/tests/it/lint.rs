@@ -535,6 +535,9 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
         (app("", "text \"a\" font-size=\"-2px\""), "lower-attr-value", "`font-size=\"-2px\"` is not a valid `font-size`: expected a nonnegative length"),
         (app("", "text \"a\" width=10px"), "syntax-unquoted-length", "`width=10px` needs quotes: a value with a unit is a string, `width=\"10px\"` (a bare number is pixels)"),
         (app("", "text \"a\" className=\"x\""), "lower-unknown-attr", "`text` has no attribute `className`; `class` names a `style` declared in this file, as in `class=Card`"),
+        // The euxy port's `style=`: the word is `class=`, or the declarations are attributes.
+        (app("", "text \"a\" style=\"title\""), "lower-unknown-attr", "`text` has no attribute `style`; write `class=title`: a look nodes share is a `style Name` block in the file, named with `class=Name`, and a node's own look is its attributes"),
+        (app("", "text \"a\" style=\"padding: 8px; color: red;\""), "lower-unknown-attr", "`text` has no attribute `style`; write the declarations as attributes, `padding=\"8px\" color=\"red\"`: a node's look is its attributes, and a look nodes share is a `style Name` block in the file, named with `class=Name`"),
         (
             app("  state n = 0\n", "text n"),
             "lower-attr-type",
@@ -568,6 +571,35 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
     ] {
         let e = contract::compile(&src).unwrap_err();
         assert_eq!((e.id.as_str(), e.message.as_str()), (id, message), "{src}");
+    }
+}
+
+/// `style=`'s declarations come back as attributes that compile: a quote, a
+/// backslash or another control character in a value escaped as a string
+/// literal takes it, and a run of whitespace (a newline) one space, as CSS
+/// reads it.
+#[test]
+fn style_declarations_are_suggested_as_attributes_that_compile() {
+    let app = |attrs: &str| format!("component A\n  view\n    text \"a\" {attrs}\n");
+    for (written, suggested) in [
+        (
+            r#"style="font-family: \"Times New Roman\", serif; color: red""#,
+            r#"font-family="\"Times New Roman\", serif" color="red""#,
+        ),
+        (
+            r#"style="padding: 8px\n 16px;\tmargin:\u{d}\n4px""#,
+            r#"padding="8px 16px" margin="4px""#,
+        ),
+        (r#"style="aria-label: a\u{1}b""#, r#"aria-label="a\u{1}b""#),
+    ] {
+        let e = contract::compile(&app(written)).unwrap_err();
+        let edit = e
+            .message
+            .split('`')
+            .nth(5)
+            .unwrap_or_else(|| panic!("{}", e.message));
+        assert_eq!(edit, suggested, "{written}");
+        contract::compile(&app(edit)).unwrap_or_else(|e| panic!("{edit}: {e}"));
     }
 }
 

@@ -22,6 +22,7 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
     linux: ['scripts/build-linux.mjs', name],
     android: ['scripts/agent-android.mjs', 'build', name],
     update: ['scripts/exact.mjs', 'new', dir, '--update'],
+    lock: ['scripts/app-cli.mjs', '--lock', dir],
     contract: ['scripts/exact.mjs', 'contract'],
     tamber: ['scripts/exact.mjs', 'tamber'],
     hatch: ['scripts/exact.mjs', 'hatch'],
@@ -180,4 +181,27 @@ if (verb === 'contract') {
     }
     return failed;
   }, { verb: 'test', optional: true }));
+}
+
+/** Explicit app lock repair: preserve selected versions and resolve only manifest drift. */
+export async function lockApp(dir) {
+  const { cargoEnvironment } = await import('./app.mjs');
+  const options = { cwd: dir, env: cargoEnvironment(), encoding: 'utf8', maxBuffer: 1 << 26 };
+  const located = spawnSync('cargo', ['locate-project', '--workspace', '--message-format', 'plain', '--manifest-path', resolve(dir, 'Cargo.toml')], options);
+  if (located.status !== 0) throw new Error(`cannot find the app's Cargo workspace: ${located.stderr || located.error?.message}`);
+  const workspace = resolve(located.stdout.trim(), '..'), lock = resolve(workspace, 'Cargo.lock');
+  const before = existsSync(lock) ? readFileSync(lock, 'utf8') : '';
+  let result = spawnSync('cargo', ['metadata', '--offline', '--format-version', '1'], { ...options, cwd: workspace });
+  if (result.status !== 0 && /no matching package named|--offline was specified|attempting to make an HTTP request|in the offline mode|offline mode \(via `--offline`\)/.test(result.stderr ?? '')) {
+    console.error(`${workspace}: fetching missing Cargo sources to resolve the app lock`);
+    result = spawnSync('cargo', ['metadata', '--format-version', '1'], { ...options, cwd: workspace });
+  }
+  if (result.status !== 0) throw new Error(`could not resolve ${lock}: ${result.stderr || result.error?.message}`);
+  const { lockChanges } = await import('../game/app/shells.mjs');
+  const changes = lockChanges(before, readFileSync(lock, 'utf8'));
+  return `${lock}: ${changes.length ? `resolved\n${changes.join('\n')}` : 'current; no changes'}`;
+}
+if (import.meta.main && process.argv[2] === '--lock') {
+  try { console.log(await lockApp(process.argv[3])); }
+  catch (error) { console.error(error.message); process.exitCode = 1; }
 }

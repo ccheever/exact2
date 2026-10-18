@@ -12,6 +12,9 @@
 //! or `Chrome 151 content minimum` were measured on 2026-10-18 with Chrome
 //! 151.0.7922.34, including full container and item frames for wrapping
 //! columns, automatic item minima and row controls.
+//! `Chrome 151 shrink-to-fit row max` uses the same version and date for
+//! capped absolute rows, rows inside capped absolute blocks, and controls
+//! for normal flow, no maximum, nowrap, widths below the maximum and columns.
 //!
 //! A fixture line is `name`, the root's declarations, the nodes (`id>parent>
 //! declarations>text`, joined by ` & `) and Chrome's frames (`id=x,y,w,h`),
@@ -132,6 +135,68 @@ fn check(all: Vec<(String, Vec<String>)>, owed: &[&str]) {
 fn positioned_boxes_roots_and_ratios_match_chrome() {
     let fixture = include_str!("fixtures/browser_position.tsv");
     check(failures(fixture, true), &[]);
+}
+
+/// Chrome 151.0.7922.34, 2026-10-18: a width:max-content wrapper around each
+/// case. The eight basic row cases also agree inside float:left wrappers.
+/// A max-content root offer must publish wrapped frames without a parent's
+/// definite-width pass.
+#[test]
+fn max_content_roots_wrap_at_their_resolved_width() {
+    use exact_kernel::{NodeType, Offer, Op};
+
+    let mut wrong = Vec::new();
+    for case in cases(include_str!("fixtures/browser_max_content.tsv")) {
+        let mut ops = Vec::new();
+        for (id, css) in std::iter::once((1, case.root)).chain(case.nodes.iter().map(
+            |(id, parent, css, text)| {
+                assert_eq!(*parent, 1);
+                assert!(text.is_empty());
+                (*id, *css)
+            },
+        )) {
+            ops.push(Op::CreateView {
+                id,
+                node_type: NodeType::View,
+            });
+            ops.push(Op::SetStyle {
+                id,
+                patch: Box::new(props(&css_rows(css))),
+            });
+        }
+        ops.extend([
+            Op::SetChildren {
+                id: 1,
+                children: case.nodes.iter().map(|node| node.0).collect(),
+            },
+            Op::AttachRoot { id: 1 },
+        ]);
+        let mut k = crate::support::reader::kernel();
+        k.apply(0, 1, &ops).unwrap();
+        k.compute_layout(1, Offer::MAX_CONTENT).unwrap();
+        // Chrome quantizes each length to 1/64px. These fractional cases
+        // accumulate up to five such lengths; their measured drift is <0.05px.
+        let tolerance = if case.name.starts_with("fractional ") {
+            0.05
+        } else {
+            0.01
+        };
+        for (id, want) in &case.want {
+            let f = k.node(*id).unwrap().frame;
+            let got = [f.x, f.y, f.width, f.height];
+            if got
+                .iter()
+                .zip(want)
+                .any(|(g, w)| !g.is_finite() || !w.is_finite() || (g - w).abs() > tolerance)
+            {
+                wrong.push(format!(
+                    "{} #{id}: kernel {got:?}, Chrome {want:?}",
+                    case.name
+                ));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
 /// LLP 1074 T1: `position: static` is the default, an absolute box's

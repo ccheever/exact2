@@ -19,6 +19,7 @@ use exact_kernel::style::{roles, theme};
 use exact_kernel::{Color, ColorValue};
 use exact_tamber as tamber;
 use scan::Said;
+pub(crate) use scan::{literal_leaves, words};
 
 /// One resolved entry: the names it answers to and the colour text it
 /// stands for, which names no entry.
@@ -361,7 +362,13 @@ impl Lowerer<'_> {
                     let loose = |d: &tamber::Diagnostic| {
                         d.line >= SYNTHETIC && !said.synthetic[(d.line - SYNTHETIC) as usize].strict
                     };
-                    if all.iter().all(loose) {
+                    // A strict synthetic token the fold refused is said and
+                    // dropped too, so the design and the expressions that
+                    // folded stay bound; a refusal in the design binds none.
+                    if all.iter().all(|d| d.line >= SYNTHETIC) {
+                        for d in all.iter().filter(|d| !loose(d)) {
+                            self.design_refusal(d, &origin, &said);
+                        }
                         let dropped: Vec<usize> =
                             all.iter().map(|d| (d.line - SYNTHETIC) as usize).collect();
                         let mut i = 0;

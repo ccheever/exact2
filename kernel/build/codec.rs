@@ -611,8 +611,8 @@ enum MetricCell {
     Text(String),
 }
 /// A `metrics` row: the name, the kind, then iOS's, the Mac's, the web's and
-/// the neutral look's value; or the name, the kind and the neutral look's
-/// value alone.
+/// the neutral look's value, and Android's Material look's where it is not
+/// the web's; or the name, the kind and the neutral look's value alone.
 type MetricRow = Vec<MetricCell>;
 /// One cell of a `kind` row as the generated value. A `style` cell is a
 /// number or CSS text; a `length` is px as a number, or `em` or `rem` as
@@ -677,6 +677,7 @@ fn write_metrics(w: &mut String, metrics: &[MetricRow], taken: &[&str]) {
         "    /// On the Mac.\n    pub macos: MetricValue,\n",
         "    /// In the web's first look, which a process reads until its host says otherwise.\n    pub web: MetricValue,\n",
         "    /// In the neutral look: the web's, and a host's that paints its own controls.\n    pub neutral: MetricValue,\n",
+        "    /// In Android's Material look: the web's first look unless the row says otherwise.\n    pub material: MetricValue,\n",
         "}\n",
     ));
     let mut names = BTreeSet::new();
@@ -702,14 +703,15 @@ fn write_metrics(w: &mut String, metrics: &[MetricRow], taken: &[&str]) {
             _ => panic!("schema: metric {name}: a kind is style, length or number"),
         };
         let unset = MetricCell::Text("unset".into());
-        let [ios, macos, web, neutral] = match &row[2..] {
-            [neutral] => [&unset, &unset, &unset, neutral],
-            [ios, macos, web, neutral] => [ios, macos, web, neutral],
-            _ => panic!("schema: metric {name}: a row is its name, its kind and a value for iOS, the Mac, the web and the neutral look, or for the neutral look alone"),
+        let [ios, macos, web, neutral, material] = match &row[2..] {
+            [neutral] => [&unset, &unset, &unset, neutral, &unset],
+            [ios, macos, web, neutral] => [ios, macos, web, neutral, web],
+            [ios, macos, web, neutral, material] => [ios, macos, web, neutral, material],
+            _ => panic!("schema: metric {name}: a row is its name, its kind and a value for iOS, the Mac, the web and the neutral look (and Android's Material look where it is not the web's), or for the neutral look alone"),
         }
         .map(|cell| metric_cell(name, kind, cell));
         rows.push_str(&format!(
-            "Metric {{ name: {name:?}, kind: MetricKind::{variant}, ios: {ios}, macos: {macos}, web: {web}, neutral: {neutral} }},\n"
+            "Metric {{ name: {name:?}, kind: MetricKind::{variant}, ios: {ios}, macos: {macos}, web: {web}, neutral: {neutral}, material: {material} }},\n"
         ));
         if kind != "style" {
             ids.push_str(&format!(

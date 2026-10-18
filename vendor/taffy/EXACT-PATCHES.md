@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42 and 43 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46 and 47 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1332,6 +1332,62 @@ and positive and negative margins. The added cases had 100 frame mismatches
 before this patch. The nowrap and row defects also reproduce on origin/main
 before patch 45; its available-space floor masked the reported wrapping-column
 case.
+
+## Patch 47: measure a capped row's max-content width without wrapping
+
+`collect_flex_lines` preserves a row's `MaxContent` width constraint when it
+has a maximum. All items contribute to one line, as
+[CSS Flexbox §9.9.1](https://www.w3.org/TR/css-flexbox-1/#intrinsic-main-sizes)
+requires; the existing size clamp then applies the maximum. `compute_preliminary`
+recollects lines against the clamped inner width before resolving flexible lengths,
+measuring height and placing items. This also covers a root laid out directly
+under `MaxContent` and a both-axis size measurement, which need not receive a
+later definite-width pass. Line fitting sums item lengths and gaps separately,
+matching intrinsic width accumulation. Interleaving fractional gaps can round a
+line above its own max-content width or a maximum that should fit it exactly.
+The fit comparison also allows 1/1024px of rounding error: a sum can round above
+an independently represented width even with consistent accumulation. This
+fixed tolerance is sixteen times smaller than Chrome's 1/64px layout unit.
+Columns retain maximum-based wrapping:
+ordinary block layout also uses `MaxContent` for indefinite vertical space.
+Balanced wrapping is unchanged and remains disabled in the kernel.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+16 full container/item frame cases measured in Chrome 151.0.7922.34 on
+2026-10-18. Absolute rows and rows inside capped absolute blocks are 100×90
+with three 60×30 items; reversed items start at x=40. Controls cover normal
+flow, no maximum in a 100px containing block, nowrap, contents narrower than
+the maximum, and absolute and normal-flow columns in both directions. The
+added cases had 12 frame mismatches before this patch.
+
+`browser_position::max_content_roots_wrap_at_their_resolved_width` holds 14
+further Chrome cases under `Offer::MAX_CONTENT`: 60px and 100px items in both
+row directions and wrapping directions, gaps and padding in both box-sizing
+modes, and nowrap, below-maximum and column controls. The Chrome analog is a
+row inside a `width:max-content` wrapper; `float:left` wrappers give the same
+eight basic row frames. These were measured with the same Chrome version and
+date. Before recollecting lines, ten cases had 34 frame mismatches, including
+100×30 roots that should be 100×90. Taffy's
+`capped_max_content_rows_measure_their_wrapped_height` holds the eight basic
+cases in both sizing modes; all 16 measurements previously returned 30px height.
+
+Ten further root-frame cases and 40 measurements cover fractional widths and
+gaps in both row directions, with maxima above and below the unwrapped width.
+The root frames use the same Chrome version, date and `width:max-content`
+analog. Three 60.1px items with 0.1px gaps fit on one line below a 300px maximum;
+60.2px items with 0.2px gaps fit two per line under a 120.6px maximum. Before
+matching the accumulation order, these cases had ten frame mismatches and 16
+incorrect measured heights. The 73.33px controls cover two-decimal item widths.
+Chrome's 1/64px length quantization accounts for less than 0.05px frame
+drift in these fixtures; the size measurements check widths within 0.001px
+and heights exactly.
+
+Eight boundary root-frame cases cover three 60.4px items under `width:181.4px`
+and `max-width:181.4px`, in both row directions. With 0.1px gaps they occupy
+one line; 0.125px gaps still force wrapping. These use the same Chrome version,
+date and wrapper. Sixteen further measurements cover the maximum in both sizing
+and wrapping modes. Without the fit tolerance, the 0.1px cases had eight frame
+mismatches and eight measurements with 60px height instead of 30px.
 
 ## Cargo workspace boundary
 

@@ -295,6 +295,9 @@ public final class ExactApp {
         transaction = true
         let batches = prepared.map { (session, candidate) in (session, session.commit(candidate)) }
         resolver = candidateResolver
+        #if EXACT_WIDGET_GALLERY
+        NotificationCenter.default.post(name: Notification.Name("ExactWidgetGeneration"), object: self)
+        #endif
         devGeneration = identity
         lastPlan = bytes
         lastModule = module
@@ -468,7 +471,8 @@ public final class ExactSession {
     private var colorObserver: NSObjectProtocol?
     #endif
 
-    init(app: ExactApp, label: String) {
+    init(app: ExactApp, label: String, launchPlace: LaunchPlace = LaunchPlace()) {
+        self.launchPlace = launchPlace
         self.app = app
         self.label = label
         let runtime = Runtime()
@@ -1240,7 +1244,7 @@ public final class ExactSession {
     }
 
     /// Drawn once per launch; the same across a dev reload's new runner.
-    let launchPlace = LaunchPlace()
+    let launchPlace: LaunchPlace
     /// The machine zone's offset now, told when it is not the one last told:
     /// at boot and before each advance, so a DST change or a new zone reaches
     /// the timer that fires after it (habits F6). Under the agent, the

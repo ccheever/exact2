@@ -45,8 +45,12 @@ test('the neutral sheet\'s colours are the role table\'s neutral column', () => 
 // it to the table both ways: every length it writes is a row's, on a property that row is written on, and every row
 // is written. A length that follows from rows (a pill's radius, a thumb's travel) is named beside its reason.
 test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral column', () => {
-  const rows = JSON.parse(read('../../../kernel/tables/schema.json')).metrics.filter(([, kind]) => kind !== 'style');
-  const value = new Map(rows.map((row) => [row[0], row.at(-1)]));
+  // A row's neutral value is its third cell when it has three, else its sixth; a row whose neutral value is unset is
+  // another look's own (Android's Material rows) and no sheet's here.
+  const neutralCell = (row) => (row.length === 3 ? row[2] : row[5]);
+  const rows = JSON.parse(read('../../../kernel/tables/schema.json')).metrics
+    .filter((row) => row[1] !== 'style' && neutralCell(row) !== 'unset');
+  const value = new Map(rows.map((row) => [row[0], neutralCell(row)]));
   const length = (name) => { const v = value.get(name); return typeof v === 'number' ? `${v}px` : v.replace(/^0\./, '.'); };
   // The properties each length is written on.
   const WHERE = {

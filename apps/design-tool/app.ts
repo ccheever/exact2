@@ -26,6 +26,12 @@ const RESTARTED = 'The design server restarted (or another took its port) since 
 // A write's wait: longer than the server's own for a write (two minutes),
 // so the tool never gives up on one that then lands.
 const WRITE_WAIT = 130_000;
+// A design read's requests' (its describe, resolves and hello), queued at
+// the one server behind each other: as long as a write's.
+const READ_WAIT = WRITE_WAIT;
+// The resolves a read has in flight at once (a browser opens six
+// connections to one origin).
+const RESOLVES_AT_ONCE = 4;
 const NO_SERVER = `No design server answers at ${API}. Start one for your app with \`bun exact.mjs tamber tool <app>\`, then try again.`;
 
 type Diagnostic = { file?: string; line?: number; id?: string; message?: string } | string;
@@ -214,18 +220,30 @@ let liveTable = false;
 
 /** One consistent read of a design: `describe`, each token's `resolve`, and
  * the files' digests again after them; if a write landed between, the
- * replies may be of two revisions, so it reads again. */
-async function readDesign(file: string): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string>; pairs?: unknown }> {
+ * replies may be of two revisions, so it reads again. `wanted`: false once
+ * a newer read overtakes it, which then asks for nothing more. */
+async function readDesign(file: string, wanted: () => boolean): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string>; pairs?: unknown }> {
   const which = file ? { file } : {};
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const described = await call('/__tamber', { method: 'describe', ...which });
+  for (let attempt = 0; attempt < 3 && wanted(); attempt++) {
+    const described = await call('/__tamber', { method: 'describe', ...which }, READ_WAIT);
     if (described.error) return { error: described.error };
     const ir = described.reply.ok?.ir, pairs = described.reply.ok?.pairs;
     if (!ir || !Array.isArray(ir.tokens) || !Array.isArray(ir.axes) || ir.axes.some((a: Axis) => !Array.isArray(a.values))) return { error: 'The design server answered describe with no design in it.' };
-    const resolved = await Promise.all(ir.tokens.map((t: { name: string }) => call('/__tamber', { method: 'resolve', token: t.name, ...which })));
+    // A few at a time, so the browser keeps connections for the long poll
+    // and the other reads; each waits behind the others at the one design
+    // server, so the wait is the whole read's, not one request's.
+    const resolved: Awaited<ReturnType<typeof call>>[] = [];
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(RESOLVES_AT_ONCE, ir.tokens.length) }, async () => {
+      while (next < ir.tokens.length && wanted()) {
+        const i = next++;
+        resolved[i] = await call('/__tamber', { method: 'resolve', token: ir.tokens[i].name, ...which }, READ_WAIT);
+      }
+    }));
+    if (!wanted()) return { error: 'overtaken by a newer read' };
     const failed = resolved.find(r => r.error);
     if (failed) return { error: failed.error };
-    const after = await call('/__tamber', { method: 'hello' });
+    const after = await call('/__tamber', { method: 'hello' }, READ_WAIT);
     if (after.error) return { error: after.error };
     const before = described.reply.ok.files ?? {};
     const now = after.reply.ok?.files ?? {};
@@ -241,7 +259,7 @@ async function readDesign(file: string): Promise<{ error: string; ir?: any; reso
     }));
     if (same && placed) return { error: '', ir, resolved: resolved.map(r => r.reply.ok), files: before, pairs };
   }
-  return { error: 'The design kept changing while it was read. Try again.' };
+  return { error: wanted() ? 'The design kept changing while it was read. Try again.' : 'overtaken by a newer read' };
 }
 
 /** An edit's operation in `tamber/1`'s shape, on `file` (the app's design
@@ -445,6 +463,9 @@ const owned = (b: any, client: string) => { if (client && b && 'inspector' in b)
 // The app's design file, as hello names it: what "" reads.
 let designFile = '';
 let lastFiles: Record<string, string> = {};
+// Each file change the poll has seen, and each fresh start of it: what a
+// design read follows (with the digests), not every event's `seq`.
+let fileChanges = 0;
 const digestKey = (files: Record<string, string> = {}) => JSON.stringify(Object.keys(files).sort().map(f => [f, files[f]]));
 // Each read's stored values, axes and columns, by `<file>|<its digest>`; a few.
 const reads = new Map<string, { stored: Map<string, Stored[][]>; axes: Axis[]; columns: Column[] }>();
@@ -590,6 +611,7 @@ function noted(e: any) {
     return;
   }
   if (e.event !== 'changed') return;
+  fileChanges += 1;
   const who = typeof e.client === 'string' ? e.client : 'changed on disk';
   const before = lastFiles, after: Record<string, string> = e.files ?? {};
   lastFiles = after;
@@ -667,7 +689,7 @@ const sources: Sources = {
   loadDesign: async ([file]) => {
     const number = ++issued, axesAt = !file || file === designFile ? ++axesReads : -1;
     try {
-      const read = await readDesign(file);
+      const read = await readDesign(file, () => number === issued);
       if (read.error) return noDesign(read.error);
       const ir = read.ir, resolved = read.resolved!;
       const axes: Axis[] = ir.axes;
@@ -787,7 +809,7 @@ const sources: Sources = {
     const found = partsOf(kind, value, name => kinds?.get(name));
     return found ? { ok: true, of: value, ...found } : { ok: false, of: value, parts: [], tail: '' };
   },
-  proposeEdit: async ([file, kind, target, when, value]) => {
+  proposeEdit: async ([file, kind, target, when, value, , , live]) => {
     const key = keyOf(file, kind, target, when, value);
     const idle = { ok: true, error: '', active: false, chip: '', diff: '', tokens: [], key, review: '' };
     if (!kind || !target) return idle;
@@ -798,7 +820,7 @@ const sources: Sources = {
     // What Apply writes: this edit, against the digests this proposal read,
     // to the server run that read them (its token), carried on the proposal
     // itself, so what is shown is what is written, and where.
-    return { ok: true, error: '', active: true, chip: ok.class === 'live' && liveTable ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token), key, review: JSON.stringify({ key, files: ok.files, diff: ok.diff, token: used }) };
+    return { ok: true, error: '', active: true, chip: ok.class === 'live' && live === true ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token), key, review: JSON.stringify({ key, files: ok.files, diff: ok.diff, token: used }) };
   },
   writeEdit: async ([file, kind, target, when, value, client, review]) => {
     const at = session;
@@ -964,7 +986,7 @@ const sources: Sources = {
     if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
     const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client } : { after: 0, wait: false, client }, 40000);
     answers += 1;
-    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
+    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
     if (error) return { ok: false, error, missed: false, ...state() };
     if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
     const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; proposals?: any[] };
@@ -1003,7 +1025,7 @@ const sources: Sources = {
     // Where the changes start from: the files as the poll has them when it
     // starts again (the first answer, a gap it says it missed, a new run).
     const anew = !epoch || r.missed || (place.epoch && r.epoch !== place.epoch);
-    if (anew) { lastFiles = (r as { files?: Record<string, string> }).files ?? {}; if (r.missed) mine.length = 0; }
+    if (anew) { lastFiles = (r as { files?: Record<string, string> }).files ?? {}; fileChanges += 1; if (r.missed) mine.length = 0; }
     // A gap in this run: said in the list, which is no longer complete.
     if (epoch && r.missed && r.epoch === place.epoch) {
       changeset.unshift({ seq: Number(r.seq ?? 0), who: '', acceptedBy: '', write: 0, changed: [], files: [], before: {}, after: {}, mine: false, diff: '', values: new Map(), committed: false, gap: true });

@@ -807,6 +807,27 @@ mod tests {
     }
 
     #[test]
+    fn per_origin_session_secret_names_parse_and_authorize_only_that_origin_key() {
+        let keys = [
+            "snapback-http-127.0.0.1-4400",
+            "snapback-https-api.example.com",
+        ];
+        let spec = keys.map(|key| format!("secret.keep {key}\n")).join("");
+        let grants = GrantSet::parse(&spec).unwrap();
+        assert_eq!(grants.kept_secrets(), keys);
+        for key in keys {
+            assert!(grants.permits(&Operation::SecretKeep { name: key.into() }));
+            assert!(!grants.permits(&Operation::SecretKeep {
+                name: format!("{key}-other"),
+            }));
+        }
+        for url in ["http://127.0.0.1:4400", "https://api.example.com"] {
+            let error = GrantSet::parse(&format!("secret.keep snapback-{url}")).unwrap_err();
+            assert!(error.contains("not a secret name"), "{error}");
+        }
+    }
+
+    #[test]
     fn storage_kv_is_per_scope() {
         let set = GrantSet::parse("storage.kv castle.state\n").unwrap();
         assert_eq!(set.kv_scopes(), vec!["castle.state"]);

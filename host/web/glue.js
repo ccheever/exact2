@@ -1014,7 +1014,7 @@ function nodeDetail(id, plan = false) {
   const el = views.get(id);
   if (!el || !el.isConnected) return { error: `stale node #${id}` };
   const node = ask({ op: "node", id, ...(plan ? { plan: true } : {}) });
-  if (node.error) return node;
+  if (node.error) return node; Object.assign(node, globalThis.exact.heldOf?.(el)); // what is held on it, and its rows (LLP 1122 D8)
   if (node.type === "TextInput" && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) node.props = { ...node.props, value: shownValue(el) };
   delete node.frame;
   delete node.absolute;
@@ -1159,7 +1159,7 @@ function agentReply(request) {
       case "tap": {
         const i = request.into; // @ref LLP 1070.000 §5 — the runner's request, its batch applied now
         if (i) { for (const a of [i.block === undefined ? 'start' : i.block, i.inline === undefined ? 'nearest' : i.inline]) if (!['start', 'center', 'end', 'nearest'].includes(a)) return { error: `no alignment ${typeof a === "string" ? a : JSON.stringify(a)}: start, center, end or nearest`, malformed: true }; const { batch } = sendBatch(wasm.exact_into_view(request.id, writeIn(`${i.key ?? ''}\n${i.block ?? 'start'}\n${i.inline ?? 'nearest'}`))); return batch.error != null ? { error: batch.error } : tagged({ tapped: request.id, into: i }); }
-        const frame = views.get(request.id);
+        const frame = views.get(request.id); if (request.holdState !== undefined) return (async () => { for (let i = 0; i < 40 && !globalThis.exact.hold; i++) await new Promise(ok => setTimeout(ok, 50)); return globalThis.exact.hold ? (r => r.error ? { error: r.error, ...(r.malformed ? { malformed: true } : {}) } : tagged({ tapped: request.id, holdState: r.held, delivery: "recognized" }))(globalThis.exact.hold(frame, request.holdState)) : { error: "the input glue is not loaded" }; })(); // LLP 1122 D8: `holdState`, once the glue loads (it loads after paint)
         if (request.history !== undefined || request.back) return request.back ? navigation.back(root) : navigation.travel(frame, request.history); // the agent's `back` (LLP 1116.006 D4)
         if (frame && (inertAncestor(frame) || ["hidden", "collapse"].includes(getComputedStyle(frame).visibility)))
           return { handled: true, error: `view ${request.id} is hidden or inert` };
@@ -1351,7 +1351,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   grants = []; grantSet = null; unparsed = "";
   for (const controller of controllers) controller.abort();
   controllers.clear(); forgettable.clear(); inflight.clear(); mediaAttaching.clear();
-  if (!page?.holding) root.replaceChildren(); document.getElementById("exact-theme")?.remove(); document.getElementById("exact-looks")?.remove(); // the last plan's theme (LLP 1095 D4) and state looks (LLP 1121 D8): this boot's batch sets its own
+  globalThis.exact.holdQuiet?.(); if (!page?.holding) root.replaceChildren(); document.getElementById("exact-theme")?.remove(); document.getElementById("exact-looks")?.remove(); // a held state goes unsaid (dev.js holds it again); the last plan's theme (LLP 1095 D4) and state looks (LLP 1121 D8): this boot's batch sets its own
   commitFonts(preparedFonts);
   focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), id => views.get(id));
   toldOffset = null; followOffset(now()); // @ref LLP 1027.000.000 — the date, as the clock the runner already reads

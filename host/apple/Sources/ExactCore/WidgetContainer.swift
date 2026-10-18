@@ -1,9 +1,11 @@
 // @ref LLP 1126 D8 — the app publishes, an extension pins and only reads.
 import Foundation
-import CommonCrypto
-#if EXACT_WIDGETS
+#if EXACT_WIDGET_RELOAD
 import WidgetKit
-#endif
+@_cdecl("exact_widget_reload")
+public func exactWidgetReload() { WidgetCenter.shared.reloadAllTimelines() }
+#else
+import CommonCrypto
 
 public enum WidgetContainer {
     public static var appID: String? { Bundle.main.object(forInfoDictionaryKey: "ExactAppIdentifier") as? String }
@@ -41,7 +43,19 @@ public enum WidgetContainer {
         return generation
     }
     private static let publisher = DispatchQueue(label: "exact.widget-generation", qos: .utility)
+    private static var typescript: Bool { Bundle.main.object(forInfoDictionaryKey: "ExactWidgetTypeScript") as? Bool == true }
+    private static let statusLock = NSLock()
+    private static var lastFailure: String?
+    public static var publicationFailure: String? {
+        statusLock.lock(); defer { statusLock.unlock() }; return lastFailure
+    }
+    private static func report(_ error: Error?) {
+        statusLock.lock(); lastFailure = error.map(String.init(describing:)); statusLock.unlock()
+        if let error { FileHandle.standardError.write(Data("widget generation: \(error)\n".utf8)) }
+    }
     private static var storeGeneration = ""
+    /// A store write a refresh can read advances the counter, then pings; the
+    /// app reloads its timelines through the same demand-loaded artifact.
     private static let storeObserver: Void = {
         guard let appID else { return }
         let name = appID + ".widget-store"
@@ -49,28 +63,59 @@ public enum WidgetContainer {
             publisher.async {
                 guard let root, let next = try? String(contentsOf: root.appendingPathComponent("widget-store-generation"), encoding: .utf8), next != storeGeneration else { return }
                 storeGeneration = next
-                #if EXACT_WIDGETS
-                WidgetCenter.shared.reloadAllTimelines()
-                #endif
+                DispatchQueue.main.async {
+                    do { try reloadTimelines() } catch { report(error) }
+                }
             }
         }, name as CFString, nil, .deliverImmediately)
     }()
-    /// The serial publisher preserves acceptance order and keeps asset copying
-    /// off the app's first-frame path.
+    /// Copy assets off the first-frame path; first-use framework loading and
+    /// WidgetCenter's call run on main. A failed signal stays pending on disk.
     package static func publishAfterFirstPixel(_ assets: AssetResolver) {
-        guard Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") != nil else { return }
+        guard let root, let kinds = Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") as? [String], !kinds.isEmpty else { return }
         publisher.async {
             do {
-                let changed = try publish(assets)
-                #if EXACT_WIDGETS
-                if changed { WidgetCenter.shared.reloadAllTimelines() }
-                #endif
-            } catch { FileHandle.standardError.write(Data("widget generation: \(error)\n".utf8)) }
+                guard try publish(assets, root: root, kinds: kinds, compatibility: compatibility, typescript: typescript) else { return }
+                DispatchQueue.main.async {
+                    do { try signal(root: root) { try reloadTimelines() }; report(nil) }
+                    catch { report(error) }
+                }
+            } catch { report(error) }
         }
+    }
+    private typealias Reload = @convention(c) () -> Void
+    @MainActor private static var reloader: (path: String, call: Reload)?
+    @MainActor package static func reloadTimelines(artifact: URL? = Bundle.main.privateFrameworksURL?.appendingPathComponent("ExactWidgetReload.framework/ExactWidgetReload")) throws {
+        precondition(Thread.isMainThread)
+        guard let path = artifact?.path else { throw HeadlessSession.Failure(description: "widget reload: app has no frameworks directory") }
+        if reloader?.path != path {
+            _ = dlerror()
+            guard let library = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
+                throw HeadlessSession.Failure(description: "widget reload: \(dlerror().map { String(cString: $0) } ?? "dlopen failed"): \(path)")
+            }
+            _ = dlerror()
+            guard let symbol = dlsym(library, "exact_widget_reload") else {
+                let reason = dlerror().map { String(cString: $0) } ?? "missing exact_widget_reload"
+                dlclose(library)
+                throw HeadlessSession.Failure(description: "widget reload: \(reason): \(path)")
+            }
+            reloader = (path, unsafeBitCast(symbol, to: Reload.self))
+        }
+        reloader?.call()
+    }
+    @MainActor package static func signal(root: URL, reload: () throws -> Void) throws {
+        precondition(Thread.isMainThread)
+        let base = root.appendingPathComponent("widget-generations")
+        let digest = try Data(contentsOf: base.appendingPathComponent("current"))
+        let signalled = base.appendingPathComponent("signalled")
+        if (try? Data(contentsOf: signalled)) == digest { return }
+        try reload()
+        try digest.write(to: signalled, options: .atomic)
+        FileHandle.standardError.write(Data("widget reload: signalled \(String(decoding: digest, as: UTF8.self))\n".utf8))
     }
     package static func publish(_ assets: AssetResolver) throws -> Bool {
         guard let root, let kinds = Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") as? [String], !kinds.isEmpty else { return false }
-        return try publish(assets, root: root, kinds: kinds, compatibility: compatibility, typescript: Bundle.main.object(forInfoDictionaryKey: "ExactWidgetTypeScript") as? Bool == true)
+        return try publish(assets, root: root, kinds: kinds, compatibility: compatibility, typescript: typescript)
     }
     package static func publish(_ assets: AssetResolver, root: URL, kinds: [String], compatibility: String, typescript: Bool = false) throws -> Bool {
         // A signed bake or accepted delivery identifies the bytes already. An
@@ -81,7 +126,9 @@ public enum WidgetContainer {
         let digest = hash.map { String(format: "%02x", $0) }.joined()
         let base = root.appendingPathComponent("widget-generations", isDirectory: true)
         let current = base.appendingPathComponent("current")
-        if (try? String(contentsOf: current, encoding: .utf8)) == digest { return false }
+        if (try? String(contentsOf: current, encoding: .utf8)) == digest {
+            return (try? String(contentsOf: base.appendingPathComponent("signalled"), encoding: .utf8)) != digest
+        }
         let final = base.appendingPathComponent(digest, isDirectory: true)
         let fm = FileManager.default
         try fm.createDirectory(at: base, withIntermediateDirectories: true)
@@ -107,3 +154,5 @@ public enum WidgetContainer {
         return true
     }
 }
+
+#endif

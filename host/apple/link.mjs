@@ -67,9 +67,9 @@ export function loadedDylibs(executable) {
 /** An executable links no framework that only an unlinked capability
  * brings: the next import of one into the core fails the build by name
  * instead of costing every launch silently. */
-export function assertCapabilityFrameworks(executable, products) {
+export function assertCapabilityFrameworks(executable, products, allowedFrameworks = []) {
   const loaded = loadedDylibs(executable);
-  const stray = CAPABILITY_FRAMEWORKS.filter(([product, framework]) => !products.includes(product) && loaded.some((path) => path.endsWith(`/${framework}.framework/${framework}`)));
+  const stray = CAPABILITY_FRAMEWORKS.filter(([product, framework]) => !products.includes(product) && !allowedFrameworks.includes(framework) && loaded.some((path) => path.endsWith(`/${framework}.framework/${framework}`)));
   if (stray.length) throw new Error(`host/apple: ${basename(executable)} links ${stray.map(([product, framework]) => `${framework} (only ${product} may)`).join(', ')}, which its composition does not link: an import outside the capability's module brings it to every launch`);
 }
 

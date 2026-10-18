@@ -740,6 +740,8 @@ table owners:
     assert.match(sample[0].row.id, /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/);
     assert.deepEqual(sample, [{table:'owners', row:{id:sample[0].row.id,person:'dev:alice',role:'owner',label:'example',enabled:true}}]);
     assert.deepEqual(rosterSeeds(schema), sample);
+    assert.deepEqual(rosterSeeds(schema.replace('  insert <- deny\n', '')), sample, 'a missing insert rule denies inserts too');
+    assert.deepEqual(rosterSeeds(schema.replace('  insert <- deny', '  insert <- .person = viewer')), [], 'a writable table needs no roster seed');
     const indented = schema.replace(/^  /gm, '    ').replace(/    update <- deny\n$/, '').trimEnd();
     assert.ok(indented.endsWith('    insert <- deny'));
     assert.deepEqual(rosterSeeds(indented), sample, 'four-space fields and an EOF deny rule preserve all required fields');
@@ -758,6 +760,17 @@ table owners:
     createApp(copied,{snapback:{online:true,build:false}});
     assert.deepEqual(JSON.parse(readFileSync(resolve(copied,'seed.json'),'utf8')),fixture);
     assert.throws(() => rosterSeeds(schema.replace('person: principal','person: people')), /cannot infer owners.person/);
+    rmSync(resolve(parent, 'seed.json'));
+    writeFileSync(resolve(parent, 'snapback/schema.q'), schema.replace('person: principal', 'person: people').replace('  insert <- deny\n', ''));
+    const broken = resolve(parent, 'broken');
+    assert.throws(() => createApp(broken, {snapback:{online:true,build:false}}), /cannot infer owners.person/);
+    assert.equal(existsSync(broken), false, 'a failed seed removes the scaffold');
+    assert.equal(readFileSync(resolve(parent, 'snapback/schema.q'), 'utf8'), schema.replace('person: principal', 'person: people').replace('  insert <- deny\n', ''));
+    writeFileSync(resolve(parent, 'snapback/schema.q'), schema.replace('  insert <- deny\n', ''));
+    const implicit = resolve(parent, 'implicit');
+    createApp(implicit, {snapback:{online:true,build:false}});
+    assert.deepEqual(JSON.parse(readFileSync(resolve(implicit, 'seed.json'), 'utf8')), sample);
+    assert.match(readFileSync(resolve(implicit, 'app.test.contract'), 'utf8'), /^fresh \"seed.json\"\n/);
     assert.throws(() => rosterSeeds(schema.replace('use personas alice, bob','use identity')), /needs an authenticated principal/);
   } finally { rmSync(parent,{recursive:true,force:true}); }
 }, 90_000);

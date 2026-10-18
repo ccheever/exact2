@@ -201,6 +201,9 @@ shape Changes
   session: number
   held: Held[]
   builds: Build[]
+  // The files' digests as the poll has them: what a design read follows
+  // (a build's status, a scrub's frame or a proposal moves `seq`, not them).
+  files: string
 
 // A control drawn from a dial's declared metadata (LLP 1122 D7, LLP 1121
 // D4): `control` is `color`, `slider`, `stepper` or `select`.
@@ -503,12 +506,20 @@ component DesignTool
   // one more ask per answer, so an answer with nothing new asks again.
   state since = 0
   state epoch = ""
+  // The files as of the last answer: reads of the design follow these, not
+  // `since`, so a stream of build statuses never reads a big design again.
+  state filesAt = ""
+  // A proposal's place in the poll: it follows every answer, at least one
+  // each 25 s, but while a scrub is shown (its class moves without files:
+  // the JS loop's builds, its design reader getting ready, which says
+  // nothing), so a stream of scrub frames proposes nothing again.
+  state proposeAt = 0
   state asks = 0
   resource hello = loadHello() as shape Hello else empty(ok=true)
   derive client = `design-tool:${person}`
   // A pin's modes are the running app's: its own design's axes, whichever
   // file is open (the last read of it).
-  resource appAxes = loadAppAxes(file, since, epoch) as shape AppAxes else empty()
+  resource appAxes = loadAppAxes(file, filesAt, epoch) as shape AppAxes else empty()
   derive pinAxes = file == "" ? design.axes : appAxes.axes
   derive pinFontOk = pinFont == 0 or (pinFont >= 4 and pinFont <= 64)
   resource changes = waitChanges(since, epoch, asks, client) as shape Changes else empty(ok=true)
@@ -518,7 +529,7 @@ component DesignTool
   state opened: string[] = []
   state pickA = ""
   state pickB = ""
-  resource design = loadDesign(file, since, epoch) as shape Design else empty(ok=true)
+  resource design = loadDesign(file, filesAt, epoch) as shape Design else empty(ok=true)
   // Contrast and a cell's branch follow the design read they are of.
   resource contrast = loadContrast(pickA, pickB, design.answer) as shape Contrast else empty(ok=true)
   // The cell chosen in the grid, and the edit being considered: an
@@ -553,7 +564,7 @@ component DesignTool
   state newValue = ""
   state renameTo = ""
   resource branch = loadBranch(file, selToken, selColumn, design.answer) as shape Branch else empty(ok=true)
-  resource proposal = proposeEdit(file, editKind, editTarget, editWhen, editValue, since, epoch) as shape Proposal else empty(ok=true)
+  resource proposal = proposeEdit(file, editKind, editTarget, editWhen, editValue, filesAt, proposeAt, hello.live, epoch) as shape Proposal else empty(ok=true)
   // Scrubbing, chosen explicitly (D6, never the default): each value the
   // draft takes is a frame previewed on every running copy, written to no
   // file; Keep (or a slider let go) writes it once, Cancel puts the
@@ -634,6 +645,9 @@ component DesignTool
     if not design.ok
       refresh design
     since = changes.seq
+    filesAt = changes.files
+    if not scrubShown
+      proposeAt = changes.answer
     epoch = changes.epoch
     asks = asks + 1
   action reconnect
@@ -643,6 +657,9 @@ component DesignTool
     if not pending(changes)
       if changes.ok
         since = changes.seq
+        filesAt = changes.files
+        if not scrubShown
+          proposeAt = changes.answer
         epoch = changes.epoch
       asks = asks + 1
   action editName(v: string)

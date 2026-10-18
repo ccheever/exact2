@@ -1352,13 +1352,11 @@ fn check_with_sites(
             expanded,
         })
     } else {
-        Err(prefer_call_sites(
-            sink.errors,
-            children,
-            file,
-            &types,
-            &expanded,
-        ))
+        let mut errors = prefer_call_sites(sink.errors, children, file, &types, &expanded);
+        for e in &mut errors {
+            records::nominal(e, &types.shapes, file);
+        }
+        Err(errors)
     }
 }
 

@@ -580,6 +580,99 @@ component App
     assert_eq!(value.frame.x, 0.0, "at the line's start");
 }
 
+/// `RowText`'s value trails its title and detail where they fit on one line
+/// and goes under them where they do not, both wrapping, as UIKit's value
+/// cell stacks its text and secondary text at the accessibility sizes: at
+/// the largest text size a long value squeezed the title to nothing beside
+/// it and ran past the row.
+#[test]
+fn row_text_puts_its_value_under_its_title_when_both_do_not_fit() {
+    use exact_kernel::{NodeType, Offer, PropId};
+    let dir = Dir::new("content-row-wrap");
+    let root = dir.write(
+        "app.contract",
+        r#"use RowText from "exact:content"
+component App
+  view
+    column testId="root" width=400 height=800
+      column testId="short" width=400
+        RowText(title="Oat milk", detail="2 in stock", value=some("$3.50"))
+      column testId="long" width=400
+        RowText(title="Oat milk", detail="2 in stock", value=some("Saturday, October 17, 2026 at 7:30 PM"))
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel_mut();
+    let at = |k: &exact_kernel::Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
+    let top = at(k, "root");
+    k.compute_layout(top, Offer::definite(400.0, 800.0))
+        .unwrap();
+    let k = r.kernel();
+    // The box of the title and detail, the value beside it in one parent, and that parent.
+    let parts = |t: &str| {
+        let all = under(k, at(k, t));
+        let text = |s: &str| {
+            all.iter()
+                .find(|n| n.node_type == NodeType::Text && n.props.str(PropId::Text) == Some(s))
+                .copied()
+                .unwrap()
+        };
+        let (title, value) = (
+            text("Oat milk"),
+            all.iter()
+                .rev()
+                .find(|n| n.node_type == NodeType::Text)
+                .copied()
+                .unwrap(),
+        );
+        let parent = |id: u32| {
+            all.iter()
+                .find(|n| n.children().contains(&id))
+                .copied()
+                .unwrap()
+        };
+        let lines = parent(title.id);
+        (
+            title.frame,
+            lines.frame,
+            value.frame,
+            parent(value.id).frame,
+        )
+    };
+    let (title, lines, value, row) = parts("short");
+    assert!(
+        value.y < lines.y + lines.height,
+        "beside: {lines:?} {value:?}"
+    );
+    assert_eq!(
+        value.x + value.width,
+        row.width,
+        "the value at the far edge"
+    );
+    assert!(title.width > 0.0);
+    let (title, lines, value, row) = parts("long");
+    assert!(
+        title.width >= 8.0 * 8.0,
+        "the title keeps its words: {title:?}"
+    );
+    assert!(
+        value.y >= lines.y + lines.height && value.x == 0.0,
+        "the value under the title and detail: {lines:?} {value:?}"
+    );
+    assert!(
+        value.width <= row.width,
+        "it wraps in the row: {value:?} {row:?}"
+    );
+}
+
 /// LLP 1116.001 D2: `RingProgress` is a ring around its value, one
 /// progress bar to a reader, and a state is a second colour: short of the
 /// goal the accent, a goal met the system green, done against not done

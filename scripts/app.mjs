@@ -32,6 +32,7 @@ import { BINARYEN } from '../host/web/stages.mjs';
 import { SHELL_SOURCES } from '../host/web/look.mjs';
 import { createHash } from 'node:crypto';
 import { nativeSource, prepareRustBundle } from './rust.mjs';
+import { bakeOutside, linkable } from './linked-plan.mjs';
 import { throwContractErrors } from './contract-diagnosis.mjs';
 import { filesystem, installedModules, removePrivateTree } from './filesystem.mjs';
 import { startSweep } from './sweep.mjs';
@@ -235,7 +236,7 @@ function checkOutsideLock(workspace) {
     if (resolved.status !== 0) throw new Error(`cargo metadata in ${workspace}:\n${resolved.stderr}`);
     result = lockedMetadata(workspace);
   }
-  const fix = `\`cargo metadata --offline --format-version 1\` in ${workspace} re-resolves it offline, changing only what the manifests changed (without --offline when Cargo's cache lacks a crate, as after an offline \`exact new\`)`, stale = existsSync(lock) && (result.stderr ?? '').split('\n').find(line => /^error: .*(?:cannot update the lock file|needs to be updated).*--locked/.test(line));
+  const fix = `\`bun exact.mjs lock\` in the app re-resolves it, changing only what the manifests changed (or \`cargo metadata --offline --format-version 1\` in ${workspace})`, stale = existsSync(lock) && (result.stderr ?? '').split('\n').find(line => /^error: .*(?:cannot update the lock file|needs to be updated).*--locked/.test(line));
   if (result.status !== 0) throw new Error(stale ? `${workspace}/Cargo.lock does not match its Cargo.toml files (a workspace member, dependency or patch changed since it was resolved), and a build never changes the lock: ${fix}.\n${stale}` : `cargo metadata --locked --offline in ${workspace}:\n${result.stderr || result.error?.message}\nTo update the lock explicitly: ${fix}.`);
 }
 
@@ -1056,17 +1057,15 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const generated = scripts.map((m) => ({ path: resolve(m.out_dir), pkg: graph.packages.get(m.package_id), role: roleOf(m.out_dir) })).sort((a,b) => b.path.length-a.path.length);
   const rootOutput = generated.find((g) => g.pkg.id === graph.root.id && g.role === target)?.path;
   if (!rootOutput) throw new Error('Cargo did not report the selected target bake output');
-  const compat = JSON.parse(readFileSync(resolve(rootOutput, 'compat.json'), 'utf8'));
+  const baked = existsSync(resolve(rootOutput, 'compat.json')) ? rootOutput : env.EXACT_BAKED /* a bake before Cargo keeps the plan and its receipts apart (linked-plan.mjs) */, compat = JSON.parse(readFileSync(resolve(baked, 'compat.json'), 'utf8'));
   if (compat.target !== target || compat.inputs.platform !== platform || compat.inputs.app !== app.id) throw new Error('actual bake receipt names another target, platform or app');
-  const bundleGraph = JSON.parse(readFileSync(resolve(rootOutput, 'artifacts.json'), 'utf8'));
+  const bundleGraph = JSON.parse(readFileSync(resolve(baked, 'artifacts.json'), 'utf8'));
   // Recreate packaging outputs from Cargo's actual bake, even on a cache hit.
   // A build script must never watch its own receipt: writing it dirties every next build.
   const stem = `${platform}-${target}`;
-  for (const [file, suffix] of [['compat.json', '.json'], ['app.plan', '.plan'], ['artifacts.json', '.artifacts.json']]) {
-    writeFileSync(resolve(env.EXACT_BAKE_OUTPUT, stem + suffix), readFileSync(resolve(rootOutput, file)));
-  }
+  for (const [file, suffix] of [['compat.json', '.json'], ['app.plan', '.plan'], ['artifacts.json', '.artifacts.json']]) writeFileSync(resolve(env.EXACT_BAKE_OUTPUT, stem + suffix), readFileSync(resolve(baked, file)));
   // A development bake's source map, for the agent driver only (LLP 1012.001.000 D6); none is carried stale.
-  const map = resolve(rootOutput, 'app.plan.map.json'), mapCopy = resolve(env.EXACT_BAKE_OUTPUT, stem + '.plan.map.json');
+  const map = resolve(baked, 'app.plan.map.json'), mapCopy = resolve(env.EXACT_BAKE_OUTPUT, stem + '.plan.map.json');
   if (existsSync(map)) writeFileSync(mapCopy, readFileSync(map)); else rmSync(mapCopy, { force: true });
   const replaced = new Set(['app.plan','compat.json','artifacts.json'].map((n) => resolve(rootOutput,n)));
   const packages = [...graph.roles.keys()].map((id) => graph.packages.get(id));
@@ -1150,7 +1149,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     const swiftEnv = {...env, EXACT_APP_COMPOSITION: compat.inputs.store.L === '0' ? 'embedded' : 'updating'}; delete swiftEnv.SDKROOT;
     // Cache SwiftPM's description by manifest, composition and source inventory.
     const tree=(dir)=>readdirSync(dir,{withFileTypes:true}).flatMap((e)=>e.isDirectory()?tree(resolve(dir,e.name)):[resolve(dir,e.name)]).sort();
-    const described=resolve(app.target,'apple-swift',`package-${buildHash(canonicalBuild([readFileSync(resolve(packageRoot,'Package.swift'),'utf8'),swiftEnv.EXACT_APP_COMPOSITION,swiftEnv.EXACT_TESTS??null,tree(resolve(packageRoot,'Sources')).map((f)=>relative(packageRoot,f))])).slice(0,16)}.json`);
+    const described=resolve(app.target,'apple-swift',`package-${buildHash(canonicalBuild([readFileSync(resolve(packageRoot,'Package.swift'),'utf8'),swiftEnv.EXACT_APP_COMPOSITION,swiftEnv.EXACT_TESTS??null,swiftEnv.EXACT_WIDGET_GALLERY??null,tree(resolve(packageRoot,'Sources')).map((f)=>relative(packageRoot,f))])).slice(0,16)}.json`);
     if(!existsSync(described)) {
       mkdirSync(dirname(described),{recursive:true});
       writeFileSync(`${described}.${process.pid}.tmp`,buildCommand('swift',['package','--package-path',packageRoot,'describe','--type','json'],app,swiftEnv).stdout);
@@ -1166,7 +1165,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
       if(unit.type==='system-target')add(resolve(packageRoot,unit.path));pending.push(...(unit.target_dependencies??[]));
     }
     add(resolve(packageRoot,'Package.swift'));add(resolve(packageRoot,'webarm/WebArm.swift'));add(resolve(packageRoot,'videoarm/VideoArm.swift'));add(resolve(packageRoot,'build.mjs'));add(resolve(packageRoot,'assets.mjs'));add(resolve(packageRoot,'bundle.mjs'));add(resolve(packageRoot,'widgets.mjs'));
-    if(platform==='ios'&&app.manifest.widgets?.length){add(resolve(packageRoot,'widget'),true);add(resolve(packageRoot,'Sources/ExactSnapshot'),true);}
+    if(platform==='ios'&&app.manifest.widgets?.length)add(resolve(packageRoot,'widget'),true); if((platform==='ios'&&app.manifest.widgets?.length)||env.EXACT_WIDGET_GALLERY==='1')add(resolve(packageRoot,'Sources/ExactSnapshot'),true);
   }
   if(platform==='web') {
     for(const path of [...Object.values(webHostFiles('base','rust','gpu',...(gpuModules(app.manifest).length?['gpuModules']:[]))),'scripts/app.mjs','scripts/rust.mjs',...SHELL_SOURCES,'host/web/build.mjs','package.json','bun.lock']) add(resolve(ROOT,path));
@@ -1198,7 +1197,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const fingerprint={files:files.map(({name,sha256})=>({name,sha256})),absent:[...absent.keys()].sort(),configuration,metadata};
   const products=roots.flatMap((r)=>messages.filter((m)=>m.reason==='compiler-artifact'&&m.package_id===r.package&&m.target.name===r.name).flatMap((m)=>m.filenames)).filter((p)=>!p.endsWith('.d')&&!p.endsWith('.dSYM')).map((path)=>prepared.get(path)??path).map((path)=>{const info=statSync(path);return {path,bytes:info.size,sha256:hashes.of(path,info)};});
   hashes.save();
-  return {version:1,...(env.EXACT_RUST_BUNDLE?{rust:resolve(rootOutput,'rust')}:{}),trust:env.EXACT_UPDATE_TRUST??'development',compat,graph:bundleGraph,binary:{...(assetCatalogApp ? {assetCatalogApp} : {}),...(nativeResources.length ? {nativeResourceApp:{dir:app.dir,manifest:app.manifest}} : {}),sha256:buildHash(canonicalBuild(fingerprint)),...fingerprint,inputs:files,directories:[...directories.values()],missing:[...absent.values()]},products};
+  return {version:1,...(env.EXACT_RUST_BUNDLE?{rust:resolve(baked,'rust')}:{}),...(baked!==rootOutput?{linkedPlan:baked}:{}),trust:env.EXACT_UPDATE_TRUST??'development',compat,graph:bundleGraph,binary:{...(assetCatalogApp ? {assetCatalogApp} : {}),...(nativeResources.length ? {nativeResourceApp:{dir:app.dir,manifest:app.manifest}} : {}),sha256:buildHash(canonicalBuild(fingerprint)),...fingerprint,inputs:files,directories:[...directories.values()],missing:[...absent.values()]},products};
 }
 
 /** Ephemeral output ownership shared by Apple builders and Cargo bakes.
@@ -1313,6 +1312,7 @@ export function buildBake(app, platform, target, options = {}) {
     // at `release`, so nothing is compiled under both.
     const whole=apple&&(options.profile??'release')==='release'?['--config','profile.release.lto="fat"']:[];
     const args=[archive?'rustc':options.check?'check':'build',...(archive?['--crate-type','staticlib']:[]),...cargoReproducibilityFlags(app),...injectedProfiles(app),...whole,...(sized?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(['linux','windows'].includes(kind)&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
+    if(archive&&options.link&&!env.EXACT_RUST_BUNDLE&&linkable(app,pkg))env.EXACT_BAKED=bakeOutside(app,platform,target,env);else delete env.EXACT_BAKED; // `link`: a TypeScript app's plan, which the link carries
     const result=buildCommand('cargo',args,app,env,'inherit');
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});
     if (gpuPackage(pkg) && platform !== 'web') {

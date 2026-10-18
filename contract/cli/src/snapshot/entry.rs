@@ -64,6 +64,19 @@ pub fn write_entries(entries: &BTreeMap<String, Entry>, out: &Path) -> Result<()
     }
     if !entries.is_empty() {
         std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+        let registry: Vec<_> = entries
+            .values()
+            .map(|e| {
+                serde_json::json!({
+                    "kind":e.widget.kind, "families":e.widget.families, "preview":e.widget.preview
+                })
+            })
+            .collect();
+        std::fs::write(
+            directory.join("widgets.json"),
+            serde_json::to_vec(&registry).unwrap(),
+        )
+        .map_err(|e| e.to_string())?;
     }
     for (kind, entry) in entries {
         std::fs::write(directory.join(format!("{kind}.plan")), entry.plan.encode())

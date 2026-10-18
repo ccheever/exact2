@@ -153,7 +153,7 @@ the table's `select` is the closed button, as a person first sees it.
 | field | placeholder | linux | exact | 0 | 142 | measured |
 | field | placeholder | windows | exact | - | - | inferred: same painter, not measured |
 | field | placeholder | terminal | none | - | - | none by construction |
-| field | placeholder | android | none | 28.9 | 0 | measured |
+| field | placeholder | android | exact | 0 | 1633 | measured |
 | textarea | Field | ios | none | 18.7 | 0 | measured |
 | textarea | Field | macos | exact | 0 | 11630 | measured |
 | textarea | Field | web | none | 20.4 | 0 | measured |
@@ -174,4 +174,4 @@ the table's `select` is the closed button, as a person first sees it.
 | textarea | placeholder | linux | exact | 0 | 142 | measured |
 | textarea | placeholder | windows | exact | - | - | inferred: same painter, not measured |
 | textarea | placeholder | terminal | none | - | - | none by construction |
-| textarea | placeholder | android | none | 28.9 | 0 | measured |
+| textarea | placeholder | android | exact | 0 | 1633 | measured |

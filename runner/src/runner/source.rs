@@ -700,6 +700,19 @@ pub enum DataError {
     Failed(crate::failure::FailureCode, String, String),
 }
 
+impl std::fmt::Display for DataError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownSource(name) => write!(f, "unknown source: {name}"),
+            Self::BadArguments(reason)
+            | Self::Unavailable(reason)
+            | Self::DeferredAtBake(reason)
+            | Self::Interface(reason)
+            | Self::Failed(_, reason, _) => f.write_str(reason),
+        }
+    }
+}
+
 #[cfg(test)]
 mod target_tests {
     use super::Target;

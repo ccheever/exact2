@@ -39,6 +39,30 @@ const ROLES: [&str; MATERIAL_ROLES] = [
     "surfaceContainerHighest",
     "outlineVariant",
     "error",
+    "primaryContainer",
+    "onPrimaryContainer",
+    "inversePrimary",
+    "secondary",
+    "onSecondary",
+    "onSecondaryContainer",
+    "tertiary",
+    "onTertiary",
+    "tertiaryContainer",
+    "onTertiaryContainer",
+    "background",
+    "onBackground",
+    "surfaceVariant",
+    "surfaceTint",
+    "inverseSurface",
+    "inverseOnSurface",
+    "onError",
+    "errorContainer",
+    "onErrorContainer",
+    "outline",
+    "scrim",
+    "surfaceBright",
+    "surfaceDim",
+    "surfaceContainerLowest",
 ];
 
 /// A bar's texts: the node each stands for, and its box in the bar's points.
@@ -73,6 +97,8 @@ fn main() {
         );
         std::process::exit(2);
     };
+    // The look the reader shows: Material's column of the schema's metrics.
+    exact_linux::app::show_material_look();
     let manifest = read_json(manifest);
     let schemes = read_json(&reference.join("schemes.json"));
     let density = manifest["density"].as_f64().expect("density") as f32;

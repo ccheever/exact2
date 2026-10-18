@@ -60,29 +60,24 @@ private func widgetSnapshotView(_ entry: ExactWidgetEntry, displaySize: CGSize, 
     // SnapshotView retains the session until WidgetKit has evaluated its layout and leaves.
     return SnapshotDriver.view(session: session, displaySize: displaySize, environment: environment)
 }
-// Families of a kind share one in-flight source answer, then archive their own layout.
+// Families share an in-flight answer only within one generation and store revision.
 private enum WidgetRefresh {
     static let queue = DispatchQueue(label: "exact.widget-refresh", qos: .userInitiated)
+    /// The group's environment is set once, before any refresh reads it.
+    static let configured: Void = WidgetContainer.configure()
     static let lock = NSLock()
-    static var waiting: [String: [(Timeline<ExactWidgetEntry>) -> Void]] = [:]
-    static func begin(_ kind: String, completion: @escaping (Timeline<ExactWidgetEntry>) -> Void) -> Bool {
+    static var waiting: [WidgetTimelineCache: [(Timeline<ExactWidgetEntry>) -> Void]] = [:]
+    static func begin(_ cache: WidgetTimelineCache, completion: @escaping (Timeline<ExactWidgetEntry>) -> Void) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        let first = waiting[kind] == nil
-        waiting[kind, default: []].append(completion)
+        let first = waiting[cache] == nil
+        waiting[cache, default: []].append(completion)
         return first
     }
-    static func finish(_ kind: String, _ timeline: Timeline<ExactWidgetEntry>) {
+    static func finish(_ cache: WidgetTimelineCache, _ timeline: Timeline<ExactWidgetEntry>, fallback: Timeline<ExactWidgetEntry>) {
         lock.lock()
-        let callbacks = waiting.removeValue(forKey: kind) ?? []
+        let callbacks = waiting.removeValue(forKey: cache) ?? []
         lock.unlock()
-        for callback in callbacks { callback(timeline) }
-    }
-    // This is the extension's cached answer, never the app's store or update pointer.
-    static func cache(_ kind: String, root: URL) -> URL? {
-        let generation = root == embeddedRoot()
-            ? "embedded-" + (Bundle.main.object(forInfoDictionaryKey: "ExactWidgetGeneration") as? String ?? "")
-            : root.lastPathComponent
-        return WidgetContainer.root?.appendingPathComponent("Library/Caches/widget-timelines/\(generation)/\(kind).json")
+        for callback in callbacks { callback(cache.isCurrent ? timeline : fallback) }
     }
     static func entries(_ bytes: Data, kind: String, plan: Data, root: URL) throws -> [ExactWidgetEntry] {
         guard bytes.count <= 1 << 20,
@@ -111,32 +106,46 @@ struct ExactTimelineProvider: TimelineProvider {
     func placeholder(in context: Context) -> ExactWidgetEntry { preview(context, placeholder: true) }
     func getSnapshot(in context: Context, completion: @escaping (ExactWidgetEntry) -> Void) { completion(preview(context, placeholder: false)) }
     func getTimeline(in context: Context, completion: @escaping (Timeline<ExactWidgetEntry>) -> Void) {
-        let start = DispatchTime.now(), deadline = start + .milliseconds(900)
-        guard WidgetRefresh.begin(kind, completion: completion) else { return }
+        #if EXACT_INSPECT
+        let start = DispatchTime.now()
+        #endif
         let size = context.displaySize, date = Date(), inputs = facts(.current, at: Date())
-        let placeholder = preview(context, placeholder: true)
+        // Privacy modifiers can suppress redaction: an unredacted placeholder
+        // would show fixture values as live account data. Fail with "Open app".
+        var unavailable = preview(context, placeholder: true)
+        unavailable.unavailable = true
+        let fallback = Timeline(entries: [unavailable], policy: .after(date.addingTimeInterval(900)))
+        _ = WidgetRefresh.configured
+        // A binary update can precede the app's first launch/publication.
+        let root = (try? WidgetContainer.pin()) ?? embeddedRoot()
+        let generation = root == embeddedRoot()
+            ? "embedded-" + (Bundle.main.object(forInfoDictionaryKey: "ExactWidgetGeneration") as? String ?? "")
+            : root.lastPathComponent
+        guard let group = WidgetContainer.root,
+              let cache = try? WidgetTimelineCache(root: group, kind: kind, generation: generation) else {
+            widgetLog.error("getTimeline refused: app group unavailable")
+            completion(fallback)
+            return
+        }
+        guard WidgetRefresh.begin(cache, completion: completion) else { return }
         WidgetRefresh.queue.async {
+            // Kinds share this queue: each refresh's 900 ms, boot included,
+            // starts when it leaves the queue, not while another kind runs.
+            let deadline = DispatchTime.now() + .milliseconds(900)
             let timeline: Timeline<ExactWidgetEntry> = autoreleasepool {
-                WidgetContainer.configure()
-                // A binary update can precede the app's first launch/publication.
-                let root = (try? WidgetContainer.pin()) ?? embeddedRoot()
                 let plan = try? Data(contentsOf: root.appendingPathComponent("plans/\(kind).plan"))
-                let cache = WidgetRefresh.cache(kind, root: root)
                 do {
-                    guard DispatchTime.now() < deadline else { throw TimelineFailure(description: "refresh deadline expired") }
                     guard let plan else { throw TimelineFailure(description: "entry plan unavailable") }
-                    let refresh = try HeadlessSession(plan: plan, entry: kind, size: size, facts: inputs, assetRoot: root)
-                    let bytes: Data
-                    do {
+                    let bytes = try cache.resolve {
+                        guard DispatchTime.now() < deadline else { throw TimelineFailure(description: "refresh deadline expired") }
+                        let refresh = try HeadlessSession(plan: plan, entry: kind, size: size, facts: inputs, assetRoot: root)
                         defer { refresh.close() }
                         let module = Bundle.main.object(forInfoDictionaryKey: "ExactWidgetTypeScript") as? Bool == true ? root : nil
-                        bytes = try refresh.timeline(at: date, moduleRoot: module, deadline: deadline)
+                        let bytes = try refresh.timeline(at: date, moduleRoot: module, deadline: deadline)
+                        _ = try WidgetRefresh.entries(bytes, kind: kind, plan: plan, root: root)
+                        return bytes
                     }
                     let entries = try WidgetRefresh.entries(bytes, kind: kind, plan: plan, root: root)
-                    if let cache {
-                        try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
-                        try bytes.write(to: cache, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-                    }
                     #if EXACT_INSPECT
                     measurement("getTimeline", start: start.uptimeNanoseconds, details: "kind=\(kind) entries=\(entries.count) bytes=\(plan.count)")
                     #endif
@@ -146,18 +155,10 @@ struct ExactTimelineProvider: TimelineProvider {
                     measurement("getTimeline refused", start: start.uptimeNanoseconds, details: "kind=\(kind)")
                     #endif
                     widgetLog.error("getTimeline refused: \(String(describing: error), privacy: .private)")
-                    if let cache, let plan, let bytes = try? Data(contentsOf: cache),
-                       let entries = try? WidgetRefresh.entries(bytes, kind: kind, plan: plan, root: root) {
-                        return Timeline(entries: entries, policy: .after(Date().addingTimeInterval(900)))
-                    }
-                    // Privacy modifiers can suppress redaction: an unredacted
-                    // placeholder would show fixture values as live account data.
-                    var unavailable = placeholder
-                    unavailable.unavailable = true
-                    return Timeline(entries: [unavailable], policy: .after(Date().addingTimeInterval(900)))
+                    return fallback
                 }
             }
-            WidgetRefresh.finish(kind, timeline)
+            WidgetRefresh.finish(cache, timeline, fallback: fallback)
         }
     }
 }

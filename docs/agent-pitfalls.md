@@ -505,6 +505,16 @@ screen, 2026-10-16.)
   ref/x.png"` names each differing region's node and source line, a box's size measured in
   both pictures, and a wrong colour ([iOS driving](recipes/ios-driving.md)).
 
+- **A scrolled sheet or screen ends 34 points higher than the original.** euxy's Edit
+  Lane sheet, scrolled to its end, left 58 points under Delete lane where the original
+  left 24. Cause: a React Native `ScrollView` does not inset its content on iOS
+  (`contentInsetAdjustmentBehavior` is `never`), so its `paddingBottom: 24` was the whole
+  gap and the last row sat over the home indicator. A route's last scroller in exact2 is
+  inset by UIKit as a hand-built one is (`automatic`: the home indicator's 34 points, and
+  the tab bar's height on a tab), and the ported padding adds to that. Fix: subtract the
+  inset from the ported padding (`padding-bottom=0` here leaves 34); do not add
+  `env(safe-area-inset-bottom)` to it.
+
 - **Rows with a `minHeight`, or boxes with a `height` and padding, come out taller.**
   `padding="13px 16px" min-height=24` made
   every settings row 50 points where the original's were about 46, and the sections drifted

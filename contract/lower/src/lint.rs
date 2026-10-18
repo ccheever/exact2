@@ -132,6 +132,52 @@ pub(crate) fn react_native(name: &str) -> Option<&'static str> {
     })
 }
 
+/// The edit for HTML's `style=`: a node's own look is its attributes, and a
+/// look nodes share is a `style` block named by `class=`. CSS declarations
+/// (`"padding: 8px; color: red"`) are written back as the attributes.
+fn style_hint(value: &contract_syntax::Expr) -> String {
+    let shared = "a look nodes share is a `style Name` block in the file, named with `class=Name`";
+    let contract_syntax::Expr::Str(text, _) = value else {
+        return format!("; a node's look is its attributes (`padding=8 color=\"-exact-secondary-label\"`), and {shared}");
+    };
+    let declarations: Option<Vec<String>> = text
+        .split(';')
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .map(|d| {
+            let (name, value) = d.split_once(':')?;
+            // A string literal of the value: CSS's runs of whitespace as one
+            // space, which mean the same, and every other control character,
+            // a quote and a backslash escaped.
+            let value: String = value.split_whitespace().collect::<Vec<_>>().join(" ");
+            let value: String = value
+                .chars()
+                .map(|c| match c {
+                    '\\' | '"' => format!("\\{c}"),
+                    c if c.is_control() => format!("\\u{{{:x}}}", c as u32),
+                    c => c.to_string(),
+                })
+                .collect();
+            Some(format!("{}=\"{value}\"", name.trim()))
+        })
+        .collect();
+    match declarations {
+        Some(attrs) if !attrs.is_empty() => format!(
+            "; write the declarations as attributes, `{}`: a node's look is its attributes, and {shared}",
+            attrs.join(" ")
+        ),
+        _ if text.trim().starts_with(|c: char| c.is_ascii_alphabetic())
+            && text.trim().chars().all(|c| c.is_ascii_alphanumeric() || c == '_') =>
+        {
+            format!(
+                "; write `class={}`: {shared}, and a node's own look is its attributes",
+                text.trim()
+            )
+        }
+        _ => format!("; {shared}, and a node's own look is its attributes"),
+    }
+}
+
 pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
     let hint = match tags::renamed(&a.name) {
         None if crate::fields::placeholder_hint(&a.name).is_some() => {
@@ -183,6 +229,8 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
         None if a.name == "className" => {
             "; `class` names a `style` declared in this file, as in `class=Card`".into()
         }
+        // The euxy port wrote `style=` for a declared style.
+        None if a.name == "style" => style_hint(&a.value),
         None if a.name.starts_with("aria-") => {
             let carried: Vec<&str> = ARIA
                 .iter()
@@ -250,7 +298,9 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 errors.extend(dataset::refused(a));
                                 continue;
                             }
-                            let checked = match tags::attr_valued(&a.name, &a.value) {
+                            let check = |a: &contract_syntax::Attr| match tags::attr_valued(
+                                &a.name, &a.value,
+                            ) {
                                 None => Err(unknown_attr(tag, a)),
                                 // A family is resolved against declared fonts.
                                 Some(tags::AttrTarget::Styles(rows))
@@ -299,11 +349,24 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 Some(_) => Ok(()),
                             };
                             // An expression over a token is folded by the
-                            // build (a synthetic token, LLP 1121 D3), not here.
-                            let folded = matches!(&a.value, contract_syntax::Expr::Str(t, _)
-                                if t.contains('(') && t.split(|c: char| !(c.is_ascii_alphanumeric() || "-_.".contains(c)))
-                                    .any(exact_kernel::style::theme::names));
-                            errors.extend(checked.err().filter(|_| !folded));
+                            // build (a synthetic token, LLP 1121 D3), not here,
+                            // in a choice's arm as in a whole value; the other
+                            // arms are checked here.
+                            let folded = |t: &str| {
+                                t.contains('(')
+                                    && crate::theme::words(t).any(exact_kernel::style::theme::names)
+                            };
+                            let mut leaves = Vec::new();
+                            crate::theme::literal_leaves(&a.value, &mut leaves);
+                            if leaves.iter().any(|(t, _)| folded(t)) {
+                                for (t, span) in leaves.into_iter().filter(|(t, _)| !folded(t)) {
+                                    let value = contract_syntax::Expr::Str(t, span);
+                                    let leaf = contract_syntax::Attr { value, ..a.clone() };
+                                    errors.extend(check(&leaf).err());
+                                }
+                            } else {
+                                errors.extend(check(a).err());
+                            }
                         }
                     }
                     walk(children, errors);

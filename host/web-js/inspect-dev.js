@@ -262,7 +262,7 @@ async function selectedReport(el, click = null) {
   }
   if (node.error) return { kind: "unsupported", what: "inspect", detail: node.error };
   const envelope = (selected) => ({ kind: "selected", selected, inspect: inspecting.seq ?? undefined, ...(click ? { click } : {}), plan: facts.plan, design: facts.design, revision: facts.revision });
-  let selected = { node: viewOf(el), type: node.type, testId: node.testId, site: node.site, instance: node.instance, planDigest: x?.plan ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style).map(([name, row]) => ({ name, ...row })), trimmed: false };
+  let selected = { node: viewOf(el), type: node.type, testId: node.testId, site: node.site, instance: node.instance, planDigest: x?.plan ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style).map(([name, row]) => ({ name, ...row })), held: globalThis.exact?.heldOf?.(el)?.held ?? null, trimmed: false };
   if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, computed: c, source, from, token }) => ({ name, value, ...(c ? { computed: c } : {}), source, from, token })), trimmed: true };
   while (bytes(envelope(selected)) > REPORT_BYTES && selected.rows.length) selected = { ...selected, rows: selected.rows.slice(0, Math.floor(selected.rows.length / 2)) };
   if (bytes(envelope(selected)) > REPORT_BYTES) return { kind: "unsupported", what: "inspect", detail: "the selected node's identity alone is larger than a report" };
@@ -439,8 +439,81 @@ function outlineSites(frame) {
 }
 
 /** An `inspect` or `outline` frame from the build channel. */
+/** `hold {revision, hold}` (LLP 1122 D4, D8; *1.11*): `{site, instance, state}` of this page's plan, the element
+ * by its site and instance path (exactly one), held by the input glue as the real state; null lets it go. What it
+ * holds or let go, and why, is reported (`held`). */
+// One at a time, in order; one a newer frame replaced while it waited is dropped unsaid (the newer one says).
+// A revision the page let go of itself (input, disabled, gone) is not taken again when its frame comes again.
+let holding = Promise.resolve(), holdLatest = null, applying = null;
+const ended = new Set();
+// (`epoch`: the server's run the revisions are of; a let-go of an earlier run's hold ends nothing now.)
+let lastRevision = 0, epoch = 0, holdStream = null;
+const end = (revision, of) => { if (of !== epoch) return; ended.add(revision); if (ended.size > 64) ended.delete(ended.values().next().value); };
+const canonical = (v) => JSON.stringify(v ?? [], (_, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
+// The runtime the app runs (this module is served at /__dev/inspect.js): the one beside its app.js.
+const runtime = () => new URL("rt.js", document.querySelector('script[type="module"][src$="app.js"]')?.src ?? document.baseURI).href;
+function hold(m) {
+  // (A lower revision is a new server's: the revisions ended before are forgotten.)
+  // (A new stream, which may be a new server's, likewise.)
+  // (`stream`: the one it came on, as dev.mjs stamps it on arrival.)
+  const stream = m.stream !== undefined ? m.stream : env.nonce?.() ?? null;
+  if (m.revision < lastRevision || stream !== holdStream) { ended.clear(); epoch += 1; holdStream = stream; }
+  m.stream = stream;
+  m.epoch = epoch;
+  lastRevision = m.revision;
+  holdLatest = m;
+  holding = holding.then(() => holdNow(m)).catch((error) => console.error("exact dev:", String(error)));
+  return holding;
+}
+async function holdNow(m) {
+  // (The latest frame, on the stream it came on: a new one's server knows nothing of it.)
+  const current = () => holdLatest === m && m.epoch === epoch && m.stream === (env.nonce?.() ?? null);
+  // The input glue, which a page with no press may not have loaded yet, loads after paint.
+  if (!globalThis.exact?.hold) await import(runtime()).then((rt) => rt.pressFeedback?.()).catch(() => {});
+  for (let i = 0; i < 40 && !globalThis.exact?.hold; i++) await new Promise((ok) => setTimeout(ok, 50));
+  if (!current()) return;
+  const holds = globalThis.exact?.hold, h = m.hold, revision = m.revision;
+  if (!holds) { env.report({ kind: "unsupported", what: "hold", detail: "the input glue is not loaded", revision }); return; }
+  if (!h) { holds(null); env.report({ kind: "held", state: null, revision }); return; }
+  // One ended here is not taken again; one addressing another plan (a rebuild this page reloads to) is nothing,
+  // unsaid: the new page's registration replays it, its site corresponded.
+  if (ended.has(revision) || (typeof m.plan === "string" && m.plan !== (globalThis.exact?.plan ?? null))) return;
+  let t;
+  try { t = await inspectTable(); } catch (error) {
+    // No table to resolve it by: the hold before is let go, and this one refused by name. A rebuild's table (this
+    // page reloads to it) says nothing: the new page's registration replays the hold, its site corresponded.
+    if (!current() || /was rebuilt/.test(String(error))) return;
+    holds(null);
+    env.report({ kind: "unsupported", what: "hold", detail: `the inspect table is unreadable: ${String(error)}`, revision });
+    return;
+  }
+  if (!current()) return;
+  let found = null, two = false;
+  for (const el of document.querySelectorAll(`[data-site="${Number(h.site)}"]`)) {
+    // (An instance path that does not resolve is no match, not the empty path.)
+    if (el.closest("[data-exiting]")) continue; // a leaving view is no match
+    const instance = instanceOf(t, el, t.sites[String(h.site)] ?? {});
+    if (instance == null || canonical(instance) !== canonical(h.instance)) continue;
+    if (found) { two = true; break; }
+    found = el;
+  }
+  // (No one element there: the one held before is let go too.)
+  // (The same frame taken again, a resent one, replaces nothing.)
+  applying = revision;
+  const r = found && !two ? holds(found, h.state, (reason) => {
+    if (reason === "replaced" && applying === revision) return;
+    if (m.epoch !== epoch || m.stream !== (env.nonce?.() ?? null)) return; // a hold of an earlier stream's: no news to this one
+    if (reason !== "replaced") end(revision, m.epoch);
+    env.report({ kind: "held", state: null, reason, revision });
+  }) : (holds(null), { reason: "gone" });
+  applying = null;
+  if (r.reason) end(revision, m.epoch);
+  env.report(r.reason ? { kind: "held", state: null, reason: r.reason, revision } : { kind: "held", state: h.state, revision });
+}
+
 export async function frame(m) {
   if (m.kind === "outline") { outlineSites(m); return; }
+  if (m.kind === "hold") { await hold(m); return; }
   if (m.refresh) { if (m.status) await env.status(); await refresh(); return; }
   if (m.on && m.seq != null && m.seq === inspecting.left) { const facts = env.facts(); env.report({ kind: "selected", selected: null, inspect: m.seq, plan: facts.plan, revision: facts.revision }); return; }
   inspecting.left = null;

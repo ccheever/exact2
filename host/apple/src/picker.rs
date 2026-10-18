@@ -186,7 +186,7 @@ pub fn set_roots(data: PathBuf, cache: PathBuf, temporary: PathBuf) {
     *ROOTS.lock().unwrap_or_else(|e| e.into_inner()) = Some(roots);
 }
 
-fn roots() -> [PathBuf; 3] {
+pub(super) fn roots() -> [PathBuf; 3] {
     let mut held = ROOTS.lock().unwrap_or_else(|e| e.into_inner());
     held.get_or_insert_with(|| {
         let base = std::env::temp_dir().join(format!("exact-agent-{}", std::process::id()));
