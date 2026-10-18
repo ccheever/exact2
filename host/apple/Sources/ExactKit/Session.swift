@@ -1271,6 +1271,10 @@ public final class ExactSession {
     /// the timer that fires after it (habits F6). Under the agent, the
     /// drive's zone moves it instead (`tellAgentOffset`).
     var toldOffset: Double?
+    /// The zone `toldOffset` was read in and when to read it again (its next
+    /// transition, an hour at most): until then, in that zone, a frame's
+    /// check reads no calendar.
+    var offsetHeld: (zone: String, until: Date)?
     /// @ref LLP 1061 D5 — told after every boot, as the date is, and on each
     /// change: in the same main-thread turn as the boot batch, so the first
     /// frame on screen already reads the user's preferences.

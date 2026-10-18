@@ -9,6 +9,7 @@ extension ExactSession {
             tellAgentOffset()
         } else {
             toldOffset = nil
+            offsetHeld = nil
             followOffset()
         }
         apply(runtime.setPlace(locale: launchPlace.locale, timeZone: launchPlace.timeZone, seed: launchPlace.seed))
@@ -17,6 +18,12 @@ extension ExactSession {
     }
     func followOffset() {
         guard launchPlace.epoch == nil else { return }
+        let zone = TimeZone.autoupdatingCurrent, wall = Date()
+        if let held = offsetHeld, held.zone == zone.identifier, wall < held.until { return }
+        // An hour at most: a zone's rules can move its offset at a time that
+        // is no daylight-saving transition.
+        let hour = wall.addingTimeInterval(3600)
+        offsetHeld = (zone.identifier, min(zone.nextDaylightSavingTimeTransition(after: wall) ?? hour, hour))
         let date = dateNow()
         guard date.offset != toldOffset else { return }
         toldOffset = date.offset
