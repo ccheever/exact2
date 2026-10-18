@@ -1,3 +1,4 @@
+use ServerBrowserPage from "./server-browser.contract"
 // The chrome row's Annotate, Capture and Float preview buttons and the floating
 // player's browser source (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975: apps/web/src/components/preview/
 // PreviewChromeRow.tsx 121-320, ThreadPreviewMiniPlayer.tsx BrowserMiniPlayer and MiniPlayerShell; index.css
@@ -46,14 +47,16 @@ component BrowserCaptureButtons
     scheme: string
   props
     view: BrowserCapture
+    server: bool
     tabId: string
     local: action
   view
-    BrowserCaptureRow(view=view, tabId=tabId, local=local, scheme=scheme)
+    BrowserCaptureRow(view=view, server=server, tabId=tabId, local=local, scheme=scheme)
 
 component BrowserCaptureRow
   props
     view: BrowserCapture
+    server: bool
     tabId: string
     local: action
     scheme: string
@@ -63,8 +66,10 @@ component BrowserCaptureRow
   view
     row gap="0.25rem" align-items="center" flex-shrink=0
       // variant secondary and the primary glyph while annotating; "Cancel annotation (Esc)" then.
-      BcButton(icon="mouse-pointer-click", label=(view.pickActive ? "Cancel annotation" : "Annotate preview"), tip=view.pickTip, disabled=view.pickDisabled, on=view.pickActive, tone="primary", dot=false, pressedState=true, press=local("surface-browser-annotate", tabId, scheme), testId="browser-annotate")
-      BcButton(icon="camera", label=(view.recording ? "Stop recording" : "Capture screenshot"), tip=(view.recording ? "Stop recording" : "Screenshot · Shift-click to record"), disabled=view.captureDisabled, on=view.recording, tone="destructive", dot=view.recording, pressedState=false, press=capture, testId="browser-capture")
+      if not server
+        BcButton(icon="mouse-pointer-click", label=(view.pickActive ? "Cancel annotation" : "Annotate preview"), tip=view.pickTip, disabled=view.pickDisabled, on=view.pickActive, tone="primary", dot=false, pressedState=true, press=local("surface-browser-annotate", tabId, scheme), testId="browser-annotate")
+      if not server
+        BcButton(icon="camera", label=(view.recording ? "Stop recording" : "Capture screenshot"), tip=(view.recording ? "Stop recording" : "Screenshot · Shift-click to record"), disabled=view.captureDisabled, on=view.recording, tone="destructive", dot=view.recording, pressedState=false, press=capture, testId="browser-capture")
       BcButton(icon="picture-in-picture-2", label=(view.floating ? "Close floating preview" : "Float preview over chat"), tip=(view.floating ? "Close floating preview" : "Float preview over chat"), disabled=view.floatDisabled, on=view.floating, tone="primary", dot=false, pressedState=true, press=local("surface-browser-float", tabId, ""), testId="browser-float")
 
 // Button icon-xs, ghost, or secondary while `on` (its glyph in the tone's colour), its tooltip under it, and the
@@ -173,7 +178,10 @@ component BrowserMiniPlayer
   view
     box position="absolute" left=frame.x top=frame.top width=frame.width height=frame.height z-index=40 hover=overPlayer pointermove=movePlayer pointerdown=outside pointerup=outside role="region" aria-label="Floating browser preview" testId="browser-mini-player"
       column position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius overflow="hidden" background-color="light-dark(#f4f4f5, #1a1a1a)" box-shadow="0 25px 50px -12px #00000059"
-        t3-browser tab=mini.runtimeId url=mini.url profile=mini.profileId environment=mini.environment aria-label="Browser page" testId="browser-mini-page" position="absolute" left=0 top=0 right=0 bottom=0
+        if mini.server
+          ServerBrowserPage(runtimeId=mini.runtimeId, url=mini.streamUrl, pageWidth=frame.width, pageHeight=frame.height, followSize=false, mini=true)
+        else
+          t3-browser tab=mini.runtimeId url=mini.url profile=mini.profileId environment=mini.environment aria-label="Browser page" testId="browser-mini-page" position="absolute" left=0 top=0 right=0 bottom=0
         if not mini.hasWebContents
           box position="absolute" left=0 top=0 right=0 bottom=0 display="flex" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #1a1a1a)" pointer-events="none" testId="browser-mini-reconnecting"
             text "Reconnecting preview…" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
@@ -196,7 +204,8 @@ component BrowserMiniPlayer
             box width="1.5rem" height="1.5rem" display="flex" align-items="center" justify-content="center" flex-shrink=0 aria-hidden=true
               box width="0.5rem" height="0.5rem" border-radius="0.25rem" background-color="light-dark(#fb2c36, #fb414a)" animation=(still ? "none" : "bcStatusPulse 2s infinite")
           BcPillButton(icon="panel-right", label="Open preview in right panel", tip="Open in right panel", on=false, shown=pill, align=tipAlign, hot=(tipAt == "restore"), tipShown=(pill and tipAt == "restore" and tipShut != "restore"), press=local("surface-browser-mini-restore", mini.runtimeId, ""), shut=shutTip("restore"), focusChange=focusPill("restore"), testId="browser-mini-restore")
-          BcPillButton(icon="picture-in-picture-2", label=(mini.separateWindow ? "Close popped-out preview" : "Pop preview into separate window"), tip=(mini.separateWindow ? "Close separate window" : "Pop into separate window"), on=mini.separateWindow, shown=pill, align=tipAlign, hot=(tipAt == "window"), tipShown=(pill and tipAt == "window" and tipShut != "window"), press=local("surface-browser-mini-window", mini.runtimeId, ""), shut=shutTip("window"), focusChange=focusPill("window"), testId="browser-mini-window")
+          if not mini.server
+            BcPillButton(icon="picture-in-picture-2", label=(mini.separateWindow ? "Close popped-out preview" : "Pop preview into separate window"), tip=(mini.separateWindow ? "Close separate window" : "Pop into separate window"), on=mini.separateWindow, shown=pill, align=tipAlign, hot=(tipAt == "window"), tipShown=(pill and tipAt == "window" and tipShut != "window"), press=local("surface-browser-mini-window", mini.runtimeId, ""), shut=shutTip("window"), focusChange=focusPill("window"), testId="browser-mini-window")
           BcPillButton(icon="x", label="Close floating preview", tip="Close floating preview", on=false, shown=pill, align=tipAlign, hot=(tipAt == "close"), tipShown=(pill and tipAt == "close" and tipShut != "close"), press=local("surface-browser-mini-close", mini.runtimeId, ""), shut=shutTip("close"), focusChange=focusPill("close"), testId="browser-mini-close")
       box position="absolute" left=0 right=0 top=(0 - edge) height=(2 * edge) pan=pan("north") panrelease=release touch-action="none" cursor="ns-resize" role="presentation" testId="browser-mini-resize-north"
       box position="absolute" left=0 right=0 bottom=(0 - edge) height=(2 * edge) pan=pan("south") panrelease=release touch-action="none" cursor="ns-resize" role="presentation" testId="browser-mini-resize-south"

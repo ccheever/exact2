@@ -355,7 +355,7 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   const deviceSetup = store.deviceSetup !== '' && store.deviceSetup === panelKey(client);
   const deviceShown = !!live && open && active.kind === 'device';
   if (!deviceShown) deviceHidden(client); // DevicePanel lists the devices each time it shows (device-surface.ts deviceView)
-  const device = live && (deviceSetup || deviceShown) ? await deviceView(client, live, deviceShown) : emptyDevice();
+  const device = live && (deviceSetup || deviceShown) ? await deviceView(client, live, deviceShown, deviceSetup) : emptyDevice();
   if (live && open && active.kind === 'device' && !deviceSetup) device.session = await deviceSessionView(client, live, deviceStateOf(client) ?? {}, device.loaded, panelKey(client));
   const prs = open && active.kind === 'pull-requests' ? prsView(client, now) : emptyPrs();
   if (live && open && active.kind === 'pull-requests') prs.speedMode = await readSpeedMode(client, live);
