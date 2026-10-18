@@ -39,7 +39,7 @@ packages pinned beside it (`tools/generate/package.json` and `bun.lock`, the ver
 reference locks; network once) and from committed inputs: the Shiki grammar tables
 (`src/highlight/grammar*.ts`), the CSS word lists (`src/highlight/css-words.ts`), the Lucide and
 Pierre icon data (`src/settings/settings-b-lucide.ts`, `src/shared/pages-icons.contract`,
-`src/shared/timeline-files.contract` and `timeline-files-tables.ts`, `macos/pierre-icons.tsv`,
+`src/shared/timeline-files.contract` and `timeline-files-tables.ts`, `data/pierre-icons.tsv`,
 `assets/composer-icons.json`), the ten icon tables (`icons`, `shell-icons`, `sidebar-icons`,
 `timeline-icons`, `panel-icons`, `settings-icons`, `provider-icons`, `diff-glyphs`, `editor-icons`
 and `settings-brands`, each a `.contract` in its feature's folder under `src/`, from the Lucide names
@@ -47,7 +47,7 @@ in `tools/generate/icon-tables.mjs` and the marks in `icon-marks.mjs`; their han
 components are in the `*-kit.contract` files), the morph plans (`src/shell/shell-morph.contract`)
 and the terminal buffer vectors
 (`macos/tests/terminal/vectors.json`, whose expectations are test data committed in
-`gen-vectors.mjs`). The app build runs it before it bakes (`macos/build.rs`);
+`gen-vectors.mjs`). The app build runs it before it bakes (`data/build.rs`);
 run it yourself before the tests and checks below:
 
 ```sh
@@ -255,7 +255,8 @@ the menu's standard items, the terminal's web view or the module's own key monit
 re-issue stays. After the thread list re-renders or scrolls under a still pointer, the row that
 slid under it is hovered, as a browser's synthetic mouse move does (the host's own, exact2 #139). The menu bar is the reference
 desktop app's (`T3MenuBar.swift`): File shows only Close Window, View starts with Reload
-and Force Reload, and the host's Develop and Go menus are removed, so ⌘D (diff), ⌘O (open in
+and Force Reload (two Contract buttons the host files there, `-exact-menu="view"`, which run
+`reload()`; settings-shortcuts.contract `ViewReload`), and the host's Develop and Go menus are removed, so ⌘D (diff), ⌘O (open in
 editor) and ⌘1–9 reach the window; every button chord stays a hidden File key equivalent,
 one dispatch button per chord (⌘N and ⇧⌘O both start a thread with no text field focused).
 Edit › Undo sends ⌘Z to thread.undo when no editable text has the focus, and ⌘W closes the
@@ -263,7 +264,13 @@ active right-panel surface tab (its neighbour becomes active; the last tab close
 on the Pull Requests page the open pull request) before it closes the window. The surface launcher takes the focus when it mounts (`autofocus`), and
 its letters are its rows' `aria-keyshortcuts` (`shell-panels.contract`), which Exact presses before type-to-focus; a Markdown table's Copy
 menu is a window-level popup, placed from the trigger's `frame()` (scroll offsets applied),
-that Escape and an outside press close (`table-menu.*`). A global hotkey of another
+that Escape and an outside press close (`table-menu.*`). The row context menus are Contract context
+popovers, which the host presents as an `NSMenu` at the pointer, or for the ContextMenu key at the
+focused row's centre (exact2 #314): the sidebar's thread, draft and selection menus, the legacy sidebar's
+row, selection and project menus, the Files tree's, a panel tab's and a pull request number's. A draft
+row's ContextMenu and Shift+F10, and a tab's Shift+F10, show theirs from the row, below it. The branch
+picker's Copy branch name, the chat's file and web link menus, the media menu and the legacy sidebar's
+choice of project members stay the module's (`T3ContextMenu.swift` and `T3Sidebar.swift` say why). A global hotkey of another
 app (a launcher holding ⌘1, say) never reaches the window.
 
 Credentials stay in Keychain, scoped to the server origin and environment. The Swift
@@ -348,7 +355,8 @@ relaunch for the Local environment switch, Network access and Tailscale HTTPS (`
 and capture-phase key handlers for the keybinding recorder and the reply's Markdown
 (`keycapture`, [`issues/closed/20261009-capture-phase-key-events.md`](../../issues/closed/20261009-capture-phase-key-events.md)),
 and `repeating-linear-gradient()` with length stops for the usage bars and the diff's deletion bars
-([`issues/closed/20261011-repeating-hatch-across-list-rows.md`](../../issues/closed/20261011-repeating-hatch-across-list-rows.md)).
+([`issues/closed/20261011-repeating-hatch-across-list-rows.md`](../../issues/closed/20261011-repeating-hatch-across-list-rows.md)),
+and `-exact-menu` for View › Reload and Force Reload ([`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)).
 These it does not use, because on macOS they do not do what the reference does:
 
 - `showModal(id)` / `close(id)` ([`issues/closed/20261009-gui-dialog-action-commands.md`](../../issues/closed/20261009-gui-dialog-action-commands.md), #282).
@@ -357,14 +365,21 @@ These it does not use, because on macOS they do not do what the reference does:
   by a click gives the focus back to nothing. So each dialog keeps its own Tab trap
   (`dialog-trap.contract` says why), and closing a dialog whose opener the view cannot name
   still leaves the focus nowhere (Base UI gives it back).
-- App-declared menu bar items ([`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)).
-  An `-exact-menu` item is enabled only while its window is key and has no sheet, app-menu items
-  are filed after About's separator, and `-exact-menu-remove` names none of the items the app
-  hides, so the menu bar stays the module's (`T3Menus.swift`, `T3MenuBar.swift`, `T3LatinChords.swift`).
+- The rest of the menu bar's app items ([`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)).
+  On main (checked at `44ad32092`) an `-exact-menu` item is still enabled only while its window is key and has
+  no sheet (`ShortcutsMac.swift` `validateMenuItem`), app-menu items are still filed after About's separator
+  (`sync`), and `-exact-menu-remove` still takes only its twelve standard ids. So Check for Updates… (always
+  enabled and directly under About in the reference, with a box that has no parent window where a Contract
+  `alertdialog` is a sheet), Paste as Text, View's zoom, the hidden Help book item, the ⌘Q hold and the
+  trimmed File, Edit, Develop and Go stay the module's (`T3Menus.swift`, `T3MenuBar.swift`, `T3LatinChords.swift`).
+  Settings… is the host's: it files the ⌘, dispatch button there.
 - The notification click ([`issues/closed/20261009-notification-default-click-design.md`](../../issues/closed/20261009-notification-default-click-design.md)).
   Main's click needs a Contract `showNotification(navigate=)`, which always plays the system
-  sound (the reference's notification is silent), cannot be posted from the data module, and
-  is delivered to a navigation root the app does not have. The click stays in `T3Notifications.swift`.
+  sound (`Notify.swift` posts with `.default` and presents with `.sound`; the reference's notification is
+  `silent: true`, ThreadNotificationCoordinator.tsx:203-207), cannot be posted from the data module, and
+  is delivered to a navigation root the app does not have. Badges and a permission fact stay refused
+  (`rules/DEFERRED.md`). So the post, its click, the sounds, the Dock badge and the permission request stay
+  in `T3Notifications.swift`.
 - An inline link run as a Tab stop on macOS
   ([`issues/closed/20261012-macos-inline-link-run-tab-stop.md`](../../issues/closed/20261012-macos-inline-link-run-tab-stop.md)). This fix is the host's, so the
   clone gets it on main with no change of its own. No drive has tabbed to a link in a Markdown
@@ -853,8 +868,12 @@ root's (`…Root`). `src/client/client.ts`, `protocol.ts`, `domain.ts` and `pres
 data source, commands and event projection. A labelled `button` or `link` that may mount no text says `title=""`: since
 LLP 1115 the Mac host shows the `aria-label` of a button whose mounted, not `aria-hidden` children
 give no text as its help tag, and the reference shows only its own tips (`help-tags.test.ts`
-applies the host's rule to the view tree). `modules/apple/` is the native module; `macos/` holds the bake adapter crate (`t3-code-macos`)
-and the AppKit tests; `tools/` holds the lanes (`github-lane/`, `network-lane/`), the generator
+applies the host's rule to the view tree). `modules/apple/` is the native module. `data/` is the
+Rust data source (`t3-code-data`): the chat Markdown that `app.ts` leaves to Rust (`renderMarkdown`,
+`renderPullRequestMarkdown`, `renderFileMarkdown`) over `apps/markdown/parse`, with its tests; it does
+no I/O when it runs, so any host can link it, and its build script runs the generator below. `macos/`
+is the macOS host crate (`t3-code-macos`: the bake and the Apple host's entry), its tests of the baked
+plan, and the AppKit tests. `tools/` holds the lanes (`github-lane/`, `network-lane/`), the generator
 of the generated sources (`generate/`), the embedded server's staging (`stage-runtime/`) and the
 Shiki comparison. T3's MIT notice is retained in `LICENSE-T3`.
 
@@ -884,6 +903,7 @@ bun node_modules/typescript/bin/tsc --noEmit --strict --target ES2023 --module E
 cargo run -q -p contract -- build examples/t3-code/app.contract -o /tmp/t3-code.plan
 cargo test -p contract --test it button_migration -- --ignored   # the async lane's sweep of this app: app.contract and its imports (minutes)
 cargo test --manifest-path examples/t3-code/Cargo.toml --lib   # the app's workspace: the bake, then its tests (Hermes env of the root setup)
+cargo test --manifest-path examples/t3-code/Cargo.toml -p t3-code-data   # the chat Markdown's tests alone, without the app's bake
 ```
 
 A Cargo build alone does not compile or launch the Apple crate's Swift module. Use the app

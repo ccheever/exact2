@@ -12,7 +12,7 @@ import { sidebarSnapshot } from '../../src/sidebar/sidebar-view';
 import { commitExpiredUndos, sidebarCommand, undoLatest } from '../../src/sidebar/sidebar-commands';
 import { adoptCommandTime, sidebarSession, wall } from '../../src/sidebar/sidebar-state';
 import { parseSweep, resolveSidebarSweepKeys } from '../../src/sidebar/row-sweep';
-import { draftMenuItems } from '../../src/sidebar/draft-rows';
+import { draftMenuItems, draftMenuRows } from '../../src/sidebar/draft-rows';
 import { preparationFailureRunId, retryWorkspacePreparation, turnItemIsWorkspacePreparation, workspacePreparationRetryRunIds } from '../../src/timeline/workspace-retry';
 import { timelineEntries } from '../../src/timeline/timeline-rows';
 import { availableScratchWorkspaceRoot, openScratchProject } from '../../src/composer/scratch-project';
@@ -24,8 +24,8 @@ const shell = (id: string, extra: Obj = {}): Obj => ({ id, projectId: 'p1', titl
   activeProviderThreadId: null, pendingRuntimeRequest: null, createdAt: iso(-3_600_000), updatedAt: iso(-3_600_000), archivedAt: null,
   settledOverride: null, settledAt: null, modelSelection: { instanceId: 'codex', model: 'm' }, lineage: { relationshipToParent: null }, ...extra });
 
-function fake(threads: Obj[], options: { caps?: Obj; picks?: string[]; threadId?: string } = {}) {
-  const dispatched: Obj[] = [], calls: Obj[] = [], picks = [...(options.picks ?? [])];
+function fake(threads: Obj[], options: { caps?: Obj; threadId?: string } = {}) {
+  const dispatched: Obj[] = [], calls: Obj[] = [];
   let ids = 0;
   const client = {
     shell: { projects: [{ id: 'p1', title: 'Parity fixture', workspaceRoot: '/fixture' }, { id: 'p2', title: 'Other', workspaceRoot: '/other' }], threads, sequence: 1 },
@@ -39,7 +39,7 @@ function fake(threads: Obj[], options: { caps?: Obj; picks?: string[]; threadId?
       ids: async (count: number) => Array.from({ length: count }, () => `c${ids++}`),
       request: async (method: string, payload: Obj) => { if (method === 'orchestration.dispatchCommand') dispatched.push(payload); return {}; },
       dispatch: async (_storage: Files, payload: Obj, description: string) => { dispatched.push({ ...payload, description }); return {}; },
-      call: async (request: Obj) => { calls.push(request); return request.op === 'sidebarMenu' ? { id: picks.shift() ?? null } : {}; },
+      call: async (request: Obj) => { calls.push(request); return {}; },
     }),
     async openSelected(_native: Native, id: string) { client.threadId = id; },
     async openDraft(_native: Native, _projectId: string) { client.threadId = ''; },
@@ -108,26 +108,29 @@ describe('draft rows: context menu and discard behind Undo (95edeb753b)', () => 
     expect(draftMenuItems({ hasPath: false, hasBranch: false, hasProject: false }).map(item => [item.id, item.disabled === true])).toEqual([['copy', true], ['discard', false]]);
   });
 
-  test('right click copies the draft workspace path and branch, opens project settings, or discards it', async () => {
-    const { client, calls } = fake([shell('a')], { picks: ['copy-path', 'copy-branch', 'project-settings'] });
+  test('the row\'s popover copies the draft workspace path and branch, opens project settings, or discards it', async () => {
+    const { client, calls } = fake([shell('a')]);
     local(client).drafts['env:new:p2'] = 'Sketch the parser';
     local(client).composerControls.contexts['env:new:p2'] = { envMode: 'local', branch: 'feature/x', worktreePath: '' };
-    expect(await sidebarCommand(client, native, files, 'draft-menu', 'p2', '')).toBe('');
+    // sidebar-row.contract DraftMenu's rows: Copy ▸ Path / Branch, Project settings, then Discard draft after a separator.
+    expect(draftMenuRows(client, 'p2').map(row => [row.label, row.parent, row.sub, row.separated, row.destructive]))
+      .toEqual([['Copy', '', true, false, false], ['Path', 'copy', false, false, false], ['Branch', 'copy', false, false, false],
+        ['Project settings', '', false, false, false], ['Discard draft', '', false, true, true]]);
+    expect(await sidebarCommand(client, native, files, 'draft-choice', 'p2', 'copy-path')).toBe('');
     expect(calls.filter(call => call.op === 'copyText').map(call => call.text)).toEqual(['/other']);
     expect(toasts(client).map(toast => [toast.title, toast.description])).toContainEqual(['Path copied', '/other']);
-    await sidebarCommand(client, native, files, 'draft-menu', 'p2', '');
+    await sidebarCommand(client, native, files, 'draft-choice', 'p2', 'copy-branch');
     expect(calls.filter(call => call.op === 'copyText').map(call => call.text)).toEqual(['/other', 'feature/x']);
-    expect(await sidebarCommand(client, native, files, 'draft-menu', 'p2', '')).toBe('sidebar:project-settings:p2');
-    const menu = calls.find(call => call.op === 'sidebarMenu')!.items as Obj[];
-    expect(menu.map(item => item.label)).toEqual(['Copy', 'Project settings', undefined, 'Discard draft']);
+    expect(await sidebarCommand(client, native, files, 'draft-choice', 'p2', 'project-settings')).toBe('sidebar:project-settings:p2');
+    expect(calls.filter(call => call.op === 'sidebarMenu')).toEqual([]);
   });
 
   test('Discard draft clears the session; Undo brings back the text, images and workspace choice', async () => {
-    const { client } = fake([shell('a')], { picks: ['discard'] });
+    const { client } = fake([shell('a')]);
     local(client).drafts['env:new:p2'] = 'Sketch the parser';
     local(client).snapshotDrafts['env:new:p2'] = [{ id: 'img-1' }];
     local(client).composerControls.contexts['env:new:p2'] = { envMode: 'worktree', branch: 'main', worktreePath: '' };
-    await sidebarCommand(client, native, files, 'draft-menu', 'p2', '');
+    await sidebarCommand(client, native, files, 'draft-choice', 'p2', 'discard');
     expect([local(client).drafts['env:new:p2'], local(client).snapshotDrafts['env:new:p2'], local(client).composerControls.contexts['env:new:p2']]).toEqual([undefined, undefined, undefined]);
     expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoText).toBe('Discarded 1 draft,');
     expect(await undoLatest(client, native)).toBe(true);

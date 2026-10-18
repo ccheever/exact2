@@ -135,7 +135,7 @@ describe('snooze', () => {
 
 test('every TypeScript source app.ts answers is registered with the mixed Rust/TypeScript owner', async () => {
   const app = await Bun.file(appPath('app.ts')).text();
-  const rust = await Bun.file(appPath('macos/src/markdown.rs')).text();
+  const rust = await Bun.file(appPath('data/src/markdown.rs')).text();
   const listed = new Set([...rust.split('&["renderMarkdown"]')[0]!.split('exact_data::Mixed::new(')[1]!.matchAll(/"([A-Za-z]+)"/g)].map(match => match[1]));
   const answered = [...app.matchAll(/source === '([A-Za-z]+)'/g)].map(match => match[1]!);
   expect(answered.filter(source => !listed.has(source))).toEqual([]);

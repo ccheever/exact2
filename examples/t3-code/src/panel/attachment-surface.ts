@@ -122,7 +122,7 @@ const NO_MARKDOWN = () => ({ markdownSource: [], md: { codeFont: 'ui-monospace',
 /**
  * AttachmentFilePreview's rendered Markdown: `<ChatMarkdown text cwd={undefined} />`, the chat renderer Files' rendered
  * file uses (files-surface.ts renderedMarkdown), with no folder: relative links resolve against nothing
- * (macos/src/markdown_media.rs links_without_cwd), code blocks keep their colours and Copy code, tables their menu,
+ * (data/src/markdown_media.rs links_without_cwd), code blocks keep their colours and Copy code, tables their menu,
  * ```mermaid fences draw (filesMermaid: Files and an attachment are never the active surface together), and the task
  * checkboxes stay disabled. Its media have no folder and no thread: a
  * web URL loads as written, and a host path, relative or absolute, is "Image unavailable · <alt>" (MarkdownImage's

@@ -1,7 +1,8 @@
 // The "Sidebar (legacy)" gestures (LegacySidebar.tsx, T3 Code 1e2ecbd975; MIT,
 // see LICENSE-T3): project expansion, Show more / Show less, Sidebar options,
-// manual project order, the project and thread context menus, the
-// multi-selection menu, the project New thread button, inline archive, and the
+// manual project order, the choices of the project and thread context menus and
+// the multi-selection menu (context popovers drawn from legacy-sidebar-view.ts's
+// rows), the project New thread button, inline archive, and the
 // Rename project / Project grouping / remove project flows with the
 // reference's toasts. Local ops arrive as `sidebarlocal:legacy-*`, server ops
 // as `sidebar:legacy-*` (sidebar-commands.ts routes both here).
@@ -9,12 +10,11 @@ import { obj, str, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
-import { canArchive, nativeTemplate, type MenuItem } from './sidebar-menu';
+import { nativeTemplate, type MenuItem } from './sidebar-menu';
 import { sidebarPrefs, sidebarSession } from './sidebar-state';
-import { menuAnchor, isMenuKey, withMenuAnchor } from './row-context-keys';
 import { applyDeviceSetting } from '../settings/settings-core';
 import { archive, deleteThreads, markUnread, remember, rename } from './sidebar-commands';
-import { buildMultiSelectThreadContextMenuItems, clampSidebarThreadPreviewCount, legacyProjectMenuItems, legacyThreadMenuItems, memberActionLabel, resolveProjectExpanded } from './legacy-sidebar-model';
+import { clampSidebarThreadPreviewCount, memberActionLabel, resolveProjectExpanded } from './legacy-sidebar-model';
 import { emptyDialog, expansionKeys, legacyGroups, legacySession, previewCount, sortedGroups, type LegacyGroup } from './legacy-sidebar-view';
 import { openBranchDraft, openRowPullRequest, rowThread } from './legacy-sidebar-links';
 import { startRename } from './sidebar-rename-wait';
@@ -77,8 +77,9 @@ export function reorderGroups(client: T3Client, dragged: string, before: string)
   sidebarPrefs(client).projectOrder = rest.flatMap(group => group.members.map(member => member.physicalKey));
 }
 
+/** The module's menu at the pointer: only New thread's choice of members, which opens where its button was clicked (T3Sidebar.swift). */
 async function showMenu(client: T3Client, native: Native, items: MenuItem[]): Promise<string> {
-  const reply = obj(await client.restAccess(native).call({ op: 'sidebarMenu', items: nativeTemplate(items), ...menuAnchor(client) }));
+  const reply = obj(await client.restAccess(native).call({ op: 'sidebarMenu', items: nativeTemplate(items) }));
   return str(reply.id);
 }
 async function copy(client: T3Client, native: Native, text: string, title: string): Promise<void> {
@@ -98,9 +99,9 @@ async function projectWrite(client: T3Client, native: Native, storage: Files, pa
 /** The sidebar's server ops and menus. Failures are toasts. */
 export async function legacyCommand(client: T3Client, native: Native, storage: Files, op: string, id: string, value: string): Promise<string> {
   const session = legacySession(client), selection = sidebarSession(client);
-  if (op === 'row-key') return isMenuKey(value) && id ? withMenuAnchor(client, 'center', () => threadMenu(client, native, storage, id)) : '';
-  if (op === 'thread-menu') return threadMenu(client, native, storage, id);
-  if (op === 'project-menu') return projectMenu(client, native, id);
+  if (op === 'thread-menu') { threadMenuOpened(client, id); return ''; }
+  if (op === 'thread-choice') return threadChoice(client, native, storage, id, value);
+  if (op === 'project-choice') return projectChoice(client, native, id, value);
   if (op === 'new-thread') return newThread(client, native, id);
   if (op === 'pr') return openRowPullRequest(client, native, id, value);
   if (op === 'port') return openRowPort(client, native, id);
@@ -152,13 +153,17 @@ export async function legacyCommand(client: T3Client, native: Native, storage: F
   throw new ClientError(`Unknown sidebar action: legacy-${op}`);
 }
 
-/** handleRowContextMenu: a selected row opens the multi-selection menu; any other clears the selection first. */
-async function threadMenu(client: T3Client, native: Native, storage: Files, id: string): Promise<string> {
+/** handleRowContextMenu: a right press on a row outside the selection clears the selection; the row's popover shows its own menu. */
+function threadMenuOpened(client: T3Client, id: string): void {
+  const selection = sidebarSession(client);
+  if (selection.selection.length && !selection.selection.includes(id)) selection.selection = [];
+}
+/** A choice from a row's context popover: on a selected row the multi-selection menu's, otherwise the row's thread menu's. */
+async function threadChoice(client: T3Client, native: Native, storage: Files, id: string, choice: string): Promise<string> {
   const selection = sidebarSession(client), settings = client.local.clientSettings;
   if (selection.selection.length > 0 && selection.selection.includes(id)) {
     // readThreadShell per selected key: a background environment's rows keep their `fleet:` keys.
-    const ids = selection.selection.filter(key => !!threadOf(client, key)), threads = ids.map(key => threadOf(client, key)!);
-    const choice = await showMenu(client, native, buildMultiSelectThreadContextMenuItems({ count: selection.selection.length, hasRunningThread: threads.some(thread => !canArchive(thread)) }));
+    const ids = selection.selection.filter(key => !!threadOf(client, key));
     if (choice === 'mark-unread') {
       for (const threadId of ids) await markUnread(client, native, threadId);
       selection.selection = [];
@@ -174,7 +179,6 @@ async function threadMenu(client: T3Client, native: Native, storage: Files, id: 
   if (selection.selection.length) selection.selection = [];
   const thread = threadOf(client, id);
   if (!thread) return '';
-  const choice = await showMenu(client, native, legacyThreadMenuItems(str(thread.branch)));
   const background = backgroundRef(client, id);
   switch (choice) {
     case 'new-thread-on-branch': {
@@ -201,12 +205,10 @@ async function threadMenu(client: T3Client, native: Native, storage: Files, id: 
   }
 }
 
-/** handleProjectButtonContextMenu: Rename, Group into…, Copy Path, Project settings, Remove. */
-async function projectMenu(client: T3Client, native: Native, key: string): Promise<string> {
+/** A choice from the header's context popover (handleProjectButtonContextMenu: Rename, Group into…, Copy Path, Project settings, Remove). */
+async function projectChoice(client: T3Client, native: Native, key: string, choice: string): Promise<string> {
   const group = groupOf(client, key);
-  if (!group) return '';
-  const choice = await showMenu(client, native, legacyProjectMenuItems(group.members));
-  if (!choice) return '';
+  if (!group || !choice) return '';
   if (choice === 'project-settings') return projectSettings((group.members.find(candidate => !candidate.remote) ?? group.members[0]!).id);
   const split = choice.indexOf(':'), action = choice.slice(0, split), physical = choice.slice(split + 1);
   const member = group.members.find(candidate => candidate.physicalKey === physical);

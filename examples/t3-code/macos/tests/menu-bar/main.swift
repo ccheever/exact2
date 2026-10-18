@@ -59,6 +59,15 @@ private func hostBar(_ host: ShortcutHost, _ dev: DevTarget) -> NSMenu {
     let redo = edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
     redo.keyEquivalentModifierMask = [.command, .shift]
     let view = add("View")
+    // The window's Reload and Force Reload (settings-shortcuts.contract ViewReload), which the host files first in View
+    // with a separator after them (`-exact-menu="view"`).
+    for (title, mask) in [("Reload", NSEvent.ModifierFlags.command), ("Force Reload", [.command, .shift])] {
+        let item = NSMenuItem(title: title, action: #selector(ShortcutHost.activate(_:)), keyEquivalent: "r")
+        item.keyEquivalentModifierMask = mask
+        item.target = host
+        view.addItem(item)
+    }
+    view.addItem(.separator())
     let full = view.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
     full.keyEquivalentModifierMask = [.command, .control]
     let go = add("Go")
@@ -112,13 +121,12 @@ final class MenuBarTests: XCTestCase {
         file.insertItem(later, at: 0)
         menus.keys.menuNeedsUpdate(file)
         XCTAssertEqual(file.items.filter { !$0.isHidden }.map(\.title), ["Close Window"])
-        XCTAssertEqual(view.items.prefix(3).map { $0.isSeparatorItem ? "—" : "\($0.title) \($0.keyEquivalent) \($0.keyEquivalentModifierMask.rawValue)" },
-                       ["Reload r \(NSEvent.ModifierFlags.command.rawValue)", "Force Reload r \(NSEvent.ModifierFlags([.command, .shift]).rawValue)", "—"])
-        XCTAssertEqual(view.items.filter { !$0.isHidden && !$0.isSeparatorItem }.map(\.title), ["Reload", "Force Reload", "Actual Size", "Zoom In", "Zoom Out", "Enter Full Screen"])
-        let reload = view.items[0]
-        XCTAssertTrue(menus.keys.validateMenuItem(reload))
-        _ = reload.target!.perform(reload.action!, with: reload)
-        XCTAssertEqual(dev.reloads, 1, "View › Reload runs the host's reload")
+        // DesktopApplicationMenu.ts View: Reload, Force Reload, —, Actual Size, Zoom In, Zoom Out, —, Toggle Full Screen.
+        XCTAssertEqual(view.items.filter { !$0.isHidden }.map { $0.isSeparatorItem ? "—" : $0.title },
+                       ["Reload", "Force Reload", "—", "Actual Size", "Zoom In", "Zoom Out", "—", "Enter Full Screen"])
+        XCTAssertTrue(bar.performKeyEquivalent(with: key("r", 15)))
+        XCTAssertEqual(host.pressed, ["Reload"], "⌘R presses the window's own button")
+        XCTAssertEqual(dev.reloads, 0, "the Develop menu is gone")
         // The host's Save Trace stays a hidden ⌥⌘T in a development build, once.
         let traces = view.items.filter { $0.title == "Save Trace" }
         XCTAssertEqual(traces.count, 1)

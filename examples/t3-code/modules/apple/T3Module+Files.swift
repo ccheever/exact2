@@ -4,7 +4,7 @@ import Foundation
 import AppKit
 
 extension T3Module {
-    /// Settings context menus and text export/import/fetch (T3ContextMenu.swift).
+    /// The branch and chat link menus and text export/import/fetch (T3ContextMenu.swift).
     func fileOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
         if request["op"] as? String == "contextMenu" { // Context menus (T3ContextMenu.swift); exportsRoot is set exactly under the agent.
             DispatchQueue.main.async { [textMenu] in textMenu.pageClickAnswered() } // the app's own menu took the click

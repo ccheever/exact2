@@ -32,7 +32,8 @@ import { canUseMarkdownFileShellActions, loadSshAliases, openInEditorHere, openI
 import { fileComment, fileCommentLines, fileCommentOpen, focusedFileDraft, type FileLine } from '../diff/diff-file-comments'; // diff-review: line comments on the preview
 import { filesMediaView, markdownMediaChips, markdownMediaUrls, NO_MEDIA, type MediaView } from '../media/media-views'; // image and video files with their menu
 import { letGo } from '../client/let-go';
-import { filesTreeMenu, showContextMenu } from './context-menu-actions';
+import { filesTreeChoice, filesTreeMenuRows, showContextMenu } from './context-menu-actions';
+import type { MenuRow } from '../sidebar/sidebar-menu';
 import { availableEditorIds, markdownFileMenuItems, revealLabelFor } from '../shared/context-menus';
 import { isWorkspaceImagePreviewPath, isWorkspaceVideoPreviewPath, mediaMimeTypeFromExtension } from '../media/media-source';
 import { openMarkdownMediaPreview } from '../timeline/timeline-attachments';
@@ -47,6 +48,8 @@ export type CrumbMenu = { open: boolean; root: string; x: number; back: string; 
 export type FilesView = {
   cwd: string; project: string; ready: boolean; loading: boolean; error: string; query: string; truncated: boolean;
   rows: TreeRow[]; hasDirectories: boolean; allExpanded: boolean; explorer: boolean; showExplorer: boolean;
+  /** The tree rows' one context popover (context-menu-actions.ts filesTreeMenuRows). */
+  treeMenu: MenuRow[];
   path: string; preview: string; previewError: string; crumbs: Crumb[]; lines: FileLine[]; commentOpen: boolean; text: string; textKey: string;
   gutter: number; wrap: boolean; rawText: boolean; openInBrowser: boolean; truncatedNote: string; canRender: boolean; rendered: boolean; renderLabel: string; renderIcon: string;
   editable: boolean; pending: boolean; editorId: string; editorLabel: string; editorShow: boolean; editorHint: string; editorUnavailable: string; editors: EditorChoice[]; absolutePath: string;
@@ -238,7 +241,7 @@ export function pendingPaths(client: T3Client): Set<string> {
 /** `shelllocal:surface-files-*`. */
 export async function filesLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
   if (op === 'link-menu') { await markdownFileMenu(client, native, id); return ''; }
-  if (op === 'row-menu') { await filesTreeMenu(client, native, id); return ''; } // context-menu-actions.ts
+  if (op === 'row-pick') { await filesTreeChoice(client, native, id, value); return ''; } // context-menu-actions.ts
   const state = filesState(client), preferences = prefsOf(client);
   if (op === 'toggle') {
     if (state.expanded.has(id)) { state.expanded.delete(id); state.expandAll = false; }
@@ -500,7 +503,7 @@ export function fileDraftHoldsCommandEnter(client: T3Client): boolean {
 }
 
 export const emptyFiles = (): FilesView => ({
-  cwd: '', project: '', ready: false, loading: false, error: '', query: '', truncated: false, rows: [], hasDirectories: false, allExpanded: false,
+  cwd: '', project: '', ready: false, loading: false, error: '', query: '', truncated: false, rows: [], hasDirectories: false, allExpanded: false, treeMenu: [],
   explorer: true, showExplorer: true, path: '', preview: '', previewError: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true, rawText: false, openInBrowser: false,
   truncatedNote: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', editable: false, pending: false, editorId: '', editorLabel: '', editorShow: false, editorHint: '', editorUnavailable: '', editors: [], absolutePath: '',
   markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, table: [], editing: false, editorText: '', crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
@@ -541,7 +544,7 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   return {
     cwd, project: projectName, ready: state.dirs.has(''), loading: state.loading > 0, error, query: state.query,
     truncated: !!state.query.trim() && !!state.search?.truncated, rows, hasDirectories: [...state.dirs.values()].flat().some(entry => entry.kind === 'directory'),
-    allExpanded: state.expandAll || allExpanded(state), explorer: preferences.explorer, showExplorer,
+    allExpanded: state.expandAll || allExpanded(state), explorer: preferences.explorer, showExplorer, treeMenu: filesTreeMenuRows(client),
     path, preview,
     previewError: frame ? page.error : read?.error && !folder ? read.error : '', crumbs: path ? crumbs(projectName, path) : [], lines: fileCommentLines(client, previewPath, text, lines, editable && state.editing === path), commentOpen: fileCommentOpen(client), text, textKey: `${path}:${active.reveal}`,
     gutter: sourceGutter(lines.length), wrap: client.local.clientSettings.wordWrap !== false,

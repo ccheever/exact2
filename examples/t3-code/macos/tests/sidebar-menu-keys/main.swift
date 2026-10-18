@@ -1,11 +1,10 @@
 import AppKit
 import XCTest
 
-// A keyboard-opened sidebar menu (ContextMenu on a focused thread
-// row, ContextMenu or Shift+F10 on a draft row) opens at the focused row, as the
-// f870c419fc reference does in Chrome on macOS: a thread row's centre (127, 238 for
-// the 239×78 card at 8, 199) and a draft row's bottom-left corner (8, 180 for the
-// card at 8, 102). T3Sidebar.anchorPoint and the `sidebarMenu` request's `anchor`.
+// Where a keyboard-opened native menu goes (T3Sidebar.anchorPoint, which the media menu's
+// `anchor` uses, T3MediaActions.swift), measured on the f870c419fc reference in Chrome on macOS:
+// a focused view's centre, as Chromium's keyboard contextmenu (127, 238 for the 239×78 card
+// at 8, 199), or its bottom-left corner (8, 180 for the card at 8, 102).
 final class FocusRow: NSView { override var acceptsFirstResponder: Bool { true } }
 final class FlippedView: NSView { override var isFlipped: Bool { true } }
 
@@ -43,30 +42,10 @@ final class SidebarMenuAnchorTests: XCTestCase {
         XCTAssertNil(T3Sidebar.anchorPoint("middle", focus: row, in: content), "unknown anchors are ignored")
         XCTAssertNil(T3Sidebar.anchorPoint("center", focus: FocusRow(frame: .zero), in: content), "a view outside the window")
     }
-
-    func testTheAgentReplyCarriesTheAnchorOfTheWindowsFocusedRow() {
-        let (window, _, row) = window(flipped: false, rowTop: 199)
-        XCTAssertTrue(window.makeFirstResponder(row))
-        let sidebar = T3Sidebar(agent: true) { _ in }
-        let reply = expectation(description: "menu reply")
-        sidebar.perform(["op": "sidebarMenu", "items": [], "anchor": "center", "generation": 7]) { response in
-            let value = response["value"] as? [String: Any]
-            XCTAssertEqual(value?["shown"] as? Bool, false, "the agent never enters menu tracking")
-            XCTAssertEqual((value?["anchor"] as? [CGFloat]) ?? [], [127, 238])
-            reply.fulfill()
-        }
-        let plain = expectation(description: "pointer menu reply")
-        sidebar.perform(["op": "sidebarMenu", "items": [], "generation": 8]) { response in
-            XCTAssertTrue((response["value"] as? [String: Any])?["anchor"] is NSNull, "a right click has no anchor")
-            plain.fulfill()
-        }
-        wait(for: [reply, plain], timeout: 1)
-        _ = window
-    }
 }
 
 let suite = XCTestSuite(forTestCaseClass: SidebarMenuAnchorTests.self)
 suite.run()
 let run = suite.testRun!
-print("Sidebar menu anchor tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
+print("Keyboard menu anchor tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
 exit(run.totalFailureCount == 0 ? 0 : 1)

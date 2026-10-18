@@ -78,7 +78,7 @@ pub(super) fn first_frame(name: &str) -> Value {
         // A fixture carries no per-call budget; a loaded test machine is no gate.
         module.set_budget_ms(f64::INFINITY);
         module.load().unwrap();
-        let data = super::markdown::mixed(module, exact_runner::Placement::Main);
+        let data = t3_code_data::mixed(module, exact_runner::Placement::Main);
         let measurer = CallbackMeasurer::new(measure, std::ptr::null_mut(), None);
         let (host, _) =
             exact_apple::Host::boot(PLAN, data, Box::new(measurer), 1280.0, 840.0).unwrap();
