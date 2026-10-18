@@ -1,7 +1,7 @@
 // The embedded T3 server: the app's one local backend, after
-// T3 Code's desktop app (MIT, see LICENSE-T3; reference 1e2ecbd975: apps/desktop/src/app/DesktopApp.ts
+// T3 Code's desktop app (MIT, see LICENSE-T3; reference 9c161462c9: apps/desktop/src/app/DesktopApp.ts
 // `resolveDesktopBackendPort` and the quit finalizer, backend/DesktopBackendConfiguration.ts
-// `resolvePrimaryStartConfig` and the bootstrap token, backend/DesktopLocalEnvironmentAuth.ts).
+// `resolvePrimaryStartConfig` and the bootstrap secret, backend/DesktopLocalEnvironmentAuth.ts).
 //
 // At the first session: unpack the runtime (T3LocalRuntime.swift), pick the port, start
 // `<versionDir>/t3 --bootstrap-fd 0` with the desktop envelope on stdin, supervise it
@@ -10,8 +10,8 @@
 // module is destroyed at quit), stop it: SIGTERM, SIGKILL after 5 s, at most 5 s. A pid file in
 // the app's data folder lets the next launch reap a server an app crash left behind.
 //
-// Real data and port 3773 are opt-in: only the packaged build (Contents/Resources/distribution.json
-// `{"flavor":"packaged"}`, written by the packaging step) uses `~/.t3` and scans from 3773. Every
+// Real data and port 3773 are opt-in: only the app's distribution-only t3code handler and
+// registered bundle scheme admit `~/.t3` and the scan from 3773. Every
 // other build starts nothing unless T3_LOCAL_HOME (an isolated folder) and T3_LOCAL_PORT
 // (16000-16999) are set. No UI here: TypeScript reads `localBackendStatus` and watches `t3.local`.
 import Foundation
@@ -28,11 +28,12 @@ enum T3LocalPolicy: Equatable {
     static let defaultPort = 3773
     static let laneRange = 16000...16999
 
-    /// `distribution.json` in the bundle's Resources marks the packaged build.
-    static func packaged(resources: URL?) -> Bool {
-        guard let resources, let data = try? Data(contentsOf: resources.appendingPathComponent("distribution.json")),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
-        return object["flavor"] as? String == "packaged"
+    /// The app's distribution-only handler is emitted for archives/--distribution, never --release alone.
+    static func packaged(info: [String: Any] = Bundle.main.infoDictionary ?? [:]) -> Bool {
+        let handlers = info["ExactProtocolHandlers"] as? [[String: Any]] ?? []
+        let types = info["CFBundleURLTypes"] as? [[String: Any]] ?? []
+        return handlers.contains { $0["protocol"] as? String == "t3code" && $0["url"] as? String == "/open?u=%s" }
+            && types.contains { ($0["CFBundleURLSchemes"] as? [String] ?? []).contains("t3code") }
     }
 
     /// Resolves `~`, `..` and symlinks (of the deepest part that exists).
@@ -238,10 +239,11 @@ final class T3LocalBackend: @unchecked Sendable {
     private var readyWaiters: [(String?) -> Void] = []
     private var waitEpoch = 0
 
-    // Seams: the process environment, the bundle's Resources, the child's environment, the spawner and
+    // Seams: the process environment, bundle resources/metadata, the child's environment, the spawner and
     // readiness prober, and the fatal startup alert (tests replace them; T3LocalFatal.swift).
     var environment: () -> [String: String] = { ProcessInfo.processInfo.environment }
     var resources: () -> URL? = { Bundle.main.resourceURL }
+    var bundleInfo: () -> [String: Any] = { Bundle.main.infoDictionary ?? [:] }
     var serverEnvironment: ([String: String]) -> [String: String] = { T3LocalShellEnvironment.serverEnvironment(base: $0, run: T3LocalShellEnvironment.runCommand) }
     var makeSpawner: () -> T3LocalSpawner = { T3LocalProcessSpawner() }
     var makeProber: () -> T3LocalProber = { T3LocalHTTPProber() }
@@ -256,12 +258,13 @@ final class T3LocalBackend: @unchecked Sendable {
         auth = T3LocalAuth(session: session)
     }
 
-    /// The bootstrap token: 24 random bytes as hex, once per app run (`getOrCreateBootstrapToken`).
-    private let bootstrapToken: String = {
-        var bytes = [UInt8](repeating: 0, count: 24)
+    /// Shared by every backend in this app run; credentials derive from its twelve-hour window.
+    private let bootstrapSecret: String = {
+        var bytes = [UInt8](repeating: 0, count: 32)
         _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         return bytes.map { String(format: "%02x", $0) }.joined()
     }()
+    var nowMs: () -> Double = { Date().timeIntervalSince1970 * 1000 }
     /// `makeDesktopRunId`: 12 hex characters, the failure log's runId.
     let runId = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(12))
 
@@ -310,7 +313,7 @@ final class T3LocalBackend: @unchecked Sendable {
     /// The desktop settings (T3DesktopSettings.swift): `<T3 home>/userdata/desktop-settings.json`,
     /// read once (`DesktopAppSettings.load`), then the one-time carry-over of the keys `t3-code.json` still has.
     private func loadSettings(dataRoot: URL) {
-        let policy = T3LocalPolicy.resolve(env: environment(), packaged: T3LocalPolicy.packaged(resources: resources()),
+        let policy = T3LocalPolicy.resolve(env: environment(), packaged: T3LocalPolicy.packaged(info: bundleInfo()),
                                            home: NSHomeDirectory(), accountHome: String(cString: getpwuid(getuid()).pointee.pw_dir))
         lock.lock(); self.dataRoot = dataRoot; self.policy = policy; lock.unlock()
         var home: URL?
@@ -453,8 +456,9 @@ final class T3LocalBackend: @unchecked Sendable {
         let launchExposure = T3LocalExposure.atLaunch(settings: settings.settings,
                                                       interfaces: (try? T3LocalNetwork.shared.interfaces()) ?? [:], lanHostOverride: T3LocalNetwork.shared.lanHostOverride)
         lock.lock(); exposure = launchExposure; lock.unlock()
-        let serverEnv = serverEnvironment(env)
-        let config = Self.startConfig(versionDir: versionDir, port: port, home: home, token: bootstrapToken, env: serverEnv, cwd: NSHomeDirectory(), exposure: launchExposure)
+        var serverEnv = serverEnvironment(env)
+        serverEnv["T3CODE_CLI_PATH"] = try? cliCommand().installLauncher()
+        let config = Self.startConfig(versionDir: versionDir, port: port, home: home, token: currentBootstrapToken, env: serverEnv, cwd: NSHomeDirectory(), exposure: launchExposure, secret: bootstrapSecret)
         let httpBaseUrl = config.httpBaseUrl
         let logDirectory = home.appendingPathComponent("userdata/logs", isDirectory: true)
         let manager = T3LocalBackendManager(
@@ -464,7 +468,7 @@ final class T3LocalBackend: @unchecked Sendable {
             spec: T3LocalBackendSpec(configResolve: { [weak self] in
                 guard let self else { return config }
                 self.lock.lock(); let exposure = self.exposure; self.lock.unlock()
-                return Self.startConfig(versionDir: versionDir, port: port, home: home, token: self.bootstrapToken, env: serverEnv, cwd: NSHomeDirectory(), exposure: exposure)
+                return Self.startConfig(versionDir: versionDir, port: port, home: home, token: self.currentBootstrapToken, env: serverEnv, cwd: NSHomeDirectory(), exposure: exposure, secret: self.bootstrapSecret)
             }))
         manager.logger = { [weak self] in self?.log($0) }
         manager.spec.onStarted = { pid, config in T3LocalPidFile.write(pidFile, pid: pid, executable: config.executablePath) }
@@ -549,14 +553,14 @@ final class T3LocalBackend: @unchecked Sendable {
     /// `resolvePrimaryStartConfig` for the SEA: `t3 --bootstrap-fd 0` from the version folder, cwd the
     /// home folder (`backendCwd` of a packaged build), local-only (`127.0.0.1`), no Tailscale Serve
     /// (`exposure` adds it), the resource monitor when the tree has one.
-    static func startConfig(versionDir: URL, port: Int, home: URL, token: String, env: [String: String], cwd: String, exposure: T3LocalExposure = T3LocalExposure()) -> T3LocalStartConfig {
+    static func startConfig(versionDir: URL, port: Int, home: URL, token: String, env: [String: String], cwd: String, exposure: T3LocalExposure = T3LocalExposure(), secret: String? = nil) -> T3LocalStartConfig {
         let monitor = versionDir.appendingPathComponent("resource-monitor/darwin-arm64/t3-resource-monitor")
         return T3LocalStartConfig(
             executablePath: versionDir.appendingPathComponent("t3").path,
             args: ["--bootstrap-fd", "0"],
             cwd: cwd,
             env: env,
-            bootstrap: T3LocalBootstrap(port: port, t3Home: home.path, host: exposure.host, desktopBootstrapToken: token,
+            bootstrap: T3LocalBootstrap(port: port, t3Home: home.path, host: exposure.host, desktopBootstrapToken: token, desktopBootstrapSecret: secret,
                                         tailscaleServeEnabled: exposure.tailscaleServeEnabled, tailscaleServePort: exposure.tailscaleServePort,
                                         resourceMonitorPath: FileManager.default.isExecutableFile(atPath: monitor.path) ? monitor.path : nil),
             // The app always reaches its own server over loopback; network access only widens the bind host.
@@ -624,8 +628,8 @@ final class T3LocalBackend: @unchecked Sendable {
         }.resume()
     }
 
-    /// The token this app run's servers are started with (tests read it; it is never logged).
-    var currentBootstrapToken: String { bootstrapToken }
+    /// The current credential, including after a suspend across a window boundary. Never logged.
+    var currentBootstrapToken: String { T3DesktopBootstrap.token(secret: bootstrapSecret, nowMs: nowMs()) }
 
     private func describe(_ manager: T3LocalBackendManager, into status: inout [String: Any]) {
         let snapshot = manager.snapshot
@@ -643,7 +647,7 @@ final class T3LocalBackend: @unchecked Sendable {
     private func exchange(_ base: URL) {
         let group = DispatchGroup()
         group.enter()
-        auth.bearerToken(base: base, credential: bootstrapToken) { [weak self] token in
+        auth.bearerToken(base: base, credential: currentBootstrapToken) { [weak self] token in
             if token == nil { self?.log("the bearer exchange failed") }
             self?.publish { $0["bearerReady"] = token != nil }
             group.leave()
