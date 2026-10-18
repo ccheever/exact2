@@ -49,6 +49,7 @@ impl<D: DataSource> Presenter<D> {
         let again = revision.is_some() && self.held().is_some_and(|h| h.revision == revision);
         self.let_hold_go((!again).then_some("replaced"));
         let Some(state) = state else { return Ok(None) };
+        let asked = view;
         let kernel = self.host.kernel();
         let mut at = kernel.node(view).map(|n| n.id);
         if state == HoldState::Active {
@@ -70,6 +71,7 @@ impl<D: DataSource> Presenter<D> {
         let focused = self.focus.is_some_and(|f| self.within(f, view));
         self.host.looks_shown.held = Some(Held {
             view,
+            asked,
             key,
             state,
             revision,
@@ -333,7 +335,10 @@ impl<D: DataSource> Presenter<D> {
     /// state, by wire name.
     pub(crate) fn layout_held(&mut self, node: Option<u32>, include_plan: bool) -> String {
         let mut layout = self.layout_json(node, include_plan);
-        let held = self.held().filter(|h| Some(h.view) == node);
+        // (Named on a node inside the press, it answers for that node too.)
+        let held = self
+            .held()
+            .filter(|h| Some(h.view) == node || Some(h.asked) == node);
         let Some(held) = held.filter(|_| layout.ends_with("}}")) else {
             return layout;
         };

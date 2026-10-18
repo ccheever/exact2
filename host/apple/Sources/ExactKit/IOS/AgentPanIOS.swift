@@ -362,6 +362,7 @@ extension Agent {
                     return ["error": "tap #\(v.id) down: \(why)"]
                 }
                 let touched = seen ?? v
+                MainActor.assumeIsolated { HeldState.input(at: touched) } // a finger on a held node lets its hold go (HeldState.swift)
                 var contact = AgentPan(node: nil, pressing: true, pointer: Agent.pointerNode(from: touched).map(HeldNode.init), path: Agent.fingerPath(from: touched),
                                        reach: fingerReach(touched, at: p), at: at, t: t, held: Agent.heldPrefix(req))
                 panPointer(contact, .down)

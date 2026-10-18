@@ -275,7 +275,11 @@ public final class ExactView: NSView {
                 }
                 if event.type != .keyDown && event.type != .keyUp {
                     // A click is a new place for Tab to start from (`tabStart`): the window's, as before.
-                    if event.type == .leftMouseDown || event.type == .rightMouseDown { self.session.presenter.tabStart = nil }
+                    if event.type == .leftMouseDown || event.type == .rightMouseDown {
+                        self.session.presenter.tabStart = nil
+                        // A press on a held node, or in it, lets its hold go (HeldState.swift), whatever view takes it.
+                        MainActor.assumeIsolated { HeldState.input(at: event.window?.contentView.flatMap { $0.hitTest($0.convert(event.locationInWindow, from: nil)) }) }
+                    }
                     self.session.presenter.menus.pointer(event)
                     // A click on the window behind a `closedby="any"` sheet is the sheet's.
                     return self.session.presenter.dialogs.pointer(event) ? nil : event

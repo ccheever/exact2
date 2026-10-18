@@ -35,20 +35,16 @@ extension Presenter {
     /// The `:hover` looks of the hover path `path` (innermost first, every
     /// ancestor): on for those that have one and show, off for the rest.
     func hoverLooks(_ path: [NodeView]) {
+        MainActor.assumeIsolated { HeldState.hovered(path) } // the pointer coming over a held hover's node or leaving it lets it go (HeldState.swift)
         let next = path.filter {
             // In the page, or in a sheet's or a popover's own window (`trackPointer`).
             views[$0.id] === $0 && $0.window != nil && !$0.inert && !$0.isHiddenOrHasHiddenAncestor
                 && NodeView.look("hover", in: $0.style) != nil
         }
         for held in lookHovered {
-            // The pointer leaving a held hover's node lets it go (HeldState.swift), as on the web.
-            if let view = held.view, !next.contains(where: { $0 === view }) { view.heldInput("hover"); view.lookState(hovered: false) }
+            if let view = held.view, !next.contains(where: { $0 === view }) { view.lookState(hovered: false) }
         }
-        // The pointer coming over it lets one go too (moving within it does not).
-        for view in next {
-            if !lookHovered.contains(where: { $0.view === view }) { view.heldInput("hover") }
-            view.lookState(hovered: true)
-        }
+        for view in next { view.lookState(hovered: true) }
         lookHovered = next.map { WeakNodeView(view: $0) }
     }
 }

@@ -139,9 +139,10 @@ fn a_held_active_is_the_press_paint_until_real_input_lets_it_go() {
     );
     let layout: Value =
         serde_json::from_str(&p.layout_held(Some(view(&p, "child")), false)).unwrap();
-    assert!(
-        layout["node"].get("held").is_none(),
-        "held on the card alone"
+    assert_eq!(
+        layout["node"]["held"],
+        json!({"state": "active", "rows": [{"name": "press_background_color", "value": "#0000ff"}]}),
+        "named on the child, it answers for the child too, with the card's rows"
     );
     // A real press on it lets it go; the press goes on, and its release lets it up.
     p.pointer_down(at.0, at.1, now + 210.).unwrap();
@@ -429,4 +430,20 @@ fn a_hold_of_another_plan_or_of_a_revision_ended_here_is_nothing() {
         serve(&mut p, vec![hold(1, card)]),
         [json!({"kind": "held", "state": "hover", "revision": 1})]
     );
+}
+
+/// A held press let go while the contact that was down on the node has
+/// moved off it: no real press holds it, so the paint goes.
+#[test]
+fn a_held_press_let_go_with_its_contact_off_the_node_unpaints() {
+    let mut p = boot();
+    p.set_pointer_kind(PointerKind::Touch);
+    let at = ground(&mut p, "card");
+    p.pointer_down(at.0, at.1, 0.).unwrap();
+    let card = target(&p, "card", "active");
+    assert_eq!(serve(&mut p, vec![hold(2, card)])[0]["state"], "active");
+    p.pointer_move(at.0, at.1 + 300., 10.).unwrap();
+    serve(&mut p, vec![hold(3, Value::Null)]);
+    p.clock(600.);
+    assert_eq!(pixel(&mut p, at), GREEN);
 }

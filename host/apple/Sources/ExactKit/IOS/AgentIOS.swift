@@ -359,7 +359,7 @@ extension Agent {
         guard let d = session.agent("{\"op\":\"node\",\"id\":\(id),\"plan\":\(includePlan)}").data(using: .utf8),
               var node = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return ["error": "node #\(id): unreadable"] }
         if let e = node["error"] { return ["error": e] }
-        if let held = presenter.views[UInt32(id)]?.heldRows { node["held"] = held } // what is held on it (LLP 1122 D8)
+        MainActor.assumeIsolated { if let held = HeldState.rows(for: UInt32(id), in: presenter) { node["held"] = held } } // what is held on it (LLP 1122 D8)
         if presenter.menus.ownsConfirmationNode(v) {
             node["space"] = ["unavailable": "UIAlertAction exposes no public action geometry"]
             node["native"] = ["presentation": "confirmation"]

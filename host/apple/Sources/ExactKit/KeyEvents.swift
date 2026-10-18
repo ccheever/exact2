@@ -137,6 +137,7 @@ extension Presenter {
         sequence(first: view, next: { self.eventParent(of: $0) })
     }
     private func keyEvent(_ handler: String, at target: NodeView?, _ press: KeyPress, inline: UInt32? = nil) -> Bool {
+        if handler == "key", let target { MainActor.assumeIsolated { HeldState.input(at: target) } } // a key on a held node lets its hold go (HeldState.swift)
         var path: [(id: UInt32, handlers: Set<String>)] = []
         var run = inline.flatMap(inlineText)
         while let current = run {

@@ -55,10 +55,12 @@ struct PressPaint {
     var focusShown = false
     /// The opacity the looks that hold show, if one names it.
     var lookOpacity: Float?
+    /// Whether the press `pressed` tracks has left the box (`pressFollows`).
+    var outside = false
     /// As a node that was never pressed (nor looked) holds it.
     var atRest: Bool {
         !down && at == 0 && !releaseHeld && ease.rests(at: 0) && depth == 0 && inked.isEmpty && rest.isEmpty
-            && overlay.isEmpty && inkedBy.view == nil && lookBase == nil && !hovered && !focusShown && lookOpacity == nil
+            && overlay.isEmpty && inkedBy.view == nil && lookBase == nil && !hovered && !focusShown && lookOpacity == nil && !outside
     }
 }
 
@@ -98,9 +100,9 @@ extension NodeView {
     }
 
     /// The looks again, as they hold now: after a change the flags don't
-    /// show (the node's `disabled`).
+    /// show (the node's `disabled`, a state held or let go).
     func relook() {
-        if disabled, HeldState.view === self { HeldState.letGo("disabled") } // a disabled node holds no state
+        HeldState.propsChanged() // a node disabled, or under a disabled one, holds no state
         guard let base = pressPaint.lookBase else { return }
         restyleForPress(pressPainted(looked(base)))
         refreshPressOpacity()
@@ -292,7 +294,8 @@ extension NodeView {
         pressPaint.lookOpacity = nil
         guard !disabled else { return s }
         var s = s
-        for (state, on) in [("hover", pressPaint.hovered), ("focus_visible", pressPaint.focusShown)] where on {
+        // The real state's, or one held beside it (HeldState.swift).
+        for (state, on) in [("hover", pressPaint.hovered || holds("hover")), ("focus_visible", pressPaint.focusShown || holds("focus-visible"))] where on {
             guard let look = Self.look(state, in: s) else { continue }
             for key in Self.lookRows {
                 // A row the look clears is null: the base's goes (no shadow).

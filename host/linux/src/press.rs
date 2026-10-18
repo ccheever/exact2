@@ -61,6 +61,8 @@ impl HoldState {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Held {
     pub view: ViewId,
+    /// The node it was named on (a node inside the press, for `active`).
+    pub asked: ViewId,
     pub key: NodeKey,
     pub state: HoldState,
     pub revision: Option<u64>,
