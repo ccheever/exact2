@@ -1,0 +1,24 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Absolute flex sizing reductions</title>
+<style>
+  body { margin: 0; font: 16px system-ui; }
+  main { position: relative; width: 800px; height: 600px; }
+  p { position: absolute; margin: 0; }
+  .row { position: absolute; display: flex; background: #f9caca; }
+  canvas { display: block; background: #2864c8; }
+  canvas + canvas { background: #3b9272; }
+  #auto { top: 50px; max-height: 100px; }
+  #auto canvas { padding: 10px; }
+  #fixed { top: 240px; height: 100px; }
+  #fixed canvas { padding: 10px; flex-grow: 1; }
+  #reduced { top: 430px; max-height: 100px; }
+</style>
+<main>
+  <p style="top:10px">Auto height with max-height: 100px. Expected row 640×100, items 320×100.</p>
+  <div id="auto" class="row"><canvas></canvas><canvas></canvas></div>
+  <p style="top:200px">Authored height: 100px. Expected row 360×100, items 180×100.</p>
+  <div id="fixed" class="row"><canvas></canvas><canvas></canvas></div>
+  <p style="top:390px">Reduced case: one canvas, no padding. Expected row and item 300×100.</p>
+  <div id="reduced" class="row"><canvas></canvas></div>
+</main>

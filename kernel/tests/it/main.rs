@@ -3,6 +3,7 @@
 mod animation;
 mod apply;
 mod bars;
+mod browser_absolute_flex;
 mod browser_cases;
 mod browser_columns;
 mod browser_controls;

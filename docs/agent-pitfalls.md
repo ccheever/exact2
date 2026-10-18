@@ -13,6 +13,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Layout
 
+- **An unsized canvas in an absolute flex row stays taller on the web JS target.**
+  A 100px-tall row gives its padded canvases 170px heights there, while native and
+  literal HTML canvases stretch to 100px. Cause: the web JS canvas box keeps an
+  explicit natural height. When checking CSS parity for this pattern, compare
+  against literal `<canvas>` HTML; the [HTML reduction](../kernel/tests/it/fixtures/browser_absolute_flex.html)
+  and [tracked host gap](../QUEUE.md) record the difference. (Absolute-flex sizing
+  verification, Chrome 154.0.8037.92 and macOS, 2026-10-18.)
+
 - **`link "Title" href="/item"` is refused as zero-sized.** Only a `button`'s
   positional title becomes a text child; a `link` needs explicit children. Write:
 

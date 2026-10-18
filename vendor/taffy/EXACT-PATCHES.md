@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42 and 43 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43 and 44 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1269,3 +1269,29 @@ bounded 200px width.
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
 Exact worktree does not attach this excluded path dependency to the enclosing
 checkout. This is an Exact integration patch to retain when updating.
+
+## Patch 44: retain auto-height indefiniteness in final absolute layout
+
+The absolute solver passes its final used size separately from its definiteness.
+An auto height measured from content stays indefinite when sizing flex bases,
+even after a minimum or maximum clamps it. Authored heights, opposing insets,
+replaced sizes and ratio-derived heights retain their definite sizing behavior.
+No cache key or host override is added.
+
+This follows [CSS Flexbox §9.8](https://www.w3.org/TR/css-flexbox-1/#definite-sizes)
+and [CSS Sizing §2](https://www.w3.org/TR/css-sizing-3/#definite). A measured
+100px auto height cannot retroactively change a canvas's flex basis from its
+natural width to a ratio transferred from 100px.
+
+**Held by** `browser_absolute_flex::absolute_flex_sizes_match_chrome`: 69 literal
+Chrome 154.0.8037.92 cases, measured on 2026-10-18 for canvases and loaded
+300×150 images. 65 cases agree for each tag; four separate gaps reproduced on
+`da06b4371` remain named in `QUEUE.md` and in the test's owed list. Coverage includes
+height bounds, percentages, definite-height controls, both ratio boxes, borders,
+padding, gaps, reversed axes, wrapping, margins and block/flex/grid containing
+blocks. `switching_between_authored_and_auto_height_matches_a_fresh_layout`
+checks repeated style changes and rehydration. The HTML and Contract reductions
+are beside the TSV fixture. HTML is the literal browser oracle; Contract drives
+the native reproduction. Its web JS canvas wrapper has a separate sizing gap
+recorded in QUEUE.md. The queued definite-height shrink-to-fit case already
+agreed at the starting commit and remains covered by patch 40's regressions.

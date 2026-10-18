@@ -20,7 +20,8 @@ use crate::style::{AvailableSpace, BoxSizing, CoreStyle, Dimension, Direction, O
 #[cfg(feature = "content_size")]
 use crate::compute::common::scrollable_overflow::compute_scrollable_overflow_contribution;
 use crate::tree::{
-    Layout, LayoutOutput, LayoutPartialTree, LayoutPartialTreeExt, NodeId, SizingMode, StaticAlignment, StaticPosition,
+    Layout, LayoutInput, LayoutOutput, LayoutPartialTree, LayoutPartialTreeExt, NodeId, RequestedAxis, RunMode, SizingMode,
+    StaticAlignment, StaticPosition,
 };
 use crate::util::sys::f32_max;
 use crate::util::{MaybeMath, MaybeResolve, ResolveOrZero};
@@ -352,13 +353,23 @@ impl AbsoluteBox {
         }
         .maybe_clamp(min_size, max_size);
 
-        let output = tree.perform_child_layout(
+        // EXACT PATCH 44: a measured auto height is a used size, not a definite
+        // cross size from which a flex item's basis can be transferred (§9.8).
+        let output = tree.compute_child_layout(
             node,
-            final_size.map(Some),
-            parent_size,
-            available_space,
-            sizing_mode,
-            Line::FALSE,
+            LayoutInput {
+                known_dimensions: final_size.map(Some),
+                known_dimensions_are_definite: Size {
+                    width: true,
+                    height: self.is_replaced || self.ratio.is_some() || known_dimensions.height.is_some(),
+                },
+                parent_size,
+                available_space,
+                sizing_mode,
+                axis: RequestedAxis::Both,
+                run_mode: RunMode::PerformLayout,
+                vertical_margins_are_collapsible: Line::FALSE,
+            },
         );
 
         let x = solve_axis(

@@ -1,0 +1,16 @@
+// Native reproduction of browser_absolute_flex.html. The web JS canvas
+// wrapper has a separate sizing gap recorded in QUEUE.md.
+component ExactAbsoluteFlexRepro
+  view
+    main position="relative" width=800 height=600 background-color="#ffffff"
+      text "Auto height with max-height: 100px" position="absolute" top=10 left=0
+      view position="absolute" display="flex" top=50 left=0 max-height=100 background-color="#f9caca" testId="auto-row"
+        canvas padding=10 background-color="#2864c8" testId="auto-a"
+        canvas padding=10 background-color="#3b9272" testId="auto-b"
+      text "Authored height: 100px" position="absolute" top=200 left=0
+      view position="absolute" display="flex" top=240 left=0 height=100 background-color="#f9caca" testId="fixed-row"
+        canvas padding=10 flex-grow=1 background-color="#2864c8" testId="fixed-a"
+        canvas padding=10 flex-grow=1 background-color="#3b9272" testId="fixed-b"
+      text "Reduced case: one canvas, no padding" position="absolute" top=390 left=0
+      view position="absolute" display="flex" top=430 left=0 max-height=100 background-color="#f9caca" testId="reduced-row"
+        canvas background-color="#2864c8" testId="reduced-a"
