@@ -184,3 +184,59 @@ test('symbol axes follow the current projected title and root font without anoth
   }
 }, 30000);
 
+
+// LLP 1121 stage 9 B (D10): under a bound `color` the JS target decides after
+// each commit whether a symbol draws in its colour (style.rs `symbol_marks`,
+// symbols.js `inked`). A conditional colour that goes (`none`) gives the
+// symbol back to the decision past it, the accent here or a written colour
+// further up; one that comes back takes it again; an unwritten one is no
+// author's.
+test('a symbol under a bound colour follows whether it has a value', async () => {
+  const root = resolve(import.meta.dir, '../../..');
+  const img = (id, ink) => `<img id="${id}" data-symbol-source="symbol:book" data-symbol-path="M0 0L24 24" data-symbol-ink="${ink}" style="width:16px;height:16px">`;
+  const content = `<div style="--exact-accent:rgb(102, 82, 197)">
+    <div id="bound" data-exact-ink="1">${img('alone', '10')}</div>
+    <div style="color:rgb(0, 128, 0)"><div id="inner" data-exact-ink="1">${img('over', '11')}</div></div>
+    <div id="implied" data-exact-ink="0">${img('unwritten', '10')}</div></div>
+    <button id="off">Off</button><button id="on">On</button>`;
+  const boot = `import { symbols } from '/symbols.js';
+    import { commit, sig, W, S } from '/rt.js';
+    const c = sig('rgb(255, 0, 0)');
+    for (const id of ['bound', 'inner', 'implied']) S(document.getElementById(id), 'color', '', () => c());
+    symbols({ book: ['M0 0L24 24', false] });
+    commit(() => {});
+    document.getElementById('off').onclick = () => commit(() => W(c, null));
+    document.getElementById('on').onclick = () => commit(() => W(c, 'rgb(255, 0, 0)'));
+    globalThis.ready = true;`;
+  const html = withLook(readFileSync(resolve(root, 'host/web/index.html'), 'utf8'))
+    .replace('<div id="exact-root"></div>', `<div id="exact-root">${content}</div>`)
+    .replace('<script type="module" src="./glue.js"></script>', `<script type="module">${boot}</script>`);
+  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+    const path = new URL(request.url).pathname.slice(1);
+    if (!path) return new Response(html, { headers: { 'content-type': 'text/html' } });
+    if (path === 'names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } });
+    if (!/^[A-Za-z0-9_.-]+\.js$/.test(path)) return new Response('Not found', { status: 404 });
+    const file = [resolve(root, 'host/web-js', path), resolve(root, 'host/web', path)].find(existsSync);
+    return file ? new Response(Bun.file(file), { headers: { 'content-type': 'text/javascript' } }) : new Response('Not found', { status: 404 });
+  } });
+  let browser;
+  try {
+    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true, timeout: 10000 });
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(String(error)));
+    await page.goto(server.url.href);
+    await page.waitForFunction(() => globalThis.ready);
+    const ink = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => done(Object.fromEntries(['alone', 'over', 'unwritten']
+      .map(id => [id, getComputedStyle(document.getElementById(id)).backgroundColor]))))));
+    const red = 'rgb(255, 0, 0)', green = 'rgb(0, 128, 0)', accent = 'rgb(102, 82, 197)';
+    expect(await ink()).toEqual({ alone: red, over: red, unwritten: accent });
+    await page.locator('#off').click();
+    expect(await ink()).toEqual({ alone: accent, over: green, unwritten: accent });
+    await page.locator('#on').click();
+    expect(await ink()).toEqual({ alone: red, over: red, unwritten: accent });
+    expect(errors).toEqual([]);
+  } finally {
+    try { await browser?.close(); } finally { server.stop(true); }
+  }
+}, 30000);

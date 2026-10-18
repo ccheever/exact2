@@ -161,3 +161,82 @@ fn its_own_written_colour() {
     set(&mut k, 7, row(StyleId::TextColor, "red", true));
     assert!(!said(&k, 7));
 }
+
+fn touched_by(k: &mut Kernel, ops: &[Op]) -> Vec<u32> {
+    let receipt = k.apply(0, 0, ops).unwrap();
+    receipt
+        .touched
+        .iter()
+        .filter_map(|key| k.node_by_key(*key).map(|n| n.id))
+        .collect()
+}
+
+/// A move between two parents whose colours are equal, one written and one
+/// a sheet's, changes whether the symbol is said with no inherited value
+/// changing: the image is touched, so a host sends it again, both ways.
+#[test]
+fn a_move_under_an_equal_colour_of_another_provenance_touches_the_symbol() {
+    let mut k = tree();
+    k.apply(
+        0,
+        0,
+        &[
+            Op::CreateView {
+                id: 8,
+                node_type: NodeType::View,
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2, 8],
+            },
+        ],
+    )
+    .unwrap();
+    set(&mut k, 2, row(StyleId::TextColor, "red", true));
+    set(&mut k, 8, row(StyleId::TextColor, "red", false));
+    assert!(said(&k, 4));
+    let touched = touched_by(
+        &mut k,
+        &[Op::SetChildren {
+            id: 8,
+            children: vec![4],
+        }],
+    );
+    assert!(touched.contains(&4), "{touched:?}");
+    assert!(!said(&k, 4));
+    let touched = touched_by(
+        &mut k,
+        &[Op::SetChildren {
+            id: 3,
+            children: vec![4, 5, 6],
+        }],
+    );
+    assert!(touched.contains(&4), "{touched:?}");
+    assert!(said(&k, 4));
+}
+
+/// Out of a native button's face and back, under a colour that reaches both.
+#[test]
+fn a_move_off_a_buttons_face_touches_the_symbol() {
+    let mut k = tree();
+    set(&mut k, 1, row(StyleId::TextColor, "red", true));
+    assert!(!said(&k, 7));
+    let touched = touched_by(
+        &mut k,
+        &[Op::SetChildren {
+            id: 3,
+            children: vec![4, 5, 6, 7],
+        }],
+    );
+    assert!(touched.contains(&7), "{touched:?}");
+    assert!(said(&k, 7));
+    let touched = touched_by(
+        &mut k,
+        &[Op::SetChildren {
+            id: 6,
+            children: vec![7],
+        }],
+    );
+    assert!(touched.contains(&7), "{touched:?}");
+    assert!(!said(&k, 7));
+}

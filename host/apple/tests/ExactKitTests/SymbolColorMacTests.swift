@@ -79,5 +79,18 @@ final class SymbolColorMacTests: XCTestCase {
         XCTAssertNotEqual(hierarchical.symbolKey, key, "the baked colour remakes the image")
         assertChannels(try ink(p, 3), [48, 176, 199, 255], "hierarchical, a new colour")
     }
+
+    /// In a selected table row drawn emphasized, a fixed written colour keeps
+    /// its ink, as a fixed tint does; a role's colour, and a symbol nobody
+    /// coloured, take the selected ink.
+    func testAnEmphasizedRowKeepsAFixedWrittenColour() throws {
+        let role: [String: Any] = ["sys": "labelColor", "c": [[0, 0, 0, 255], [255, 255, 255, 255]]]
+        let p = presenter([(2, true, ["text_color": pink]), (3, true, ["text_color": role]), (4, false, ["text_color": pink])])
+        try XCTUnwrap(p.views[1]).rowEmphasisChanged(true)
+        func style(_ id: UInt32) -> NSView.BackgroundStyle? { p.views[id]?.symbolView?.cell?.backgroundStyle }
+        XCTAssertEqual(style(2), .normal, "a fixed written colour")
+        XCTAssertEqual(style(3), .emphasized, "a role")
+        XCTAssertEqual(style(4), .emphasized, "nobody's")
+    }
 }
 #endif

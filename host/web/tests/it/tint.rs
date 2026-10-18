@@ -184,6 +184,7 @@ fn the_accent_colour_role_is_the_nearest_accent_color() {
 fn a_symbol_under_a_written_colour_is_marked_to_draw_in_it() {
     let plan = contract::compile(
         r##"component App
+  action noop
   view
     column
       column color="#ff0000"
@@ -195,6 +196,14 @@ fn a_symbol_under_a_written_colour_is_marked_to_draw_in_it() {
       column
         image "symbol:star" testId="bare"
         image "symbol:star" testId="own" color="-exact-secondary-label"
+      column color="#ff0000"
+        column color="inherit"
+          image "symbol:star" testId="cleared"
+        dialog role="alertdialog" aria-label="Alert"
+          image "symbol:star" testId="alerted"
+          button testId="ok" appearance="none" press=noop
+            image "symbol:star" testId="in-button"
+            text "OK"
 "##,
     )
     .unwrap();
@@ -217,6 +226,12 @@ fn a_symbol_under_a_written_colour_is_marked_to_draw_in_it() {
         ("accent", true),
         ("bare", false),
         ("own", true),
+        // An authored clear is written, in a kernel-free document too.
+        ("cleared", true),
+        // The neutral alert's starts set its colour and its message's
+        // (`says` stops there), as the document without a kernel does.
+        ("alerted", false),
+        ("in-button", false),
     ] {
         let id = view_with_test_id(&host, name);
         let at = first.find(&format!("\"id\":{id},\"tag\":\"img\"")).unwrap();

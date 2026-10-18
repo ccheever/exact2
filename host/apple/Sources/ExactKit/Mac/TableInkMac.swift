@@ -62,7 +62,10 @@ extension NodeView {
         func walk(_ view: NSView) {
             if let node = view as? NodeView {
                 if node.kind == "text" { node.reapplyColors() }
-                if let leaf = node.symbolView, node.style["tint_color"]?.fixesInk != true {
+                // A fixed tint keeps its ink, and so does a fixed colour the
+                // untinted symbol takes (LLP 1121 stage 9 B, `symbolInk`).
+                let ink = node.symbolInk != nil ? node.style["text_color"] : nil
+                if let leaf = node.symbolView, node.style["tint_color"]?.fixesInk != true, ink?.fixesInk != true {
                     leaf.cell?.backgroundStyle = emphasized ? .emphasized : .normal
                 }
             }

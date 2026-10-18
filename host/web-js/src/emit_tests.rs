@@ -627,9 +627,11 @@ fn inline_time_does_not_reserve_a_css_box() {
 }
 
 /// LLP 1121 stage 9 B (D10): a symbol nobody tinted whose `color` its author
-/// wrote, literal or bound, on it or on the nearest node that sets one, is
-/// marked for symbols.js's sheet to draw it in that colour; a bound source
-/// too where it names a symbol, which the static tree doesn't know.
+/// wrote, on it or on the nearest node that sets one, is marked for
+/// symbols.js's sheet to draw it in that colour, a bound source too whatever
+/// names its role. Under a bound `color` the mark is symbols.js's to make
+/// after each commit: the image says how many bound colours are above it
+/// and what decides past them, and each says whether it is written.
 #[test]
 fn a_symbol_under_a_written_colour_is_marked() {
     let plan = contract::compile(
@@ -643,37 +645,53 @@ fn a_symbol_under_a_written_colour_is_marked() {
         image (red ? "symbol:star" : "symbol:heart") testId="bound-source"
         image icon testId="named-elsewhere"
         image "assets/mark.png" testId="photo"
-      column color=(red ? "#ff0000" : "#0000ff")
+        column color=(red ? "#0000ff" : none) testId="maybe"
+          image "symbol:star" testId="over-written"
+      column color=(red ? "#ff0000" : none) testId="conditional"
         image "symbol:star" testId="bound-colour"
       column
         image "symbol:star" testId="bare"
-        image (red ? "symbol:star" : "symbol:heart") testId="bare-bound"
+        image icon testId="bare-bound"
 "##,
     )
     .unwrap();
     let sites = crate::emit::Sites::new(&plan).unwrap();
     let parts = crate::style::project(&plan, &sites, &mut Vec::new()).unwrap();
-    for (name, marked) in [
-        ("literal", true),
-        ("bound-source", true),
-        // A source only a value names (here a state's, as a photo's URL
-        // would be) is not known to be a symbol.
-        ("named-elsewhere", false),
-        ("photo", false),
-        ("bound-colour", true),
-        ("bare", false),
-        ("bare-bound", false),
-    ] {
-        let part = parts
+    let props = |name: &str| {
+        parts
             .iter()
             .flatten()
             .find(|part| part.props.get("data-testid").is_some_and(|id| id == name))
-            .unwrap();
+            .unwrap()
+            .props
+            .clone()
+    };
+    for (name, color, ink) in [
+        ("literal", true, None),
+        ("bound-source", true, None),
+        ("named-elsewhere", true, None),
+        ("photo", false, None),
+        // One bound colour up, and past it a written one.
+        ("over-written", false, Some("11")),
+        // One bound colour up, and past it nothing written.
+        ("bound-colour", false, Some("10")),
+        ("bare", false, None),
+        ("bare-bound", false, None),
+    ] {
+        let p = props(name);
+        assert_eq!(p.contains_key("data-symbol-color"), color, "{name}: {p:?}");
         assert_eq!(
-            part.props.contains_key("data-symbol-color"),
-            marked,
-            "{name}: {:?}",
-            part.props
+            p.get("data-symbol-ink").map(String::as_str),
+            ink,
+            "{name}: {p:?}"
+        );
+    }
+    for name in ["maybe", "conditional"] {
+        let p = props(name);
+        assert_eq!(
+            p.get("data-exact-ink").map(String::as_str),
+            Some("1"),
+            "{name}: {p:?}"
         );
     }
 }

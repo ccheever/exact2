@@ -395,7 +395,7 @@ pub(crate) fn projection_size(
             if let Some((d, view_box)) = crate::icon_path::commands(role) {
                 bytes = add_wire(bytes, d.len() + view_box.len() + 26, 6)?;
             }
-            if node.symbol_color_said() {
+            if node.symbol_color_said() && !node.is_tab_face() {
                 bytes = add_wire(bytes, "symbolColorWritten".len() + 1, 6)?;
             }
         }

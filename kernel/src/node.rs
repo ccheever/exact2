@@ -60,11 +60,18 @@ impl<'a> NodeRef<'a> {
                 .props
                 .str(crate::PropId::ImageSource)
                 .is_some_and(|s| s.starts_with("symbol:"))
-            && self
-                .arena
-                .parent(self.slot)
-                .is_none_or(|p| self.arena.node_type(p) != NodeType::Control)
-            && self.says(crate::StyleId::TextColor)
+            && self.arena.ink_said(self.slot)
+    }
+
+    /// Whether this node is a tab's whole face: the one child of a
+    /// `role="tab"`. The Apple hosts project such a tab as a segment of the
+    /// system's segmented control, whose image keeps the control's tint
+    /// (LLP 1121 D9; `SegmentFace`), so its symbol takes no page ink there.
+    pub fn is_tab_face(&self) -> bool {
+        self.arena.parent(self.slot).is_some_and(|p| {
+            self.arena.props(p).str(crate::PropId::AccessibilityRole) == Some("tab")
+                && self.arena.children(p).len() == 1
+        })
     }
 }
 

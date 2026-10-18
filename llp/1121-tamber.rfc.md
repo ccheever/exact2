@@ -4024,13 +4024,12 @@ LLP 1115 D4).
   specificity, so an authored tint still wins. In Chrome, the registered `<color>` `--exact-tint`
   resolves `currentcolor` on the image to the image's own `color`: a `light-dark()` colour by its
   scheme, and a later colour at once.
-- **The JS target.** The same mark and the same sheet (symbols.js). `style::symbol_color` marks what
+- **The JS target.** The same mark and the same sheet (symbols.js). `style::symbol_marks` marks what
   the static tree can't decide alone:
-  - a bound source that can name a symbol (its code holds a `symbol:` string);
-  - a bound `color`, which counts as written whatever it evaluates to, as the kernel marks a written row that unsets.
+  - any bound source, whatever names its role (a state's, a data's): the sheet asks for a symbol's path, so a photo's mark draws nothing;
+  - under a bound `color`, the image carries `data-symbol-ink` (how many bound colours are above it, and the decision past them) and each such node `data-exact-ink` (written or not). After each commit symbols.js (`inked`) takes the nearest of them that has a value. A `none` takes its colour away, as the runner clears the written bit, and the next one up decides.
 
-  Not marked: a source that only its data names (a photo's URL looks the same), which stays the
-  accent here; and a colour that only a state look sets (`:hover`).
+  Not marked: a colour that only a state look sets (`:hover`).
 - **Apple.** `props_for` sends `symbolColorWritten: "1"`, priced in `content_region.rs` as
   `symbolName` is. `NodeView.symbolInk` (Affordances.swift) is the node's `text_color` where nobody
   tinted it and the prop is set:
@@ -4039,7 +4038,8 @@ LLP 1115 D4).
   - a hierarchical configuration takes the same colour, and `symbolLookKey` holds it when the glyph bakes it.
 
   Only the page image's `updateSymbol` reads it; bar items, tab faces, segments and button faces
-  don't. A props change of the word re-runs `updateSymbol`. An unwritten symbol is unchanged, and
+  don't. A tab's whole face (`NodeRef::is_tab_face`, the one child of a `role="tab"`), which iOS and
+  the Mac project as a segment's image, is never sent the word. A props change of the word re-runs `updateSymbol`. An unwritten symbol is unchanged, and
   `PlatformDefaultsMacTests` is unchanged.
 - **Movers** (condition 1). Each app's static tree (the JS target's, every site with its arms
   flattened, a component per use) was walked for symbol images with no tint and a written colour:
@@ -4063,3 +4063,11 @@ LLP 1115 D4).
   - Apple's `inherited.rs` (the prop, the colour beside it);
   - `SymbolColorMacTests`: Shelf's star under `color="AccentColor"` is the accent, a token colour, unwritten unchanged, a written tint wins, the word and the colour followed live, a hierarchical glyph remade;
   - `SymbolColorIOSTests`: the same on iOS.
+- **After review round 1 (Astra, Grok):**
+  - The JS target marks a symbol under a written colour whatever names its source, and decides a bound `color` after each commit (`data-symbol-ink`, `data-exact-ink`, symbols.js `inked`): a conditional colour that goes gives the symbol back to what is past it, and one that comes back takes it again (Astra 1, 2; `emit_tests.rs`, `js-symbols.test.mjs` in Chrome).
+  - A document written without a kernel keeps an authored CSS-wide clear's written bit (`color="inherit"`), `none` unwritten, as a kernel's `ClearStyle` does (Astra 3).
+  - Its walk stops where `says` does: at the neutral route header, a neutral alert and its children but its buttons; a field holds no image (Grok 1; `tint.rs` adds the clear and an alert, and fails without either).
+  - A tab's whole face takes no page ink on Apple, so a projected segment's image keeps the control's tint (Astra 4; `inherited.rs`).
+  - A move that changes whether the colour is said, or takes an image off a native button's face, with the colour equal, sends the moved subtree's symbol images again (`DefaultContext.ink_said`; Astra 5, Grok 4; `symbol_color.rs`, both ways).
+  - A standard grouped row on iOS tints its symbol with a written colour where nobody tinted it, destructive and disabled still over it, and reconfigures when it changes (Grok 2; `SymbolColorGroupedIOSTests`).
+  - The Mac's emphasized table row keeps a fixed written colour, as it keeps a fixed tint (Grok 3; `SymbolColorMacTests`).

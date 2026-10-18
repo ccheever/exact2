@@ -114,9 +114,24 @@ function template(e, v) {
   e.$template = true;
   if (fit === "scale-down") { const set = () => { const cs = getComputedStyle(e); e.style.setProperty("--exact-tint-fit", e.naturalWidth <= e.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) && e.naturalHeight <= e.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) ? "auto" : "contain"); }; if (e.complete) set(); else e.addEventListener("load", set, { once: true }); }
 }
+// Whether a symbol under a bound `color` draws in its colour (LLP 1121 stage 9 B,
+// style.rs `symbol_marks`): the nearest of its `n` bound colours that has a value
+// decides (`data-exact-ink`, written or not); with none, the decision past them.
+const inked = (e, ink) => {
+  let n = +ink.slice(0, -1);
+  for (let p = e; p && n; p = p.parentElement) {
+    const w = p.getAttribute("data-exact-ink");
+    if (w == null) continue;
+    n--;
+    if (p.style.getPropertyValue("color")) return w === "1";
+  }
+  return ink.endsWith("1");
+};
 function refresh() {
   for (const el of document.querySelectorAll("#exact-root img[data-app-src]")) if (el.$app === undefined) appSource(el, el.getAttribute("data-app-src"));
   for (const el of document.querySelectorAll("#exact-root img[data-symbol-path]")) {
+    const ink = el.getAttribute("data-symbol-ink");
+    if (ink) el.toggleAttribute("data-symbol-color", inked(el, ink));
     // D4/D14: absent symbol axes follow the title, including its own rows.
     if (el.parentElement?.matches("button[data-button-style]")) {
       const title = el.parentElement.querySelector(":scope > [data-exact-text]"), own = getComputedStyle(el);

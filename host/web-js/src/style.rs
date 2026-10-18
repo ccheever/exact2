@@ -356,31 +356,31 @@ pub fn project(
             };
             parts.css.push_str(&format!("justify-self:{justify};"));
         }
-        if parts.tag == "img" {
-            if symbol_color(plan, &kernel, &parents, i) {
-                parts
-                    .props
-                    .insert("data-symbol-color".into(), String::new());
-            } else {
-                parts.props.remove("data-symbol-color");
-            }
-        }
     }
+    symbol_marks(plan, &kernel, &parents, &mut out);
     Ok(out)
 }
 
 pub const PROGRESS_JUSTIFY: &str = "var(--exact-progress-justify,start)";
 
 /// Whether image `i` draws a symbol in its author's `color` (LLP 1121 stage
-/// 9 B; `NodeRef::symbol_color_said`), which the static tree alone can't
-/// say of a bound source or a bound `color`: a symbol source, literal or a
-/// binding that can be one (it names a `symbol:` string; one only its data
-/// names is not marked, so it stays the accent here), and a `color` its
-/// author wrote, literal or bound, on it or on the nearest node that sets
-/// one. A bound `color` counts as written whatever it evaluates to, as the
-/// kernel marks a written row that unsets; a colour only a state look sets
-/// (`:hover`) does not.
-fn symbol_color(plan: &Plan, kernel: &Kernel, parents: &[Option<usize>], i: usize) -> bool {
+/// 9 B; `NodeRef::symbol_color_said`), as far as the static tree says:
+/// `None` where it can't be a symbol (a literal source that is none) or is
+/// a native button's face; else the bound `color`s between it and the
+/// nearest node whose static rows decide (each with whether its author
+/// wrote it), and that decision. A bound source may be a symbol whatever
+/// its code names (a state's or a data's role), and the sheet asks for a
+/// symbol's path, so a photo's mark draws nothing. A bound `color` decides
+/// while it has a value: written as its binding is, a CSS-wide clear
+/// included; `none` takes it away, as the runner clears the written bit,
+/// and the next node up decides (symbols.js `inked`). A colour only a state
+/// look sets (`:hover`) does not count.
+fn symbol_color(
+    plan: &Plan,
+    kernel: &Kernel,
+    parents: &[Option<usize>],
+    i: usize,
+) -> Option<(Vec<(usize, bool)>, bool)> {
     let view = |i: usize| -> ViewId { i as u32 + 1 };
     let rows = |i: usize| plan.nodes[i].bindings.iter().map(|b| plan.binding(b));
     let bound = |i: usize, kind: BindingKind, id: u16| {
@@ -391,32 +391,70 @@ fn symbol_color(plan: &Plan, kernel: &Kernel, parents: &[Option<usize>], i: usiz
         .props
         .str(PropId::ImageSource)
         .is_some_and(|s| s.starts_with("symbol:"))
-        || bound(i, BindingKind::Prop, PropId::ImageSource as u16)
-            .is_some_and(|b| can_be(plan, plan.code(b.expr), &|s| s.starts_with("symbol:")));
-    if !symbol
-        || parents[i].is_some_and(|p| {
-            kernel
-                .node(view(p))
-                .is_some_and(|p| p.node_type == NodeType::Control)
-        })
-    {
-        return false;
+        || bound(i, BindingKind::Prop, PropId::ImageSource as u16).is_some();
+    let face = parents[i].is_some_and(|p| {
+        kernel
+            .node(view(p))
+            .is_some_and(|p| p.node_type == NodeType::Control)
+    });
+    if !symbol || face {
+        return None;
     }
+    let mut writers = Vec::new();
     let mut at = Some(i);
     while let Some(j) = at {
         if let Some(row) = bound(j, BindingKind::Style, StyleId::TextColor as u16) {
-            return row.written;
+            writers.push((j, row.written));
         }
         let node = kernel.node(view(j)).expect("template node");
         if node.style.written.has(StyleId::TextColor) {
-            return true;
+            return Some((writers, true));
         }
         if node.style.mask.has(StyleId::TextColor) || node.starts(StyleId::TextColor) {
-            return false;
+            return Some((writers, false));
         }
         at = parents[j];
     }
-    false
+    Some((writers, false))
+}
+
+/// The marks of [`symbol_color`]: `data-symbol-color` on an image the
+/// static tree decides; else `data-symbol-ink` (how many bound colours up,
+/// then the decision past them, `1` or `0`) for symbols.js to decide after
+/// each commit, and `data-exact-ink` (written, `1` or `0`) on each node a
+/// bound `color` makes one of those.
+fn symbol_marks(
+    plan: &Plan,
+    kernel: &Kernel,
+    parents: &[Option<usize>],
+    out: &mut [Option<Parts>],
+) {
+    let mut writers = Vec::new();
+    for (i, parts) in out.iter_mut().enumerate() {
+        let Some(parts) = parts.as_mut().filter(|p| p.tag == "img") else {
+            continue;
+        };
+        parts.props.remove("data-symbol-color");
+        match symbol_color(plan, kernel, parents, i) {
+            Some((up, true)) if up.is_empty() => {
+                parts
+                    .props
+                    .insert("data-symbol-color".into(), String::new());
+            }
+            Some((up, said)) if !up.is_empty() => {
+                let ink = format!("{}{}", up.len(), u8::from(said));
+                parts.props.insert("data-symbol-ink".into(), ink);
+                writers.extend(up);
+            }
+            _ => {}
+        }
+    }
+    for (j, written) in writers {
+        if let Some(parts) = out[j].as_mut() {
+            let ink = u8::from(written).to_string();
+            parts.props.insert("data-exact-ink".into(), ink);
+        }
+    }
 }
 
 /// Every `for` row's roots, through any region at its top.

@@ -595,7 +595,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         // Changed native parts configure the cell again. A custom row keeps
         // its own live views; mount carries their current box into the cell.
-        // A standard row whose symbol's authored tint changed is too (D7).
+        // A standard row whose symbol's authored tint or written colour
+        // changed is too (D7).
         let tints: [UInt32: BatchValue?] = Dictionary(uniqueKeysWithValues: snapshot.itemIdentifiers.map { ($0, tint(of: $0)) })
         // A row whose card changed (its section gained or lost one, or the
         // row moved between sections) is configured again.
@@ -904,9 +905,16 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let symbolNode = symbolView(of: id)
         // A tint that follows the accent leaves the image the cell's tint (nil here, on purpose).
         let followsAccent = symbolNode.map { $0.style["tint_color"] != nil && $0.followsTint("tint_color") } ?? false
-        if let symbol = symbolNode, let value = symbol.style["tint_color"], !symbol.followsTint("tint_color") {
-            c.imageProperties.tintColor = UIColor { traits in
-                value.channels(dark: traits.userInterfaceStyle == .dark).map(TextEngine.color) ?? .tintColor
+        // Untinted, a colour its author wrote, on it or above (LLP 1121 stage
+        // 9 B, `symbolInk`): the row is a page image on the web and the Mac.
+        // A destructive or disabled row's colour still goes over it (below).
+        if let symbol = symbolNode {
+            let written = symbol.style["tint_color"] == nil && symbol.props["symbolColorWritten"] == "1"
+            let key = written ? "text_color" : "tint_color"
+            if let value = symbol.style[key], !symbol.followsTint(key) {
+                c.imageProperties.tintColor = UIColor { traits in
+                    value.channels(dark: traits.userInterfaceStyle == .dark).map(TextEngine.color) ?? .tintColor
+                }
             }
         }
         c.text = row.title
@@ -1050,8 +1058,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let name = source.dropFirst("symbol:".count)
         return name.hasPrefix("sf/") && name.dropFirst(3) != symbol ? nil : image
     }
+    /// What the standard row's symbol is drawn in: its tint, and its
+    /// written colour (LLP 1121 stage 9 B), for the reconfigure key.
     private func tint(of id: UInt32) -> BatchValue? {
-        symbolView(of: id)?.style["tint_color"]
+        guard let symbol = symbolView(of: id) else { return nil }
+        let ink = symbol.props["symbolColorWritten"] == "1" ? symbol.style["text_color"] ?? .null : .null
+        return .array([symbol.style["tint_color"] ?? .null, ink])
     }
 
     /// A custom row's own views in its cell, at the row's place in its
