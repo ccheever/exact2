@@ -335,7 +335,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   let held = null;
   // (A leaving view, `data-exiting`, is gone as it starts to leave.)
   const watch = new MutationObserver(() => { if (!held?.el.isConnected || held.el.closest("[data-exiting]")) letGo("gone"); else if (held.el.closest(DISABLED)) letGo("disabled"); });
-  const snap = (el, change) => { const was = el.style.transition; el.style.transition = "none"; change(); getComputedStyle(el).opacity; el.style.transition = was; };
+  // (Held still as a look's edge is, below: `data-exact-snap`, which the press paint's observer doesn't watch.)
+  const snap = (el, change) => { el.setAttribute("data-exact-snap", ""); change(); getComputedStyle(el).opacity; el.removeAttribute("data-exact-snap"); };
   // `reason` null: let go unsaid (a dev loop's new generation, whose tree goes and whose hold the server replays).
   const letGo = (reason) => {
     if (!held) return;
