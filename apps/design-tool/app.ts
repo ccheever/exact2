@@ -28,6 +28,9 @@ const RESTARTED = 'The design server restarted (or another took its port) since 
 const WRITE_WAIT = 130_000;
 // A design read's: every token's resolve, queued at the one server.
 const READ_WAIT = 120_000;
+// The resolves a read has in flight at once (a browser opens six
+// connections to one origin).
+const RESOLVES_AT_ONCE = 4;
 const NO_SERVER = `No design server answers at ${API}. Start one for your app with \`bun exact.mjs tamber tool <app>\`, then try again.`;
 
 type Diagnostic = { file?: string; line?: number; id?: string; message?: string } | string;
@@ -216,17 +219,27 @@ let liveTable = false;
 
 /** One consistent read of a design: `describe`, each token's `resolve`, and
  * the files' digests again after them; if a write landed between, the
- * replies may be of two revisions, so it reads again. */
-async function readDesign(file: string): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string>; pairs?: unknown }> {
+ * replies may be of two revisions, so it reads again. `wanted`: false once
+ * a newer read overtakes it, which then asks for nothing more. */
+async function readDesign(file: string, wanted: () => boolean): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string>; pairs?: unknown }> {
   const which = file ? { file } : {};
   for (let attempt = 0; attempt < 3; attempt++) {
     const described = await call('/__tamber', { method: 'describe', ...which });
     if (described.error) return { error: described.error };
     const ir = described.reply.ok?.ir, pairs = described.reply.ok?.pairs;
     if (!ir || !Array.isArray(ir.tokens) || !Array.isArray(ir.axes) || ir.axes.some((a: Axis) => !Array.isArray(a.values))) return { error: 'The design server answered describe with no design in it.' };
-    // Each waits behind the others at the one design server, so the wait is
-    // the whole read's, not one request's.
-    const resolved = await Promise.all(ir.tokens.map((t: { name: string }) => call('/__tamber', { method: 'resolve', token: t.name, ...which }, READ_WAIT)));
+    // A few at a time, so the browser keeps connections for the long poll
+    // and the other reads; each waits behind the others at the one design
+    // server, so the wait is the whole read's, not one request's.
+    const resolved: Awaited<ReturnType<typeof call>>[] = [];
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(RESOLVES_AT_ONCE, ir.tokens.length) }, async () => {
+      while (next < ir.tokens.length && wanted()) {
+        const i = next++;
+        resolved[i] = await call('/__tamber', { method: 'resolve', token: ir.tokens[i].name, ...which }, READ_WAIT);
+      }
+    }));
+    if (!wanted()) return { error: 'overtaken by a newer read' };
     const failed = resolved.find(r => r.error);
     if (failed) return { error: failed.error };
     const after = await call('/__tamber', { method: 'hello' });
@@ -675,7 +688,7 @@ const sources: Sources = {
   loadDesign: async ([file]) => {
     const number = ++issued, axesAt = !file || file === designFile ? ++axesReads : -1;
     try {
-      const read = await readDesign(file);
+      const read = await readDesign(file, () => number === issued);
       if (read.error) return noDesign(read.error);
       const ir = read.ir, resolved = read.resolved!;
       const axes: Axis[] = ir.axes;
