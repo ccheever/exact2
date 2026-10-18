@@ -47,22 +47,23 @@ export type CodeState = {
   parsed: Map<string, RenderablePatch>;
   toggled: ReadonlySet<string>; foldOverride: DiffFoldOverride; visibleCommits: number;
   ignoreWhitespace: boolean; wrap: boolean; orphansOpen: boolean; treeClosed: Set<string>; treeSelected: string;
+  reveal: { path: string; nonce: number } | null;
   selection: { path: string; range: SelectedLineRange } | null; drag: LineDrag | null; draft: Draft | null;
   contents: Record<string, FileContents>; expansions: Record<string, Expansion>; contentsDue: Map<string, { path: string; gap: number }>;
   viewed: FilesViewedStore; threads: ThreadState; shown: string;
 };
 const states = new WeakMap<object, CodeState>();
 const prefs = (client: { local: object }) => decodeClientPrefs((client.local as { clientSettings?: unknown }).clientSettings);
-function fresh(client: { local: object }, key: string): CodeState {
+export function createCodeState(client: { local: object }, key: string): CodeState {
   const settings = prefs(client);
   return { key, mounted: false, commit: null, refresh: 0, slices: [], cursor: null, diffDue: true, diffError: '', parsed: new Map(), toggled: new Set(), foldOverride: null,
     visibleCommits: COMMIT_PAGE_SIZE, ignoreWhitespace: settings.diffIgnoreWhitespace, wrap: settings.wordWrap, orphansOpen: false, treeClosed: new Set(), treeSelected: '',
-    selection: null, drag: null, draft: null, contents: {}, expansions: {}, contentsDue: new Map(), viewed: new FilesViewedStore(), threads: emptyThreadState(), shown: '' };
+    reveal: null, selection: null, drag: null, draft: null, contents: {}, expansions: {}, contentsDue: new Map(), viewed: new FilesViewedStore(), threads: emptyThreadState(), shown: '' };
 }
 /** The Code tab of the pull request on screen; another pull request starts over. */
 export function codeState(client: { local: object }, key: string): CodeState {
   let state = states.get(client);
-  if (!state || state.key !== key) { state = fresh(client, key); states.set(client, state); }
+  if (!state || state.key !== key) { state = createCodeState(client, key); states.set(client, state); }
   return state;
 }
 export const peekCode = (client: object): CodeState | null => states.get(client) ?? null;
@@ -87,7 +88,7 @@ function scope(code: CodeState, commit: string | null): void {
  * environment's own HTTP read, filesViewed, setFilesViewed and diffFileContents its routed requests); sent to the focused
  * server instead, a pull request listed on a paired server answered HTTP 503 (provider-unsupported) from the embedded one.
  */
-export type CodeContext = { client: T3Client; reference: WriteReference; detail: Obj; activity: Obj | null; environmentId?: string };
+export type CodeContext = { client: T3Client; reference: WriteReference; detail: Obj; activity: Obj | null; environmentId?: string; state?: CodeState };
 const host = (reference: WriteReference) => ({ projectId: reference.projectId, ...(reference.host ? { host: reference.host } : {}), repository: reference.repository, number: reference.number });
 const commitsOf = (activity: Obj | null) => arr(activity?.commits).slice().sort((left, right) => Date.parse(str(right.committedDate)) - Date.parse(str(left.committedDate)));
 const contentsKeyOf = (code: CodeState, path: string) => `${scopeKey(code)}::${path}`;
@@ -105,7 +106,7 @@ function signature(code: CodeState): string {
  */
 export async function readCode(ctx: CodeContext & { native: Native; tab: string; refresh: number }): Promise<'wake' | 'done'> {
   const { client, native, reference, detail, activity } = ctx, key = pullRequestReviewKey(reference), listedOn = ctx.environmentId ?? '';
-  const code = codeState(client, `${client.environmentId}|${key}`);
+  const code = ctx.state ?? codeState(client, `${client.environmentId}|${key}`);
   await tellReaders(client, native);
   if (ctx.tab === 'code') code.mounted = true;
   if (!code.mounted || obj(detail.capabilities).diff !== true) return 'done';
@@ -155,6 +156,14 @@ export async function readCode(ctx: CodeContext & { native: Native; tab: string;
       code.contents[contentsKey] = { state: 'error', oldContents: '', newContents: '', error: error instanceof Error && error.message ? error.message : 'Unable to load file contents.' };
     }
   }
+  if (code.reveal) {
+    const target = filesOf(code).find(file => file.path === code.reveal?.path);
+    if (target) {
+      if (isCollapsed({ foldOverride: effectiveFold(client, code), toggled: code.toggled }, target)) { const toggled = new Set(code.toggled); if (toggled.has(target.path)) toggled.delete(target.path); else toggled.add(target.path); code.toggled = toggled; }
+      code.treeSelected = target.path;
+      for (const directory of ancestorDirectories(target.path)) code.treeClosed.delete(directory);
+    } else { const next = code.slices.at(-1)?.nextCursor; if (next && !code.diffError) { code.cursor = next; code.diffDue = true; return 'wake'; } }
+  }
   code.shown = signature(code);
   return 'done';
 }
@@ -180,7 +189,7 @@ function parsedSlices(code: CodeState): RenderablePatch[] {
   });
 }
 /** Ordered within a slice, not across them: a late slice never moves a file the reader is part way through. */
-function filesOf(code: CodeState): PrDiffFile[] { return parsedSlices(code).flatMap(parsed => (parsed?.kind === 'files' ? orderDiffFiles(parsed.files) : [])); }
+export function filesOf(code: CodeState): PrDiffFile[] { return parsedSlices(code).flatMap(parsed => (parsed?.kind === 'files' ? orderDiffFiles(parsed.files) : [])); }
 
 // ── The view ────────────────────────────────────────────────────────────────
 
@@ -194,7 +203,7 @@ export function emptyCode() {
     items: [] as CodeItem[], truncated: false, threads: [] as PrThreadCard[], footer: '', footerFailed: false,
     orphansLabel: '', orphanCount: 0, orphanSummary: '', orphansOpen: false, orphans: [] as { path: string; threads: { id: string; line: string }[] }[],
     treeRows: [] as DiffTreeRow[], treeLabel: '', treeCount: 0, treeFolders: false, treeAllOpen: true, treeFooter: '', treeBusy: false,
-    draftOpen: false, canComment: false, viewedQueued: 0, threadPending: false,
+    revealPath: '', revealNonce: 0, draftOpen: false, canComment: false, viewedQueued: 0, threadPending: false,
   };
 }
 type Body = { id: string; kind: string; title: string; body: string };
@@ -203,9 +212,10 @@ export function presentCode(ctx: CodeContext & { now: number }): { view: PrCodeV
   const { client, reference, detail, activity } = ctx, view = emptyCode();
   const capabilities = obj(detail.capabilities), permissions = obj(detail.viewerPermissions);
   view.available = capabilities.diff === true;
-  const code = peekCode(client);
-  if (!code || code.key !== `${client.environmentId}|${pullRequestReviewKey(reference)}` || !code.mounted || !view.available) return { view, bodies: [] };
+  const code = ctx.state ?? peekCode(client);
+  if (!code || (!ctx.state && code.key !== `${client.environmentId}|${pullRequestReviewKey(reference)}`) || !code.mounted || !view.available) return { view, bodies: [] };
   view.mounted = true; view.key = scopeKey(code);
+  if (code.reveal && filesOf(code).some(file => file.path === code.reveal?.path)) { view.revealPath = code.reveal.path; view.revealNonce = code.reveal.nonce; }
   const settings = prefs(client);
   view.layout = settings.diffLayout === 'split' ? 'split' : 'stacked'; view.wrap = code.wrap; view.ignoreWhitespace = code.ignoreWhitespace; view.tree = pagesPrefs(client).prFileTree === true;
   // The scope menu: newest first, ten at a time.
@@ -285,14 +295,14 @@ const effectiveFold = (client: { local: object }, code: CodeState): DiffFoldOver
 // ── The tab's presses (chatlocal:pr-code-*) ─────────────────────────────────
 
 const fields = (value: string, count: number) => { const parts: string[] = []; let rest = value; for (let i = 1; i < count; i++) { const bar = rest.indexOf('|'); if (bar < 0) break; parts.push(rest.slice(0, bar)); rest = rest.slice(bar + 1); } parts.push(rest); return parts; };
-export type CodeLocalContext = { client: T3Client; reference: WriteReference; detail: Obj | null };
+export type CodeLocalContext = { client: T3Client; reference: WriteReference; detail: Obj | null; state?: CodeState; allowAsk?: boolean };
 /**
  * `chatlocal:pr-code-<op>`: what the tab's controls change. None of them reads or writes the host:
  * the resource does, once they made something due (the ticks' write too).
  */
 export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op: string, value: string): Promise<string> {
   const { client, reference } = ctx;
-  const code = codeState(client, `${client.environmentId}|${pullRequestReviewKey(reference)}`);
+  const code = ctx.state ?? codeState(client, `${client.environmentId}|${pullRequestReviewKey(reference)}`);
   const files = () => filesOf(code), file = (path: string) => files().find(entry => entry.path === path);
   switch (op) {
     case 'scope': code.mounted = true; scope(code, value || null); return '';
@@ -328,8 +338,9 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
     case 'folders': code.treeClosed = value === 'collapse' ? new Set(collectDirectoryPaths(files().map(entry => entry.path))) : new Set(); return '';
     case 'reveal': {
       // revealFile: a folded file opens; its folders open; the list scrolls to it (the contract's scrollIntoView).
+      code.reveal = { path: value, nonce: (code.reveal?.nonce ?? 0) + 1 };
       const target = file(value);
-      if (!target) return '';
+      if (!target) { const next = code.slices.at(-1)?.nextCursor; if (next && !code.diffDue) { code.cursor = next; code.diffDue = true; } return ''; }
       if (isCollapsed({ foldOverride: effectiveFold(client, code), toggled: code.toggled }, target)) { const next = new Set(code.toggled); if (next.has(value)) next.delete(value); else next.add(value); code.toggled = next; }
       code.treeSelected = value;
       for (const directory of ancestorDirectories(value)) code.treeClosed.delete(directory);
@@ -357,7 +368,7 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
     case 'add': {
       // "Add to review": the comment joins the pending review (pages-pr-writes-logic.ts PullRequestReviewStore).
       const draft = code.draft, body = value.trim();
-      if (!draft || body.length === 0) return '';
+      if (!draft || body.length === 0 || obj(obj(ctx.detail?.capabilities).review).inlineComment !== true || obj(ctx.detail?.viewerPermissions).comment !== true) return '';
       pullRequestReviewStore(client).addComment(pullRequestReviewKey(reference), { id: nextPendingReviewCommentId(), path: draft.path, ...(draft.oldPath === null ? {} : { oldPath: draft.oldPath }), position: draft.position, body });
       code.draft = null; code.selection = null;
       return '';
@@ -367,9 +378,9 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
   }
 }
 /** Whether the viewer can comment on lines now (PullRequestCodeTab's canCommentOnLines and no draft open): the gutter is on. */
-function linesOpen(code: CodeState, detail: Obj | null): boolean {
+function linesOpen(code: CodeState, detail: Obj | null, allowAsk = false): boolean {
   const capabilities = obj(detail?.capabilities), review = obj(capabilities.review), permissions = obj(detail?.viewerPermissions);
-  return !code.draft && code.commit === null && review.inlineComment === true && permissions.comment === true;
+  return !code.draft && code.commit === null && (allowAsk || (review.inlineComment === true && permissions.comment === true));
 }
 const loadedContents = (code: CodeState, path: string) => { const contents = code.contents[contentsKeyOf(code, path)]; return contents?.state === 'loaded' ? contents : null; };
 /**
@@ -380,18 +391,18 @@ const loadedContents = (code: CodeState, path: string) => { const contents = cod
  */
 function beginComment(ctx: CodeLocalContext, code: CodeState, value: string): string {
   if (code.drag?.mode === 'gutter') return lineDrag(ctx, code, 'end', '', false, 0, '');
-  if (!linesOpen(code, ctx.detail)) return '';
+  if (!linesOpen(code, ctx.detail, ctx.allowAsk)) return '';
   const [side = '', line = '', path = ''] = fields(value, 3), at: LinePoint = { side: (side === 'deletions' ? 'deletions' : 'additions') as SelectionSide, line: Number(line) };
   const target = filesOf(code).find(entry => entry.path === path);
   if (!target || !(at.line > 0)) return '';
   const lines = diffReviewLines(target, loadedContents(code, path));
   const index: RowIndex = point => { const found = findDiffReviewLineIndex(lines, point.line, point.side); return found < 0 ? null : found; };
-  return beginRange(code, ctx.detail, path, gutterClick(code.selection, path, at, index));
+  return beginRange(code, ctx.detail, path, gutterClick(code.selection, path, at, index), ctx.allowAsk);
 }
 /** The draft on a range (beginComment's body): a range collapses to its last line, as only GitHub carries a multi-line comment. */
-function beginRange(code: CodeState, detail: Obj | null, path: string, range: SelectedLineRange): string {
+function beginRange(code: CodeState, detail: Obj | null, path: string, range: SelectedLineRange, allowAsk = false): string {
   const target = filesOf(code).find(entry => entry.path === path);
-  if (!target || !linesOpen(code, detail)) return '';
+  if (!target || !linesOpen(code, detail, allowAsk)) return '';
   const position = resolveDiffReviewPosition(target, range.end, range.endSide ?? range.side, loadedContents(code, path));
   if (position === null) return '';
   code.selection = { path, range };
@@ -408,14 +419,14 @@ function lineDrag(ctx: CodeLocalContext, code: CodeState, action: string, side: 
     const { selection, gutter, ended } = releaseDrag(code.drag, code.selection), path = code.drag?.path ?? '';
     code.drag = null; code.selection = selection;
     const range = gutter ?? ended;
-    return range ? beginRange(code, ctx.detail, path, range) : '';
+    return range ? beginRange(code, ctx.detail, path, range, ctx.allowAsk) : '';
   }
   if (action === 'to') {
     const hit = parseLineCellId(value);
     if (hit) ({ drag: code.drag, selection: code.selection } = dragTo(code.drag, code.selection, hit.path, hit.at));
     return '';
   }
-  if (!linesOpen(code, ctx.detail) || !(line > 0)) { code.drag = null; return ''; }
+  if (!linesOpen(code, ctx.detail, ctx.allowAsk) || !(line > 0)) { code.drag = null; return ''; }
   const path = value, at: LinePoint = { line, side: side === 'deletions' ? 'deletions' : 'additions' };
   const target = filesOf(code).find(entry => entry.path === path);
   if (!target) return '';
@@ -489,9 +500,9 @@ async function sleep(native: Native, ms: number): Promise<void> {
 // ── The tab's host writes (pageslocal:pr-act-code-agent, thread-*) ──────────
 
 /** "Add to agent": the draft's lines and the reader's request, handed to the agent (pages-pr-handoffs.ts). */
-export function draftSelection(client: T3Client, reference: WriteReference, detail: Obj, text: string) {
-  const code = peekCode(client);
-  const draft = code && code.key === `${client.environmentId}|${pullRequestReviewKey(reference)}` ? code.draft : null;
+export function draftSelection(client: T3Client, reference: WriteReference, detail: Obj, text: string, state?: CodeState) {
+  const code = state ?? peekCode(client);
+  const draft = code && (state || code.key === `${client.environmentId}|${pullRequestReviewKey(reference)}`) ? code.draft : null;
   if (!code || !draft) return null;
   const file = filesOf(code).find(entry => entry.path === draft.path);
   const contents = code.contents[contentsKeyOf(code, draft.path)];

@@ -192,7 +192,7 @@ component PrdCandidatePicker
               row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" position="relative" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0b)"
                 box position="absolute" left=0 top="0.375rem" display="flex" pointer-events="none"
                   PgIcon(name="search", size=16, color="light-dark(#71717a8c, #8181818c)")
-                input value=query input=edit key=keys autofocus=true role="combobox" aria-expanded=true aria-label=searchLabel placeholder=searchLabel autocorrect="off" spellcheck="false" testId=`pull-request-${which}-search` flex=1 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color=prmInk()
+                input id=`pull-request-${which}-search` data-guide-editable="yes" value=query input=edit key=keys autofocus=true role="combobox" aria-expanded=true aria-label=searchLabel placeholder=searchLabel autocorrect="off" spellcheck="false" testId=`pull-request-${which}-search` flex=1 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color=prmInk()
                   ::placeholder
                     color=prmMuted()
             scroll max-height="18rem" width="100%"

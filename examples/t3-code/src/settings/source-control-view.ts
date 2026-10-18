@@ -40,9 +40,9 @@ export type ScopedRow = { key: string; kind: string; title: string; description:
   traitsLabel: string; traits: CoreOption[] };
 
 export const DEFAULTS: Obj = { defaultAutoPull: false, pullRequestMergeMethod: null, branchNamingMode: 'static', branchNamePrefix: 't3', branchNameInstructions: '',
-  sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true }, sourceControlWriterModelSelection: null, reviewGuideModelSelection: null, reviewGuidesEnabled: false, removeAgentCreditsOnMerge: false,
+  sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true }, sourceControlWriterModelSelection: null, reviewGuideModelSelection: null, reviewGuideInstructions: '', reviewGuidesEnabled: false, removeAgentCreditsOnMerge: false,
   enableAgentBrowserAccess: true, enableAgentDeviceAccess: false, enableDeviceSupport: false, defaultModelSelection: null, defaultThreadEnvMode: null, deviceHosts: [] };
-const PROJECT_KEYS = ['defaultModelSelection', 'defaultThreadEnvMode', 'defaultAutoPull', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'sourceControlWriterModelSelection', 'reviewGuideModelSelection', 'sourceControlWritingStyle', 'removeAgentCreditsOnMerge', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod'];
+const PROJECT_KEYS = ['defaultModelSelection', 'defaultThreadEnvMode', 'defaultAutoPull', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'sourceControlWriterModelSelection', 'reviewGuideModelSelection', 'reviewGuideInstructions', 'sourceControlWritingStyle', 'removeAgentCreditsOnMerge', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod'];
 const MERGE_LABELS: Record<string, string> = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' };
 const BRANCH_MODES: Record<string, string> = { static: 'Static prefix', semantic: 'Semantic prefix', custom: 'Custom instructions' };
 const WRITING_MODES: Record<string, { label: string; description: string }> = {
@@ -129,7 +129,10 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
     row(settings, projectId, environmentLabel, 'reviewGuidesEnabled', { title: 'Review guides', checked: settings.reviewGuidesEnabled === true, disabled: project || !writable,
       description: 'Adds a Guide tab to pull requests: an agent writes a tour of the change, stop by stop, with the calls a maintainer should make.' }),
     ...(settings.reviewGuidesEnabled === true ? [modelRow('reviewGuideModelSelection', 'Review guide model',
-      'Model that reads a pull request to write its review guide. It reads the change itself over many steps, so a stronger model helps. Off uses the source control writer model.')] : []),
+      'Model that reads a pull request to write its review guide. It reads the change itself over many steps, so a stronger model helps. Off uses the source control writer model.'),
+      row(settings, projectId, environmentLabel, 'reviewGuideInstructions', { kind: 'textarea', title: 'Review guide instructions', resetLabel: 'review guide instructions', value: str(value.reviewGuideInstructions), disabled: !writable,
+        description: "Your preferences for review guides: what to show first, dwell on, or skip. The guide's format and coverage stay the same.", placeholder: 'Show service interfaces before implementations. Skip test files unless they change behavior. Keep summaries to two sentences.',
+        reset: resetFor('reviewGuideInstructions', str(value.reviewGuideInstructions) !== '') })] : []),
   ];
   return { repositories, text: text.map((entry, index) => ({ ...entry, first: index === 0 })) };
 }
@@ -161,7 +164,7 @@ export function scopedPatch(settings: Obj, projectId: string, key: string, raw: 
   else if (raw === '__default__') value = field ? obj(DEFAULTS[root])[field] as Json : DEFAULTS[root] as Json;
   else if (root === 'pullRequestMergeMethod') { if (!['last', 'merge', 'squash', 'rebase'].includes(raw)) throw new Error('Choose a supported merge method.'); value = raw === 'last' ? null : raw; }
   else if (root === 'branchNamingMode') { if (!BRANCH_MODES[raw]) throw new Error('Choose a supported branch naming mode.'); value = raw; }
-  else if (root === 'branchNamePrefix' || root === 'branchNameInstructions') value = raw.trim();
+  else if (root === 'branchNamePrefix' || root === 'branchNameInstructions' || root === 'reviewGuideInstructions') value = raw.trim();
   else if (root === 'sourceControlWritingStyle' && field === 'mode') { if (!WRITING_MODES[raw]) throw new Error('Choose a supported writing style.'); value = raw; }
   else if (root === 'sourceControlWritingStyle' && field === 'customInstructions') value = raw.trim();
   else if (root === 'defaultThreadEnvMode') { if (raw !== 'local' && raw !== 'worktree') throw new Error('Choose a supported workspace.'); value = raw; }
@@ -275,7 +278,15 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
     const config = owner.config, settings = obj(config.settings);
     if (selectedProjectId && obj(obj(config.environment).capabilities).projectSettingsOverrides !== true) return { ...empty, error: 'Update the selected environment to configure project overrides.' };
     const rows = sourceControlRows(settings, selectedProjectId, environmentLabel(owner), arr(config.providers), can(owner, 'settings:write'));
-    for (const row of [...rows.repositories, ...rows.text]) row.layerGroups = inheritanceGroups(context, row.key, DEFAULTS);
+    for (const row of [...rows.repositories, ...rows.text]) {
+      row.layerGroups = inheritanceGroups(context, row.key, DEFAULTS);
+      if (row.key === 'reviewGuideInstructions') {
+        const values = context.targets.map(target => str(target.settings.reviewGuideInstructions));
+        row.mixed = values.some(value => value !== (values[0] ?? ''));
+        row.disabled = !context.settingsWritable;
+        if (row.mixed) { row.value = ''; row.placeholder = 'Mixed. Enter instructions to apply to all selected targets.'; row.summary = 'Mixed across selected targets'; row.state = 'mixed'; row.reset = `key=${row.key}&value=${selectedProjectId ? '__inherit__' : '__default__'}`; }
+      }
+    }
     // Discovery scans one machine's tools (server.discoverSourceControl); a rescan re-runs it.
     const key = `${owner.origin}:${owner.generation}:${rescan}`;
     let owned = discoveries.get(client);

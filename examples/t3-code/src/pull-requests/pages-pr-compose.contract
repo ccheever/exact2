@@ -52,11 +52,13 @@ fn prcSummaryPlaceholder(verdict: string, pending: number, required: bool): stri
 
 component PrdComposer
   props
+    reviewRequest: number
     writes: PrWrites
     selected: string
     scope: string
     act: action
     local: action
+  state requestedReview = 0
   state mode = "comment"
   state verdict = "comment"
   // The drafts as typed, and the write serial each was typed against: a write that landed clears
@@ -77,7 +79,8 @@ component PrdComposer
   derive popId = `${scope}-composer`
   // Opening picks the mode with work waiting in it.
   action opening
-    mode = reviewStarted ? "review" : "comment"
+    mode = reviewRequest != requestedReview or reviewStarted ? "review" : "comment"
+    requestedReview = reviewRequest
   action pick(value: string)
     mode = value
   action editComment(text: string)
@@ -139,7 +142,7 @@ component PrdComposer
             // Both forms stay mounted across the toggle, so their drafts and in-flight guards survive.
             if writes.verdicts.length > 0
               column width="100%" display=(shownMode == "review" ? "flex" : "none") testId="pull-request-review-form"
-                textarea value=summary input=editSummary change=keepSummary autofocus=(shownMode == "review") rows=3 placeholder=prcSummaryPlaceholder(chosen, writes.pendingCount, writes.summaryRequired) aria-label="Review summary" autocorrect="off" spellcheck="false" testId="pull-request-review-summary" width="100%" min-height="4.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color=prcInk()
+                textarea id=`${scope}-summary-input` data-guide-editable="yes" value=summary input=editSummary change=keepSummary autofocus=(shownMode == "review") rows=3 placeholder=prcSummaryPlaceholder(chosen, writes.pendingCount, writes.summaryRequired) aria-label="Review summary" autocorrect="off" spellcheck="false" testId="pull-request-review-summary" width="100%" min-height="4.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color=prcInk()
                   ::placeholder
                     color=prcMuted()
                 // A single verdict needs no choosing: Submit stands alone at the end.
@@ -152,7 +155,7 @@ component PrdComposer
             if writes.canComment
               column width="100%" gap="0.5rem" display=(shownMode == "comment" ? "flex" : "none") testId="pull-request-comment-form"
                 // Locked while posting: the box is cleared on success, which would throw away words typed meanwhile.
-                textarea value=comment input=editComment change=keepComment key=commentKeys autofocus=(shownMode == "comment") disabled=locked rows=3 placeholder="Leave a comment" aria-label="Comment on this pull request" autocorrect="off" spellcheck="false" testId="pull-request-comment-text" width="100%" min-height="4.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color=prcInk() opacity=(locked ? 0.64 : 1)
+                textarea id=`${scope}-comment-input` data-guide-editable="yes" value=comment input=editComment change=keepComment key=commentKeys autofocus=(shownMode == "comment") disabled=locked rows=3 placeholder="Leave a comment" aria-label="Comment on this pull request" autocorrect="off" spellcheck="false" testId="pull-request-comment-text" width="100%" min-height="4.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color=prcInk() opacity=(locked ? 0.64 : 1)
                   ::placeholder
                     color=prcMuted()
                 row width="100%" flex-wrap="wrap" justify-content="flex-end" gap="0.5rem"

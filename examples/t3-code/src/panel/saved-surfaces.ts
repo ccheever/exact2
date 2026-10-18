@@ -33,7 +33,7 @@ export function deviceTarget(value: unknown): DeviceTarget | undefined {
 export function prTargetOf(value: unknown): PrTarget | null {
   const entry = obj(value);
   if (typeof entry.projectId !== 'string' || typeof entry.repository !== 'string' || !Number.isSafeInteger(entry.number) || num(entry.number) < 1) return null;
-  return { projectId: entry.projectId, host: str(entry.host).toLowerCase(), repository: entry.repository, number: num(entry.number), url: str(entry.url) };
+  return { projectId: entry.projectId, host: str(entry.host).toLowerCase(), repository: entry.repository, number: num(entry.number), url: str(entry.url), ...(str(entry.environmentId) ? { environmentId: str(entry.environmentId) } : {}) };
 }
 
 function attachmentOf(value: unknown): AttachmentMeta | null {

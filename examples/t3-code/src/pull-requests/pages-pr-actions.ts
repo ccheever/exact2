@@ -135,6 +135,7 @@ export function selectedMethod(client: T3Client, ctx: { key: string; detail: Obj
 
 export function emptyActions() {
   return {
+    guideEnabled: false, guideDisabled: true, guideLabel: 'Write guide',
     primary: '', primaryLabel: '', primaryBase: '', primaryIcon: '', primaryDisabled: false, armedLabel: '', armedTip: '', stateLabel: '', stateKey: '',
     refreshing: false, moreLabel: 'More pull request actions', pending: false, open: false,
     draftToggle: '', mergeNow: false, mergeNowLabel: 'Merge now', autoMerge: '', autoMergeLabel: '', methods: [] as { key: string; method: string; label: string; selected: boolean }[], methodsSeparator: false, groupSeparator: false,

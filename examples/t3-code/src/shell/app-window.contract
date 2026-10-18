@@ -345,6 +345,7 @@ component T3Window
     clearModalError: action
     titleSend: action
   provide
+    guideKeysBlocked = paletteOpen or modal or settingsOpen
     dialogFocusId
     dialogMenuEntered
     dialogOpened

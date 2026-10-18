@@ -44,6 +44,8 @@ shape PrOrphanGroup
   path: string
   threads: PrOrphanRef[]
 shape PrCodeView
+  revealPath: string
+  revealNonce: number
   available: bool
   mounted: bool
   key: string

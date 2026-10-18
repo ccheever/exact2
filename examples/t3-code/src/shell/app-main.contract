@@ -436,7 +436,10 @@ component PagesCover
   // usage answer that drops the confirm comes later; Base UI's AlertDialog returns the focus as it closes).
   // A new ask from the page opens it again.
   // The pull request page's list and panel widths (moved from app.contract: only this page reads them).
-  derive prPanelWidth = min(floor(viewport.width / 2), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 224)
+  state prMaximized = false
+  action maximizePr(on: bool)
+    prMaximized = on
+  derive prPanelWidth = prMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : min(floor(viewport.width / 2), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 224)
   derive prListWidth = viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - (prSelected != "" and prPanelOpen ? prPanelWidth : 0)
   state usageClosing = ""
   derive usageConfirmOpen = usage.pooled.confirm != "" and usageClosing != usage.pooled.confirm
@@ -453,9 +456,14 @@ component PagesCover
           UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme=scheme, wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=pageBack, command=usageCommand, confirmOpen=usageConfirmOpen, reduced=viewport.prefersReducedMotion, outside=outside)
         if utilityPage == "pull-requests"
           row position="absolute" left=0 top=0 right=0 bottom=0
-            PrList(controlsLeft=data.controlsLeft, page=prList, scheme=scheme, query=(prTyped ? prQuery : prList.query), sidebarOpen=data.sidebarOpen, narrow=(prListWidth < 512), compact=(prListWidth < 428), panelOpen=(prSelected != "" and prPanelOpen), togglePanel=prTogglePanel, search=prType, control=prControl, select=prSelect, reload=prReload, addProject=paletteShow("command", "add-project"), act=prAct, back=pageBack)
+            PrGuideMaximize(opened=(prSelected != "" and prPanelOpen), ready=(prTab == "guide" and prDetail.guide.enabled and prDetail.guide.hasGuide), change=maximizePr)
+            column flex=1 min-width=0 height="100%" display=(prMaximized ? "none" : "flex")
+              PrList(controlsLeft=data.controlsLeft, page=prList, scheme=scheme, query=(prTyped ? prQuery : prList.query), sidebarOpen=data.sidebarOpen, narrow=(prListWidth < 512), compact=(prListWidth < 428), panelOpen=(prSelected != "" and prPanelOpen), togglePanel=prTogglePanel, search=prType, control=prControl, select=prSelect, reload=prReload, addProject=paletteShow("command", "add-project"), act=prAct, back=pageBack)
             if prSelected != "" and prPanelOpen
               PrPanel(detail=prDetail, documents=prMarkdown.documents, scheme=scheme, width=prPanelWidth, tab=prTab, setTab=prSetTab, close=prClose, reload=prReload, act=prAct, copy=prCopy, still=viewport.prefersReducedMotion, select=prSelect, compact=(prPanelWidth < 480), back=pageBack, local=chatLocal)
+            if prSelected != "" and prPanelOpen
+              button press=maximizePr(not prMaximized) position="absolute" right="3rem" top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 background-color="#00000000" aria-label=(prMaximized ? "Restore panel" : "Maximize panel") title="" testId="pull-requests-maximize-panel"
+                PgIcon(name=(prMaximized ? "minimize-2" : "maximize-2"), size=16, color="light-dark(#71717b, #818181)")
             button press=prTogglePanel disabled=(prSelected == "") position="absolute" right="0.8125rem" top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 background-color=(prSelected != "" and prPanelOpen ? "light-dark(#27272a0d, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle right panel" testId="pull-requests-toggle-panel" title=""
               PgIcon(name="panel-right", size=16, color="light-dark(#71717b, #818181)")
         if utilityPage == ""
@@ -514,3 +522,21 @@ component RightSheets
       box position="absolute" top=0 bottom=0 left=0 right=0 background-color="#00000000" z-index=10 press=panelUi("toggle", "") aria-label="Close right panel"
       box position="absolute" top=0 bottom=0 right=0 width=min(viewport.width, diffWidth) z-index=11
         SurfacePanel(shell=shell, sheet=true, maximized=false, detailsOpen=detailsOpen, still=viewport.prefersReducedMotion, ui=panelUi, details=detailsAct, local=chatLocal, command=command, paletteShow=paletteShow, scheme=scheme, prDetail=prDetail, prDocuments=prDocuments, filesDocuments=filesDocuments, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, look=data.look, confirm=confirm, closePending=closePending, width=min(viewport.width, diffWidth))
+
+
+// Observe the first ready tour once per open panel; a manual restore survives tab changes.
+component PrGuideMaximize
+  props
+    opened: bool
+    ready: bool
+    change: action
+  state reported = false
+  action observe(width: number, height: number)
+    if width == 1
+      reported = false
+      change(false)
+    else if width == 3 and not reported
+      reported = true
+      change(true)
+  view
+    box resize=observe aria-hidden=true position="absolute" left=0 top=0 width=(not opened ? 1 : ready ? 3 : 2) height=1 opacity=0 pointer-events="none"

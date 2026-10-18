@@ -23,7 +23,7 @@ import { readDetail, peekDetail, forgetDetails, mergeAsk, askMerge, confirmMerge
 import { rowExtra, emptyExtra, type RowExtra } from '../details/pr-row';
 import type { MergeAsk } from '../details/pr-row-actions';
 
-export type PrTarget = { projectId: string; host: string; repository: string; number: number; url: string };
+export type PrTarget = { projectId: string; host: string; repository: string; number: number; url: string; environmentId?: string };
 export type PrRow = {
   key: string; label: string; tooltip: string; icon: string; state: string; tinted: boolean; target: string; url: string; aria: string;
   split: boolean; checks: string; checksCount: string; checksAria: string; action: string; actionTarget: string; actionLabel: string; actionTooltip: string; actionDisabled: boolean;
@@ -93,10 +93,10 @@ export function threadPrTarget(client: T3Client): PrTarget | null {
   return { projectId: str(target.projectId) || str(thread.projectId), host, repository: str(target.repository), number: num(target.number), url: str(target.url) };
 }
 /** The Pull Requests page's selection string (pages-pr-detail.ts parseSelection) for a target. */
-export const selectionOf = (target: PrTarget) => JSON.stringify({ projectId: target.projectId, host: target.host, repository: target.repository, number: target.number });
+export const selectionOf = (target: PrTarget) => JSON.stringify({ projectId: target.projectId, host: target.host, repository: target.repository, number: target.number, ...(target.environmentId ? { environmentId: target.environmentId } : {}) });
 /** pullRequestSurfaceId: the reference lives in the id, so several pull requests stay peer tabs. */
 export const prSurfaceId = (target: PrTarget) =>
-  `pull-request:${encodeURIComponent(target.projectId)}:${target.host ? `${encodeURIComponent(target.host.toLowerCase())}:` : ''}${encodeURIComponent(target.repository)}:${target.number}`;
+  `pull-request:${target.environmentId ? `${encodeURIComponent(target.environmentId)}:` : ""}${encodeURIComponent(target.projectId)}:${target.host ? `${encodeURIComponent(target.host.toLowerCase())}:` : ''}${encodeURIComponent(target.repository)}:${target.number}`;
 
 /** PullRequestSurfaceIcon: the linked snapshot's lifecycle glyph in its tone, else the muted pull request glyph. */
 export function prTabIcon(client: T3Client, target: PrTarget): { icon: string; state: string } {

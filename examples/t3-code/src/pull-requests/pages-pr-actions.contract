@@ -38,6 +38,9 @@ shape PrUpdateItem
   value: string
   label: string
 shape PrActionsView
+  guideEnabled: bool
+  guideDisabled: bool
+  guideLabel: string
   primary: string
   primaryLabel: string
   primaryBase: string
@@ -215,7 +218,7 @@ component PrdActionsMenu
   // focus on its first row, and the arrows, Home, End and a letter move through the enabled rows.
   derive gated = not actions.pending and actions.open
   derive handing = handoffs.pending == ""
-  derive rows = [KmItem(id=(links.menuShown and not links.pending ? "pr-more-link" : ""), label=links.menuLabel), KmItem(id=(actions.refreshing ? "" : "pr-more-refresh"), label="Refresh"), KmItem(id=(handing ? "pr-more-ask" : ""), label="Ask a question"), KmItem(id=(handing ? "pr-more-explain" : ""), label="Explain this PR"), KmItem(id=(handing ? "pr-more-fix-findings" : ""), label="Fix findings")].concat(actOn.map((item) => KmItem(id=(handing ? `pr-more-act-on-${item.key}` : ""), label=item.label))).concat([KmItem(id=(gated and actions.draftToggle == "draft" ? "pr-more-draft" : ""), label="Convert to draft"), KmItem(id=(gated and actions.draftToggle == "ready" ? "pr-more-ready" : ""), label="Ready for review"), KmItem(id=(gated and actions.mergeNow ? "pr-more-merge-now" : ""), label=actions.mergeNowLabel), KmItem(id=(gated and actions.autoMerge == "disable" ? "pr-more-disable-auto-merge" : ""), label="Disable auto-merge"), KmItem(id=(gated and actions.autoMerge == "enable" ? "pr-more-enable-auto-merge" : ""), label=actions.autoMergeLabel)]).concat(actions.methods.map((item) => KmItem(id=(gated ? `pr-more-method-${item.method}` : ""), label=item.label))).concat([KmItem(id="pr-more-open-host", label=`Open on ${hostName}`), KmItem(id="pr-more-copy-link", label="Copy link"), KmItem(id="pr-more-copy-number", label="Copy PR number"), KmItem(id=(actions.closeItem and not actions.pending ? "pr-more-close" : ""), label=actions.closeLabel), KmItem(id=(actions.reopenItem and not actions.pending ? "pr-more-reopen" : ""), label="Reopen pull request"), KmItem(id=(actions.revertItem and not actions.pending ? "pr-more-revert" : ""), label=actions.revertLabel), KmItem(id=(actions.deleteBranchItem and not actions.deleteBranchDisabled ? "pr-more-delete-branch" : ""), label="Delete branch")]).filter((item) => item.id != "")
+  derive rows = [KmItem(id=(links.menuShown and not links.pending ? "pr-more-link" : ""), label=links.menuLabel), KmItem(id=(actions.refreshing ? "" : "pr-more-refresh"), label="Refresh"), KmItem(id=(handing ? "pr-more-ask" : ""), label="Ask a question"), KmItem(id=(handing ? "pr-more-explain" : ""), label="Explain this PR"), KmItem(id=(handing ? "pr-more-fix-findings" : ""), label="Fix findings"), KmItem(id=(actions.guideEnabled and not actions.guideDisabled ? "pr-more-guide" : ""), label=actions.guideLabel)].concat(actOn.map((item) => KmItem(id=(handing ? `pr-more-act-on-${item.key}` : ""), label=item.label))).concat([KmItem(id=(gated and actions.draftToggle == "draft" ? "pr-more-draft" : ""), label="Convert to draft"), KmItem(id=(gated and actions.draftToggle == "ready" ? "pr-more-ready" : ""), label="Ready for review"), KmItem(id=(gated and actions.mergeNow ? "pr-more-merge-now" : ""), label=actions.mergeNowLabel), KmItem(id=(gated and actions.autoMerge == "disable" ? "pr-more-disable-auto-merge" : ""), label="Disable auto-merge"), KmItem(id=(gated and actions.autoMerge == "enable" ? "pr-more-enable-auto-merge" : ""), label=actions.autoMergeLabel)]).concat(actions.methods.map((item) => KmItem(id=(gated ? `pr-more-method-${item.method}` : ""), label=item.label))).concat([KmItem(id="pr-more-open-host", label=`Open on ${hostName}`), KmItem(id="pr-more-copy-link", label="Copy link"), KmItem(id="pr-more-copy-number", label="Copy PR number"), KmItem(id=(actions.closeItem and not actions.pending ? "pr-more-close" : ""), label=actions.closeLabel), KmItem(id=(actions.reopenItem and not actions.pending ? "pr-more-reopen" : ""), label="Reopen pull request"), KmItem(id=(actions.revertItem and not actions.pending ? "pr-more-revert" : ""), label=actions.revertLabel), KmItem(id=(actions.deleteBranchItem and not actions.deleteBranchDisabled ? "pr-more-delete-branch" : ""), label="Delete branch")]).filter((item) => item.id != "")
   action hover(value: bool)
     over = value
   // menu-keys.contract: the link row is a MenuItem too, highlighted by its focus alone; the
@@ -271,6 +274,8 @@ component PrdActionsMenu
               PaMenuItem(keysId="pr-more-keys", icon=links.menuIcon, label=links.menuLabel, shortcut="", disabled=links.pending, destructive=false, press=act("links", links.menuPicker ? "picker" : "toggle"), testId="pr-more-link")
             PaMenuItem(keysId="pr-more-keys", icon="refresh-cw", label="Refresh", shortcut="", disabled=actions.refreshing, destructive=false, press=reload, testId="pr-more-refresh")
             PrdHandoffItems(keysId="pr-more-keys", handoffs=handoffs, surface=surface, menuId="pr-more-menu", act=act)
+            if actions.guideEnabled
+              PaMenuItem(keysId="pr-more-keys", icon="sparkles", label=actions.guideLabel, shortcut="", disabled=actions.guideDisabled, destructive=false, press=act("guide-write", ""), testId="pr-more-guide")
             PrdActOnItems(keysId="pr-more-keys", items=actOn, disabled=(handoffs.pending != ""), act=act, idPrefix="pr-more-act-on-")
             PaSeparator()
             if actions.open

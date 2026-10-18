@@ -474,7 +474,26 @@ component T3Code
   state prRefresh = 0
   state prTab = "summary"
   resource prList = prList(utilityPage == "pull-requests", prRefresh, wallTime.epochAtZero + elapsed, prSelected, prApplied, prTyped, data.revision, page.visibilityState == "visible", windowReturns) as shape PrListView
-  resource prDetail = prDetail(utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, prRefresh, wallTime.epochAtZero + elapsed, data.revision, page.visibilityState == "visible", windowReturns, prTab, utilityPage == "pull-requests", floor(liveNow / 10000)) as shape PrDetailView // the page, the linked threads' 10 s tick
+  resource prDetail = prDetail(utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, prRefresh, wallTime.epochAtZero + elapsed, data.revision, page.visibilityState == "visible", windowReturns, prTab, utilityPage == "pull-requests", floor(liveNow / 5000), page.visibilityState == "visible" and not settingsOpen and ((utilityPage == "pull-requests" and prPanelOpen) or (utilityPage == "" and shell.panel.open and shell.panel.kind == "pull-request"))) as shape PrDetailView // the page, the linked threads' 10 s tick
+  task guideDisabled when prDetail.phase == "content" and prTab == "guide" and not prDetail.guide.enabled
+    after(1, guideFallback)
+  action guideFallback
+    prSetTab("summary")
+  state guideFinishHandled = ""
+  task guideFinishRequested when prDetail.guide.finishNonce > 0 and guideFinishHandled != `${prDetail.ref}:${prDetail.guide.finishNonce}` key=`${prDetail.ref}:${prDetail.guide.finishNonce}`
+    after(1, guideFinishOpen)
+  action guideFinishOpen
+    guideFinishHandled = `${prDetail.ref}:${prDetail.guide.finishNonce}`
+    showPopover(utilityPage == "pull-requests" ? "pr-page-scroll-composer" : "pr-surface-scroll-composer")
+  state codeRevealHandled = ""
+  task codeRevealRequested when prTab == "code" and prDetail.codeTab.revealPath != "" and prDetail.codeTab.revealNonce > 0 and codeRevealHandled != `${prDetail.ref}:${prDetail.codeTab.revealNonce}` key=`${prDetail.ref}:${prDetail.codeTab.revealNonce}`
+    after(1, codeRevealOpen)
+  action codeRevealOpen
+    codeRevealHandled = `${prDetail.ref}:${prDetail.codeTab.revealNonce}`
+    if utilityPage == "pull-requests"
+      scrollIntoView("pr-page-scroll-code", `file:${prDetail.codeTab.revealPath}`, block="start")
+    else
+      scrollIntoView("pr-surface-scroll-code", `file:${prDetail.codeTab.revealPath}`, block="start")
   resource prMarkdown = renderPullRequestMarkdown(prDetail.bodies) as shape TranscriptMarkdown
   action prType(value: string)
     prQuery = value
@@ -494,6 +513,12 @@ component T3Code
     prSelected = ref
     prPanelOpen = true
     prTab = "summary"
+  action prOpenGuide(ref: string)
+    openPage("pull-requests")
+    prSelected = ref
+    prPanelOpen = true
+    prTab = "guide"
+    settingsOpen = false
   action prTogglePanel
     prPanelOpen = not prPanelOpen
   action prReload
@@ -501,6 +526,8 @@ component T3Code
   action prSetTab(value: string)
     prTab = value
   action prAct(op: string, value: string)
+    if op == "guide-write" and not prDetail.guide.hasGuide
+      prTab = "guide"
     if op == "quick" or op == "close-batch"
       send prQuickChanged = command(`pageslocal:pr-act-${op == "quick" ? "queue" : op}`, "", value, 0)
     else if not commandPending
@@ -1134,6 +1161,12 @@ component T3Code
         if result.message.startsWith("sidebar:pr-page:") // with no thread open, the pull request on the Pull Requests page (before any branch below sets utilityPage: openPage reads it)
           openPage("pull-requests")
           prSelect(result.message.slice(16))
+        if result.message == "pr-guide:asked"
+          prTab = "guide"
+          draftOwner = "__unset__"
+          jumpRequest = jumpRequest + 1
+          utilityPage = ""
+          focus("composer")
         if result.message == "sidebar:new-thread" or result.message == "pr-handoff-next"
           draftOwner = "__unset__"
           jumpRequest = jumpRequest + 1
@@ -1755,7 +1788,12 @@ component T3Code
     confirmReturn = ""
     confirmValue = ""
     focus("app-confirm-cancel") // the confirm takes the focus from the terminal (Base UI's initialFocus); Cancel gives it back
-  task shellOpen when shell.openRequest != "" and shell.openRequest != shellOpenHandled and shell.openThreadId != "" and not commandPending key=shell.openRequest
+  task shellOpenGuide when shell.openGuideSelected != "" and shell.openRequest != shellOpenHandled key=shell.openRequest
+    after(1, shellGuideOpen)
+  action shellGuideOpen
+    shellOpenHandled = shell.openRequest
+    prOpenGuide(shell.openGuideSelected)
+  task shellOpen when shell.openGuideSelected == "" and shell.openRequest != "" and shell.openRequest != shellOpenHandled and shell.openThreadId != "" and not commandPending key=shell.openRequest
     after(1, shellOpenThread)
   action shellOpenThread // a clicked notification's thread, or a `t3 app` request's draft (desktop-activation.ts), which leaves Settings and the utility pages as the reference's route change does
     shellOpenHandled = shell.openRequest
@@ -1782,7 +1820,7 @@ component T3Code
       modalError = ""
     if op.startsWith("upkeep:")
       send providerUpdateRun = providerChange(op, target, "", value, "", "") // a toast's update: the launch prompt's own environments, never the page's
-    if op != "copy" and op != "dismiss" and op != "ui:settings" and not op.startsWith("upkeep:") and not commandPending
+    if op != "guide-open" and op != "copy" and op != "dismiss" and op != "ui:settings" and not op.startsWith("upkeep:") and not commandPending
       commandPending = true
       send changed = command(op, target, value, 0)
       if op == "select-thread" or op == "new-thread"
@@ -1791,6 +1829,8 @@ component T3Code
         utilityPage = ""
         draftOwner = "__unset__"
         jumpRequest = jumpRequest + 1
+    if op == "guide-open"
+      prOpenGuide(target)
   action panelUi(what: string, id: string) // tabs and surfaces live in the client (panel-surfaces.ts, shell.panel)
     let closingTerminal = what == "tab-close" and shell.panel.tabs.filter((tab) => tab.id == id and tab.closeTitle != "").length > 0
     rightPanelAt = closingTerminal ? rightPanelAt : (what == "toggle" or what == "close" or what == "tab-close" ? ((what == "toggle" and not data.diffOpen and not rightPanel and not shell.panel.open) or (what == "tab-close" and shell.panel.count > 1)) : (rightPanel or what == "choose")) ? shell.panel.key : ""

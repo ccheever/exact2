@@ -1,3 +1,4 @@
+import { coordinateGuides, decodeGuideOpenTarget, guideReader } from '../pull-requests/pages-pr-guide';
 import { can as hasPermission } from '../connections/command-permissions';
 import { updateEverythingPass, updateEverythingState } from '../sidebar/update-everything';
 // The window shell's projection (MIT reference: apps/web/src/components/ui/
@@ -282,6 +283,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     await providerUpdates(client, storage);
     updateEverythingPass(client, native, now);
     await cloneToasts(client, native); // project-clones-live.ts: a toast per tracked clone, every environment
+    await coordinateGuides(client, native, state.status, now);
     await threadNotifications(client, native, state.status); // every connected environment: the focus and the fleet (shell-notify.ts)
     if (tracking(client)) await settleLiveTraces(client, native);
   }
@@ -290,9 +292,10 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   const thread = client.shell.threads.find(entry => entry.id === client.threadId);
   const project = client.shell.projects.find(entry => entry.id === client.projectId);
   const menu = titleMenu(client, now);
+  const opened = await activationOpen(client, native, state.status);
   return {
-    toasts: toastViews(queue, copiedToasts(client, now), copiedActions(client)), toastCount: queue.length, ticking: updateEverythingState(client).run?.machines.some(machine => machine.result === null) === true || tracking(client) || gitTicking(client) || refsPageWanted(client) || revealWaiting(client),
-    ...(await activationOpen(client, native, state.status)), // openRequest, openThreadId: a clicked notification's thread or a `t3 app` request (desktop-activation.ts)
+    toasts: toastViews(queue, copiedToasts(client, now), copiedActions(client)), toastCount: queue.length, ticking: guideReader(client).watches.size > 0 || updateEverythingState(client).run?.machines.some(machine => machine.result === null) === true || tracking(client) || gitTicking(client) || refsPageWanted(client) || revealWaiting(client),
+    ...opened, openGuideSelected: decodeGuideOpenTarget(opened.openThreadId) ?? '', // openRequest, openThreadId: a clicked notification's thread or a `t3 app` request (desktop-activation.ts)
     keyRightPanel: commandShortcut(client.config, 'rightPanel.toggle'), keyThreadPanel: commandShortcut(client.config, 'threadPanel.toggle'),
     keyTerminal: commandShortcut(client.config, 'terminal.toggle'), keyNewThread: commandShortcut(client.config, 'chat.new'),
     terminalAvailable: terminalAvailable(client), terminalOpen: terminalOpen(client), // the layout controls' toggle

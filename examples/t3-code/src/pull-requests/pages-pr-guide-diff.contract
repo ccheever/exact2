@@ -1,0 +1,111 @@
+// T3 Code 9c161462c9 (MIT, LICENSE-T3): GuideExcerpt and GuideFileDiff over the shared diff rows.
+use DiffItem from "../shared/shapes.contract"
+use PrCodeView, PrdCodeRow from "./pages-pr-code.contract"
+use PrHandoffsView from "./pages-pr-handoffs.contract"
+use PrReactionChoice from "./pages-pr-threads.contract"
+use ChatDocument, CodeHighlight, MarkdownEnv from "../timeline/markdown.contract"
+use PgIcon from "../shared/pages-icons.contract"
+
+shape GuideRowNote
+  key: string
+  row: string
+  marker: string
+  title: string
+shape GuideDiffCard
+  rowNotes: GuideRowNote[]
+  id: string
+  path: string
+  caption: string
+  range: string
+  removed: bool
+  missing: bool
+  full: bool
+  note: string
+  open: bool
+  expandable: bool
+  shown: number
+  total: number
+  items: DiffItem[]
+shape GuideDiffView
+  cards: GuideDiffCard[]
+  code: PrCodeView
+  canComment: bool
+
+component GuideDiffs
+  props
+    view: GuideDiffView
+    ref: string
+    width: number
+    surface: string
+    scheme: string
+    env: MarkdownEnv
+    handoffs: PrHandoffsView
+    choices: PrReactionChoice[]
+    documents: ChatDocument[]
+    highlights: CodeHighlight[]
+    still: bool
+    local: action
+    act: action
+    reveal: action
+  state draftText = ""
+  action press(op: string, value: string)
+    local(`pr-guide-${op}`, ref, value)
+  action edit(text: string)
+    draftText = text
+  action begin(card: string, path: string, side: string, line: number)
+    draftText = ""
+    press("begin", `${card}|${side}|${line}|${path}`)
+  action cancel
+    draftText = ""
+    press("cancel", "")
+  action add
+    if view.canComment and draftText.trim() != ""
+      press("add", draftText)
+      draftText = ""
+  action agent
+    act("guide-lines", `${surface}|${draftText}`)
+    draftText = ""
+  action rowCommand(card: string, op: string, id: string, value: string, n: number)
+    if id == "expand"
+      press("excerpt-expand", `${card}|${n}|${value}`)
+    else
+      press(id.startsWith("drag:") or id.startsWith("gutter:") or id == "to" or id == "end" ? "drag" : "row", `${card}|${op}|${id}|${n}|${value}`)
+  view
+    column width="100%" min-width=0 gap="1rem" testId="review-guide-excerpts"
+      if view.code.message != ""
+        text view.code.message font-size="0.75rem" color="light-dark(#71717b, #a1a1aa)"
+      for card in view.cards key=card.id
+        column width="100%" min-width=0 border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" overflow="hidden" testId=`guide-excerpt-${card.id}`
+          row width="100%" min-width=0 align-items="center" gap="0.5rem" padding="0.75rem" box-sizing="border-box" background-color="light-dark(#f4f4f5, #ffffff06)"
+            if card.full
+              button press=press("file-toggle", card.path) aria-expanded=card.open aria-label=`${card.open ? "Collapse" : "Expand"} ${card.path}` title="" testId=`guide-file-toggle-${card.id}` padding=0 border-width=0 background-color="#00000000"
+                PgIcon(name=(card.open ? "chevron-down" : "chevron-right"), size=14, color="light-dark(#71717b, #a1a1aa)")
+            text card.path flex=1 min-width=0 font-family=env.codeFont font-size="0.75rem" line-height="1.125rem" text-overflow="ellipsis" white-space="nowrap"
+            if card.range != ""
+              text card.range font-size="0.6875rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1aa)"
+            if card.removed
+              text "Removed code" font-size="0.6875rem" color="light-dark(#71717b, #a1a1aa)"
+            button press=reveal(card.path) aria-label=`Open ${card.path} in Code` testId=`guide-open-code-${card.id}` font-size="0.75rem"
+              text "Open in Code"
+          if card.caption != "" or card.note != ""
+            text (card.caption != "" ? card.caption : card.note) padding="0.75rem" font-size="0.75rem" line-height="1.125rem" color="light-dark(#71717b, #a1a1aa)"
+          if card.missing
+            text "This diff range is not available. Open the file in Code to inspect it." padding="0.75rem" font-size="0.75rem" line-height="1.125rem" color="light-dark(#71717b, #a1a1aa)"
+          if card.open and not card.missing
+            for item in card.items key=item.id
+              if item.kind == "pr-draft" and not view.canComment
+                column width="100%" gap="0.5rem" padding="0.75rem" box-sizing="border-box" testId="guide-ask-lines-draft"
+                  textarea data-guide-editable="yes" id="guide-lines-question" value=draftText input=edit rows=2 placeholder="Ask about these lines…" aria-label="Question about selected guide lines" autocorrect="off" spellcheck="false" testId="guide-lines-question" width="100%" min-height="3rem"
+                  row gap="0.5rem" justify-content="flex-end"
+                    button press=cancel testId="guide-lines-cancel"
+                      text "Cancel"
+                    button press=agent testId="guide-lines-ask"
+                      text "Ask agent"
+              else
+                column width="100%" position="relative"
+                  PrdCodeRow(width=width, item=item, code=view.code, scheme=scheme, size=env.codeSize, surface=surface, draftText=draftText, handoffs=handoffs, choices=choices, documents=documents, highlights=highlights, env=env, still=still, local=local, act=act, press=press, rowCommand=rowCommand(card.id), begin=begin(card.id), cancel=cancel, editDraft=edit, add=add, agent=agent)
+                  for note in card.rowNotes.filter((note) => note.row == item.id) key=note.key
+                    box position="absolute" left="0.125rem" top="0.125rem" width="1rem" height="1rem" border-radius="0.25rem" background-color="light-dark(#dbeafe, #1e3a5f)" display="flex" align-items="center" justify-content="center" aria-label=`Note ${note.marker}: ${note.title}` testId=`guide-note-marker-${note.key}`
+                      text note.marker font-size="0.625rem" font-weight=600 color="light-dark(#1d4ed8, #93c5fd)"
+            if not card.full and card.total > 0
+              text `Showing ${card.shown} of ${card.total} diff lines` padding="0.5rem" font-size="0.6875rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1aa)"

@@ -34,7 +34,7 @@ import { preparationFailureRunId, retryableActivities } from './workspace-retry'
 import { numericDateFormatter, timestampFormatter } from '../shared/timestamp-format'; // the host's locale
 import { letGo } from '../client/let-go';
 import { pullRequestLinkPick } from '../panel/context-menu-actions';
-import { prCodeLocalFor, prLocalWrite, prUiLocal } from '../pull-requests/pages-pr-detail';
+import { prGuideLocalFor, prCodeLocalFor, prLocalWrite, prUiLocal } from '../pull-requests/pages-pr-detail';
 import { stackLayerTarget } from '../pull-requests/pages-pr-stack';
 import { openLinkFromUi } from '../browser/browser-links';
 import { chatExternalLinkMenu } from './external-link-menu';
@@ -101,6 +101,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op.startsWith('prw-')) return prLocalWrite(client, native, op.slice(4), id, value); // the composer's drafts (pages-pr-detail.ts)
   if (op === 'pr-ui-select') return surfaceLocal(client, native, 'linked-pr-open', stackLayerTarget(value), ''); // a stack layer beside a thread
   if (op.startsWith('pr-ui-')) return prUiLocal(client, op.slice(6), id, value); // the panel header's menu choices
+  if (op.startsWith('pr-guide-')) return prGuideLocalFor(client, native, op.slice(9), id, value);
   if (op.startsWith('pr-code-')) return prCodeLocalFor(client, native, op.slice(8), id, value); // the Code tab's presses (pages-pr-code.ts)
   if (op.startsWith('git-')) return gitChatLocal(client, native, op.slice(4), id, value); // git-route.ts
   if (op.startsWith('media-')) return mediaLocal(client, native, op.slice(6), id, value, { urlOf: attachmentId => cachedAttachmentUrl(client, attachmentId),
