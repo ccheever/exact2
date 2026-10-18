@@ -14,7 +14,7 @@ use CcIcon from "../composer/composer-controls.contract"
 use CnMachineIcon from "./settings-b-kit.contract"
 use PolicyTip from "./settings-kit.contract"
 use AboutUpdateButton from "./settings-a-about.contract"
-use MobileBetaControl from "./settings-mobile-beta.contract"
+use MobileAppControl from "./settings-mobile-beta.contract"
 use ScopedSwitch from "./settings-scoped-switch.contract"
 use FontFamilyPicker from "../appearance/settings-a-fonts.contract"
 use PromptFontPreview from "../appearance/settings-prompt-preview.contract"
@@ -275,8 +275,8 @@ component CoreRowView
                   TraitsMenu(options=row.options2, pal=pal, menuId=`effort-${section}-${row.id}`, items=traitsItems, keyed=0, choose=change(row.id, "effort"), testId=`setting-${row.id}-effort-menu`)
             if row.kind == "text-only"
               text row.label font-size="0.875rem" line-height="1.25rem" color=pal.muted id=`paint-CoreRowView-15-${row.id}` data-paint="mutedForeground" data-pick="mutedForeground"
-            if row.kind == "mobile-beta"
-              MobileBetaControl(row=row, pal=pal, busy=busy, change=change)
+            if row.kind == "mobile-app"
+              MobileAppControl(row=row, pal=pal, busy=busy)
             if row.kind == "number" or row.kind == "text"
               CoreField(value=row.value, rowId=row.id, width=row.width, placeholder=row.placeholder, numeric=(row.kind == "number"), label=row.title, pal=pal, disabled=(busy or row.inert), commit=change(row.id, row.target))
             if row.kind == "link"

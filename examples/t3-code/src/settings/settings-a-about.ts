@@ -12,7 +12,7 @@
 import type { T3Client } from '../client/client';
 import { coreRow, type CoreRow } from './settings-core';
 import { ClientError, type Native } from '../client/protocol';
-import { mobileBetaRow, showMobileBeta } from './settings-mobile-beta';
+import { mobileAppRow } from './settings-mobile-beta';
 import { CLIENT_VERSION } from '../connections/connections';
 import { defaultUpdateChannel, writeDesktopSettings, type DesktopUpdateChannel } from '../connections/local-backend';
 import { letGo } from '../client/let-go';
@@ -52,8 +52,7 @@ export function aboutRows(client: T3Client, version: string): CoreRow[] {
     coreRow('update-track', 'Update track', 'Use stable releases or nightly builds. Switch back anytime.', 'select', {
       value: channel, label: channel === 'nightly' ? 'Nightly' : 'Stable', options, width: 160, disabled: enabled, menuWidth: 0,
     }),
-    // f1dcd93931: Mobile app after the version/update rows on a Nightly build or the Nightly track.
-    ...(showMobileBeta(CLIENT_VERSION, channel) ? [mobileBetaRow(client)] : []),
+    mobileAppRow(),
   ];
 }
 

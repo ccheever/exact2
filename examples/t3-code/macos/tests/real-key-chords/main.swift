@@ -24,7 +24,7 @@ import XCTest
 /// The reference's ⌘ chords (packages/shared/src/keybindings.ts DEFAULT_KEYBINDINGS; keybindingDefaults) whose
 /// `when` holds in an open thread with nothing focused or the composer focused, the composer's own send chords
 /// (`composerFocus && …`) aside. search-key-and-timeline-commit-title.test.ts checks this list against them.
-let referenceChords = ["mod+b", "mod+[", "mod+]", "mod+j", "mod+alt+b", "mod+w", "mod+d", "mod+shift+j", "mod+k", "mod+p",
+let referenceChords = ["mod+b", "mod+[", "mod+]", "mod+j", "mod+alt+b", "mod+shift+b", "mod+w", "mod+d", "mod+shift+j", "mod+k", "mod+p",
                        "mod+shift+f", "mod+u", "mod+alt+a", "mod+alt+shift+a", "mod+alt+shift+t", "mod+s", "mod+shift+enter",
                        "mod+n", "mod+shift+o", "mod+shift+n", "mod+alt+n", "mod+shift+m", "mod+shift+h", "mod+shift+e",
                        "mod+shift+a", "mod+shift+x", "mod+shift+g", "mod+shift+l", "mod+shift+k", "mod+o", "mod+shift+[",

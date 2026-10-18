@@ -22,6 +22,7 @@ component ShortcutDispatch
     chatNew: action
     deviceSetting: action
     toggleDiff: action
+    details: action // threadPanel.toggle: the header's "Toggle thread details panel" (detailsAct("toggle"))
     openDiff: action
     closeDiff: action
     panel: action // ⌘W closes the active surface tab (panelUi("tab-close", id))
@@ -56,6 +57,8 @@ component ShortcutDispatch
           ShortcutButton(item=item, press=deviceSetting("appearanceMode", item.target))
         if item.kind == "diff"
           ShortcutButton(item=item, press=toggleDiff)
+        if item.kind == "details"
+          ShortcutButton(item=item, press=details("toggle", "", ""))
         if item.kind == "diff-open"
           ShortcutButton(item=item, press=openDiff)
         if item.kind == "close-diff"
