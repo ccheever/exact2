@@ -104,6 +104,7 @@ shape MobileUsageData
   limitWarnings: UsageNotice[]
   duplicateMessage: string
   links: UsageLink[]
+  chatGptUsage: UsageLink[]
   cursor: UsageCursor[]
   cursorInsertAt: number
   cursorPoolInsertAt: number
@@ -180,23 +181,6 @@ component SettingsUsage
             text "Usage" color=colors.foreground font-size=roles.footnote.size
         if data.error.length > 0
           text data.error color=danger role="alert" font-size=roles.footnote.size
-        if data.tab == "usage"
-          for environment in data.environments key=environment.id
-            if environment.status.length > 0
-              text `${environment.label}: ${environment.status}` color=colors.muted font-size=roles.footnote.size
-          for notice in data.notices key=notice.id
-            text notice.text color=colors.muted font-size=roles.footnote.size
-        for link in data.links key=link.url
-          column padding=14 gap=7 border-radius=24 background-color=colors.grouped
-            button press=command("open-link", "", link.url) disabled=link.disabled min-height=44
-              row align-items="center" gap=10.5
-                text link.label flex=1 text-align="left" color=colors.link font-size=roles.body.size
-                t3-symbol symbol-name="arrow.up.right" symbol-tint=colors.link width=16 height=16
-            text link.accounts color=colors.muted font-size=roles.footnote.size
-            if link.message.length > 0
-              text link.message color=colors.muted font-size=roles.footnote.size
-        if data.emptyMessage.length > 0
-          text data.emptyMessage padding-top=56 padding-bottom=56 text-align="center" color=colors.muted font-size=roles.body.size
         if data.tab == "limits"
           if data.limitsEmpty.length > 0
             text data.limitsEmpty padding-top=42 padding-bottom=42 text-align="center" color=colors.muted font-size=roles.body.size line-height=`${roles.body.line}px`
@@ -236,6 +220,14 @@ component SettingsUsage
                         UsageLimitAccountRow(item=item, ordinal=(itemIndex + 1), windowId=window.windowId, kind=window.kind, colors=colors, roles=roles, account=account)
           if data.cursorPoolInsertAt == data.pools.length
             UsageCursorLimits(items=data.cursor, colors=colors, roles=roles, dark=dark, command=command)
+          for link in data.links key=link.url
+            column margin-top=3.5 padding=14 gap=10.5 border-width=1 border-style="solid" border-color=colors.borderSubtle border-radius=10.5 background-color="transparent"
+              text link.label color=colors.foreground font-size=roles.body.size line-height=`${roles.body.line}px` font-weight=500
+              text link.accounts color=colors.muted font-size=roles.label.size line-height=`${roles.label.line}px`
+              if link.message.length > 0
+                text link.message color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+              button appearance="none" press=command("open-link", "", link.url) disabled=link.disabled padding=0 min-height=38.5 display="flex" flex-direction="column" justify-content="center" align-items="flex-start" text-align="start" role="link"
+                text "Manage usage" color=colors.primary font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
           if data.limitWarnings.length > 0
             row align-items="flex-start" gap=7 margin-top=3.5 padding-left=12.25 padding-right=12.25 padding-top=10.5 padding-bottom=10.5 border-width=1 border-style="solid" border-radius=10.5 border-color=colors.warningBorder background-color=colors.warning role="alert" aria-live="polite"
               t3-symbol symbol-name="exclamationmark.triangle" symbol-tint=colors.warningForeground width=16 height=16 flex-shrink=0
@@ -258,8 +250,25 @@ component SettingsUsage
                 text "Cost" color=colors.foreground font-size=roles.caption.size
               button press=local("metric", "tokens") min-height=32 padding-left=7 padding-right=7 border-radius=6 background-color=(data.metric == "tokens" ? colors.grouped : "transparent")
                 text "Tokens" color=colors.foreground font-size=roles.caption.size
+          for usage in data.chatGptUsage key=usage.url
+            column margin-top=3.5 margin-bottom=3.5 gap=3.5
+              row align-items="center" justify-content="space-between" gap=10.5
+                row align-items="center" gap=7 flex-shrink=0
+                  ProviderIcon(driver="codex", size=16, dark=dark, iconUrl="")
+                  text "ChatGPT shared usage" color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+                button appearance="none" press=command("open-link", "", usage.url) disabled=usage.disabled padding=0 min-height=38.5 flex-shrink=0 display="flex" flex-direction="column" justify-content="center" align-items="flex-start" text-align="start" role="link"
+                  text "Manage usage" color=colors.primary font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+              text `${usage.accounts}. Open ChatGPT with the account you connected.` color=colors.muted font-size=roles.label.size line-height=`${roles.label.line}px`
           if data.duplicateMessage.length > 0
             text data.duplicateMessage color=colors.muted font-size=roles.footnote.size
+          if data.emptyMessage.length > 0
+            text data.emptyMessage padding-top=56 padding-bottom=56 text-align="center" color=colors.muted font-size=roles.body.size
+          if data.tab == "usage"
+            for environment in data.environments key=environment.id
+              if environment.status.length > 0
+                text `${environment.label}: ${environment.status}` color=colors.muted font-size=roles.footnote.size
+            for notice in data.notices key=notice.id
+              text notice.text color=colors.muted font-size=roles.footnote.size
           if data.hasUsage
             column background-color=colors.grouped border-radius=24 padding=14 gap=14
               column gap=1.75
