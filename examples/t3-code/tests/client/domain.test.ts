@@ -241,6 +241,21 @@ describe("timeline visibility and bounded history", () => {
     expect(messages(next).map(item => item.body)).toEqual(["text parent-row", "text new"]);
   });
 
+  test("a queued run that starts after a steer keeps its items below the watermark (#17764)", () => {
+    const first = snapshot([turn("steer-reply", 20, { runId: "run-2" })], { historyCursor: "cursor", hasMoreHistory: true, latestLocalTurnOrdinal: 20 });
+    obj(first.projection).runs = [{ id: "run-3", status: "running" }, { id: "run-old", status: "completed" }];
+    // The queued run kept ordinal 15 from when it was queued; it is still unfinished, so its item is new.
+    const queued = applyThread(threadSnapshot(first), event("turn-item.updated", turn("queued", 15, { runId: "run-3" })));
+    expect(messages(queued).map(item => item.body)).toEqual(["text queued", "text steer-reply"]);
+    // Once that run finished, its later item still lands: the run is already in the window.
+    const finished = { ...queued, projection: { ...queued.projection, runs: [{ id: "run-3", status: "completed" }, { id: "run-old", status: "completed" }] } };
+    const later = applyThread(finished, event("turn-item.updated", turn("queued-2", 16, { runId: "run-3" }), 12));
+    expect(messages(later).map(item => item.body)).toContain("text queued-2");
+    // A finished run's unloaded item is still history.
+    const old = applyThread(later, event("turn-item.updated", turn("old", 10, { runId: "run-old" }), 13));
+    expect(messages(old).map(item => item.body)).not.toContain("text old");
+  });
+
   test("older-page overlap preserves live text and uses source identity", () => {
     const first = state([turn("latest", 10, { text: "new streamed value" })], { historyCursor: "cursor", hasMoreHistory: true, latestLocalTurnOrdinal: 10 });
     const older = row(turn("old", 1));

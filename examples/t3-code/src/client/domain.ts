@@ -20,7 +20,9 @@ export interface Activity { id: string; label: string; body: string; icon: strin
   detailOpen?: boolean; outputState?: string; iconLight?: string; iconDark?: string; tone?: string; ok?: boolean; reasoning?: boolean; expandable?: boolean; detail?: string; status?: string; targetId?: string; answer?: string; retryRunId?: string;
   /** V2ItemInspector's search results and file change, a subagent's avatar and live start. */
   results?: import('../timeline/timeline-work-rows').InspectorResult[]; changePath?: string; stats?: boolean; additions?: number; deletions?: number; diffRunId?: string; diffPath?: string;
-  startedMs?: number; initials?: string; driverIcon?: string; targetLabel?: string }
+  startedMs?: number; initials?: string; driverIcon?: string; targetLabel?: string;
+  /** A thread read's label in parts: `<linkPrefix> “<linkTitle>”`, the title opening linkThreadId. */
+  linkPrefix?: string; linkTitle?: string; linkThreadId?: string }
 export interface Message { id: string; kind: string; title: string; body: string; checkpointId?: string; runId?: string; sourceThreadId?: string; completed?: boolean; createdAt?: string; activities?: Activity[]; files?: { path: string; additions: number; deletions: number }[]; folded?: Message[]; expanded?: boolean;
   icon?: string; tone?: string; failed?: boolean; live?: boolean; startedMs?: number; detail?: string; status?: string; groupId?: string; continues?: boolean;
   revert?: number; intent?: string; intentTip?: string; attribution?: string; targetId?: string; actionLabel?: string; copied?: number; copyFailed?: boolean;
@@ -297,9 +299,17 @@ function activeRows(projection: Obj): Obj[] {
   const visible = visibility(projection);
   return renumber(arr(projection.visibleTurnItems).filter(row => row.visibility !== "local" || visible(obj(row.item))));
 }
+const UNFINISHED_RUN_STATUSES = new Set(["preparing", "queued", "starting", "running", "waiting"]);
 function missingOldItem(state: ThreadState, item: Obj): boolean {
   const rows = arr(state.projection.visibleTurnItems);
   if (rows.some(row => row.sourceItemId === item.id && row.sourceThreadId === item.threadId)) return false;
+  if (item.runId !== null && item.runId !== undefined) {
+    // A queued run keeps the ordinal it got when queued, so a later steer can raise the watermark
+    // past it: an unfinished run's items are new, not unloaded history.
+    if (arr(state.projection.runs).some(run => run.id === item.runId && UNFINISHED_RUN_STATUSES.has(str(run.status)))) return false;
+    // Later items of a run already in the window can raise the watermark first.
+    if (rows.some(row => row.visibility === "local" && obj(row.item).runId === item.runId && num(obj(row.item).ordinal) <= num(item.ordinal))) return false;
+  }
   if (state.latestLocalTurnOrdinal !== null && num(item.ordinal) <= state.latestLocalTurnOrdinal) return true;
   const ordinals = rows.filter(row => row.visibility === "local").map(row => num(obj(row.item).ordinal));
   return ordinals.length > 0 && num(item.ordinal) < ordinals.reduce((oldest, ordinal) => Math.min(oldest, ordinal));

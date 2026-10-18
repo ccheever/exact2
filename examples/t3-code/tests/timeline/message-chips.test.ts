@@ -2,7 +2,7 @@
 // (OrchestrationMessageContext records, ChatAttachment), file-link paths, and
 // the Markdown settings the chat reads.
 import { describe, expect, test } from 'bun:test';
-import { attachmentSize, chippedAttachmentIds, diffSchemeOf, fileLinkTarget, markdownEnv, messageChips, middleTruncate } from '../../src/timeline/message-chips';
+import { attachmentSize, chippedAttachmentIds, diffSchemeOf, fileLinkTarget, markdownEnv, markdownLinks, messageChips, middleTruncate } from '../../src/timeline/message-chips';
 import type { T3Client } from '../../src/client/client';
 import { markdownImageHref, markdownLinkHref, NO_HREF } from '../../src/media/media-views';
 
@@ -74,6 +74,26 @@ describe('sent-message context chips', () => {
     expect([attachmentSize(0), attachmentSize(1025), attachmentSize(1024 * 1024)]).toEqual(['1 KB', '2 KB', '1.0 MB']);
     expect(middleTruncate('a-very-long-attachment-name-that-goes-on-and-on.png')).toBe('a-very-long-attachmen…-on-and-on.png');
     expect(fileLinkTarget('../x.md', '/a/b')).toBe('/a/x.md');
+  });
+});
+
+describe('markdown link scan (extractMarkdownLinkHrefs)', () => {
+  test('angle and bare destinations, titles, nested brackets and images', () => {
+    expect(markdownLinks('[a](<x y.md>) [b]( c.ts "t" ) [d[e](f.md) ![g](h.png) [i](j.md \'k\')')).toEqual([
+      { image: false, label: 'a', href: 'x y.md' }, { image: false, label: 'b', href: 'c.ts' }, { image: false, label: 'd[e', href: 'f.md' },
+      { image: true, label: 'g', href: 'h.png' }, { image: false, label: 'i', href: 'j.md' }]);
+  });
+  test('a label stays on one line; an unclosed title or an empty destination is no link', () => {
+    expect(markdownLinks('[a\n[b](c.md) [d\ne](f.md)')).toEqual([{ image: false, label: 'b', href: 'c.md' }]);
+    expect(markdownLinks('[a](b.md "open) [c]() [d](<e.md>')).toEqual([]);
+  });
+  test('unmatched labels and destinations scan in linear time (#18387)', () => {
+    const started = performance.now();
+    expect(markdownLinks('[a]('.repeat(20_000))).toEqual([]);
+    expect(markdownLinks('[a](file.md) '.repeat(20_000))).toHaveLength(20_000);
+    expect(markdownLinks(`[${'['.repeat(20_000)}](`)).toEqual([]);
+    expect(markdownLinks(`[a]( ${' '.repeat(20_000)}x "`.repeat(20))).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(1000);
   });
 });
 
