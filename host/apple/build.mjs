@@ -1445,7 +1445,7 @@ async function test(args) {
       // here as `cargo build` would, never assumed from an earlier build.
       run('cargo', ['build', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml')]);
       env.EXACT_CONTRACT = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'debug', 'contract');
-      compileFixtures(root, run, env, paths.namespace, 'EXACT');
+      compileFixtures(root, run, env, paths.namespace, 'EXACT', app.id);
       const swiftEnv = { ...env, MACOSX_DEPLOYMENT_TARGET: '14.0' }, scratch = resolve(paths.namespace, 'tests');
       runApple('swift', ['build', '--build-tests', '--scratch-path', scratch], { cwd: pkg, stdio: 'inherit', env: swiftEnv });
       return await macTests(pkg, scratch, swiftEnv, canvasGpu);
@@ -1468,7 +1468,7 @@ async function test(args) {
     runApple('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules',
       '-module-cache-path', resolve(fixtureDir, 'cache'), resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(root, 'host/apple/modules/ExactTamber.swift'), resolve(fixtureDir, 'ExactDataKeys.swift'),
       ...fixture.modules.apple, '-target', iosTriple, '-o', env.TEST_RUNNER_EXACT_FIXTURE_MODULE]);
-    compileFixtures(root, run, env, fixtureDir, 'TEST_RUNNER_EXACT');
+    compileFixtures(root, run, env, fixtureDir, 'TEST_RUNNER_EXACT', app.id);
     if (process.env.EXACT_REQUIRED) env.TEST_RUNNER_EXACT_REQUIRED = process.env.EXACT_REQUIRED;
     const pick = args.includes('--sim') ? args[args.indexOf('--sim') + 1] : process.env.EXACT_SIM;
     const before = simulators();

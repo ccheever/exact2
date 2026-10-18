@@ -8,7 +8,9 @@
   "widgets": [
     {
       "kind": "question-small",
-      "families": ["systemSmall"],
+      "families": [
+        "systemSmall"
+      ],
       "component": "QuestionSmall",
       "props": "QuestionProps",
       "refresh": "openQuestion",
@@ -27,7 +29,9 @@
     },
     {
       "kind": "question-medium",
-      "families": ["systemMedium"],
+      "families": [
+        "systemMedium"
+      ],
       "component": "QuestionMedium",
       "props": "QuestionProps",
       "refresh": "openQuestion",
@@ -46,7 +50,9 @@
     },
     {
       "kind": "question-rectangular",
-      "families": ["accessoryRectangular"],
+      "families": [
+        "accessoryRectangular"
+      ],
       "component": "QuestionRectangular",
       "props": "QuestionProps",
       "refresh": "openQuestion",
@@ -61,6 +67,18 @@
         "summary": "The feed stopped being a ranking and became a schedule: what you saw depended on when you looked, not on what the community had settled on.",
         "score": 4,
         "answeredAgo": "3 min, 0 sec"
+      }
+    },
+    {
+      "kind": "gradient-card",
+      "families": [
+        "systemSmall"
+      ],
+      "component": "GradientCard",
+      "props": "GradientProps",
+      "refresh": "gradients",
+      "preview": {
+        "label": "Gradients"
       }
     }
   ]
