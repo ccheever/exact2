@@ -302,6 +302,8 @@ fn manifest_and_preview_are_checked_and_no_widgets_is_unchanged() {
         json!({"live_activities":[{"kind":"a","pushed":true}]}),
         json!({"live_activities":[{"kind":"a","frequant":true}]}),
         json!({"live_activities":[{"kind":"a","frequently":true}]}),
+        json!({"live_activities":[{"kind":"a","psuh":true}]}),
+        json!({"live_activities":[{"kind":"a","freqeunt":true}]}),
     ] {
         assert!(Manifest {
             json: value,

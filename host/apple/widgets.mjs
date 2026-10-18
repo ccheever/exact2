@@ -15,30 +15,32 @@ export const widgetGroup = app => `group.${app.widgetAppId ?? app.id}`;
 export const widgetId = app => `${app.id}.widgets`;
 
 /** The two profiles a device build of an app with entries embeds, the app's and its extension's (LLP 1126.001
- * WP13): of one team, App ID prefix and method, each granting the App Group and the Keychain group the two share,
- * the app's also `aps-environment` (as its method signs it) when an activity takes pushes and `required` (the
- * grants' signing entitlements, which the extension never signs); or one refusal naming, for each App ID, the
- * profiles that were close and what each lacked or failed. EXACT_PROFILE names the app's, under the same
- * conditions; the extension's is found by its own id, since a team wildcard grants no App Group. With no phone
- * (an archive) the extension's profile matches the named one's method and, for Ad Hoc, its devices. `installed`
- * and `named` are the decoded profiles, which a test replaces. */
+ * WP13): of one team, App ID prefix and method, each granting the App Group and the one Keychain group both sign
+ * (`<prefix>.<app id>`, or the team wildcard), the app's also `aps-environment` (as its method signs it) when an
+ * activity takes pushes and `required` (the grants' signing entitlements, which the extension never signs); or
+ * one refusal naming, for each App ID, the profiles that were close and what each lacked or failed. A build for a
+ * phone (`udid`) takes development profiles, signed with the Apple Development identity; an archive (no phone)
+ * takes distribution ones, the extension's of the named one's method and, for Ad Hoc, its devices. EXACT_PROFILE
+ * names the app's, under the same conditions; the extension's is found by its own id, since a team wildcard
+ * grants no App Group. `installed` and `named` are the decoded profiles, which a test replaces. */
 export function entryProfiles({ app, udid, required = [], installed = installedProfiles(), named = process.env.EXACT_PROFILE ? decodeProfile(process.env.EXACT_PROFILE) : null }) {
   const group = widgetGroup(app), extension = widgetId(app), push = activityEntries(app).some(entry => entry.push === true);
-  // The Keychain group both sign is the app's under the profile's prefix; the team wildcard grants it, and the
-  // extension's own profile may name only its own App ID's group.
-  const keychain = (p, own) => p.keychain.includes(`${p.prefix}.*`) || p.keychain.includes(`${p.prefix}.${app.id}`) || (own && p.keychain.includes(`${p.prefix}.${own}`));
-  const wants = (id, own) => [
+  const shared = prefix => `${prefix}.${app.id}`;
+  const wants = (id, prefix) => [
     { has: p => p.groups.includes(group), missing: `the App Group ${group}`, portal: `App Groups (${group})` },
-    { has: p => keychain(p, own), missing: `the Keychain group <prefix>.${app.id}`, portal: `Keychain Sharing (the group <prefix>.${app.id})` },
+    { has: p => p.keychain.includes(`${p.prefix}.*`) || p.keychain.includes(shared(p.prefix)), missing: `the Keychain group ${shared(prefix)}`, portal: `Keychain Sharing (the group ${shared(prefix)}, or the team's ${prefix}.*)` },
     ...(id === app.id && push ? [{ has: p => p.aps === (p.dev ? 'development' : 'production'), missing: 'aps-environment (development on a development profile, production otherwise; an activity takes pushes)', portal: 'Push Notifications' }] : []),
     ...(id === app.id ? required.map(name => ({ has: p => p.entitlements.includes(name), missing: name, portal: name })) : []),
   ];
-  // `candidates` are the profiles for the id; `like` the profile the choice must match; `label` how a profile is
-  // named; `reject` a reason that stands before the predicate's (a named profile for another App ID).
-  const assess = (id, candidates, like, needs, { label = p => `"${p.name}"`, reject = () => null, development = false } = {}) => {
+  // The build's method, which a profile that `like` does not decide must have.
+  const mode = p => udid ? (p.dev ? null : `is ${METHODS[p.method]}, not development`) : (p.dev ? 'is development; an archive takes a distribution profile' : null);
+  // `candidates` are the profiles for the id; `like` the profile the choice must match, else the build's method;
+  // `label` how a profile is named; `reject` a reason that stands before the rest (a named profile for another App ID).
+  const assess = (id, candidates, like, { label = p => `"${p.name}"`, reject = () => null } = {}) => {
+    const needs = wants(id, candidates[0]?.prefix ?? '<prefix>');
     const fits = [], misfits = [];
     for (const p of candidates) {
-      const why = reject(p) ?? profileMisfit(p, udid, like) ?? (development && !p.dev ? `is ${METHODS[p.method]}, not development` : null);
+      const why = reject(p) ?? (like ? profileMisfit(p, udid, like) : mode(p) ?? profileMisfit(p, udid));
       if (why) misfits.push([p, why]); else fits.push(p);
     }
     fits.sort(byExpiry);
@@ -53,10 +55,10 @@ export function entryProfiles({ app, udid, required = [], installed = installedP
     return { lacking, why: parts.join('; ') || 'no profile covers it' };
   };
   const forApp = named
-    ? assess(app.id, [named], null, wants(app.id, null), { label: p => `EXACT_PROFILE (${p.name})`, reject: p => profilesFor(app.id, [p]).length ? null : `is for ${p.appId}, not ${app.id}` })
-    : assess(app.id, profilesFor(app.id, installed), null, wants(app.id, null), { development: true });
+    ? assess(app.id, [named], null, { label: p => `EXACT_PROFILE (${p.name})`, reject: p => profilesFor(app.id, [p]).length ? null : `is for ${p.appId}, not ${app.id}` })
+    : assess(app.id, profilesFor(app.id, installed), null);
   const like = forApp.found ?? null;
-  const forExtension = assess(extension, profilesFor(extension, installed), like, wants(extension, extension), { development: !like && !!udid });
+  const forExtension = assess(extension, profilesFor(extension, installed), like);
   if (like && forExtension.found) return { app: like, extension: forExtension.found };
   const method = like ? METHODS[like.method] : udid ? 'development' : 'distribution';
   const register = [[app.id, forApp], [extension, forExtension]].filter(([, choice]) => !choice.found && choice.lacking?.length)

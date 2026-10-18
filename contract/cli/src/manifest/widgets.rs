@@ -41,12 +41,20 @@ pub struct LiveActivity {
 
 use exact_plan::entry_identifier;
 
-/// Whether `key` is `word` within one edit (a letter changed, dropped or added) or `word` with a suffix
-/// (`pushes`, `frequently`): the misspellings worth naming.
+/// Whether `key` is `word` within one edit (a letter changed, dropped, added, or swapped with its neighbour) or
+/// `word` with a suffix (`pushes`, `frequently`): the misspellings worth naming.
 fn near(key: &str, word: &str) -> bool {
     let (a, b): (Vec<char>, Vec<char>) = (key.chars().collect(), word.chars().collect());
     if key.starts_with(word) {
         return true;
+    }
+    if a.len() == b.len() {
+        let differing: Vec<usize> = (0..a.len()).filter(|&i| a[i] != b[i]).collect();
+        if let [i, j] = differing[..] {
+            if j == i + 1 && a[i] == b[j] && a[j] == b[i] {
+                return true;
+            }
+        }
     }
     if a.len().abs_diff(b.len()) > 1 {
         return false;
