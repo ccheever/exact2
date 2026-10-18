@@ -683,13 +683,14 @@ browserTest('flowed keys reach ancestors once in both web runtimes', async () =>
   }, true);
   expect(results.length).toBe(4);
   for (const { runtime, nested, events, unflowed, flowed } of results) {
-    const bubble = ['column', 'capture', 'bubble', ...(nested ? ['span'] : []), 'column-bubble', 'native'];
+    const capture = ['column', ...(nested ? ['span-capture'] : []), 'capture'];
+    const bubble = [...capture, 'bubble', ...(nested ? ['span'] : []), 'column-bubble', 'native'];
     const expected = [
       { heard: bubble, prevented: false },
       { heard: ['column', 'native'], prevented: false },
-      { heard: ['column', 'capture', 'native'], prevented: false },
+      { heard: [...capture, 'native'], prevented: false },
       ...Array.from({ length: 3 }, () => ({ heard: bubble, prevented: true })),
-      ...Array.from({ length: 3 }, () => ({ heard: ['column', 'capture', 'bubble', 'native-stop'], prevented: false })),
+      ...Array.from({ length: 3 }, () => ({ heard: [...capture, 'bubble', 'native-stop'], prevented: false })),
       { heard: ['up', ...(nested ? ['span-up'] : []), 'column-up', 'native'], prevented: false },
       { heard: ['up', 'native'], prevented: false },
       { heard: ['up', ...(nested ? ['span-up'] : []), 'column-up', 'native'], prevented: true },
@@ -705,14 +706,19 @@ for (const scenario of ['redispatch', 'commits']) browserTest(`flowed keys prese
   const results = await inChrome(flowKeyFixture, undefined, {
     '/glue.js': new URL('./glue.js', import.meta.url).pathname,
   }, true);
-  for (const { runtime, nested, redispatch, commits } of results) {
+  for (const { runtime, nested, redispatch } of results) {
     if (scenario === 'redispatch') for (const [first, second] of redispatch) {
       expect({ runtime, nested, heard: second }).toEqual({ runtime, nested, heard: first });
     }
-    if (scenario === 'commits' && runtime === 'js') expect({ nested, commits }).toEqual({ nested,
-      commits: ['column', 'capture', 'bubble', 'up'].map(site => ({ site, wrote: true, bubbles: 1 })),
-    });
   }
+  if (scenario === 'commits') expect(results.map(({ runtime, nested, commits }) => ({ runtime, nested, commits }))).toEqual(
+    results.map(({ runtime, nested }) => ({ runtime, nested,
+      commits: ['column', ...(nested ? ['span-capture'] : []), 'capture', 'bubble', 'up'].map(site => ({ site, writes: 1, bubbles: 1,
+        heard: site === 'up' ? ['up', ...(nested ? ['span-up'] : []), 'column-up', 'native']
+          : ['column', ...(nested ? ['span-capture'] : []), 'capture', 'bubble', ...(nested ? ['span'] : []), 'column-bubble', 'native'],
+      })),
+    })),
+  );
 }, 60000);
 
 async function flowKeyFixture() {
@@ -749,7 +755,7 @@ async function flowKeyFixture() {
     });
     if (nested) {
       const span = document.createElement('span'); paragraph.append(span); span.append(original);
-      bind(span, { key() { heard.push('span'); }, keyup() { heard.push('span-up'); } });
+      bind(span, { keycapture() { heard.push('span-capture'); commitAtSite('span-capture'); }, key() { heard.push('span'); }, keyup() { heard.push('span-up'); } });
     }
     bind(original, {
       key(key, api) { heard.push('bubble'); commitAtSite('bubble'); if (key === 'p') api.preventDefault(); },
@@ -790,20 +796,20 @@ async function flowKeyFixture() {
       for (let i = 0; i < 2; i++) { heard.length = 0; clone.dispatchEvent(event); deliveries.push([...heard]); }
       redispatch.push(deliveries);
     }
-    if (runtime === 'js') {
-      // Match flow.js's commit hooks, with the real runtime action and slot writes.
+    {
+      // Both listener paths commit through real JS actions and slot writes, with flow.js's hooks.
       const batch = { ops: [{ op: 'children' }] };
       const before = () => flow.beforeBatch(batch), after = () => flow.afterBatch(batch);
       Before.push(before); After.push(after);
       try {
-        for (const site of ['column', 'capture', 'bubble', 'up']) {
+        for (const site of ['column', ...(nested ? ['span-capture'] : []), 'capture', 'bubble', 'up']) {
           await flow.settle();
           const target = paragraph.querySelector('[data-flow-fragment] a');
           if (!target || original.isConnected) throw Error('commit case must start with a detached original');
-          commitAt = site;
+          commitAt = site; heard.length = 0;
           const oldWrites = writes(), oldBubbles = bubbles();
           target.dispatchEvent(new KeyboardEvent(site === 'up' ? 'keyup' : 'keydown', { key: 'b', bubbles: true }));
-          commits.push({ site, wrote: writes() > oldWrites, bubbles: bubbles() - oldBubbles });
+          commits.push({ site, writes: writes() - oldWrites, bubbles: bubbles() - oldBubbles, heard: [...heard] });
         }
       } finally { Before.splice(Before.indexOf(before), 1); After.splice(After.indexOf(after), 1); }
     }
