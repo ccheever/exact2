@@ -1,4 +1,4 @@
-// The clone's icon data, generated from the packages the reference T3 Code (1e2ecbd975) draws its
+// The clone's icon data, generated from the packages the reference T3 Code (9c161462c9) draws its
 // icons with, pinned in package.json and bun.lock at the integrity values the reference locks:
 // Lucide (lucide 0.564.0 for each icon's geometry, lucide-react 0.564.0 for the names
 // `lucide-react/dynamic` offers, aliases included; ISC) and Pierre's file icons (@pierre/trees
@@ -22,6 +22,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DIFF_GLYPHS, ICON, ICON_FILLED, ICON_THIN, PROVIDER_FILLED, PROVIDER_ICON, PANEL_ICON, SETTINGS_ICONS, SHELL_ICON, SIDEBAR_ICON, TIMELINE_ICON } from './icon-tables.mjs';
 import { DIFF_STATUS, DRIVER_MARKS, EDITOR_MARKS, PROVIDER_MARKS, SHELL_EDITOR_MARKS, SOURCE_CONTROL_MARKS, TIMELINE_MARKS, WORDMARK } from './icon-marks.mjs';
+import { FILE_ICON_SPRITE, FILE_ICON_TINTS } from './file-icon-marks.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const example = join(here, '..', '..');
@@ -240,18 +241,19 @@ const T3_SPRITE = `
 /** T3_PIERRE_ICONS.byFileName: two remap a built-in icon, drawn as its shape without its colour
  *  (token `<icon>-plain`), three name T3's own symbols. */
 const T3_BY_NAME = { 'package.json': 'npm-plain', 'tsconfig.json': 'typescript-plain', 'agents.md': 'agents', 'pnpm-lock.yaml': 'pnpm', 'pnpm-workspace.yaml': 'pnpm' };
+const FILE_ICON_EXTENSIONS = { cs: 'csharp', csx: 'csharp', dart: 'dart', diff: 'diff', patch: 'diff', ex: 'elixir', exs: 'elixir', hs: 'haskell', lhs: 'haskell', java: 'java', kt: 'kotlin', kts: 'kotlin', lua: 'lua', php: 'php', ps1: 'powershell', psm1: 'powershell', psd1: 'powershell', r: 'r', scala: 'scala', toml: 'toml', xml: 'xml' };
 
 const attributes = tag => Object.fromEntries([...tag.matchAll(/([\w-]+)="([^"]*)"/g)].map(m => [m[1], m[2]]));
 /** Every symbol as { viewBox, inner, paths: [{ d, opacity, rule, fill }] }, by token. */
 function pierreSymbols(pierre) {
   const symbols = new Map();
-  const sheet = pierre.BUILT_IN_SVG_SPRITE_SHEETS.complete + T3_SPRITE;
+  const sheet = pierre.BUILT_IN_SVG_SPRITE_SHEETS.complete + T3_SPRITE + FILE_ICON_SPRITE;
   for (const [, prefix, token, viewBox, inner] of sheet.matchAll(/<symbol id="(file-tree-builtin|t3-file-icon)-([\w-]+)" viewBox="([^"]+)">([\s\S]*?)<\/symbol>/g)) {
     const paths = [...inner.matchAll(/<path\s([^>]*?)\s*\/>/g)].map(([, tag]) => {
       const a = attributes(tag);
       // A gradient fill (nextjs: currentColor fading to nothing) is drawn as its mean, half opacity.
       const gradient = a.fill?.startsWith('url(');
-      return { d: a.d, opacity: gradient ? 0.5 : Number(a.opacity ?? 1), rule: a['fill-rule'] ?? 'nonzero', fill: gradient ? 'currentColor' : (a.fill ?? 'currentColor') };
+      return { d: a.d, opacity: gradient ? 0.5 : Number(a.opacity ?? 1), rule: a['fill-rule'] ?? 'nonzero', fill: gradient ? 'currentColor' : (a.fill ?? 'currentColor'), stroke: a.stroke ?? 'none', width: Number(a['stroke-width'] ?? 0), cap: a['stroke-linecap'] ?? 'butt', join: a['stroke-linejoin'] ?? 'miter' };
     });
     symbols.set(token, { prefix, viewBox, inner, paths });
   }
@@ -264,7 +266,7 @@ function pierreTints() {
   const palette = Object.fromEntries([...css.matchAll(/--trees-icon-([\w-]+): (light-dark\([^)]*\));/g)].map(m => [m[1], m[2]]));
   const tokenColour = Object.fromEntries([...css.matchAll(/--trees-file-icon-color-([\w-]+): var\(\s*--[\w-]+,\s*var\(--trees-icon-([\w-]+)\)\s*\)/g)].map(m => [m[1], palette[m[2]]]));
   const ruled = [...css.matchAll(/\[data-icon-token='([\w-]+)'\] \{\s*color: var\(--trees-file-icon-color-([\w-]+)\);/g)].map(m => [m[1], tokenColour[m[2]]]);
-  return { tints: new Map(ruled), fallback: tokenColour.default };
+  return { tints: new Map([...ruled, ...Object.entries(FILE_ICON_TINTS)]), fallback: tokenColour.default };
 }
 const number = n => (Number.isInteger(n) ? n.toFixed(1) : String(n));
 
@@ -289,8 +291,12 @@ function fileTypeIcon(symbols, tints) {
     derive(`o${layer}`, `fileTypeIconO${layer}`, 'number', having.filter(token => at(token).opacity !== 1).map(token => [token, number(at(token).opacity)]), '1.0');
     derive(`r${layer}`, `fileTypeIconR${layer}`, 'string', having.filter(token => at(token).rule !== 'nonzero').map(token => [token, q(at(token).rule)]), '"nonzero"');
     derive(`f${layer}`, `fileTypeIconF${layer}`, 'string', having.filter(token => at(token).fill !== 'currentColor').map(token => [token, q(at(token).fill)]), '"currentColor"');
+    derive(`s${layer}`, `fileTypeIconS${layer}`, 'string', having.filter(token => at(token).stroke !== 'none').map(token => [token, q(at(token).stroke)]), '"none"');
+    derive(`w${layer}`, `fileTypeIconW${layer}`, 'number', having.filter(token => at(token).width !== 0).map(token => [token, number(at(token).width)]), '0');
+    derive(`c${layer}`, `fileTypeIconC${layer}`, 'string', having.filter(token => at(token).cap !== 'butt').map(token => [token, q(at(token).cap)]), '"butt"');
+    derive(`j${layer}`, `fileTypeIconJ${layer}`, 'string', having.filter(token => at(token).join !== 'miter').map(token => [token, q(at(token).join)]), '"miter"');
   }
-  const paths = Array.from({ length: layers }, (_, layer) => `      if d${layer} != ""\n        path d=d${layer} fill=f${layer} fill-opacity=o${layer} fill-rule=r${layer}`);
+  const paths = Array.from({ length: layers }, (_, layer) => `      if d${layer} != ""\n        path d=d${layer} fill=f${layer} fill-opacity=o${layer} fill-rule=r${layer} stroke=s${layer} stroke-width=w${layer} stroke-linecap=c${layer} stroke-linejoin=j${layer}`);
   return `// Generated by examples/t3-code/tools/generate/gen-icons.mjs; do not edit. Pierre file icons (the
 // "complete" set of @pierre/trees@${version('@pierre/trees')} plus T3's agents/pnpm sprites (Apache-2.0;
 // T3's, MIT; see LICENSE-T3). timeline-files.ts resolves a path or fence language to the token; PierreEntryIcon
@@ -312,7 +318,7 @@ ${paths.join('\n')}
 }
 
 function fileTables(pierre) {
-  const byExtension = pierre.BUILT_IN_FILE_EXTENSION_TOKENS;
+  const byExtension = { ...pierre.BUILT_IN_FILE_EXTENSION_TOKENS, ...FILE_ICON_EXTENSIONS };
   const ts = `// Generated by examples/t3-code/tools/generate/gen-icons.mjs; do not edit. @pierre/trees@${version('@pierre/trees')}'s
 // file-name and extension tables (createFileTreeIconResolver's built-in ones; Apache-2.0, see LICENSE-T3).
 // timeline-files.ts resolves a path with them.
@@ -342,7 +348,7 @@ async function composerIcons(symbols, tints) {
   const files = lucideNames();
   const svg = {}, colors = {}, lucide = {};
   for (const [token, symbol] of [...symbols].sort(([a], [b]) => (a < b ? -1 : 1))) {
-    if (symbol.prefix !== 'file-tree-builtin' || token.endsWith('-plain')) continue;
+    if ((symbol.prefix !== 'file-tree-builtin' && !(token in FILE_ICON_TINTS)) || token.endsWith('-plain')) continue;
     // As a browser serializes the symbol's content inside an <svg>: elements closed, whitespace one space.
     const inner = symbol.inner.trim().replace(/\s*\n\s*/g, ' ').replace(/<(\w+)([^<>]*?)\s*\/>/g, '<$1$2></$1>');
     svg[token] = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${symbol.viewBox}">${inner}</svg>`;

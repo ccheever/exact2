@@ -1,4 +1,7 @@
+import type { StreamPicked } from './src/browser/server-browser-files';
+import { serverStreamSource, serverStreamPainted, serverStreamInput, serverStreamUpload, serverStreamFrame, serverStreamDecode } from './src/browser/server-browser-runtime';
 import { snapshotSettings } from './src/snapshot/snapshot-settings';
+import { promptLinkView, promptLinksReady } from './src/prompt-links/prompt-link-handler';
 import { keyboardSettings, keybindingSettings } from './src/settings/keybinding-settings';
 import { claimBoldChord, richTextComposer } from './src/shell/button-chords'; // ⌘B bolds in the rich-text composer
 import { taskFromArguments } from './src/settings/scheduled-settings';
@@ -63,7 +66,7 @@ export const appId = 'com.exact.t3code.macos';
 // route, the embedded server's port), so whole schemes; the tokens and saved environments are one secret.
 // Save file and the media menu's Save fetch a server's signed asset and write it under app:/tmp/saves for the window's
 // Save panel; a draft's staged copy is read and saved from composer-files (save-file.ts, attachment-files.ts).
-export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog\nfs.read app:/tmp/saves\nfs.write app:/tmp/saves\nfs.read app:/data/composer-files';
+export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog\nfs.read app:/tmp/saves\nfs.write app:/tmp/saves\nfs.read app:/data/composer-files\nfs.read app:/tmp/picked\nfs.read app:/tmp/browser-frames\nfs.write app:/tmp/browser-frames';
 const client = new T3Client();
 const transport = new Transport();
 
@@ -72,6 +75,19 @@ const transport = new Transport();
 // Its return is the generated `Answer`'s, per source, which a dispatcher over every source cannot name (`answerClient`'s is `any` too).
 export function answer(source: string, args: unknown[], store: unknown, storage: Files, native: Native | null | undefined): any {
   transport.store = store as SecretStore;
+  if (source === 'serverBrowserUpload') { adoptAppFiles(storage); return native?.available ? serverStreamUpload(client, transport.wrap(native, source) as Native, String(args[0] ?? ''), String(args[1] ?? ''), args[2] as StreamPicked[]) : null; }
+  if (source === 'serverBrowserDecode') { adoptAppFiles(storage); return serverStreamDecode(client, String(args[0] ?? '')); }
+  if (source === 'serverBrowserStatus') { noteNow(client, Number(args[1]) || 0); return serverStreamFrame(client, String(args[0] ?? '')); }
+  if (source === 'serverBrowserFrame') return serverStreamSource(client, String(args[0] ?? ''), String(args[1] ?? ''));
+  if (source === 'serverBrowserPainted') return serverStreamPainted(client, String(args[0] ?? ''), String(args[1] ?? ''));
+  if (source.startsWith('serverBrowser')) {
+    noteNow(client, Number(args.at(-1)) || 0);
+    const kind = source.slice(13).toLowerCase(), event = typeof args[1] === 'object' && args[1] !== null ? args[1] as Record<string, unknown> : {};
+    const value = kind === 'resize' ? { width: args[1], height: args[2] } : kind === 'text' ? { text: args[1] }
+      : kind === 'dialog' ? { accept: args[1], promptText: args[2] }
+      : { ...event, x: event.offsetX, y: event.offsetY, phase: args[2], width: args[3], height: args[4] };
+    return serverStreamInput(client, String(args[0] ?? ''), kind === 'control' ? String(args[1] ?? '') : kind, value);
+  }
   if (source === 'transportSocket') return transport.socket(Number(args[0]) || 0, String(args[1] ?? ''));
   if (source === 'transportConnect') return transport.connect(Number(args[0]) || 0, String(args[1] ?? ''), Number(args[2]) || 0, Number(args[3]) || 0, native);
   if (source === 'transportUpdateStep') return transport.updateStep(Number(args[0]) || 0, String(args[1] ?? ''), Number(args[2]) || 0);
@@ -89,6 +105,8 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   adoptAppFiles(_storage); // the app's own files: Save's bytes, a draft's staged copy (save-file.ts)
   const storage = native?.available ? nativeFiles(native) : _storage;
   if (source === 'highlightSlice') return highlightSlice(); // a background highlight turn
+  if (source === 'promptLinkView') return promptLinkView(client);
+  if (source === 'promptLinksReady') return promptLinksReady(client);
   startHighlightTurn(); // any other answer tokenizes code within one turn's budget
   if (source === 'snapshot') {
     noteNow(client, Number(args[0]) || 0);
@@ -117,10 +135,10 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'snapshotSettings') return snapshotSettings(client, native, args[0] === true);
   const scoped = PROJECT_SCOPED_PAGES.has(source) ? settingsPageClient(client, native, args) : { client, args }; // a background environment's project (projects-fleet.ts)
   const pageClient = scoped.client; args = scoped.args;
-  if (source === 'archivedSettings') return archivedSettings(pageClient, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, Number(args[3]) || 0, Number(args[4]) || 0); // args[4]: settingsRefresh
+  if (source === 'archivedSettings') return archivedSettings(pageClient, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, Number(args[3]) || 0, Number(args[4]) || 0, String(args[6] || ''), String(args[7] || ''), String(args[8] || '')); // args[4]: settingsRefresh
   if (source === 'licenseSettings') return licenseSettings(client, native, String(args[0] || ''), String(args[1] || ''), Number(args[2]) || 0, args[3] === true);
   if (source === 'diagnosticsSettings') return diagnosticsPage(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, Number(args[3]) || 0, Number(args[4]) || 0);
-  if (source === 'storageSettings') return storageSettings(pageClient, native, String(args[0] || ''), String(args[1] || ''), args[2] === true);
+  if (source === 'storageSettings') return storageSettings(pageClient, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[5] || ''), String(args[6] || ''), String(args[7] || ''), Number(args[8]) || 0);
   if (source === 'pagesHome') return pagesHome(client, native);
   if (source === 'usagePage') return usagePage(client, native, storage, { open: args[0] === true, metric: String(args[1] || ''), windowDays: Number(args[2]) || 0, breakdown: String(args[3] || 'model'), refresh: Number(args[4]) || 0, width: plotWidth(Number(args[5]) || 1280, Number(args[6]) || 0), now: Number(args[7]) || 0, viewport: Number(args[5]) || 1280, sidebar: Number(args[6]) || 0 });
   if (source === 'usageKeys') return usageKeys(client.config, ariaChord);
@@ -146,7 +164,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'saveKeybinding') return client.command('keybinding-save', String(args[0]), JSON.stringify({ previous: args[1], command: args[2], key: args[3], when: args[4] }), 0, native, storage);
   if (source === 'scheduledSettings') return scheduledPage(pageClient, native, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), String(args[3] || ''), args[4] === true, Number(args[5]) || 0, String(args[8] || ''), String(args[9] || ''), String(args[10] || ''), String(args[11] || ''), Number(args[6]) || 0); // live-automations: the scope's machine, project and checkout; args[11]: taskBase; args[6]: settingsRefresh
   if (source === 'saveScheduledTask') return client.command('task-save', String(args[0]), JSON.stringify(taskFromArguments(args)), 0, native, storage);
-  if (source === 'sourceControlPage') return sourceControlPage(pageClient, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, viewState(client).rescan);
+  if (source === 'sourceControlPage') return sourceControlPage(pageClient, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, viewState(client).rescan, String(args[5] || ''), String(args[6] || ''), String(args[7] || ''));
   if (source === 'keyboardDispatch') return keyboardDispatchSource(client, args);
   if (source === 'projectsView') { const legacy = String(args[2] || ''); const group = !args[0] && legacy ? groupOfMember(client, legacy) : undefined; return projectsView(client, group ? group.key : String(args[0] || ''), group ? '' : String(args[1] || ''), args[3] === true, native); } // a bare project id (or a background environment's `fleet:` one) is its project on every environment (settingsScopeOf)
   if (source === 'integrationsPage') return { ...(await integrationsPage(pageClient, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[5] || ''), String(args[6] || ''), String(args[7] || ''))),
@@ -170,7 +188,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'sidebarLaunchWidth') return sidebarLaunchWidth(client, Number(args[0]) || 0, !!native?.available); // the width fixed at load
   if (source === 'chatCanvas') return chatCanvasView(client, native, { width: Number(args[1]) || 0, viewportHeight: Number(args[2]) || 0, detailsInline: args[3] === true, chatMax: Number(args[4]) || 0, overlaid: args[5] === true, gesture: String(args[6] || ''), wide: args[9] === true, popoverOpen: args[10] === true }); // args[7..8] re-ask when the player changes
   if (source === 'terminalDrawer') return terminalDrawerView(client, native, Number(args[1]) || 0, Number(args[2]) || 0); // args[0] re-asks on each revision
-  if (source === 'shellView') return shellView(client, native, storage, Number(args[1]) || 0, String(args[2] || ''), args[3] === true, args[4] === true, { focused: args[5] !== false, visible: args[6] !== 'hidden' }); // args[5..6]: exactPage().hasFocus and visibilityState (exact2 #219)
+  if (source === 'shellView') { noteNow(client, Number(args[1]) || 0); return shellView(client, native, storage, Number(args[1]) || 0, String(args[2] || ''), args[3] === true, args[4] === true, { focused: args[5] !== false, visible: args[6] !== 'hidden' }); } // args[5..6]: exactPage().hasFocus and visibilityState (exact2 #219)
   if (source === 'command') return client.command(String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), Number(args[3]) || 0, native, storage);
   throw new Error(`Unknown T3 source: ${source}`);
 }

@@ -80,12 +80,12 @@ describe('Runs on switches a new task to another environment', () => {
     liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: subscriptionsOf(subscriptions), value: { tasks: [] } });
     const here = await scheduledPage(client, native, 'env', '', 'task', '', true, NOW);
     expect(here.editors.map(editor => [editor.key, editor.environmentId, editor.projectId, editor.modelKey, editor.missing])).toEqual([['new', 'env', 'p1', 'codex:gpt', false]]);
-    expect(here.environments).toEqual([{ value: 'env', label: 'Laptop', selected: true }, { value: 'env2', label: 'Studio', selected: false }]);
+    expect(here.environments.map(({ value, label, selected }) => ({ value, label, selected }))).toEqual([{ value: 'env', label: 'Laptop', selected: true }, { value: 'env2', label: 'Studio', selected: false }]);
     const there = await scheduledPage(client, native, 'env', '', 'task', 'new|env2', true, NOW);
     expect([there.environment, there.available]).toEqual(['Studio', true]);
     expect(there.editors.map(editor => [editor.key, editor.environmentId, editor.projectId, editor.modelKey, editor.baseRef, editor.startFromOrigin, editor.path, editor.missing]))
       .toEqual([['new', 'env2', 'q1', 'claudeAgent:sonnet', 'main', true, '', false]]);
-    expect(there.projects).toEqual([{ value: 'q1', label: 'studio-app', selected: false }]);
+    expect(there.projects).toEqual([{ value: 'q1', label: 'studio-app', selected: false, secondary: '', kind: '' }]);
     expect(there.environments.map(option => [option.value, option.selected])).toEqual([['env', false], ['env2', true]]);
     expect(there.marks.map(mark => mark.value)).toContain('claudeAgent:sonnet');
     // The base branch picker lists Studio's refs, read over Studio's own transport, and looks the reset base "main" up by

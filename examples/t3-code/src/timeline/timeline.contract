@@ -1,6 +1,6 @@
 use InlineDocumentFrame from "./inline-documents.contract"
 // T3 MessagesTimeline rows (MIT, see LICENSE-T3), measured against the built
-// reference: a 736pt lane inside a 20pt scroll gutter, rows spaced by their own
+// reference: a 736pt lane inside a 3rem scroll gutter, rows spaced by their own
 // bottom padding, hover-revealed metadata that keeps its layout space.
 use ChatDocument from "./markdown.contract"
 use AnswerMarkdown from "./markdown.contract"
@@ -9,6 +9,7 @@ use Activity from "../shared/shapes.contract"
 use Message from "../shared/shapes.contract"
 use Icon from "../shared/icons.contract"
 use TimelineIcon from "./timeline-icons-kit.contract"
+use PvIcon from "../providers/provider-icons.contract"
 use WorkEntry from "./timeline-work.contract"
 use WorkLine from "./timeline-work.contract"
 use LiveActivity from "./timeline-work.contract"
@@ -67,7 +68,7 @@ component TimelineRow
     // A user turn's box entering or leaving the transcript (ChatColumn turnSeen).
     seen: action
   view
-    column id=`row-${message.id}` hover=hoverPart(message.hoverKey, "") width="100%" padding-top=(message.first ? lead : 0) padding-left="1.25rem" padding-right="1.25rem" box-sizing="border-box" align-items="center"
+    column id=`row-${message.id}` hover=hoverPart(message.hoverKey, "") width="100%" padding-top=(message.first ? lead : 0) padding-left="3rem" padding-right="3rem" box-sizing="border-box" align-items="center"
       if message.first and (hasMore or historyError != "")
         HistoryControl(lane=lane, hasMore=hasMore, loading=historyLoading, error=historyError, busy=busy, load=earlier)
       column width="100%" max-width=lane min-width=0 box-sizing="border-box" padding-bottom=(message.last ? 0.75 * rem + tail : 0) margin-bottom=`${rowGap(message.kind, message.continues, message.expanded, message.actionsId != "", message.kind == "checkpoint" and message.attached, message.meta) / 16}rem`
@@ -167,6 +168,10 @@ component UserRow
                 Icon(name="undo", size=12, color="light-dark(#71717b, #818181)")
           RowTip(label="Copy message", side="top", align="center", offset=28, shown=(part == "copy"), hover=hoverPart(message.hoverKey, "copy"))
             CopyButton(id=message.id, copied=message.copied, failed=message.copyFailed, local=local, hover=hover)
+          if message.body.trim() != "" and message.body.trim().length <= 8000
+            RowTip(label="Copy prompt link", side="top", align="center", offset=28, shown=(part == "prompt-link"), hover=hoverPart(message.hoverKey, "prompt-link"))
+              button press=local("copy-prompt-link", message.id, "") aria-label="Copy prompt link" testId=`copy-prompt-link-${message.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" focus=hover(true) blur=hover(false) title=""
+                PvIcon(name="link", size=12, color="light-dark(#71717b, #818181)")
 
 // TimelineSystemDivider's action pill: a pointer, the accent fill and foreground ink on hover.
 component DividerPill

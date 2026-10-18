@@ -77,7 +77,7 @@ describe('options menu (buildMenuItems, getMenuActionDisabledReason)', () => {
 describe('the action stream (vcsAction.ts)', () => {
   const make = () => {
     const calls: Obj[] = [];
-    const client = { environmentId: 'env', generation: 3, threadId: 't1', projectId: 'p1', draftKey: 'env:t1', writable: true, local: { composerControls: {} },
+    const client = { scopes: ['source-control:write'], ready: true, environmentId: 'env', generation: 3, threadId: 't1', projectId: 'p1', draftKey: 'env:t1', writable: true, local: { composerControls: {} },
       shell: { threads: [], projects: [] }, config: {}, projection: {},
       restAccess: () => ({ ids: async () => ['a1'], call: async (request: Obj) => { calls.push(request); return { id: '3-7' }; },
         request: async (method: string, payload: Obj) => { calls.push({ method, payload }); return method === 'vcs.pull' ? { status: 'pulled', refName: 'main', upstreamRef: 'origin/main' } : {}; } }) } as unknown as T3Client;

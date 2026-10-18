@@ -27,12 +27,12 @@ import {
 /** A server.updateProvider can run the provider's installer: wait up to 15 minutes, not the transport's 30 s. */
 export const UPDATE_TIMEOUT_SECONDS = 900;
 /** An environment that can be asked for an update: its providers, its label, and a request on its transport. */
-export interface UpdateTarget { key: string; label: string; providers: Obj[]; request(method: string, payload: Obj): Promise<Obj> }
+export interface UpdateTarget { key: string; environmentId?: string; label: string; providers: Obj[]; request(method: string, payload: Obj): Promise<Obj> }
 type Client = Pick<T3Client, 'ready' | 'preferencesLoaded' | 'environmentId' | 'config' | 'local' | 'generation' | 'call'>;
 
 /** The focused environment as an update target. */
 export function focusedTarget(client: Client, native: Native | null): UpdateTarget {
-  return { key: `focus:${client.environmentId}`, label: str(obj(client.config.environment).label, 'Environment'), providers: arr(client.config.providers),
+  return { key: `focus:${client.environmentId}`, environmentId: client.environmentId, label: str(obj(client.config.environment).label, 'Environment'), providers: arr(client.config.providers),
     request: (method, payload) => {
       if (!native) throw new ClientError('Open this app on macOS to update providers.');
       return client.call(native, { op: 'request', method, payload, timeout: UPDATE_TIMEOUT_SECONDS }, client.generation, true);
@@ -40,7 +40,7 @@ export function focusedTarget(client: Client, native: Native | null): UpdateTarg
 }
 /** A connected background environment (settings-b-fleet.ts) as an update target. */
 export function fleetTarget(entry: FleetEntry, native: Native | null, label = ''): UpdateTarget {
-  return { key: entry.key, label: label || str(obj(entry.config.environment).label, 'Environment'), providers: arr(entry.config.providers),
+  return { key: entry.key, environmentId: entry.environmentId, label: label || str(obj(entry.config.environment).label, 'Environment'), providers: arr(entry.config.providers),
     request: async (method, payload) => {
       if (!native) throw new ClientError('Open this app on macOS to update providers.');
       const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { op: 'request', method, payload, generation: entry.generation, timeout: UPDATE_TIMEOUT_SECONDS });

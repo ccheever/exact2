@@ -14,6 +14,7 @@ import { findProjectForChangeRequest, findProjectOnChangeRequestHost, linkMode, 
 import { buildLinkedThreadActionItems, isPullRequestLinked, linkedThreadsLabel, planThreadPullRequestMutation, pullRequestCandidateUrlFromReferenceAutolink,
   resolvePullRequestPreviewTarget, threadPickerCandidates, type LinkMode } from './pages-pr-links-logic';
 import { visiblePullRequests } from '../panel/shell-pr';
+import { prLinksOpenInApp } from '../panel/pr-surface';
 import { repositorySelector } from '../composer/composer-editor-menu';
 import { fleetThreadId } from '../connections/settings-b-fleet';
 import { environmentRequest, prEnvironment, readsPullRequests, type PrEnvironment } from './pages-pr-environments';
@@ -53,7 +54,7 @@ function besideThread(client: T3Client, environment: PrEnvironment, context: Lin
 function canLink(projects: Obj[], mode: LinkMode, url: string): boolean {
   const parsed = parseChangeRequestUrl(url);
   if (parsed === null || mode === 'unsupported') return false;
-  return (mode === 'multiple' ? findProjectOnChangeRequestHost : findProjectForChangeRequest)(projects, parsed) !== undefined;
+  return mode === 'multiple' || findProjectForChangeRequest(projects, parsed) !== undefined;
 }
 /** The linked-thread query's input: the panel's reference with the link's normalized key (PullRequestThreadLinks). */
 function relationsInput(context: LinkContext): Obj {
@@ -316,8 +317,9 @@ export async function openLink(client: T3Client, native: Native, page: boolean, 
   const [kind = '', target = '', href = '', held = ''] = value.split('\n');
   const browser = async (url: string) => { if (url) await bridgeReply(native, { op: 'remoteEditorsOpen', url }); return ''; };
   if (held) return browser(href);
-  // No project to open it beside: an ordinary link, which follows "Open links in" (useOpenPrLink → useOpenLink; browser-links.ts).
-  if (!target) { if (href) await openLinkByTarget(client, native, href); return ''; }
+  // No project to open it beside, or "Open pull requests in T3 Code" turned off: an ordinary link, which follows "Open links
+  // in" (useOpenPrLink → useOpenLink; browser-links.ts).
+  if (!target || !prLinksOpenInApp(client)) { if (href) await openLinkByTarget(client, native, href); return ''; }
   let url = href;
   if (kind === 'reference') {
     try { url = str((await client.rpc(native, 'pullRequests.preview', obj(JSON.parse(target)))).url); }

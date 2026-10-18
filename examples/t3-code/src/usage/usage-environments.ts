@@ -1,5 +1,7 @@
-// The Usage page across environments, T3 Code 1e2ecbd975 (MIT, see
+import { requireRpcPermissions } from '../connections/command-permissions';
+// The Usage page across environments, T3 Code 9c161462c9 (MIT, see
 // LICENSE-T3): apps/web/src/state/usage.ts (EnvironmentUsageStatus, useUsage, mergeAnsweredUsage),
+// packages/client-runtime/src/state/server.ts (the usageSummary query's cache-first follow-up),
 // apps/web/src/components/usage/UsagePage.tsx (the environment filter, refreshWindow, refreshLimits,
 // the automatic limits refresh, the limits clock `limitsNow`, CursorEnableButton) and
 // UsageLimits.tsx useResetCredit for a pooled segment. Changes:
@@ -31,7 +33,7 @@ const PHASE_TEXT: Record<string, string> = { available: 'Disconnected', connecti
 /** One environment the page can read: its config while connected and synchronized, else its phase. */
 export type UsageEnvironment = {
   readonly id: string; readonly label: string; readonly connected: boolean; readonly phase: string;
-  readonly config: Obj | null; readonly focused: boolean; readonly fleet: string; readonly generation: number;
+  readonly scopes: readonly string[]; readonly config: Obj | null; readonly focused: boolean; readonly fleet: string; readonly generation: number;
   /** The transport is connected (a stream failure may still be resynchronizing it): its replies still come. */
   readonly live: boolean;
 };
@@ -42,7 +44,7 @@ export function usageEnvironments(client: T3Client, source: EnvironmentFleet = a
   if (client.environmentId) {
     const connected = client.connection === 'connected' && client.ready;
     list.push({ id: client.environmentId, label: str(obj(client.config.environment).label, 'This environment'), connected,
-      phase: connected ? 'connected' : client.connection, config: connected ? client.config : null, focused: true, fleet: '', generation: client.generation,
+      phase: connected ? 'connected' : client.connection, scopes: client.scopes, config: connected ? client.config : null, focused: true, fleet: '', generation: client.generation,
       live: client.connection === 'connected' });
   }
   for (const entry of source.entries.values()) {
@@ -50,7 +52,7 @@ export function usageEnvironments(client: T3Client, source: EnvironmentFleet = a
     const connected = entry.phase === 'connected' && entry.synchronized === entry.generation;
     const saved = source.saved.find(item => str(item.environmentId) === entry.environmentId);
     const label = str(obj(entry.config.environment).label) || str(saved?.label) || (entry.primary ? 'This machine' : entry.origin.replace(/^\w+:\/\//, ''));
-    list.push({ id: entry.environmentId, label, connected, phase: connected ? 'connected' : entry.phase, config: connected ? entry.config : null,
+    list.push({ id: entry.environmentId, label, connected, phase: connected ? 'connected' : entry.phase, scopes: entry.scopes, config: connected ? entry.config : null,
       focused: false, fleet: entry.key, generation: entry.generation, live: entry.phase === 'connected' });
   }
   return list;
@@ -126,6 +128,8 @@ export async function flush(client: T3Client, native: Native, state: UsageState)
       // The focus may have moved since the page last drew: a request never goes to another environment.
       const moved = env?.focused && (client.environmentId !== env.id || client.generation !== env.generation);
       if (!env?.connected || moved) { item.resolve(disconnected()); return; }
+      try { requireRpcPermissions(env.scopes, { op: 'request', method: item.method, payload: item.payload }); }
+      catch (error) { item.resolve({ ok: false, error: error instanceof ClientError ? error : new ClientError(String(error)), interrupted: false }); return; }
       const sent = env.focused ? await startDetached(client, native, item.method, item.payload)
         : await startFleetDetached(native, { key: env.fleet, generation: env.generation }, item.method, item.payload);
       void sent.reply.then(item.resolve);
@@ -148,19 +152,35 @@ function summaryEntry(state: UsageState, id: string): Summary | null {
   if (!entry || entry.windowKey !== windowKey) state.summaries.set(id, entry = { windowKey, summary: null, error: '', pending: false, stale: true, token: 0, generation: -1, readAt: 0 });
   return entry;
 }
-/** A summary read for the current window; a read that an invalidation or a newer read replaced is dropped. */
+/**
+ * A summary read for the current window; a read that an invalidation or a newer read replaced is dropped.
+ * Slow sources answer from cache first: that summary shows, still pending, until one `awaitRefresh`
+ * read replaces it. A failed follow-up keeps it: the cached summary is still the best data, and a
+ * failure would read as the environment not reporting usage at all. Older servers never answer
+ * with a `refreshing` source, so they get no follow-up.
+ */
 function readSummary(state: UsageState, id: string): Promise<void> {
   const entry = summaryEntry(state, id);
   if (!entry || !state.window) return Promise.resolve();
-  const token = ++entry.token;
+  const token = ++entry.token, payload = windowPayload(state.window);
   entry.pending = true; entry.stale = false;
   entry.generation = state.envs.find(env => env.id === id)?.generation ?? -1;
-  return request(state, id, 'server.getUsageSummary', windowPayload(state.window)).then(reply => {
-    if (entry.token !== token || state.summaries.get(id) !== entry) return;
+  const current = () => entry.token === token && state.summaries.get(id) === entry;
+  return request(state, id, 'server.getUsageSummary', payload).then(reply => {
+    if (!current()) return;
+    if (reply.ok && arr(reply.value.sources).some(source => source.refreshing === true)) {
+      entry.summary = reply.value; entry.error = ''; entry.readAt = state.clock;
+      return request(state, id, 'server.getUsageSummary', { ...payload, awaitRefresh: true }).then(refreshed => {
+        if (!current()) return;
+        entry.pending = false;
+        if (refreshed.ok) { entry.summary = refreshed.value; entry.readAt = state.clock; }
+        else if (refreshed.interrupted) entry.stale = true;
+      });
+    }
     entry.pending = false;
     if (reply.ok) { entry.summary = reply.value; entry.error = ''; entry.readAt = state.clock; }
     else if (reply.interrupted) entry.stale = true; // read again once the environment is back
-    else entry.error = 'This environment could not report usage.';
+    else entry.error = reply.error.message.includes('diagnostics:read') ? 'This connection does not have access to diagnostics and usage.' : 'This environment could not report usage.';
   });
 }
 /**
