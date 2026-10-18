@@ -254,6 +254,25 @@ fn draw(
             texts.push(json!({"text": said(&p, label), "box": rect(x, y, w, h)}));
         }
     }
+    // A field's label and value are painted, not nodes: the presenter says
+    // where it put them.
+    if let Some(field) = specimen.and_then(|s| p.field_texts(s).map(|t| (s, t))) {
+        let (view, painted) = field;
+        let kernel = p.host().kernel();
+        let props = &kernel.node(view).ok_or("no field")?.props;
+        let said = [
+            (painted.label, props.str(PropId::Placeholder)),
+            (painted.value, props.str(PropId::Value)),
+        ];
+        for (text, words) in said {
+            let (Some(text), Some(words)) = (text, words) else {
+                continue;
+            };
+            let (x, y, w, h) = text.rect;
+            let line = json!({"top": y, "bottom": y + h, "baseline": text.baseline});
+            texts.push(json!({"text": words, "box": rect(x, y, w, h), "lines": [line]}));
+        }
+    }
     let facts = json!({
         "id": id, "scheme": scheme, "density": density,
         "layout": rect(layout[0], layout[1], layout[2], layout[3]),

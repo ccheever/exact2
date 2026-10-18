@@ -199,6 +199,16 @@ Specific `accept` types remain bounded as above. `capture` stays refused
 (the camera is a native module, §Components, 2026-10-02). Linux editing is v2
 (Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.
 
+**Expanded (approved 2026-10-18; LLP 1114.007):** app-computed decorations on a
+plain-string `textarea`: inline and block styling, hidden source markers and atomic
+chips, action-time `rangeFrame`, and one undo step for an explicitly undoable
+`setRangeText` edit. T3 Code's Markdown composer is the consumer. Hidden markers
+are admitted on macOS; iOS keeps its phone-proof boundary. Web layout decorations
+use the editor loaded on demand, with the paint-only field path where available.
+Linux/Windows span support and Android/terminal paint differences are declared in
+the RFC. Take: the draft paint-only highlight API is folded into this capability;
+no second editor grammar, rich value type or app-owned native module is added.
+
 **Expanded (Charlie, 2026-09-21):** ship the full game engine from Black's
 `lane/game` as an optional add-on, with a full-screen Weird Castle demo.
 `game/` is a separate Cargo workspace; games opt in through their GPU artifact,
@@ -290,13 +300,13 @@ drawn as written in its bar item; swipe actions whose controls all say
 `appearance="none"` keep their paint. Take: none offered; waived by that
 instruction. Still out: an arbitrary subtree as a bar item, a prompt with
 several fields.
-**Expanded (Charlie, 2026-10-17: "Exact should allow the developer to
+**Expanded (James, 2026-10-17: "Exact should allow the developer to
 configure this on platforms that support it"):** a sheet route's
 `navigationInitialDetent` names the `navigationDetent` word it opens at
 (UIKit's `selectedDetentIdentifier`). Lexy's Last Parked sheet, which opens
 tall over a half-height stop, is the consumer. Take: none offered; waived by
-Charlie's approval. Still out: reading or binding the detent a person drags
-the sheet to.
+James, whom Charlie gave the call. Still out: reading or binding the detent
+a person drags the sheet to.
 **Expanded (Charlie, 2026-10-03: "A native grouped-list role mapped to
 UICollectionView list layout"):** `list appearance="auto"` is a grouped list
 (LLP 1084): sections with a header and footer, rows read by shape, UIKit's

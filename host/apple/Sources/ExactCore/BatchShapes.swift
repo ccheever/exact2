@@ -23,6 +23,7 @@ extension BatchReader {
         var seq: (UInt64, UInt64)?
         var modes: [String: String]?
         var live: String?, unsupported = false, design: String?, facts = false, wakelock: Bool?
+        var unchanged = false, storeReadPending = false, storeActivationPending = false
         var seen: Set<String> = []
         try object { r, key in
             guard seen.insert(key).inserted else { try r.skip(); return }
@@ -37,6 +38,9 @@ extension BatchReader {
             case "controls": controls = try r.bool()
             case "layoutProvisional": layoutProvisional = try r.bool()
             case "canvasImages": images = try r.array { try $0.string() }
+            case "unchanged": unchanged = try r.bool()
+            case "storeReadPending": storeReadPending = try r.bool()
+            case "storeActivationPending": storeActivationPending = try r.bool()
             case "pending": pending = try r.bool()
             case "requests": requests = try r.bool()
             case "busy": busy = try r.bool()
@@ -57,6 +61,9 @@ extension BatchReader {
             }
         }
         var batch = Batch(ops: ops, timers: timers, motion: motion, clock: clock, error: error, timerDueMs: due, pending: pending, busy: busy)
+        batch.unchanged = unchanged
+        batch.storeReadPending = storeReadPending
+        batch.storeActivationPending = storeActivationPending
         batch.spatial = spatial
         batch.requests = requests
         batch.canvas = canvas

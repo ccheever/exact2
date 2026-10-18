@@ -449,6 +449,12 @@ fn compatibility_with_trust(
             .map(|w| json!({"kind":w.kind,"families":w.families,"watchFamilies":w.watch_families,"title":w.title,"description":w.description}))
             .collect::<Vec<_>>());
     }
+    let activities = manifest.live_activities()?;
+    if !activities.is_empty() {
+        inputs["liveActivities"] = json!(activities.iter().map(|a| json!({
+            "kind":a.kind, "title":a.title, "description":a.description, "push":a.push, "frequent":a.frequent
+        })).collect::<Vec<_>>());
+    }
     // Which GPU artifact owns which surface (LLP 1009 D6): the manifest's
     // modules, bound into the cohort — a routing change is a new binary. An
     // app with one artifact carries no key, so its id and bytes are as before.
@@ -775,6 +781,40 @@ mod tests {
             original.id,
             build(&manifest).id,
             "preview props ride the bundle"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn activity_state_rides_the_bundle_and_capabilities_require_a_binary() {
+        let dir = app("activity-cohort");
+        let mut m = Manifest::read(&dir).unwrap();
+        m.json["live_activities"] =
+            serde_json::json!([{"kind":"train","component":"Train","state":"State","preview":{}}]);
+        let build = |m: &Manifest| {
+            compatibility_with_trust(&dir, "ios", "aarch64-apple-ios", m, Some(""), "development")
+                .unwrap()
+        };
+        let original = build(&m);
+        for key in ["title", "description", "push", "frequent"] {
+            let mut changed = m.clone();
+            changed.json["live_activities"][0][key] = if key == "push" || key == "frequent" {
+                serde_json::json!(true)
+            } else {
+                serde_json::json!("Train")
+            };
+            assert_ne!(
+                original.id,
+                build(&changed).id,
+                "{key} changes generated Swift or entitlements"
+            );
+        }
+        m.json["live_activities"][0]["state"] = serde_json::json!("NextState");
+        m.json["live_activities"][0]["preview"] = serde_json::json!({"title":"New state"});
+        assert_eq!(
+            original.id,
+            build(&m).id,
+            "state shapes and preview values ride the bundle"
         );
         std::fs::remove_dir_all(dir).unwrap();
     }

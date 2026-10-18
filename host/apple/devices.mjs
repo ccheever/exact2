@@ -512,28 +512,63 @@ export function profile(udid, bundle, required = []) {
     if (!allows(named, required)) throw missing(bundle, required, `EXACT_PROFILE (${named.name}) does not allow ${required.length > 1 ? 'them' : 'it'}`);
     return named;
   }
-  const dirs = ['Library/Developer/Xcode/UserData/Provisioning Profiles', 'Library/MobileDevice/Provisioning Profiles'].map((d) => resolve(homedir(), d)).filter(existsSync);
-  const covering = dirs.flatMap((d) => readdirSync(d).filter((f) => f.endsWith('.mobileprovision')).map((f) => decodeProfile(resolve(d, f))))
-    .filter((p) => p.dev && p.expires > new Date() && p.devices.includes(udid) && (p.appId === `${p.prefix}.*` || p.appId === `${p.prefix}.${bundle}`))
-    .sort((a, b) => b.expires - a.expires);
+  const covering = coveringProfiles(udid, bundle);
   if (!covering.length) throw new Error(`no development provisioning profile on this Mac covers ${bundle} on this phone (${udid}); run any app on it from Xcode once with team signing, or name one with EXACT_PROFILE`);
   const found = covering.filter((p) => allows(p, required));
   if (!found.length) throw missing(bundle, required, `no development profile on this Mac for ${bundle} on this phone allows ${required.length > 1 ? 'them' : 'it'}`);
   return found[0];
 }
 
+/** The unexpired development profiles on this Mac that cover the phone and the bundle id (the team's wildcard or
+ * the id itself), the longest-lived first. */
+export function coveringProfiles(udid, bundle) {
+  return profilesFor(bundle, installedProfiles()).filter((p) => p.dev && !profileMisfit(p, udid)).sort(byExpiry);
+}
+export const byExpiry = (a, b) => b.expires - a.expires;
+/** The profiles among `installed` whose App ID is `bundle` itself or its team's wildcard. */
+export const profilesFor = (bundle, installed) => installed.filter((p) => p.appId === `${p.prefix}.*` || p.appId === `${p.prefix}.${bundle}`);
+/** How a profile distributes, from what it carries: a debugger (development), named devices (Ad Hoc), every device
+ * (enterprise), or none of those (the App Store). */
+export const METHODS = { development: 'development', adhoc: 'Ad Hoc', enterprise: 'enterprise', appstore: 'App Store' };
+/** Why `p` cannot sign on `udid`, or null when it can: its expiry, and with a phone named, that phone (an App Store
+ * profile names none). `like`, another profile (the app's, when `p` is for its extension), asks for its team, App
+ * ID prefix and method too, and that `p` name the phone, or, for an archive, every device `like` names. */
+export function profileMisfit(p, udid, like = null) {
+  if (!(p.expires > new Date())) return `expired on ${p.expires.toISOString().slice(0, 10)}`;
+  if (!like) return !udid || p.devices.includes(udid) ? null : p.devices.length ? 'does not include this phone' : `is ${METHODS[p.method]} and names no device`;
+  if (p.team !== like.team) return `is team ${p.team}'s, not ${like.team}'s`;
+  if (p.prefix !== like.prefix) return `has the App ID prefix ${p.prefix}, not ${like.prefix}`;
+  if (p.method !== like.method) return `is ${METHODS[p.method]}, not ${METHODS[like.method]}`;
+  if (!like.devices.length) return null;
+  const missing = (udid ? [udid] : like.devices).filter((d) => !p.devices.includes(d));
+  return !missing.length ? null : udid ? 'does not include this phone' : `does not include ${missing.length} of the ${like.devices.length} devices the app's profile names`;
+}
+
+/** Every `.mobileprovision` Xcode or a download installed, decoded once per process (a hundred of them is two seconds). */
+let decoded = null;
+export function installedProfiles() {
+  const dirs = ['Library/Developer/Xcode/UserData/Provisioning Profiles', 'Library/MobileDevice/Provisioning Profiles'].map((d) => resolve(homedir(), d)).filter(existsSync);
+  return decoded ??= dirs.flatMap((d) => readdirSync(d).filter((f) => f.endsWith('.mobileprovision')).map((f) => decodeProfile(resolve(d, f))));
+}
+
 /** The fields of a `.mobileprovision` this script reads (it is a CMS-signed XML plist). */
-function decodeProfile(path) {
+export function decodeProfile(path) {
   const xml = read('security', ['cms', '-D', '-i', path]).stdout ?? '';
   const str = (key) => new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`).exec(xml)?.[1];
+  const strings = (key) => [...(new RegExp(`<key>${key}</key>\\s*<array>([\\s\\S]*?)</array>`).exec(xml)?.[1] ?? '').matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]);
   const team = /<key>TeamIdentifier<\/key>\s*<array>\s*<string>([^<]*)<\/string>/.exec(xml)?.[1];
-  const devices = [...(/<key>ProvisionedDevices<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(xml)?.[1] ?? '').matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]);
+  const devices = strings('ProvisionedDevices');
   const expires = /<key>ExpirationDate<\/key>\s*<date>([^<]*)<\/date>/.exec(xml)?.[1];
   // The keys of its Entitlements whose value is not `false`: what it allows.
   const allowed = /<key>Entitlements<\/key>\s*<dict>([\s\S]*?)<\/dict>/.exec(xml)?.[1] ?? '';
   const entitlements = [...allowed.matchAll(/<key>([^<]+)<\/key>\s*(<false\/>)?/g)].filter((m) => !m[2]).map((m) => m[1]);
   const appId = str('application-identifier');
-  return { path, name: str('Name'), team, appId, prefix: appId?.split('.')[0], devices, dev: /<key>get-task-allow<\/key>\s*<true\/>/.test(xml), expires: new Date(expires ?? 0), entitlements };
+  // What an app with widgets or Live Activities needs of it (LLP 1126.001 WP13): the App Groups it grants, the
+  // Keychain groups (the team's `<prefix>.*`, usually) and the push environment.
+  const dev = /<key>get-task-allow<\/key>\s*<true\/>/.test(xml), enterprise = /<key>ProvisionsAllDevices<\/key>\s*<true\/>/.test(xml);
+  return { path, name: str('Name'), team, appId, prefix: appId?.split('.')[0], devices, dev, expires: new Date(expires ?? 0), entitlements,
+    method: dev ? 'development' : devices.length ? 'adhoc' : enterprise ? 'enterprise' : 'appstore',
+    groups: strings('com.apple.security.application-groups'), keychain: strings('keychain-access-groups'), aps: str('aps-environment') ?? null };
 }
 
 /** The Apple Development identity (its SHA-1) for a team, from the keychain; EXACT_IDENTITY names one. */

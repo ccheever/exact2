@@ -280,7 +280,6 @@ fn manifest_and_preview_are_checked_and_no_widgets_is_unchanged() {
     };
     assert!(empty.widgets().unwrap().is_empty());
     for value in [
-        json!({"live_activities":[]}),
         json!({"widgets":null}),
         json!({"widgets":[{"kind":"../escape"}]}),
     ] {
@@ -351,7 +350,7 @@ fn manifest_entries_do_not_change_the_app_plan() {
     json["widgets"] = json!([{"kind":"next-trains","families":["systemSmall"],"component":"Card","props":"Props","refresh":"refreshCard","preview":{"title":"Next train"}}]);
     std::fs::write(dir.join("app.json"), json.to_string()).unwrap();
     let manifest = Manifest::read(dir).unwrap();
-    let entries = compile_widgets(dir, &manifest).unwrap();
+    let entries = compile_entries(dir, &manifest).unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries["next-trains"].plan.app_id, "test.snapshot");
     assert_eq!(before, crate::compile_path(&path).unwrap().encode());
@@ -361,7 +360,7 @@ fn manifest_entries_do_not_change_the_app_plan() {
 fn caltrain_entry_reaches_only_its_departure_card() {
     let app = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/caltrain");
     let manifest = Manifest::read(&app).unwrap();
-    let entries = compile_widgets(&app, &manifest).unwrap();
+    let entries = compile_entries(&app, &manifest).unwrap();
     let out = TempDir::new();
     write_entries(&entries, &out.0).unwrap();
     let registry: serde_json::Value =
@@ -518,7 +517,7 @@ fn fonts_keep_only_reachable_literal_families() {
             source(&format!("    text title font-family={family}"), fonts, ""),
         )
         .unwrap();
-        let entries = compile_widgets(&temp.0, &manifest).unwrap();
+        let entries = compile_entries(&temp.0, &manifest).unwrap();
         assert_eq!(entries["next-trains"].plan.faces.len(), count);
     }
 }
@@ -553,7 +552,7 @@ fn refresh_sources_are_typed_and_data_changes_fail_the_bake() {
     std::fs::write(temp.0.join("app.json"), manifest.to_string()).unwrap();
     let app = crate::compile_path(&path).unwrap();
     let plan =
-        &compile_widgets(&temp.0, &Manifest::read(&temp.0).unwrap()).unwrap()["next-trains"].plan;
+        &compile_entries(&temp.0, &Manifest::read(&temp.0).unwrap()).unwrap()["next-trains"].plan;
     let source = plan.source(plan.snapshot_refresh.unwrap());
     assert_eq!(plan.str(source.name), "refreshCard");
     assert_eq!(source.params.len, 1);
@@ -740,7 +739,7 @@ fn refresh_checks_distinguish_pending_sources_and_result_mismatches() {
     let entries = std::collections::BTreeMap::from([(
         "next-trains".into(),
         Entry {
-            widget: widget(),
+            declaration: Declaration::Widget(widget()),
             plan,
         },
     )]);

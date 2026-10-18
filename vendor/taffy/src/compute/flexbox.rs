@@ -14,7 +14,7 @@ use crate::tree::{LayoutFlexboxContainer, LayoutPartialTreeExt, NodeId};
 use crate::compute::common::absolute::AbsolutePass;
 use crate::compute::ratio::{sizes_through_ratio, transfer_into_unsized, Ratio};
 use crate::util::debug::debug_log;
-use crate::util::sys::{f32_max, f32_min, new_vec_with_capacity, Vec};
+use crate::util::sys::{f32_max, f32_min, floor, new_vec_with_capacity, Vec};
 use crate::util::MaybeMath;
 use crate::util::{MaybeResolve, ResolveOrZero};
 use crate::{BoxGenerationMode, BoxSizing, Dimension, Direction, RequestedAxis};
@@ -97,6 +97,8 @@ struct FlexItem {
     target_size: Size<f32>,
     /// The size that this item wants to be, plus any padding and border
     outer_target_size: Size<f32>,
+    /// Whether stretching changed the cross size at browser layout-unit precision
+    cross_size_was_stretched: bool,
 
     /// The position of the bottom edge of this item
     baseline: f32,
@@ -905,6 +907,7 @@ fn generate_anonymous_flex_items(
                 hypothetical_outer_size: Size::zero(),
                 target_size: Size::zero(),
                 outer_target_size: Size::zero(),
+                cross_size_was_stretched: false,
                 content_flex_fraction: 0.0,
 
                 baseline: 0.0,
@@ -2440,10 +2443,40 @@ fn determine_used_cross_size(
                         .maybe_resolve(constants.node_inner_size, |val, basis| tree.calc(val, basis))
                         .maybe_add(box_sizing_adjustment);
 
-                    (line_cross_size - child.margin.cross_axis_sum(constants.dir)).maybe_clamp(
-                        child.min_size.cross(constants.dir),
+                    // EXACT PATCH 50: keep the ratio's automatic inline minimum
+                    // for intrinsic measurement, but a column's final stretched
+                    // width only obeys authored width bounds (Flexbox §9.4).
+                    let min_cross_size = if constants.is_column && child_style.min_size().width.is_auto() {
+                        None
+                    } else {
+                        child.min_size.cross(constants.dir)
+                    };
+                    let cross_size = (line_cross_size - child.margin.cross_axis_sum(constants.dir)).maybe_clamp(
+                        min_cross_size,
                         max_size_ignoring_aspect_ratio.cross(constants.dir),
-                    )
+                    );
+                    // EXACT PATCH 49: compare before reversing inset and margin
+                    // additions when the item's measured outer size fills the
+                    // line. Otherwise that round trip can cross a layout-unit
+                    // boundary. Item bounds still apply to the comparison.
+                    let hypothetical_cross = child.hypothetical_inner_size.cross(constants.dir);
+                    let inset = constants.content_box_inset.cross_axis_sum(constants.dir);
+                    let comparison_cross = if line_cross_size + inset
+                        == child.hypothetical_outer_size.cross(constants.dir) + inset
+                    {
+                        hypothetical_cross.maybe_clamp(
+                            min_cross_size,
+                            max_size_ignoring_aspect_ratio.cross(constants.dir),
+                        )
+                    } else {
+                        cross_size
+                    };
+                    // Blink's LayoutUnit(float) truncates each positive size to
+                    // 1/64px. Rounding their difference misclassifies bounds
+                    // that resolve to the same unit as the natural height.
+                    child.cross_size_was_stretched =
+                        floor(comparison_cross * 64.0) != floor(hypothetical_cross * 64.0);
+                    cross_size
                 } else {
                     child.hypothetical_inner_size.cross(constants.dir)
                 },
@@ -2757,7 +2790,13 @@ fn calculate_flex_item(
     let node_inner_size = constants.node_inner_size;
     let direction = constants.dir;
     let layout_direction = constants.layout_direction;
-    let item_known_dimension_definiteness = item_known_dimension_definiteness(constants, item);
+    let mut item_known_dimension_definiteness = item_known_dimension_definiteness(constants, item);
+    // EXACT PATCH 49: a changed stretch size is definite for percentages
+    // (Flexbox §9.4). An unchanged content-grown ratio height keeps patch 12's
+    // preferred percentage basis.
+    if item.cross_size_was_stretched {
+        item_known_dimension_definiteness.set_cross(direction, true);
+    }
     let layout_output = tree.compute_child_layout(
         item.node,
         LayoutInput {
@@ -3654,6 +3693,201 @@ mod intrinsic_tests {
     use crate::prelude::*;
     use crate::tree::{LayoutPartialTreeExt, SizingMode};
     use crate::Overflow;
+
+    // Chrome 151.0.7922.34, 2026-10-18: stretch supplies the percentage basis
+    // when it changes the ratio item's height; content growth alone does not.
+    #[test]
+    fn stretched_ratio_percentage_height_uses_the_final_cross_size() {
+        let mut failures = Vec::new();
+        for (name, height, minimum, maximum, align, content, item_height, percentage_height) in [
+            ("capped", auto(), auto(), length(30.0), AlignSelf::STRETCH, false, 30.0, 30.0),
+            ("definite", length(30.0), auto(), auto(), AlignSelf::STRETCH, false, 30.0, 30.0),
+            ("start", auto(), auto(), length(30.0), AlignSelf::FLEX_START, false, 50.0, 50.0),
+            ("content growth", auto(), auto(), auto(), AlignSelf::STRETCH, true, 130.0, 50.0),
+            ("capped content", auto(), auto(), length(100.0), AlignSelf::STRETCH, true, 100.0, 100.0),
+            ("unchanged cap", auto(), auto(), length(130.0), AlignSelf::STRETCH, true, 130.0, 50.0),
+            ("definite content", length(130.0), auto(), auto(), AlignSelf::STRETCH, true, 130.0, 130.0),
+            ("minimum", auto(), length(80.0), auto(), AlignSelf::STRETCH, false, 80.0, 80.0),
+        ] {
+            let mut tree = TaffyTree::<()>::new();
+            let percentage = tree.new_leaf(Style {
+                display: Display::Block,
+                size: Size { width: length(20.0), height: percent(1.0) },
+                ..Default::default()
+            }).unwrap();
+            let mut children = vec![percentage];
+            if content {
+                children.push(tree.new_leaf(Style {
+                    display: Display::Block,
+                    size: Size { width: length(20.0), height: length(80.0) },
+                    ..Default::default()
+                }).unwrap());
+            }
+            let item = tree.new_with_children(Style {
+                display: Display::Block,
+                size: Size { width: length(100.0), height: auto() },
+                aspect_ratio: Some(2.0),
+                align_self: Some(align),
+                ..Default::default()
+            }, &children).unwrap();
+            let row = tree.new_with_children(Style {
+                size: Size { width: length(100.0), height },
+                min_size: Size { width: auto(), height: minimum },
+                max_size: Size { width: auto(), height: maximum },
+                ..Default::default()
+            }, &[item]).unwrap();
+            let root = tree.new_with_children(Style {
+                display: Display::Block,
+                size: Size { width: length(800.0), height: length(600.0) },
+                ..Default::default()
+            }, &[row]).unwrap();
+            tree.compute_layout(root, Size {
+                width: AvailableSpace::Definite(800.0), height: AvailableSpace::Definite(600.0),
+            }).unwrap();
+            for (node, width, height, y) in [
+                (item, 100.0, item_height, 0.0),
+                (percentage, 20.0, percentage_height, 0.0),
+            ].into_iter().chain(content.then(|| (children[1], 20.0, 80.0, percentage_height))) {
+                let layout = tree.layout(node).unwrap();
+                let frame = [layout.location.x, layout.location.y, layout.size.width, layout.size.height];
+                let expected = [0.0, y, width, height];
+                if frame != expected {
+                    failures.push(format!("{name}; {node:?}: {frame:?}, Chrome {expected:?}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn fractional_cross_margins_do_not_make_content_growth_a_stretch() {
+        let mut failures = Vec::new();
+        for (name, top, bottom, row_min, row_max, item_max, item_height, percentage_height) in [
+            ("top", 200.0, 0.0, auto(), auto(), auto(), 110.1, 50.0),
+            ("bottom", 0.0, 200.0, auto(), auto(), auto(), 110.1, 50.0),
+            ("split", 100.25, 99.75, auto(), auto(), auto(), 110.1, 50.0),
+            ("fractional", 200.125, 20.25, auto(), auto(), auto(), 110.1, 50.0),
+            ("negative", -100.0, 0.0, auto(), auto(), auto(), 110.1, 50.0),
+            ("negative stretch", -200.0, 0.0, auto(), auto(), auto(), 200.0, 200.0),
+            ("maximum cancels stretch", 200.0, 0.0, length(400.0), auto(), length(110.1), 110.1, 50.0),
+            ("unchanged cap", 200.0, 0.0, auto(), length(310.1), auto(), 110.1, 50.0),
+            ("smaller cap", 200.0, 0.0, auto(), length(300.0), auto(), 100.0, 100.0),
+            ("larger minimum", 200.0, 0.0, length(320.0), auto(), auto(), 120.0, 120.0),
+        ] {
+            let mut tree = TaffyTree::<()>::new();
+            tree.disable_rounding();
+            let percentage = tree.new_leaf(Style {
+                display: Display::Block,
+                size: Size { width: length(20.0), height: percent(1.0) },
+                ..Default::default()
+            }).unwrap();
+            let following = tree.new_leaf(Style {
+                display: Display::Block,
+                size: Size { width: length(20.0), height: length(60.1) },
+                ..Default::default()
+            }).unwrap();
+            let item = tree.new_with_children(Style {
+                display: Display::Block,
+                size: Size { width: length(100.0), height: auto() },
+                max_size: Size { width: auto(), height: item_max },
+                margin: crate::geometry::Rect { top: length(top), bottom: length(bottom), ..zero() },
+                aspect_ratio: Some(2.0),
+                ..Default::default()
+            }, &[percentage, following]).unwrap();
+            let row = tree.new_with_children(Style {
+                size: Size { width: length(100.0), height: auto() },
+                min_size: Size { width: auto(), height: row_min },
+                max_size: Size { width: auto(), height: row_max },
+                ..Default::default()
+            }, &[item]).unwrap();
+            tree.compute_layout(row, Size {
+                width: AvailableSpace::Definite(800.0), height: AvailableSpace::Definite(600.0),
+            }).unwrap();
+            for (node, y, width, height) in [
+                (item, top, 100.0, item_height),
+                (percentage, 0.0, 20.0, percentage_height),
+                (following, percentage_height, 20.0, 60.1),
+            ] {
+                let layout = tree.layout(node).unwrap();
+                let frame = [layout.location.x, layout.location.y, layout.size.width, layout.size.height];
+                let expected = [0.0, y, width, height];
+                if frame.iter().zip(expected).any(|(actual, expected)| (actual - expected).abs() > 0.01) {
+                    failures.push(format!("{name}; {node:?}: {frame:?}, expected {expected:?}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    // Chrome 151.0.7922.34, 2026-10-18: a 100px-wide ratio item containing
+    // a percentage child followed by a 60.1px child. Container insets must
+    // not turn its natural height into a definite percentage basis.
+    #[test]
+    fn container_insets_do_not_make_content_growth_a_stretch() {
+        let mut failures = Vec::new();
+        for position in [Position::Relative, Position::Absolute] {
+            for (name, padding, border, minimum, maximum, item_max, following_height, percentage_height) in [
+                ("unit boundary", 200.3, 0.0, auto(), length(400.0), auto(), 60.125, 50.0),
+                ("padding", 200.0, 0.0, auto(), length(400.0), auto(), 60.1, 50.0),
+                ("border", 0.0, 100.0, auto(), length(400.0), auto(), 60.1, 50.0),
+                ("padding and border", 100.0, 100.0, auto(), length(400.0), auto(), 60.1, 50.0),
+                ("subunit cap", 200.0, 0.0, auto(), length(110.095), auto(), 60.1, 50.0),
+                ("fractional cap", 200.0, 0.0, auto(), length(110.09), auto(), 60.1, 110.078125),
+                ("same unit minimum 110.102", 200.0, 0.0, length(110.102), length(400.0), auto(), 60.1, 50.0),
+                ("same unit minimum 110.108", 200.0, 0.0, length(110.108), length(400.0), auto(), 60.1, 50.0),
+                ("same unit minimum 110.109", 200.0, 0.0, length(110.109), length(400.0), auto(), 60.1, 50.0),
+                ("unit shrink", 200.0, 0.0, auto(), length(110.078125), auto(), 60.1, 110.078125),
+                ("unit grow", 200.0, 0.0, length(110.109375), length(400.0), auto(), 60.1, 110.109375),
+                ("maximum cancels stretch", 200.0, 0.0, length(120.0), length(400.0), length(110.1), 60.1, 50.0),
+            ] {
+                let mut tree = TaffyTree::<()>::new();
+                tree.disable_rounding();
+                let percentage = tree.new_leaf(Style {
+                    display: Display::Block,
+                    size: Size { width: length(20.0), height: percent(1.0) },
+                    ..Default::default()
+                }).unwrap();
+                let following = tree.new_leaf(Style {
+                    display: Display::Block,
+                    size: Size { width: length(20.0), height: length(following_height) },
+                    ..Default::default()
+                }).unwrap();
+                let item = tree.new_with_children(Style {
+                    display: Display::Block,
+                    size: Size { width: length(100.0), height: auto() },
+                    max_size: Size { width: auto(), height: item_max },
+                    aspect_ratio: Some(2.0),
+                    ..Default::default()
+                }, &[percentage, following]).unwrap();
+                let row = tree.new_with_children(Style {
+                    position,
+                    box_sizing: BoxSizing::ContentBox,
+                    size: Size { width: length(100.0), height: auto() },
+                    min_size: Size { width: auto(), height: minimum },
+                    max_size: Size { width: auto(), height: maximum },
+                    padding: crate::geometry::Rect { top: length(padding), ..zero() },
+                    border: crate::geometry::Rect { top: length(border), bottom: length(border), ..zero() },
+                    ..Default::default()
+                }, &[item]).unwrap();
+                let root = tree.new_with_children(Style {
+                    display: Display::Block,
+                    size: Size { width: length(800.0), height: length(600.0) },
+                    ..Default::default()
+                }, &[row]).unwrap();
+                tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
+                let height = tree.layout(percentage).unwrap().size.height;
+                let following_y = tree.layout(following).unwrap().location.y;
+                if [height, following_y].into_iter().any(|value| {
+                    crate::util::sys::floor(value * 64.0) != percentage_height * 64.0
+                }) {
+                    failures.push(format!(
+                        "{position:?} {name}: percentage {height}, following y {following_y}; Chrome {percentage_height}",
+                    ));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
 
     // Chrome 151.0.7922.34, 2026-10-18: rows inside width:min-content wrappers.
     #[test]

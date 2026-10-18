@@ -51,7 +51,8 @@ enum Inspect {
         var rows: [[String: Any]] = style.keys.sorted().map { name in ["name": name].merging(style[name] as? [String: Any] ?? [:]) { a, _ in a } }
         var selected: [String: Any] = ["node": Int(id), "type": node["type"] ?? NSNull(), "testId": (node["props"] as? [String: Any])?["testId"] ?? NSNull(),
                                        "site": node["site"] ?? NSNull(), "instance": node["instance"] ?? [], "planDigest": node["planDigest"] ?? NSNull(),
-                                       "tuple": node["modes"] ?? NSNull(), "rows": rows, "trimmed": false]
+                                       "tuple": node["modes"] ?? NSNull(), "rows": rows, "held": NSNull(), "trimmed": false]
+        MainActor.assumeIsolated { if let held = HeldState.rows(for: id, in: s.presenter) { selected["held"] = held } } // what is held on it (LLP 1122 D8)
         func envelope() -> [String: Any] {
             var body: [String: Any] = ["kind": "selected", "selected": selected, "design": BuildChannel.design ?? NSNull(), "revision": BuildChannel.revision.map { $0 as Any } ?? NSNull()]
             if let seq { body["inspect"] = seq }
@@ -160,6 +161,80 @@ extension ExactApp {
         Inspect.set(false, seq: seq)
         InspectHost.show(self, on: false)
         reportExit(seq)
+    }
+
+    /// `hold {revision, hold}` (LLP 1122 D4, D8; *1.11*): `{site, instance,
+    /// state}` of the plan the app runs, the one view at that site and
+    /// instance path, held as the real state (HeldState.swift); null lets it
+    /// go. What it holds or let go, and why, is reported (`held`), and a state
+    /// this host can't hold is said so (`unsupported`).
+    func holdCommand(_ frame: [String: Any]) {
+        let revision = (frame["revision"] as? NSNumber)?.intValue
+        // The stream the frame came on (LLP 1122 D4; host/web/dev.js binds its holds the same way): its revisions are
+        // its own. A new one (a reconnect, a restarted server, which may number from where an old one did) forgets the
+        // revisions ended on the one before, and what a hold of an old stream says later (its let-go) is said to none.
+        let stream = holdStream
+        let live = { [weak self] in self?.holdStream == stream }
+        MainActor.assumeIsolated { if HeldState.stream != stream { HeldState.stream = stream; HeldState.ended = [] } }
+        let report: ([String: Any]) -> Void = { [weak self] body in
+            guard live() else { return }
+            var body = body
+            body["revision"] = revision.map { $0 as Any } ?? NSNull()
+            self?.connection?.report(body)
+            MainActor.assumeIsolated { HeldState.heard?(body) }
+        }
+        // A revision ended here (input, disabled, gone, a refusal) is not taken again when its frame comes again (a
+        // resent answer); a lower one is a new server's, and forgets them.
+        let ended = MainActor.assumeIsolated { () -> Bool in
+            guard let revision else { return false }
+            if HeldState.ended.contains(where: { $0 > revision }) { HeldState.ended = [] }
+            return HeldState.ended.contains(revision)
+        }
+        if ended, frame["hold"] is [String: Any] { return }
+        let plan = BuildChannel.planDigest(self), addressed = frame["plan"] as? String
+        // A hold addressing another plan (one swapped in since) is nothing, unsaid: the hold held and the frame kept for
+        // `rehold` stay as they are, and the server's replay after the status that names this plan corresponds it.
+        if frame["hold"] is [String: Any], let addressed, addressed != plan { return }
+        MainActor.assumeIsolated { HeldState.frame = frame["hold"] is [String: Any] ? (frame, addressed ?? plan, stream) : nil }
+        guard let h = frame["hold"] as? [String: Any], let state = h["state"] as? String else {
+            MainActor.assumeIsolated { HeldState.letGo("replaced") }
+            report(["kind": "held", "state": NSNull()])
+            return
+        }
+        // A state no host holds is said so by name, and nothing is painted.
+        guard MainActor.assumeIsolated({ HeldState.states.contains(state) }) else {
+            MainActor.assumeIsolated { HeldState.letGo("replaced"); HeldState.frame = nil; HeldState.end(revision) }
+            report(["kind": "unsupported", "what": "hold", "state": state, "detail": "this host holds no such state"])
+            return
+        }
+        // The nodes at that site and instance path, a flat leaf's or an inline run's (no view of its own) included:
+        // the press resolves through the logical tree (HeldState.hold).
+        let site = (h["site"] as? NSNumber)?.intValue, instance = Inspect.canonical(h["instance"])
+        var found: [(id: UInt32, presenter: Presenter)] = []
+        for s in sessions where s.state != .destroyed && s.booted {
+            for (id, at) in Inspect.sites(s).views where at == site && !found.contains(where: { $0.id == id && $0.presenter === s.presenter }) {
+                guard let data = s.agent("{\"op\":\"node\",\"id\":\(id)}").data(using: .utf8),
+                      let node = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                      node["error"] == nil, Inspect.canonical(node["instance"]) == instance else { continue }
+                found.append((id, s.presenter))
+            }
+        }
+        // (No one view there: the one held before is let go too.)
+        guard found.count == 1 else { MainActor.assumeIsolated { HeldState.letGo("replaced"); HeldState.frame = nil; HeldState.end(revision) }; report(["kind": "held", "state": NSNull(), "reason": "gone"]); return }
+        MainActor.assumeIsolated { HeldState.applying = revision }
+        defer { MainActor.assumeIsolated { HeldState.applying = nil } }
+        let r = MainActor.assumeIsolated { HeldState.hold(state, on: found[0].id, in: found[0].presenter) { reason in
+            if reason == "replaced", MainActor.assumeIsolated({ HeldState.applying }) == revision { return }
+            guard live() else { return } // (a hold of an old stream: its revision is no longer the server's)
+            MainActor.assumeIsolated {
+                if HeldState.frame.map({ ($0.frame["revision"] as? NSNumber) == (frame["revision"] as? NSNumber) }) == true { HeldState.frame = nil }
+                if reason != "replaced" { HeldState.end(revision) }
+            }
+            report(["kind": "held", "state": NSNull(), "reason": reason])
+        } }
+        if r.reason != nil { MainActor.assumeIsolated { HeldState.frame = nil; HeldState.end(revision) } }
+        if r.unsupported { MainActor.assumeIsolated { HeldState.frame = nil; HeldState.end(revision) }; report(["kind": "unsupported", "what": "hold", "state": state, "detail": "this host holds no \(state)"]); return }
+        report(r.reason.map { ["kind": "held", "state": NSNull(), "reason": $0] } ?? ["kind": "held", "state": state])
     }
 
     /// The selection reported again (the server's `{refresh}`): its node in

@@ -606,6 +606,10 @@ impl<S: Source> Walk<'_, '_, S> {
         }
         let resolve = |from: ViewId, target: &str| src.resolve(from, target);
         let mut props = props_of(&node);
+        if let Some(raw) = props.get("data-decoration-styles") {
+            let css = crate::css::decoration_styles(raw, &self.fonts);
+            props.insert("data-decoration-styles".into(), css);
+        }
         super::element::router_press(&mut props, self.presses.get(&id).copied());
         svg_props_of(&resolve, &node, &mut props);
         self.scroll_document |= props

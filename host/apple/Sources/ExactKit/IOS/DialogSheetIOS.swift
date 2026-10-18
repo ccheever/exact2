@@ -108,17 +108,23 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
         }
         place()
     }
-    /// The dialog at the sheet's top, centred across it as HTML centres a
-    /// modal dialog; one wider or taller than the sheet scrolls.
+    /// The dialog at the sheet's top, centred across what the sheet shows
+    /// between its side insets as HTML centres a modal dialog; a dialog wider
+    /// than that, or taller than the sheet, scrolls. The content is that
+    /// wide, not the sheet's whole width: UIKit adds the side insets around
+    /// it (`.always`), so content as wide as the sheet would scroll sideways
+    /// by them (a phone in landscape, the iPhone Duo's status column).
     private func place() {
         guard isViewLoaded, let dialog = scroller.subviews.lazy.compactMap({ $0 as? NodeView }).first else { return }
+        let inset = scroller.adjustedContentInset
+        let width = max(box.width, scroller.bounds.width - inset.left - inset.right)
         // Its origin on the pixel grid, as every box's is (`PixelGridIOS.swift`).
         let s = max(1, view.traitCollection.displayScale), size = dialog.bounds.size
-        let origin = CGPoint(x: PixelGrid.round((max(box.width, scroller.bounds.width) - size.width) / 2, scale: s),
+        let origin = CGPoint(x: PixelGrid.round((width - size.width) / 2, scale: s),
                              y: PixelGrid.round((box.height - size.height) / 2, scale: s))
         let center = CGPoint(x: origin.x + size.width / 2, y: origin.y + size.height / 2)
         if dialog.center != center { dialog.center = center }
-        let content = CGSize(width: max(box.width, scroller.bounds.width), height: box.height)
+        let content = CGSize(width: width, height: box.height)
         if scroller.contentSize != content { scroller.contentSize = content }
     }
 }

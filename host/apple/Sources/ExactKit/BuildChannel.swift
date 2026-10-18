@@ -53,7 +53,7 @@ enum BuildChannel {
     static let commands: Set<String> = ["pin", "inspect", "outline", "hold"]
     /// What this build speaks: inspect where it is compiled in.
     #if EXACT_INSPECT && !os(tvOS)
-    static let capabilities = ["pin", "inspect"]
+    static let capabilities = ["pin", "inspect", "hold"]
     #else
     static let capabilities = ["pin"]
     #endif
@@ -164,6 +164,7 @@ extension ExactApp {
         let kind = frame["kind"] as? String ?? ""
         #if EXACT_INSPECT && !os(tvOS)
         if kind == "inspect" || kind == "outline" { inspectCommand(frame); return }
+        if kind == "hold" { holdCommand(frame); return }
         #endif
         guard kind == "pin" else { connection.report(["kind": "unsupported", "what": kind]); return }
         let (pin, refused) = BuildPin.parse(frame["pin"])

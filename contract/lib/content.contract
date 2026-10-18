@@ -262,14 +262,19 @@ component RoundButton
           text label white-space="nowrap" font-size=17
 
 // One answer of a quiz or a poll: a tile as wide as its column, the label at
-// its start in the headline style. `status` is one of five: "idle" (a
-// neutral fill), "selected" (the accent's outline and check: chosen, not yet
-// told), "correct" (the system green and a check), "wrong" (the system red
-// and a cross) or "dimmed" (the rest, once told). The green takes dark ink
-// and the red white, in either scheme, and a mark beside the label says
-// what the colour says; the mark grows with the text (`rem`), as a symbol
-// beside a UIKit button's title does. Told and dimmed tiles are disabled. A
-// reader hears the label and its status ("Paris, correct").
+// its start in the headline style. `status` is one of six: "idle" (a
+// neutral fill), "selected" (the accent's outline and a checkmark: chosen,
+// not yet told), "correct" (the system green and a check), "wrong" (the
+// system red and a cross), "dimmed" (the rest, once told) or "chosen" (the
+// person's own pick once told or closed, a closed poll's vote: the selected
+// look, disabled, so it stays marked while the rest dim). The green takes
+// dark ink and the red white, in either scheme, and a mark beside the label
+// says what the colour says; the mark grows with the text (`rem`), as a
+// symbol beside a UIKit button's title does. Told, dimmed and chosen tiles
+// are disabled. A reader hears the label and its status ("Paris, correct").
+// As a row of a grouped list (a poll's options in a `section`) the tile is
+// the list's own cell: the selected and chosen tiles' checkmark is the
+// cell's checkmark accessory, as a hand-built UIKit list marks its choice.
 // Call: AnswerTile(label="Paris", status="idle", press=pick("Paris"), testId="answer-paris")
 component AnswerTile
   props
@@ -287,12 +292,12 @@ component AnswerTile
         image (status == "correct" ? "symbol:checkmark" : "symbol:close") width="1.375rem" height="1.375rem"
           object-fit="contain" flex-shrink=0 aria-hidden=true -exact-tint-color="-exact-label"
     else
-      button appearance="none" press=press disabled=(status == "dimmed") testId=testId
-        aria-label=(status == "selected" ? `${label}, selected` : label)
+      button appearance="none" press=press disabled=(status == "dimmed" or status == "chosen") testId=testId
+        aria-label=(status == "selected" or status == "chosen" ? `${label}, selected` : label)
         display="flex" align-items="center" gap=12 padding="14px 16px" border-radius=12
-        border=(status == "selected" ? "2px solid AccentColor" : "2px solid transparent")
+        border=(status == "selected" or status == "chosen" ? "2px solid AccentColor" : "2px solid transparent")
         background-color="-exact-tertiary-fill" color=(status == "dimmed" ? "-exact-secondary-label" : "-exact-label")
         text label flex=1 min-width=0 font="-exact-headline" text-align="start" aria-hidden=true
-        if status == "selected"
-          image "symbol:select-fill" width="1.375rem" height="1.375rem" object-fit="contain" flex-shrink=0
+        if status == "selected" or status == "chosen"
+          image "symbol:checkmark" width="1.375rem" height="1.375rem" object-fit="contain" flex-shrink=0
             aria-hidden=true -exact-tint-color="AccentColor"

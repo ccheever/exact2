@@ -1,6 +1,7 @@
 //! Snapshot admission (LLP 1126 D2–D7). Only the compiler reads the schema's
 //! column; absence refuses a row before an archive can silently omit it.
 
+mod activities;
 mod entry;
 mod inline;
 mod paragraphs;
@@ -10,6 +11,11 @@ pub use refresh::{bake_app, check_refreshes, entries, source_plan};
 
 /// Find the props slot by this name; a route URL may add a preceding router slot.
 pub const PROPS_SLOT: &str = "snapshot_props";
+/// Find an activity's typed state slot by this name.
+pub const STATE_SLOT: &str = "snapshot_state";
+pub use activities::{compile_activity, payload_bytes, shape_digest, state_schema};
+#[cfg(test)]
+mod activity_tests;
 #[cfg(test)]
 mod tests;
 
@@ -17,7 +23,7 @@ mod tests;
 /// (`inject` with `snapshot_viewport: <shape>`): the entry's wrapper answers
 /// it with `exactViewport()`, so the render stays pure (LLP 1126 D3).
 pub const VIEWPORT_SLOT: &str = "snapshot_viewport";
-pub use entry::{compile, compile_widgets, write_entries, Entry};
+pub use entry::{compile, compile_entries, write_entries, Declaration, Entry};
 
 use crate::CompileError;
 use contract_lower::tags::{attr_valued, AttrTarget};
@@ -191,8 +197,15 @@ fn check(file: &File, styles: &HashSet<String>) -> Result<(), Vec<CompileError>>
             errors.push(refusal("snapshot-effect", "a snapshot render is read-only; move mutations, sequences and persisted writes into the refresh function", c.span));
         }
         for b in c.states.iter().chain(&c.derives).chain(&c.provides) {
-            if b.name == PROPS_SLOT {
-                errors.push(refusal("snapshot-props-name", "rename `snapshot_props`; the snapshot reader reserves that binding for the entry props", b.span));
+            if b.name == PROPS_SLOT || b.name == STATE_SLOT {
+                errors.push(refusal(
+                    "snapshot-props-name",
+                    format!(
+                        "rename `{}`; the snapshot reader reserves that binding for entry data",
+                        b.name
+                    ),
+                    b.span,
+                ));
             }
             expression(&b.expr, file, 0, &mut errors);
         }

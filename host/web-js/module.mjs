@@ -210,9 +210,13 @@ export async function moduleGrants(path) {
 /** Markdown pieces (LLP 1045 D3) as a loaded capability for the runtime:
  * the web host's own `exact_web_capabilities::markdown::pieces`, exported
  * alone from a wasm module the page fetches on its first Markdown node. */
-export function buildMarkdown({ out = resolve(MODULES, 'markdown'), keepFresh = false } = {}) {
+function workspacePatch() {
   const ws = readFileSync(resolve(root, 'Cargo.toml'), 'utf8');
-  const patch = ws.slice(ws.indexOf('[patch.crates-io]')).split('\n[')[0].replace(/path = "vendor/g, `path = "${root}/vendor`);
+  return ws.slice(ws.indexOf('[patch.crates-io]')).split('\n[')[0].replace(/path = "vendor/g, `path = "${root}/vendor`);
+}
+
+export function buildMarkdown({ out = resolve(MODULES, 'markdown'), keepFresh = false } = {}) {
+  const patch = workspacePatch();
   return buildLeaf('markdown', 'exact-web-capabilities', 'host/web-capabilities', { out, keepFresh, patch, lib: `//! Generated: Markdown pieces for the JS runtime.
 static mut OUT: Vec<u8> = Vec::new();
 #[no_mangle]
@@ -242,7 +246,7 @@ export function buildMotion({ out = resolve(MODULES, 'motion'), keepFresh = fals
 /** The Markdown editor's rules (LLP 1045 D5), the crate the wasm host's
  * build makes its `markup-editor.wasm` from. */
 export function buildEditor({ out = resolve(MODULES, 'editor'), keepFresh = false } = {}) {
-  return buildLeaf('markup-editor', 'exact-markdown-editor', 'markdown/editor', { out, keepFresh });
+  return buildLeaf('markup-editor', 'exact-markdown-editor', 'markdown/editor', { out, keepFresh, patch: workspacePatch() });
 }
 
 /** The exclusions walker (LLP 1043.000 §3 D7): `exact-textflow`'s

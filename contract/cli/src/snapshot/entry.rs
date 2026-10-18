@@ -1,8 +1,10 @@
-//! Compile a widget's reachable component tree with a typed, replaceable
-//! props slot. No request, timer or handler enters this plan.
+//! Compile an entry's reachable component tree with typed, replaceable data. No request, timer or handler enters this plan.
 
 use super::{check, referenced_styles, refusal, visit_nodes};
-use crate::{manifest::Widget, CompileError, Manifest};
+use crate::{
+    manifest::{Activity, Widget},
+    CompileError, Manifest,
+};
 use contract_syntax::{Attr, Binding, Expr, File, Node, Span, TypeExpr};
 use exact_plan::Plan;
 use serde_json::Value;
@@ -15,20 +17,41 @@ use std::{
 #[derive(Debug, Clone)]
 pub struct Entry {
     /// The author declaration.
-    pub widget: Widget,
-    /// Pure render plan. `snapshot_props` is its typed root props slot.
+    pub declaration: Declaration,
+    /// Pure render plan, with a typed `snapshot_props` or `snapshot_state` slot.
     pub plan: Plan,
 }
 
-/// Compile every widget without changing or compiling the running app's plan.
-pub fn compile_widgets(
+/// The entry kind determines whether a timeline refresh exists.
+#[derive(Debug, Clone)]
+pub enum Declaration {
+    /// A timeline-driven widget.
+    Widget(Widget),
+    /// An activity updated by its app or backend.
+    Activity(Activity),
+}
+
+pub(super) struct RenderEntry<'a> {
+    pub(super) kind: &'a str,
+    pub(super) component: &'a str,
+    pub(super) props: &'a str,
+    pub(super) preview: &'a Value,
+    pub(super) families: &'a [String],
+    pub(super) refresh: Option<&'a str>,
+}
+
+/// Compile every entry without changing or compiling the running app's plan.
+pub fn compile_entries(
     app: &Path,
     manifest: &Manifest,
 ) -> Result<BTreeMap<String, Entry>, Vec<CompileError>> {
     let widgets = manifest
         .widgets()
         .map_err(|m| refusal("snapshot-manifest", m, Span::default()))?;
-    if widgets.is_empty() {
+    let activities = manifest
+        .live_activities()
+        .map_err(|m| refusal("snapshot-manifest", m, Span::default()))?;
+    if widgets.is_empty() && activities.is_empty() {
         return Ok(BTreeMap::new());
     }
     let app = app
@@ -41,10 +64,31 @@ pub fn compile_widgets(
     let mut entries = BTreeMap::new();
     let mut errors = Vec::new();
     for widget in widgets {
-        match compile_file(file.clone(), &widget, Some(app)) {
+        match compile_widget(file.clone(), &widget, Some(app)) {
             Ok(mut plan) => {
                 plan.app_id.clone_from(&manifest.id);
-                entries.insert(widget.kind.clone(), Entry { widget, plan });
+                entries.insert(
+                    widget.kind.clone(),
+                    Entry {
+                        declaration: Declaration::Widget(widget),
+                        plan,
+                    },
+                );
+            }
+            Err(all) => errors.extend(all.into_iter().map(|e| sources.resolve(e))),
+        }
+    }
+    for activity in activities {
+        match super::activities::compile_file(file.clone(), &activity, Some(app)) {
+            Ok(mut plan) => {
+                plan.app_id.clone_from(&manifest.id);
+                entries.insert(
+                    activity.kind.clone(),
+                    Entry {
+                        declaration: Declaration::Activity(activity),
+                        plan,
+                    },
+                );
             }
             Err(all) => errors.extend(all.into_iter().map(|e| sources.resolve(e))),
         }
@@ -66,18 +110,22 @@ pub fn write_entries(entries: &BTreeMap<String, Entry>, out: &Path) -> Result<()
         std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
         let registry: Vec<_> = entries
             .values()
-            .map(|e| {
-                serde_json::json!({
-                    "kind":e.widget.kind, "families":e.widget.families, "watchFamilies":e.widget.watch_families, "preview":e.widget.preview
-                })
+            .filter_map(|e| match &e.declaration {
+                Declaration::Widget(w) => Some(
+                    serde_json::json!({"kind":w.kind, "families":w.families, "watchFamilies":w.watch_families, "preview":w.preview}),
+                ),
+                Declaration::Activity(_) => None,
             })
             .collect();
-        std::fs::write(
-            directory.join("widgets.json"),
-            serde_json::to_vec(&registry).unwrap(),
-        )
-        .map_err(|e| e.to_string())?;
+        if !registry.is_empty() {
+            std::fs::write(
+                directory.join("widgets.json"),
+                serde_json::to_vec(&registry).unwrap(),
+            )
+            .map_err(|e| e.to_string())?;
+        }
     }
+    super::activities::write(entries, out)?;
     for (kind, entry) in entries {
         std::fs::write(directory.join(format!("{kind}.plan")), entry.plan.encode())
             .map_err(|e| e.to_string())?;
@@ -124,12 +172,37 @@ fn viewport_shape(shape: &TypeExpr, file: &File, at: Span) -> Result<(), Vec<Com
 /// Compile a source-text fixture's entry under the same profile as the bake.
 pub fn compile(src: &str, widget: &Widget) -> Result<Plan, Vec<CompileError>> {
     let file = contract_syntax::parse(src).map_err(CompileError::from)?;
-    compile_file(file, widget, None)
+    compile_widget(file, widget, None)
 }
 
-fn compile_file(
-    mut file: File,
+fn compile_widget(
+    file: File,
     widget: &Widget,
+    app: Option<&Path>,
+) -> Result<Plan, Vec<CompileError>> {
+    let admission_families: Vec<_> = widget
+        .families
+        .iter()
+        .chain(&widget.watch_families)
+        .cloned()
+        .collect();
+    compile_file(
+        file,
+        &RenderEntry {
+            kind: &widget.kind,
+            component: &widget.component,
+            props: &widget.props,
+            preview: &widget.preview,
+            families: &admission_families,
+            refresh: Some(&widget.refresh),
+        },
+        app,
+    )
+}
+
+pub(super) fn compile_file(
+    mut file: File,
+    widget: &RenderEntry<'_>,
     app: Option<&Path>,
 ) -> Result<Plan, Vec<CompileError>> {
     let fail = |m: String| refusal("snapshot-entry", m, Span::default());
@@ -139,9 +212,9 @@ fn compile_file(
         .find(|c| c.name == widget.component)
         .ok_or_else(|| {
             fail(format!(
-                "widget {}: {}; name its component in app.contract",
+                "entry {}: {}; name its component in app.contract",
                 widget.kind,
-                file.unknown_component_message(&widget.component)
+                file.unknown_component_message(widget.component)
             ))
         })?
         .clone();
@@ -151,7 +224,7 @@ fn compile_file(
         .find(|s| s.name == widget.props)
         .ok_or_else(|| {
             fail(format!(
-                "widget {}: declare props shape `{}` in app.contract",
+                "entry {}: declare props shape `{}` in app.contract",
                 widget.kind, widget.props
             ))
         })?;
@@ -163,16 +236,21 @@ fn compile_file(
                 .any(|p| p.name == f.name && p.ty.as_ref().is_some_and(|ty| same_type(ty, &f.ty)))
         })
     {
-        return Err(vec![fail(format!("widget {}: `{}` props must match every field and type of `{}`; edit the component props or manifest shape", widget.kind, root.name, widget.props))]);
+        return Err(vec![fail(format!("entry {}: `{}` props must match every field and type of `{}`; edit the component props or manifest shape", widget.kind, root.name, widget.props))]);
     }
+    let slot_name = if widget.refresh.is_some() {
+        super::PROPS_SLOT
+    } else {
+        super::STATE_SLOT
+    };
     let span = root.span;
     let preview = preview(
-        &widget.preview,
-        &TypeExpr::Named(widget.props.clone(), span),
+        widget.preview,
+        &TypeExpr::Named(widget.props.to_string(), span),
         &file,
         0,
     )
-    .map_err(|m| fail(format!("widget {} preview: {m}", widget.kind)))?;
+    .map_err(|m| fail(format!("entry {} preview: {m}", widget.kind)))?;
     let mut reached = HashSet::from([root.name.clone()]);
     loop {
         let before = reached.len();
@@ -227,7 +305,7 @@ fn compile_file(
     loop {
         let mut used = contract_syntax::scope::type_names(&mut file);
         used.extend(contract_syntax::scope::calls(&mut file));
-        used.insert(widget.props.clone());
+        used.insert(widget.props.to_string());
         let before = file.shapes.len();
         for s in &shapes {
             if used.contains(&s.name) && !file.shapes.iter().any(|kept| kept.name == s.name) {
@@ -239,8 +317,8 @@ fn compile_file(
         }
     }
     if contract_syntax::scope::calls(&mut file).contains("path") {
-        if routes.as_ref().is_some_and(|r| r.slot == super::PROPS_SLOT) {
-            return Err(vec![refusal("snapshot-props-name", "rename the `snapshot_props` router; the snapshot reader reserves that binding for entry props", routes.as_ref().unwrap().span)]);
+        if routes.as_ref().is_some_and(|r| r.slot == slot_name) {
+            return Err(vec![refusal("snapshot-props-name", format!("rename the `{slot_name}` router; the snapshot reader reserves that binding for entry data"), routes.as_ref().unwrap().span)]);
         }
         // A URL shares the app's checked patterns, never its page data sources.
         file.routes = routes.map(|mut routes| {
@@ -273,7 +351,7 @@ fn compile_file(
         .remove(0);
     wrapper.name = format!("__snapshot_{}", widget.kind);
     wrapper.states.push(Binding {
-        name: super::PROPS_SLOT.into(),
+        name: slot_name.into(),
         expr: preview,
         span,
     });
@@ -285,7 +363,7 @@ fn compile_file(
             .map(|p| Attr {
                 name: p.name.clone(),
                 value: Expr::Member(
-                    Box::new(Expr::Ident(super::PROPS_SLOT.into(), span)),
+                    Box::new(Expr::Ident(slot_name.into(), span)),
                     p.name.clone(),
                     span,
                 ),
@@ -340,13 +418,7 @@ fn compile_file(
         });
     }
     file.components.insert(0, wrapper);
-    let admission_families: Vec<_> = widget
-        .families
-        .iter()
-        .chain(&widget.watch_families)
-        .cloned()
-        .collect();
-    super::paragraphs::check(&file, &admission_families)?;
+    super::paragraphs::check(&file, widget.families)?;
     let strings = match app {
         Some(app) => crate::strings::load(app, &app.join("app.contract"))?,
         None => None,
@@ -356,26 +428,31 @@ fn compile_file(
     let props = plan
         .slots
         .iter()
-        .find(|slot| plan.str(slot.name) == super::PROPS_SLOT)
+        .find(|slot| plan.str(slot.name) == slot_name)
         .expect("props slot")
         .ty;
-    let mut builder = exact_plan::builder::PlanBuilder::from_plan(plan);
-    let number = builder.primitive(exact_plan::TypeKind::Number);
-    let entry = builder.record(
-        "SnapshotTimelineEntry",
-        &[("date", number), ("props", props)],
-    );
-    let timeline = builder.list(entry);
-    let refresh = builder.source(&widget.refresh, &[number], timeline);
-    let mut plan = builder
-        .finish()
-        .map_err(|e| vec![fail(format!("invalid refresh signature: {e:?}"))])?;
-    plan.snapshot_entry.clone_from(&widget.kind);
-    plan.snapshot_refresh = Some(refresh);
+    let mut plan = plan;
+    if let Some(refresh) = widget.refresh {
+        let mut builder = exact_plan::builder::PlanBuilder::from_plan(plan);
+        let number = builder.primitive(exact_plan::TypeKind::Number);
+        let entry = builder.record(
+            "SnapshotTimelineEntry",
+            &[("date", number), ("props", props)],
+        );
+        let timeline = builder.list(entry);
+        let refresh = builder.source(refresh, &[number], timeline);
+        plan = builder
+            .finish()
+            .map_err(|e| vec![fail(format!("invalid refresh signature: {e:?}"))])?;
+        plan.snapshot_refresh = Some(refresh);
+    } else {
+        super::activities::placements(&mut plan)?;
+    }
+    plan.snapshot_entry = widget.kind.to_owned();
     // The snapshot reader exercises the same validating decoder as its host.
-    let plan = Plan::decode_snapshot(&plan.encode(), &widget.kind)
+    let plan = Plan::decode_snapshot(&plan.encode(), widget.kind)
         .map_err(|e| vec![fail(format!("invalid snapshot plan: {e:?}"))])?;
-    super::inline::check(&plan, &admission_families, span)?;
+    super::inline::check(&plan, widget.families, span)?;
     Ok(plan)
 }
 

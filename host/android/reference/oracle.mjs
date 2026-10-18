@@ -8,7 +8,8 @@
 // Without --compare it draws both sides first: the reference through Gradle (JAVA_HOME a JDK 21, ANDROID_HOME the
 // SDK) and Exact through Cargo, given the reference's own fonts (Robolectric's, from Gradle's cache). It writes
 // report.json and report.html into the out directory (default: host/android/reference/build/oracle) and exits 1
-// when the detection test fails. Until calibration (O2) the comparison of the two sides reports and does not fail.
+// when the detection test fails. The comparison of the two sides reports and does not fail: no component is matched
+// yet (D7).
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -23,13 +24,17 @@ const flag = (name) => args.includes(name);
 const option = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : null);
 const out = resolve(option('--out') ?? join(here, 'build/oracle'));
 
-/** The starting thresholds (D4: calibration on a phone replaces them). */
+/**
+ * The thresholds, from O2's calibration on a Pixel (LLP 1115.001.001 §3): each above the largest difference between
+ * two renders of one side (Compose on the JVM and on the phone; Exact headless and on the reader), and below the
+ * smallest planted defect.
+ */
 const LIMIT = {
-  geometry: 0.5, // dp, any box edge or corner radius
-  probe: 2, // ΔE2000
-  ink: 5, // ΔE2000, a text's ink
-  coverage: 0.2, // a text's ink, as a share of the larger
-  pixels: 0.005, // share of a crop's pixels past ΔE2000 5
+  geometry: 0.5, // dp, any box edge or corner radius (floors 0.16 and 0.41; defects from 1.6)
+  probe: 2, // ΔE2000 (floors 1.25 and 1.06; defects from 15)
+  ink: 2, // ΔE2000, a text's ink (floors 0.50 and 0.52; defects from 16)
+  coverage: 0.15, // a text's ink, as a share of the larger (floors 0.013 and 0.068, the latter two Robotos)
+  pixels: 0.02, // share of a crop's pixels past ΔE2000 5, text masked (floors 0.005 and 0.010)
 };
 /** Around a component's layout box, room for its shadow. */
 const MARGIN = 16;
@@ -62,7 +67,7 @@ function main() {
   const failing = report.comparisons.filter(failed);
   console.log(`detection: ${report.detection.length - missed.length} of ${report.detection.length} as expected`);
   for (const d of missed) console.log(`  NOT AS EXPECTED: ${d.name} (expected to ${d.expect})`);
-  console.log(`Compose against Exact: ${failing.length} of ${report.comparisons.length} specimens differ (reported, not failed, until O2)`);
+  console.log(`Compose against Exact: ${failing.length} of ${report.comparisons.length} specimens differ`);
   for (const c of failing) console.log(`  ${c.name}: ${summary(c)}`);
   console.log(`report: ${relative(process.cwd(), join(out, 'report.html'))}`);
   process.exit(missed.length ? 1 : 0);
@@ -76,9 +81,66 @@ function draw() {
   mkdirSync(fonts, { recursive: true });
   const jar = findJar(join(homedir(), '.gradle/caches/modules-2/files-2.1/org.robolectric/nativeruntime-dist-compat'));
   run('unzip', ['-q', '-j', '-o', jar, 'fonts/*', '-d', fonts], root);
+  sansSerif(fonts);
   run('cargo', ['run', '-q', '-p', 'material-specimens-linux', '--', join(here, 'specimens.json'),
     join(root, 'apps/material-specimens/specimens'), out, join(out, 'exact')], root,
   { EXACT_FONTS: fonts, EXACT_FONT: 'Roboto' });
+}
+
+/**
+ * Android finds `sans-serif` by `fonts.xml`, file by file and weight by weight, never by a font's own names; these
+ * Roboto files name their family three ways ("Roboto21382017", "Roboto Medium21382017", and "Roboto" as the
+ * typographic family of some), so a catalogue that reads the names would find no 400 in "Roboto" and draw Medium.
+ * Each file of `fonts.xml`'s `sans-serif` is renamed "Roboto" (name IDs 1 and 16), as Android sees it.
+ */
+function sansSerif(dir) {
+  const xml = readFileSync(join(dir, 'fonts.xml'), 'utf8');
+  const family = xml.match(/<family name="sans-serif">([\s\S]*?)<\/family>/)?.[1];
+  if (!family) throw new Error('fonts.xml names no sans-serif family');
+  for (const [, file] of family.matchAll(/<font [^>]*>\s*([^<\s]+)\s*<\/font>/g)) {
+    const path = join(dir, file);
+    writeFileSync(path, renamed(readFileSync(path), 'Roboto'));
+  }
+}
+
+/** An sfnt with its family names (IDs 1 and 16) `name`, its other names kept, a new `name` table appended. */
+function renamed(font, name) {
+  const view = new DataView(font.buffer, font.byteOffset, font.byteLength);
+  const tables = view.getUint16(4);
+  let entry = -1;
+  for (let i = 0; i < tables; i++) if (font.toString('latin1', 12 + 16 * i, 16 + 16 * i) === 'name') entry = 12 + 16 * i;
+  if (entry < 0) throw new Error('a font with no name table');
+  const at = view.getUint32(entry + 8);
+  const count = view.getUint16(at + 2), strings = at + view.getUint16(at + 4);
+  const records = [];
+  for (let i = 0; i < count; i++) {
+    const r = at + 6 + 12 * i;
+    const [platform, encoding, language, id, length, offset] = [0, 2, 4, 6, 8, 10].map((k) => view.getUint16(r + k));
+    let bytes = font.subarray(strings + offset, strings + offset + length);
+    if (id === 1 || id === 16) {
+      bytes = platform === 1 ? Buffer.from(name, 'latin1') : Buffer.from(name, 'utf16le').swap16();
+    }
+    records.push({ platform, encoding, language, id, bytes });
+  }
+  const head = Buffer.alloc(6 + 12 * records.length);
+  head.writeUInt16BE(0, 0);
+  head.writeUInt16BE(records.length, 2);
+  head.writeUInt16BE(head.length, 4);
+  let offset = 0;
+  records.forEach((r, i) => {
+    [r.platform, r.encoding, r.language, r.id, r.bytes.length, offset].forEach((v, k) => head.writeUInt16BE(v, 6 + 12 * i + 2 * k));
+    offset += r.bytes.length;
+  });
+  const table = Buffer.concat([head, ...records.map((r) => r.bytes)]);
+  const padded = Buffer.concat([table, Buffer.alloc((4 - (table.length % 4)) % 4)]);
+  let sum = 0;
+  for (let i = 0; i < padded.length; i += 4) sum = (sum + padded.readUInt32BE(i)) >>> 0;
+  const start = font.length + ((4 - (font.length % 4)) % 4);
+  const out = Buffer.concat([font, Buffer.alloc(start - font.length), padded]);
+  out.writeUInt32BE(sum, entry + 4);
+  out.writeUInt32BE(start, entry + 8);
+  out.writeUInt32BE(table.length, entry + 12);
+  return out;
 }
 
 function run(cmd, argv, cwd, env = {}) {
@@ -123,16 +185,19 @@ function compare(name, specimen, scheme, [refSide, candSide], candName = name) {
   const texts = [];
   for (const t of ref.facts.texts ?? []) {
     const other = (cand.facts.texts ?? []).find((u) => u.text === t.text);
-    // A side that names no text does not observe it (the Exact side's field: its value and label are painted, not
-    // nodes); one that names some and not this one has lost it.
-    const observes = candSide === 'compose' || (cand.facts.texts ?? []).length > 0 && !/^text-field/.test(specimen.id);
     if (!other) {
-      geo.push({ what: `text "${t.text}"`, reference: t.box, candidate: null, ok: !observes, note: observes ? 'missing' : 'not observed on this side' });
-      texts.push({ text: t.text, ref: t.box, cand: cv && rv ? shift(t.box, cv.x - rv.x, cv.y - rv.y) : t.box, borrowed: true });
+      geo.push({ what: `text "${t.text}"`, reference: t.box, candidate: null, ok: false, note: 'missing' });
       continue;
     }
-    for (const k of ['x', 'y', 'w', 'h']) edge(`text "${t.text}" ${k}`, t.box[k], other.box[k]);
-    texts.push({ text: t.text, ref: t.box, cand: other.box, borrowed: false });
+    // Where both sides name a text's lines, its height is the line model's (Compose's line height, Exact's
+    // paragraph centred on its line) and what places it is the baseline.
+    const lines = t.lines?.length && other.lines?.length;
+    for (const k of lines ? ['x', 'w'] : ['x', 'y', 'w', 'h']) edge(`text "${t.text}" ${k}`, t.box[k], other.box[k]);
+    if (lines) {
+      edge(`text "${t.text}" lines`, t.lines.length, other.lines.length);
+      t.lines.forEach((l, i) => edge(`text "${t.text}" baseline ${i + 1}`, l.baseline, other.lines[i]?.baseline ?? null));
+    }
+    texts.push({ text: t.text, ref: t.box, cand: other.box });
   }
   layers.geometry = { ok: geo.every((g) => g.ok), items: geo };
   // Colour at probes, each in each side's own visual box.
@@ -149,21 +214,19 @@ function compare(name, specimen, scheme, [refSide, candSide], candName = name) {
     const b = ink(cand.png, t.cand, density);
     const d = de2000(lab(a.ink), lab(b.ink));
     const share = Math.abs(a.coverage - b.coverage) / Math.max(a.coverage, b.coverage, 1e-6);
-    return { what: `text "${t.text}"`, borrowed: t.borrowed, inkReference: hex(a.ink), inkCandidate: hex(b.ink), deltaE: round(d),
+    return { what: `text "${t.text}"`, inkReference: hex(a.ink), inkCandidate: hex(b.ink), deltaE: round(d),
       coverageReference: round(a.coverage), coverageCandidate: round(b.coverage),
-      // A box borrowed from the other side is where the text should be, not where it is: reported, not failed, until
-      // the door names the painted texts' boxes (a field's label and value).
-      ok: t.borrowed || (d <= LIMIT.ink && share <= LIMIT.coverage) };
+      ok: d <= LIMIT.ink && share <= LIMIT.coverage };
   });
   layers.text = { ok: inks.every((t) => t.ok), items: inks };
   // Pixels, over each side's crop round its layout box, text masked.
   const px = pixels(ref, cand, texts, density, `${refSide}-${candSide}.${candName}`);
-  layers.pixels = { ok: px.share <= LIMIT.pixels, share: round(px.share, 4), heat: px.heat, crops: px.crops, gates: false };
+  layers.pixels = { ok: px.share <= LIMIT.pixels, share: round(px.share, 4), heat: px.heat, crops: px.crops };
   return { name: candName === name ? name : `${name} ← ${candName}`, sides: [refSide, candSide], layers };
 }
 
 function failed(c) {
-  return !c.layers.geometry.ok || !c.layers.probes.ok || !c.layers.text.ok || (c.sides[0] === c.sides[1] && !c.layers.pixels.ok);
+  return Object.values(c.layers).some((l) => !l.ok);
 }
 
 function summary(c) {
@@ -356,7 +419,7 @@ function html(r) {
   };
   return `<!doctype html><meta charset="utf-8"><title>Material oracle</title>
 <style>body{font:14px system-ui;margin:16px;background:#fff;color:#111}section{border-left:4px solid #2a2;padding:4px 12px;margin:12px 0}section.bad{border-color:#d33}.imgs{display:flex;gap:8px;flex-wrap:wrap}img{max-width:420px;border:1px solid #ccc}figure{margin:0}figcaption{font-size:12px;color:#555}pre{font-size:11px}</style>
-<h1>Material oracle</h1><p>Limits: ${esc(JSON.stringify(r.limits))}. Compose against Exact reports and does not fail until calibration (LLP 1115.001.001 O2).</p>
+<h1>Material oracle</h1><p>Limits: ${esc(JSON.stringify(r.limits))}, from O2's calibration (LLP 1115.001.001 §3). Compose against Exact reports and does not fail.</p>
 <h2>Detection test</h2>${r.detection.map((d) => row(d.comparison, `${d.ok ? 'as expected' : 'NOT AS EXPECTED'} · ${d.kind} · ${d.name}`)).join('\n')}
 <h2>Compose against Exact</h2>${r.comparisons.map((c) => row(c)).join('\n')}`;
 }

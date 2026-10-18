@@ -70,7 +70,7 @@ fn build_entry(input: &str, kind: &str, output: &str, json: bool) -> ExitCode {
             )
         }
     };
-    let entries = match contract::snapshot::compile_widgets(dir, &manifest) {
+    let entries = match contract::snapshot::compile_entries(dir, &manifest) {
         Ok(entries) => entries,
         Err(errors) => return report_all(&errors, &[], json, 1),
     };

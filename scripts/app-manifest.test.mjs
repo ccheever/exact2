@@ -196,3 +196,21 @@ test('watchFamilies admits only the four accessory families', async () => {
     }
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
+
+test('activity labels reject whitespace and control characters in schema validation', async () => {
+  const {validate} = await import('./app.mjs');
+  const schema = await Bun.file(new URL('./app.schema.json', import.meta.url)).json();
+  const activity = schema.properties.live_activities.items;
+  for (const key of ['title', 'description']) {
+    const label = activity.properties[key];
+    assert.deepEqual(validate('Next train 🚆', label, key, schema), []);
+    for (const blank of ['', ' ', '   ', '\u00a0', '\u2003']) {
+      assert.ok(validate(blank, label, key, schema).length, `${key}: blank label`);
+    }
+    for (const code of [...Array.from({length:32}, (_, i) => i), ...Array.from({length:33}, (_, i) => i + 127), 0x2028, 0x2029]) {
+      for (const value of [`bad${String.fromCodePoint(code)}label`, `label${String.fromCodePoint(code)}`]) {
+        assert.ok(validate(value, label, key, schema).length, `${key}: ${code}`);
+      }
+    }
+  }
+});

@@ -10,6 +10,7 @@ use crate::Span;
 
 mod color_profile;
 mod decls;
+mod decorations;
 mod expr;
 mod keyframes;
 mod media_session;
@@ -384,6 +385,9 @@ impl Parser {
                 }
                 TokenKind::Ident(w) if w == "shape" => file.shapes.push(self.shape()?),
                 TokenKind::Ident(w) if w == "style" => file.styles.push(self.style()?),
+                TokenKind::Ident(w) if w == "decoration" => {
+                    file.decorations.push(self.decoration()?)
+                }
                 TokenKind::Ident(w) if w == "keyframes" => {
                     let decl = self.keyframes_decl()?;
                     if let Some(first) = file.keyframes.iter().find(|k| k.name == decl.name) {
@@ -435,7 +439,7 @@ impl Parser {
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
-                        "expected `routes`, `font`, `sound`, `shape`, `style`, `keyframes`, `timeline`, `color-profile`, `theme`, `fn`, `use`, or `component`, found {}",
+                        "expected `routes`, `font`, `sound`, `shape`, `style`, `decoration`, `keyframes`, `timeline`, `color-profile`, `theme`, `fn`, `use`, or `component`, found {}",
                         describe(other)
                     ),
                     );
