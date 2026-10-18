@@ -1,35 +1,6 @@
 #!/usr/bin/env bun
-// The resident dev loop: edit app.contract → the page shows it, no cargo
-// build in the loop. Usage: bun host/web/dev.mjs [--app caltrain] [--port 8765] [--lan] [--wasm]
-//   [--allow-host <name>]…
-// An app the JS target takes (LLP 1071) runs on it instead, rebuilt and
-// reloaded per edit (host/web-js/dev.mjs); --wasm keeps it on this loop.
-//
-// Binds 127.0.0.1. --lan binds every interface, so a phone on the network can
-// boot the plan from a printed LAN URL — and so can any peer read the plan,
-// the compile errors on /__dev and the dev generations (LLP 1023 D8, amended
-// 2026-09-23). Either way the server answers only to the names it printed, and
-// the local iOS installer's token reaches only a page loaded over loopback.
-// `--allow-host <name>` (repeatable) adds a name it answers to — a tunnel's
-// public name (`tuft host`, cloudflared, ngrok) forwarding to loopback — for
-// every request, the /__dev event streams included; never the token.
-// The agent carrier is not here and never binds the LAN.
-//
-// One Rust process (the app's `dev` bin, exact_web::dev) watches the source
-// and writes each baked plan to dist/app.plan; this script serves dist/
-// (index.html with dev.js added), pushes each ready plan to the page over
-// server-sent events, and prints edit → present against the budget row
-// "Dev restart, request to present: 100ms p50" (rules/RULES.md).
-//
-// The Rust side too (2026-08-30): an edit under the crates the wasm is
-// built from — kernel, plan, motion, runner, host/web, gpu, the app's data,
-// web, and gpu crates, the vendored Taffy — runs the same warm build
-// (host/web/build.mjs), restarts the resident compiler (its plans must
-// match the new format), and pushes a reload: a new wasm is a new program,
-// so the page reloads rather than restarts in place. A build that fails
-// shows its errors in the page's overlay, as a contract that fails does,
-// and the page keeps the last good wasm. TypeScript apps use a checked
-// resident producer below the data seam; file watching remains Node's own.
+// Resident development loop; games answer HTTP while their first build runs.
+import { buildingServer } from '../../game/dev.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -127,9 +98,12 @@ async function currentWebBuild() {
       && pendingBuildInputs(build).length === 0;
   } catch { return false; }
 }
+const early = app.manifest.game && servedAs == null ? await buildingServer({app:app.dir, host, port, gate, origins}) : null;
 if (!await currentWebBuild()) {
-  const b = spawnSync(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), hostBuild], { cwd: root, env:buildEnv, stdio: 'inherit' });
-  if (b.status !== 0) process.exit(b.status ?? 1);
+  early?.status.set({phase:'build'});
+  const b = spawn(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), hostBuild], { cwd: root, env:buildEnv, stdio: 'inherit' });
+  const code = await new Promise((ok, reject) => { b.once('error', reject); b.once('exit', code => ok(code ?? 1)); });
+  if (code !== 0) process.exit(code);
 }
 // The last complete cdylib links name their transitive source files, including
 // path dependencies outside this workspace. Unknown/shared inputs take the full build.
@@ -1232,18 +1206,18 @@ console.log(`rebuild: Rust ${rebuildOn.rust}, TypeScript ${rebuildOn.typescript}
 let hostBuildChild = null;
 function rebuild() { buildPending = true; drainBuilds(); }
 function rebuildNow(files) {
-  building = true;
+  building = true; early?.status.set({phase:'build'});
   const t = Date.now();
   console.log(`rust: ${files.length} file${files.length === 1 ? '' : 's'} changed (${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}) — rebuilding the ${producersOnly ? "bake" : "wasm"}`);
   const b = hostBuildChild = spawn(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), hostBuild], { cwd: root, env:buildEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   b.stdout.on('data', (d) => { out += d; });
-  b.stderr.on('data', (d) => { out += d; });
+  b.stderr.on('data', (d) => { out += d; process.stderr.write(d); });
   b.on('exit', (code) => {
     building = false; hostBuildChild = null;
     const ms = Date.now() - t;
     if (code === 0) {
-      builds += 1;
+      builds += 1; early?.status.set({phase:'ready', lastDurationMs:ms});
       // The compiler's plans must match the wasm's format: it is built again
       // too (cargo, warm), and its first plan reaches the reloaded page.
       killCompiler();
@@ -1263,6 +1237,7 @@ function rebuildNow(files) {
       push({ rebuilt: builds });
     } else {
       const errors = out.split('\n').filter((l) => /^(error|warning: unused|\s+-->)/.test(l)).join('\n') || out.trim().split('\n').slice(-12).join('\n');
+      early?.status.set({phase:'failed'});
       console.log(`rust: build failed in ${(ms / 1000).toFixed(1)} s; the next save, or r + Enter, builds again\n${errors}`);
       push({ error: `the ${producersOnly ? "bake" : "wasm"} did not build:\n${errors}` });
       lastFailed = new Set(files);
@@ -1284,7 +1259,7 @@ function rebuildNow(files) {
 
 // Only the artifacts whose inputs an edit touched are rebuilt and swapped.
 async function produceGpu(files) {
-  building = true;
+  building = true; early?.status.set({phase:'build'});
   try {
     for (const artifact of gpuArtifacts().filter(({ stem }) => files.some(path => gpuArtifactInputs.get(stem)?.has(path)))) await produceGpuArtifact(files, artifact);
   } finally {
@@ -1302,7 +1277,7 @@ async function produceGpuArtifact(files, { stem, kind, module }) {
     const child = gpuBuildChild = spawn(command, args, { cwd: app.workspace, env: {...buildEnv, CARGO_TARGET_DIR:app.target}, stdio:['ignore','pipe','pipe'], detached:true });
     let output = '';
     child.stdout.on('data', data => { output += data; });
-    child.stderr.on('data', data => { output += data; });
+    child.stderr.on('data', data => { output += data; process.stderr.write(data); });
     child.on('error', fail);
     child.on('exit', code => { gpuBuildChild = null; code === 0 ? ok() : fail(new Error(output.trim())); });
   });
@@ -1320,16 +1295,18 @@ async function produceGpuArtifact(files, { stem, kind, module }) {
     readGpuInputs(profile, [stem]); watchCompilerInputs();
     const ms = Date.now() - start;
     gpuTimings.set(gpuVersion, { ms, start });
+    early?.status.set({phase:'ready', lastDurationMs:ms});
     console.log(`gpu: rebuilt in ${ms} ms (cargo ${compiled-start} ms, bindgen ${Date.now()-compiled} ms); swap pushed`);
     push({gpu:gpuVersion, ...(module ? {module} : {})});
   } catch (error) {
     rmSync(stage, {recursive:true,force:true});
+    early?.status.set({phase:'failed'});
     console.error(`gpu: build failed in ${Date.now()-start} ms\n${error.message}`);
     push({error:`GPU module did not build:\n${error.message}`,source:'gpu'});
   }
 }
 
-const server = createServer(async (req, res) => {
+const serve = async (req, res) => {
   // Every HTML answer is framed by the design tool only (LLP 1122 T2).
   frameOnlyByTool(res);
   const access = gate.check(req);
@@ -1477,12 +1454,14 @@ const server = createServer(async (req, res) => {
     body = installer.page(found.route, body, access);
     sendStaticBody(req, res, body, { 'content-type': webContentType(found.route), ...(index ? { vary: 'Accept' } : {}), 'cache-control': 'no-store' });
   } catch { try { res.writeHead(404); res.end(); } catch { /* mid-write */ } }
-});
+};
+const server = early?.server ?? createServer(serve);
+early?.serve(serve);
 server.on('error', (e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); killCompiler(); process.exit(1); });
 await readStaticFileAsync(dist, '/index.html'); // warm the reader before advertising readiness
 // (and on [::1], for a localhost URL: the design tool's canvas)
 if (servedAs == null) await alsoOnIPv6Loopback(server, port).catch((e) => { console.error(`cannot listen on [::1]:${port}: ${e.code} (another server there would answer a localhost URL; --port <n> picks another)`); killCompiler(); process.exit(1); });
-server.listen(port, host, () => {
+if (!early) server.listen(port, host, () => {
   // Every usable IPv4 with --lan, none silently picked (D8): a utun/VPN
   // address printed alone is a silent failure on the phone.
   const urls = origins.map(o => `${o.origin}/`);

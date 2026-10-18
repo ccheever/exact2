@@ -1125,6 +1125,13 @@ async function main(argv) {
   // Help before any work (`setup --help` installed, `new --help` wrote an app); the compiler answers its own.
   if (verb !== 'contract' && argv.some(arg => arg === '--help' || arg === '-h')) return console.log(helpText(verb) ?? USAGE);
   if (verb === 'game' && name === 'vocab') return import('../game/vocab.mjs').then(m => m.main(rest));
+  if (verb === 'status' || verb === 'web' && rest.includes('--ready')) {
+    const {readStatus, formatStatus, waitReady} = await import('../game/status.mjs');
+    const dir = name ? resolve(name) : process.cwd();
+    if (verb === 'status') return console.log(formatStatus(readStatus(dir)));
+    const row = await waitReady(dir, {timeout:Number(rest.includes('--timeout') ? rest[rest.indexOf('--timeout') + 1] : 600)});
+    return console.log(`READY ${row.url}`);
+  }
   if (verb === 'setup') return setup({check: name === '--check'});
   if (verb === 'list') return list();
   // The compiler parses its own flags; its help is printed here, so asking compiles nothing (LLP 1116 D4).

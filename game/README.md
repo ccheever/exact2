@@ -58,7 +58,14 @@ bun game/new.mjs ./my-game
 bun game/dev.mjs ./my-game
 ```
 
-Open the dev server's printed URL. It serves on 8765, or on the next free port when
+Open the dev server's printed URL. It answers with a building page before compiling.
+`bun exact.mjs status` lists each web/prove invocation, its phase and elapsed time.
+Start `web` in one terminal, then `bun exact.mjs web --ready --timeout 600` in another
+to wait for that invocation's current build. It refuses a failed rebuild even when
+the server still shows the previous game. A dead process is reported as `unknown`;
+`running` means the process exists, not that the compiler is making progress.
+
+The dev loop It serves on 8765, or on the next free port when
 another dev loop holds 8765 (it says so); `--port <n>` chooses one and fails at once,
 before building, if that port is in use. `--lan` serves a phone on this network. Edit `my-game/logic/src/lib.rs` for gameplay or
 `my-game/app.contract` for UI. Gameplay reloads carry the running world; shared

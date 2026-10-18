@@ -2,6 +2,8 @@
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:net';
+import { createServer as httpServer } from 'node:http';
+import { startStatus } from './status.mjs';
 import { spawn } from 'node:child_process';
 
 const free = (port, host) => new Promise(ok => {
@@ -24,6 +26,25 @@ export async function devPort(args, {start = 8765, tries = 100} = {}) {
     if (await free(port, host)) return {port, args:[...args, '--port', String(port)]};
   }
   throw new Error(`no free port in ${start}–${start + tries - 1} on ${host}; pass --port <n>`);
+}
+
+export async function buildingServer({app, host, port, gate, origins}) {
+  const status = startStatus(app, 'web', {url:origins[0].origin + '/'});
+  let handler;
+  const server = httpServer((req, res) => {
+    if (!gate.check(req).allowed) { res.writeHead(421); res.end(); return; }
+    const row = status.get();
+    if (req.url === '/__exact/ready') {
+      res.writeHead(row.phase === 'ready' ? 200 : 503, {'content-type':'application/json', 'cache-control':'no-store'});
+      res.end(JSON.stringify(row)); return;
+    }
+    if (handler) return handler(req, res);
+    res.writeHead(503, {'content-type':'text/html', 'cache-control':'no-store'});
+    res.end(`<!doctype html><title>Building game</title><h1>web: ${row.phase}</h1><p>Elapsed ${row.elapsedMs} ms; previous build ${row.lastDurationMs ?? 'unknown'} ms</p><script>setTimeout(()=>location.reload(),1000)</script>`);
+  });
+  await new Promise((ok, reject) => { server.once('error', reject); server.listen(port, host, ok); });
+  console.log(origins.map(o => o.origin + '/').join('\n'));
+  return {server, status, serve(fn) { handler = fn; status.set({phase:'ready', lastDurationMs:Date.now() - status.get().startedAt}); }};
 }
 
 if (import.meta.main) {

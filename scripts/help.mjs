@@ -76,12 +76,15 @@ export const HELP = {
       ['--rebuild', 'rebuild a missing or stale device after updating Snapback4']],
     body: 'Mounts the driver and generated operations, builds assets/snapback4.wasm, and names the server to start.',
   },
+  status: {line:'the recorded web and prove invocations, phases and elapsed time', usage:'bun exact.mjs status', flags:[]},
   web: {
     line: 'the web dev loop: serves the app, rebuilds and reloads the page on every save (foreground)',
     usage: 'bun exact.mjs web [--port <n>] [--lan] [--allow-host <name>]… [--wasm]',
     common: ['web [--port <n>]    for a person watching: its URL, rebuilt on save'],
     flags: [
       ['--port <n>', 'listen on <n>, refused if taken (default 8765, else the first free port to 8864)'],
+      ['--ready', 'wait for the current game web invocation to serve its current build; start web separately'],
+      ['--timeout <s>', 'limit the --ready wait (default 600 seconds)'],
       ['--lan', 'bind every interface, so a phone on this network opens the printed LAN URL'],
     ],
     more: [

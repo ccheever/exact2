@@ -11,6 +11,7 @@ import { basename, isAbsolute, relative, resolve } from 'node:path';
  * first arguments. `host` is a drive's (`test ios`); a game has its own and no `verify` or `pattern`. */
 export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
   return {
+    status: ['scripts/exact.mjs', 'status', dir],
     web: ['host/web/dev.mjs', '--app', name],
     'web-build': ['host/web/build.mjs', name],
     test: ['scripts/agent.mjs', host, '--app', name],
@@ -51,6 +52,12 @@ export async function run({ dir, name, game = false, exact2, args }) {
   // The app's own verbs (paint, minesweeper, ledger: a regenerated file dropped the ones added to it): app.json's
   // `commands`, each a command as argv (`"seed": ["bun", "seed.mjs"]`), run in the app's directory with the
   // arguments after the verb. A game's app.json is optional.
+  if (verb === 'status' || verb === 'web' && rest.includes('--ready')) {
+    const {readStatus, formatStatus, waitReady} = await import(resolve(exact2, 'game/status.mjs'));
+    if (verb === 'status') { console.log(formatStatus(readStatus(dir))); return 0; }
+    try { const row = await waitReady(dir, {timeout:Number(rest.includes('--timeout') ? rest[rest.indexOf('--timeout') + 1] : 600)}); console.log(`READY ${row.url}`); return 0; }
+    catch (e) { console.error(e.message); return 1; }
+  }
   const manifest = resolve(dir, 'app.json');
   const own = (existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')).commands : null) ?? {};
   const clash = Object.keys(own).find((name) => verbs[name]);

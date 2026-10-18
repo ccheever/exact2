@@ -1,3 +1,4 @@
+import {readStatus, formatStatus} from '../game/status.mjs';
 // Session setup shared by the agent CLI and its programmatic driver.
 import { widgetArguments, validateWidget } from './agent-widget.mjs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -484,7 +485,8 @@ const listed = changed => changed.slice(0, 3).join(', ') + (changed.length > 3 ?
 export function refuseStale(what, built, changed, command) {
   // A file no build reads belongs in the app's `.exact/` (Depot: evidence JSON beside the app refused every drive).
   const hint = changed.some(p => /\.json$/.test(p) && !/(^|\/)(app|package|tsconfig)\.json$/.test(p)) ? '; a file no build reads (evidence, logs, runtime state) belongs in the app\'s `.exact/`, which no build, watcher or freshness check reads' : '';
-  if (changed.length) throw staleError(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}${hint}`);
+  const progress = process.env.EXACT_APP_DIR ? formatStatus(readStatus(process.env.EXACT_APP_DIR).filter(r => r.state === 'running')) : '';
+  if (changed.length) throw staleError(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}${hint}${progress && !progress.startsWith('No ') ? `; ${progress}` : ''}`);
 }
 
 /** A refusal that a rebuild answers: the driver exits 3 for it, so an app's
@@ -795,7 +797,7 @@ export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hash
 export function gameNonInput(path) {
   path = path.replaceAll('\\', '/');
   return /^(shots|tools|repros)\//.test(path)
-    || /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.(?:mjs|js|ts|rs|contract)|[^/]*\.md)$/.test(path)
+    || /(^|\/)(pins\.json|status\.json|proof\.mjs|[^/]*\.test\.(?:mjs|js|ts|rs|contract)|[^/]*\.md)$/.test(path)
     || (/\.(?:m?js|sh|ops)$/.test(path) && !/^(logic|data|gpu|render|art|assets|deck)\//.test(path));
 }
 /** What a web build of `app` reads, modified after `since` (every file by default):

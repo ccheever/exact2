@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 // Orchestrate the game's existing proof; every drive still uses the eight operations.
+import {startStatus} from './status.mjs';
 import {spawn, spawnSync} from 'node:child_process';
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
 import {basename, isAbsolute, resolve} from 'node:path';
@@ -19,6 +20,7 @@ if (!/^[a-z][a-z0-9-]*$/.test(name ?? '') || !Number.isSafeInteger(repeat) || re
 }
 const app = local ? resolve(destination) : resolve(import.meta.dir, 'games', name), script = resolve(app, 'proof.mjs');
 if (!existsSync(script)) throw new Error(`No proof for ${name}`);
+const progress = startStatus(app, 'prove');
 const pinFile = resolve(app, 'pins.json');
 const previous = JSON.parse(readFileSync(pinFile, 'utf8'));
 // A first baseline is accepted only after the same all-mode/host agreement as repin.
@@ -41,6 +43,7 @@ mkdirSync(artifacts, {recursive:true});
 const root = mkdtempSync(resolve(artifacts, 'run-'));
 console.log(`ARTIFACTS ${root}`);
 const run = async (host, index, build = false, mode = '0', profile = 'gpu-dev') => {
+  progress.set({phase:`${host} ${mode} ${profile} ${build ? 'build' : 'proof'}`});
   const destination = host === 'ios' && device ? 'ios-device' : host;
   const out = resolve(root, `${destination}-${mode}-${build ? 'build' : index}${profile === 'release' ? '-release' : ''}`);
   mkdirSync(out, {recursive:true});
