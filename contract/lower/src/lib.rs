@@ -137,6 +137,7 @@ pub(crate) struct Lowerer<'a> {
     text_styles: Option<&'a mut warnings::TextStyles>,
     pub types: &'a Types,
     pub root: &'a contract_syntax::Component,
+    pub canvas_targets: std::collections::BTreeSet<String>,
     pub ty_ids: BTreeMap<String, TypesId>,
     pub slots: Vec<exact_plan::SlotsId>,
     pub derives: Vec<exact_plan::DerivesId>,
@@ -299,6 +300,11 @@ fn lower_with_sites(
         text_styles,
         types,
         root,
+        canvas_targets: file
+            .components
+            .iter()
+            .flat_map(|c| stmts::canvas_targets(&c.view))
+            .collect(),
         ty_ids: BTreeMap::new(),
         slots: Vec::new(),
         derives: Vec::new(),

@@ -1908,6 +1908,7 @@ argument validation. Use the working implementation when selecting arguments:
 
 | Operation | Starting point |
 | --- | --- |
+| `postMessage(text, target)`: string replies or theme/context updates to a live iframe by `id` (Apple and both web executors), or ordered messages to a canvas by literal surface name. Iframe targets may be computed strings; missing, ambiguous, replaced or navigation-revoked iframe targets are dropped without entering the canvas queue. The guest receives a string; send JSON text when needed. | [Iframe fixture](../scripts/fixtures/iframe-post-messages.contract), [compiler tests](../contract/cli/tests/it/post_message.rs) |
 | `focus(id)` | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `format(id, command[, argument])`: a Markdown editor's toolbar command ([Markdown](#markdown-markup-format-select)) | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |

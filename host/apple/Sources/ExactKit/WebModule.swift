@@ -39,6 +39,7 @@ private final class WebModule {
     typealias CreateFn = @convention(c) (UInt32, UnsafeMutableRawPointer?, WebEventFn?, WebReplyFn?) -> UnsafeMutableRawPointer?
     typealias PlatformViewFn = @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
     typealias SetFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32) -> Void
+    typealias PostFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
     typealias SnapshotFn = @convention(c) (UnsafeMutableRawPointer?, UInt32) -> Void
     typealias EvalFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
     typealias DestroyFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
@@ -50,6 +51,7 @@ private final class WebModule {
     let setSrc: SetFn
     let setDocument: SetFn
     let setSandbox: SetFn
+    let postMessage: PostFn
     let snapshot: SnapshotFn
     let evaluate: EvalFn
     let destroy: DestroyFn
@@ -66,6 +68,7 @@ private final class WebModule {
               let setSrc = symbol("exact_web_set_src", SetFn.self),
               let setDocument = symbol("exact_web_set_document", SetFn.self),
               let setSandbox = symbol("exact_web_set_sandbox", SetFn.self),
+              let postMessage = symbol("exact_web_post_message", PostFn.self),
               let snapshot = symbol("exact_web_snapshot", SnapshotFn.self),
               let evaluate = symbol("exact_web_agent_eval", EvalFn.self),
               let destroy = symbol("exact_web_destroy", DestroyFn.self),
@@ -77,14 +80,14 @@ private final class WebModule {
         setReader(exactWebAssetRead)
         return .success(WebModule(
             library: library, create: create, platformView: platformView,
-            setSrc: setSrc, setDocument: setDocument, setSandbox: setSandbox, snapshot: snapshot,
+            setSrc: setSrc, setDocument: setDocument, setSandbox: setSandbox, postMessage: postMessage, snapshot: snapshot,
             evaluate: evaluate, destroy: destroy))
     }
 
     private init(
         library: UnsafeMutableRawPointer, create: @escaping CreateFn,
         platformView: @escaping PlatformViewFn, setSrc: @escaping SetFn, setDocument: @escaping SetFn,
-        setSandbox: @escaping SetFn, snapshot: @escaping SnapshotFn,
+        setSandbox: @escaping SetFn, postMessage: @escaping PostFn, snapshot: @escaping SnapshotFn,
         evaluate: @escaping EvalFn, destroy: @escaping DestroyFn
     ) {
         self.library = library
@@ -93,6 +96,7 @@ private final class WebModule {
         self.setSrc = setSrc
         self.setDocument = setDocument
         self.setSandbox = setSandbox
+        self.postMessage = postMessage
         self.snapshot = snapshot
         self.evaluate = evaluate
         self.destroy = destroy
@@ -297,6 +301,22 @@ final class WebViews {
         data.withUnsafeBytes { bytes in
             setter(handle, bytes.bindMemory(to: UInt8.self).baseAddress, UInt32(data.count), 1)
         }
+    }
+
+    /// Replies are sent only to this mounted frame, never queued by its authored id.
+    func postMessage(_ target: String, _ text: String) {
+        let matches = entries.values.filter { $0.owner?.props["id"] == target }
+        guard matches.count == 1, let entry = matches.first, !entry.fileFailed,
+              let handle = entry.handle, let module else {
+            fputs("exact: postMessage: no unique live iframe with id \(target)\n", stderr)
+            return
+        }
+        Data(text.utf8).withUnsafeBytes { bytes in
+            module.postMessage(handle, bytes.bindMemory(to: UInt8.self).baseAddress, UInt32(bytes.count))
+        }
+    }
+    func hasFrame(_ target: String) -> Bool {
+        entries.values.contains { $0.owner?.props["id"] == target }
     }
 
     func destroy(id: UInt32) {
