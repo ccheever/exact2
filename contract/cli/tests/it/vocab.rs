@@ -1015,13 +1015,14 @@ fn a_miss_points_at_what_it_means() {
         assert_eq!(output.status.code(), Some(1), "{name}");
         String::from_utf8(output.stderr).unwrap()
     };
-    for name in ["random", "shuffle"] {
-        let err = refused(name);
-        assert!(
-            err.contains("try `contract vocab random-and-shuffle` (a recipe)"),
-            "{err}"
-        );
-    }
+    let err = refused("shuffle");
+    assert!(
+        err.contains("try `contract vocab random-and-shuffle` (a recipe)"),
+        "{err}"
+    );
+    // `random` is a refused idiom, whose refusal names the recipe's section.
+    let err = refused("random");
+    assert!(err.contains("docs/recipes/random-rolls.md"), "{err}");
     assert!(refused("dates").contains("`contract vocab date` (a concept)"));
     assert!(refused("storage").contains("`contract vocab persist` (a concept)"));
     assert!(refused("checkbox").contains("`input type=\"checkbox\""));
@@ -1030,7 +1031,7 @@ fn a_miss_points_at_what_it_means() {
     assert!(stdout(&vocab(&["segment"])).contains("choice (a concept)"));
     assert!(stdout(&vocab(&["state"])).contains("action (a concept)"));
     // What a miss names is itself an answer.
-    let named = refused("checkbox") + &refused("strikethrough") + &refused("random");
+    let named = refused("checkbox") + &refused("strikethrough") + &refused("shuffle");
     for name in ["input", "text-decoration", "random-and-shuffle"] {
         assert!(named.contains(&format!("contract vocab {name}`")));
         stdout(&vocab(&[name]));

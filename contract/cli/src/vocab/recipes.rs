@@ -48,6 +48,7 @@ pub const RECIPES: &[(&str, &str)] = &[
     recipe!("porting-and-release"),
     recipe!("ports-and-browsers"),
     recipe!("random-and-shuffle"),
+    recipe!("random-rolls"),
     recipe!("responsive-columns"),
     recipe!("rest-backend"),
     recipe!("snapback"),

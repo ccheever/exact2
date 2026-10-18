@@ -558,7 +558,7 @@ function refusal(node,local) {
     const callee=node.callee;
     if (member(callee,'Date','now',local)) return ambient('Date.now()');
     if (member(callee,'performance','now',local)) return ambient('performance.now()');
-    if (member(callee,'Math','random',local)) return 'Math.random() is unavailable in data sources; seed from crypto.getRandomValues in a source (docs/recipes/random-and-shuffle.md), or pass a seed as an argument';
+    if (member(callee,'Math','random',local)) return 'Math.random() is unavailable in data sources; seed from crypto.getRandomValues in a source (docs/recipes/random-and-shuffle.md), or pass a seed as an argument; a roll in the view needs no source (docs/recipes/random-rolls.md)';
     if (ambientGlobal(callee,'Date',local)) return ambient('Date()');
     const timer=TIMERS.find(name=>ambientGlobal(callee,name,local));
     if (timer) return timers(timer+'()');
