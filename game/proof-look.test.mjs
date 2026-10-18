@@ -4,7 +4,8 @@
 import {test, expect} from 'bun:test';
 import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
-import {equal, frameTells, lookAcrossRuns, lookOnlyFailure, lookResult, tellOf, worldJournal} from './proof.mjs';
+import {equal, frameTells, lookAccount, lookAcrossRuns, lookOnlyFailure, lookResult, tellOf, worldJournal} from './proof.mjs';
+import {tmpdir} from 'node:os';
 import {createGame} from './new.mjs';
 import {lookAcross} from '../scripts/agent-inspect.mjs';
 
@@ -22,9 +23,34 @@ test('a two-world proof with one world unobserved is unverified, naming it', () 
   expect(lookResult({worlds:[], tells:[]}, none).detail).toBe('no world was shown');
   const failed = lookResult({worlds:[seen(1), {session:2, canvas:'world', error:'look frame failed: lost'}], tells:[]}, none);
   expect(failed.status).toBe('UNVERIFIED');
-  // A world a settle showed that was gone by the close (proof.mjs's accounting) is a gap, not a pass.
-  const vanished = lookResult({worlds:[seen(1), {session:1, id:9, canvas:9, error:'shown, and never looked at'}], tells:[]}, none);
-  expect([vanished.status, vanished.detail]).toEqual(['UNVERIFIED', 'session 1 9: shown, and never looked at']);
+});
+
+/** A session whose world, canvas 8, answers a look frame with no tells. */
+const fakeSession = () => ({
+  target: async () => ({id:8}),
+  op: async () => ({tick:1, hash:'0x1', w:1, h:1, width:1, height:1, data:Buffer.from([0, 0, 0, 255]).toString('base64'), look:{tells:[], gaps:[]}}),
+});
+
+test('the accumulator: a world shown and gone unseen is a gap; an explicit look from the camera sees it', async () => {
+  const out = mkdtempSync(resolve(tmpdir(), 'look-account-'));
+  try {
+    const session = fakeSession();
+    const result = account => lookResult({...account.looks, worlds:account.worlds()}, none);
+    // A settle showed canvas 9, which was gone before the close: never looked at.
+    const vanished = lookAccount(out, () => 1);
+    vanished.replied({session:1, method:'clock', reply:{world:[{canvas:9, tick:4}]}});
+    expect([result(vanished).status, result(vanished).detail]).toEqual(['UNVERIFIED', 'session 1 9: shown, and never looked at']);
+    // A tree showed canvas 8, the script looked at it from the game's camera, and the canvas was gone at the close.
+    const explicit = lookAccount(out, s => (s === session ? 1 : undefined));
+    explicit.replied({session:1, method:'tree', reply:{nodes:[{id:8, world:{}, props:{testId:'world'}}]}});
+    await explicit.look(session, {}, 'look', 'world');
+    expect(result(explicit).status).toBe('PASS');
+    // A plan view is a picture: it looks at nothing.
+    const plan = lookAccount(out, s => (s === session ? 1 : undefined));
+    plan.replied({session:1, method:'tree', reply:{nodes:[{id:8, world:{}, props:{testId:'world'}}]}});
+    await plan.look(session, {top:30}, 'plan', 'world');
+    expect([result(plan).status, result(plan).detail]).toEqual(['UNVERIFIED', 'session 1 world: shown, and never looked at']);
+  } finally { rmSync(out, {recursive:true, force:true}); }
 });
 
 test('a measurement not taken leaves the look unverified, never passed', () => {

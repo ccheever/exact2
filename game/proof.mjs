@@ -548,6 +548,50 @@ export function lookResult({worlds, tells, gaps = []}, silence) {
     : `${quiet.length} tells${quiet.length ? ' silenced' : ''}`;
   return {status, detail, loud, quiet, missing};
 }
+// One proof's look accounting (LLP 1127.000 D5): the pictures and judged
+// frames, every world a session showed (by session and canvas id), and the
+// ones a closing look frame, a judged settle or screenshot, or an explicit
+// look(…) looked at. `idOf(session)` names a session; `out` the artifacts.
+export function lookAccount(out, idOf) {
+  const looks = {closing:new Map(), pictures:[], pages:[], sheets:[], tells:[], gaps:[], frames:0};
+  const shown = new Map(), lookedAt = new Set();
+  // Each judged frame's tells, marked with the frame (a tell several frames told counts each), and its gaps.
+  const noteFrame = ({frames, gaps}) => {
+    for (const tells of frames) { looks.frames += 1; looks.tells.push(...tells.map(t => ({...t, frame:looks.frames}))); }
+    looks.gaps.push(...gaps);
+  };
+  const show = (session, id, canvas = id) => { if (!shown.has(`${session}:${id}`)) shown.set(`${session}:${id}`, {session, id, canvas}); };
+  return {
+    looks, show,
+    // One look frame of a session's world, from `view` ({}, {top}, {yaw, pitch, distance}), into the artifacts. Only
+    // the game's own camera is judged, and a judged one looked at its canvas; another view is a picture.
+    async look(session, view = {}, label = 'look', canvas = 'world') {
+      const frame = await lookPicture(session, resolve(out, `${label}.png`), canvas, view);
+      looks.pictures.push(frame.screenshot);
+      const judged = frameTells(frame);
+      noteFrame(judged);
+      const sid = idOf(session);
+      if (sid != null && frame.canvas != null) {
+        show(sid, frame.canvas, canvas);
+        if (judged.frames.length) lookedAt.add(`${sid}:${frame.canvas}`);
+      }
+      return {picture:frame.screenshot, look:frame.look};
+    },
+    // A recorded reply ({session, method, reply}): the frames it judged, the worlds it showed (a settle's or a
+    // state's world list, a tree's canvases) and the canvases its tells looked at.
+    replied({session, method, reply}) {
+      if (['clock', 'screenshot', 'state'].includes(method)) noteFrame(frameTells(reply));
+      for (const w of Array.isArray(reply?.world) ? reply.world : []) if (w?.canvas != null) show(session, w.canvas);
+      if (method === 'tree') for (const n of reply?.nodes ?? []) if (n.world) show(session, n.id, n.props?.testId ?? n.id);
+      for (const id of reply?.lookSeen ?? []) lookedAt.add(`${session}:${id}`);
+    },
+    // Every world shown: its closing look frame's record, or seen by a judged frame, or a gap.
+    worlds() {
+      return [...shown].map(([key, w]) => looks.closing.get(key)
+        ?? (lookedAt.has(key) ? {...w, picture:'a judged frame'} : {...w, error:'shown, and never looked at'}));
+    },
+  };
+}
 // The look result across hosts and runs (prove.mjs): a FAIL anywhere fails
 // it; it passes only when every expected run ({host, repeat}) has a summary
 // whose look passed, and a run with none, or none with a look, is a named gap.
@@ -628,23 +672,8 @@ export async function proof(meta, script) {
   const {pins, pin, pinSave} = pinRecorder(previousPins, app, check, collecting);
   // The look step runs once per proof mode 0: the paranoid modes check the simulation.
   const silence = lookSilence(app), looking = (process.env.EXACT_GAME_PARANOID ?? '0') === '0';
-  const looks = {closing:new Map(), pictures:[], pages:[], sheets:[], tells:[], gaps:[], frames:0};
-  // Each judged frame's tells, marked with the frame (a tell several frames told counts each), and its gaps.
-  const noteFrame = ({frames, gaps}) => {
-    for (const tells of frames) { looks.frames += 1; looks.tells.push(...tells.map(t => ({...t, frame:looks.frames}))); }
-    looks.gaps.push(...gaps);
-  };
-  // Every world a session showed, by session and canvas id, and the ones a judged frame looked at.
-  const shown = new Map(), lookedAt = new Set();
-  const show = (session, id, canvas = id) => { if (!shown.has(`${session}:${id}`)) shown.set(`${session}:${id}`, {session, id, canvas}); };
-  // One look frame of a session's world, from `view` ({}, {top}, {yaw, pitch, distance}), into the artifacts. Only
-  // the game's own camera is judged: another view is a picture.
-  const look = async (session, view = {}, label = 'look', canvas = 'world') => {
-    const frame = await lookPicture(session, resolve(out, `${label}.png`), canvas, view);
-    looks.pictures.push(frame.screenshot);
-    noteFrame(frameTells(frame));
-    return {picture:frame.screenshot, look:frame.look};
-  };
+  const sessionIds = new WeakMap(), account = lookAccount(out, session => sessionIds.get(session));
+  const {looks, show} = account, look = (...args) => account.look(...args);
   // At a session's close: each world's look frame from its own camera at the held tick, which is judged; the page
   // as composited where the canvas draws; and a contact sheet over 600 ms at half resolution, which is a picture.
   const lookStep = async (raw, id) => {
@@ -736,7 +765,8 @@ export async function proof(meta, script) {
     } };
     sessions.add({close});
     const id = sessions.size;
-    return new Proxy(raw, {get(target, method) {
+    sessionIds.set(raw, id);
+    const session = new Proxy(raw, {get(target, method) {
       if (method === 'close') return close;
       // world(name) runs with the proxy as its receiver: its operations stay recorded.
       if (!['tap','type','clock','state','tree','layout','logs','screenshot'].includes(method)) return target[method];
@@ -751,6 +781,8 @@ export async function proof(meta, script) {
         }
       };
     }});
+    sessionIds.set(session, id);
+    return session;
   };
   let inputDigest, sourceInputDigest, lookFailed = false;
   try {
@@ -848,16 +880,9 @@ export async function proof(meta, script) {
     const partial = process.argv.some(arg => ['--build-only','--screenshot-only','--capture40'].includes(arg));
     const simulation = proofStatus({failures, expected:previousPins, pins, collecting, partial});
     // The frames the script's settles, screenshots and look requests judged (agent-inspect.mjs worldTells), and the
-    // worlds every reply showed: a settle's or a state's world list, a tree's canvases.
-    for (const r of replies) {
-      if (['clock', 'screenshot', 'state'].includes(r.method)) noteFrame(frameTells(r.reply));
-      for (const w of Array.isArray(r.reply?.world) ? r.reply.world : []) if (w?.canvas != null) show(r.session, w.canvas);
-      if (r.method === 'tree') for (const n of r.reply?.nodes ?? []) if (n.world) show(r.session, n.id, n.props?.testId ?? n.id);
-      for (const id of r.reply?.lookSeen ?? []) lookedAt.add(`${r.session}:${id}`);
-    }
-    // A world counts as seen by its closing look frame or a judged frame; one shown and never looked at is a gap.
-    const worlds = [...shown].map(([key, w]) => looks.closing.get(key)
-      ?? (lookedAt.has(key) ? {...w, picture:'a judged settle or screenshot'} : {...w, error:'shown, and never looked at'}));
+    // worlds every reply showed; a world shown and never looked at is a gap.
+    for (const r of replies) account.replied(r);
+    const worlds = account.worlds();
     const seen = lookResult({...looks, worlds}, silence), lookFailures = [];
     // A tell fails the look, never the simulation: its own list, its own line.
     for (const tell of seen.loud) {
