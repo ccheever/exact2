@@ -1726,6 +1726,7 @@ dependencies = [
  "exact-linux",
  "exact-runner",
  "softbuffer",
+ "windows-sys 0.61.2",
  "winit",
 ]
 

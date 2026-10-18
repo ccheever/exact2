@@ -4,6 +4,8 @@
 #![deny(missing_docs)]
 
 #[cfg(windows)]
+mod pads;
+#[cfg(windows)]
 mod window;
 
 /// Run a Windows app with its display name, baked plan and product identity.

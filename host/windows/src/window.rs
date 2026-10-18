@@ -43,6 +43,7 @@ struct App<D: DataSource> {
     samples: Vec<(f64, f64, f64)>,
     frame_limit: Option<u64>,
     first_tap: Option<String>,
+    pads: crate::pads::Pads,
 }
 
 impl<D: DataSource> Drop for App<D> {
@@ -171,6 +172,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         samples: Vec::new(),
         frame_limit,
         first_tap,
+        pads: Default::default(),
     };
     if let Err(e) = event_loop.run_app(&mut state) {
         eprintln!("exact-windows: {e}");
@@ -472,6 +474,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
                     self.buttons = 0;
                     let _ = p.pointer_lost(now);
                     p.blur();
+                    self.pads.forget();
                 }
             }
             WindowEvent::Occluded(occluded) => {
@@ -551,10 +554,16 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
         }
     }
     fn about_to_wait(&mut self, events: &ActiveEventLoop) {
-        let Some(p) = &self.presenter else { return };
+        let Some(p) = &mut self.presenter else { return };
         if self.minimized {
             events.set_control_flow(ControlFlow::Wait);
             return;
+        }
+        // Pads are polled while the window has focus (below: woken for while one is connected).
+        if self.focused {
+            self.pads.poll(|index, connected, buttons, axes| {
+                p.hardware_pad(index, connected, buttons, axes)
+            });
         }
         if self.frame_limit.is_some() || p.wants_display_frames() || p.host().motion() {
             if Instant::now() >= self.next_frame {
@@ -573,6 +582,12 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
             events.set_control_flow(ControlFlow::WaitUntil(deadline));
         } else {
             events.set_control_flow(ControlFlow::Wait);
+        }
+        if self.focused && self.pads.any() {
+            let soon = Instant::now() + Duration::from_millis(8);
+            if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= soon) {
+                events.set_control_flow(ControlFlow::WaitUntil(soon));
+            }
         }
     }
 }
