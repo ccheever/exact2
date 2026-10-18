@@ -297,6 +297,7 @@ extension NodeView {
     /// its author wrote it on this node, a platform colour and one equal to
     /// its parent's included. Nil leaves the control the platform's (D4).
     func ownColor(_ key: String) -> BatchValue? { wrote(key) ? style[key] : nil }
+    package var fieldInk: UIColor { color("text_color", SystemColor.canvasText) }
     /// `ownColor` as this node draws it now, or nil.
     func ownUIColor(_ key: String) -> UIColor? {
         ownColor(key) == nil ? nil : cgColor(key).map { UIColor(cgColor: $0) }
