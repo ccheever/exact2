@@ -39,7 +39,7 @@ component ReviewView
               if data.error == ""
                 if data.raw == ""
                   text data.emptyTitle font-size=12.25 font-weight=700 color=colors.foreground
-                text data.emptyDetail font-size=10.5 line-height="15.75px" color=colors.muted
+                text data.emptyDetail font-size=rawFontSize line-height=`${rawFontSize * 1.5}px` color=colors.muted
               if data.raw != ""
                 view overflow-x="auto" margin-top=10.5
                   text data.raw font-family="Menlo" font-size=rawFontSize line-height=`${rawFontSize * 1.625}px` white-space="pre" color=colors.foreground
