@@ -29,6 +29,7 @@ import { usagePage, usageKeys, plotWidth } from './src/usage/pages-usage';
 import { pagesSource } from './src/pages/pages-sources';
 import { ariaChord } from './src/shell/keyboard-dispatch';
 import { snapshot, modelCatalog } from './src/client/presentation';
+import { noteComposerTyping } from './src/composer/composer-typing-guard';
 import { obj, str, type Obj } from './src/client/domain';
 import { nativeFiles, type Native, type Files } from './src/client/protocol';
 import { adoptAppFiles } from './src/media/save-file';
@@ -94,6 +95,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     transport.observe(Number(args[0]) || 0); // the tick's clock, until its first tick
     noteServerUpdateClock(client, String(args[1] ?? ''), String(args[2] ?? '')); // server-update-notices.ts: the 2 s and 20 s timers
     noteTranscriptFacts(client, args); // the transcript's viewport (transcript-facts.ts)
+    noteComposerTyping(client, args[9] === true); // the composer's typing clock (composer-typing-guard.ts)
     await client.refresh(native, storage);
     await prepareTimeline(client, native); // Mermaid layouts and the worktree setup stream (timeline-prepare.ts).
     await autoBalancePrepare(client, native); // auto-balance.ts

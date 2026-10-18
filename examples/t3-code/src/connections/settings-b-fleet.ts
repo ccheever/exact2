@@ -8,6 +8,7 @@
 // cover them all. The primary environment (local-primary.ts, the embedded server)
 // is one of them whenever it is not the focus: it connects with `primary: true`
 // (its bearer is the embedded server's, in memory) and is never saved.
+import { pendingSubagentRequestsByThread } from '../sidebar/subagent-requests';
 import { obj, str, num, arr, initialShell, applyShell, type Obj, type Shell } from '../client/domain';
 import { bridgeReply, applyConfig, type Native } from '../client/protocol';
 import { announceJobs } from './settings-b-outdated';
@@ -355,8 +356,9 @@ export function fleetThreads(source: EnvironmentFleet = fleet): Obj[] {
     if (entry.phase !== 'connected' || entry.synchronized !== entry.generation) continue;
     const label = str(obj(entry.config.environment).label), kind = kindOf(entry.config);
     const titles = new Map(entry.shell.projects.map(project => [str(project.id), str(project.title)]));
+    const requests = pendingSubagentRequestsByThread(entry.shell.threads); // a copy carries its hidden subagent's request
     for (const thread of entry.shell.threads) {
-      threads.push({ ...thread, id: fleetThreadId(entry.environmentId, str(thread.id)), projectId: `fleet:${entry.environmentId}:${str(thread.projectId)}`,
+      threads.push({ ...thread, pendingSubagentRequest: requests.get(str(thread.id)) ?? null, id: fleetThreadId(entry.environmentId, str(thread.id)), projectId: `fleet:${entry.environmentId}:${str(thread.projectId)}`,
         fleetKey: entry.key, fleetProjectTitle: titles.get(str(thread.projectId)) ?? '', fleetEnvironmentLabel: label, fleetMachine: kind });
     }
   }

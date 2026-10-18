@@ -132,7 +132,7 @@ export function checkMenu(presentation: Obj, rows: CheckRow[], extra: string[] =
  * the Interface font size (the root font size) as the reference's rem-sized popups do.
  */
 export const ROOT_SIZED_MENU_FIELDS = ['effortMenuWidth', 'runtimeMenuWidth', 'effortMenuHeight', 'runtimeMenuHeight',
-  'moreMenuWidth', 'restingMoreMenuWidth', 'moreMenuHeight', 'restingMoreMenuHeight', 'sendTipWidth'] as const;
+  'moreMenuWidth', 'restingMoreMenuWidth', 'moreMenuHeight', 'restingMoreMenuHeight', 'sendTipWidth', 'compactWidth'] as const;
 export function atRootFontSize<T extends object>(row: T, rootFontSize: number): T {
   if (rootFontSize === 16) return row;
   const out = { ...row } as Record<string, unknown>;
