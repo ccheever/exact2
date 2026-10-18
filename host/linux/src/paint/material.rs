@@ -278,14 +278,16 @@ impl super::Painter {
         } else {
             x + inset()
         };
-        // An authored `::placeholder` colour wins (LLP 1104 D3); at rest the
-        // label is the `placeholder` role (Material's onSurfaceVariant, which
-        // a design's `placeholder` overrides: LLP 1121 D9).
+        // An authored `::placeholder` colour wins (LLP 1104 D3). Enabled and
+        // unfocused, resting or floated, the label is Material's
+        // onSurfaceVariant (`-exact-secondary-label`), or the design's
+        // `placeholder` where it overrides that role (LLP 1121 D9).
         let ink = match super::control::authored_placeholder(node.style, dark) {
             Some(ink) => ink,
             None if disabled(node) => look::role("GrayText", dark),
             None if focused => super::control::ring(node, dark),
-            None => look::role("-exact-placeholder", dark),
+            None if placeholder_overridden() => look::role("-exact-placeholder", dark),
+            None => look::role("-exact-secondary-label", dark),
         };
         self.backend.push_clip(
             &Shape::rect((x + inset(), y, (w - 2.0 * inset()).max(0.0), h)),
@@ -393,5 +395,35 @@ fn role_path(d: &str, filled: bool) -> exact_kernel::SymbolPath<'_> {
         filled,
         even_odd: true,
         view_box: "0 0 24 24",
+    }
+}
+
+/// Whether the design overrides the `placeholder` role (LLP 1095 D4).
+fn placeholder_overridden() -> bool {
+    exact_kernel::style::roles::role("-exact-placeholder")
+        .is_some_and(|id| exact_kernel::style::roles::overridden(id).is_some())
+}
+
+#[cfg(test)]
+mod placeholder_tests {
+    use exact_kernel::style::roles;
+    use exact_kernel::ColorValue;
+
+    /// The label's role: `placeholder` only where the design overrides it,
+    /// else Material's onSurfaceVariant as before (stage 8 C's gap, review 1).
+    #[test]
+    fn the_label_reads_placeholder_only_where_the_design_overrides_it() {
+        roles::set_overrides(Vec::new());
+        assert!(!super::placeholder_overridden());
+        let id = roles::role("-exact-placeholder").unwrap();
+        roles::set_overrides(vec![(
+            id,
+            ColorValue::LightDark(
+                exact_kernel::Color(0xd948_0fff),
+                exact_kernel::Color(0xd948_0fff),
+            ),
+        )]);
+        assert!(super::placeholder_overridden());
+        roles::set_overrides(Vec::new());
     }
 }
