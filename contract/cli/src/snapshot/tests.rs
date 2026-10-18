@@ -209,8 +209,8 @@ fn manifest_entries_do_not_change_the_app_plan() {
     let before = crate::compile_path(&path).unwrap().encode();
     json["widgets"] = json!([{"kind":"next-trains","families":["systemSmall"],"component":"Card","props":"Props","refresh":"refreshCard","preview":{"title":"Next train"}}]);
     std::fs::write(dir.join("app.json"), json.to_string()).unwrap();
-    let manifest = Manifest::read(&dir).unwrap();
-    let entries = compile_widgets(&dir, &manifest).unwrap();
+    let manifest = Manifest::read(dir).unwrap();
+    let entries = compile_widgets(dir, &manifest).unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries["next-trains"].plan.app_id, "test.snapshot");
     assert_eq!(before, crate::compile_path(&path).unwrap().encode());
