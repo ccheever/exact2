@@ -25,6 +25,74 @@ fn an_old_spelling_is_refused_with_the_css_name() {
     assert!(e.message.contains("`aria-label`"), "{e}");
 }
 
+/// What a React Native port writes first is refused with what to write
+/// (the euxy port, 2026-10-17: 19 of 50 compiles refused).
+#[test]
+fn a_react_native_habit_is_refused_with_what_to_write() {
+    for (line, id, needle) in [
+        (
+            "text \"a\" numberOfLines=2",
+            "lower-unknown-attr",
+            "`line-clamp`",
+        ),
+        (
+            "text \"a\" ellipsizeMode=\"tail\"",
+            "lower-unknown-attr",
+            "`text-overflow`",
+        ),
+        (
+            "image \"a.png\" resizeMode=\"cover\"",
+            "lower-unknown-attr",
+            "`object-fit`",
+        ),
+        (
+            "text \"a\" textTransform=\"uppercase\"",
+            "lower-unknown-attr",
+            "`text-transform`",
+        ),
+        (
+            "view paddingHorizontal=16",
+            "lower-unknown-attr",
+            "`padding-left` and `padding-right`",
+        ),
+        (
+            "view marginVertical=8",
+            "lower-unknown-attr",
+            "`margin-top` and `margin-bottom`",
+        ),
+        ("view shadowRadius=4", "lower-unknown-attr", "`box-shadow="),
+        ("view elevation=4", "lower-attr-tag", "`box-shadow="),
+        (
+            "text \"a\" selectable=true",
+            "lower-unknown-attr",
+            "`user-select=\"text\"`",
+        ),
+        (
+            "text \"a\" font-weight=\"bold\"",
+            "lower-attr-value",
+            "write `font-weight=700`",
+        ),
+        (
+            "text \"a\" font-weight=\"normal\"",
+            "lower-attr-value",
+            "write `font-weight=400`",
+        ),
+    ] {
+        let src = format!("component A\n  view\n    column\n      {line}\n");
+        let e = contract::compile(&src).unwrap_err();
+        assert_eq!(e.id, id, "{line}: {e}");
+        assert!(e.message.contains(needle), "{line}: {e}");
+    }
+    // A keyframe's unit needs quotes, as an element's does; and a keyframe is one line.
+    let src = "keyframes W\n  from rotate=-2deg\n  to rotate=2deg\ncomponent A\n  view\n    text \"a\" animation=\"W 1s\"\n";
+    let e = contract::compile(src).unwrap_err();
+    assert_eq!(e.id, "syntax-unquoted-length", "{e}");
+    assert!(e.message.contains("`rotate=\"-2deg\"`"), "{e}");
+    let src = "keyframes W\n  from\n    opacity=0\ncomponent A\n  view\n    text \"a\" animation=\"W 1s\"\n";
+    let e = contract::compile(src).unwrap_err();
+    assert!(e.message.contains("a keyframe is one line"), "{e}");
+}
+
 #[test]
 fn a_literal_value_is_checked_against_its_row_at_compile_time() {
     for (src, id, needle) in [

@@ -239,9 +239,12 @@ fn a_value_nothing_names_an_edit_for_keeps_its_rule() {
         bleu.starts_with("`color=\"bleu\"` is not a valid `color`: a color is a CSS colour"),
         "{bleu}"
     );
-    // A quoted word is not a number to unquote.
+    // A quoted word is not a number to unquote; CSS's two weight keywords
+    // are named by their numbers.
+    let heavy = message("text \"a\" font-weight=\"heavy\"");
+    assert!(heavy.ends_with("expected integer"), "{heavy}");
     let bold = message("text \"a\" font-weight=\"bold\"");
-    assert!(bold.ends_with("expected integer"), "{bold}");
+    assert!(bold.starts_with("write `font-weight=700`"), "{bold}");
     // A value the row refuses even as a number is not told to be one.
     let negative = message("text \"a\" line-clamp=\"-1\"");
     assert!(negative.ends_with("expected integer"), "{negative}");
