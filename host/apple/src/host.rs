@@ -1074,6 +1074,21 @@ impl<D: DataSource> Host<D> {
         self.resize_inner(width, height, Batch::new(), None)
     }
 
+    /// A view's shrink-to-fit box at `available` points (`Kernel::fit_content_box`),
+    /// as JSON `[width, height, left, top, right, bottom, authored]`; an error names the view.
+    pub fn fit_content_box(&mut self, view: ViewId, available: f32) -> String {
+        let kernel = self.runner.kernel_mut();
+        let Some(key) = kernel.node(view).map(|n| n.key) else {
+            return serde_json::json!({"error": format!("no view {view}")}).to_string();
+        };
+        match kernel.fit_content_box(key, available) {
+            Some(b) => serde_json::to_string(&b).unwrap(),
+            None => {
+                serde_json::json!({"error": format!("view {view} is not laid out")}).to_string()
+            }
+        }
+    }
+
     /// The date (LLP 1027.000.000): re-answer `exactTime` in one commit.
     pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> String {
         match self.runner.set_time(epoch_at_zero, utc_offset) {

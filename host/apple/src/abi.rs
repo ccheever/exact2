@@ -1243,6 +1243,15 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// A view's shrink-to-fit box (LLP 1126.001 WP10): JSON in the output.
+    pub fn fit_content_box(&mut self, view: u32, available: f32) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.fit_content_box(view, available));
+        self.emit(out)
+    }
+
     /// The page's facts changed or became known (LLP 1069.000 D2): bit 0
     /// hidden, bit 1 offline, bit 2 a share sheet.
     pub fn set_page(&mut self, bits: u32) -> u32 {

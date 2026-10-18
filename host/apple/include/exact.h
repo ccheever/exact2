@@ -655,6 +655,9 @@ void exact_measure_work_later(void);
 uint32_t exact_measure_work(ExactRuntime rt);
 uint32_t exact_canvas_draw(ExactRuntime rt);
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
+/* A view's shrink-to-fit box at `available` points (LLP 1126.001 WP10): exact_out holds
+ * JSON [width, height, margin left, top, right, bottom, authored width 0|1], or {"error": …}; returns its length. */
+uint32_t exact_fit_content_box(ExactRuntime rt, uint32_t view, float available);
 /* Opaque row key in the input buffer; UINT32_MAX means absent. */
 uint32_t exact_list_index(ExactRuntime rt, uint32_t view, uint32_t len);
 /* Two concatenated UTF-8 keys in input; empty first key selects all text.

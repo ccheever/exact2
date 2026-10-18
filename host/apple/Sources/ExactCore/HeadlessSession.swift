@@ -198,6 +198,27 @@ public final class HeadlessSession {
         try turn(size: size) { core.runtime.resize(width: size.width, height: size.height) }
     }
 
+    /// A node's shrink-to-fit box at `available` points (`Kernel::fit_content_box`,
+    /// LLP 1126.001 WP10): the border box laid out alone as a flex item in a
+    /// row that wide (its max-content size clamped to the row, its own width
+    /// and limits and their percentages resolved against it), and the
+    /// margins the layout resolved. The tree is not laid out again.
+    public struct FittedBox {
+        public let size: CGSize
+        /// The resolved margins: left, top, right, bottom.
+        public let margins: (left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat)
+        /// Whether the width is the author's (`width`), kept past the row, or the content's.
+        public let authoredWidth: Bool
+        public var outerWidth: CGFloat { size.width + margins.left + margins.right }
+        public var outerHeight: CGFloat { size.height + margins.top + margins.bottom }
+    }
+    public func fitContentBox(_ node: UInt32, available: CGFloat) -> FittedBox? {
+        Owner.shared.sync {
+            guard !core.runtime.destroyed, let v = core.runtime.fitContentBox(node, available: available) else { return nil }
+            return FittedBox(size: CGSize(width: v[0], height: v[1]), margins: (v[2], v[3], v[4], v[5]), authoredWidth: v[6] > 0.5)
+        }
+    }
+
     /// Activate deferred data, drain ready replies and lay out their store changes.
     /// `now` is the runner clock in milliseconds; this session starts no timers.
     @discardableResult

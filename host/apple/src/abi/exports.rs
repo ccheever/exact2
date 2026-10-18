@@ -730,6 +730,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.resize(width, height), |n| n)
         }
 
+        /// A view's shrink-to-fit box at `available` points (LLP 1126.001 WP10): the
+        /// output holds JSON `[width, height, left, top, right, bottom, authored]`; returns its length.
+        #[no_mangle]
+        pub extern "C" fn exact_fit_content_box(rt: u32, view: u32, available: f32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.fit_content_box(view, available), |n| n)
+        }
+
         /// Resolve a logical row key in the input buffer, or UINT32_MAX.
         #[no_mangle]
         pub extern "C" fn exact_list_index(rt: u32, view: u32, len: u32) -> u32 {

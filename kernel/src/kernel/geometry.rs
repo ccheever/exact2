@@ -265,6 +265,80 @@ impl Kernel {
         (height.is_finite() && height >= 0.0).then_some(height)
     }
 
+    /// A node's shrink-to-fit box (CSS Sizing 3 §5.3, `fit-content`): its
+    /// subtree laid out alone as a flex item in a stand-in row `available`
+    /// points wide, so its width is its max-content size clamped to the
+    /// row (CSS Flexbox §9.2's hypothetical main size), its own `width`,
+    /// `min-width` and `max-width` and their percentages resolved against
+    /// `available`, its height its content's. Returns the border box's width
+    /// and height, the margins the layout resolved (left, top, right,
+    /// bottom) and whether the width was the author's (1) or the content's
+    /// (0): what a region the system sizes to its content takes (LLP
+    /// 1126.001 WP10). As [`Kernel::fit_content_height`], a trial in a
+    /// separate engine tree: the ordinary tree, its caches, frames and the
+    /// epoch are untouched; symbols owed a measurement are measured first.
+    /// `None` as for [`Kernel::laid_out_frame`], or when the trial fails.
+    pub fn fit_content_box(&mut self, key: NodeKey, available: f32) -> Option<[f32; 7]> {
+        use taffy::style::{
+            AlignItems, Dimension, Display, FlexDirection, JustifyContent, LengthPercentageAuto,
+        };
+        self.laid_out_frame(key)?;
+        self.measure_symbols();
+        let slot = key.index;
+        let (mut tree, nodes) = LayoutTree::of_subtrees(&self.arena, &[slot]);
+        let root = nodes[&slot];
+        let mut style = taffy_style(&self.arena, slot);
+        style.inset = taffy::geometry::Rect {
+            left: LengthPercentageAuto::auto(),
+            right: LengthPercentageAuto::auto(),
+            top: LengthPercentageAuto::auto(),
+            bottom: LengthPercentageAuto::auto(),
+        };
+        style.position = taffy::style::Position::Relative;
+        style.flex_grow = 0.0;
+        // An authored width is kept as written, past the row too (the
+        // author's); an automatic one shrinks to the row, never below its
+        // min-content (the automatic minimum size, CSS Flexbox §4.5).
+        let authored = style.size.width != Dimension::auto();
+        if authored {
+            style.flex_shrink = 0.0;
+        }
+        style.align_self = Some(taffy::style::AlignSelf::START);
+        tree.set_style(root, style);
+        let available = available.max(0.0);
+        let mut outer = taffy::style::Style::default();
+        outer.display = Display::Flex;
+        outer.flex_direction = FlexDirection::Row;
+        outer.justify_content = Some(JustifyContent::FLEX_START);
+        outer.align_items = Some(AlignItems::FLEX_START);
+        outer.size = taffy::geometry::Size {
+            width: Dimension::length(available),
+            height: Dimension::auto(),
+        };
+        outer.position = taffy::style::Position::Relative;
+        let holder = tree.new_leaf(outer, slot, false);
+        tree.set_children(holder, &[root]);
+        let offer = Offer {
+            width: AxisOffer::Definite(available),
+            height: AxisOffer::MaxContent,
+        };
+        tree.compute_mapped(holder, offer, &self.arena, self.measurer.as_mut(), &|s| {
+            nodes.get(&s).copied()
+        })
+        .ok()?;
+        let laid = tree.layout(root);
+        let box_ = [
+            laid.size.width,
+            laid.size.height,
+            laid.margin.left,
+            laid.margin.top,
+            laid.margin.right,
+            laid.margin.bottom,
+            if authored { 1.0 } else { 0.0 },
+        ];
+        box_.iter().all(|v| v.is_finite()).then_some(box_)
+    }
+
     /// The CSS padding the last layout resolved, in points: left, top,
     /// right, bottom. A percentage is of the containing block's width, which
     /// in a multi-column container is the column's (CSS Multi-column §3.4).
