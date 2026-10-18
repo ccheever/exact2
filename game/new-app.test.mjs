@@ -27,8 +27,9 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.match(agents(), /<!-- exact:begin[^]*`bun exact\.mjs feedback status` says whether this project keeps one\.[^]*<!-- exact:end -->/);
     assert.doesNotMatch(agents(), /first;|before writing code|Read the card|Run `bun exact\.mjs feedback/, 'no ordered preface');
     assert.doesNotMatch(agents(), /## The authoring diary|### Needed/);
-    // 1.5 KB, read at step one and carried to the end (LLP 1116.007 D2), and the three paths of a long temp dir
-    assert.ok(Buffer.byteLength(agents()) <= 1536 + 3 * resolve(import.meta.dir, '..').length, `AGENTS.md is ${Buffer.byteLength(agents())} bytes`);
+    // 1.5 KB, read at step one and carried to the end (LLP 1116.007 D2), besides the checkout's path in each path it names
+    const checkout = realpathSync(resolve(import.meta.dir, '..')), text = Buffer.byteLength(agents()) - (agents().split(checkout).length - 1) * checkout.length;
+    assert.ok(text <= 1536, `AGENTS.md is ${text} bytes besides the checkout's paths`);
     assert.match(agents(), /exact\.mjs setup --check/);
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
     // The runner is a few lines a builder can read (LLP 1116.006 D7): where the verbs are, and the checkout's app-cli.mjs.
@@ -272,6 +273,34 @@ test('a new app refuses a name no host crate can carry, and a directory that is 
     mkdirSync(resolve(parent, 'field-log'));
     writeFileSync(resolve(parent, 'field-log/stray'), '');
     assert.throws(() => createApp(resolve(parent, 'field-log')), /not empty/);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test('exact new names the app and its bundle id before any build, and refuses an id no platform takes', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const dir = resolve(parent, 'field-log');
+    assert.throws(() => createApp(dir, { id: 'com.yourcompany.field_log' }), /^Error: exact new --bundle-id com\.yourcompany\.field_log: not a reverse-DNS id;.* as com\.yourcompany\.fieldlog$/);
+    assert.throws(() => createApp(dir, { id: 'fieldlog' }), /not a reverse-DNS id/);
+    assert.throws(() => createApp(dir, { title: 'Field\nLog' }), /--name: give the name people see, on one line/);
+    assert.ok(!existsSync(dir), 'a refused name writes nothing');
+    createApp(dir, { title: 'Field "Log" $5', id: 'com.yourcompany.fieldlog' });
+    const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    assert.deepEqual([manifest.app, manifest.name, manifest.short_name, manifest.id], [{ id: 'com.yourcompany.fieldlog', name: 'Field "Log" $5' }, 'Field "Log" $5', 'Field "Log" $5', 'com.yourcompany.fieldlog']);
+    assert.match(readFileSync(resolve(dir, 'app.ts'), 'utf8'), /^export const appId = 'com\.yourcompany\.fieldlog';$/m);
+    const view = readFileSync(resolve(dir, 'app.contract'), 'utf8');
+    assert.match(view, /^component FieldLog$/m, 'the component keeps the folder\'s name, which is always an identifier');
+    assert.ok(view.includes('text "Field \\"Log\\" \\$5" role="heading"'), view);
+    // A pattern still sees the named app's files as exact new's, untouched.
+    assert.match(applyPattern(dir, 'one-screen').said, /as Field "Log" \$5 \(com\.yourcompany\.fieldlog\)$/);
+    // The flags name a new app: the CLI refuses them on --update and --game before touching anything.
+    const cli = (...args) => spawnSync(process.execPath, [resolve(import.meta.dir, '../scripts/exact.mjs'), 'new', ...args], { encoding: 'utf8' });
+    const update = cli(dir, '--update', '--bundle-id', 'com.yourcompany.other');
+    assert.deepEqual([update.status, /^update: unknown flag --bundle-id/.test(update.stderr)], [2, true], update.stderr);
+    const game = cli(resolve(parent, 'field-game'), '--game', '--bundle-id', 'com.yourcompany.other');
+    assert.deepEqual([game.status, /--name and --bundle-id name an app; a game/.test(game.stderr)], [1, true], game.stderr);
+    const bare = cli(dir, '--name');
+    assert.deepEqual([bare.status, /--name takes a value, as in --name "Field Log"/.test(bare.stderr)], [1, true], bare.stderr);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 

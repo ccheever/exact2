@@ -9,6 +9,7 @@ import { open, jsonLines, MalformedOperation, main } from './agent.mjs';
 import { chromium, launchFacts } from './agent-launch.mjs';
 import { need } from './coverage.mjs';
 import { typeCommand } from './agent-keys.mjs';
+import { stateOp } from './agent-inspect.mjs';
 
 need('chrome', chromium().unavailable)('the web agent keeps desktop input facts through preferences and injected touches', async () => {
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(
@@ -135,6 +136,23 @@ test('a press while a contact is held is refused before it reaches the carrier',
   s.contact = null;
   await s.tap('a');
   assert.deepEqual(calls.map(c => c[1]), ['press']);
+});
+
+// A game's canvas is `testId="world"`, and the web and Apple hosts add a `world` summary list to the app's record: `state world`
+// asks the engine (`world: true`, as `tree` does), never the record whose `world` section the name would otherwise read.
+test('state of a world\'s view asks its engine, not the record\'s world summary', async () => {
+  const asked = [], engine = { tick: 3, hash: '0x1', entities: [{ name: 'fox' }] };
+  const carrier = { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
+    async ask(req) {
+      if (req.op === 'tree') return { nodes: [{ id: 1, props: { testId: 'world' }, depth: 0, world: { name: 'world', entities: 1, tick: 3 } }, { id: 2, props: { testId: 'go' }, depth: 0 }] };
+      if (req.op === 'state') { asked.push(req); return req.world ? engine : { slots: {}, world: [{ canvas: 1, tick: 3, hash: '0x1' }] }; }
+      return {};
+    } };
+  const s = await open({ reuse: carrier });
+  assert.deepEqual(await stateOp(s, ['world']), engine);
+  assert.deepEqual(asked.at(-1), { op: 'state', id: 1, world: true });
+  assert.deepEqual(await stateOp(s, ['go']), { slots: {}, world: [{ canvas: 1, tick: 3, hash: '0x1' }] }); // a plain view: the record
+  assert.deepEqual(asked.at(-1), { op: 'state', id: 2 });
 });
 
 test('held request answers bypass tap and key delivery validation', async () => {

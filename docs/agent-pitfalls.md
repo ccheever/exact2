@@ -461,6 +461,27 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Porting a React Native app
 
+What a port writes from habit, what the compiler says, and what to write (the euxy port,
+2026-10-17: 19 of 50 compiles refused, most of them these). A warning builds; fix it anyway.
+
+| React Native writes | exact2 says | Write |
+|---|---|---|
+| `line-height=20` | `lower-line-height-multiplier` (warning) | `line-height="20px"`: a bare number is a multiplier, as in CSS |
+| `color="rgba(0,0,0,0.5)"`, `"#00000080"` | `lower-colour-one-scheme` (warning) | a role (`-exact-secondary-label`, `-exact-fill`), `light-dark(<light>, <dark>)`, or nothing |
+| `` text `${n} cards` `` | `lower-count-plural` (warning) | `` `${n} ${n == 1 ? "card" : "cards"}` `` |
+| `0% rotate=-2deg` in `keyframes` | `syntax-unquoted-length` | `0% rotate="-2deg"`, each keyframe on one line |
+| `tags.find(t => …)` | `syntax-method-call` | `first(tags.filter(t => …))`; in each row of a list, `lower-row-lookup` (warning): join it in the data module |
+| a helper action reading state its caller just set | `analyze-call-stale-read` | `let next = …` in the caller, `n = next`, pass `next` |
+| `width=120` on a box of text | `lower-text-px-width` (warning) | `width="7.5rem"`, or let the content size it |
+| `numberOfLines`, `ellipsizeMode`, `resizeMode`, `textTransform`, `fontVariant` | `lower-unknown-attr` | `line-clamp`, `text-overflow`, `object-fit`, `text-transform`, `font-variant-numeric` |
+| `backgroundColor`, `flexDirection`, `onPress`, `activeOpacity` | `lower-unknown-attr` | `background-color`, `flex-direction`, `press`, `-exact-press-opacity` |
+| `paddingHorizontal=16` | `lower-unknown-attr` | `padding-left=16 padding-right=16`, or `padding="0px 16px"` |
+| `marginVertical=8` | `lower-unknown-attr` | `margin-top=8 margin-bottom=8`, or `margin="8px 0px"` |
+| `shadowColor`, `shadowOpacity`, `shadowRadius`, `shadowOffset`, `elevation` | `lower-unknown-attr`, `lower-attr-tag` | one `box-shadow="<x>px <y>px <2 × radius>px <colour>"` (below) |
+| `font-weight="bold"`, `"600"` | `lower-attr-value` | `font-weight=700`, `font-weight=600` |
+| `transform="rotate(-2deg)"` | `lower-attr-tag` | `rotate="-2deg"`, `translate="0px 25px"`, `scale=0.8` |
+| a `ScrollView` in a `flex: 1` `View`: `column flex=1` › `scroll flex=1` | `lower-scroll-grows` (warning) | `min-height=0` on the column; the scroller alone needs none |
+
 What the original's style objects say is not always what its iOS screen shows. Port
 what the screenshot shows. (euxy port against its Expo original, judged screen by
 screen, 2026-10-16.)
@@ -469,6 +490,16 @@ screen, 2026-10-16.)
   and animated capsules are boxes, SVG, `box-shadow`, keyframes and transitions, which run on
   every platform and the agent can drive and compare. A native view is per-platform code to
   write and debug, and one added at launch slows it: keep it for platform APIs (video, maps).
+
+- **A costly answer one screen shows is asked for at launch and on every edit.** euxy's
+  share card, `resource share = shareInfo(pattern)`, encoded a QR code in the data module
+  when the app launched and again each time a step changed, though only the share screen
+  reads it. Cause: a root `resource` is asked for at launch and again whenever an argument
+  changes, as a React component's `useMemo` would recompute on render. Fix: give it state
+  the screen sets when it opens, `state sharing: option<Pattern> = none` and
+  `resource share = shareInfo(sharing) as shape ShareInfo`, with the source answering empty
+  for `none` (`null` in app.ts); the screen shows its card only when not `pending(share)`,
+  since the last pattern's answer stays until the new one lands.
 
 - **Compare each screen with its reference, not by eye:** `"screenshot .exact/x.png compare
   ref/x.png"` names each differing region's node and source line, a box's size measured in

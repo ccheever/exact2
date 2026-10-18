@@ -34,7 +34,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
   directory = realpathSync(directory);
   const quote = path => `'${path.replaceAll("'", "'\\''")}'`;
   const script = (file, from = process.cwd()) => quote(relative(from, resolve(directory, file)));
-  const title = name.split('-').map(word => word[0].toUpperCase() + word.slice(1)).join(' ');
+  const title = titleOf(name);
   const type = title.replaceAll(' ', '');
   for (const file of readdirSync(destination, {recursive:true, withFileTypes:true})) {
     if (!file.isFile()) continue;
@@ -117,6 +117,8 @@ export function createApp(destination, options = {}) {
     throw new Error('Usage: exact new <path> [--update | --snapback [--port <n>]] (the last part names the app: lowercase-hyphenated, no host suffix)');
   }
   if (options.update) return updateApp(dir, name, options);
+  if (options.id !== undefined && !BUNDLE_ID.test(options.id)) throw new Error(`exact new --bundle-id ${options.id}: not a reverse-DNS id; write two or more dot-separated parts of letters, digits and hyphens, each starting with a letter, as com.yourcompany.${name.replaceAll('-', '')}`);
+  if (options.title !== undefined && (!options.title.trim() || /[\x00-\x1f\x7f]/.test(options.title))) throw new Error('exact new --name: give the name people see, on one line, as --name "Field Log"');
   if (existsSync(dir) && readdirSync(dir).length) throw new Error(`${dir} already exists and is not empty`);
   const port = options.snapback ? snapbackPort(options.snapback.port) : null;
   if (options.snapback?.online && !existsSync(resolve(dir, '..', 'snapback/schema.q'))) throw new Error('exact new --snapback --online: write the backend schema above the app first; the guestbook starter uses a device');
@@ -124,9 +126,9 @@ export function createApp(destination, options = {}) {
   let created;
   const existingBackend = options.snapback && existsSync(resolve(dir, '..', 'snapback/schema.q'));
   try {
-    created = writeApp(dir, name);
+    created = writeApp(dir, name, options);
     if (!options.snapback) return created;
-    if (!existingBackend) snapbackStarter(dir, name, port, JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).app.id);
+    if (!existingBackend) snapbackStarter(dir, name, port, JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).app);
     else {
       const source = resolve(dir, 'app.ts');
       const ts = readFileSync(source, 'utf8');
@@ -221,8 +223,7 @@ export function snapbackVersion() {
 
 /** A guestbook on Snapback in place of the greeting (snapback4/README.md's complete app): the view, the data module
  * at the origin `port` names, its tests, and the backend's schema when the directory above has none. */
-function snapbackStarter(dir, name, port, id) {
-  const title = name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+function snapbackStarter(dir, name, port, { id, name: title }) {
   const origin = `http://127.0.0.1:${port}`;
   const files = {
     'app.contract': `// ${title}: the view. app.ts answers it through Snapback4 (a guestbook to start from).
@@ -244,7 +245,7 @@ shape Ack
   message: string
   id: string
 
-component ${title.replaceAll(' ', '')}
+component ${titleOf(name).replaceAll(' ', '')}
   state persona = "alice"
   state draft = ""
   state notice = ""
@@ -277,7 +278,7 @@ component ${title.replaceAll(' ', '')}
   view
     main testId="root" padding=24
       column gap=12 max-width=600
-        text "${title}" role="heading" aria-level=1
+        text "${contractString(title)}" role="heading" aria-level=1
         select value=persona change=choosePersona appearance="auto" testId="persona" aria-label="Signed in as"
           option value="alice"
             text "Alice"
@@ -384,7 +385,7 @@ function onlineStarter(dir, generated, port) {
   const source = resolve(dir, 'app.ts'), view = resolve(dir, 'app.contract');
   if (!existsSync(generated)) return false;
   const name = basename(dir), manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
-  const pristine = appSources(name, name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '), manifest.app.id);
+  const pristine = appSources(name, manifest.app.name, manifest.app.id);
   const normalized = readFileSync(source, 'utf8')
     .replace(/^const origin = ['"`][^'"`]+['"`];\n/m, '')
     .replace('export const grants = `net.fetch ${origin}`;', "export const grants = '';")
@@ -622,6 +623,15 @@ fn main() {
  * existing app keeps the id it has: `update` and `pattern` read it from app.json. */
 export const newAppId = (name, random = randomBytes(3).toString('hex')) => `com.example.${name}-${random}`;
 
+/** app.json's `app.id` pattern (scripts/app.schema.json): what `exact new --bundle-id` accepts. */
+const BUNDLE_ID = /^[a-zA-Z][a-zA-Z0-9-]*(\.[a-zA-Z][a-zA-Z0-9-]*)+$/;
+
+/** The name an app's folder gives it when none is given: `field-log` is Field Log. */
+const titleOf = name => name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+
+/** A name inside a Contract string literal. */
+const contractString = title => JSON.stringify(title).slice(1, -1).replaceAll('$', '\\$');
+
 /** The three files \`exact new\` writes for the app itself: the view, its data
  * module and its tests. \`exact.mjs pattern\` replaces them, and reads them
  * to tell an untouched file from one the author edited (LLP 1116.001 D3). */
@@ -636,8 +646,8 @@ shape Greeting
 routes nav
   home "/"
 
-component ${title.replaceAll(' ', '')}
-  resource greeting = greeting("${title}") as shape Greeting
+component ${titleOf(name).replaceAll(' ', '')}
+  resource greeting = greeting("${contractString(title)}") as shape Greeting
   state liked = false
   action like
     liked = not liked
@@ -646,7 +656,7 @@ component ${title.replaceAll(' ', '')}
       for e in stack(nav) key=e.id
         column navigationKey=\`\${e.id}\` navigationScroll="content" position="absolute" inset=0 display="flex" flex-direction="column"
           header display="flex" align-items="center"
-            text "${title}" role="heading" aria-level=1 flex=1
+            text "${contractString(title)}" role="heading" aria-level=1 flex=1
             button press=like aria-label=(liked ? "Unlike" : "Like") testId="like"
               image (liked ? "symbol:heart-fill" : "symbol:heart")
           scroll id="content" flex=1 min-height=0 padding=16
@@ -654,7 +664,7 @@ component ${title.replaceAll(' ', '')}
 `,
     'app.test.contract': `test "the greeting loads"
   expect tree has "root"
-  expect text "greeting" == "Hello from ${title}."
+  expect text "greeting" == "Hello from ${contractString(title)}."
 
 test "the header's button likes it"
   tap "like"
@@ -695,7 +705,7 @@ export function patterns() {
  * (`com.example.starter`, `Starter`) become the app's; and the keys its pattern.json adds. */
 export function patternFiles(pattern, { id, title }) {
   const dir = resolve(PATTERNS, pattern), files = {};
-  const quoted = JSON.stringify(title).slice(1, -1).replaceAll('$', '\\$');
+  const quoted = contractString(title);
   for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) {
     if (!entry.isFile() || entry.name === 'pattern.json' || entry.name === 'app.contract.d.ts') continue;
     const path = relative(dir, resolve(entry.parentPath, entry.name));
@@ -721,9 +731,10 @@ export function applyPattern(dir, pattern, { force = false } = {}) {
   // The template's name is its crates', as `update` reads it: a renamed folder keeps it.
   const name = ['web', 'apple', 'linux'].map(kind => resolve(dir, kind, 'Cargo.toml')).filter(existsSync)
     .map(path => String(Bun.TOML.parse(readFileSync(path, 'utf8')).package?.name ?? '').match(/^(.+)-(?:web|apple|linux)$/)?.[1]).find(Boolean) ?? basename(dir);
-  const template = appSources(name, name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '), id);
+  // What exact new wrote, under the app's name or under the one its folder gave it.
+  const templates = [appSources(name, title, id), appSources(name, titleOf(name), id)];
   const others = known.filter(p => p !== pattern).map(p => patternFiles(p, { id, title }));
-  const untouched = (path, text) => text === template[path] || others.some(o => o.files[path] === text);
+  const untouched = (path, text) => templates.some(t => t[path] === text) || others.some(o => o.files[path] === text);
   const { files, keys } = patternFiles(pattern, { id, title });
   const read = path => existsSync(resolve(dir, path)) ? readFileSync(resolve(dir, path), 'utf8') : null;
   const edited = Object.entries(files).filter(([path, text]) => { const now = read(path); return now !== null && now !== text && !untouched(path, now); }).map(([path]) => path);
@@ -763,9 +774,8 @@ export function patternList() {
     '--force), with this app\'s id and name. Then: bun exact.mjs test web.'].join('\n');
 }
 
-function writeApp(dir, name) {
+function writeApp(dir, name, { title = titleOf(name), id = newAppId(name) } = {}) {
   for (const host of ['apple', 'linux', 'web']) mkdirSync(resolve(dir, host));
-  const title = name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '), id = newAppId(name);
   const exact2 = pathFrom(dir, ROOT);
   const dep = (host, path) => `{ path = ${JSON.stringify(pathFrom(resolve(dir, host), resolve(ROOT, path)))} }`;
   const files = {
@@ -967,8 +977,8 @@ function agentNotes(dir, name, {game = false} = {}) {
 # ${name}: an Exact app
 
 \`app.contract\` is the view, \`app.ts\` its data module, \`app.test.contract\` its tests, \`app.json\`
-the manifest. The app uses the exact2 checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\`
-overrides it).
+the manifest: set its \`app.name\` and \`app.id\` before the first build. The app uses the exact2
+checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
 
 This file is already in your instructions. Start from the nearest pattern: \`bun exact.mjs
 pattern\` lists them and \`pattern <name>\` writes one, tested. ${doc('start-here.md')} is the guide,
@@ -1300,7 +1310,7 @@ function updateApp(dir, name, { without = null } = {}) {
   const addedLinux = storesLinux && !existsSync(resolve(dir, 'linux'));
   if (addedLinux) {
     mkdirSync(resolve(dir, 'linux'));
-    const title = name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+    const title = titleOf(name);
     for (const [path, text] of Object.entries(linuxCrate(dir, name, title))) {
       mkdirSync(dirname(resolve(dir, path)), { recursive: true });
       writeFileSync(resolve(dir, path), text);

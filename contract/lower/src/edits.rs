@@ -175,6 +175,17 @@ pub(crate) fn value_edit(
         StyleValueError::BadColor { .. } => role_hint(text, true).map(|e| e.lead(name, text)),
         StyleValueError::WrongKind { .. } => {
             let number = text.trim();
+            // CSS's two weight keywords, which React Native writes too.
+            let weight = match number {
+                "bold" => Some(700),
+                "normal" => Some(400),
+                _ => None,
+            };
+            if let Some(n) = weight.filter(|_| name == "font-weight") {
+                return Some(format!(
+                    "write `font-weight={n}`: a weight is its number here (`bold` is 700, `normal` 400)"
+                ));
+            }
             let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
             let unsigned = number.strip_prefix('-').unwrap_or(number);
             let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, "0"));

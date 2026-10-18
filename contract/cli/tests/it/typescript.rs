@@ -570,9 +570,14 @@ fn types_check_is_read_only_and_build_reports_only_changed_declarations() {
         std::fs::read_to_string(fixture.0.join("app.contract.d.ts")).unwrap(),
         "stale"
     );
+    // Under --json the array is the whole reply: the declaration is rewritten unsaid.
     let built = run(&["build", "app.contract", "--json"]);
     assert!(built.status.success(), "{built:?}");
     assert_eq!(built.stdout, b"[]\n");
+    assert!(built.stderr.is_empty(), "{built:?}");
+    assert!(check().status.success());
+    fixture.write("app.contract.d.ts", "stale");
+    let built = run(&["build", "app.contract"]);
     assert!(String::from_utf8_lossy(&built.stderr)
         .contains("app.contract.d.ts: regenerated, since a source's signature changed"));
     assert!(check().status.success());

@@ -34,6 +34,7 @@ pub mod scope;
 pub mod sequence;
 mod share;
 mod spans;
+pub mod state;
 
 pub use ast::*;
 pub use clock::{resolve_clock_timelines, resolve_clock_timelines_in};

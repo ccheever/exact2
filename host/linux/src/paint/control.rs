@@ -10,7 +10,7 @@
 use super::material::Icon;
 use super::{look, neutral, rgba, Backend, Rect4, Shape};
 use exact_kernel::generated::metric;
-use exact_kernel::{Appearance, FieldChrome, NodeRef, PropId, StyleMask};
+use exact_kernel::{Appearance, FieldChrome, NodeRef, NodeType, PropId, StyleMask};
 use tiny_skia::Transform;
 
 /// This painter's own accent, Chrome's default `#0075ff`: what a control
@@ -143,8 +143,16 @@ pub(crate) fn accent(node: &NodeRef<'_>, dark: bool) -> Option<[u8; 4]> {
         .map(|c| rgba(c.resolve(dark)))
 }
 
-/// The colour of a focused node's ring: its accent ([`accents`]).
+/// A focused node's accent ([`accents`]), except native neutral text fields
+/// marked invalid, whose ring matches their system-red border.
 pub(crate) fn ring(node: &NodeRef<'_>, dark: bool) -> [u8; 4] {
+    if look::neutral()
+        && node.node_type == NodeType::TextInput
+        && node.style.appearance != Appearance::None
+        && node.props.str(PropId::AccessibilityInvalid) == Some("true")
+    {
+        return look::role("-exact-system-red", dark);
+    }
     accents(accent(node, dark), dark).0
 }
 

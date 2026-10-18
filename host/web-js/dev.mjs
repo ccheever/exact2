@@ -609,6 +609,21 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     }
     return {};
   }
+  /** Why a live proposal's texts would not apply in place on these pages:
+   * a token they write inline (the design read says which: a font-weight
+   * number, an SVG attribute's) whose value moves, or null.
+   * Only with the design reader built, so a proposal never waits on a
+   * compile; with none, the session's class stands and the release rebuilds. */
+  async function inlineWhy(texts) {
+    const file = relative(app.dir, designPath(app.dir));
+    if (!(file in texts) || !toolFresh()) return null;
+    const next = await scrubDesign(texts[file]);
+    // The design the pages run once it is read (a build may land meanwhile).
+    const from = scrubbed ?? design;
+    if (next.error || !from || next.tokens.length !== from.tokens.length) return null;
+    const inline = next.tokens.find((t, i) => t.inline && t.name === from.tokens[i].name && !same(t, from.tokens[i]));
+    return inline ? `\`${inline.name}\` is written inline on this page (${inline.writer ?? 'a font weight, an SVG attribute'})` : null;
+  }
   /** A scrub ended without its write: the pages back on the committed design. */
   function scrubRestore() {
     released = false;
@@ -654,7 +669,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
       await new Promise((ok) => setTimeout(ok, 250));
     }
   };
-  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, page: `http://127.0.0.1:${port}`, sourceMap: (digest) => (digest ? residentMaps.get(digest) ?? pageMaps.get(digest) : residentMaps.get(residentPlan)) ?? null, designServed: () => (scrubbed ? null : served), scrub: { preview: scrubPreview, restore: scrubRestore, released: () => { released = scrubbed != null; } } }) : null;
+  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, page: `http://127.0.0.1:${port}`, sourceMap: (digest) => (digest ? residentMaps.get(digest) ?? pageMaps.get(digest) : residentMaps.get(residentPlan)) ?? null, designServed: () => (scrubbed ? null : served), scrub: { preview: scrubPreview, restore: scrubRestore, released: () => { released = scrubbed != null; }, inline: inlineWhy } }) : null;
   // A polled stream (Linux, the resident loop's relay) is told the design to run.
   tamber?.channel.greet(() => snapshot && notice(snapshot));
   const server = createServer(async (req, res) => {

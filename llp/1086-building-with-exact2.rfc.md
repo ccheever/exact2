@@ -135,6 +135,12 @@ before, unless the app has its own.
 > Cargo.lock. `--update` adds `linux/` only to an app whose app.json names
 > `deploy.store.linux`, which the scaffold writes, so a removal stays removed.
 
+> **Amended (2026-10-17, the euxy port: the bundle id renamed after the first build
+> made the next build a cold 46 s and orphaned the installed app).** `exact new <path>
+> --name <name> --bundle-id <id>` writes app.json's `app.name`, `name` and `short_name`,
+> its `app.id` and `id`, app.ts's `appId` and the template's heading; the component keeps
+> the folder's name. `AGENTS.md` says to set the two before the first build.
+
 An app, and a game outside the checkout, also gets `.vscode/tasks.json`
 (2026-10-07, Doug Lowder: VS Code support, "declarative first"; this is the
 approval RULES asks for the config file). Its tasks run the app's own

@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -41,6 +41,26 @@ async function ask(tamber, gate, { path, method = 'GET', headers = {}, peer = '1
   const handled = await tamber.handle(req, res, new URL(path, 'http://x'), gate.check(req));
   return { handled, status, body: text ? JSON.parse(text) : null };
 }
+
+test('close() signals the server\'s group only by a pid of its own: a missing, 0 or 1 pid ends the child by its own kill', async () => {
+  const kill = process.kill;
+  const groups = [];
+  // Recorded, never sent: a pid of 0 or 1 here would reach this test's own group, or every process.
+  process.kill = (pid, signal) => { if (signal === 0 || signal === undefined) return kill.call(process, pid, signal); groups.push(pid); return true; };
+  try {
+    for (const pid of [undefined, 0, 1]) {
+      let child;
+      const spawnServe = () => (child = Object.assign(fakeServe(), pid === undefined ? {} : { pid }));
+      const tamber = tamberServer({ appDir: '/nowhere', spawnServe, log: () => {} });
+      await tamber.ready;
+      await tamber.close();
+      expect(groups).toEqual([]);
+      expect(child.exitCode).toBe(0);
+    }
+  } finally {
+    process.kill = kill;
+  }
+});
 
 test('a stale selection asks its build again once per status, its status first; a current one is joined with the map the dev loop gives', async () => {
   const map = { digest: 'p1', sources: [{ file: 'exact:app', sha256: 'x' }], nodes: [{ file: 'exact:app', line: 3, col: 5, end_col: 9, component: 'App', chain: [], bindings: [{ row: 'background_color', origin: 'own' }] }] };
@@ -734,7 +754,7 @@ for (const [loop, flags] of [['the JS loop', []]]) {
     const { base, stop } = await devLoop(flags);
     try {
       const hello = await helloOf(base);
-      expect(hello.protocol).toBe('tamber/1.10');
+      expect(hello.protocol).toBe('tamber/1.11');
       expect(Object.keys(hello.files)).toContain('app.tamber');
       // The loop's own origin, which the design tool frames, and the page's
       // header that lets only the tool (and itself) frame it.
@@ -1059,6 +1079,8 @@ test('history reads three design commits as token edits; a revert applies, is re
     expect(second.files[0]).toMatchObject({ file: 'app.tamber', status: 'M', edits: [{ what: 'token', name: 'edge', when: [], before: '#101010', after: '#202020' }] });
     expect(second.files[0].diff).toContain('+  edge = #202020');
     expect(third.files[0].edits.map(e => [e.name, e.before, e.after])).toEqual([['ink', '#000000', '#111111'], ['card', null, '#303030']]);
+    // Its app.contract has no state part: not the design's (stage 8 D).
+    expect(first.files.map(f => f.file)).toEqual(['app.tamber']);
     expect(first.files[0].status).toBe('A');
     expect(first.files[0].edits.map(e => [e.what, e.name])).toEqual([['other', 'name'], ['token', 'ink'], ['token', 'edge']]);
     const page = await call({ method: 'history', limit: 1, skip: 1 });
@@ -1216,6 +1238,192 @@ test("a held revert keeps its untouched files' digests and a person's selection 
     expect(again2.ok?.ops.map(o => o.op.value), JSON.stringify(again2)).toEqual(['dim']);
     // A client's own review cannot pose as a revert.
     expect((await call({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'ink', value: '#090909' }], review: { revert: { commit, only: {} } } })).status).toBe(400);
+  } finally {
+    await wire.close();
+    listener.close();
+    rmSync(repo, { recursive: true, force: true });
+  }
+}, 600_000);
+
+// LLP 1121 stage 8 D: the app's own `.contract` files are the server's too:
+// a hand edit of a state part is announced, a `set-state` is a session's
+// write that `commit` takes, and a file dirty at its baseline is refused.
+test("the app's .contract: a hand edit is announced, set-state is committed, and one dirty at its baseline refused", async () => {
+  const VIEW = 'style Post\n  background-color="#0a7aff"\n\ncomponent App\n  view\n    column class=Post\n      text "Post"\n';
+  const repo = mkdtempSync(join(tmpdir(), 'exact-tamber-contract-'));
+  const env = { ...process.env, GIT_AUTHOR_NAME: 'Ada', GIT_AUTHOR_EMAIL: 'ada@example.test', GIT_COMMITTER_NAME: 'Ada', GIT_COMMITTER_EMAIL: 'ada@example.test' };
+  const g = (...args) => spawnSync('git', args, { cwd: repo, encoding: 'utf8', env });
+  writeFileSync(join(repo, 'app.contract'), VIEW);
+  writeFileSync(join(repo, 'app.tamber'), 'tamber t\n\ntheme\n  ink = #000000\n');
+  g('init', '-q'); g('config', 'user.email', 'ada@example.test'); g('config', 'user.name', 'Ada'); g('add', '.'); g('commit', '-q', '-m', 'app');
+  const listener = createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port;
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  let wire = tamberServer({ appDir: repo, log: () => {}, settle: 250 });
+  listener.on('request', async (req, res) => {
+    if (!(await wire.handle(req, res, new URL(req.url, 'http://x'), gate.check(req)))) { res.writeHead(404); res.end(); }
+  });
+  const at = `http://127.0.0.1:${port}`;
+  let token;
+  const call = async request => {
+    const res = await fetch(`${at}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(request) });
+    return { status: res.status, ...(await res.json()) };
+  };
+  const digest = f => createHash('sha256').update(readFileSync(join(repo, f))).digest('hex');
+  const active = value => ({ op: 'set-state', style: 'Post', state: 'active', row: 'background-color', value });
+  try {
+    await wire.ready;
+    ({ token } = await (await fetch(`${at}/__tamber/token`)).json());
+    const res = await fetch(`${at}/__tamber/subscribe`, { method: 'POST', headers: { 'x-exact-tamber-token': token } });
+    const reader = res.body.getReader(), decoder = new TextDecoder(), events = [];
+    let buf = '';
+    (async () => { for (;;) { const { value, done } = await reader.read().catch(() => ({ done: true })); if (done) return; buf += decoder.decode(value, { stream: true }); const parts = buf.split('\n\n'); buf = parts.pop(); for (const p of parts) if (p.startsWith('data: ')) events.push(JSON.parse(p.slice(6))); } })();
+    const until = async pass => { const end = Date.now() + 5000; while (!pass(events)) { if (Date.now() > end) throw new Error(JSON.stringify(events)); await Bun.sleep(20); } };
+    await until(e => e[0]?.event === 'subscribed');
+    // A hand edit of the Contract source, a state part added: announced.
+    writeFileSync(join(repo, 'app.contract'), VIEW.replace('  background-color="#0a7aff"\n', '  background-color="#0a7aff"\n  :hover\n    opacity=0.9\n'));
+    await until(e => e.some(x => x.event === 'changed' && x.client === null && x.edited?.includes('app.contract')));
+    writeFileSync(join(repo, 'app.contract'), VIEW);
+    await until(e => e.at(-1)?.files?.['app.contract'] === digest('app.contract'));
+    // A set-state: the session's write, which commit takes.
+    const done = await call({ method: 'transaction', client: 'agent', files: { 'app.contract': digest('app.contract') }, ops: [active('#0050c8')] });
+    expect(done.status, JSON.stringify(done)).toBe(200);
+    expect(done.ok.class).toBe('rebuild');
+    expect(readFileSync(join(repo, 'app.contract'), 'utf8')).toContain('  :active\n    background-color="#0050c8"\n');
+    const committed = await call({ method: 'commit', client: 'person', message: 'design: a pressed post' });
+    expect(committed.status, JSON.stringify(committed)).toBe(200);
+    expect(committed.ok.files).toEqual(['app.contract']);
+    // Dirty at its baseline: a session that writes it refuses to commit it.
+    writeFileSync(join(repo, 'app.contract'), readFileSync(join(repo, 'app.contract'), 'utf8').replace('#0a7aff', '#0b7bff'));
+    await until(e => e.at(-1)?.files?.['app.contract'] === digest('app.contract'));
+    await wire.close();
+    wire = tamberServer({ appDir: repo, log: () => {}, settle: 250 });
+    await wire.ready;
+    ({ token } = await (await fetch(`${at}/__tamber/token`)).json());
+    const again = await call({ method: 'transaction', client: 'agent', files: { 'app.contract': digest('app.contract') }, ops: [active('#003399')] });
+    expect(again.status, JSON.stringify(again)).toBe(200);
+    const refused = await call({ method: 'commit', client: 'person' });
+    expect(refused.status).toBe(400);
+    expect(refused.error.refused.find(r => r.file === 'app.contract').why).toContain('differed from HEAD');
+    reader.cancel();
+  } finally {
+    await wire.close();
+    listener.close();
+    rmSync(repo, { recursive: true, force: true });
+  }
+}, 600_000);
+// Stage 8 D, review round 2: a held set-state with no `file` is guarded by
+// the Contract sources it does not write; a source two directories down is
+// still watched after its directory is replaced empty and filled again.
+test("a held set-state is guarded by the other Contract sources, and a replaced directory's source stays watched", async () => {
+  const repo = mkdtempSync(join(tmpdir(), 'exact-tamber-contract2-'));
+  mkdirSync(join(repo, 'src/ui'), { recursive: true });
+  const POST = 'style Post\n  background-color="#0a7aff"\n\ncomponent PostButton\n  view\n    column class=Post\n      text "Post"\n';
+  writeFileSync(join(repo, 'src/ui/post.contract'), POST);
+  writeFileSync(join(repo, 'app.contract'), 'use PostButton from "./src/ui/post.contract"\ncomponent App\n  view\n    PostButton()\n');
+  writeFileSync(join(repo, 'app.tamber'), 'tamber t\n\ntheme\n  ink = #000000\n');
+  const listener = createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port;
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  const wire = tamberServer({ appDir: repo, log: () => {}, settle: 250 });
+  listener.on('request', async (req, res) => {
+    if (!(await wire.handle(req, res, new URL(req.url, 'http://x'), gate.check(req)))) { res.writeHead(404); res.end(); }
+  });
+  const at = `http://127.0.0.1:${port}`;
+  let token;
+  const call = async request => {
+    const res = await fetch(`${at}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(request) });
+    return { status: res.status, ...(await res.json()) };
+  };
+  const digest = f => createHash('sha256').update(readFileSync(join(repo, f))).digest('hex');
+  try {
+    await wire.ready;
+    ({ token } = await (await fetch(`${at}/__tamber/token`)).json());
+    const res = await fetch(`${at}/__tamber/subscribe`, { method: 'POST', headers: { 'x-exact-tamber-token': token } });
+    const reader = res.body.getReader(), decoder = new TextDecoder(), events = [];
+    let buf = '';
+    (async () => { for (;;) { const { value, done } = await reader.read().catch(() => ({ done: true })); if (done) return; buf += decoder.decode(value, { stream: true }); const parts = buf.split('\n\n'); buf = parts.pop(); for (const p of parts) if (p.startsWith('data: ')) events.push(JSON.parse(p.slice(6))); } })();
+    const until = async pass => { const end = Date.now() + 5000; while (!pass(events)) { if (Date.now() > end) throw new Error(JSON.stringify(events)); await Bun.sleep(20); } };
+    await until(e => e[0]?.event === 'subscribed');
+    const files = { 'app.contract': digest('app.contract'), 'src/ui/post.contract': digest('src/ui/post.contract') };
+    const held = await call({ method: 'propose', hold: true, client: 'agent', files, ops: [{ op: 'set-state', style: 'Post', state: 'active', row: 'opacity', value: 0.8 }] });
+    expect(held.status, JSON.stringify(held)).toBe(200);
+    expect(held.ok.texts).toBeUndefined();
+    // A hand edit of the source it does not write: the accept is refused.
+    writeFileSync(join(repo, 'app.contract'), `${readFileSync(join(repo, 'app.contract'), 'utf8')}// moved\n`);
+    await until(e => e.some(x => x.client === null && x.edited?.includes('app.contract')));
+    const taken = await call({ method: 'accept', client: 'person', proposal: held.ok.proposal });
+    expect(taken.status, JSON.stringify(taken)).toBe(409);
+    expect(readFileSync(join(repo, 'src/ui/post.contract'), 'utf8')).toBe(POST);
+    // `src` replaced empty (a read taken then), then filled again.
+    renameSync(join(repo, 'src'), join(repo, 'src.old'));
+    mkdirSync(join(repo, 'src'));
+    await until(e => e.some(x => x.event === 'changed' && x.files && !('src/ui/post.contract' in x.files)));
+    mkdirSync(join(repo, 'src/ui'));
+    writeFileSync(join(repo, 'src/ui/post.contract'), POST);
+    await until(e => e.at(-1)?.files?.['src/ui/post.contract'] === digest('src/ui/post.contract'));
+    await Bun.sleep(400);
+    writeFileSync(join(repo, 'src/ui/post.contract'), POST.replace('#0a7aff', '#0b7bff'));
+    await until(e => e.at(-1)?.files?.['src/ui/post.contract'] === digest('src/ui/post.contract'));
+    reader.cancel();
+  } finally {
+    await wire.close();
+    listener.close();
+    rmSync(repo, { recursive: true, force: true });
+  }
+}, 600_000);
+// The app's own .contract files are in history and revert too (stage 8 D's
+// follow-up): a commit's state rows are edits, its other lines `code`,
+// which a revert leaves alone.
+test("history reads a .contract commit's state rows, and a revert undoes them, leaving its code", async () => {
+  const V1 = 'style Post\n  background-color="#0a7aff"\n\ncomponent App\n  view\n    column class=Post\n      text "Post"\n';
+  const V2 = 'style Post\n  background-color="#0a7aff"\n  :active\n    opacity=0.5\n\ncomponent App\n  view\n    column class=Post\n      text "Posted"\n';
+  const repo = mkdtempSync(join(tmpdir(), 'exact-tamber-history-contract-'));
+  const env = { ...process.env, GIT_AUTHOR_NAME: 'Ada', GIT_AUTHOR_EMAIL: 'ada@example.test', GIT_COMMITTER_NAME: 'Ada', GIT_COMMITTER_EMAIL: 'ada@example.test' };
+  const g = (...args) => spawnSync('git', args, { cwd: repo, encoding: 'utf8', env });
+  writeFileSync(join(repo, 'app.tamber'), 'tamber t\n\ntheme\n  ink = #000000\n');
+  writeFileSync(join(repo, 'app.contract'), V1);
+  g('init', '-q'); g('add', '.'); g('commit', '-q', '-m', 'app');
+  writeFileSync(join(repo, 'app.contract'), V2); g('add', '.'); g('commit', '-q', '-m', 'a pressed post');
+  // A commit that changes only a Contract source's code is no design commit.
+  writeFileSync(join(repo, 'app.contract'), V2.replace('Posted', 'Sent')); g('add', '.'); g('commit', '-q', '-m', 'reword');
+  const listener = createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port;
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  const wire = tamberServer({ appDir: repo, log: () => {}, settle: 250 });
+  listener.on('request', async (req, res) => {
+    if (!(await wire.handle(req, res, new URL(req.url, 'http://x'), gate.check(req)))) { res.writeHead(404); res.end(); }
+  });
+  try {
+    await wire.ready;
+    const at = `http://127.0.0.1:${port}`;
+    const { token } = await (await fetch(`${at}/__tamber/token`)).json();
+    const call = async request => {
+      const res = await fetch(`${at}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(request) });
+      return { status: res.status, ...(await res.json()) };
+    };
+    await call({ method: 'hello', client: 'test' });
+    const log = await call({ method: 'history' });
+    expect(log.ok.commits.map(c => c.message.split('\n')[0])).toEqual(['a pressed post', 'app']);
+    expect(log.status, JSON.stringify(log)).toBe(200);
+    const pressed = log.ok.commits.find(c => c.message.startsWith('a pressed post'));
+    const file = pressed.files.find(f => f.file === 'app.contract');
+    expect(file.edits).toEqual([{ what: 'state', name: 'Post', state: 'active', row: 'opacity', when: [], before: null, after: '0.5' }]);
+    expect(file.code).toBe(true);
+    const held = await call({ method: 'revert', client: 'person', commit: pressed.commit });
+    expect(held.status, JSON.stringify(held)).toBe(200);
+    expect(held.ok.ops).toEqual([{ index: 0, op: { op: 'unset-state', style: 'Post', state: 'active', row: 'opacity', file: 'app.contract' } }]);
+    expect(held.ok.review.revert.code).toEqual(['app.contract']);
+    const taken = await call({ method: 'accept', client: 'person', proposal: held.ok.proposal });
+    expect(taken.status, JSON.stringify(taken)).toBe(200);
+    const now = readFileSync(join(repo, 'app.contract'), 'utf8');
+    expect(now).not.toContain(':active');
+    expect(now).toContain('text "Sent"');
+    // Again: nothing left to revert.
+    expect((await call({ method: 'revert', client: 'person', commit: pressed.commit })).status).toBe(409);
   } finally {
     await wire.close();
     listener.close();

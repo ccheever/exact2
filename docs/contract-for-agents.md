@@ -100,7 +100,10 @@ Inside the exact2 checkout, for its own apps, the same commands are
 `bun host/web/dev.mjs --app <name>`. Run `bun install --frozen-lockfile` there once.
 
 Use `build --json` before and after the edit. It returns one JSON array with all
-independent diagnostics it can collect, capped at 20; success is `[]`. Keep the
+independent diagnostics it can collect, capped at 20; success is `[]`. It is the
+whole output: stderr stays empty (but for a note while the compiler first
+builds), and `bun exact.mjs contract build`
+appends `app.ts`'s type errors (`typescript-TS2322`, …) to the same array. Keep the
 exit status: 0 success, 1 compilation/I/O failure, 2 invalid invocation. Read all
 diagnostics, including related locations, before making the next repair. Each has
 a `severity`: `"error"` refuses the build; `"warning"` (after the errors, also on a
@@ -181,7 +184,12 @@ To show what survives a restart on any host, use an authored test's `reload` ste
 The driver prints each reply in a short text form. A `tap` or `type` is one line
 (`tapped #15 "add" · delivery platform · epoch 2 · clock 0 ms`); a failed one starts
 with `ERROR`. `state` prints one line a section (`slots {"count":1}`) and leaves out
-the empty ones (null, `[]`, `{}`). `--json` prints every field of every reply.
+the empty ones (null, `[]`, `{}`); one over 8 KB prints its size, its small sections,
+the others' sizes, and how to read one (`state resources`, `state feed.0`) or all of it
+(`state --full`). `state <name>` reads a state, derive, resource or section of the
+record, even where a view carries the same name. Every other reply is one line too
+(`clock 600 ms · settled · epoch 5`, `screenshot out.png · 420×900 · …`).
+`--json` prints every field of every reply, one JSON object a line.
 `--scale <n>` shrinks each screenshot to n pixels a point: an iPhone's are
 1206×2622 at its own 3, 402×874 with `--scale 1`, one pixel a point as on the
 web, at about a ninth of the pixels. An app's `bun exact.mjs agent ios|macos`
@@ -3069,6 +3077,40 @@ component App
           color=(dark ? "#9ca3af" : "#6b7280")
 ```
 
+A pressed, hovered, focused, disabled or checked look of your own is a state
+part (LLP 1121 D8): a block of that state's paint rows, in a `style` or under
+the node before its children.
+
+```contract
+style PostButton
+  background-color = "#1083fe"
+  :active
+    background-color = "#0b5fbd"
+  :disabled
+    background-color = "#9cc8fb"
+
+component App
+  state busy = false
+  view
+    column class=PostButton press=post disabled=busy
+      text "Post"
+  action post
+    busy = true
+```
+
+`:disabled` and `:checked` (`checked`, or `aria-checked`, `aria-selected` or
+`aria-pressed` true) are the runner's: they take `background-color`, `color`,
+`border-color`, `opacity`, `box-shadow` and `-exact-tint-color`, `:checked`
+under `:disabled`, and `:disabled` is your own disabled look (no default dim).
+`:active` (the host's press), `:hover` and `:focus-visible` are the host's:
+their rows never inherit (`background-color`, `border-color`, `opacity`,
+`box-shadow`, `-exact-press-scale`) and are literals, tokens included; the
+plan records them, and the hosts apply them on their own tracking from stage
+8 B. A part
+on a native control or a list's row is refused (their states are the
+platform's); a node's own part whose state it never writes (`:disabled` with no
+`disabled`) is warned of (`lower-state-dead`).
+
 A background, border or radius makes it your own box, as in a browser;
 `appearance="none"` says so explicitly. This is decided once after classes
 and shorthands: a row on any conditional arm counts, even if its value is
@@ -3253,7 +3295,8 @@ the child's row's value. One in a `style`, a `keyframes` or a state's value,
 or in what a row computes (a function's argument, a condition, a comparison,
 a callback), or that a child reads otherwise than as a row's value, is refused
 (`tamber-param-scope`). A param no
-row of its component reads, directly or through another param, is refused
+row of its component reads (a state part's row counts: `:active`'s
+`background-color = "param.pressed"`), directly or through another param, is refused
 (`tamber-param-unused`); a ranged length is px (`tamber-range-unit`) and its
 default must be inside the range in every mode; `control` follows the kind
 (`color`, `slider`, `stepper`, `token`, `select` with `options="a|b"`, `none`),

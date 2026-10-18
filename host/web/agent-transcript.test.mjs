@@ -19,6 +19,40 @@ test('state leaves out only a section that holds nothing, and judges no value', 
     .toBe('epoch 1 · clock 0 ms\nslots {"n":0}\nfocus {"logical":null}');
 });
 
+test('a state over 8 KB prints its size, its small sections, the others\' sizes largest first, and how to read one or all', () => {
+  const big = { slots: { n: 0 }, derives: { rows: 'd'.repeat(3000) }, resources: { feed: 'r'.repeat(6000) }, focus: { logical: 3 }, pending: [], clock: 5, epoch: 2 };
+  expect(render('state', big)).toBe([
+    'state is 8.9 KB, over the 8.0 KB printed whole · epoch 2 · clock 5 ms',
+    'slots {"n":0}',
+    'focus {"logical":3}',
+    'not shown: resources 5.9 KB · derives 2.9 KB',
+    'one section: "state resources", or a state, derive or resource by name, dotted: "state resources.<key>"; all of it: "state --full", or --json',
+  ].join('\n'));
+  // The app's own states come before the host's small sections.
+  const host = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`h${i}`, 'x'.repeat(30)]));
+  const own = render('state', { slots: { s: 'y'.repeat(1500) }, ...host, resources: { r: 'z'.repeat(8000) } }).split('\n');
+  expect(own[1]).toStartWith('slots {"s":"yyy');
+  expect(own.at(-2)).toStartWith('not shown: resources 7.8 KB · h');
+  expect(render('state', big, { full: true })).toStartWith('epoch 2 · clock 5 ms\nslots {"n":0}\nderives');
+  // A named read: its keys, and the path to one.
+  expect(render('state', { a: 'x'.repeat(9000), b: 1 }, { name: 'transport' }).split('\n')).toEqual([
+    'state transport is 8.8 KB, over the 8.0 KB printed whole', 'b 1', 'not shown: a 8.8 KB',
+    'one key: "state transport.a"; all of it: "state transport --full", or --json']);
+  expect(render('state', Array(5000).fill(1), { name: 'rows' }).split('\n').slice(1)).toEqual(['5000 items', 'one item: "state rows.0"; all of it: "state rows --full", or --json']);
+  expect(render('state', { slots: { n: 1 }, clock: 0 })).toBe('clock 0 ms\nslots {"n":1}');
+});
+
+test('a reply with no form of its own is one line of words, never the JSON', () => {
+  expect(render('clock', { clock: 60000 })).toBe('clock 60000 ms');
+  expect(render('clock', { clock: 1500, settled: false, reason: 'motion', diagnostic: 'it still runs', epoch: 4, incarnation: 1 }))
+    .toBe('clock 1500 ms · NOT settled (motion) · epoch 4 · diagnostic="it still runs"');
+  expect(render('clock', { clock: 300, settled: true, epoch: 4 })).toBe('clock 300 ms · settled · epoch 4');
+  expect(render('screenshot', { clock: 60000, epoch: 64, incarnation: 1, screenshot: '/tmp/out.png', w: 420, h: 900, carrier: 'web' }))
+    .toBe('screenshot /tmp/out.png · 420×900 · epoch 64 · clock 60000 ms');
+  expect(render('prefer', { media: { 'prefers-color-scheme': 'dark' }, epoch: 2, clock: 0 }))
+    .toBe('prefer · epoch 2 · clock 0 ms · media={"prefers-color-scheme":"dark"}');
+});
+
 test("a world's state is never filtered: its empty busy list is the answer", () => {
   expect(render('state', { tick: 3, hash: '0x1', entities: [], busy: [], epoch: 2, incarnation: 1, clock: 0 }))
     .toBe('epoch 2 · incarnation 1 · clock 0 ms\ntick 3\nhash "0x1"\nentities []\nbusy []');

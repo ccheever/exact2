@@ -54,6 +54,7 @@
 //! - **A request** is one JSON object on a line of at most 1 MiB; a field
 //!   of the wrong type is an error, not absent.
 
+use crate::tamber_ops::{files_json, optional, required, seen_files};
 use exact_tamber::Op;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -64,7 +65,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.10";
+pub const PROTOCOL: &str = "tamber/1.11";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -197,6 +198,9 @@ struct Server {
     synthetic: Option<Synthetic>,
     /// The app's components' params (LLP 1121 D15), by the same key.
     params: (String, contract::tamber_params::AppParams),
+    /// The app's own Contract sources at the last read that loaded them
+    /// all: a root that stops parsing for a moment keeps its imports.
+    contract: std::cell::RefCell<Vec<String>>,
 }
 
 /// A digest, its synthetic token expressions, and the plan's retention.
@@ -329,6 +333,7 @@ impl Server {
             client: None,
             synthetic: None,
             params: Default::default(),
+            contract: Default::default(),
         };
         server.same_state()?;
         server.recover()?;
@@ -548,7 +553,8 @@ impl Server {
 
     /// The design's files: the app's design first, then any other design
     /// beside it, as the directory has them now (a transaction may edit
-    /// several, committed as one set).
+    /// several, committed as one set), then the app's own Contract sources
+    /// (stage 8 D: a state part's row).
     fn files(&self) -> Result<Vec<String>, String> {
         let mut others: Vec<String> = std::fs::read_dir(&self.dir)
             .map_err(|e| format!("{}: {e}", self.dir.display()))?
@@ -560,7 +566,11 @@ impl Server {
             .filter(|n| n.ends_with(".tamber") && *n != self.design)
             .collect();
         others.sort();
-        Ok(std::iter::once(self.design.clone()).chain(others).collect())
+        let contract = crate::tamber_contract::owned_kept(&self.dir, &self.contract);
+        Ok(std::iter::once(self.design.clone())
+            .chain(others)
+            .chain(contract)
+            .collect())
     }
 
     /// Every design file, read once: the text a plan edits is the text its
@@ -1013,7 +1023,8 @@ impl Server {
     /// must carry the digest the client saw (a `propose` checks the ones it
     /// carries).
     fn transaction(&mut self, request: &Value, write: bool) -> Result<Value, Value> {
-        let mut ops = crate::tamber_ops::parse_ops(&request["ops"], &self.design)?;
+        let (rest, written) = crate::tamber_contract::split(&request["ops"])?;
+        let mut ops = crate::tamber_ops::parse_ops(&rest, &self.design)?;
         let seen = seen_files(request, "files")?;
         // Files it does not edit but was planned on (a revert's file already
         // as before), each as the plan read it.
@@ -1023,10 +1034,11 @@ impl Server {
             false => None,
         };
         let snap = self.snapshot()?;
+        let contract_ops = crate::tamber_contract::files(written, &snap)?;
         let stale: Vec<&String> = snap
             .iter()
             .filter(|(p, _, d)| {
-                ops.iter().any(|(f, _)| f == p)
+                (ops.iter().any(|(f, _)| f == p) || contract_ops.iter().any(|(f, _)| f == p))
                     && match seen.get(p) {
                         Some(s) => s != d,
                         None => write,
@@ -1051,7 +1063,7 @@ impl Server {
         // A scrub's preview (the wire's, LLP 1121 D13) compiles the texts
         // a propose would write, which it asks for.
         let texts = !write && request["texts"] == json!(true);
-        self.run(&snap, &ops, client, false, texts)
+        self.run(&snap, &ops, &contract_ops, client, false, texts)
     }
 
     /// Apply an inverse this server issued, while each file it restores is
@@ -1079,7 +1091,7 @@ impl Server {
                 json!({"conflict": true, "message": "a file changed since that write: its inverse no longer applies", "files": files_json(&snap), "stale": stale}),
             );
         }
-        let result = self.run(&snap, &issued.ops, Some(client), true, false);
+        let result = self.run(&snap, &issued.ops, &[], Some(client), true, false);
         if result.is_ok() {
             self.issued.remove(&id);
             self.order.retain(|i| *i != id);
@@ -1088,18 +1100,30 @@ impl Server {
     }
 
     /// Plan over `snap`; with a `client`, commit and issue the inverse.
+    #[allow(clippy::too_many_arguments)]
     fn run(
         &mut self,
         snap: &Snapshot,
-        ops: &[(String, Op)],
+        all_ops: &[(String, Op)],
+        contract_ops: &[(String, crate::tamber_contract::ContractOp)],
         client: Option<String>,
         undo: bool,
         with_texts: bool,
     ) -> Result<Value, Value> {
+        // The design's files are the crate's; a `.contract` file's writes
+        // (and an inverse's restores of one) are `tamber_contract`'s.
+        let contract = |p: &str| p.ends_with(".contract");
         let texts: Vec<(String, String)> = snap
             .iter()
+            .filter(|(f, _, _)| !contract(f))
             .map(|(f, t, _)| (f.clone(), t.clone()))
             .collect();
+        let ops: Vec<(String, Op)> = all_ops
+            .iter()
+            .filter(|(f, _)| !contract(f))
+            .cloned()
+            .collect();
+        let ops = ops.as_slice();
         let known = self.synthetic(snap);
         let exprs = known.clone().unwrap_or_default();
         // The tokens the plan keeps (D7): an edit to one it does not keep
@@ -1112,9 +1136,23 @@ impl Server {
             retention: retention.as_ref(),
             params: &params,
         };
-        let planned = exact_tamber::plan(&texts, ops, &self.vocab, undo, synthetic).map_err(|all| {
+        let mut planned = exact_tamber::plan(&texts, ops, &self.vocab, undo, synthetic).map_err(|all| {
             json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| located(f, d, &self.params.1)).collect::<Vec<_>>()})
         })?;
+        let restores: Vec<(String, Op)> = all_ops
+            .iter()
+            .filter(|(f, _)| contract(f))
+            .cloned()
+            .collect();
+        crate::tamber_contract::plan(
+            &self.dir,
+            &self.design,
+            snap,
+            contract_ops,
+            &restores,
+            undo,
+            &mut planned,
+        )?;
         // What the build refuses beyond the crate's check, a write refuses
         // too, so nothing is written that the app cannot build: a role
         // override that varies by an app axis (LLP 1121 D5, the compiler's
@@ -1409,43 +1447,6 @@ fn temp_name(name: &str) -> bool {
     name.strip_prefix("tamber-")
         .and_then(|n| n.strip_suffix(".tmp"))
         .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
-}
-
-/// A string field when the request has it; a field of another type is an
-/// error, not absent.
-pub(crate) fn optional(v: &Value, key: &str) -> Result<Option<String>, Value> {
-    match &v[key] {
-        Value::Null => Ok(None),
-        Value::String(s) => Ok(Some(s.clone())),
-        _ => Err(json!({"message": format!("`{key}` is a string")})),
-    }
-}
-
-pub(crate) fn required(v: &Value, key: &str) -> Result<String, Value> {
-    optional(v, key)?.ok_or_else(|| json!({"message": format!("`{key}` is a string, and needed")}))
-}
-
-/// A request's `files` (or `requires`), each path's digest as the client saw it.
-fn seen_files(request: &Value, key: &str) -> Result<HashMap<String, String>, Value> {
-    let bad = || json!({"message": format!("`{key}` is an object of digests")});
-    match &request[key] {
-        Value::Null => Ok(HashMap::new()),
-        Value::Object(m) => m
-            .iter()
-            .map(|(k, v)| Ok((k.clone(), v.as_str().ok_or_else(bad)?.to_string())))
-            .collect(),
-        _ => Err(bad()),
-    }
-}
-
-/// `{path: digest}`.
-fn files_json(files: &[(String, String, String)]) -> Value {
-    Value::Object(
-        files
-            .iter()
-            .map(|(p, _, d)| (p.clone(), json!(d)))
-            .collect(),
-    )
 }
 
 /// Why `explain` or `uses` has no token `name`: an icon (a param's too) is
