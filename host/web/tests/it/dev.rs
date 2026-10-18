@@ -848,6 +848,14 @@ fn a_running_web_build_drops_a_scrub_frame_older_than_one_it_showed() {
         out.contains("rgba(0,255,0,1)"),
         "a restarted server's: {out}"
     );
+    // The run before it is retired: its late frame, whatever its rev.
+    let out =
+        host.apply_live(&marked(design::snapshot(&shape, &ta), "scrub-3", 11, Some("r1")).json());
+    assert!(
+        !out.contains("rgba(17,17,17,1)"),
+        "a retired run's frame: {out}"
+    );
+    assert_eq!(host.runner().design(), design::digest(&tc));
     let _ = std::fs::remove_dir_all(dir);
 }
 

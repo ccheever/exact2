@@ -20,13 +20,13 @@ const op = value => [{ op: 'set-token', name: 'ink', value }];
 /** A session over stand-ins: `class` the server's answer, every preview,
  * restore, write and end kept. */
 function sessions({ cls = 'live', writeOk = true, idleMs } = {}) {
-  const seen = { previews: [], restores: 0, writes: [], ended: [], released: 0 };
+  const seen = { previews: [], restores: 0, writes: [], ended: [], released: 0, frames: [], releasedAs: null };
   const s = scrubSessions({
     ask: async r => ({ ok: { class: cls, texts: { 'app.tamber': `ink = ${r.ops[0].value}` }, changed: [], synthetic: [], files: r.files } }),
     write: async r => { seen.writes.push({ ...r, released: seen.released }); return writeOk ? { ok: { inverse: 'inv-1' } } : { error: { conflict: true, message: 'moved' } }; },
-    preview: async texts => { seen.previews.push(texts['app.tamber']); return {}; },
+    preview: async (texts, frame) => { seen.previews.push(texts['app.tamber']); seen.frames.push(frame); return {}; },
     restore: () => { seen.restores++; },
-    released: () => { seen.released++; },
+    released: frame => { seen.released++; seen.releasedAs = frame; },
     ended: e => seen.ended.push(e.reason),
     idleMs,
   });
@@ -46,6 +46,10 @@ test('a scrub previews each value and writes once, on release, on the digests it
   expect(seen.writes).toEqual([{ method: 'transaction', client: 'tool', files: { 'app.tamber': 'd0' }, ops: op('#222222'), released: 1 }]);
   expect(seen.restores).toBe(0);
   expect(s.current()).toBe(null);
+  // Its build carries a mark above every frame it sent, of the same run.
+  expect(seen.releasedAs.id).toBe('scrub-1');
+  expect(seen.releasedAs.run).toBe(seen.frames[0].run);
+  expect(seen.releasedAs.rev).toBeGreaterThan(Math.max(...seen.frames.map(f => f.rev)));
 });
 
 /** A session whose dev loop patches: each frame folded (`scrub-fold`) and

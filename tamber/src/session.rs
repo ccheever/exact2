@@ -474,9 +474,18 @@ fn shape(f: &Folding, retention: Option<&Retention>, vocab: &Vocab) -> String {
             t.role,
             t.fixed
         ));
-        // A token a colour keyframe names, its value folded into the plan.
+        // A token a colour keyframe names, its value folded into the plan:
+        // by its name, or a role it overrides by any spelling of the role
+        // (`label`, `-exact-label`, `CanvasText` in any case).
+        let bare = |w: &str| {
+            let w = w.to_ascii_lowercase();
+            w.strip_prefix("-exact-").map_or(w.clone(), str::to_string)
+        };
         if retention.is_some_and(|r| {
-            r.folded.contains(name) || t.role.as_ref().is_some_and(|role| r.folded.contains(role))
+            r.folded.iter().any(|w| {
+                w == name
+                    || t.role.as_ref().is_some_and(|role| bare(w) == bare(role))
+            })
         }) {
             let values: Vec<String> = t.values.iter().map(crate::Value::css).collect();
             s.push_str(&format!("folded {name} {values:?}\n"));

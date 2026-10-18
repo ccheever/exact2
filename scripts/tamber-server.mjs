@@ -247,7 +247,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     verify: scrub?.verify ? texts => scrub.verify(texts) : null,
     preview: (texts, frame) => scrub.preview(texts, frame),
     restore: frame => scrub?.restore(frame),
-    released: () => scrub?.released?.(),
+    released: frame => scrub?.released?.(frame),
     opened: e => send({ event: 'scrub', seq: ++seq, epoch, ...e, reason: 'opened' }),
     ended: e => send({ event: 'scrub', seq: ++seq, epoch, ...e }),
     idleMs: scrubIdleMs,

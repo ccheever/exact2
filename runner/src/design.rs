@@ -64,11 +64,18 @@ pub struct Scrub {
 
 impl Scrub {
     /// Whether this frame was sent before `last`, which was applied: of its
-    /// run (or, with none, its scrub) and not above it.
-    pub fn older(&self, last: &Scrub) -> bool {
+    /// run and not above it (with no run on either, of its scrub), or of a
+    /// run a build has applied a later run's frame since (`retired`), as a
+    /// late fetch across a server restart arrives. A frame with a run after
+    /// a mark with none is a new run's.
+    pub fn older(&self, last: &Scrub, retired: &[String]) -> bool {
+        if self.run.as_ref().is_some_and(|r| retired.contains(r)) {
+            return true;
+        }
         let same = match (&self.run, &last.run) {
             (Some(a), Some(b)) => a == b,
-            _ => self.id == last.id,
+            (None, None) => self.id == last.id,
+            _ => false,
         };
         same && self.rev <= last.rev
     }

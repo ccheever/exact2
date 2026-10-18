@@ -39,19 +39,19 @@ std::thread_local! {
 /// While the returned guard lives, a commit's paint changes on this thread
 /// jump to their values with no transition, as a scrub's frame shows (LLP
 /// 1121 D13: the tool drags the value; the frame is a development preview).
+/// The motion engine's observations jump too ([`exact_motion::engine::still`]):
+/// opacity, transforms, layout and heights, all through the commit.
 pub fn still() -> impl Drop {
-    struct Still(bool);
+    struct Still(bool, #[allow(dead_code)] exact_motion::engine::Still);
     impl Drop for Still {
         fn drop(&mut self) {
             STILL.with(|s| s.set(self.0));
         }
     }
-    Still(STILL.with(|s| s.replace(true)))
-}
-
-/// Whether a [`still`] guard lives on this thread.
-pub(crate) fn is_still() -> bool {
-    STILL.with(std::cell::Cell::get)
+    Still(
+        STILL.with(|s| s.replace(true)),
+        exact_motion::engine::still(),
+    )
 }
 
 /// How a sync's changes may move ([`PaintMotion::apply`]).
@@ -105,7 +105,12 @@ impl PaintMotion {
             |key| appearance(kernel, views, key, session),
             &mut self.owners,
         );
-        self.apply(kernel, sync, engine, Snap::Still(is_still()))
+        self.apply(
+            kernel,
+            sync,
+            engine,
+            Snap::Still(STILL.with(std::cell::Cell::get)),
+        )
     }
 
     /// Adopt the tree at boot, after its ordinary motion rows.

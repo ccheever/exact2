@@ -22,7 +22,7 @@ import { alsoOnIPv6Loopback, appManifestDigest, buildFileCards, buildTreeFile, r
 import { localInstaller } from '../web/local-install.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
 import { mapCard, pullMap } from '../../scripts/tamber-inspect.mjs';
-import { serveCommands, serveReport } from '../../scripts/tamber-builds.mjs';
+import { serveCommands, serveReport, streamFrame } from '../../scripts/tamber-builds.mjs';
 import { fresh, freshCompiler, webCompiler } from './module.mjs';
 import { INSPECT_EVENTS } from './inspect-dev.js';
 
@@ -155,14 +155,16 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // The design server's wire, once made below (a rebuild may come first).
   let tamber = null;
   const clients = new Set();
-  const push = (m) => { for (const res of clients) res.write(`data: ${JSON.stringify(m)}\n\n`); };
+  // A batch to a page behind waits, then the latest design's notice goes instead (tamber-builds.mjs).
+  const push = (m) => { for (const res of clients) if (m.kind === 'tamber-batch') streamFrame(res, JSON.stringify(m), () => snapshot && notice(snapshot)); else res.write(`data: ${JSON.stringify(m)}\n\n`); };
   // The live table (LLP 1121 stage 4): the design the page in dist was built
   // with, and the one the pages run after value-only edits since.
   let design = built.design ?? null, snapshot = null;
   // The SHA-256 of the design file's bytes `design` was compiled from, which
   // a scrub's frame must have been folded over to be patched on it.
   let designFrom = built.designSource ?? null;
-  const notice = (s) => ({ kind: 'tamber-batch', structure: s.structure, base: s.design, design: s.design, tokens: [] });
+  // A snapshot's notice keeps a scrub frame's mark (*1.11*).
+  const notice = (s) => ({ kind: 'tamber-batch', structure: s.structure, base: s.design, design: s.design, tokens: [], ...(s.scrub ? { scrub: s.scrub } : {}) });
   // A batch larger than this, in UTF-8 bytes, goes as the snapshot's notice
   // instead, as the resident loop sends it (host/web/dev.mjs DESIGN_FRAME):
   // a native host's event frames are bounded (PlanURL.swift's 64 KiB).
@@ -174,6 +176,10 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // `released`: that scrub is being written; the build of what it writes
   // goes from it, and ends it.
   let scrubbed = null, aside = null, released = false;
+  // The released scrub's build carries the mark its release took (above its
+  // frames, *1.11*), so a late fetch of one of them never shows over it; the
+  // scrub ends with it.
+  const releasedMark = () => { const mark = released?.id ? released : undefined; scrubbed = null; aside = null; released = false; return mark; };
   // A design (`exact-web-js design`), read from the compiler with no build:
   // a value-only edit's and a scrub's. Optimised (host-dev), built as the
   // loop starts and again after any edit that is not a design's, so it is
@@ -368,13 +374,13 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
         const from = scrubbed ?? design;
         design = next;
         served = { digest: design.digest ?? null, source: designFrom = createHash('sha256').update(text).digest('hex') };
-        const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
-        if (scrubbed && released) { scrubbed = null; aside = null; released = false; }
+        const keep = scrubbed && released ? releasedMark() : undefined;
+        const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens, scrub: keep };
         if (scrubbed) aside = committed; else snapshot = committed;
         const tokens = design.tokens.filter((tk, i) => !same(tk, from.tokens[i]));
         if (tokens.length && !scrubbed) {
           console.log(`edit → batch ready ${Date.now() - at} ms (design read in ${Date.now() - t} ms, no build) · ${tokens.length} token${tokens.length === 1 ? '' : 's'} to ${clients.size} page${clients.size === 1 ? '' : 's'}, no reload`);
-          const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens });
+          const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens, scrub: keep });
           push(batch);
           tamber?.channel.broadcast(batch);
         }
@@ -439,16 +445,16 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       const tokens = built.design.tokens.filter((t, i) => !same(t, from.tokens[i]));
       design = built.design;
       served = { digest: design.digest ?? null, source: designFrom = built.designSource };
-      const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
       // While a scrub previews the pages stay on it: this changes only what
       // its end restores. A released scrub's build goes from it, and ends it.
-      if (scrubbed && released) { scrubbed = null; aside = null; released = false; }
+      const keep = scrubbed && released ? releasedMark() : undefined;
+      const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens, scrub: keep };
       if (scrubbed) aside = committed; else snapshot = committed;
       // A batch sent before this build: it checked out, and stands.
       if (fast && !tokens.length) console.log(`edit → checked in ${Date.now() - t} ms · the batch stands`);
       if (tokens.length && !scrubbed) {
         console.log(`edit → batch ready ${Date.now() - at} ms (built in ${Date.now() - t} ms) · ${tokens.length} token${tokens.length === 1 ? '' : 's'} to ${clients.size} page${clients.size === 1 ? '' : 's'}, no reload`);
-        const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens });
+        const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens, scrub: keep });
         push(batch);
         // The one source of batches: the resident loop's devices and Linux
         // take them through the channel's polled streams.
@@ -735,7 +741,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
       await new Promise((ok) => setTimeout(ok, 250));
     }
   };
-  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, page: `http://127.0.0.1:${port}`, sourceMap: (digest) => (digest ? residentMaps.get(digest) ?? pageMaps.get(digest) : residentMaps.get(residentPlan)) ?? null, designServed: () => (scrubbed ? null : served), scrub: { patch: scrubPatch, verify: scrubVerify, preview: scrubPreview, restore: scrubRestore, released: () => { released = scrubbed != null; }, inline: inlineWhy } }) : null;
+  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, page: `http://127.0.0.1:${port}`, sourceMap: (digest) => (digest ? residentMaps.get(digest) ?? pageMaps.get(digest) : residentMaps.get(residentPlan)) ?? null, designServed: () => (scrubbed ? null : served), scrub: { patch: scrubPatch, verify: scrubVerify, preview: scrubPreview, restore: scrubRestore, released: (frame) => { released = scrubbed != null && (frame ?? true); }, inline: inlineWhy } }) : null;
   // A polled stream (Linux, the resident loop's relay) is told the design to run.
   tamber?.channel.greet(() => snapshot && notice(snapshot));
   const server = createServer(async (req, res) => {

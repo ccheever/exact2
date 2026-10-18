@@ -65,9 +65,9 @@ function traced() {
  * `preview(texts, frame)` shows a scrub's
  * texts on the builds (resolves `{error}` when it cannot); `restore(frame)`
  * sends them the committed design; each `frame` (`{id, rev, run}`) marks the
- * batch and snapshot it makes; `released()`, before a release's write, has the
- * builds keep the preview until the build of what it writes (a refused
- * write restores); `opened(e)` is told a scrub's first preview,
+ * batch and snapshot it makes; `released(frame)`, before a release's write, has
+ * the builds keep the preview until the build of what it writes, which
+ * carries `frame` (a refused write restores); `opened(e)` is told a scrub's first preview,
  * `ended(e)` each end of one that previewed.
  */
 export function scrubSessions({ ask, write, patch = null, verify = null, preview, restore, released = () => {}, opened = () => {}, ended = () => {}, idleMs = SCRUB_IDLE_MS, paceMs = PACE_MS, verifyMs = VERIFY_MS }) {
@@ -222,7 +222,7 @@ export function scrubSessions({ ask, write, patch = null, verify = null, preview
       ends++;
       releasing = true;
       // The builds keep the preview until the build of what it writes.
-      await released();
+      await released(mark(id));
       let result;
       try { result = await write({ method: 'transaction', client: request.client, files, ops }); } finally { releasing = false; }
       // Refused (a file moved since it opened; `by` names who moved it):

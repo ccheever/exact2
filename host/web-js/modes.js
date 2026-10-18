@@ -169,6 +169,8 @@ const refused = pins => {
 // out (build.mjs `withoutDev`).
 // The last scrub frame applied (`{id, rev}`), which an older one is not.
 let Scrubbed = null;
+// The runs a later run's frame has followed: theirs are older (a few kept).
+const Retired = [];
 /** The page's rule for each full tuple, by its key, and its accent
  * companions (`[data-x-accent]`, modes.rs `rules`), by key and property. */
 function tupleRules() {
@@ -207,12 +209,19 @@ const tupleKey = t => {
  * its base is not this page's design. */
 function design(frame) {
   if (frame.structure !== Structure) return { live: "structure" };
-  // A frame sent before the last applied (its run's, or with none its
-  // scrub's): shown over already, a later scrub's or end's included.
-  const mark = frame.scrub, older = mark && Scrubbed && (mark.run != null && Scrubbed.run != null ? mark.run === Scrubbed.run : mark.id === Scrubbed.id) && mark.rev <= Scrubbed.rev;
+  // A frame sent before the last applied is shown over already: one of a
+  // retired run, or one after a mark of its own run (with no
+  // run on either, its scrub) not above it; one with a run after a mark
+  // with none is a new run's.
+  const mark = frame.scrub;
+  const same = mark && Scrubbed && (mark.run != null && Scrubbed.run != null ? mark.run === Scrubbed.run : mark.run == null && Scrubbed.run == null && mark.id === Scrubbed.id);
+  const older = mark && (Retired.includes(mark.run) || (same && mark.rev <= Scrubbed.rev));
   if (older) return { live: "applied" };
   if (frame.base != null && frame.base !== Design) return { live: "stale" };
-  if (mark) Scrubbed = mark;
+  if (mark) {
+    if (Scrubbed?.run != null && mark.run !== Scrubbed.run && !Retired.includes(Scrubbed.run)) { Retired.push(Scrubbed.run); if (Retired.length > 8) Retired.shift(); }
+    Scrubbed = mark;
+  }
   if (frame.design === Design || !frame.tokens?.length) return { live: "applied" };
   return mark ? still(() => setTokens(frame)) : setTokens(frame);
 }

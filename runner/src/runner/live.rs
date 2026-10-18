@@ -10,6 +10,8 @@ use exact_kernel::CommitReceipt;
 pub(crate) struct Live {
     pub(crate) admitted: bool,
     scrubbed: Option<Scrub>,
+    /// The runs whose frames a later run's has followed: theirs are older.
+    retired: Vec<String>,
 }
 
 /// Why a build does not apply a batch.
@@ -105,7 +107,7 @@ impl<D: DataSource> Runner<D> {
         // scrub's): what it shows has been shown over already, a later
         // scrub's or end's included, and is dropped.
         if let (Some(frame), Some(last)) = (&edit.scrub, &self.live.scrubbed) {
-            if frame.older(last) {
+            if frame.older(last, &self.live.retired) {
                 return Ok(nothing());
             }
         }
@@ -113,8 +115,17 @@ impl<D: DataSource> Runner<D> {
         if edit.base.as_ref().is_some_and(|base| *base != running) {
             return Err(LiveRefusal::Stale);
         }
-        if edit.scrub.is_some() {
-            self.live.scrubbed.clone_from(&edit.scrub);
+        if let Some(frame) = &edit.scrub {
+            // A new run's frame retires the run before it (a few kept).
+            if let Some(run) = self.live.scrubbed.as_ref().and_then(|l| l.run.clone()) {
+                if frame.run.as_ref() != Some(&run) && !self.live.retired.contains(&run) {
+                    self.live.retired.push(run);
+                    if self.live.retired.len() > 8 {
+                        self.live.retired.remove(0);
+                    }
+                }
+            }
+            self.live.scrubbed = Some(frame.clone());
         }
         // No tokens (a notice), or the design it runs already (a snapshot
         // polled again): nothing to set.

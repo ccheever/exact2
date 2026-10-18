@@ -131,7 +131,6 @@ impl Engine {
             now: Default::default(),
             shown: Default::default(),
             start_on_frame: Default::default(),
-            still: Default::default(),
             pending: Default::default(),
             transitions: Default::default(),
             slots: Default::default(),

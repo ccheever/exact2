@@ -68,8 +68,9 @@ function pinRefused(pin) {
 
 const live = f => String(f.kind).startsWith('tamber-');
 // A live-table frame's notice: no tokens, so a build at another design asks
-// for the snapshot.
-const notice = f => ({ kind: 'tamber-batch', structure: f.structure, base: f.design, design: f.design, tokens: [] });
+// for the snapshot; a scrub frame's keeps its mark (*1.11*), so a build
+// still orders it.
+const notice = f => ({ kind: 'tamber-batch', structure: f.structure, base: f.design, design: f.design, tokens: [], ...(f.scrub ? { scrub: f.scrub } : {}) });
 /** A frame as one poll may carry it: a live-table frame over the bound as
  * its notice; any other, which is never that large, as it is. */
 function bounded(f) {
@@ -516,4 +517,18 @@ export async function relayChannel(main, write, every = 250, ended = () => {}) {
     })();
     return { nonce: opened.nonce, close: () => { going = false; } };
   } catch { return null; }
+}
+
+/** Unread bytes past which a build reading an event stream is behind. */
+export const BEHIND = 64 * 1024;
+/** A live-table frame (its JSON `text`) written to an event stream `res`,
+ * unless the build reading it is behind (a slow or stopped reader, with
+ * more than BEHIND bytes unread): then nothing more is queued for it until
+ * the stream drains, and it is sent `latest()` then, the latest design's
+ * notice, which asks for its snapshot, never the frames between. */
+export function streamFrame(res, text, latest) {
+  if (res.behind) return;
+  if (res.writableLength <= BEHIND) { res.write(`data: ${text}\n\n`); return; }
+  res.behind = true;
+  res.once('drain', () => { res.behind = false; const f = latest(); if (f) res.write(`data: ${JSON.stringify(f)}\n\n`); });
 }

@@ -7,7 +7,7 @@
 // poll within the hosts' limits and keeps an answer until it is
 // acknowledged; a report's fields typed, and its body read safely.
 import { expect, test } from 'bun:test';
-import { buildChannel, relayChannel, serveCommands, serveReport } from './tamber-builds.mjs';
+import { buildChannel, relayChannel, serveCommands, serveReport, streamFrame, BEHIND } from './tamber-builds.mjs';
 
 const stream = channel => {
   const frames = [];
@@ -498,4 +498,32 @@ test('a build says the digest of the plan it runs, on registering and in its sta
   expect(channel.list()[0].planDigest).toBe('1'.repeat(64));
   report(channel, { nonce: a.nonce, kind: 'status', scheme: 'light', revision: 0, planDigest: '2'.repeat(64) });
   expect(channel.list()[0].planDigest).toBe('2'.repeat(64));
+});
+
+test('a scrub frame collapsed or over the bound keeps its mark in the notice (*1.11*)', () => {
+  const channel = buildChannel();
+  const { nonce } = channel.openPolled();
+  register(channel, nonce, 'linux-1', 'linux');
+  channel.poll(nonce);
+  const frame = i => ({ kind: 'tamber-batch', structure: 's', base: `d${i}`, design: `d${i + 1}`, tokens: [{ name: 't', value: 'x'.repeat(40_000), slices: [] }], scrub: { id: 'scrub-1', rev: i + 1, run: 'r' } });
+  channel.broadcast(frame(0));
+  const [f] = channel.poll(nonce, 1).frames.filter(f => f.kind === 'tamber-batch');
+  expect(f.tokens).toEqual([]);
+  expect(f.scrub).toEqual({ id: 'scrub-1', rev: 1, run: 'r' });
+});
+
+test('a stream behind takes no frames until it drains, then the latest design\'s notice', () => {
+  const written = [];
+  let drain = null;
+  const res = { writableLength: 0, write: t => written.push(t), once: (e, f) => { if (e === 'drain') drain = f; } };
+  streamFrame(res, '{"n":1}', () => ({ n: 'latest' }));
+  res.writableLength = BEHIND + 1;
+  streamFrame(res, '{"n":2}', () => ({ n: 'latest' }));
+  streamFrame(res, '{"n":3}', () => ({ n: 'latest' }));
+  expect(written).toEqual(['data: {"n":1}\n\n']);
+  res.writableLength = 0;
+  drain();
+  expect(written).toEqual(['data: {"n":1}\n\n', 'data: {"n":"latest"}\n\n']);
+  streamFrame(res, '{"n":4}', () => null);
+  expect(written.at(-1)).toBe('data: {"n":4}\n\n');
 });
