@@ -120,6 +120,9 @@ component Home
     emptyDetail: string
     emptyTitleRole: SettingsTextRole
     emptyDetailRole: SettingsTextRole
+    plainTitleRole: SettingsTextRole
+    plainDetailRole: SettingsTextRole
+    plainActionRole: SettingsTextRole
     loading: bool
     addEnvironment: bool
     fullPageEmpty: bool
@@ -281,15 +284,15 @@ component Home
           align-items="center"
           box-sizing="border-box"
           padding=28
-          text emptyTitle font-size=21
-            line-height="28px"
+          text emptyTitle font-size=plainTitleRole.size
+            line-height=`${plainTitleRole.line}px`
             font-weight=700
             color=colors.foreground
             text-align="center"
             testId="home-empty-title"
           text emptyDetail margin-top=7
-            font-size=16
-            line-height="24px"
+            font-size=plainDetailRole.size
+            line-height=`${plainDetailRole.size * 1.5}px`
             color=colors.muted
             text-align="center"
             testId="home-empty-detail"
@@ -303,7 +306,7 @@ component Home
               padding-top=10.5
               padding-bottom=10.5
               testId="home-add-environment"
-              text "Add environment" color=colors.primaryForeground font-size=14 line-height="19px" font-weight=700
+              text "Add environment" color=colors.primaryForeground font-size=plainActionRole.size line-height=`${plainActionRole.line}px` font-weight=700
     else
       list id=listId flex=1 min-height=0 hatch="mobile-home-swipe-list" data-mobile-swipe-owner=swipeOwner
         virtualized=true
