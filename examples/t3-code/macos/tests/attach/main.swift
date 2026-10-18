@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// Compile with T3ComposerAttach.swift alone: real image files through the
+// Compile with T3ComposerAttach.swift and T3ImageFit.swift: real image files through the
 // agent's attach/ directory, re-encoded into PNG drafts beside SnapShot's.
 final class ComposerAttachTests: XCTestCase {
     private var root: URL!
@@ -90,7 +90,9 @@ final class ComposerAttachTests: XCTestCase {
 }
 
 _ = NSApplication.shared
-let suite = XCTestSuite(forTestCaseClass: ComposerAttachTests.self)
+let suite = XCTestSuite(name: "attach")
+suite.addTest(XCTestSuite(forTestCaseClass: ComposerAttachTests.self))
+suite.addTest(XCTestSuite(forTestCaseClass: ImageFitTests.self))
 suite.run()
 let run = suite.testRun!
 print("Executed \(run.executionCount) tests, with \(run.totalFailureCount) failures")
