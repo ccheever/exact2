@@ -978,19 +978,23 @@ done
 ```
 
 The `timeline-keyboard` regression uses the actual ExactKit key loop and scroll
-views. It compiles ExactKit's sources into its own binary, so it passes
+views. It compiles ExactKit's sources into its own binary, over ExactCore, which
+ExactKit imports, built first as a module of its own. Both pass
 `-package-name apple`, the name SwiftPM gives `host/apple/Package.swift`'s
-package (ExactKit's `package` declarations need one). After building the macOS
+package (their `package` declarations need one). After building the macOS
 app (`bun host/apple/build.mjs t3-code-macos`, which writes
 `examples/t3-code/target/aarch64-apple-darwin/host-dev/libt3_code_macos.a`), run it from the
 repository root:
 
 ```sh
 mkdir -p target/t3-tests
-xcrun swiftc -swift-version 5 -package-name apple -module-name ExactKit -I host/apple/Sources/CExact \
+xcrun swiftc -swift-version 5 -package-name apple -module-name ExactCore -parse-as-library -I host/apple/Sources/CExact \
+  $(rg --files host/apple/Sources/ExactCore -g '*.swift') \
+  -emit-module -emit-module-path target/t3-tests/ExactCore.swiftmodule -emit-library -static -o target/t3-tests/libExactCore.a
+xcrun swiftc -swift-version 5 -package-name apple -module-name ExactKit -I host/apple/Sources/CExact -I target/t3-tests \
   $(rg --files host/apple/Sources/ExactKit -g '*.swift') \
   examples/t3-code/macos/tests/timeline-keyboard/main.swift \
-  -L examples/t3-code/target/aarch64-apple-darwin/host-dev -lt3_code_macos -lc++ \
+  -L target/t3-tests -lExactCore -L examples/t3-code/target/aarch64-apple-darwin/host-dev -lt3_code_macos -lc++ \
   -o target/t3-tests/timeline-keyboard-tests
 target/t3-tests/timeline-keyboard-tests
 ```
