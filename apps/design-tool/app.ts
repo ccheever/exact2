@@ -708,8 +708,9 @@ const plain = (n: Noted) => n.gap ? 'Some changes were missed here (the server k
 async function rescopeFor(file: string, op: Record<string, unknown>, token: string, files: Record<string, string>): Promise<Rescope | null> {
   // The design read and every explain of the revision the edit was reviewed on.
   const key = digestKey(files);
-  const snap = [...snapshots.values()].reverse().find(x => x.file === '' && x.digests === key);
-  if (file || !snap || (op.op !== 'set-param' && op.op !== 'set-token')) return null;
+  const app = (f: string) => f === '' || f === designFile;
+  const snap = [...snapshots.values()].reverse().find(x => app(x.file) && x.digests === key);
+  if (!app(file) || !snap || (op.op !== 'set-param' && op.op !== 'set-token')) return null;
   return rescopeOf(op as { op: string; name: string; when: When[]; value: string }, snap.params, snap.tokenOf, async name => {
     const { error, reply } = await call('/__tamber', { method: 'explain', token: name }, 15000, token);
     return error ? null : (reply.ok as { value: string; whens: { when: When[]; value: string }[]; files?: Record<string, string> });
@@ -905,8 +906,8 @@ const sources: Sources = {
     const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files, ops }, WRITE_WAIT, top.token);
     if (error === RESTARTED) forget(used);
     if (session !== at) return stacks(false, RESTARTED, '');
-    // Refused, it is not offered again: the files are not the edit's any more.
-    if (error) { if (byWhom(reply)) top.rescope = null; return stacks(false, byWhom(reply) ? `Not moved: ${byWhom(reply)} since the edit, so its inverse would undo theirs.` : error, ''); }
+    // Refused by the server (a file moved, a loop through another token), it is not offered again.
+    if (error) { if (reply.error) top.rescope = null; return stacks(false, byWhom(reply) ? `Not moved: ${byWhom(reply)} since the edit, so its inverse would undo theirs.` : error, ''); }
     const inverse = (reply.ok as { inverse: string | null }).inverse;
     if (inverse) { undoStack.push({ inverse, ops, label: top.rescope.text.replace(/^Apply to/, 'moved to').replace(/ instead$/, ''), token: top.token }); redoStack.length = 0; wroteMine(reply.ok); }
     return stacks(true, '', 'rescope');

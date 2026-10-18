@@ -12,13 +12,13 @@ type Explained = { value: string; whens: { when: When[]; value: string }[]; file
 /** A param as the panel's design read has it: its line's value (null with
  * none) and how many `when` lines it has, its default as written, and its
  * short name (the full name where two components share the short one). */
-export type ParamInfo = { set: string | null; whens: number; default: string; short: string };
+export type ParamInfo = { set: string | null; whens: number; default: string; short: string; kind: string };
 
 /** Each param's info, by its full name, from `describe`'s IR. */
-export function paramInfoOf(ir: { components?: { params: { name: string; short: string | null; default: string; set: { value: string; whens?: number } | null }[] }[] }): Map<string, ParamInfo> {
+export function paramInfoOf(ir: { components?: { params: { name: string; short: string | null; kind: string; default: unknown; set: { value: string; whens?: number } | null }[] }[] }): Map<string, ParamInfo> {
   const out = new Map<string, ParamInfo>();
   for (const c of ir.components ?? []) for (const p of c.params) {
-    out.set(p.name, { set: p.set?.value ?? null, whens: p.set?.whens ?? 0, default: p.default ?? '', short: p.short ?? p.name });
+    out.set(p.name, { set: p.set?.value ?? null, whens: p.set?.whens ?? 0, default: typeof p.default === 'string' ? p.default : '', short: p.short ?? p.name, kind: p.kind });
   }
   return out;
 }
@@ -40,12 +40,26 @@ export type Rescope = { text: string; ops: Op[]; files?: Record<string, string> 
 
 const sameWhen = (a: When[], b: When[]) => JSON.stringify(a.map(c => `${c.axis}=${c.value}`).sort()) === JSON.stringify(b.map(c => `${c.axis}=${c.value}`).sort());
 
-/** The branch `when` of an explained name as it was: there or not, and the
- * value it has there (the unconditional one where it has no such `when`). */
-const branchOf = (x: Explained, when: When[], base: boolean) => {
+/** The line `when` of an explained name as it was: there or not, and its value. */
+const lineOf = (x: Explained, when: When[], base: boolean) => {
   if (!when.length) return { there: base, value: x.value };
   const w = x.whens.find(b => sameWhen(b.when, when));
-  return { there: !!w, value: w?.value ?? x.value };
+  return { there: !!w, value: w?.value ?? '' };
+};
+
+/** The value an explained name shows on the copies a line at `when` would
+ * set: the most specific `when` of its own whose conditions `when` all
+ * holds (a line more specific than `when` keeps its copies whichever way),
+ * else its unconditional value; null where two are equally specific. */
+export const shownOn = (x: Explained, when: When[]): string | null => {
+  const has = (c: When) => when.some(w => w.axis === c.axis && w.value === c.value);
+  let best: { n: number; value: string } | null = null, tie = false;
+  for (const b of x.whens) {
+    if (!b.when.every(has)) continue;
+    if (!best || b.when.length > best.n) { best = { n: b.when.length, value: b.value }; tie = false; }
+    else if (b.when.length === best.n) tie = true;
+  }
+  return tie ? null : best?.value ?? x.value;
 };
 
 /** The re-scope of `set-param`/`set-token` `name` on branch `when` to
@@ -61,9 +75,11 @@ export async function rescopeOf(op: { op: string; name: string; when: When[]; va
     const [name, p] = entry;
     const x = ofIt(await explain(name));
     if (!x) return null;
-    const was = branchOf(x, op.when, p.set !== null);
-    // The token it aliased on that branch, which the new value does not name.
-    const alias = tokenOf(was.value);
+    const was = lineOf(x, op.when, p.set !== null);
+    // The token it aliased where it was edited (its line there, else what
+    // those copies showed), which the new value does not name.
+    const shown = was.there ? was.value : shownOn(x, op.when);
+    const alias = shown === null ? null : tokenOf(shown);
     if (!alias || tokenOf(op.value) === alias) return null;
     const undo = was.there ? { op: 'set-param', name: p.short, when: op.when, value: was.value } : { op: 'unset-param', name: p.short, when: op.when };
     return { text: `Apply to the token ${alias} instead`, ops: [undo, { op: 'set-token', name: alias, when: op.when, value: op.value }] };
@@ -74,14 +90,18 @@ export async function rescopeOf(op: { op: string; name: string; when: When[]; va
     // Every param whose value on that branch names this token alone.
     const aliasing: ParamInfo[] = [];
     for (const [name, p] of params) {
+      // (An icon param aliases no token: no operation writes an icon.)
+      if (p.kind === 'icon') continue;
       if (!p.whens) { if (tokenOf(p.set ?? p.default) === op.name) aliasing.push(p); continue; }
       const x = ofIt(await explain(name));
       if (!x) return null;
-      if (tokenOf(branchOf(x, op.when, true).value) === op.name) aliasing.push(p);
+      const shown = shownOn(x, op.when);
+      if (shown === null) return null;
+      if (tokenOf(shown) === op.name) aliasing.push(p);
     }
     if (aliasing.length !== 1 || tokenOf(op.value) === op.name) return null;
     const p = aliasing[0];
-    const was = branchOf(t, op.when, true);
+    const was = lineOf(t, op.when, true);
     const undo = was.there ? { op: 'set-token', name: op.name, when: op.when, value: was.value } : { op: 'unset-token-when', name: op.name, when: op.when };
     // A param's `when` line needs its own line first: the value it had.
     const own = op.when.length && p.set === null ? [{ op: 'set-param', name: p.short, when: [], value: p.default }] : [];

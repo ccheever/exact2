@@ -342,9 +342,9 @@ test('a dial edit and a Dim cell edit each write one line, undo gives the bytes 
 test('T3: a re-scope reads the branch it moves: the alias there, the param that aliases a token there, a role by its spelling, none toward a value that names its destination, none from another revision', async () => {
   const { paramInfoOf, rescopeOf, tokenOfIn } = await import('../apps/design-tool/rescope.ts');
   const ir = { tokens: [{ name: 'radius.md' }, { name: 'radius.sm' }, { name: '-exact-label', role: 'label' }], components: [{ params: [
-    { name: 'a#Card.radius', short: 'Card.radius', default: 'radius.md', set: { value: 'radius.md', whens: 1 } },
-    { name: 'a#Card.ink', short: 'Card.ink', default: 'Label', set: null },
-    { name: 'a#Chip.radius', short: 'Chip.radius', default: '4px', set: { value: '4px', whens: 1 } },
+    { name: 'a#Card.radius', short: 'Card.radius', kind: 'length', default: 'radius.md', set: { value: 'radius.md', whens: 1 } },
+    { name: 'a#Card.ink', short: 'Card.ink', kind: 'color', default: 'Label', set: null },
+    { name: 'a#Chip.radius', short: 'Chip.radius', kind: 'length', default: '4px', set: { value: '4px', whens: 1 } },
   ] }] };
   const params = paramInfoOf(ir), tokenOf = tokenOfIn(ir);
   const compact = [{ axis: 'density', value: 'compact' }];
@@ -376,6 +376,21 @@ test('T3: a re-scope reads the branch it moves: the alias there, the param that 
     { op: 'set-token', name: 'radius.md', when: [], value: '12px' },
     { op: 'set-param', name: 'Card.radius', when: [], value: '10px' },
   ] });
+  // A copy a shorter `when` covers (Grok's case): on dim+compact, Fill shows paper (its dim line), so an
+  // edit of ink there moves nowhere, and Fill's Only-this-mode edit there moves to paper.
+  const two = { tokens: [{ name: 'ink' }, { name: 'paper' }], components: [{ params: [{ name: 'a#Card.fill', short: 'Card.fill', kind: 'color', default: 'ink', set: { value: 'ink', whens: 1 } }] }] };
+  const dim = [{ axis: 'dark-style', value: 'dim' }], both = [...dim, ...compact];
+  const twoBranches = {
+    'a#Card.fill': { value: 'ink', whens: [{ when: dim, value: 'paper' }], files },
+    ink: { value: '#010101', whens: [{ when: both, value: '#222222' }], files },
+    paper: { value: '#ffffff', whens: [], files },
+  };
+  const ex2 = async name => twoBranches[name] ?? null;
+  expect(await rescopeOf({ op: 'set-token', name: 'ink', when: both, value: '#abcdef' }, paramInfoOf(two), tokenOfIn(two), ex2, key)).toBe(null);
+  expect((await rescopeOf({ op: 'set-param', name: 'Card.fill', when: both, value: '#abcdef' }, paramInfoOf(two), tokenOfIn(two), ex2, key)).text).toBe('Apply to the token paper instead');
+  // A line of the param more specific than the edit's keeps its copies either way: on dim, Fill shows ink.
+  const wider = { 'a#Card.fill': { value: 'ink', whens: [{ when: both, value: 'paper' }], files }, ink: { value: '#010101', whens: [], files } };
+  expect((await rescopeOf({ op: 'set-token', name: 'ink', when: dim, value: '#abcdef' }, paramInfoOf(two), tokenOfIn(two), async n => wider[n] ?? null, key)).text).toBe('Apply to Card.fill instead');
   // An explain of another revision than the edit's: none.
   expect(await rescopeOf({ op: 'set-param', name: 'Card.ink', when: [], value: '#111' }, params, tokenOf, async n => ({ ...branches[n], files: { 'app.tamber': 'd2' } }), key)).toBe(null);
 });
