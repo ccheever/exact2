@@ -61,6 +61,8 @@ component MapCard
   params
     pin: color = accent.fill  control=color  priority=1  label="Pin"
     zoom: number = 12  in 1..20  step=1  control=stepper  priority=2  label="Zoom"
+    pan: duration = 300ms  in 0..1000  step=50  control=slider  priority=2  label="Pan"
+    glyph: icon = icon.star  priority=2  label="Glyph"
 
 params
   Card.pad = 12px

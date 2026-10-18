@@ -15,6 +15,9 @@ import { TOOL_DIST, TOOL_ORIGIN } from './tamber-server.mjs';
 import { takePort } from './port-lock.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
+// The stub's app (its components' params, which the stub's design sets):
+// the app beside a copy of stub/dials.tamber.
+const STUB_APP = readFileSync(resolve(ROOT, 'apps/design-tool/stub/app.contract'), 'utf8');
 
 // The tool's port, in turn with other runs (the contract tests' stub, other
 // checkouts'): each test takes it, and a tool that took no turn there (one
@@ -154,7 +157,7 @@ test('--via reaches only a loopback dev loop serving this app, and forwards to i
 test('every control on the dials panel comes from the design as describe gives it', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-dials-'));
   cpSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), join(app, 'app.tamber'));
-  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
   const tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   try {
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
@@ -297,7 +300,7 @@ test('a dial edit and a Dim cell edit each write one line, undo gives the bytes 
   // A second design file that sorts before the app's: a write to the app's
   // design still carries the app's digest.
   writeFileSync(join(app, 'accent.tamber'), original.replace('tamber dials', 'tamber accent'));
-  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
   const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
   git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
   let undos = 0;
@@ -340,7 +343,7 @@ test('T3: Reset gives a param\'s line back byte for byte in one undo, and a para
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-params-'));
   const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8');
   writeFileSync(join(app, 'app.tamber'), original);
-  writeFileSync(join(app, 'app.contract'), readFileSync(resolve(ROOT, 'apps/design-tool/stub/app.contract'), 'utf8'));
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
   const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
   git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
   const tool = await proxied(app);
@@ -383,7 +386,7 @@ test('expressions are kept unless pinned, "only this mode" adds a when, redo wri
   const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8').replace('  text.primary = light-dark(#0f1419, #e7e9ea)  pair=surface.page', primary);
   expect(original).toContain(primary);
   writeFileSync(join(app, 'app.tamber'), original);
-  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
   const tool = await proxied(app);
   try {
     const replies = await drive(tool.url, `design-tool-ops-${process.pid}`, [
@@ -455,7 +458,7 @@ test('expressions are kept unless pinned, "only this mode" adds a when, redo wri
 function repo(name) {
   const app = mkdtempSync(join(tmpdir(), `exact-design-tool-${name}-`));
   writeFileSync(join(app, 'app.tamber'), readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8'));
-  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
   const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app, encoding: 'utf8' });
   git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
   // Who the server's commit is by, here, whatever this machine's git says.
@@ -1315,7 +1318,7 @@ test('typed fields write one line through set-token for each kind: a length, a n
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-typed-'));
   const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8');
   writeFileSync(join(app, 'app.tamber'), original);
-  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
   const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
   git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
   // Each: the cell, its field edits, the line before and after.

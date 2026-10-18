@@ -13,7 +13,7 @@ type Row = Panel['groups'][number]['params'][number];
 
 /** A param as `describe` gives it (docs/tamber-protocol.md, `components`). */
 type Param = {
-  name: string; short: string | null; kind: string; default: string; values: string[] | null;
+  name: string; short: string | null; kind: string; default: string; values: unknown[] | null;
   range: [number, number] | null; step: number | null; control: string | null; options: string[] | null;
   label: string | null; help: string | null; group: string | null; priority: number | null;
   set: { value: string } | null; pinned: string[] | null;
@@ -22,10 +22,16 @@ type Param = {
 /** One param's row: its control, by the dials panel's rules, on the value
  * the app has (its line, else the default); a number control starts at the
  * folded value when the written one is a token. `control=token` (the
- * default) is a field that takes a token or a literal. */
+ * default) is a field that takes a token or a literal, and so is every
+ * kind the dials have no control for (a shadow, a type, an easing); a
+ * duration's slider or stepper writes ms. An icon param is shown, not
+ * edited: its sources. */
 export function paramRow(p: Param, tokens: ReadonlySet<string>): Row | null {
-  const written = p.set?.value ?? p.default ?? '';
-  const unit = p.kind === 'length' ? 'px' : '';
+  const written = typeof (p.set?.value ?? p.default) === 'string' ? (p.set?.value ?? p.default) : '';
+  const first = p.values?.[0];
+  const folded = typeof first === 'string' ? first : written;
+  const ranged = p.kind === 'length' || p.kind === 'number' || p.kind === 'duration';
+  const unit = p.kind === 'length' ? 'px' : p.kind === 'duration' ? 'ms' : '';
   const meta: Record<string, string> = {};
   if (p.control && p.control !== 'token') meta.control = p.control;
   if (p.options?.length) meta.options = p.options.join('|');
@@ -33,24 +39,37 @@ export function paramRow(p: Param, tokens: ReadonlySet<string>): Row | null {
   if (p.help) meta.help = p.help;
   if (p.step != null) meta.step = String(p.step);
   if (p.priority != null) meta.priority = String(p.priority);
-  const range: [string, string] | null = p.range ? [`${p.range[0]}${unit}`, `${p.range[1]}${unit}`] : null;
-  const c = controlOf({ name: p.name, kind: p.kind, value: written, range, meta }, tokens, true);
+  const range: [string, string] | null = p.range ? [`${p.range[0]}${unit === 'px' ? 'px' : ''}`, `${p.range[1]}${unit === 'px' ? 'px' : ''}`] : null;
+  // (A duration reads as a number to the dials' rules, its ms written back.)
+  const c = controlOf({ name: p.name, kind: p.kind === 'duration' ? 'number' : p.kind, value: written.replace(/ms$/, ''), range, meta }, tokens, true);
   if (!c) return null;
-  const folded = p.values?.[0] ?? written;
+  const amount = (v: string) => numberOf(p.kind === 'duration' ? v.replace(/ms$/, '') : v);
+  const free = p.kind === 'icon' ? 'icon' : p.control === 'token' || !(ranged || p.kind === 'color') && c.control !== 'select' ? 'token' : c.control;
   return {
     c: {
       ...c,
-      control: p.control === 'token' ? 'token' : c.control,
-      number: numberOf(written) ?? numberOf(folded) ?? 0,
+      kind: p.kind,
+      control: free,
+      value: p.kind === 'icon' ? iconText(first) : c.control === 'select' ? c.value : written,
+      options: c.options,
+      number: amount(written) ?? amount(folded) ?? 0,
+      unit,
+      bounds: free === 'slider' || free === 'stepper' ? [p.range ? `${p.range[0]}${unit} – ${p.range[1]}${unit}` : '', `step ${c.step}${unit}`].filter(Boolean).join(' · ') : '',
       // The swatch is the value as the app's first tuple folds it, a token named or not.
       swatch: p.kind === 'color' ? folded : '',
     },
     short: p.short ?? p.name,
     set: p.set != null,
     pinned: p.pinned ?? [],
-    default: p.default ?? '',
+    default: typeof p.default === 'string' ? p.default : '',
   };
 }
+
+/** An icon param's value in words: its sources. */
+const iconText = (v: unknown) => {
+  const i = (v ?? {}) as Record<string, string | null>;
+  return ['sf', 'material', 'svg'].filter(k => i[k]).map(k => `${k} ${i[k]}`).join(' · ');
+};
 
 /** The panel: every component with params (a native one declared in the
  * design too, `app.tamber#Name`), its groups in the order they first

@@ -130,7 +130,9 @@ export function controlOf(d: { name: string; kind: string; value: string; range:
   ].filter(Boolean).join(' ');
   // A select's options as given, the current value matched by meaning (a
   // colour folded as the server folds it), else listed first.
-  const same = (o: string) => o.trim() === d.value.trim() || (d.kind === 'color' ? folded(o) === folded(d.value) : numberOf(o) !== null && numberOf(o) === numberOf(d.value));
+  // A token is matched by its name alone; a literal by its meaning.
+  const named = (v: string) => takesTokens && tokens.has(v.trim());
+  const same = (o: string) => o.trim() === d.value.trim() || (!named(o) && !named(d.value) && (d.kind === 'color' ? folded(o) === folded(d.value) : numberOf(o) !== null && numberOf(o) === numberOf(d.value)));
   const matched = options.find(same);
   return {
     name: d.name, kind: d.kind, control, label: m.label ?? d.name, help: [m.help ?? '', said].filter(Boolean).join(' '),

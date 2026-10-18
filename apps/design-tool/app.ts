@@ -270,6 +270,14 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
 
 /** An edit's operation in `tamber/1`'s shape, on `file` (the app's design
  * when ""). */
+/** An edit's operations: its one, and before a param's `when` line where
+ * the app has no line for the param, that line (its default as written),
+ * which a `when` line needs first (LLP 1121 D15). */
+function opsOf(file: string, kind: string, target: string, when: string, value: string): Record<string, unknown>[] {
+  const op = opOf(file, kind, target, when, value);
+  const p = kind === 'set-param' && when ? snapshots.get(issued)?.params.get(target) : undefined;
+  return p && p.set === null ? [{ op: 'set-param', name: lineName(target), when: [], value: p.default }, op] : [op];
+}
 function opOf(file: string, kind: string, target: string, when: string, value: string): Record<string, unknown> {
   const on = file ? { file } : {};
   switch (kind) {
@@ -797,7 +805,8 @@ const sources: Sources = {
         tokenGroups: [...groups].map(([name, rows]) => ({ name, tokens: rows })),
         names: [...names],
         icons: (ir.icons ?? []).map((i: { name: string; sf: string | null; material: string | null; svg: string | null }) => ({ name: i.name, sf: i.sf ?? '', material: i.material ?? '', svg: i.svg ?? '' })),
-        components: componentsOf(ir.components, file || designFile, names),
+        // A param's line is the app design's: the panel only while that is open.
+        components: file ? [] : componentsOf(ir.components, designFile, names),
       };
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e;
@@ -839,7 +848,7 @@ const sources: Sources = {
     const idle = { ok: true, error: '', active: false, chip: '', diff: '', tokens: [], key, review: '' };
     if (!kind || !target) return idle;
     if (kind !== 'remove-token' && kind !== 'unset-param' && !value) return { ...idle, ok: false, error: 'Give it a value.' };
-    const { error, reply, used } = await call('/__tamber', { method: 'propose', ops: [opOf(file, kind, target, when, value)] });
+    const { error, reply, used } = await call('/__tamber', { method: 'propose', ops: opsOf(file, kind, target, when, value) });
     if (error) return { ...idle, ok: false, error };
     const ok = reply.ok as { diff: string; class: string; files: Record<string, string>; changed: { token: string }[] };
     // What Apply writes: this edit, against the digests this proposal read,
@@ -853,17 +862,18 @@ const sources: Sources = {
     let read: { key?: string; files?: Record<string, string>; diff?: string; token?: string } = {};
     try { read = JSON.parse(review || '{}'); } catch { /* none */ }
     if (read.key !== key || !read.files || !read.token) return stacks(false, 'Review the change before applying it.', '');
-    const op = opOf(file, kind, target, when, value);
-    const move = await rescopeFor(file, op, read.token);
+    const ops = opsOf(file, kind, target, when, value);
+    const op = ops.at(-1)!;
+    const move = ops.length === 1 ? await rescopeFor(file, op, read.token) : null;
     // Every file's digest as the proposal read it: the server checks the
     // ones the edit writes, whichever file the app's design is.
-    const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files: read.files, ops: [op] }, WRITE_WAIT, read.token);
+    const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files: read.files, ops }, WRITE_WAIT, read.token);
     if (error === RESTARTED) forget(used);
     if (session !== at) return stacks(false, RESTARTED, '');
     if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since you reviewed it.` : error, '');
     const inverse = (reply.ok as { inverse: string | null }).inverse;
     // A write that changed no byte has no inverse, and leaves redo be.
-    if (inverse) { undoStack.push({ inverse, ops: [op], label: label(kind, target, when, value), token: read.token, rescope: move }); redoStack.length = 0; wroteMine(reply.ok); }
+    if (inverse) { undoStack.push({ inverse, ops, label: label(kind, target, when, value), token: read.token, rescope: move }); redoStack.length = 0; wroteMine(reply.ok); }
     return stacks(true, '', kind.split('-')[0], key);
   },
   rescopeLast: async ([client]) => {
@@ -889,7 +899,8 @@ const sources: Sources = {
     // Scrub live pressed: a session for this edit, opened on the digests
     // and server run its proposal read. Then each value the draft takes is
     // wanted, if it is still this edit; the state as it stands is answered.
-    const scrubbable = (kind === 'set-dial' || kind === 'set-token' || kind === 'set-param') && !!value;
+    // (Not a param's first `when` line, which needs its own line written first.)
+    const scrubbable = (kind === 'set-dial' || kind === 'set-token' || kind === 'set-param') && !!value && opsOf(file, kind, target, when, value).length === 1;
     const op = scrubbable ? opOf(file, kind, target, when, value) : null;
     const of = [file, kind, target, when].join('␟');
     if (ask > scrubAsked) {

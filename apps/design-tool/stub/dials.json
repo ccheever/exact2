@@ -2,7 +2,7 @@
  "describe": {
   "files": {
    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-   "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+   "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
   },
   "ir": {
    "axes": [
@@ -69,7 +69,7 @@
         24
        ],
        "set": {
-        "line": 66,
+        "line": 68,
         "value": "12px",
         "whens": 0
        },
@@ -102,7 +102,7 @@
        "priority": 3,
        "range": null,
        "set": {
-        "line": 67,
+        "line": 69,
         "value": "#eeeeee",
         "whens": 0
        },
@@ -195,6 +195,73 @@
         "12",
         "12",
         "12"
+       ]
+      },
+      {
+       "control": "slider",
+       "default": "300ms",
+       "group": null,
+       "help": null,
+       "kind": "duration",
+       "label": "Pan",
+       "name": "app.tamber#MapCard.pan",
+       "options": null,
+       "param": "pan",
+       "pinned": [],
+       "priority": 2,
+       "range": [
+        0,
+        1000
+       ],
+       "set": null,
+       "short": "MapCard.pan",
+       "step": 50,
+       "token": "param.f25020289.MapCard.pan",
+       "values": [
+        "300ms",
+        "300ms",
+        "300ms",
+        "300ms"
+       ]
+      },
+      {
+       "control": "token",
+       "default": "icon.star",
+       "group": null,
+       "help": null,
+       "kind": "icon",
+       "label": "Glyph",
+       "name": "app.tamber#MapCard.glyph",
+       "options": null,
+       "param": "glyph",
+       "pinned": [],
+       "priority": 2,
+       "range": null,
+       "set": null,
+       "short": "MapCard.glyph",
+       "step": null,
+       "token": "param.f25020289.MapCard.glyph",
+       "values": [
+        {
+         "material": "star",
+         "sf": "star",
+         "svg": null
+        },
+        {
+         "material": "star",
+         "sf": "star",
+         "svg": null
+        },
+        {
+         "material": "star",
+         "sf": "star",
+         "svg": null
+        },
+        {
+         "material": "star",
+         "sf": "star",
+         "svg": null
+        }
        ]
       }
      ]
@@ -339,7 +406,7 @@
      "value": "4px"
     }
    ],
-   "digest": "f43b49fed06facfe",
+   "digest": "0cb7e31012acc1dc",
    "exports": null,
    "format": 1,
    "icons": [
@@ -964,7 +1031,7 @@
   "surface.page": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "surface.page",
    "tuples": [
@@ -1025,7 +1092,7 @@
   "surface.card": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "surface.card",
    "tuples": [
@@ -1086,7 +1153,7 @@
   "surface.inset": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "surface.inset",
    "tuples": [
@@ -1147,7 +1214,7 @@
   "accent.fill": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "accent.fill",
    "tuples": [
@@ -1208,7 +1275,7 @@
   "accent.soft": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "accent.soft",
    "tuples": [
@@ -1269,7 +1336,7 @@
   "space.gap": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "space.gap",
    "tuples": [
@@ -1318,7 +1385,7 @@
   "space.inset": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "space.inset",
    "tuples": [
@@ -1367,7 +1434,7 @@
   "shadow.card": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "shadow.card",
    "tuples": [
@@ -1452,7 +1519,7 @@
   "space.edge": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "space.edge",
    "tuples": [
@@ -1501,7 +1568,7 @@
   "shadow.ring": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "shadow.ring",
    "tuples": [
@@ -1626,7 +1693,7 @@
   "shadow.text": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "shadow.text",
    "tuples": [
@@ -1711,7 +1778,7 @@
   "type.title": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "type.title",
    "tuples": [
@@ -1772,7 +1839,7 @@
   "opacity.muted": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "opacity.muted",
    "tuples": [
@@ -1817,7 +1884,7 @@
   "duration.fast": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "duration.fast",
    "tuples": [
@@ -1862,7 +1929,7 @@
   "easing.standard": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "easing.standard",
    "tuples": [
@@ -1903,7 +1970,7 @@
   "tone.base": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "tone.base",
    "tuples": [
@@ -1964,7 +2031,7 @@
   "tone.warm": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "tone.warm",
    "tuples": [
@@ -2025,7 +2092,7 @@
   "tone.fine": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "tone.fine",
    "tuples": [
@@ -2086,7 +2153,7 @@
   "paint.pick": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "paint.pick",
    "tuples": [
@@ -2147,7 +2214,7 @@
   "tone.deep": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "tone.deep",
    "tuples": [
@@ -2208,7 +2275,7 @@
   "text.primary": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "text.primary",
    "tuples": [
@@ -2269,7 +2336,7 @@
   "text.system": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "text.system",
    "tuples": [
@@ -2326,7 +2393,7 @@
   "ink.on-brand": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "ink.on-brand",
    "tuples": [
@@ -2387,7 +2454,7 @@
   "-exact-label": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "-exact-label",
    "tuples": [
@@ -2448,7 +2515,7 @@
   "app.contract#Card.fill": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "app.contract#Card.fill",
    "tuples": [
@@ -2509,7 +2576,7 @@
   "app.contract#Card.pad": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "app.contract#Card.pad",
    "tuples": [
@@ -2558,7 +2625,7 @@
   "app.contract#Card.tone": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "app.contract#Card.tone",
    "tuples": [
@@ -2619,7 +2686,7 @@
   "app.contract#Card.fade": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "app.contract#Card.fade",
    "tuples": [
@@ -2664,7 +2731,7 @@
   "app.tamber#MapCard.pin": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "app.tamber#MapCard.pin",
    "tuples": [
@@ -2725,7 +2792,7 @@
   "app.tamber#MapCard.zoom": {
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "token": "app.tamber#MapCard.zoom",
    "tuples": [
@@ -2766,6 +2833,100 @@
      "value": "12"
     }
    ]
+  },
+  "app.tamber#MapCard.pan": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "app.tamber#MapCard.pan",
+   "tuples": [
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "ms": 300,
+     "value": "300ms"
+    },
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "ms": 300,
+     "value": "300ms"
+    },
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "ms": 300,
+     "value": "300ms"
+    },
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "ms": 300,
+     "value": "300ms"
+    }
+   ]
+  },
+  "app.tamber#MapCard.glyph": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "app.tamber#MapCard.glyph",
+   "tuples": [
+    {
+     "kind": "icon",
+     "material": "star",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "sf": "star",
+     "svg": null
+    },
+    {
+     "kind": "icon",
+     "material": "star",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "sf": "star",
+     "svg": null
+    },
+    {
+     "kind": "icon",
+     "material": "star",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "sf": "star",
+     "svg": null
+    },
+    {
+     "kind": "icon",
+     "material": "star",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "sf": "star",
+     "svg": null
+    }
+   ]
   }
  },
  "explain": {
@@ -2773,7 +2934,7 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "surface.page",
@@ -2794,7 +2955,7 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "surface.card",
@@ -2815,7 +2976,7 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "surface.inset",
@@ -2838,7 +2999,7 @@
    ],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "accent.fill",
@@ -2852,7 +3013,7 @@
    ],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "accent.soft",
@@ -2865,7 +3026,7 @@
    ],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "space.gap",
@@ -2878,7 +3039,7 @@
    ],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "space.inset",
@@ -2889,7 +3050,7 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "shadow.card",
@@ -2900,7 +3061,7 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "space.edge",
@@ -2911,7 +3072,7 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [
     "surface.inset"
@@ -2924,7 +3085,7 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "shadow.text",
@@ -2935,7 +3096,7 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "type.title",
@@ -2946,7 +3107,7 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "opacity.muted",
@@ -2957,7 +3118,7 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "duration.fast",
@@ -2968,7 +3129,7 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "easing.standard",
@@ -2982,7 +3143,7 @@
    ],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "tone.base",
@@ -2995,7 +3156,7 @@
    ],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "tone.warm",
@@ -3008,7 +3169,7 @@
    ],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "tone.fine",
@@ -3021,7 +3182,7 @@
    ],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "paint.pick",
@@ -3035,7 +3196,7 @@
    ],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "tone.deep",
@@ -3046,7 +3207,7 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "text.primary",
@@ -3057,7 +3218,7 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "text.system",
@@ -3068,7 +3229,7 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "ink.on-brand",
@@ -3079,7 +3240,7 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [
     "text.primary"
@@ -3094,7 +3255,7 @@
    ],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [
     "accent.fill"
@@ -3107,7 +3268,7 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "app.contract#Card.pad",
@@ -3118,7 +3279,7 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "app.contract#Card.tone",
@@ -3129,7 +3290,7 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "app.contract#Card.fade",
@@ -3142,7 +3303,7 @@
    ],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [
     "accent.fill"
@@ -3155,11 +3316,22 @@
    "dials": [],
    "files": {
     "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
-    "app.tamber": "0ca5c384243a73e1fd554a2a4010b8fe1b6d12a575a51a3e96d7eb4da8576c06"
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
    },
    "names": [],
    "token": "app.tamber#MapCard.zoom",
    "value": "12",
+   "whens": []
+  },
+  "app.tamber#MapCard.pan": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "app.tamber#MapCard.pan",
+   "value": "300ms",
    "whens": []
   }
  }

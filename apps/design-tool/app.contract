@@ -647,9 +647,10 @@ component DesignTool
   // changed it): not applied, lest it make a `when` no one asked for.
   // What the branch editor writes: a token's branch, or a param's line (T3).
   derive branchOp = branch.param ? "set-param" : "set-token"
-  derive draftStale = editKind == branchOp and not scopeOwn and (branch.token != editTarget or branch.when != editWhen)
+  // (A panel edit of a param is no branch editor draft: `draftFor` is the branch editor's.)
+  derive draftStale = editKind == branchOp and draftFor != "" and not scopeOwn and (branch.token != editTarget or branch.when != editWhen)
   // The branch's value as the draft has it, and its typed fields.
-  derive shownValue = editKind == branchOp and editTarget == branch.token and not draftStale ? editValue : branch.value
+  derive shownValue = editKind == branchOp and draftFor != "" and editTarget == branch.token and not draftStale ? editValue : branch.value
   // The branch by what it is, not which read: a read that gives the same
   // value back (after a scrub cancelled, an undo elsewhere) keeps the cut.
   derive branchKey = `${branch.token}␟${branch.column}␟${branch.when}␟${branch.value}`
@@ -721,40 +722,55 @@ component DesignTool
     renaming = true
   action dialNumber(op: string, name: string, unit: string, n: number)
     // A scrub open on another edit ends first.
-    if scrubShown and not (editKind == op and editTarget == name)
+    if scrubShown and not (editKind == op and editTarget == name and editWhen == "")
       scrubTick = scrubTick + 1
       scrubWant = false
       send written = cancelScrub(scrubAsk)
     editKind = op
     editTarget = name
     editWhen = ""
+    // A panel edit: the param's own line, no branch editor draft or mode scope.
+    draftFor = ""
+    rawFor = ""
+    partFor = ""
+    scopeOwn = false
     editValue = `${n}${unit}`
   action dialStepped(op: string, name: string, unit: string, v: string)
     // A stepper's number, with its dial's unit.
-    if scrubShown and not (editKind == op and editTarget == name)
+    if scrubShown and not (editKind == op and editTarget == name and editWhen == "")
       scrubTick = scrubTick + 1
       scrubWant = false
       send written = cancelScrub(scrubAsk)
     editKind = op
     editTarget = name
     editWhen = ""
+    // A panel edit: the param's own line, no branch editor draft or mode scope.
+    draftFor = ""
+    rawFor = ""
+    partFor = ""
+    scopeOwn = false
     editValue = v.trim() == "" ? "" : `${v.trim()}${unit}`
   action dialReleased(op: string, name: string, n: number)
     // A slider let go: the scrub on it writes its last value, once that is
     // previewed.
-    if scrubShown and editKind == op and editTarget == name and not pending(written)
+    if scrubShown and editKind == op and editTarget == name and editWhen == "" and not pending(written)
       scrubTick = scrubTick + 1
       scrubWant = false
       send written = releaseScrub(file, editKind, editTarget, editWhen, editValue)
   action dialText(op: string, name: string, v: string)
     // A scrub open on another edit ends first.
-    if scrubShown and not (editKind == op and editTarget == name)
+    if scrubShown and not (editKind == op and editTarget == name and editWhen == "")
       scrubTick = scrubTick + 1
       scrubWant = false
       send written = cancelScrub(scrubAsk)
     editKind = op
     editTarget = name
     editWhen = ""
+    // A panel edit: the param's own line, no branch editor draft or mode scope.
+    draftFor = ""
+    rawFor = ""
+    partFor = ""
+    scopeOwn = false
     editValue = v.trim()
   action resetParam(name: string)
     // The app's line goes, and the default applies again: `unset-param`.
@@ -766,6 +782,11 @@ component DesignTool
     editTarget = name
     editWhen = ""
     editValue = ""
+    // A panel edit: the param's own line, no branch editor draft or mode scope.
+    draftFor = ""
+    rawFor = ""
+    partFor = ""
+    scopeOwn = false
   action rescope
     if not pending(written)
       send written = rescopeLast(client)

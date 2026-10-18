@@ -114,6 +114,24 @@ test "the component panel: each component's params from describe, grouped and or
   expect tree has "dial-app.tamber#MapCard.zoom-stepper"
   expect text "param-MapCard.zoom-source" == "the default"
 
+test "the component panel's other kinds: a duration's slider writes ms, an icon param shows its sources, a panel edit beside an open param's branch is no stale draft"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect text "dial-app.tamber#MapCard.pan-bounds" == "0ms – 1000ms · step 50ms"
+  type "dial-app.tamber#MapCard.pan-slider" "400"
+  expect state editKind == "set-param"
+  expect state editValue == "400ms"
+  expect text "dial-app.tamber#MapCard.glyph-value" == "sf star · material star"
+  expect tree missing "dial-app.tamber#MapCard.glyph-field"
+  // A param's branch open in the editor, then another param edited in the
+  // panel: that draft is the panel's, not a stale branch draft.
+  tap "cell-surface.card-0-light"
+  clock data
+  type "dial-app.contract#Card.pad-slider" "18"
+  expect state editTarget == "app.contract#Card.pad"
+  expect tree missing "draft-stale"
+
 test "a param edit is set-param with its chip, scrubbed when live; Reset is unset-param, applied and undone in one step"
   request POST "/__stub/live" {"live": true} as ada
   type "name" "Ada"
@@ -1112,6 +1130,12 @@ test "the param rung: a row that reads a component param opens the param on the 
   expect state editKind == "set-param"
   expect state editTarget == "app.contract#Card.pad"
   expect state editValue == "14px"
+  // Another param edited in the panel while Card.pad's branch is open: the
+  // panel's draft, not a stale one of the branch.
+  type "dial-app.tamber#MapCard.zoom-stepper" "13"
+  expect state editTarget == "app.tamber#MapCard.zoom"
+  expect state editValue == "13"
+  expect tree missing "draft-stale"
   tap "selrow-token-background-color"
   clock data
   expect state selToken == "accent.fill"
