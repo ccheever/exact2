@@ -237,6 +237,9 @@ component WindowOverlays
     DialogFinalFocus(open=(data.serverUpdate.confirmTitle != ""), owner="server-update-confirm")
     if data.serverUpdate.confirmTitle != ""
       AppConfirm(confirmLabel="Confirm", title=data.serverUpdate.confirmTitle, body=data.serverUpdate.confirmBody, destructive=false, busy=commandPending, confirmId="server-update-confirm", cancel=command("su:cancel", "", "", 0), confirm=command("su:confirm", "", "", 0))
+    DialogFinalFocus(open=data.updateEverything.confirm, owner="update-everything-confirm")
+    if data.updateEverything.confirm
+      AppConfirm(confirmLabel="Update", title=data.updateEverything.title, body=data.updateEverything.body, destructive=false, busy=commandPending, confirmId="update-everything-confirm", cancel=command("ue:cancel", "", "", 0), confirm=command("ue:confirm", "", "", 0))
     // The /usage-limits banner's reset credit confirm (ResetCreditDialog, outside the banner).
     DialogFinalFocus(open=(data.composer.resetConfirm != ""), owner="reset-credit-dialog")
     if data.composer.resetConfirm != ""

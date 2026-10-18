@@ -179,7 +179,7 @@ describe('ServerUpdateAction', () => {
     setJobs({ [key]: job({ status: 'failed', stage: 'installing', message: 'Server update failed: The package could not be verified.', attempt: 'a4' }) });
     await announceServerUpdates(native, client, () => '0.0.30');
     await announceServerUpdates(native, client, () => '0.0.30');
-    expect(toasts(client).map(toast => [toast.kind, toast.title])).toEqual([['error', 'Server update failed']]);
+    expect(toasts(client).map(toast => [toast.kind, toast.title])).toEqual([['error', 'Test server update failed']]);
     expect(serverUpdateStateFor('env-test', '0.0.30')).toMatchObject({ status: 'failed', stage: 'installing', attempt: 'a4' });
   });
 });
@@ -197,4 +197,22 @@ describe('ServerUpdateProgress', () => {
     expect(serverUpdateStateFor('env-test', '0.0.30')).toMatchObject({ status: 'failed', message: 'The package could not be verified.' });
     setJobs({});
   });
+});
+
+it('quiet Update everything hears a fast completion before the start reply returns', async () => {
+  const { awaitServerUpdate } = await import('../../src/connections/server-update');
+  let returnStart!: (value: Obj) => void;
+  const toasts: unknown[] = [], key = 'https://fast-update\nfast-update';
+  const native: Native = { available: true, watch() {}, later: async () => ({ ok: true, value: { jobs: {} } }) };
+  const target: ServerUpdateTarget = { environmentId: 'fast-update', environmentKey: key, serverLabel: 'Fast', selfUpdate: 'respawn',
+    fromVersion: '0.0.40', targetVersion: '0.0.50' };
+  const outcome = awaitServerUpdate(target, { start: async () => new Promise<Obj>(resolve => { returnStart = resolve; }), copy: async () => {},
+    toast: toast => { toasts.push(toast); } }, { quiet: true });
+  setJobs({ [key]: { mode: 'connected', status: 'done', stage: 'resuming', attempt: 'fast-before-reply', label: 'Fast',
+    fromVersion: '0.0.40', targetVersion: '0.0.50', resultVersion: '0.0.50', message: '' } });
+  await announceServerUpdates(native, null, () => '0.0.50');
+  returnStart({ started: true, attempt: 'fast-before-reply' });
+  expect(await outcome).toEqual({ status: 'updated' });
+  expect(toasts).toEqual([]);
+  setJobs({});
 });

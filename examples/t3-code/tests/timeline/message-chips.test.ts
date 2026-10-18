@@ -139,7 +139,7 @@ describe('Pull Requests diff colors and Markdown settings', () => {
     const { pullRequestsPage } = await import('../../src/pull-requests/pages-prs');
     const { pullRequestDetail } = await import('../../src/pull-requests/pages-pr-detail');
     const client = { local: { clientSettings: { diffColorScheme: 'blue-orange', fontSizeCode: 15, wordWrap: false, fontFamilyCode: '' } },
-      config: { environment: { capabilities: { pullRequests: true } } }, shell: { projects: [], threads: [] }, ready: false, environmentId: 'e' } as unknown as T3Client;
+      config: { environment: { capabilities: { pullRequests: true } } }, shell: { projects: [], threads: [] }, projectGroups: () => [], ready: false, environmentId: 'e' } as unknown as T3Client;
     const list = await pullRequestsPage(client, null, { open: false, refresh: 0, now: 0, selected: '', query: '', typed: false });
     expect(list.diffScheme).toBe('blue-orange');
     const detail = await pullRequestDetail(client, null, { selected: '', refresh: 0, now: 0 });
