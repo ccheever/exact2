@@ -87,13 +87,26 @@ describe('traits and text model settings', () => {
   test('writer and review-guide models expose and save their own traits at either scope', () => {
     const p = { ...provider('codex'), models };
     const selection = { instanceId: 'codex', model: 'a', options: [{ id: 'serviceTier', value: 'priority' }] };
-    const settings = { sourceControlWriterModelSelection: selection, reviewGuideModelSelection: selection };
+    const settings = { reviewGuidesEnabled: true, sourceControlWriterModelSelection: selection, reviewGuideModelSelection: selection };
     const rows = sourceControlRows(settings, '', 'Local', [p], true).text;
     for (const key of ['sourceControlWriterModelSelection', 'reviewGuideModelSelection']) {
       expect(rows.find(row => row.key === key)).toMatchObject({ checked: true, traitsLabel: 'Medium Fast' });
       expect(scopedPatch(settings, '', key, 'codex:a#reasoningEffort=high')[key]).toMatchObject({ options: [{ id: 'serviceTier', value: 'priority' }, { id: 'reasoningEffort', value: 'high' }] });
       expect(scopedPatch(settings, 'p', key, 'codex:a#reasoningEffort=low').projectSettingsOverrides).toMatchObject({ p: { [key]: { options: [{ id: 'serviceTier', value: 'priority' }, { id: 'reasoningEffort', value: 'low' }] } } });
     }
+  });
+  test('review guides default off and can only be enabled for the environment', () => {
+    const rows = sourceControlRows({}, '', 'Local', [], true).text;
+    expect(rows.find(row => row.key === 'reviewGuidesEnabled')).toMatchObject({ checked: false, disabled: false });
+    expect(sourceControlRows({ reviewGuidesEnabled: false }, '', 'Local', [], true).text.find(row => row.key === 'reviewGuidesEnabled')?.state).toBe('default');
+    expect(rows.some(row => row.key === 'reviewGuideModelSelection')).toBe(false);
+    expect(scopedPatch({}, '', 'reviewGuidesEnabled', '__default__')).toEqual({ reviewGuidesEnabled: false });
+    expect(() => scopedPatch({}, 'p', 'reviewGuidesEnabled', 'true')).toThrow('environment-wide');
+    const settings = { reviewGuidesEnabled: true, projectSettingsOverrides: { p: { reviewGuidesEnabled: false } } };
+    const projectRows = sourceControlRows(settings, 'p', 'Local', [], true).text;
+    expect(projectRows.find(row => row.key === 'reviewGuidesEnabled')).toMatchObject({ checked: true, disabled: true, layers: [expect.objectContaining({ key: 'environment' }), expect.objectContaining({ key: 'built-in' })] });
+    expect(projectRows.some(row => row.key === 'reviewGuideModelSelection')).toBe(true);
+    expect(sourceControlRows({ ...settings, reviewGuidesEnabled: false, projectSettingsOverrides: { p: { reviewGuidesEnabled: true } } }, 'p', 'Local', [], true).text.some(row => row.key === 'reviewGuideModelSelection')).toBe(false);
   });
   test('the timeline hover card receives only matching subagent model traits', () => {
     const selection = { instanceId: 'codex', model: 'a', options: [{ id: 'reasoningEffort', value: 'high' }, { id: 'serviceTier', value: 'flex' }] };

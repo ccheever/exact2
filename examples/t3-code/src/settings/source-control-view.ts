@@ -37,9 +37,9 @@ export type ScopedRow = { key: string; kind: string; title: string; description:
   traitsLabel: string; traits: CoreOption[] };
 
 export const DEFAULTS: Obj = { defaultAutoPull: false, pullRequestMergeMethod: null, branchNamingMode: 'static', branchNamePrefix: 't3code', branchNameInstructions: '',
-  sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true }, sourceControlWriterModelSelection: null, reviewGuideModelSelection: null, reviewGuidesEnabled: true,
+  sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true }, sourceControlWriterModelSelection: null, reviewGuideModelSelection: null, reviewGuidesEnabled: false,
   enableAgentBrowserAccess: true, enableAgentDeviceAccess: false, enableDeviceSupport: false, defaultModelSelection: null, defaultThreadEnvMode: null, deviceHosts: [] };
-const PROJECT_KEYS = ['defaultModelSelection', 'defaultThreadEnvMode', 'defaultAutoPull', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'sourceControlWriterModelSelection', 'reviewGuideModelSelection', 'reviewGuidesEnabled', 'sourceControlWritingStyle', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod'];
+const PROJECT_KEYS = ['defaultModelSelection', 'defaultThreadEnvMode', 'defaultAutoPull', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'sourceControlWriterModelSelection', 'reviewGuideModelSelection', 'sourceControlWritingStyle', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod'];
 const MERGE_LABELS: Record<string, string> = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' };
 const BRANCH_MODES: Record<string, string> = { static: 'Static prefix', semantic: 'Semantic prefix', custom: 'Custom instructions' };
 const WRITING_MODES: Record<string, { label: string; description: string }> = {
@@ -121,10 +121,10 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
     row(settings, projectId, environmentLabel, 'sourceControlWritingStyle', { key: 'sourceControlWritingStyle.followChangeRequestTemplates', kind: 'switch', title: 'Follow change request templates', resetLabel: 'change request templates', checked: style.followChangeRequestTemplates !== false, disabled: !writable,
       description: "Use the repository's template for change request descriptions when available.", reset: project ? '' : style.followChangeRequestTemplates === false ? 'key=sourceControlWritingStyle.followChangeRequestTemplates&value=__default__' : '' }),
     modelRow('sourceControlWriterModelSelection', 'Source control writer model', "Model for source control text and branch or bookmark names. Off uses the environment's text generation model."),
-    row(settings, projectId, environmentLabel, 'reviewGuidesEnabled', { title: 'Review guides', checked: value.reviewGuidesEnabled !== false, disabled: !writable,
+    row(settings, projectId, environmentLabel, 'reviewGuidesEnabled', { title: 'Review guides', checked: settings.reviewGuidesEnabled === true, disabled: project || !writable,
       description: 'Adds a Guide tab to pull requests: an agent writes a tour of the change, stop by stop, with the calls a maintainer should make.' }),
-    ...(value.reviewGuidesEnabled === false ? [] : [modelRow('reviewGuideModelSelection', 'Review guide model',
-      'Model that reads a pull request to write its review guide. It reads the change itself over many steps, so a stronger model helps. Off uses the source control writer model.')]),
+    ...(settings.reviewGuidesEnabled === true ? [modelRow('reviewGuideModelSelection', 'Review guide model',
+      'Model that reads a pull request to write its review guide. It reads the change itself over many steps, so a stronger model helps. Off uses the source control writer model.')] : []),
   ];
   return { repositories, text: text.map((entry, index) => ({ ...entry, first: index === 0 })) };
 }
