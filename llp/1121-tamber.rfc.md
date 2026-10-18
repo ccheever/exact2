@@ -704,8 +704,8 @@ style PostButton
   host-side inheritance designed for it. Another row is `lower-state-row`.
 - **Runner-known states** (`:disabled`, `:checked`) lower to the conditional rows an author
   can write today. **Host-known states** (`:active`, `:hover`, `:focus-visible`) lower to a
-  **state look**: an interned entry `{ state, rows }` the node points to, applied by the
-  host on its own tracking, with no round trip (LLP 1061 D1's reason).
+  **state look**: a `looks` row `{ node, state, rows }`, keyed by node and state, applied by
+  the host on its own tracking, with no round trip (LLP 1061 D1's reason).
 - **`:active` is the host's existing press**, not CSS's: the innermost node with a `press`
   handler (LLP 1061), eased on the curve the host uses for `-exact-press-scale` today
   (`cubic-bezier(.16, 1, .3, 1)` on Apple), held under Reduce Motion with colour changes

@@ -207,6 +207,31 @@ fn a_host_states_look_is_recorded_one_a_state() {
     assert_eq!(rows(looks[1]).len(), 4, "a border colour is its four sides");
 }
 
+/// Looks are by node, then state, whatever order the source writes the
+/// states in; a plan out of that order is refused (hosts binary-search).
+#[test]
+fn looks_are_by_node_then_state() {
+    let src = "component App\n  state on = false\n  action go\n    on = !on\n  view\n    column\n      column press=go testId=\"a\"\n        :hover\n          opacity = 0.8\n        :active\n          opacity = 0.5\n        text \"a\"\n      column press=go testId=\"b\"\n        :focus-visible\n          opacity = 0.7\n        :active\n          opacity = 0.6\n        text \"b\"\n";
+    let mut plan = contract::compile(src).unwrap_or_else(|e| panic!("{e:?}"));
+    let keys: Vec<_> = plan.looks.iter().map(|l| (l.node.0, l.state)).collect();
+    assert_eq!(keys.len(), 4, "{keys:?}");
+    assert!(
+        keys[0].0 < keys[2].0 && keys[0].0 == keys[1].0 && keys[2].0 == keys[3].0,
+        "{keys:?}"
+    );
+    assert_eq!(
+        keys.iter().map(|k| k.1).collect::<Vec<_>>(),
+        [0, 1, 0, 2],
+        "{keys:?}"
+    );
+    plan.validate().unwrap();
+    plan.looks.swap(0, 1);
+    assert!(plan.validate().is_err(), "a state out of order is refused");
+    plan.looks.swap(0, 1);
+    plan.looks[1] = plan.looks[0].clone();
+    assert!(plan.validate().is_err(), "a state twice is refused");
+}
+
 /// A node's own `:disabled` where it writes no `disabled` never holds: a
 /// lint, never a refusal; a class's part on such a node is not judged.
 #[test]
