@@ -28,7 +28,7 @@ const DRIVE = [
   ['--backend <url>', 'web: select the backend origin for this build'],
   ['--storage <name>', 'a scratch store, kept on native hosts; Chrome\'s starts empty'],
   ['--keep-storage · --reset-storage', 'reopen a named store (Chrome, or a compare) · empty a named store first, on any host'],
-  ['--size <w>x<h>|large|xxxl', 'viewport; widget text size: large or xxxl'],
+  ['--size <w>x<h>', 'viewport'],
   ['--scale <n>', 'screenshots at n pixels per point (exact.mjs agent on ios, macos: 1; an iPhone\'s own: 3)'],
   ['--chrome platform|agent', 'UIKit\'s bars (exact.mjs on iOS); agent paints the header'],
   ['--timing platform', 'Apple: UIKit\'s transitions keep their own timing (default: frozen)'],
@@ -42,10 +42,10 @@ const DRIVE = [
   ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
   ['--world <file> · --open <file>', 'a game: a saved world to load · macOS: a document on its command line'],
-  ['--family <name> · --mode fullColor|accented|vibrant · --scheme light|dark', 'widget variant (ios, macos; development only)'],
+  ['--family <name> · --mode fullColor|accented|vibrant · --scheme light|dark · --size large|xxxl · --props <json>', 'widget only: variant and replacement preview props'],
   ['--json', 'one compact JSON object per op reply, one per line (default: short text)'],
 ];
-const TEST_IGNORES = ['--timing <v>', '--world <file>', '--open <file>', '--json', '--family <name>', '--mode <name>', '--scheme <name>'];
+const TEST_IGNORES = ['--timing <v>', '--world <file>', '--open <file>', '--json', '--family <name>', '--mode <name>', '--scheme <name>', '--props <json>'];
 // The drive flags a first build reaches for; `--help all` shows the rest.
 const DRIVE_FIRST = ['--storage', '--size', '--chrome', '--epoch', '--sim', '--json'];
 const naming = (names, keep) => ([row]) => specs(row).some((spec) => names.includes(name(spec))) === keep;
@@ -54,7 +54,7 @@ const NATIVE_PORTS = 'iOS simulator: a Unix socket; --device: a free TCP port; m
 
 // host/apple/build.mjs's flags, which `ios` and `mac` both run: each documents its own, and takes the rest.
 const APPLE = ['--ios', '--tvos', '--device', '--run', '--no-install', '--prebuild', '--release', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test',
-  '--archive <out.ipa>', '--sim <udid|name>', '--phone <udid|name>', '--url <url>', '--optimize <speed|size>', '--link <plan>'];
+  '--archive <out.ipa>', '--sim <udid|name>', '--phone <udid|name>', '--url <url>', '--optimize <speed|size>', '--link <plan>', '--widget-gallery'];
 const appleRest = (documented) => APPLE.filter((spec) => !documented.some(([row]) => specs(row).some((d) => name(d) === name(spec))));
 const OPTIMIZE = ['--optimize speed|size', 'the Rust archive\'s (default speed, or app.json host.ios|macos.optimize)'];
 const PREBUILD = ['--prebuild', 'start the build apart from this shell and return; its log: .exact/<ios|macos>-build.log'];
@@ -146,8 +146,7 @@ Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: head
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
-    body: `Builds if stale, launches, runs each quoted op on the agent's clock and closes. No --storage, no storage; --reset-storage empties a native store, --keep-storage keeps a web or compare's.
-Widgets: ios|macos widget <entry> tree screenshot state.
+    body: `An app's server.ts runs for the drive, its database per --storage. Widgets: ios|macos widget <entry> tree|state|screenshot|clock.
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>|--ax] · logs · layout|perf [<target>] · resize <w>x<h> · close · back
   state [<name>] [--full]  a state, resource or field, dotted: groceries.0.done; >8 KB: sizes
@@ -156,7 +155,8 @@ Ops      a target is a testId, else a view's exact text or label
   clock data|settle|+<ms> [real]    land in-flight work · end transitions
   check [dark|both]  what is wrong · screenshot <png> [over <ms> every <ms>] [window]  window: bars
   screenshot <png> compare <ref> · prefer <feature> <value> · fail|pass fetch <prefix>`,
-    bodyAll: `Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else free. ${NATIVE_PORTS}`,
+    bodyAll: `Builds if stale, launches, runs each quoted op on the agent's clock and closes. No --storage, no storage; --reset-storage empties a native store, --keep-storage keeps a web or compare's.
+Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else free. ${NATIVE_PORTS}`,
     example: 'bun exact.mjs agent web --storage s1 tree "tap add" "screenshot .exact/a.png"',
   },
   verify: {

@@ -1,4 +1,5 @@
 // Session setup shared by the agent CLI and its programmatic driver.
+import { widgetArguments, validateWidget } from './agent-widget.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
@@ -319,26 +320,9 @@ export function chromium(environment = process.env, platform = process.platform)
 }
 
 export function parseFlags(argv) {
-  const flags = { json: false };
-  // Widget selection is an address on the existing operations (LLP 1126 D14).
-  const widgetAt = argv.indexOf('widget');
-  if (widgetAt > 0 && !['--app', '--storage', '--sim', '--session'].includes(argv[widgetAt - 1])) {
-    if (!['ios', 'macos', 'mac'].includes(argv[0])) throw new Error('widget: use ios or macos');
-    argv = [...argv];
-    flags.widget = { entry: argv.splice(widgetAt, 2)[1] };
-    if (!flags.widget.entry || flags.widget.entry.startsWith('--')) throw new Error('widget <entry>: name an entry');
-    for (let i = 1; i < argv.length;) {
-      const option = argv[i];
-      if (['--family', '--mode', '--scheme', '--size'].includes(option)) {
-        const value = argv[i + 1];
-        if (!value || value.startsWith('--')) throw new Error(`${option} needs a value`);
-        flags.widget[option.slice(2)] = value;
-        argv.splice(i, 2);
-      } else i++;
-    }
-    if (flags.widget.mode === 'full-color') flags.widget.mode = 'fullColor';
-    if (flags.widget.size === 'l') flags.widget.size = 'large';
-  }
+  const selection = widgetArguments(argv);
+  argv = selection.argv;
+  const flags = { json: false, ...(selection.widget ? { widget: selection.widget } : {}) };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--json') flags.json = true;
@@ -347,7 +331,11 @@ export function parseFlags(argv) {
     else if (argv[i] === '--backend') { const value = argv[++i]; if (!value || value.startsWith('--')) throw new Error('--backend <url>: name the backend origin'); process.env.EXACT_BACKEND_ORIGIN = value; }
     else if (argv[i] === '--app') flags.app = argv[++i];
     else if (argv[i] === '--browser') flags.browser = argv[++i];
-    else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
+    else if (argv[i] === '--size') {
+      const size = argv[++i] ?? '';
+      if (!/^\d+(?:\.\d+)?x\d+(?:\.\d+)?$/.test(size) || !size.split('x').every(v => Number(v) > 0 && Number.isFinite(Number(v)))) throw new Error('--size: expected positive <w>x<h>; large|xxxl needs widget <entry>');
+      flags.size = size.split('x').map(Number);
+    }
     // A number, or what was typed, which `open` refuses by name (`--scale 1x`, a missing value).
     else if (argv[i] === '--scale') { const v = argv[++i] ?? ''; flags.scale = v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : v; }
     else if (argv[i] === '--test') flags.test = argv[++i];
@@ -375,12 +363,7 @@ export function parseFlags(argv) {
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
     else rest.push(argv[i]);
   }
-  if (flags.widget && !argv.some(arg => arg === '--help' || arg === '-h')) {
-    if (flags.test || flags.plan || flags.url || flags.device) throw new Error('widget: use a development app on macos or an iOS simulator');
-    for (const line of rest.slice(1)) {
-      if (!/^(tree|state|screenshot(?:\s+[^\n]+)?)$/.test(line)) throw new Error('widget: tree, state, or "screenshot <png>"');
-    }
-  }
+  if (flags.widget && !argv.some(arg => arg === '--help' || arg === '-h')) validateWidget(flags, rest);
   if (flags.keepStorage && flags.resetStorage) throw new Error('--keep-storage and --reset-storage are mutually exclusive');
   if ((flags.keepStorage || flags.resetStorage) && flags.storage === undefined) throw new Error('--keep-storage and --reset-storage need --storage <name>');
   return { flags, rest };

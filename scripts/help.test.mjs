@@ -108,11 +108,11 @@ function parsed(...sources) {
 test('each verb\'s help names exactly the flags its script parses, in a short text', () => {
   const read = (file) => readFileSync(resolve(ROOT, file), 'utf8');
   const exact = read('scripts/exact.mjs'), between = (from, to) => exact.slice(exact.indexOf(from), exact.indexOf(to, exact.indexOf(from)));
-  const apple = parsed(read('host/apple/build.mjs'), read('host/apple/devices.mjs'), read('host/apple/link.mjs'));
+  const apple = parsed(read('host/apple/build.mjs'), read('host/apple/devices.mjs'), read('host/apple/link.mjs'), read('host/apple/bundle.mjs'));
   for (const [verb, flags] of [
     ['web', parsed(read('host/web/dev.mjs'), read('scripts/install-page.mjs'))],
     ['web-build', parsed(read('host/web/build.mjs'))],
-    ['agent', parsed(read('scripts/agent-launch.mjs'))], ['test', parsed(read('scripts/agent-launch.mjs'))], ['verify', parsed(read('scripts/verify.mjs'))],
+    ['agent', parsed(read('scripts/agent-launch.mjs'), read('scripts/agent-widget.mjs'))], ['test', parsed(read('scripts/agent-launch.mjs'), read('scripts/agent-widget.mjs'))], ['verify', parsed(read('scripts/verify.mjs'))],
     ['ios', apple], ['mac', apple],
     ['linux', parsed(read('scripts/build-linux.mjs'))], ['android', parsed(read('scripts/agent-android.mjs'))],
     ['feedback', parsed(read('scripts/feedback.mjs'))],

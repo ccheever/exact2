@@ -530,3 +530,20 @@ test('widget variants address the gallery without changing viewport flags', () =
   expect(() => parseFlags(['web', 'widget', 'next-trains', 'tree'])).toThrow('ios or macos');
   expect(() => parseFlags(['ios', 'widget', '--mode', 'dark'])).toThrow('name an entry');
 });
+
+
+test('widget addresses occupy the command word and accept only strict reads or app clock', async () => {
+  const { widgetStep } = await import('./agent-widget.mjs');
+  expect(parseFlags(['--app', 'caltrain', 'ios', 'widget', 'tree', '--props', '{"station":"Given"}', 'tree']).flags.widget).toEqual({entry:'tree', props:'{"station":"Given"}'});
+  expect(parseFlags(['macos', '--open', 'widget', 'tree']).flags.widget).toBeUndefined();
+  for (const line of ['tags', 'logs', 'tap entry', 'screenshot a.png window', 'screenshot a.png compare b.png', 'screenshot a.png over 600 every 50', 'screenshot a.apng']) {
+    expect(() => parseFlags(['ios', 'widget', 'next-trains', line])).toThrow('widget: tree, state');
+  }
+  expect(() => parseFlags(['ios', 'widget', 'next-trains', '--scale', '2', 'tree'])).toThrow('--scale is unavailable');
+  for (const size of ['xxxl', '390xNaN', '0x900']) expect(() => parseFlags(['ios', '--size', size, 'tree'])).toThrow('--size:');
+  expect(() => parseFlags(['ios', 'widget', 'next-trains', '--props', '[]', 'tree'])).toThrow('JSON object');
+  const calls = [], session = { clock: async value => {calls.push(value); return {clock:60000};}, op: async request => request };
+  expect(await widgetStep(session, {entry:'next-trains'}, 'clock +60000')).toEqual(['clock', {clock:60000}]);
+  expect(calls).toEqual(['+60000']);
+  expect((await widgetStep(session, {entry:'next-trains'}, 'screenshot a.png'))[1].path).toBe(resolve('a.png'));
+});
