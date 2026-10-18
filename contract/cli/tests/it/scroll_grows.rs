@@ -90,6 +90,12 @@ fn a_wrapper_that_grows_with_its_scroller_is_named_and_one_that_scrolls_is_not()
         ("column flex=1 height=400\n  scroll id=\"s\" flex=1", vec![]),
         ("column flex=1 overflow=\"hidden\"\n  scroll id=\"s\" flex=1", vec![]),
         ("column flex=1\n  scroll id=\"s\" flex=\"1 1 0px\"", vec![]),
+        // A basis it cannot grow from, under a zero minimum, caps what it
+        // passes up (CSS Flexbox §9.9.3).
+        (
+            "column flex=1\n  column flex=\"0 1 200px\" min-height=0\n    scroll id=\"s\" flex=1",
+            vec![],
+        ),
     ] {
         assert_eq!(flagged(body), lines, "{body}");
         let height = scroller_height(&app(body));
@@ -112,6 +118,49 @@ fn what_the_walk_cannot_be_sure_of_is_not_named() {
     ] {
         assert_eq!(flagged(body), Vec::<u32>::new(), "{body}");
     }
+}
+
+/// The view's lines, under `component App` and `view`, and the lines (from 1)
+/// the warning names in them.
+fn flagged_view(view: &str) -> Vec<u32> {
+    let src: String = view.lines().map(|l| format!("    {l}\n")).collect();
+    warned(&format!("component App\n  view\n{src}"))
+        .into_iter()
+        .filter(|(id, _)| id == ID)
+        .map(|(_, line)| line - 2)
+        .collect()
+}
+
+#[test]
+fn a_wrapper_is_named_only_under_a_box_that_bounds_it() {
+    const RUN: &str = "  text \"Title\"\n  column flex=1\n    scroll flex=1\n      text \"body\"";
+    for (top, lines) in [
+        // No height anywhere: the page grows as a whole, and `min-height=0`
+        // would change nothing.
+        ("column", vec![]),
+        ("column flex=1", vec![]),
+        ("column height=\"50%\"", vec![3]),
+        ("column max-height=400", vec![3]),
+        ("column height=\"100%\" padding=16", vec![3]),
+        ("column position=\"absolute\" inset=0", vec![3]),
+    ] {
+        assert_eq!(flagged_view(&format!("{top}\n{RUN}")), lines, "{top}");
+    }
+    // A percentage of a height that is not definite is not one.
+    let nested = format!(
+        "column\n  column height=\"50%\"\n  {}",
+        RUN.replace('\n', "\n  ")
+    );
+    assert_eq!(flagged_view(&nested), Vec::<u32>::new(), "{nested}");
+    // A route is sized by its host (the screen, or the sheet): the euxy
+    // sheet, whose component root had `flex=1` and no minimum.
+    let route = "routes nav\n  home \"/\"\ncomponent App\n  view\n    main navigationKey=`${top(nav).id}`\n      for e in stack(nav) key=e.id\n        column navigationKey=`${e.id}` navigationPresentation=\"modal\" position=\"absolute\" inset=0\n          Editor()\ncomponent Editor\n  view\n    column flex=1\n      text \"Edit\"\n      scroll flex=1\n        text \"body\"\n";
+    let lines: Vec<u32> = warned(route)
+        .into_iter()
+        .filter(|(id, _)| id == ID)
+        .map(|(_, line)| line)
+        .collect();
+    assert_eq!(lines, [11]);
 }
 
 #[test]
