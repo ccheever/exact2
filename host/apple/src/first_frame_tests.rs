@@ -154,6 +154,24 @@ fn core_animation_plays_a_started_transition_until_it_is_retargeted() {
     );
 }
 
+/// D5: a display frame's batch starts what waits, as its tick would, so
+/// a transition reaches Core Animation in the frame's own batch.
+#[test]
+fn a_display_frame_starts_what_waits_in_its_own_batch() {
+    let mut host = boot();
+    host.svg.play_transitions = true;
+    let (go, fade) = (id(&host, "go"), id(&host, "fade"));
+    host.dispatch_at(go, Event::Press, 100.0);
+    let framed = host.frame_at(133.0, 120.0);
+    assert_eq!(spec(&framed, fade)["s"], 0.133, "{framed}");
+    assert!(!motion(&framed), "no tick is owed: {framed}");
+    assert_eq!(
+        host.engine.now(),
+        0.120,
+        "the input clock stays at the wall"
+    );
+}
+
 #[test]
 fn a_display_frame_leaves_the_input_clock_at_the_wall() {
     let mut host = boot();
