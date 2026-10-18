@@ -251,7 +251,7 @@ export function assertAppleIdentity(app, executable, compatibilityId, shared = n
 /** Copy the app-visible static trees into a private Apple package stage.
  * Every leaf goes through the web host's no-symlink policy; `trees` maps an
  * app-relative source (notably `gpu/shaders`) to its bundle-visible name. */
-export function copyAppleStaticTrees(source, target, trees = [['assets', 'assets'], ['deck', 'deck'], ['shaders', 'shaders'], ['rust', 'rust'], ['plans', 'plans']]) {
+export function copyAppleStaticTrees(source, target, trees = [['assets', 'assets'], ['deck', 'deck'], ['shaders', 'shaders'], ['rust', 'rust'], ['plans', 'plans'], ['typescript', 'typescript']]) {
   for (const [from, to] of trees) {
     copyStaticTreeIfPresent(resolve(source, from), resolve(target, to));
   }
@@ -652,7 +652,6 @@ async function main(args) {
   if (args.includes('--prebuild')) { process.exitCode = await (await import('../../scripts/agent-build.mjs')).prebuild(app, args); return; } // LLP 1116.003 D1.2
   const widgets = ios && !tv && widgetEntries(app).length > 0;
   if (widgets && device) { console.error('Widget device builds require explicit app and extension profiles granting the shared App Group and Keychain access group; device provisioning is not implemented yet (LLP 1126 WP5).'); process.exitCode = 1; return; }
-  if (widgets && existsSync(resolve(app.dir, 'app.ts'))) { console.error('TypeScript widget refresh under Hermes is not implemented yet (LLP 1126 WP5).'); process.exitCode = 1; return; }
   const release = appleBuildLock(app);
   const cleanup = [], beside = []; // what to remove, and the steps started beside the build, when it ends
   try {
@@ -903,10 +902,10 @@ async function main(args) {
     }
     bakedPlan = readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.plan`));
     copyAppleStaticTrees(app.dir, capture, [['assets', 'assets'], ['deck', 'deck']]);
-    copyAppleStaticTrees(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.entries`), capture, [['plans', 'plans']]);
+    copyAppleStaticTrees(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.entries`), capture, [['plans', 'plans'], ['typescript', 'typescript']]);
     copyShaders(app, resolve(capture, 'shaders'));
     if (buildReceipt.rust) copyStaticTreeIfPresent(buildReceipt.rust, resolve(capture, 'rust'));
-    verifyBakeFiles(buildReceipt.compat, bakedPlan, listAssets(capture, true));
+    verifyBakeFiles(buildReceipt.compat, bakedPlan, listAssets(capture, true, ['typescript']));
     placeAppleArtifact(capture, paths.capture);
     writeFileSync(heldAt, JSON.stringify(holds));
   } }));
@@ -941,7 +940,7 @@ async function main(args) {
     // Beside the executable in the embedding app's bundle, as the standalone app has it.
     if (svgFilterBuilt) copyFileSync(svgFilterBuilt, resolve(embed, svgFilterLibraryName));
     copyAppleStaticTrees(paths.capture, embed);
-    verifyBakeFiles(bakedCompat, bakedPlan, listAssets(embed, true));
+    verifyBakeFiles(bakedCompat, bakedPlan, listAssets(embed, true, ['typescript']));
     writeFileSync(resolve(embed, 'compat.json'), JSON.stringify(bakedCompat, null, 2) + '\n');
     // What the consumer links beside the archive and installs before its first session (LLP 1047.001 D4).
     writeFileSync(resolve(embed, 'capabilities.json'), JSON.stringify({ products: ['ExactKit', ...swiftCapabilities], install: swiftCapabilities.map((product) => `${product}.install()`), optimize, swiftFlags: production && optimize === 'size' ? ['-Osize', '-Xfrontend', '-internalize-at-link'] : [] }, null, 2) + '\n');

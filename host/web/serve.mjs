@@ -659,7 +659,7 @@ export function assetCards(files) {
 /** Every file under assets/, deck/, shaders/ and plans/, sorted by name.
  * Read and digested here, one file at a time: a build of a large asset tree
  * must not pass every byte through the filesystem reader's reply. */
-export function listAssets(dir, rust = false) {
+export function listAssets(dir, rust = false, extraTrees = []) {
   const files = [];
   const walk = (sub) => {
     const abs = resolve(dir, sub);
@@ -673,7 +673,7 @@ export function listAssets(dir, rust = false) {
       }
     }
   };
-  for (const tree of assetTrees(rust)) walk(tree);
+  for (const tree of [...assetTrees(rust), ...extraTrees]) walk(tree);
   return files.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
 }
 

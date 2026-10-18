@@ -352,6 +352,18 @@ with `contract::snapshot::entries(app)`, then pass that map to `source_plan`,
 data instances for the app and refresh, so refresh state cannot affect the app
 first frame. The TypeScript and replaceable Rust producers use the same check.
 
+On iOS, a TypeScript refresh runs under Hermes from the module bytes in the
+app's pinned App Group generation. It can return immediately or await `fetch`
+and `storage.fs` reads from `app:/`. File writes, SQLite, document handles and
+native modules are unavailable in stage 1; `secret.keep` values are read from
+the shared Keychain only during refresh. The extension never persists store
+writes. The app reloads widget timelines after a successful store write.
+Refresh has a 900 ms deadline, leaving 100 ms below LLP 1126 D8's one-second
+line for completion and teardown. Failure or timeout keeps the extension
+process's last good timeline, or a redacted placeholder after a cold start,
+and schedules a retry no sooner than 15 minutes later. Rendering and gallery
+previews do not load Hermes or read the store.
+
 The render's props slot is named `snapshot_props`; find it by name, since a
 `path(...)` link also needs a router slot. Its initial value is the preview; reached bindings cannot use that reserved name.
 The bake writes `plans/<kind>.plan` beside `app.plan`. The envelope's `plans`
@@ -367,7 +379,7 @@ inside `time` and `progress`; pass instants from refresh for platform time
 presentation. A variable's name imposes no restriction. A class is a style name
 or `class=(condition ? A : B)`. Only literal font families reached through the
 entry are bundled; a dynamic font string selects installed or generic families.
-Images use a bundle-relative path, an `app:/` path written by refresh, or a
+Images use a bundle-relative path, an `app:/` path written by the app, or a
 `symbol:` source. Computed paths need a fixed local prefix; refresh downloads
 remote images. A live `time` (`relative`, `timer`, `countdown`) must own its
 text paragraph, so the widget can reserve its width; calendar formats may be

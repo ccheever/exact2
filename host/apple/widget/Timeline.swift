@@ -60,6 +60,11 @@ private func widgetSnapshotView(_ entry: ExactWidgetEntry, displaySize: CGSize, 
     // SnapshotView retains the session until WidgetKit has evaluated its layout and leaves.
     return SnapshotDriver.view(session: session, displaySize: displaySize, environment: environment)
 }
+// One refresh at a time; cache only props/plan, never a live session or secrets.
+private enum WidgetRefresh {
+    static let queue = DispatchQueue(label: "exact.widget-refresh", qos: .userInitiated)
+    static var lastGood: [String: [ExactWidgetEntry]] = [:]
+}
 struct ExactTimelineProvider: TimelineProvider {
     let kind: String
     private func preview(_ context: Context, placeholder: Bool) -> ExactWidgetEntry {
@@ -70,42 +75,49 @@ struct ExactTimelineProvider: TimelineProvider {
     func placeholder(in context: Context) -> ExactWidgetEntry { preview(context, placeholder: true) }
     func getSnapshot(in context: Context, completion: @escaping (ExactWidgetEntry) -> Void) { completion(preview(context, placeholder: false)) }
     func getTimeline(in context: Context, completion: @escaping (Timeline<ExactWidgetEntry>) -> Void) {
+        let size = context.displaySize, date = Date(), inputs = facts(.current, at: Date())
+        let placeholder = preview(context, placeholder: true)
         #if EXACT_INSPECT
         let start = DispatchTime.now().uptimeNanoseconds
         #endif
-        let date = Date()
-        do {
-            WidgetContainer.configure()
-            let root = try WidgetContainer.pin()
-            let plan = try Data(contentsOf: root.appendingPathComponent("plans/\(kind).plan"))
-            let refresh = try HeadlessSession(plan: plan, entry: kind, size: context.displaySize, facts: facts(.current, at: date), assetRoot: root)
-            let rows: [[String: Any]]
+        WidgetRefresh.queue.async {
             do {
-                defer { refresh.close() }
-                guard let answer = try JSONSerialization.jsonObject(with: refresh.timeline(at: date)) as? [[String: Any]], !answer.isEmpty, answer.count <= 100 else {
-                    throw TimelineFailure(description: "refresh must return 1 to 100 timeline entries")
+                WidgetContainer.configure()
+                let root = try WidgetContainer.pin()
+                let plan = try Data(contentsOf: root.appendingPathComponent("plans/\(kind).plan"))
+                let refresh = try HeadlessSession(plan: plan, entry: kind, size: size, facts: inputs, assetRoot: root)
+                let bytes: Data
+                do {
+                    defer { refresh.close() }
+                    let module = Bundle.main.object(forInfoDictionaryKey: "ExactWidgetTypeScript") as? Bool == true ? root : nil
+                    bytes = try refresh.timeline(at: date, moduleRoot: module)
                 }
-                rows = answer
-            }
-            var last = -Double.infinity
-            let entries = try rows.map { row -> ExactWidgetEntry in
-                guard let ms = row["date"] as? Double, ms.isFinite, ms > last, let props = row["props"] else {
-                    throw TimelineFailure(description: "timeline dates must be finite and strictly increasing")
+                guard bytes.count <= 1 << 20,
+                      let rows = try JSONSerialization.jsonObject(with: bytes) as? [[String: Any]],
+                      !rows.isEmpty, rows.count <= 100 else {
+                    throw TimelineFailure(description: "refresh must return 1 to 100 entries within 1 MiB")
                 }
-                last = ms
-                let data = try JSONSerialization.data(withJSONObject: props, options: [.sortedKeys])
-                return ExactWidgetEntry(date: Date(timeIntervalSince1970: ms / 1000), kind: kind, plan: plan, props: data, root: root, preview: false, placeholder: false)
+                var last = -Double.infinity
+                let entries = try rows.map { row -> ExactWidgetEntry in
+                    guard let ms = row["date"] as? Double, ms.isFinite, ms > last, let props = row["props"] else {
+                        throw TimelineFailure(description: "timeline dates must be finite and strictly increasing")
+                    }
+                    last = ms
+                    let data = try JSONSerialization.data(withJSONObject: props, options: [.sortedKeys])
+                    return ExactWidgetEntry(date: Date(timeIntervalSince1970: ms / 1000), kind: kind, plan: plan, props: data, root: root, preview: false, placeholder: false)
+                }
+                WidgetRefresh.lastGood[kind] = entries
+                #if EXACT_INSPECT
+                measurement("getTimeline", start: start, details: "kind=\(kind) entries=\(entries.count) bytes=\(plan.count)")
+                #endif
+                completion(Timeline(entries: entries, policy: .after(max(date.addingTimeInterval(900), entries.last!.date.addingTimeInterval(1)))))
+            } catch {
+                widgetLog.error("getTimeline refused: \(String(describing: error), privacy: .private)")
+                completion(Timeline(entries: WidgetRefresh.lastGood[kind] ?? [placeholder], policy: .after(Date().addingTimeInterval(900))))
             }
-            #if EXACT_INSPECT
-            measurement("getTimeline", start: start, details: "kind=\(kind) entries=\(entries.count) bytes=\(plan.count)")
-            #endif
-            completion(Timeline(entries: entries, policy: .after(max(date.addingTimeInterval(900), entries.last!.date.addingTimeInterval(1)))))
-        } catch {
-            widgetLog.error("getTimeline refused: \(String(describing: error), privacy: .private)")
-            let entry = ExactWidgetEntry(date: date, kind: kind, plan: Data(), props: nil, root: embeddedRoot(), preview: false, placeholder: false, unavailable: true)
-            completion(Timeline(entries: [entry], policy: .after(date.addingTimeInterval(900))))
         }
     }
+
 }
 #if EXACT_INSPECT
 private func measurement(_ phase: String, start: UInt64, details: String) {

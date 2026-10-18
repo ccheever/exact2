@@ -5,6 +5,7 @@ use std::path::Path;
 
 pub(crate) fn emit(
     out: &Path,
+    typescript: bool,
     entries: &std::collections::BTreeMap<String, contract::snapshot::Entry>,
 ) -> Result<(Vec<Value>, Value), String> {
     contract::snapshot::write_entries(entries, out)?;
@@ -18,19 +19,36 @@ pub(crate) fn emit(
         plans.insert(kind.clone(), card.clone());
         assets.push(card);
     }
+    if typescript && !entries.is_empty() && out.join("app.hbc").is_file() {
+        std::fs::create_dir_all(out.join("typescript")).map_err(|e| e.to_string())?;
+        for file in ["app.hbc", "app.module.json"] {
+            let bytes = std::fs::read(out.join(file)).map_err(|e| e.to_string())?;
+            let name = format!("typescript/{file}");
+            std::fs::write(out.join(&name), &bytes).map_err(|e| e.to_string())?;
+            assets.push(
+                json!({"name":name,"sha256":exact_update::sha256_hex(&bytes),"bytes":bytes.len()}),
+            );
+        }
+    }
     Ok((assets, Value::Object(plans)))
 }
 
 pub(crate) fn copy(out: &Path, destination: &Path, assets: &[Value]) -> Result<(), String> {
-    let target = destination.join("plans");
-    if target.exists() {
-        std::fs::remove_dir_all(&target).map_err(|e| e.to_string())?;
+    for tree in ["plans", "typescript"] {
+        let target = destination.join(tree);
+        if target.exists() {
+            std::fs::remove_dir_all(target).map_err(|e| e.to_string())?;
+        }
     }
     for card in assets {
-        let Some(name) = card["name"].as_str().filter(|n| n.starts_with("plans/")) else {
+        let Some(name) = card["name"]
+            .as_str()
+            .filter(|n| n.starts_with("plans/") || n.starts_with("typescript/"))
+        else {
             continue;
         };
-        std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(destination.join(name).parent().unwrap())
+            .map_err(|e| e.to_string())?;
         std::fs::copy(out.join(name), destination.join(name)).map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -57,6 +75,34 @@ mod tests {
                 DataValue::record(vec![DataValue::str("Hello")]),
             ])]))
         }
+    }
+
+    #[test]
+    fn ios_entries_carry_the_exact_typescript_pair() {
+        let dir =
+            TempDir(std::env::temp_dir().join(format!("exact-widget-pair-{}", std::process::id())));
+        std::fs::create_dir_all(&dir.0).unwrap();
+        std::fs::write(dir.0.join("app.contract"), "shape Props\n  title: string\ncomponent Card\n  props\n    title: string\n  view\n    text title\n").unwrap();
+        std::fs::write(dir.0.join("app.json"), r#"{"app":{"id":"test.widget","name":"Test"},"widgets":[{"kind":"card","component":"Card","props":"Props","families":["systemSmall"],"refresh":"refresh","preview":{"title":"Hello"}}]}"#).unwrap();
+        let entries = contract::snapshot::entries(&dir.0).unwrap();
+        let out = dir.0.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::write(out.join("app.hbc"), b"pinned bytes").unwrap();
+        std::fs::write(out.join("app.module.json"), b"pinned receipt").unwrap();
+        let (assets, _) = emit(&out, true, &entries).unwrap();
+        let copied = dir.0.join("copy");
+        copy(&out, &copied, &assets).unwrap();
+        assert_eq!(assets.len(), 3);
+        for name in ["app.hbc", "app.module.json"] {
+            assert_eq!(
+                std::fs::read(out.join(name)).unwrap(),
+                std::fs::read(copied.join("typescript").join(name)).unwrap()
+            );
+        }
+        let (assets, _) = emit(&out, false, &entries).unwrap();
+        copy(&out, &copied, &assets).unwrap();
+        assert_eq!(assets.len(), 1);
+        assert!(!copied.join("typescript").exists());
     }
 
     #[test]

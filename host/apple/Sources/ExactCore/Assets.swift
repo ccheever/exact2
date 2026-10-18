@@ -140,7 +140,7 @@ extension AssetResolver {
         if let names { return names }
         let fm = FileManager.default
         var names: [String] = []
-        for tree in ["plans", "assets"] {
+        for tree in ["plans", "assets", "typescript"] {
             let base = root.appendingPathComponent(tree, isDirectory: true)
             guard let walker = fm.enumerator(at: base, includingPropertiesForKeys: [.isRegularFileKey]) else { continue }
             for case let file as URL in walker where try file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
