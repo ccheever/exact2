@@ -291,6 +291,14 @@ export function install(exact) {
       case 'focus': { const el = views.get(req.id); if (!el) return { error: `no view ${req.id}` }; el.focus(); if (req.select !== false) await selectAll(el); return {}; }
       case 'tap':
         if (req.part != null) return partTap(req);
+        // A held state (LLP 1122 D8, `holdState`): the input glue's, as the real one (it loads after paint).
+        if (req.holdState !== undefined) {
+          if (!exact.hold) await import('./rt.js').then(rt => rt.pressFeedback?.()).catch(() => {});
+          for (let i = 0; i < 40 && !exact.hold; i++) await new Promise(ok => setTimeout(ok, 50));
+          if (!exact.hold) return { error: 'the input glue is not loaded' };
+          const r = exact.hold(views.get(req.id), req.holdState);
+          return r.error ? { error: r.error, ...(r.malformed ? { malformed: true } : {}) } : { tapped: req.id, holdState: r.held, delivery: 'recognized' };
+        }
         // A virtualized list's row brought into view by key (LLP 1070.000 §5; list.js).
         if (req.into) {
           for (const a of [req.into.block === undefined ? 'start' : req.into.block, req.into.inline === undefined ? 'nearest' : req.into.inline]) if (!['start', 'center', 'end', 'nearest'].includes(a)) return { error: `no alignment ${typeof a === 'string' ? a : JSON.stringify(a)}: start, center, end or nearest`, malformed: true };

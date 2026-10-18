@@ -439,8 +439,30 @@ function outlineSites(frame) {
 }
 
 /** An `inspect` or `outline` frame from the build channel. */
+/** `hold {revision, hold}` (LLP 1122 D4, D8; *1.11*): `{site, instance, state}` of this page's plan, the element
+ * by its site and instance path (exactly one), held by the input glue as the real state; null lets it go. What it
+ * holds or let go, and why, is reported (`held`). */
+async function hold(m) {
+  // The input glue, which a page with no press may not have loaded yet, loads after paint.
+  if (!globalThis.exact?.hold) await import("./rt.js").then((rt) => rt.pressFeedback?.()).catch(() => {});
+  for (let i = 0; i < 40 && !globalThis.exact?.hold; i++) await new Promise((ok) => setTimeout(ok, 50));
+  const holds = globalThis.exact?.hold, h = m.hold, revision = m.revision;
+  if (!holds) { env.report({ kind: "unsupported", what: "hold", detail: "the input glue is not loaded", revision }); return; }
+  if (!h) { holds(null); env.report({ kind: "held", state: null, revision }); return; }
+  const t = await inspectTable();
+  let found = null, two = false;
+  for (const el of document.querySelectorAll(`[data-site="${Number(h.site)}"]`)) {
+    if (JSON.stringify(instanceOf(t, el, t.sites[String(h.site)] ?? {})) !== JSON.stringify(h.instance ?? [])) continue;
+    if (found) { two = true; break; }
+    found = el;
+  }
+  const r = found && !two ? holds(found, h.state, (reason) => env.report({ kind: "held", state: null, reason, revision })) : { reason: "gone" };
+  env.report(r.reason ? { kind: "held", state: null, reason: r.reason, revision } : { kind: "held", state: h.state, revision });
+}
+
 export async function frame(m) {
   if (m.kind === "outline") { outlineSites(m); return; }
+  if (m.kind === "hold") { await hold(m); return; }
   if (m.refresh) { if (m.status) await env.status(); await refresh(); return; }
   if (m.on && m.seq != null && m.seq === inspecting.left) { const facts = env.facts(); env.report({ kind: "selected", selected: null, inspect: m.seq, plan: facts.plan, revision: facts.revision }); return; }
   inspecting.left = null;

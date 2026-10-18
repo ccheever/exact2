@@ -520,7 +520,7 @@ if (es) {
     // (Under the inspect command it was made in: one replaced since is refused.)
     // (And a click's token, which the outline answering it names.)
     const envelope = (selected) => ({ kind: "selected", selected, inspect: inspecting.seq ?? undefined, ...(click ? { click } : {}), plan: channel.plan, design, revision: channel.revision });
-    let selected = { node: id, type: node.type, testId: node.props?.testId ?? null, site: node.site ?? null, instance: node.instance ?? [], planDigest: node.planDigest ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style ?? {}).map(([name, row]) => ({ name, ...row })), trimmed: false };
+    let selected = { node: id, type: node.type, testId: node.props?.testId ?? null, site: node.site ?? null, instance: node.instance ?? [], planDigest: node.planDigest ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style ?? {}).map(([name, row]) => ({ name, ...row })), held: x.heldOf?.(x.views?.get(id))?.held ?? null, trimmed: false };
     if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, source, from, token }) => ({ name, value, source, from, token })), trimmed: true };
     while (bytes(envelope(selected)) > REPORT_BYTES && selected.rows.length) selected = { ...selected, rows: selected.rows.slice(0, Math.floor(selected.rows.length / 2)) };
     if (bytes(envelope(selected)) > REPORT_BYTES) return { kind: "unsupported", what: "inspect", detail: "the selected node's identity alone is larger than a report" };
@@ -701,6 +701,24 @@ if (es) {
     }
     place();
   };
+  // `hold {revision, hold}` (LLP 1122 D4, D8; *1.11*): `{site, instance, state}` of this page's plan, the view by
+  // its site and instance path (exactly one, as a refresh finds it), held by the input glue as the real state; null
+  // lets it go. What it holds or let go, and why, is reported (`held`), to every client.
+  const hold = async (frame) => {
+    for (let i = 0; i < 40 && !globalThis.exact.hold; i++) await new Promise((ok) => setTimeout(ok, 50)); // the input glue loads after paint
+    const holds = globalThis.exact.hold, h = frame.hold, revision = frame.revision;
+    if (!holds) { report({ kind: "unsupported", what: "hold", detail: "the input glue is not loaded", revision }); return; }
+    if (!h) { holds(null); report({ kind: "held", state: null, revision }); return; }
+    let found = null, two = false;
+    for (const [id] of globalThis.exact.views ?? []) {
+      const node = ask({ op: "node", id, plan: true });
+      if (node.error) continue;
+      if (node.site === h.site && JSON.stringify(node.instance ?? []) === JSON.stringify(h.instance ?? [])) { if (found != null) { two = true; break; } found = id; }
+    }
+    const el = found != null && !two ? globalThis.exact.views.get(found) : null;
+    const r = el ? holds(el, h.state, (reason) => report({ kind: "held", state: null, reason, revision })) : { reason: "gone" };
+    report(r.reason ? { kind: "held", state: null, reason: r.reason, revision } : { kind: "held", state: h.state, revision });
+  };
   const inspect = async (frame) => {
     // `{refresh: true}`: the selection again, under the digests now.
     // (`status: true`: its status again first, one lost on the way.)
@@ -734,6 +752,7 @@ if (es) {
       if (frame.kind === "pin") return pin(frame);
       if (frame.kind === "inspect") return inspect(frame);
       if (frame.kind === "outline") return outlineSites(frame);
+      if (frame.kind === "hold") return hold(frame);
       report({ kind: "unsupported", what: frame.kind });
     }).catch((error) => console.error("exact dev:", String(error)));
   };
@@ -764,7 +783,7 @@ if (es) {
       // Reports wait for this; a refused registration sends none.
       channel.registered = (async () => {
         await globalThis.exact.ready;
-        const answer = await post(nonce, { kind: "register", id: await buildId, host: "web", capabilities: ["pin", "inspect"], plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow() });
+        const answer = await post(nonce, { kind: "register", id: await buildId, host: "web", capabilities: ["pin", "inspect", "hold"], plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow() });
         return answer.ok;
       })().catch(() => false);
       status();

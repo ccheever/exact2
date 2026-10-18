@@ -67,8 +67,10 @@ on macOS and Linux.
   files (`hello`, every reply's `files`, the journal, `commit`, `history` and `revert`) and the
   state part operations `set-state` and `unset-state`; real-time scrubs added a scrub frame's mark
   (`scrub` on a batch and the snapshot), the `mismatch` end of a scrub, and the build channel's
-  long poll (`wait` on `/__dev/commands`). The window's later additive changes (stage 8) add under
-  the same version.
+  long poll (`wait` on `/__dev/commands`); stage 8 E added held states: the `hold` method, the build
+  channel's `hold` command and `held` report, the `held` and `hold-cleared` events, a build's
+  `hold`/`held` in its listing, a `selection`'s `held` rows, and a lowered `:active` row's `state`
+  and `at` in the map. The window's later additive changes (stage 8) add under the same version.
 
 ## Where it runs
 
@@ -897,7 +899,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
     was made under (*1.6*; one since replaced is refused), a click's token (*1.7*, 1 to 64
     characters: a selection a press made, re-sent when it is reported again), the digests and pin
     revision the build runs, and
-    `selected` `{node, type, testId, site, instance, planDigest, tuple, rows, trimmed}`: the
+    `selected` `{node, type, testId, site, instance, planDigest, tuple, rows, held?, trimmed}`: the
     node a press in inspect mode hit (the browser's hit test, as a real tap's), its plan site
     and instance path, the plan digest its map is for, the modes it is in (`tuple`: the
     window's, overridden by the pins above it; the runner's `layout` answer now says them as
@@ -945,7 +947,29 @@ The tool drives no input into an app; a command changes only what `prefer` would
     answering a selection names its `click` (*1.7*) when the report carried one: the host that
     made that click does not scroll to the first copy for it (the copy clicked is under the
     pointer); every other outline scrolls its first copy into view.
-  - `hold` is reserved (stage 8). A host answers it `unsupported`.
+  - `hold` (*1.11*, LLP 1122 D8, LLP 1121 stage 8 E) `{revision, hold}`: `hold` is `{site,
+    instance, state}`, a state (`active`, `hover` or `focus-visible`) held on the one view of the
+    build's own plan at that site and instance path, or null to let it go. One a build: each
+    replaces the one before. The host shows it as the real state, on its own tracking, handlers
+    never told: `active` is the press of the node the press resolves to (the innermost node with a
+    `press`, as a real press's), its paint and scale eased as a real press's (at once on the
+    agent's clock); `hover` and `focus-visible` that node's look, at once. It reports `held`
+    `{state, revision}` when it holds it, and `{state: null, reason, revision}` when it lets one go:
+    `input` (real input on the node: a press, a key, the pointer over it for a hover, the focus for
+    a focus), `disabled` (the node is or became disabled: one refuses a hold), `gone` (no single
+    view at that site and instance path, no press there for `active`, or the view went),
+    `replaced`. A host that can't hold that state answers `unsupported` with `what: "hold"` (iOS
+    for `hover`). A build that can says `hold` among its `capabilities`.
+- **Holds at the server** (*1.11*). `{method: "hold", client, build, site, instance, state}`
+  (`state` null to let it go) needs write scope and a present client, and names a registered
+  build that holds states (else 409, said so). The hold is its client's: let go on that build when
+  the client goes. A build that registers again is sent it again under the same plan; one that
+  runs another plan (a `status` whose `planDigest` moved, or its registration's) is sent it at the
+  one site of the new plan's map at the old site's source location, and when there is not exactly
+  one, the hold is cleared and every client told (`hold-cleared {build, client, reason}`). A
+  `held` report is every client's event (`held {build, state, reason}`), and one that lets a hold
+  go for `input`, `disabled` or `gone` ends it at the server too. Holds are not kept across a
+  server restart, as pins are not.
 - **A selection joined to source** (*1.3*, LLP 1122 D5). The server takes a `selected` report
   only while the build is in someone's inspect mode (*1.6*: one sent as it ended, or naming an
   `inspect` command since replaced, is refused, 409, and not published; a page's exit, `selected: null`, is published only for the build's
@@ -959,7 +983,11 @@ The tool drives no input into an app; a command changes only what `prefer` would
   "token", token, modes}` only for a row the node itself sets (`authored`, `own`) whose whole
   value is one token, else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
   expression, a boundary, or an expression over tokens links its token, never this node's edit;
-  a style's or the tag's row comes with template editing, T5). Each file the join reads is
+  a style's or the tag's row comes with template editing, T5). A row an `:active` part lowered to
+  the press paint (*1.11*) carries `state` and `at`, its part's place, and its edit is `set-state`'s
+  unless it is one token. A selection made while a state is held carries `held` `{state, rows}`
+  (*1.11*): the rows that state shows (`active`: the press paint's; a look's otherwise), each with
+  `state` and `source` (an `:active` row's part's place, a look's row its node's). Each file the join reads is
   checked against the digest the map says it was compiled from (`sources`): one that moved since
   makes the selection `readOnly`, with its reason, and every row read-only. The app's design file
   likewise (the one the server serves, which the map must name), unless the build runs the
