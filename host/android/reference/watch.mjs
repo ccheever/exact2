@@ -81,7 +81,7 @@ async function release() {
   const tokens = diff.stdout.split('\n').filter((l) => l.includes('→'));
   const body = [`Compose Material 3 **${latest}** is on Google Maven; the pin is ${pinned.material3}${bom ? ` (BOM ${bom} has it)` : ' (no stable BOM has it yet: the branch names `material3` by version)'}.`,
     `Branch \`${branch}\` moves the pin (LLP 1115.001.001 D8). Until its fixes land, or the matches it breaks are revoked, it does not land.`, '',
-    `**The Material rows** (\`tokens.mjs\`): ${check.status === 0 ? 'every row agrees with the new source' : 'some rows differ:'}`, '```', check.stdout.trim().split('\n').filter((l) => !l.includes(' ok ')).join('\n'), '```', '',
+    `**The Material rows** (\`tokens.mjs\`): ${check.status === 0 ? 'every row agrees with the new source' : 'some rows differ:'}`, '```', check.stdout.split('\n').filter((l) => l.trim() && !/^\s*ok /.test(l)).join('\n'), '```', '',
     `**Tokens changed:** ${tokens.length}. The oracle's specimens, against Exact: ${report ? `${report.failing.length} of ${report.total} differ` : `the oracle did not finish (exit ${oracle.status})`}.`,
     ...(report?.failing ?? []).map((f) => `- ${f}`), '',
     `Detection test: ${report?.detection ?? 'not run'}.`, '', '<details><summary>Token diff</summary>', '', '```', tokens.slice(0, 400).join('\n'), '```', '</details>'].join('\n');
