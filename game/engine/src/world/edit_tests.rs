@@ -5,11 +5,16 @@ struct Tuning {
     label: String,
     direction: [f32; 3],
 }
+#[derive(Default, Args)]
+struct EditOptions {
+    #[restart]
+    restart: bool,
+}
 struct Editable;
 impl Game for Editable {
     const ID: &'static str = "set-oracle";
-    type Args = ();
-    fn setup(w: &mut World, _: &()) {
+    type Args = EditOptions;
+    fn setup(w: &mut World, _: &EditOptions) {
         w.spawn_named(
             "player",
             Tuning {
@@ -19,28 +24,23 @@ impl Game for Editable {
             },
         );
     }
-    fn tick(_: &mut World, input: &Input, _: &()) {
-        assert!(input.messages().is_empty());
+    fn tick(w: &mut World, input: &Input, _: &EditOptions) {
+        for message in input.messages() {
+            w.log(format_args!("gameplay: {message}"));
+        }
     }
 }
 #[test]
 fn live_edits_are_stamped_saved_replayed_validated_and_refused_in_production() {
-    let mut sim = Sim::<Editable>::new(()).unwrap();
+    let mut sim = Sim::<Editable>::new(EditOptions::default()).unwrap();
     sim.advance(0., Clock::Seekable);
     let before = sim.world().hash();
     sim.post("set player Tuning.speed 8");
     assert_eq!(sim.world().hash(), before);
-    let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sim.assert_pin("{}")))
-        .unwrap_err();
-    assert!(refused
-        .downcast_ref::<String>()
-        .map(String::as_str)
-        .or_else(|| refused.downcast_ref::<&str>().copied())
-        .unwrap()
-        .contains("set development edit"));
+    assert!(!sim.world.set_seen.get());
     assert_eq!(sim.world().require::<Tuning>("player").speed, 4.);
     let queued = sim.save().unwrap();
-    let mut replay = Sim::<Editable>::new(()).unwrap();
+    let mut replay = Sim::<Editable>::new(EditOptions::default()).unwrap();
     replay.restore(&queued).unwrap();
     replay.advance(0., Clock::Seekable);
     for s in [&mut sim, &mut replay] {
@@ -52,12 +52,6 @@ fn live_edits_are_stamped_saved_replayed_validated_and_refused_in_production() {
     assert!(sim
         .agent(r#"{"op":"state"}"#)
         .contains("\"developmentEdits\":true"));
-    sim.world
-        .apply_set("set player Tuning.direction [1,2,3]", true);
-    assert_eq!(
-        sim.world().require::<Tuning>("player").direction,
-        [1., 2., 3.]
-    );
     let hash = sim.world().hash();
     for text in [
         "set missing Tuning.speed 1",
@@ -66,6 +60,9 @@ fn live_edits_are_stamped_saved_replayed_validated_and_refused_in_production() {
         "set player Tuning.speed 1e100",
         "set player Tuning.speed NaN",
         "set player Tuning.speed false",
+        "set player Tuning.direction [1,2,3]",
+        "set player Tuning.direction [1,2]",
+        r#"set player Tuning.direction {"speeed":8}"#,
         "set player Tuning.direction [1,1e100,3]",
         r#"set player Tuning.direction [1,"bad",3]"#,
     ] {
@@ -79,23 +76,22 @@ fn live_edits_are_stamped_saved_replayed_validated_and_refused_in_production() {
             .line
             .contains("set refused:"));
     }
-    let mut production = Sim::<Editable>::new(()).unwrap();
+    let mut production = Sim::<Editable>::new(EditOptions::default()).unwrap();
     production.development_edits(false);
     production.restore(&queued).unwrap();
     production.advance(0., Clock::Seekable);
     production.advance(17., Clock::Seekable);
     assert_eq!(production.world().require::<Tuning>("player").speed, 4.);
-    let mut pristine = Sim::<Editable>::new(()).unwrap();
+    let mut pristine = Sim::<Editable>::new(EditOptions::default()).unwrap();
     pristine.advance(0., Clock::Seekable);
     pristine.advance(17., Clock::Seekable);
     assert_eq!(production.world().hash(), pristine.world().hash());
     assert!(production
         .world()
         .journal()
-        .last()
-        .unwrap()
-        .line
-        .contains("production bake"));
+        .iter()
+        .any(|e| e.line.contains("production bake")));
+    assert!(!production.world.set_seen.get());
     assert!(
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sim.assert_pin("{}"))).is_err()
     );
@@ -110,4 +106,49 @@ fn live_edits_are_stamped_saved_replayed_validated_and_refused_in_production() {
     assert!(
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| replay.assert_pin("{}"))).is_err()
     );
+}
+
+#[test]
+fn only_admitted_edits_poison_pins_and_clean_restore_cannot_clear_them() {
+    let mut sim = Sim::<Editable>::new(EditOptions::default()).unwrap();
+    let clean = sim.save().unwrap();
+    sim.advance(0., Clock::Seekable);
+    for text in [
+        "set difficulty hard",
+        "set missing Tuning.speed 8",
+        "set player Tuning.speed false",
+    ] {
+        sim.post(text);
+    }
+    sim.advance(17., Clock::Seekable);
+    assert!(!sim.world.set_seen.get());
+    let lines = sim.world().journal();
+    for text in [
+        "set difficulty hard",
+        "set missing Tuning.speed 8",
+        "set player Tuning.speed false",
+    ] {
+        assert!(lines
+            .iter()
+            .any(|e| e.line.contains(&format!("gameplay: {text}"))));
+    }
+    sim.post("set player Tuning.speed 8");
+    sim.advance(34., Clock::Seekable);
+    assert!(sim.edits_admitted);
+    sim.bind(&[Value::Bool(true)], None).unwrap();
+    assert!(sim.world.set_seen.get());
+    sim.restore(&clean).unwrap();
+    assert!(sim.world.set_seen.get());
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sim.assert_pin("{}"))).is_err()
+    );
+    let mut old = sim.world().save();
+    old[7] = 4;
+    assert!(sim
+        .world()
+        .validate_saved(&old)
+        .err()
+        .unwrap()
+        .to_string()
+        .contains("EXGAME v4 predates v5"));
 }

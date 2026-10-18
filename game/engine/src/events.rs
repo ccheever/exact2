@@ -68,6 +68,7 @@ impl<E: TypedEvent> Data for Queue<E> {
 #[derive(Clone, Copy)]
 pub(crate) struct Registration {
     deliver: fn(&World, &mut Input),
+    present: fn(&World) -> bool,
     json: fn(&World) -> Result<String, DataError>,
 }
 impl World {
@@ -85,6 +86,7 @@ impl World {
         self.event_types.insert(
             E::NAME,
             Registration {
+                present: |w| w.try_resource::<Queue<E>>().is_some(),
                 deliver: |w, input| {
                     {
                         let q = w.resource::<Queue<E>>();
@@ -134,6 +136,14 @@ impl World {
         drop(queue);
         self.resource_mut::<Queue<E>>().pending.push(event);
         true
+    }
+    pub(crate) fn validate_event_queues(&self) -> Result<(), DataError> {
+        for (name, reg) in &self.event_types {
+            if !(reg.present)(self) {
+                return Err(DataError::new(format!("restore refused: missing registered event queue events:{name}; create a fresh save")));
+            }
+        }
+        Ok(())
     }
     pub(crate) fn deliver_events(&self, input: &mut Input) {
         self.event_overflow.borrow_mut().clear();

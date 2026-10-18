@@ -21,7 +21,8 @@ impl Game for Combat {
     fn tick(w: &mut World, input: &Input, _: &()) {
         for hit in input.events::<Hit>() {
             assert_eq!(w.name(hit.target), Some("wolf-3"));
-            w.resource_mut::<Damage>().0 += hit.damage;
+            let mut damage = w.resource_mut::<Damage>();
+            damage.0 = damage.0 * 10. + hit.damage;
         }
         if w.tick() == 0 {
             w.emit_event(Hit {
@@ -40,7 +41,7 @@ fn next_tick_events_hash_save_restore_drain_and_overflow_refuses_atomically() {
     let before = sim.world().hash();
     assert!(sim.world().emit_event(Hit {
         target: sim.world().named("wolf-3").unwrap(),
-        damage: 0.
+        damage: 3.
     }));
     let full = sim.world().hash();
     assert_ne!(before, full);
@@ -64,7 +65,7 @@ fn next_tick_events_hash_save_restore_drain_and_overflow_refuses_atomically() {
         s.advance(17., Clock::Seekable);
         s.advance(34., Clock::Seekable);
     }
-    assert_eq!(sim.world().resource::<Damage>().0, 12.);
+    assert_eq!(sim.world().resource::<Damage>().0, 123.);
     assert_eq!(sim.world().hash(), restored.world().hash());
     let events = sim.agent(r#"{"op":"state","events":true,"event_type":"Hit"}"#);
     assert!(
@@ -77,6 +78,22 @@ fn next_tick_events_hash_save_restore_drain_and_overflow_refuses_atomically() {
         .contains("unknown event type Missing"));
     sim.advance(51., Clock::Seekable);
     sim.advance(68., Clock::Seekable);
-    assert_eq!(sim.world().resource::<Damage>().0, 12.);
+    assert_eq!(sim.world().resource::<Damage>().0, 123.);
     assert!(sim.quiescent(), "an empty event queue must rest");
+}
+
+#[test]
+fn restore_refuses_a_save_that_predates_an_event_registration_atomically() {
+    let mut world = World::new(60, 1);
+    world.spawn_named("wolf-3", Transform::default());
+    let save = world.save();
+    world.register_event::<Hit>();
+    let before = world.hash();
+    let error = world.load(&save).unwrap_err().to_string();
+    assert!(
+        error.contains("missing registered event queue events:Hit"),
+        "{error}"
+    );
+    assert_eq!(world.hash(), before);
+    assert!(world.emit_event(Hit::default()));
 }

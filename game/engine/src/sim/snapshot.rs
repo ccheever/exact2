@@ -182,6 +182,8 @@ impl<G: Game> Sim<G> {
         next.textures = std::mem::take(&mut self.textures);
         next.paranoid = self.paranoid;
         next.development_edits = self.development_edits;
+        next.edits_admitted = self.edits_admitted || next.world.set_seen.get();
+        next.world.set_seen.set(next.edits_admitted);
         next.restarted = self.restarted;
         *self = next;
         Ok(())

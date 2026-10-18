@@ -118,8 +118,9 @@ and app-owned settings in live arguments.
 ## Tick diagnostics
 
 `let _s = w.span("enemies");` measures until the guard drops and captures the
-caller's source line. Spans aggregate by name per tick. Nested spans are exclusive;
-`tick.other` accounts for time outside every span. Physics, animation, emitters,
+caller's source line. Drop the guard before returning from `Game::tick`; guards
+retained beyond a tick produce no named trace interval. Spans aggregate by name per tick. Nested spans are exclusive;
+`tick.other` is reserved for time outside every span. Physics, animation, emitters,
 audio and followers open their own spans when stepped. Diagnostics are outside
 saves and hashes, expose no elapsed time to gameplay, and do no clock or allocation
 work until a host arms them. `perf world:world` arms and reads p50, p95, maximum and
@@ -132,8 +133,11 @@ Everything that changes a world from outside the tick enters through the tick-st
 input queue, in stamp order, applied at the start of the tick its stamp falls in:
 keys and pads, messages, `set`, a replaced table. Everything the tick itself produces
 for a later tick enters a hashed world queue: typed events, sequence markers.
-Neither path coalesces, reorders or drops silently; each bounds itself and journals
-a refusal by name. Tables, pads and sequence markers use this contract when admitted;
+Messages and typed events do not coalesce or reorder; overflow journals a named refusal.
+Device input is normalized before tick delivery: adjacent motion for the same pointer
+or control retains the latest position and accumulates deltas; adjacent wheels
+accumulate deltas. At capacity the queue discards the oldest move first (otherwise
+its oldest event), journalling one overflow refusal until the queue drains. Tables, pads and sequence markers use this contract when admitted;
 this engine currently admits keys, pointers, controls, wheels, messages and typed events.
 
 ## HUD and events
@@ -182,12 +186,15 @@ never displace a message. `Sim::post(text)` does the same in tests.
 
 Post `set player Character.speed 8` to the canvas (`Sim::post` in tests). The
 message uses the same stamped input queue as every post and applies at the start
-of its next tick. The target resolves by name then. Values use the field's `Data` JSON schema; strings use JSON quotes. Unknown names, unknown fields,
+of its next tick. The target resolves by name then. Values are scalars or strings decoded against the field's `Data` schema; strings
+use JSON quotes. Structured fields and arrays refuse. Unknown names, unknown fields,
 wrong types and non-finite values refuse by name without changing a component.
 The whole candidate is decoded and validated before replacement. Production bakes
-refuse `set` by name. Every attempt journals its command or refusal. A saved
-sticky diagnostic records each admitted attempt, including before its tick and
-after the journal ring turns over.
+refuse `set` by name. The complete `set entity Component.field value` form reserves the message only
+when the edit succeeds. Refused forms journal and remain available to `input.messages()`;
+other `set` messages are ordinary gameplay messages. A saved sticky diagnostic records
+successful edits after admission. Session provenance survives restart, restore and
+journal rollover.
 `prove.mjs` and `Sim::assert_pin` refuse a run carrying that diagnostic: put tuning
 that a pin should accept in the authored files. Arguments tune settings a save
 should not carry.
@@ -445,7 +452,7 @@ NaNs canonicalize and negative zero survives. Their JSON output is a bytes/hash
 summary, while input accepts numeric arrays. Summaries cannot be loaded as data.
 Other vectors remain structural sequences.
 
-World saves (EXGAME v4) are columnar: the entity table and each component
+World saves (EXGAME v5) are columnar: the entity table and each component
 storage store their rows' shape (tags, field and variant names, sequence lengths)
 once and their scalars as run-length or dictionary-coded columns, so repeated
 values cost nothing per entity and no name or entity key is repeated per row.

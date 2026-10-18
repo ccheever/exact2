@@ -581,14 +581,14 @@ fn old_save_containers_are_refused_by_name_atomically() {
     assert_eq!(s.save().unwrap(), saved);
     let saved = s.world().save();
     let mut old = saved.clone();
-    assert!(saved.starts_with(b"EXGAME\0\x04"));
+    assert!(saved.starts_with(b"EXGAME\0\x05"));
     old[7] = 3;
     assert!(s
         .world_mut()
         .load(&old)
         .unwrap_err()
         .to_string()
-        .contains("EXGAME v4"));
+        .contains("EXGAME v5"));
     assert_eq!(s.world().save(), saved);
 }
 
@@ -622,7 +622,7 @@ fn wrong_magic_reports_actual_bytes_and_expected_format() {
         );
         let error = s.world_mut().load(&bytes).unwrap_err().to_string();
         assert!(
-            error.contains(&seen) && error.contains("EXGAME v4"),
+            error.contains(&seen) && error.contains("EXGAME v5"),
             "{error}"
         );
         assert_eq!(s.save().unwrap(), saved);
@@ -1086,7 +1086,7 @@ fn restore_runs_no_setup_and_failed_world_validation_is_atomic() {
     }
     // Invalid world headers must be rejected before setup has any side effects.
     let mut bad = saved.clone();
-    let world = bad.windows(8).position(|v| v == b"EXGAME\0\x04").unwrap();
+    let world = bad.windows(8).position(|v| v == b"EXGAME\0\x05").unwrap();
     bad[world] = b'!';
     assert!(s.restore(&bad).is_err());
     assert_eq!(SETUPS.with(|calls| calls.replace(0)), 0);
@@ -1197,7 +1197,7 @@ fn restore_registers_argument_dependent_types_before_setup() {
     SETUPS.with(|calls| calls.set(0));
     let before = target.save().unwrap();
     let mut bad = before.clone();
-    let world = bad.windows(8).position(|v| v == b"EXGAME\0\x04").unwrap();
+    let world = bad.windows(8).position(|v| v == b"EXGAME\0\x05").unwrap();
     bad[world + 8] = 0xff;
     assert!(target.restore(&bad).is_err());
     assert_eq!(SETUPS.with(|calls| calls.get()), 0);

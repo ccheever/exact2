@@ -21,23 +21,13 @@ impl World {
             Err(DataError::new("component combination refused"))
         }
     }
-    pub(crate) fn apply_set(&mut self, text: &str, development: bool) {
-        self.set_seen.set(true);
+    pub(crate) fn apply_set(&mut self, text: &str, development: bool) -> bool {
         let apply = |w: &mut World| -> Result<(), DataError> {
             if !development {
                 return Err(DataError::new("set is unavailable in a production bake"));
             }
-            let mut words = text.splitn(4, char::is_whitespace);
-            let _set = words.next();
-            let name = words
-                .next()
-                .filter(|s| !s.is_empty())
-                .ok_or_else(|| DataError::new("set needs an entity name"))?;
-            let path = words.next().unwrap_or_default();
-            let value = words.next().unwrap_or_default().trim();
-            let (component, field) = path
-                .split_once('.')
-                .ok_or_else(|| DataError::new("set needs Component.field"))?;
+            let (name, component, field, value) = command(text)
+                .ok_or_else(|| DataError::new("set needs entity Component.field value"))?;
             let entity = w
                 .named(name)
                 .ok_or_else(|| DataError::new(format!("unknown entity {name}")))?;
@@ -51,11 +41,40 @@ impl World {
             edit(w, entity, field, value).map_err(|e| e.at(format!("{name}.{component}.{field}")))
         };
         match apply(self) {
-            Ok(()) => self.log(text),
-            Err(error) => self.log(format_args!("set refused: {text}: {error}")),
+            Ok(()) => {
+                self.set_seen.set(true);
+                self.log(text);
+                true
+            }
+            Err(error) => {
+                self.log(format_args!("set refused: {text}: {error}"));
+                false
+            }
         }
     }
 }
-pub(crate) fn is_set(text: &str) -> bool {
-    text.split_whitespace().next() == Some("set")
+/// Recognize the whole command before reserving a gameplay message.
+pub(crate) fn command(text: &str) -> Option<(&str, &str, &str, &str)> {
+    let mut rest = text.trim();
+    let mut word = || {
+        let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+        let value = &rest[..end];
+        rest = rest[end..].trim_start();
+        value
+    };
+    if word() != "set" {
+        return None;
+    }
+    let name = word();
+    let path = word();
+    let (component, field) = path.split_once('.')?;
+    if name.is_empty()
+        || component.is_empty()
+        || field.is_empty()
+        || rest.is_empty()
+        || field.contains('.')
+    {
+        return None;
+    }
+    Some((name, component, field, rest))
 }

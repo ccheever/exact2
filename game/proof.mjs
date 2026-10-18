@@ -305,13 +305,23 @@ export function pinRevision(app, sourceInputs) {
 export function assertNoLiveEdits(worlds, journals = []) {
   const edited = worlds?.some(w => w.developmentEdits);
   const lines = journals.flatMap(j => j.lines ?? []);
-  const line = lines.find(l => /(?:^| tick=\d+ )set(?:\s|$)/.test(l));
+  const line = lines.find(l => /(?:^| tick=\d+ )set(?! refused:)(?:\s|$)/.test(l));
   if (edited || line) throw new Error(`pin refused: run contains a set development edit${line ? ': ' + line : ''}`);
 }
 
-export function pinRecorder(previous, app, check, collecting = false) {
+export function editProvenance() {
+  let refusal;
+  return {
+    observe(worlds, journals) {
+      try { assertNoLiveEdits(worlds, journals); } catch (error) { refusal ??= error; }
+    },
+    assert() { if (refusal) throw refusal; },
+  };
+}
+export function pinRecorder(previous, app, check, collecting = false, provenance = editProvenance()) {
   const pins = {ticks:{}, saves:{}};
   const record = (section, key, got) => {
+    provenance.assert();
     const expected = previous[section]?.[key];
     if (key in pins[section]) check(`pin ${key} repeated consistently`, pins[section][key] === got);
     pins[section][key] = got;
@@ -320,6 +330,7 @@ export function pinRecorder(previous, app, check, collecting = false) {
   };
   return {pins,
     pin(tick, state) {
+      provenance.observe([state]);
       check(`pin ${tick} sampled at expected tick (got ${state?.tick})`, state?.tick === tick && /^0x[0-9a-f]{16}$/.test(state?.hash));
       record('ticks', String(tick), state?.hash);
     },
@@ -562,7 +573,8 @@ export async function proof(meta, script) {
     if (!ok) failures.push(label);
     return ok;
   };
-  const {pins, pin, pinSave} = pinRecorder(previousPins, app, check, collecting);
+  const provenance = editProvenance();
+  const {pins, pin, pinSave} = pinRecorder(previousPins, app, check, collecting, provenance);
   // The GPU-less host has no process tree to discover: retain the process
   // handles from the carrier and await them. Global ps can block indefinitely
   // on this Mac; an optional web descendant audit is bounded and never delays
@@ -612,7 +624,7 @@ export async function proof(meta, script) {
       try {
         const journal = (await raw.logs({all:true})).world ?? [];
         const state = await raw.state();
-        try { assertNoLiveEdits(state.world ?? [], journal); } catch (error) { check(error.message, false); }
+        try { provenance.observe(state.world ?? [], journal); provenance.assert(); } catch (error) { check(error.message, false); }
         if (compareParanoid || process.env.EXACT_PROOF_COMPARE === '1') {
           const state = await raw.op({op:'state', ...await raw.target('world'), world:true});
           const world = state.world;
@@ -640,10 +652,12 @@ export async function proof(meta, script) {
     return new Proxy(raw, {get(target, method) {
       if (method === 'close') return close;
       // world(name) runs with the proxy as its receiver: its operations stay recorded.
-      if (!['tap','type','clock','state','tree','layout','logs','screenshot'].includes(method)) return target[method];
+      if (!['op','tap','type','clock','state','tree','layout','logs','screenshot'].includes(method)) return target[method];
       return async (...args) => {
         try {
+          provenance.observe((await raw.state()).world ?? []);
           const reply = await target[method](...args);
+          provenance.observe((await raw.state()).world ?? [], method === 'logs' ? reply.world : []);
           if (method === 'state') worldObservations(observations, id)(reply);
           replies.push({session:id, method, args, reply, clock:target.now});
           return reply;

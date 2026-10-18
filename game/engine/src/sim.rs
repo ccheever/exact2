@@ -195,6 +195,7 @@ pub struct Sim<G: Game> {
     // An edit through world_mut since the last present: the next advance presents.
     present_owed: bool,
     pub(crate) development_edits: bool,
+    pub(crate) edits_admitted: bool,
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
@@ -505,6 +506,7 @@ impl<G: Game> Sim<G> {
         }
         if self.setup_pending && self.required_ready() {
             self.world = Self::build(&self.args, self.world.assets.clone());
+            self.world.set_seen.set(self.edits_admitted);
             self.setup_pending = false;
             self.asset_mesh_revision = u64::MAX;
         }
@@ -662,6 +664,7 @@ impl<G: Game> Sim<G> {
             paranoid_skipped: 0,
             present_owed: false,
             development_edits: true,
+            edits_admitted: false,
             game: PhantomData,
         })
     }
@@ -732,6 +735,7 @@ impl<G: Game> Sim<G> {
             self.setup_pending = !world.assets.ready();
             self.ready_hint = None;
             self.asset_mesh_revision = u64::MAX;
+            world.set_seen.set(self.edits_admitted);
             self.world = world;
             self.world_us = 0;
             self.live_time = None;
@@ -921,10 +925,6 @@ impl<G: Game> Sim<G> {
                 });
                 self.overflow_logged = true;
             }
-        }
-        if matches!(&e.event, InputEvent::Message { text, .. } if crate::world::edit::is_set(text))
-        {
-            self.world.set_seen.set(true);
         }
         self.queue.insert(position, e);
     }
@@ -1177,8 +1177,10 @@ impl<G: Game> Sim<G> {
             }) {
                 let event = self.queue.pop_front().unwrap().event;
                 if let InputEvent::Message { text, .. } = &event {
-                    if crate::world::edit::is_set(text) {
-                        self.world.apply_set(text, self.development_edits);
+                    if crate::world::edit::command(text).is_some()
+                        && self.world.apply_set(text, self.development_edits)
+                    {
+                        self.edits_admitted = true;
                     } else {
                         self.input.apply(event);
                     }

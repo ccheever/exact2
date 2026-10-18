@@ -295,7 +295,7 @@ impl<G: Game> Sim<G> {
                     entities.push_str(&w.components_json(e).map_err(|e| e.to_string())?);
                     entities.push('}');
                 }
-                let mut tail = String::new();
+                let mut tail = if w.set_seen.get() { String::from("\"developmentEdits\":true,") } else { String::new() };
                 page_tail(&mut tail, to, start, end);
                 let resources = if q.resources { format!(",\"resources\":{}", w.resources_json().map_err(|e| e.to_string())?) } else { String::new() };
                 Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"entities\":[{entities}],{tail}{resources}{}}}", w.hash(), if q.busy { format!(",\"busy\":{}", encode(&self.changing(self.quiescent()))?) } else { String::new() }))

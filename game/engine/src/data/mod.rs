@@ -366,6 +366,12 @@ pub(crate) fn type_name<T>() -> &'static str {
 /// Decode and check finite JSON before replacing a live-edit candidate's field.
 #[doc(hidden)]
 pub fn edit_field<T: Data>(value: &mut T, text: &str) -> Result<(), DataError> {
+    // Edits deliberately accept only scalar and string fields. Data's general
+    // decoder defaults missing record members and array tails.
+    let current = json::to_string(value)?;
+    if current.starts_with(['{', '[']) || text.trim_start().starts_with(['{', '[']) {
+        return Err(DataError::new("set accepts only scalar or string fields"));
+    }
     let candidate: T = json::from_str(text)?;
     json::to_string(&candidate)?;
     *value = candidate;

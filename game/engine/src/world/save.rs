@@ -1,4 +1,4 @@
-//! The EXGAME v4 save: the entity table and every component storage as columnar
+//! The EXGAME v5 save: the entity table and every component storage as columnar
 //! payloads (`data::columns`), resources as their values. The free list is the
 //! table's dead slots; entity generations are stored once, in the table.
 use crate::data::columns::{Columns, Rows};
