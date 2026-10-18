@@ -406,8 +406,10 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  * time it reached, as a `reload` relaunches, LLP 1116.009 D1; `restart`: on the web, the `reload` step itself, run on the session so the page loads
  * again on its route and storage at that date, LLP 1116.010 D6; `typed`: the ids the test typed since its last other input, a draft; `touched`: every id it typed) runs on each test's session after its last step, unless the window closed; what it returns is the result's `end` (`{ error }` if it threw), and an
  * `end.keep` keeps the test's store for a later launch (the result's `store`), which the caller then removes.
+ * `atStep(s, { name, line, op })` runs on the session after each input step (and `reload`) lands; returning 'stop' ends
+ * that test there, 'done' every test from there (verify's tour of the screens the tests pass through).
  */
-export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', scale, atEnd, port } = {}) {
+export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', scale, atEnd, atStep, port } = {}) {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   if (host === 'web' && !url) await backendPreflight(resolveApp(app), resolve(webDist ?? defaultWebDist()));
   // A fetch prefix outside every grant fails nothing (sb4 farm wave 4, lane 070: an origin moved in app.ts only).
@@ -440,7 +442,9 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   const tag = base || host === 'android' ? `.r${process.pid}-${Math.random().toString(36).slice(2, 8)}` : '';
   sweepTestStores(base, storage);
   const server = serverUrl(selected.dir); // where a `request` line's path is (LLP 1116.006 D8)
+  let done = false;
   for (const [n, t] of tests.entries()) {
+    if (done) break;
     const failures = [], expectedRefusals = [];
     const refusalCursors = new Map();
     let end = null;
@@ -730,6 +734,11 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             default: failures.push(`${at}: unknown step ${st.op}`);
           }
           if (closedAt == null) await mutationClock.advance(s);
+          if (atStep && closedAt == null && (INPUTS.has(st.op) || st.op === 'reload')) {
+            const next = await atStep(s, { name: t.name, line: st.line, op: st.op });
+            if (next === 'done') done = true;
+            if (next === 'stop' || next === 'done') break;
+          }
         } catch (e) {
           failures.push(`${at}: ${e.message}`);
           break;

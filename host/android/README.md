@@ -795,7 +795,7 @@ the bar took of the routes goes to nothing while it is covered (`Presenter::fit_
 |---|---|---|
 | Height | 64 dp, under the status bar | 64 dp |
 | Colour | `surface`; `surfaceContainer` once the route's content has scrolled; the status bar's area the same | the same two (`OnScrollContainerColor`) |
-| Title | the heading, title-large (22/28 sp, regular), `onSurface`, one line cut with an ellipsis; 16 dp from the side, or 52 dp after the Up arrow | title-large; 16 dp, and after a 48 dp navigation icon 4 dp from the side |
+| Title | the heading, title-large (22/28 sp, regular), `onSurface`, one line cut with an ellipsis; 16 dp from the side, or 4 dp after what leads it (56 dp after the Up arrow) | the same (`TopAppBarLayout`: the title's box at `TopAppBarTitleInset` or after the navigation icon, its own 4 dp padding) |
 | Up arrow | on a pushed route: Material Symbols' `arrow_back`, 24 dp in a 48 dp target 4 dp from the side, `onSurface` | the same |
 | Buttons | the header's, at the trailing side, 4 dp from it: a 24 dp symbol in a 48 dp target (`onSurfaceVariant`) where the button has a symbol, else a text button (label-large, `primary`, 12 dp padding, at least 58 dp wide) | icon buttons and text buttons, the same metrics |
 | Held | a state layer (10%): a 40 dp circle on an icon, a pill on a text button | a state layer and a ripple |
@@ -820,17 +820,18 @@ that opens a search view, or a search action in the bar; neither is built.
 |---|---|---|
 | Height | 80 dp, over the gesture bar | 80 dp |
 | Colour | `surfaceContainer`, the gesture bar's area the same | `surfaceContainer` |
-| Destinations | the root tablist's tabs that name a panel, sharing the width | 3 to 5, sharing the width |
+| Destinations | the root tablist's tabs that name a panel, sharing the width 8 dp apart | 3 to 5, the same (`NavigationBarItemHorizontalPadding`) |
 | Symbol and label | a 24 dp symbol 16 dp from the top, its label under it (label-medium, 12/16 sp), 16 dp from the bottom | the same |
-| Active indicator | a 64 by 32 dp pill in `secondaryContainer` behind the selected symbol | the same |
-| Colours | the selected destination `onSurface`, the others `onSurfaceVariant` | the same for labels; the selected symbol is `onSecondaryContainer`, a role the reader does not report yet |
+| Active indicator | a 56 by 32 dp pill in `secondaryContainer` behind the selected symbol | the same |
+| Colours | the selected destination's symbol `onSecondaryContainer` and its label `secondary`; the others `onSurfaceVariant`, at 38 % when disabled | the same (`NavigationBarItemDefaults.colors`) |
 
 "Here" in both tables is what was seen on a Pixel 10 Pro XL (Android 16, 2.4375 pixels a dp), from `state.bars`
 and its screenshots: the top bar's view is 317 pixels tall (a 66.05 dp status bar and 64 dp), the navigation bar's
 254 (80 dp and a 24.2 dp gesture bar); read off the pictures, the indicator is about 156 by 77 pixels and the
 title's first glyph about 40 pixels from the side, about 129 after the arrow. "Material 3" is the Compose Material 3 library's `TopAppBar` and `NavigationBar`
 and their tokens (`TopAppBarSmallTokens`, `NavigationBarTokens`) as remembered, not read against the library that
-day, and no reference app was beside it: the one S2 builds is what checks these.
+day. Both bars' are now read from it at the pinned version: their numbers are the schema's `top-` and `nav-` rows
+(`reference/rows.json`), and the Material oracle compares each with Compose's.
 
 A destination tapped again while it is selected and its stack is at its root scrolls that route's content to its
 top, as iOS does (in one step: nothing animates it). Above its root the tap is the app's own. At the largest font

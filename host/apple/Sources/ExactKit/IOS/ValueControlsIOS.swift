@@ -120,6 +120,14 @@ extension ControlHost {
         return size == .zero ? button.intrinsicContentSize : CGSize(width: ceil(size.width), height: ceil(size.height))
     }
 
+    #if os(iOS)
+    /// The select's height at `width`, its shown title wrapped there (a
+    /// frame-sized button's Auto Layout fitting answers its one-line size).
+    func selectHeight(_ button: UIButton, width: CGFloat) -> CGFloat {
+        ceil(button.sizeThatFits(CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)).height)
+    }
+    #endif
+
     /// A choice from the menu: `input` then `change`. The bound value is
     /// shown when it changes, as the web build's select: an action that
     /// wrote none leaves the person's choice showing (LLP 1069.001 D4,
