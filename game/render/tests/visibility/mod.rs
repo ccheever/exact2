@@ -207,3 +207,77 @@ fn visible_names_a_pending_model_and_a_hidden_level() {
     assert_eq!(word("pending"), "asset-pending pending.model");
     assert_eq!(word("lodded"), "lod-hidden 30 m");
 }
+
+/// `visible` for sprites (LLP 1127.000 D4): what the quads decided, by the
+/// texture's residency and the quad's own extent about its anchor.
+struct SpriteStates;
+impl Game for SpriteStates {
+    const ID: &'static str = "visible-sprite-states";
+    const ASSETS: &'static [&'static str] = &["white.tex"];
+    const STREAMED: &'static [&'static str] = &["missing.tex"];
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        use exact_game::{Sprite, Vec2};
+        w.spawn_named("camera", (Transform::at(0., 0., 10.), Camera::default()));
+        let sprite = |texture: &str, size: [f32; 2]| Sprite::new(texture, size);
+        w.spawn_named(
+            "near",
+            (Transform::default(), sprite("white.tex", [1., 1.])),
+        );
+        w.spawn_named(
+            "missing",
+            (Transform::at(1., 0., 0.), sprite("missing.tex", [1., 1.])),
+        );
+        // A 40 m banner anchored at its left end 20 m left of the view's
+        // centre: its origin is outside the view, and its quad crosses it.
+        w.spawn_named(
+            "banner",
+            (
+                Transform::at(-20., 0., 0.),
+                Sprite {
+                    anchor: Vec2::new(0., 0.5),
+                    ..sprite("white.tex", [40., 1.])
+                },
+            ),
+        );
+        w.spawn_named(
+            "away",
+            (Transform::at(60., 0., 0.), sprite("white.tex", [1., 1.])),
+        );
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+
+#[test]
+fn visible_reads_a_sprites_residency_and_its_anchored_extent() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = WorldSurface::<SpriteStates, exact_game_render::ModelExecutor, true>::default();
+    s.device_ready(exact_gpu::wgpu::Features::empty());
+    s.bind(&[], None).unwrap();
+    let white = exact_game::asset::TextureData {
+        width: 1,
+        height: 1,
+        mips: vec![vec![255; 4]],
+        ..Default::default()
+    };
+    s.asset("white.tex", Ok(&exact_game::bin::to_vec(&white)));
+    fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
+    fixture::render(&gpu, &mut s, &frame(20.)).unwrap();
+    assert!(s.error().is_none(), "{:?}", s.error());
+    let mut word = |name: &str| {
+        let reply = s
+            .agent(&format!(
+                r#"{{"op":"state","entity":"{name}","visible":true}}"#
+            ))
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        value["visible"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{reply}"))
+            .to_owned()
+    };
+    assert_eq!(word("near"), "drawn");
+    assert_eq!(word("missing"), "asset-pending missing.tex");
+    assert_eq!(word("banner"), "drawn");
+    assert_eq!(word("away"), "frustum");
+}

@@ -243,6 +243,8 @@ pub struct TestHooks<const SCENE: bool, const POST: bool, const DEPTH: bool> {
     gpu: exact_game_render::hooks::Pipelines<Gpu>,
     stages: Vec<&'static str>,
     resets: u32,
+    /// Each draw's (dt, reset).
+    times: Vec<(f32, bool)>,
 }
 impl<const S: bool, const P: bool, const D: bool> Hooks for TestHooks<S, P, D> {
     fn prepare(
@@ -256,6 +258,7 @@ impl<const S: bool, const P: bool, const D: bool> Hooks for TestHooks<S, P, D> {
         self.stages.clear();
         self.stages.push("prepare");
         self.resets += u32::from(view.time.reset);
+        self.times.push((view.time.dt, view.time.reset));
         self.gpu
             .update(gpu.device, view.time.shader_generation, || {
                 Gpu::new(gpu, view.sample_count)
@@ -470,6 +473,37 @@ fn check_samples<const S: bool, const P: bool, const D: bool, const SINGLE: bool
             assert!(state.contains("\"gpuTimingError\":null"), "{state}");
         }
     }
+}
+#[test]
+fn a_look_frame_leaves_the_hook_clock_where_the_live_frames_left_it() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let times = |look: bool| {
+        let mut surface =
+            WorldSurface::<TestGame<false>, (), false, TestHooks<false, false, false>>::default();
+        surface.bind(&[], None).unwrap();
+        let mut f = frame();
+        for now in [0., 16.] {
+            f.now_ms = now;
+            fixture::render(&gpu, &mut surface, &f).unwrap();
+        }
+        if look {
+            let reply = surface
+                .agent(r#"{"op":"state","look":true,"now":16}"#)
+                .unwrap();
+            assert!(reply.contains("\"look\""), "{reply}");
+        }
+        f.now_ms = 32.;
+        fixture::render(&gpu, &mut surface, &f).unwrap();
+        surface.render_hooks().times.clone()
+    };
+    let live = times(false);
+    let looked = times(true);
+    // The look frame drew the held frame: no time passing, no reset.
+    assert_eq!(looked[2], (0., false), "{looked:?}");
+    assert_eq!([&looked[..2], &looked[3..]].concat(), live);
+    assert_eq!(live[2], (0.016, false), "{live:?}");
 }
 #[test]
 fn all_stages_and_recovery() {

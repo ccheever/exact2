@@ -1,6 +1,6 @@
-//! The look oracle's negative controls (LLP 1127.000 D6): three scenes, each
-//! wrong in one way the garden bakeoff's was, must trip their tell, and the
-//! same scenes with the defect removed must trip none. Each is read twice: from
+//! The look oracle's negative controls (LLP 1127.000 D6): four scenes, three
+//! wrong in one way the garden bakeoff's was and one blown out, must trip their
+//! tell, and the same scenes with the defect removed must trip none. Each is read twice: from
 //! a canvas that draws (the web and Apple hosts' path) and from a device-less
 //! one (the GPU-less proof host's), whose look frame makes its own device.
 #![cfg(not(target_arch = "wasm32"))]
@@ -16,6 +16,7 @@ enum Defect {
     NearBlack,
     ParticlesUnderground,
     NoCaster,
+    NearWhite,
 }
 
 fn scene<const D: u8>(w: &mut World, broken: bool) {
@@ -23,9 +24,19 @@ fn scene<const D: u8>(w: &mut World, broken: bool) {
         Defect::NearBlack,
         Defect::ParticlesUnderground,
         Defect::NoCaster,
+        Defect::NearWhite,
     ][D as usize];
     let dark = broken && defect == Defect::NearBlack;
-    w.insert_resource(if dark {
+    let blown = broken && defect == Defect::NearWhite;
+    w.insert_resource(if blown {
+        // A white sky and a sun a thousand times too bright, untone-mapped.
+        Environment {
+            background: Some(Color::hex("white")),
+            tone_mapping: ToneMapping::None,
+            bloom: None,
+            ..Environment::default()
+        }
+    } else if dark {
         // Sun at zero and no sky: nothing lights the scene.
         Environment {
             background: Some(Color::hex("black")),
@@ -45,7 +56,13 @@ fn scene<const D: u8>(w: &mut World, broken: bool) {
         (
             Transform::at(0., 10., 0.).looking_at(Vec3::new(0.3, 0., 0.2), Vec3::Z),
             DirectionalLight {
-                illuminance: if dark { 0. } else { 10_000. },
+                illuminance: if dark {
+                    0.
+                } else if blown {
+                    1e7
+                } else {
+                    10_000.
+                },
                 ..DirectionalLight::default()
             },
         ),
@@ -126,6 +143,8 @@ fixture!(Buried, 1, true);
 fixture!(Sparks, 1, false);
 fixture!(Casterless, 2, true);
 fixture!(Cast, 2, false);
+fixture!(Blown, 3, true);
+fixture!(Exposed, 3, false);
 
 const SIZE: (f32, f32) = (320., 180.);
 
@@ -179,6 +198,8 @@ fn tells<G: Game<Args = ()>>(gpu: Option<&Gpu>) -> (Vec<String>, serde_json::Val
         );
     }
     assert!(reply["tick"].as_u64().unwrap() > 0, "{reply}");
+    // Every measurement a tell reads was taken.
+    assert_eq!(look["gaps"], serde_json::json!([]), "{reply}");
     let after = s.carry().unwrap().unwrap();
     assert!(after == saved, "a look frame changed the save");
     (names, reply)
@@ -201,18 +222,22 @@ fn each_defect_trips_its_tell_and_its_correction_trips_none() {
         assert!(lit.is_empty(), "{host}: {reply}");
         let (buried, reply) = tells::<Buried>(drawing);
         assert_eq!(buried, ["particles-uncovered"], "{host}: {reply}");
-        assert!(
-            reply["look"]["particles"]["live"].as_u64().unwrap() > 0,
-            "{reply}"
-        );
+        let draw = &reply["look"]["particles"][0];
+        assert!(draw["live"].as_u64().unwrap() > 0, "{reply}");
+        assert_eq!(draw["covered"], 0, "{reply}");
         let (sparks, reply) = tells::<Sparks>(drawing);
         assert!(sparks.is_empty(), "{host}: {reply}");
-        assert_eq!(reply["look"]["particles"]["covered"], true, "{reply}");
+        let covered = reply["look"]["particles"][0]["covered"].as_u64();
+        assert!(covered.unwrap() > 0, "{reply}");
         let (casterless, reply) = tells::<Casterless>(drawing);
         assert_eq!(casterless, ["no-shadow-casters"], "{host}: {reply}");
         let (cast, reply) = tells::<Cast>(drawing);
         assert!(cast.is_empty(), "{host}: {reply}");
         assert!(reply["look"]["sunCasters"].as_u64().unwrap() > 0, "{reply}");
+        let (blown, reply) = tells::<Blown>(drawing);
+        assert!(blown.contains(&"near-white".to_owned()), "{host}: {reply}");
+        let (exposed, reply) = tells::<Exposed>(drawing);
+        assert!(exposed.is_empty(), "{host}: {reply}");
     }
 }
 

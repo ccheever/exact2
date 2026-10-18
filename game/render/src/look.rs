@@ -3,8 +3,10 @@
 //! `state world draws` and `state world:<entity> visible`. Each is answered
 //! from one look frame, the current tick drawn offscreen (`surface/look.rs`),
 //! and only under the agent's clock.
+use crate::look_bounds::Aabb;
+use crate::quads::QuadFact;
 use crate::renderer::probe::{Drew, Facts, Reading, Record, Stage};
-use crate::tells::{Drawn, FrameStats, Tell};
+use crate::tells::{Drawn, FrameStats, Judgement, Measure, ParticleDraw};
 use exact_game::{Data, Entity, Mesh, Vec2, Vec3, World};
 use std::fmt::Write;
 
@@ -107,34 +109,20 @@ fn view(w: &Wire) -> Result<View, String> {
     Ok(View::Camera)
 }
 
-/// The drawn scene's centre and radius: the box around every drawn entity's
-/// origin (meshes, sprites, emitters).
-pub(crate) fn scene_bounds(w: &World) -> (Vec3, f32) {
-    let (mut lo, mut hi) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
-    let mut grow = |e: Entity| {
-        if let Some(drawn) = w.drawn(e) {
-            let p = Vec3::from(drawn.pose.translation);
-            lo = lo.min(p);
-            hi = hi.max(p);
-        }
-    };
-    w.query::<&Mesh>().iter().for_each(|(e, _)| grow(e));
-    w.query::<&exact_game::Sprite>()
-        .iter()
-        .for_each(|(e, _)| grow(e));
-    w.query::<&exact_game::Emitter>()
-        .iter()
-        .for_each(|(e, _)| grow(e));
-    if !lo.is_finite() {
-        return (Vec3::ZERO, 1.0);
-    }
-    ((lo + hi) * 0.5, ((hi - lo).length() * 0.5).max(1.0))
-}
-
 impl View {
     /// Point `input` at this view; the game's camera leaves it as it is.
-    pub(crate) fn apply(self, input: &mut crate::FrameInput<'_>, w: &World, size: Vec2) {
-        let (centre, radius) = scene_bounds(w);
+    /// `models` holds the renderer's model boxes (`look_bounds::displayed`).
+    pub(crate) fn apply(
+        self,
+        input: &mut crate::FrameInput<'_>,
+        w: &World,
+        size: Vec2,
+        models: &[(u32, Aabb)],
+    ) {
+        if self == View::Camera {
+            return;
+        }
+        let (centre, radius) = crate::look_bounds::scene(w, models);
         let (eye, up, camera) = match self {
             View::Camera => return,
             View::Orbit {
@@ -171,42 +159,50 @@ impl View {
     }
 }
 
-/// The tells' inputs that are not pixels: particles drawn and covered, and a
-/// shadowed sun's casters after culling.
+/// The tells' inputs that are not pixels: each particle draw's counted
+/// fragments, and the casters a shadowed sun's shadow passes drew. A
+/// measurement the frame did not take is `Unmeasured`, never zero.
 pub(crate) fn drawn(records: &[Record], facts: &Facts, read: &Reading) -> Drawn {
-    let covered = |r: &Record| {
-        r.query
-            .is_some_and(|q| read.covered.get(q as usize) == Some(&true))
-    };
-    // Without queries (the web) coverage is unknown, and no particle tell is told.
-    let particles = (records.iter())
-        .filter(|_| facts.coverage)
-        .filter(|r| {
-            matches!(
-                r.drew,
-                Drew::Quads {
-                    kind: "particles",
-                    ..
-                }
-            )
-        })
-        .fold(None, |acc: Option<(u64, bool)>, r| {
-            let Drew::Quads { count, .. } = r.drew else {
-                unreachable!()
-            };
-            let (live, any) = acc.unwrap_or_default();
-            Some((live + u64::from(count), any || covered(r)))
-        });
-    let sun_casters = (facts.cascades > 0).then(|| {
-        (facts.groups.iter().enumerate())
-            .map(|(g, fact)| {
-                (1..=facts.cascades)
-                    .filter(|v| fact.views & (1 << v) != 0)
-                    .map(|v| kept(facts, read, g, v as usize).unwrap_or(fact.range.len() as u64))
-                    .sum::<u64>()
+    let particles = if facts.particle_draws.is_empty() {
+        Measure::Absent
+    } else {
+        let counted = (facts.particle_draws.iter())
+            .map(|&(draw, live)| {
+                let k = facts.counted.iter().position(|&c| c == draw)?;
+                Some(ParticleDraw {
+                    batch: facts.quad_labels.get(draw).cloned().unwrap_or_default(),
+                    live: u64::from(live),
+                    covered: u64::from(*read.counts.get(k)?),
+                })
             })
-            .sum()
-    });
+            .collect::<Option<Vec<_>>>();
+        counted.map_or_else(
+            || Measure::Unmeasured("the counting pass's counts were not read back".into()),
+            Measure::Taken,
+        )
+    };
+    let sun_casters = if facts.cascades == 0 {
+        Measure::Absent
+    } else {
+        let mut casters = Some(0);
+        let mut why = "";
+        // Only what the shadow passes submitted: the cull's lists for a view
+        // count nothing a pass did not draw.
+        for r in records {
+            let (Stage::SunShadow(_), Drew::Group { group, view, .. }) = (r.stage, r.drew) else {
+                continue;
+            };
+            let n = if facts.direct {
+                why = "a direct frame draws casters unculled, uncounted per cascade";
+                None
+            } else {
+                why = "the cull's counts were not read back";
+                kept(facts, read, group, view as usize)
+            };
+            casters = casters.zip(n).map(|(a, b)| a + b);
+        }
+        casters.map_or_else(|| Measure::Unmeasured(why.into()), Measure::Taken)
+    };
     Drawn {
         particles,
         sun_casters,
@@ -226,15 +222,21 @@ fn list<'a>(facts: &Facts, read: &'a Reading, g: usize, v: usize) -> Option<&'a 
     read.lists.get(at..at + n)
 }
 
-/// The tells' JSON: statistics, tells (with whether each is silenced) and cost.
-pub(crate) fn tells_json(stats: &FrameStats, drawn: Drawn, tells: &[Tell], bytes: u64) -> String {
+/// The tells' JSON: statistics, tells, the measurements not taken, what the
+/// particle and shadow tells read, and cost.
+pub(crate) fn tells_json(
+    stats: &FrameStats,
+    drawn: &Drawn,
+    judged: &Judgement,
+    bytes: u64,
+) -> String {
     let mut out = format!(
         "{{\"mean\":{},\"clipped\":{},\"histogram\":{:?},\"tells\":[",
         round(stats.mean),
         round(stats.clipped),
         stats.histogram
     );
-    for (i, t) in tells.iter().enumerate() {
+    for (i, t) in judged.tells.iter().enumerate() {
         let comma = if i == 0 { "" } else { "," };
         let _ = write!(
             out,
@@ -243,21 +245,42 @@ pub(crate) fn tells_json(stats: &FrameStats, drawn: Drawn, tells: &[Tell], bytes
             quote(&t.line)
         );
     }
-    out.push(']');
-    match drawn.particles {
-        Some((live, covered)) => {
-            let _ = write!(
-                out,
-                ",\"particles\":{{\"live\":{live},\"covered\":{covered}}}"
-            );
-        }
-        None => out.push_str(",\"particles\":null"),
+    out.push_str("],\"gaps\":[");
+    for (i, gap) in judged.gaps.iter().enumerate() {
+        out.push_str(if i == 0 { "" } else { "," });
+        out.push_str(&quote(gap));
     }
-    match drawn.sun_casters {
-        Some(n) => {
-            let _ = write!(out, ",\"sunCasters\":{n}");
+    out.push(']');
+    out.push_str(",\"particles\":");
+    match &drawn.particles {
+        Measure::Absent => out.push_str("null"),
+        Measure::Unmeasured(why) => {
+            let _ = write!(out, "{{\"unmeasured\":{}}}", quote(why));
         }
-        None => out.push_str(",\"sunCasters\":null"),
+        Measure::Taken(draws) => {
+            out.push('[');
+            for (i, d) in draws.iter().enumerate() {
+                let _ = write!(
+                    out,
+                    "{}{{\"batch\":{},\"live\":{},\"covered\":{}}}",
+                    if i == 0 { "" } else { "," },
+                    quote(&d.batch),
+                    d.live,
+                    d.covered
+                );
+            }
+            out.push(']');
+        }
+    }
+    out.push_str(",\"sunCasters\":");
+    match &drawn.sun_casters {
+        Measure::Absent => out.push_str("null"),
+        Measure::Unmeasured(why) => {
+            let _ = write!(out, "{{\"unmeasured\":{}}}", quote(why));
+        }
+        Measure::Taken(n) => {
+            let _ = write!(out, "{n}");
+        }
     }
     let _ = write!(out, ",\"readbackBytes\":{bytes}}}");
     out
@@ -276,7 +299,8 @@ pub(crate) struct Labels {
 }
 
 /// `state world draws`: each draw in pass order with its batch, what it was
-/// submitted and kept after culling, whether it covered a sample, and what it wrote.
+/// submitted and kept after culling, whether it covered a sample (`null` where
+/// its pass is queried and the draw was not measured), and what it wrote.
 pub(crate) fn draws_json(
     records: &[Record],
     facts: &Facts,
@@ -284,6 +308,7 @@ pub(crate) fn draws_json(
     labels: &Labels,
 ) -> String {
     let mut out = String::from("[");
+    let batch = |b: usize| labels.batches.get(b).map_or("?", String::as_str);
     for (i, r) in records.iter().enumerate() {
         if i != 0 {
             out.push(',');
@@ -296,12 +321,11 @@ pub(crate) fn draws_json(
                 variant,
             } => {
                 let fact = &facts.groups[group];
-                let label = labels.batches.get(fact.batch).map_or("?", String::as_str);
                 let winding = if fact.mirrored { "cw" } else { "ccw" };
                 let _ = write!(
                     out,
                     ",\"draw\":{},\"winding\":\"{winding}\",\"submitted\":{}",
-                    quote(label),
+                    quote(batch(fact.batch)),
                     fact.range.len()
                 );
                 if let Some(v) = variant {
@@ -314,30 +338,52 @@ pub(crate) fn draws_json(
                     _ => out.push_str(",\"kept\":null"),
                 }
             }
-            Drew::Quads { kind, count } => {
-                let _ = write!(out, ",\"draw\":\"{kind}\",\"submitted\":{count}");
+            Drew::Quads { draw, count } => {
+                let label = facts.quad_labels.get(draw).map_or("quads", String::as_str);
+                let _ = write!(out, ",\"draw\":{},\"submitted\":{count}", quote(label));
+                if let Some(k) = facts.counted.iter().position(|&c| c == draw) {
+                    match read.counts.get(k) {
+                        Some(n) => {
+                            let _ = write!(out, ",\"fragments\":{n}");
+                        }
+                        None => out.push_str(",\"fragments\":null"),
+                    }
+                }
             }
-            Drew::Blended { batch } => {
-                let label = labels.batches.get(batch).map_or("?", String::as_str);
+            Drew::Blended { batch: b } => {
                 let _ = write!(
                     out,
                     ",\"draw\":{},\"submitted\":1",
-                    quote(&format!("{label} (blended)"))
+                    quote(&format!("{} (blended)", batch(b)))
+                );
+            }
+            Drew::Local {
+                batch: b,
+                submitted,
+            } => {
+                let _ = write!(
+                    out,
+                    ",\"draw\":{},\"submitted\":{submitted}",
+                    quote(batch(b))
                 );
             }
             Drew::Fixed(name) => {
                 let _ = write!(out, ",\"draw\":\"{name}\"");
             }
         }
-        if let Some(q) = r.query {
-            let _ = write!(
-                out,
-                ",\"covered\":{}",
-                read.covered.get(q as usize) == Some(&true)
-            );
+        match r.query {
+            Some(q) => match read.covered.get(q as usize) {
+                Some(c) => {
+                    let _ = write!(out, ",\"covered\":{c}");
+                }
+                None => out.push_str(",\"covered\":null"),
+            },
+            None if r.stage.queried() && !matches!(r.drew, Drew::Fixed(_)) => {
+                out.push_str(",\"covered\":null")
+            }
+            None => {}
         }
         let _ = write!(out, ",\"writes\":\"{}\"}}", writes(r.stage));
-        let _ = r;
     }
     out.push(']');
     out
@@ -347,12 +393,16 @@ fn writes(stage: Stage) -> &'static str {
     match stage {
         Stage::Occluders => "occlusion depth",
         Stage::SunShadow(_) => "sun shadow map",
+        Stage::LocalShadow(_) => "local shadow map",
         Stage::Prepass => "depth",
         Stage::Forward | Stage::Translucent => "colour, depth",
+        Stage::Post => "colour",
     }
 }
 
-/// `state world:<entity> visible`: one word, and the reason.
+/// `state world:<entity> visible`: one word, and the reason, from what the
+/// frame's renderer did: the quads' decision for a sprite or an emitter, the
+/// GPU cull's lists for a mesh.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn visible(
     w: &World,
@@ -399,6 +449,9 @@ pub(crate) fn visible(
             "Opacity down the Parent chain is zero".into(),
         );
     }
+    if mesh.is_none() {
+        return quad_word(facts, entity);
+    }
     if let Some(Mesh::Asset(model)) = &mesh {
         if pending(model) {
             return (
@@ -423,7 +476,6 @@ pub(crate) fn visible(
             );
         }
     }
-    let in_view = in_frustum(view_proj, position, reach(w, entity, &drawn));
     // An entity's slots: its own (primitives) and its model records'.
     let index = entity.index();
     let slots: Vec<u32> = std::iter::once(index)
@@ -441,19 +493,31 @@ pub(crate) fn visible(
         })
         .map(|(i, _)| i)
         .collect();
+    if groups.is_empty() {
+        let blended: Vec<bool> = (facts.blended.iter())
+            .filter(|(slot, _)| slots.contains(slot))
+            .map(|&(_, kept)| kept)
+            .collect();
+        return match (blended.is_empty(), blended.contains(&true)) {
+            (true, _) => ("not-drawn".into(), "no draw holds it this frame".into()),
+            (false, true) => ("drawn".into(), "a blended model the CPU cull kept".into()),
+            (false, false) => (
+                "frustum".into(),
+                "a blended model the CPU cull dropped".into(),
+            ),
+        };
+    }
     if groups.iter().any(|&g| facts.groups[g].keep_all) {
         return (
             "custom-material".into(),
             "never culled: a game's vertex shader may move it".into(),
         );
     }
-    if mesh.is_none() || facts.direct || groups.is_empty() {
-        // Quads are culled on the CPU, and a direct frame is not culled at all.
-        return if in_view {
-            ("drawn".into(), "inside the camera's view".into())
-        } else {
-            ("frustum".into(), "outside the camera's view".into())
-        };
+    if facts.direct {
+        return (
+            "drawn".into(),
+            "submitted unculled: a direct frame tests nothing against the view".into(),
+        );
     }
     let kept_in = |v: usize| {
         groups.iter().any(|&g| {
@@ -462,6 +526,13 @@ pub(crate) fn visible(
         })
     };
     if !kept_in(0) {
+        // The cull says only that it dropped the entity; its displayed box
+        // against the view says which test did.
+        let in_view =
+            crate::look_bounds::displayed(w, entity, &facts.model_boxes).is_some_and(|(lo, hi)| {
+                let planes = crate::cull::planes(view_proj);
+                crate::cull::sphere_visible(&planes, (lo + hi) * 0.5, (hi - lo).length() * 0.5)
+            });
         return if in_view && facts.occluding {
             (
                 "occluded".into(),
@@ -484,30 +555,30 @@ pub(crate) fn visible(
     ("drawn".into(), "kept by the camera's cull".into())
 }
 
-/// A sphere's radius around the drawn origin that holds the entity's mesh.
-fn reach(w: &World, e: Entity, drawn: &exact_game::Drawn) -> f32 {
-    let scale = Vec3::from(drawn.pose.matrix3.col(0))
-        .length()
-        .max(Vec3::from(drawn.pose.matrix3.col(1)).length())
-        .max(Vec3::from(drawn.pose.matrix3.col(2)).length());
-    let size = match w.get::<Mesh>(e).as_deref() {
-        Some(Mesh::Plane { width, depth }) => width.max(*depth),
-        Some(Mesh::Box { size }) => size.max_element(),
-        Some(Mesh::Sphere { radius }) => radius * 2.,
-        Some(Mesh::Capsule { radius, height }) | Some(Mesh::Cylinder { radius, height }) => {
-            (radius * 2.).max(*height)
-        }
-        // Models and quads: a generous metre, as the CPU cannot see their bounds here.
-        _ => 2.,
-    };
-    scale * size * 0.9
-}
-
-fn in_frustum(view_proj: glam::Mat4, centre: Vec3, radius: f32) -> bool {
-    crate::cull::planes(view_proj).iter().all(|p| {
-        p[0] * centre.x + p[1] * centre.y + p[2] * centre.z + p[3]
-            >= -radius * Vec3::new(p[0], p[1], p[2]).length()
-    })
+/// A sprite's or an emitter's word: what the quads did with it this frame.
+fn quad_word(facts: &Facts, entity: Entity) -> (String, String) {
+    match facts
+        .quads
+        .iter()
+        .find(|(e, _)| *e == entity)
+        .map(|(_, f)| f)
+    {
+        Some(QuadFact::Pending(texture)) => (
+            format!("asset-pending {texture}"),
+            "its texture is not resident".into(),
+        ),
+        Some(QuadFact::Culled) => ("frustum".into(), "outside the camera's view".into()),
+        Some(QuadFact::Drawn(0)) => (
+            "no-particles".into(),
+            "the emitter has no live particle this frame".into(),
+        ),
+        Some(QuadFact::Drawn(n)) => ("drawn".into(), format!("drew {n} quads")),
+        None => (
+            "not-drawn".into(),
+            "the frame's quads did not reach it (sprites draw only in a model-capable module)"
+                .into(),
+        ),
+    }
 }
 
 /// Base64 (RFC 4648 §4, padded), for pixels in a JSON reply.
@@ -561,6 +632,142 @@ mod tests {
         assert_eq!(a(r#"{"op":"state","look":true}"#), Some(Ask::Tells));
         assert_eq!(a(r#"{"op":"state","entity":"tree-7"}"#), None);
         assert_eq!(a(r#"{"op":"screenshot","form":"save"}"#), None);
+    }
+
+    /// One culled group in the camera and cascade 0, its cull keeping `kept`
+    /// instances in each.
+    fn culled(kept: u32) -> (Facts, Reading) {
+        let views = crate::cull::VIEWS as usize;
+        let facts = Facts {
+            groups: vec![crate::renderer::probe::GroupFact {
+                batch: 0,
+                range: 0..4,
+                views: 0b11,
+                keep_all: false,
+                mirrored: false,
+                offsets: std::array::from_fn(|v| (0, v as u64 * 20)),
+            }],
+            cascades: 1,
+            ..Facts::default()
+        };
+        let indirect = (0..views).flat_map(|_| [36, kept, 0, 0, 0]).collect();
+        let read = Reading {
+            indirect,
+            ..Reading::default()
+        };
+        (facts, read)
+    }
+    fn record(stage: Stage, drew: Drew) -> Record {
+        Record {
+            stage,
+            drew,
+            query: None,
+        }
+    }
+
+    #[test]
+    fn casters_are_what_the_shadow_pass_drew_never_what_the_cull_kept() {
+        let (facts, read) = culled(3);
+        let cascade = record(
+            Stage::SunShadow(0),
+            Drew::Group {
+                group: 0,
+                view: 1,
+                variant: None,
+            },
+        );
+        let camera = record(
+            Stage::Forward,
+            Drew::Group {
+                group: 0,
+                view: 0,
+                variant: None,
+            },
+        );
+        let drew = |records: &[Record]| drawn(records, &facts, &read).sun_casters;
+        assert_eq!(drew(&[camera, cascade]), Measure::Taken(3));
+        // Shadow drawing suppressed, culling intact: the cull kept three
+        // casters for the cascade, and the pass drew none.
+        assert_eq!(drew(&[camera]), Measure::Taken(0));
+        let judged = crate::tells::judge(
+            &crate::tells::FrameStats::of(&[128; 16]),
+            &drawn(&[camera], &facts, &read),
+        );
+        assert_eq!(judged.tells[0].name, "no-shadow-casters");
+        // A direct frame draws its casters unculled: unknown, not invented.
+        let direct = Facts {
+            direct: true,
+            ..facts.clone()
+        };
+        let unknown = drawn(&[cascade], &direct, &read).sun_casters;
+        assert!(matches!(unknown, Measure::Unmeasured(_)), "{unknown:?}");
+        // And a cull whose counts were not read back is unknown too.
+        let unread = drawn(&[cascade], &facts, &Reading::default()).sun_casters;
+        assert!(matches!(unread, Measure::Unmeasured(_)), "{unread:?}");
+    }
+
+    #[test]
+    fn particle_draws_are_judged_one_by_one_and_uncounted_draws_are_gaps() {
+        let facts = Facts {
+            quad_labels: vec![
+                "particle dots · additive".into(),
+                "sprite a.tex".into(),
+                "particles smoke.tex · alpha".into(),
+            ],
+            particle_draws: vec![(0, 40), (2, 12)],
+            counted: vec![0, 2],
+            ..Facts::default()
+        };
+        let read = Reading {
+            counts: vec![900, 0],
+            ..Reading::default()
+        };
+        let Measure::Taken(draws) = drawn(&[], &facts, &read).particles else {
+            panic!("counted draws are taken");
+        };
+        assert_eq!((draws[0].live, draws[0].covered), (40, 900));
+        assert_eq!(draws[1].batch, "particles smoke.tex · alpha");
+        // One covered draw does not hide the one that covered nothing.
+        let judged = crate::tells::judge(
+            &crate::tells::FrameStats::of(&[128; 16]),
+            &Drawn {
+                particles: Measure::Taken(draws),
+                sun_casters: Measure::Absent,
+            },
+        );
+        assert_eq!(judged.tells.len(), 1);
+        assert!(judged.tells[0].line.contains("smoke.tex"), "{judged:?}");
+        // Draws the counting pass did not count are not measured.
+        let uncounted = drawn(&[], &facts, &Reading::default()).particles;
+        assert!(matches!(uncounted, Measure::Unmeasured(_)), "{uncounted:?}");
+        let none = Facts::default();
+        assert_eq!(drawn(&[], &none, &read).particles, Measure::Absent);
+    }
+
+    #[test]
+    fn a_draw_the_queries_did_not_reach_lists_as_unmeasured() {
+        let (facts, read) = culled(2);
+        let forward = |query| Record {
+            stage: Stage::Forward,
+            drew: Drew::Group {
+                group: 0,
+                view: 0,
+                variant: None,
+            },
+            query,
+        };
+        let read = Reading {
+            covered: vec![true],
+            ..read
+        };
+        let labels = Labels {
+            batches: vec!["cube".into()],
+        };
+        let json = draws_json(&[forward(Some(0)), forward(None)], &facts, &read, &labels);
+        let listed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(listed[0]["covered"], true, "{json}");
+        assert!(listed[1]["covered"].is_null() && json.matches("\"covered\"").count() == 2);
+        assert_eq!(listed[1]["kept"], 2, "{json}");
     }
 
     #[test]

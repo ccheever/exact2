@@ -283,6 +283,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             }
             true
         }));
+        let look = self.probe.is_some();
         let shadows = self.shadows.as_mut().unwrap();
         if !groups.iter().any(|&b| b) {
             shadows.cached = None;
@@ -299,7 +300,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         });
         // Exact words avoid hash collisions; moving/skinned/fading draws never
         // enter the signature. A fixed sun box therefore survives camera motion.
-        cache.dirty = !cache.valid || cache.signature != signature;
+        // A look frame draws the cached casters again, so that its shadow
+        // records count this frame's casters (LLP 1127.000).
+        cache.dirty = !cache.valid || cache.signature != signature || look;
         if cache.dirty {
             cache.valid = false;
         }

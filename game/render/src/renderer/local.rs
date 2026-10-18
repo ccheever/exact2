@@ -186,6 +186,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         for layer in 0..layers {
             let local = &self.local_culls[layer / 4];
             let view = (layer % 4) as u32;
+            self.probe_stage(super::probe::Stage::LocalShadow(layer as u8));
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("game local shadow"),
                 color_attachments: &[],
@@ -214,6 +215,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     continue;
                 }
                 self.set_depth_pipeline(&mut pass, &mut bound, group, &maps.cameras[layer], custom);
+                self.probe_note(super::probe::Drew::Local {
+                    batch: group.batch,
+                    submitted: group.range.len() as u32,
+                });
                 if self.cull.direct {
                     let mesh = &self.meshes[self.batches[group.batch].mesh.0];
                     bound.scene(&mut pass, &self.scene_binds[self.current], 0);

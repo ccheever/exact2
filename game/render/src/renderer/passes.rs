@@ -158,6 +158,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 multiview_mask: None,
             });
             if cache.is_some_and(|c| c.seed(&mut pass, i)) {
+                self.probe_note(Drew::Fixed("cached static casters"));
                 draws += 1;
             }
             if frame.timestamps.is_some() {
@@ -331,7 +332,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     } else {
                         wgpu::LoadOp::Clear(1.0)
                     },
-                    store: if state.depth_read {
+                    store: if state.depth_read || self.probe.is_some() {
                         wgpu::StoreOp::Store
                     } else {
                         wgpu::StoreOp::Discard
@@ -415,7 +416,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             self.scene_viewport(&mut pass, state.size, false);
         }
         for draw in self.quads.draws.iter().filter(|d| self.quads.opaque(d)) {
-            let began = self.probe_begin(&mut pass, Drew::quads(draw));
+            let began = self.probe_begin(&mut pass, Drew::quads(&self.quads.draws, draw));
             self.quads
                 .draw::<ASSETS>(&mut pass, draw, &self.models.textures, state.direct);
             Probe::end(&mut pass, began);
@@ -575,7 +576,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 view: &self.targets.depth,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Load,
-                    store: if state.needs.contains(crate::Needs::FINAL_DEPTH) {
+                    store: if state.needs.contains(crate::Needs::FINAL_DEPTH)
+                        || self.probe.is_some()
+                    {
                         wgpu::StoreOp::Store
                     } else {
                         wgpu::StoreOp::Discard
@@ -641,6 +644,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 state.times[5] = start.map(|s| s.elapsed());
             }
         }
+        if self.bloom.is_some() {
+            self.probe_note(Drew::Fixed("bloom"));
+        }
+        self.probe_note(Drew::Fixed("tone"));
         if let Some(bloom) = &self.bloom {
             let passes = bloom.encode(
                 &self.queue,
@@ -750,7 +757,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, slot..slot + 1);
                 Probe::end(pass, began);
             } else {
-                let began = self.probe_begin(pass, Drew::quads(draw));
+                let began = self.probe_begin(pass, Drew::quads(&self.quads.draws, draw));
                 self.quads
                     .draw::<ASSETS>(pass, draw, &self.models.textures, state.direct);
                 Probe::end(pass, began);

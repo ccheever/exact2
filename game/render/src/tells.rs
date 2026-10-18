@@ -5,7 +5,7 @@
 //! kept no caster; it cannot tell a grey meadow from a green one, a model facing
 //! backwards or a panel overflowing its box. Those take a look at the picture.
 
-/// Every tell, by the name `app.json`'s `look.silence` uses for it.
+/// Every tell, by the name `app.json`'s `game.look.silence` uses for it.
 pub const TELLS: [&str; 5] = [
     "near-black",
     "near-white",
@@ -71,58 +71,113 @@ fn srgb_table() -> [f32; 256] {
     })
 }
 
+/// A measurement a tell needs: nothing to measure, taken, or not taken and why.
+/// A tell is told only from a measurement; one that was not taken is a gap,
+/// which leaves the look unverified rather than passed.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Measure<T> {
+    /// The frame has nothing this tell reads (no particles, no shadowed sun).
+    Absent,
+    /// The measurement.
+    Taken(T),
+    /// Why it was not taken.
+    Unmeasured(String),
+}
+
+/// One particle draw as the look frame counted it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParticleDraw {
+    /// What the draw batches by: dots or a look, blending, softness.
+    pub batch: String,
+    /// Particles it drew.
+    pub live: u64,
+    /// Fragments of it that passed the depth test.
+    pub covered: u64,
+}
+
 /// What a look frame drew besides its pixels, as the tells read it.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Drawn {
-    /// Particles submitted to the camera after the CPU cull, and whether any
-    /// of their draws covered a sample.
-    pub particles: Option<(u64, bool)>,
-    /// With a shadowed sun: the casters its cascades kept after culling.
-    pub sun_casters: Option<u64>,
+    /// Each particle draw submitted to the camera after the CPU cull.
+    pub particles: Measure<Vec<ParticleDraw>>,
+    /// With a shadowed sun: the casters its shadow passes drew, after culling.
+    pub sun_casters: Measure<u64>,
+}
+impl Default for Drawn {
+    fn default() -> Self {
+        Self {
+            particles: Measure::Absent,
+            sun_casters: Measure::Absent,
+        }
+    }
 }
 
 /// One tell that fired: its name and its `logs` line.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tell {
-    /// The name `look.silence` uses.
+    /// The name `game.look.silence` uses.
     pub name: &'static str,
     /// The line `logs` gets, `look: …`.
     pub line: String,
 }
 
-/// The tells a frame trips, in [`TELLS`] order.
-pub fn tells(stats: &FrameStats, drawn: Drawn) -> Vec<Tell> {
-    let mut out = Vec::new();
-    let mut tell = |name, line: String| out.push(Tell { name, line });
-    if stats.pixels > 0 && stats.mean < NEAR_BLACK {
-        tell(
-            "near-black",
-            format!("look: mean luminance {:.3}, near black", stats.mean),
-        );
+/// A frame's tells, in [`TELLS`] order, and what could not be measured.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Judgement {
+    /// The tells that fired.
+    pub tells: Vec<Tell>,
+    /// Each measurement not taken, named: `particles: not measured (…)`.
+    pub gaps: Vec<String>,
+}
+
+/// Judge a frame from its statistics and what it drew.
+pub fn judge(stats: &FrameStats, drawn: &Drawn) -> Judgement {
+    let mut out = Judgement::default();
+    let mut tell = |name, line: String| out.tells.push(Tell { name, line });
+    if stats.pixels == 0 {
+        out.gaps.push("frame: no pixels were read back".into());
+    } else {
+        if stats.mean < NEAR_BLACK {
+            tell(
+                "near-black",
+                format!("look: mean luminance {:.3}, near black", stats.mean),
+            );
+        }
+        if stats.mean > NEAR_WHITE {
+            tell(
+                "near-white",
+                format!("look: mean luminance {:.3}, near white", stats.mean),
+            );
+        }
+        if stats.clipped > CLIPPED {
+            tell(
+                "clipped",
+                format!("look: {:.0}% of pixels clipped", stats.clipped * 100.),
+            );
+        }
     }
-    if stats.pixels > 0 && stats.mean > NEAR_WHITE {
-        tell(
-            "near-white",
-            format!("look: mean luminance {:.3}, near white", stats.mean),
-        );
+    match &drawn.particles {
+        Measure::Taken(draws) => {
+            for d in draws.iter().filter(|d| d.live > 0 && d.covered == 0) {
+                tell(
+                    "particles-uncovered",
+                    format!(
+                        "look: {} particles live, 0 pixels covered ({})",
+                        d.live, d.batch
+                    ),
+                );
+            }
+        }
+        Measure::Unmeasured(why) => out.gaps.push(format!("particles: not measured ({why})")),
+        Measure::Absent => {}
     }
-    if stats.clipped > CLIPPED {
-        tell(
-            "clipped",
-            format!("look: {:.0}% of pixels clipped", stats.clipped * 100.),
-        );
-    }
-    if let Some((live, false)) = drawn.particles.filter(|(live, _)| *live > 0) {
-        tell(
-            "particles-uncovered",
-            format!("look: {live} particles live, 0 pixels covered"),
-        );
-    }
-    if drawn.sun_casters == Some(0) {
-        tell(
+    match &drawn.sun_casters {
+        Measure::Taken(0) => tell(
             "no-shadow-casters",
             "look: sun shadow pass drew no casters".into(),
-        );
+        ),
+        Measure::Unmeasured(why) => out.gaps.push(format!("sun casters: not measured ({why})")),
+        _ => {}
     }
     out
 }
@@ -154,32 +209,70 @@ mod tests {
 
     #[test]
     fn each_tell_fires_on_its_defect_and_none_on_a_good_frame() {
-        let names = |s: &FrameStats, d| tells(s, d).iter().map(|t| t.name).collect::<Vec<_>>();
+        let names = |s: &FrameStats, d: &Drawn| {
+            let j = judge(s, d);
+            assert!(j.gaps.is_empty(), "{:?}", j.gaps);
+            j.tells.iter().map(|t| t.name).collect::<Vec<_>>()
+        };
+        let draw = |live, covered| ParticleDraw {
+            batch: "dots".into(),
+            live,
+            covered,
+        };
         let good = FrameStats::of(&frame([120, 160, 140], 100));
         let fine = Drawn {
-            particles: Some((469, true)),
-            sun_casters: Some(3),
+            particles: Measure::Taken(vec![draw(469, 900)]),
+            sun_casters: Measure::Taken(3),
         };
-        assert!(names(&good, fine).is_empty());
+        assert!(names(&good, &fine).is_empty());
         let dark = FrameStats::of(&frame([10, 10, 10], 100));
-        assert_eq!(names(&dark, fine), ["near-black"]);
+        assert_eq!(names(&dark, &fine), ["near-black"]);
+        // sRGB 250 is linear 0.956, past the near-white line; 245 is 0.913, short of it.
+        assert_eq!(
+            names(&FrameStats::of(&frame([250; 3], 100)), &fine),
+            ["near-white"]
+        );
+        assert!(names(&FrameStats::of(&frame([245; 3], 100)), &fine).is_empty());
         let mut clipped = frame([120, 160, 140], 90);
         clipped.extend(frame([255; 3], 10));
-        assert_eq!(names(&FrameStats::of(&clipped), fine), ["clipped"]);
-        let uncovered = Drawn {
-            particles: Some((469, false)),
-            ..fine
+        assert_eq!(names(&FrameStats::of(&clipped), &fine), ["clipped"]);
+        // Each particle draw is judged alone: a covered one does not hide a buried one.
+        let mixed = Drawn {
+            particles: Measure::Taken(vec![draw(30, 900), draw(469, 0)]),
+            ..fine.clone()
         };
         assert_eq!(
-            tells(&good, uncovered)[0].line,
-            "look: 469 particles live, 0 pixels covered"
+            judge(&good, &mixed).tells[0].line,
+            "look: 469 particles live, 0 pixels covered (dots)"
         );
         let casterless = Drawn {
-            sun_casters: Some(0),
-            ..fine
+            sun_casters: Measure::Taken(0),
+            ..fine.clone()
         };
-        assert_eq!(names(&good, casterless), ["no-shadow-casters"]);
+        assert_eq!(names(&good, &casterless), ["no-shadow-casters"]);
         // No particles drawn and no shadowed sun are not tells.
-        assert!(names(&good, Drawn::default()).is_empty());
+        assert!(names(&good, &Drawn::default()).is_empty());
+    }
+
+    #[test]
+    fn what_was_not_measured_is_a_gap_never_a_pass_or_a_tell() {
+        let unmeasured = Drawn {
+            particles: Measure::Unmeasured("no counting pass".into()),
+            sun_casters: Measure::Unmeasured("a direct frame is not culled".into()),
+        };
+        let good = FrameStats::of(&frame([120, 160, 140], 100));
+        let j = judge(&good, &unmeasured);
+        assert!(j.tells.is_empty());
+        assert_eq!(
+            j.gaps,
+            [
+                "particles: not measured (no counting pass)",
+                "sun casters: not measured (a direct frame is not culled)"
+            ]
+        );
+        // An empty readback is not a black frame.
+        let empty = judge(&FrameStats::of(&[]), &Drawn::default());
+        assert!(empty.tells.is_empty());
+        assert_eq!(empty.gaps, ["frame: no pixels were read back"]);
     }
 }

@@ -24,6 +24,7 @@ mod lights;
 mod local_shadows;
 mod lod;
 mod look;
+mod look_bounds;
 mod model_pipeline;
 mod models;
 mod node_poses;

@@ -143,7 +143,13 @@ pub(crate) struct Quads {
     child_textures: BTreeMap<u16, (wgpu::TextureView, wgpu::BindGroup)>,
     #[cfg(not(target_arch = "wasm32"))]
     child_pipeline: Option<wgpu::RenderPipeline>,
+    /// While a look frame is armed: what `frame` did with each sprite and emitter.
+    pub observed: Option<Vec<(Entity, QuadFact)>>,
+    coverage: Option<coverage::Coverage>,
 }
+#[path = "quad_coverage.rs"]
+mod coverage;
+pub(crate) use coverage::QuadFact;
 impl Quads {
     #[cfg(test)]
     pub fn pipeline_count(&self) -> u64 {
@@ -237,6 +243,8 @@ impl Quads {
             soft_active: false,
             sprite_pipelines: None,
             texture_layout: None,
+            observed: None,
+            coverage: None,
             hz: 60,
             #[cfg(not(target_arch = "wasm32"))]
             children: Vec::new(),
@@ -730,8 +738,12 @@ impl Quads {
             {
                 // Skipped particles still charge the world budget in entity order.
                 left -= e.live(self.hz, f.alpha).min(left);
+                if let Some(seen) = &mut self.observed {
+                    seen.push((item.entity, QuadFact::Culled));
+                }
                 continue;
             }
+            let before = self.particle_data.len();
             let found = self
                 .looks
                 .binary_search_by_key(&item.entity.index(), |l| l.entity.index())
@@ -795,6 +807,10 @@ impl Quads {
                     index,
                 });
             });
+            if let Some(seen) = &mut self.observed {
+                let drawn = (self.particle_data.len() - before) as u32;
+                seen.push((item.entity, QuadFact::Drawn(drawn)));
+            }
         }
         if ASSETS {
             for (index, item) in self.sprites.iter().enumerate() {
@@ -803,6 +819,9 @@ impl Quads {
                     .get(&s.texture)
                     .filter(|texture| texture.active && texture.sprite_bind.is_some())
                 else {
+                    if let Some(seen) = &mut self.observed {
+                        seen.push((item.entity, QuadFact::Pending(s.texture.clone())));
+                    }
                     continue;
                 };
                 let size = texture.size;
@@ -815,7 +834,13 @@ impl Quads {
                 let center = t.w_axis.truncate() + x * (0.5 - s.anchor.x) + y * (0.5 - s.anchor.y);
                 let radius = 0.5 * (x.length_squared() + y.length_squared()).sqrt();
                 if cull && !crate::cull::sphere_visible(&camera, center, radius) {
+                    if let Some(seen) = &mut self.observed {
+                        seen.push((item.entity, QuadFact::Culled));
+                    }
                     continue;
+                }
+                if let Some(seen) = &mut self.observed {
+                    seen.push((item.entity, QuadFact::Drawn(1)));
                 }
                 let [fx, fy, fw, fh] = s.frame.map(f32::from);
                 let mut uv = if fw == 0. || fh == 0. {
@@ -1112,7 +1137,7 @@ pub(crate) fn feed_poses<T: exact_game::Component + Clone>(
 // Every particle centre lies within shape + speed·T + |g|·T²/2 of the emitter's
 // origin for the longest living birth's T (drag only shortens travel and fall);
 // quads extend half a diagonal beyond it.
-fn emitter_reach(e: &Emitter, t: &glam::Mat4) -> f32 {
+pub(crate) fn emitter_reach(e: &Emitter, t: &glam::Mat4) -> f32 {
     let lifetime = e.state.births.iter().map(|b| b.lifetime).fold(0., f32::max);
     let shape = match e.shape {
         exact_game::emitter::Shape::Point => 0.,

@@ -1,17 +1,19 @@
 //! A look frame's instruments (LLP 1127.000 D1, D4): a record of each draw as it
-//! is encoded, an occlusion query around each draw of the forward and
-//! translucent passes, and copies of what the cull kept. Armed only for a look
-//! frame under the agent's clock; a live frame carries none of it and pays one
+//! is encoded, a count of each particle draw's fragments (`quad_coverage.rs`),
+//! an occlusion query around each draw of the forward and translucent passes on
+//! native hosts, and copies of what the cull kept. Armed only for a look frame
+//! under the agent's clock; a live frame carries none of it and pays one
 //! `Option` check per draw.
 //!
-//! An occlusion query answers whether any sample of its draws passed the depth
-//! test, not how many: Metal's visibility results are Boolean in wgpu
-//! (vendor/wgpu-hal/src/metal/command.rs), and WebGPU promises only zero or not
-//! zero (https://www.w3.org/TR/webgpu/#occlusion). So a draw reads as covered or
-//! not, which is what the tells need. The web has none: wgpu 30's WebGPU backend
-//! does not pass a render pass's `occlusion_query_set` to the browser
-//! (wgpu-30.0.1/src/backend/webgpu.rs, `begin_render_pass`), which then refuses
-//! the frame's command buffer, so a web look frame records its draws unqueried.
+//! The particle counts are the same on every host. The occlusion queries only
+//! fill the draw listing's `covered` column: they answer whether any sample of a
+//! draw passed the depth test, not how many (Metal's visibility results are
+//! Boolean in wgpu, vendor/wgpu-hal/src/metal/command.rs; WebGPU promises only
+//! zero or not zero, https://www.w3.org/TR/webgpu/#occlusion), and the web has
+//! none: wgpu 30's WebGPU backend does not pass a render pass's
+//! `occlusion_query_set` to the browser (wgpu-30.0.1/src/backend/webgpu.rs,
+//! `begin_render_pass`), which then refuses the frame's command buffer. A draw
+//! past the queries' capacity, or on the web, reads as not measured.
 use super::*;
 use std::cell::{Cell, RefCell};
 
@@ -25,6 +27,8 @@ pub(crate) enum Stage {
     Occluders,
     /// Sun shadow cascade `n`, depth only.
     SunShadow(u8),
+    /// Local (spot and point) shadow layer `n`, depth only.
+    LocalShadow(u8),
     /// The opaque depth prepass.
     Prepass,
     /// The forward pass: opaque geometry, the sky, hulls, then translucency
@@ -32,19 +36,23 @@ pub(crate) enum Stage {
     Forward,
     /// Translucency in its own pass (soft particles, a scene copy).
     Translucent,
+    /// Ambient occlusion, a hook's HDR post, bloom and the tone pass.
+    Post,
 }
 impl Stage {
     pub fn name(self) -> String {
         match self {
             Stage::Occluders => "occluders".into(),
             Stage::SunShadow(n) => format!("sun shadow {n}"),
+            Stage::LocalShadow(n) => format!("local shadow {n}"),
             Stage::Prepass => "depth prepass".into(),
             Stage::Forward => "forward".into(),
             Stage::Translucent => "translucent".into(),
+            Stage::Post => "post".into(),
         }
     }
     /// Passes begun with the probe's query set.
-    fn queried(self) -> bool {
+    pub(crate) fn queried(self) -> bool {
         matches!(self, Stage::Forward | Stage::Translucent)
     }
 }
@@ -59,10 +67,13 @@ pub(crate) enum Drew {
         view: u32,
         variant: Option<usize>,
     },
-    /// A run of `count` quads: particles, sprites or a placed child.
-    Quads { kind: &'static str, count: u32 },
+    /// A run of `count` quads, the frame's quad draw `draw`: particles,
+    /// sprites or a placed child.
+    Quads { draw: usize, count: u32 },
     /// One instance of a blended model, drawn in translucent order.
     Blended { batch: usize },
+    /// A local shadow layer's draw of `batch`, `submitted` instances before its cull.
+    Local { batch: usize, submitted: u32 },
     /// A draw that is not an instanced batch: the sky, outline hulls.
     Fixed(&'static str),
 }
@@ -82,27 +93,34 @@ pub(crate) struct Probe {
     pub queries: Option<wgpu::QuerySet>,
     capacity: u32,
     next: Cell<u32>,
+    /// The particle counting pass's counts and the quad draws they count.
+    pub counted: Option<(wgpu::Buffer, Vec<usize>)>,
 }
 
 impl Probe {
-    /// Room for `draws` queried draws (at most WebGPU's 4096; later draws are
-    /// recorded without a query).
-    pub fn new(device: &wgpu::Device, draws: usize) -> Self {
-        let capacity = (draws as u32).clamp(1, MAX_QUERIES);
+    fn new() -> Self {
         Self {
             records: RefCell::new(Vec::new()),
             stage: Cell::new(Stage::Occluders),
             variant: Cell::new(None),
-            queries: cfg!(not(target_arch = "wasm32")).then(|| {
-                device.create_query_set(&wgpu::QuerySetDescriptor {
-                    label: Some("game look coverage"),
-                    ty: wgpu::QueryType::Occlusion,
-                    count: capacity,
-                })
-            }),
-            capacity,
+            queries: None,
+            capacity: 0,
             next: Cell::new(0),
+            counted: None,
         }
+    }
+    /// Room for `draws` queried draws, once the frame's draws are prepared (at
+    /// most WebGPU's 4096; later draws are recorded unmeasured). Native only.
+    fn size(&mut self, device: &wgpu::Device, draws: usize) {
+        if cfg!(target_arch = "wasm32") || draws == 0 {
+            return;
+        }
+        self.capacity = (draws as u32).min(MAX_QUERIES);
+        self.queries = Some(device.create_query_set(&wgpu::QuerySetDescriptor {
+            label: Some("game look coverage"),
+            ty: wgpu::QueryType::Occlusion,
+            count: self.capacity,
+        }));
     }
     pub fn stage(&self, stage: Stage) {
         self.stage.set(stage);
@@ -157,8 +175,15 @@ impl Probe {
 impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// Arm the next encode's instruments.
     pub(crate) fn arm_probe(&mut self) {
-        let draws = self.cull.groups.len() + self.quads.draws.len() + self.batches.len() + 8;
-        self.probe = Some(Probe::new(&self.device, draws));
+        self.probe = Some(Probe::new());
+    }
+    /// Once the frame's draw groups and quads are prepared: its occlusion
+    /// queries, one for each draw the forward and translucent passes can issue.
+    pub(crate) fn probe_size(&mut self) {
+        let draws = self.cull.groups.len() + self.quads.draws.len() + self.models.transparent.len();
+        if let Some(probe) = &mut self.probe {
+            probe.size(&self.device, draws);
+        }
     }
     pub(crate) fn probe_stage(&self, stage: Stage) {
         if let Some(probe) = &self.probe {
@@ -186,16 +211,15 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
 }
 
 impl Drew {
-    pub fn quads(draw: &crate::quads::Draw) -> Self {
-        let kind = match draw.kind {
-            crate::quads::Kind::Particle(..) => "particles",
-            crate::quads::Kind::Sprite(_) => "sprites",
-            crate::quads::Kind::Model(..) => "blended model",
-            #[cfg(not(target_arch = "wasm32"))]
-            crate::quads::Kind::Child(_) => "placed child",
-        };
+    pub fn quads(draws: &[crate::quads::Draw], draw: &crate::quads::Draw) -> Self {
+        // The draw's index in the frame's list: records stay `Copy`, and the
+        // listing names the batch from the list (`Quads::batch_label`).
+        let index = draws
+            .iter()
+            .position(|d| std::ptr::eq(d, draw))
+            .unwrap_or(usize::MAX);
         Drew::Quads {
-            kind,
+            draw: index,
             count: draw.range.end - draw.range.start,
         }
     }
@@ -224,8 +248,6 @@ pub(crate) struct Facts {
     pub direct: bool,
     /// Sun shadow cascades drawn (0 without a shadowed sun).
     pub cascades: u32,
-    /// The forward and translucent draws carried occlusion queries.
-    pub coverage: bool,
     /// The camera's lists were occlusion-culled this frame.
     pub occluding: bool,
     pub slot_list: Vec<u32>,
@@ -234,6 +256,19 @@ pub(crate) struct Facts {
     /// Bytes of the compacted lists and of the indirect arguments the readback copies.
     pub lists: u64,
     pub indirect: u64,
+    /// Each quad draw's batch, by its index in the frame's list.
+    pub quad_labels: Vec<String>,
+    /// The frame's particle draws (index in the quad list, particles drawn),
+    /// and the ones the counting pass counted, in its order.
+    pub particle_draws: Vec<(usize, u32)>,
+    pub counted: Vec<usize>,
+    /// What the quads did with each sprite and emitter (`Quads::observed`).
+    pub quads: Vec<(exact_game::Entity, crate::quads::QuadFact)>,
+    /// Each model record's box in its entity's space (`model_boxes`).
+    pub model_boxes: Vec<(u32, crate::look_bounds::Aabb)>,
+    /// Each blended model instance's slot and whether the CPU cull kept it:
+    /// they draw one by one in depth order, outside the draw groups.
+    pub blended: Vec<(u32, bool)>,
 }
 
 /// The buffers one look frame reads back, mapped together.
@@ -253,6 +288,7 @@ enum Part {
         bgra: bool,
     },
     Queries(u32),
+    Counts(u32),
     Indirect,
     Lists,
 }
@@ -266,6 +302,8 @@ pub(crate) struct Reading {
     pub height: u32,
     /// Per query: whether any sample passed.
     pub covered: Vec<bool>,
+    /// Per counted particle draw: the fragments that passed the depth test.
+    pub counts: Vec<u32>,
     /// The indirect arguments as words.
     pub indirect: Vec<u32>,
     /// The compacted lists as words.
@@ -274,7 +312,7 @@ pub(crate) struct Reading {
 
 impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// The frame just encoded, as the look frame's answers read it.
-    pub(crate) fn probe_facts(&self) -> Facts {
+    pub(crate) fn probe_facts(&mut self) -> Facts {
         let views = crate::cull::VIEWS;
         let groups: Vec<_> = (self.cull.groups.iter().enumerate())
             .map(|(index, g)| GroupFact {
@@ -298,7 +336,6 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         Facts {
             direct: self.cull.direct || groups.is_empty(),
             cascades: self.shadows.as_ref().map_or(0, |s| s.count),
-            coverage: self.probe.as_ref().is_some_and(|p| p.queries.is_some()),
             occluding: self.occluding,
             slot_list: self.slot_list.clone(),
             record_slots: if ASSETS {
@@ -310,7 +347,38 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             indirect: (u64::from(views) * groups.len() as u64 * 20)
                 .min(self.cull.indirect.raw.size()),
             groups,
+            quad_labels: (0..self.quads.draws.len())
+                .map(|i| self.quads.batch_label(i))
+                .collect(),
+            particle_draws: (self.quads.draws.iter().enumerate())
+                .filter(|(_, d)| matches!(d.kind, crate::quads::Kind::Particle(..)))
+                .map(|(i, d)| (i, d.range.end - d.range.start))
+                .collect(),
+            counted: (self.probe.as_ref())
+                .and_then(|p| p.counted.as_ref())
+                .map_or_else(Vec::new, |(_, draws)| draws.clone()),
+            quads: self.quads.observed.take().unwrap_or_default(),
+            model_boxes: self.model_boxes(),
+            blended: (self.models.transparent.iter())
+                .filter_map(|&(_, slot, depth)| {
+                    Some((*self.slot_list.get(slot as usize)?, !depth.is_nan()))
+                })
+                .collect(),
         }
+    }
+
+    /// Each model record's mesh box in its entity's space, by entity index.
+    pub(crate) fn model_boxes(&self) -> Vec<(u32, crate::look_bounds::Aabb)> {
+        if !ASSETS {
+            return Vec::new();
+        }
+        (self.models.records.iter())
+            .filter_map(|r| {
+                let mesh = self.meshes.get(r.geometry.0)?;
+                let local = (mesh.center - mesh.half, mesh.center + mesh.half);
+                Some((r.transform, crate::look_bounds::transformed(r.local, local)))
+            })
+            .collect()
     }
 
     /// Copy what the look frame reads back: `target`'s pixels, the probe's
@@ -361,6 +429,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             },
             pixels,
         ));
+        if let Some((counts, draws)) = probe.as_ref().and_then(|p| p.counted.as_ref()) {
+            let size = draws.len() as u64 * 4;
+            let read = buffer(size, "game look particle coverage");
+            encoder.copy_buffer_to_buffer(counts, 0, &read, 0, size);
+            parts.push((Part::Counts(draws.len() as u32), read));
+        }
         if let Some(probe) = probe.filter(|p| p.used() > 0) {
             let n = probe.used();
             let resolve = device.create_buffer(&wgpu::BufferDescriptor {
@@ -482,6 +556,7 @@ impl Readback {
                         .map(|q| u64::from_le_bytes(q.try_into().unwrap()) != 0)
                         .collect();
                 }
+                Part::Counts(n) => out.counts = words().into_iter().take(n as usize).collect(),
                 Part::Indirect => out.indirect = words(),
                 Part::Lists => out.lists = words(),
             }

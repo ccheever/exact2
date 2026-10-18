@@ -211,8 +211,8 @@ impl Targets {
 
 /// A direct frame's attachments at its target's own size: at 4x, MSAA colour in
 /// the target's format, which the forward pass resolves into the target; at 1x
-/// none, as the pass draws into the target. Depth is transient unless the depth
-/// prepass writes it for the forward pass to load (`retained`).
+/// none, as the pass draws into the target. Depth is transient unless a look
+/// frame keeps it for its particle counting pass (`retained`).
 pub(crate) struct DirectTargets {
     pub format: wgpu::TextureFormat,
     pub size: wgpu::Extent3d,
@@ -238,9 +238,12 @@ impl DirectTargets {
                     sample_count: samples,
                     dimension: wgpu::TextureDimension::D2,
                     format,
+                    // Retained depth is a look frame's, which its counting pass reads.
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                         | if transient {
                             transient_usage()
+                        } else if format == wgpu::TextureFormat::Depth32Float {
+                            wgpu::TextureUsages::TEXTURE_BINDING
                         } else {
                             wgpu::TextureUsages::empty()
                         },

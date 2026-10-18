@@ -146,11 +146,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.prepass_active = self.pipelines.depth_prepass && hooks.materials().is_empty();
         // This frame's quads and translucent order first: the split below
         // follows the soft particles actually drawn.
+        self.quads.observed = self.probe.is_some().then(Vec::new);
         self.quads
             .frame::<ASSETS>(frame, &self.models.textures, !self.cull.keep_all);
         self.select_levels(frame);
         self.order_translucent(frame);
         self.quads.order::<ASSETS>(&self.device, &self.queue);
+        self.probe_size();
         // Soft particles read the opaque depth: the translucent pass splits from
         // the opaque one (not under a scene copy, whose continuation draws them
         // hard). Depth stays retained once they have drawn, so toggling them
@@ -317,7 +319,22 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         if scene_copy {
             self.encode_surface(encoder, &mut state, frame, hooks, &view)?;
         }
+        if self.probe.is_some() {
+            // The look frame's particle coverage, over the depth the scene kept.
+            let depth = match (state.direct, &self.direct_targets) {
+                (true, Some(d)) => &d.depth,
+                _ => &self.targets.depth,
+            };
+            let near = self.depth_split();
+            let counted =
+                (self.quads).count_particles(&self.device, encoder, depth, state.size, near);
+            if let Some(probe) = &mut self.probe {
+                probe.counted = counted;
+            }
+        }
+        self.probe_stage(super::probe::Stage::Post);
         if let Some(settings) = frame.ambient_occlusion {
+            self.probe_note(super::probe::Drew::Fixed("ambient occlusion"));
             let (scale, _) = settings.quality.plan();
             if self
                 .ssao
@@ -377,7 +394,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// A direct frame's attachments at the target's size, and its quad pipelines.
     fn prepare_direct(&mut self, extent: wgpu::Extent3d) {
         let format = self.pipelines.format();
-        let retained = false;
+        // A look frame keeps its depth for the particle counting pass.
+        let retained = self.probe.is_some();
         if self
             .direct_targets
             .as_ref()
@@ -523,7 +541,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let retained = self.pipelines.depth_prepass
             || scene_copy
             || occlusion
-            || needs.contains(crate::Needs::FINAL_DEPTH);
+            || needs.contains(crate::Needs::FINAL_DEPTH)
+            || self.probe.is_some();
         let replace_targets = size.0 > self.targets.size.0
             || size.1 > self.targets.size.1
             || retained != self.targets.retained;

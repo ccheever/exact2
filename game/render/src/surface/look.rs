@@ -6,11 +6,15 @@
 //! (`exact_gpu::fixture::device`) and keeps a renderer for it beside its
 //! headless state; without an adapter it answers that there is no picture.
 //!
-//! Only under the agent's clock. A look frame runs no simulation tick: it
-//! draws the tick the agent's clock has reached, and the world hash does not
-//! move. Its readback is the frame's colour target, the probe's query results
-//! and, for a culled frame, the indirect arguments and the compacted lists;
-//! `look.readbackBytes` reports its size.
+//! Only under the agent's clock, and only in a development build: a build
+//! baked with `EXACT_UPDATE_TRUST=production` refuses every look request by
+//! name. A look frame runs no simulation tick: it draws the tick the agent's
+//! clock has reached, and the world hash does not move. It is observational
+//! for hooks too: they see the held frame with no time passing, and the hook
+//! clock keeps the last live frame's time. Its readback is the frame's colour
+//! target, the particle counts, the probe's query results and, for a culled
+//! frame, the indirect arguments and the compacted lists; `look.readbackBytes`
+//! reports its size.
 use super::*;
 use crate::look::{Ask, View};
 use crate::renderer::probe::{Facts, Readback, Record};
@@ -31,6 +35,8 @@ pub(super) struct Look<const ASSETS: bool> {
     unread: Vec<String>,
     /// The canvas's size in points: its last frame's, or the last request that said it.
     pub(super) points: (f32, f32),
+    /// The last live frame: a look frame draws it held.
+    pub(super) held: Option<Frame>,
 }
 impl<const ASSETS: bool> Default for Look<ASSETS> {
     fn default() -> Self {
@@ -43,6 +49,7 @@ impl<const ASSETS: bool> Default for Look<ASSETS> {
             logged: Vec::new(),
             unread: Vec::new(),
             points: (0., 0.),
+            held: None,
         }
     }
 }
@@ -60,6 +67,8 @@ struct Pending {
     camera: glam::Vec3,
     /// The frame's size in points, for the picture's reply.
     points: (f32, f32),
+    /// Drawn at the canvas's whole resolution: only such a frame is judged.
+    whole: bool,
 }
 
 /// Why a look frame was not drawn.
@@ -142,6 +151,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
     }
 
     fn answer_look(&mut self, request: &str, ask: Ask) -> Result<String, Refusal> {
+        if !inspects(option_env!("EXACT_UPDATE_TRUST")) {
+            return Err(Refusal::Refused(PRODUCTION.into()));
+        }
         if !self.seekable {
             return Err("a look frame is drawn only under the agent's clock"
                 .to_string()
@@ -187,8 +199,11 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                 if size.drawing && !(self.device && self.render.is_some()) {
                     return Err(Refusal::NoPicture("the canvas draws no frames".into()));
                 }
-                let scale = size.scale * size.resolution.clamp(0.05, 1.);
-                self.start_look(ask, points, scale, tick, hash)?
+                let resolution = size.resolution.clamp(0.05, 1.);
+                let scale = size.scale * resolution;
+                let mut started = self.start_look(ask, points, scale, tick, hash)?;
+                started.whole = resolution >= 1.;
+                started
             }
         };
         if !pending.readback.ready(&pending.device)? {
@@ -210,6 +225,11 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         let (device, queue, format) = if live {
             let (renderer, _) = self.render.as_ref().unwrap();
             let format = self.format.ok_or("no format".to_string())?;
+            if format.block_copy_size(None) != Some(4) {
+                return Err(Refusal::NoPicture(format!(
+                    "the canvas draws {format:?}, and a look frame reads back 8-bit colour"
+                )));
+            }
             (renderer.device.clone(), renderer.queue.clone(), format)
         } else {
             #[cfg(target_arch = "wasm32")]
@@ -266,6 +286,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             view_proj,
             camera,
             points,
+            whole: true,
         })
     }
 
@@ -331,6 +352,19 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             feed.feed(sim.world(), renderer)
                 .map_err(|e| e.to_string())?;
         }
+        // The last live frame, held, at the look frame's size. A device-less
+        // surface has drawn none: its look renderer is its own.
+        let held = self.look.held.unwrap_or(Frame {
+            width: 0.,
+            height: 0.,
+            scale: 1.,
+            now_ms: 0.,
+            seekable: true,
+            period_ms: 0.,
+            children_generation: 0,
+            shader_generation: 0,
+            headroom: 1.,
+        });
         let frame = Frame {
             width: points.0,
             height: points.1,
@@ -339,17 +373,13 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             } else {
                 1.
             },
-            now_ms: 0.,
             seekable: true,
-            period_ms: 0.,
-            children_generation: 0,
-            shader_generation: 0,
-            headroom: 1.,
+            ..held
         };
         self.hook_poses.track(self.hooks.entities(), sim.world());
         self.hook_poses.sync(sim.world());
         let hook_time = if H::ENABLED {
-            self.hook_clock.frame(
+            self.hook_clock.held(
                 &frame,
                 sim.world().presentation_generation(),
                 G::paused(sim.args()),
@@ -362,7 +392,14 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             _ => View::Camera,
         };
         let mut input = feed.frame_pixels(sim.world(), sim.alpha(), points);
-        view.apply(&mut input, sim.world(), glam::Vec2::new(points.0, points.1));
+        input.headroom = frame.headroom;
+        let models = renderer.model_boxes();
+        view.apply(
+            &mut input,
+            sim.world(),
+            glam::Vec2::new(points.0, points.1),
+            &models,
+        );
         let (view_proj, camera) = (input.proj * input.view, input.camera_position);
         let (width, height) = frame.pixels();
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -422,9 +459,10 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         let w = sim.world();
         let stats = crate::tells::FrameStats::of(&read.rgba);
         let drawn = crate::look::drawn(&p.records, &p.facts, &read);
-        let tells = crate::tells::tells(&stats, drawn);
-        // `logs` gets each tell once per change.
-        for tell in &tells {
+        let judged = crate::tells::judge(&stats, &drawn);
+        // `logs` gets each tell of a whole frame once per change; a reduced
+        // frame (a contact sheet's) is a picture, and tells nothing.
+        for tell in judged.tells.iter().filter(|_| p.whole) {
             if !self
                 .look
                 .logged
@@ -439,7 +477,10 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             }
         }
         let head = format!("{{\"tick\":{},\"hash\":\"0x{:016x}\"", p.tick, p.hash);
-        let look = crate::look::tells_json(&stats, drawn, &tells, bytes);
+        let mut look = crate::look::tells_json(&stats, &drawn, &judged, bytes);
+        if !p.whole {
+            look.insert_str(look.len() - 1, ",\"reduced\":true");
+        }
         Ok(match &p.ask {
             Ask::Tells => format!("{head},\"look\":{look}}}"),
             Ask::Picture(_) => format!(
@@ -484,6 +525,17 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
     }
 }
 
+/// Why a production build answers no look request.
+const PRODUCTION: &str = "look frames are a development capability: this production build \
+     (EXACT_UPDATE_TRUST=production) refuses `screenshot … from`, `state world look`, \
+     `state world draws` and `state world:<entity> visible`";
+
+/// Whether a build baked with this trust answers look requests: every build
+/// but a production one (`scripts/app.mjs` bakes development trust unless told).
+fn inspects(trust: Option<&str>) -> bool {
+    trust != Some("production")
+}
+
 impl<const ASSETS: bool> Look<ASSETS> {
     /// Add the unread tell lines to a world's `logs` reply (`{…,"lines":[…]}`).
     pub(super) fn tell_into(&mut self, request: &str, reply: &mut String) {
@@ -500,5 +552,16 @@ impl<const ASSETS: bool> Look<ASSETS> {
             lines.remove(0);
         }
         reply.insert_str(at, &lines);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_production_build_refuses_look_frames_by_name() {
+        assert!(super::inspects(None));
+        assert!(super::inspects(Some("development")));
+        assert!(!super::inspects(Some("production")));
+        assert!(super::PRODUCTION.contains("production build"));
     }
 }
