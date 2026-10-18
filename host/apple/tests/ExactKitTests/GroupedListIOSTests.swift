@@ -1415,14 +1415,16 @@ final class GroupedListIOSTests: GroupedListFixture {
         let p = presenter(height: 840) { self.model() }
         let grey: [[Int]] = [[242, 242, 247, 255], [0, 0, 0, 255]]
         p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": grey]]]))
-        // The home indicator's 34 points under the viewport.
-        p.viewport.frame = CGRect(x: 0, y: 0, width: 402, height: 840)
+        // The page's area ends at the home indicator's 34 points, which the
+        // viewport is drawn past (LLP 1130 D1).
+        p.viewport.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        p.pageMargins = UIEdgeInsets(top: 0, left: 0, bottom: 34, right: 0)
         p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 840.0]]))
-        let skirts = { self.window.subviews.filter { $0 !== p.viewport && !$0.isHidden && $0.frame.maxY == 874 } }
+        let skirts = { p.viewport.subviews.filter { $0 !== p.root && !$0.isHidden && $0.frame.maxY == 874 } }
         let skirt = try XCTUnwrap(skirts().first, "the list's background reaches the screen's bottom edge")
         XCTAssertEqual(skirt.frame, CGRect(x: 0, y: 0, width: 402, height: 874))
-        XCTAssertLessThan(try XCTUnwrap(window.subviews.firstIndex(of: skirt)), try XCTUnwrap(window.subviews.firstIndex(of: p.viewport)),
-                          "behind the viewport: only what lies past its edge shows")
+        XCTAssertLessThan(try XCTUnwrap(p.viewport.subviews.firstIndex(of: skirt)), try XCTUnwrap(p.viewport.subviews.firstIndex(of: p.root)),
+                          "behind the document: only what lies past its edge shows")
         XCTAssertFalse(skirt.isUserInteractionEnabled)
         func rgb(_ style: UIUserInterfaceStyle) throws -> [CGFloat] {
             var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0

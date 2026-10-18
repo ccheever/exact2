@@ -1,7 +1,7 @@
 # LLP 1130: A page under the status bar
 
 **Type:** RFC
-**Status:** Accepted as built, 2026-10-18, after three design rounds and three code rounds (Astra, Grok; records in `~/audits/exact2-no-tells-2026-10-11/llp1130/`). The UIKit XCTests (`PageEdgesIOSTests`) are written and not yet run: this Mac's Xcode 27.1 wants its first-launch step (`CoreSimulator is out of date`). Charlie asked for the three QUEUE items and then "go back to iOS work"; this is the iOS item QUEUE.md names "An iOS page is cut at the status bar".
+**Status:** Accepted as built, 2026-10-18, after three design rounds and three code rounds (Astra, Grok; records in `~/audits/exact2-no-tells-2026-10-11/llp1130/`). `PageEdgesIOSTests` pass in the UIKit run (`build.mjs --test --ios`), whose one failure, `StoreRefreshTests`, fails the same without this change. Charlie asked for the three QUEUE items and then "go back to iOS work"; this is the iOS item QUEUE.md names "An iOS page is cut at the status bar".
 **Systems:** the iOS viewport (`host/apple/Sources/ExactKit/IOS/ExactViewIOS.swift` `fit`), the hosts' covers (`NavigationBarIOS.swift` `reportCovers`, `kernel/src/kernel/cover.rs`), the iOS scrollers UIKit insets.
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Implementer:** the author, from 2026-10-18
