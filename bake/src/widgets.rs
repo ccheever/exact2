@@ -19,7 +19,7 @@ pub(crate) fn emit(
         plans.insert(kind.clone(), card.clone());
         assets.push(card);
     }
-    if typescript && !entries.is_empty() && out.join("app.hbc").is_file() {
+    if typescript && !entries.is_empty() {
         std::fs::create_dir_all(out.join("typescript")).map_err(|e| e.to_string())?;
         for file in ["app.hbc", "app.module.json"] {
             let bytes = std::fs::read(out.join(file)).map_err(|e| e.to_string())?;
@@ -98,6 +98,15 @@ mod tests {
                 std::fs::read(out.join(name)).unwrap(),
                 std::fs::read(copied.join("typescript").join(name)).unwrap()
             );
+        }
+        for missing in ["app.hbc", "app.module.json"] {
+            let bytes = std::fs::read(out.join(missing)).unwrap();
+            std::fs::remove_file(out.join(missing)).unwrap();
+            assert!(
+                emit(&out, true, &entries).is_err(),
+                "an incomplete TypeScript pair must fail the bake: {missing}"
+            );
+            std::fs::write(out.join(missing), bytes).unwrap();
         }
         let (assets, _) = emit(&out, false, &entries).unwrap();
         copy(&out, &copied, &assets).unwrap();

@@ -59,17 +59,29 @@ impl<D: exact_runner::DataSource> crate::Host<D> {
         &mut self,
         now: f64,
         io: Option<crate::link::IoLinks>,
-        module: Option<(&str, Vec<u8>)>,
+        module: Option<(&str, &[u8])>,
+        deadline: std::time::Instant,
     ) -> Result<String, String> {
-        use std::time::{Duration, Instant};
+        use std::time::Instant;
         if self.runner.plan().snapshot_entry.is_empty() {
             return Err("not a snapshot entry".into());
         }
-        // Leave 100 ms below D8's one-second line for completion and teardown.
-        let deadline = Instant::now() + Duration::from_millis(900);
+        if Instant::now() >= deadline {
+            return Err("widget refresh timed out".into());
+        }
+        let plan = self.runner.plan().encode();
+        let kind = self.runner.plan().snapshot_entry.clone();
         let data = self.runner.data();
-        data.prepare_snapshot(module)
-            .map_err(|e| format!("snapshot module: {e:?}"))?;
+        data.prepare_snapshot(
+            module.map(|(receipt, bytecode)| exact_runner::SnapshotModule {
+                receipt,
+                bytecode,
+                plan: &plan,
+                kind: &kind,
+            }),
+            deadline,
+        )
+        .map_err(|e| format!("snapshot module: {e:?}"))?;
         let app = data.app_id().to_owned();
         let grants = data.grants().to_owned();
         let roots = crate::picker::app_dirs(&app)

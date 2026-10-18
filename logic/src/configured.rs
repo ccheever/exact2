@@ -13,9 +13,10 @@ macro_rules! configured {
         impl $crate::exact_runner::DataSource for $name {
             fn prepare_snapshot(
                 &mut self,
-                module: Option<(&str, Vec<u8>)>,
+                module: Option<$crate::exact_runner::SnapshotModule<'_>>,
+                deadline: std::time::Instant,
             ) -> Result<(), $crate::exact_runner::DataError> {
-                $crate::exact_runner::DataSource::prepare_snapshot(&mut self.0, module)
+                $crate::exact_runner::DataSource::prepare_snapshot(&mut self.0, module, deadline)
             }
             fn take_storage_changed(&mut self) -> bool {
                 $crate::exact_runner::DataSource::take_storage_changed(&mut self.0)

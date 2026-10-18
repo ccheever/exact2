@@ -3,7 +3,7 @@
 #![cfg(exact_js_engine)]
 use exact_js::Module;
 use exact_kernel::Kernel;
-use exact_runner::{DataSource, Outcome, Response, Runner, Work};
+use exact_runner::{DataSource, Outcome, Response, Runner, SnapshotModule, Work};
 use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
 const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/snapshot.hbc"));
@@ -11,9 +11,10 @@ const APP: &str = "test.widget-js";
 const GRANTS: &str =
     "net.fetch https://widget.test\nfs.read app:/data\nfs.write app:/data\nsecret.keep session\n";
 fn receipt() -> String {
+    let plan = plan().encode();
     serde_json::json!({"version":1,"abi":1,"bytecodeVersion":exact_js::BYTECODE_VERSION,
         "appId":APP,"grants":GRANTS,"module":{"file":"app.hbc","bytes":HBC.len(),
-        "sha256":format!("{:x}",Sha256::digest(HBC))}})
+        "sha256":format!("{:x}",Sha256::digest(HBC))}, "plans":{"card":{"file":"plans/card.plan", "bytes":plan.len(),"sha256":format!("{:x}",Sha256::digest(&plan))}}})
     .to_string()
 }
 fn plan() -> exact_plan::Plan {
@@ -25,9 +26,16 @@ fn plan() -> exact_plan::Plan {
 }
 fn runner(root: &super::storage::Root) -> Runner<Module> {
     let mut module = Module::new(Vec::new(), APP, GRANTS);
-    module.set_budget_ms(f64::INFINITY);
     module
-        .prepare_snapshot(Some((&receipt(), HBC.to_vec())))
+        .prepare_snapshot(
+            Some(SnapshotModule {
+                receipt: &receipt(),
+                bytecode: HBC,
+                plan: &plan().encode(),
+                kind: "card",
+            }),
+            Instant::now() + Duration::from_secs(30),
+        )
         .unwrap();
     for name in ["data", "cache", "tmp"] {
         std::fs::create_dir_all(root.0.join(name)).unwrap();
@@ -57,7 +65,10 @@ fn refresh(runner: &mut Runner<Module>, date: f64) -> Result<String, String> {
             if let Some(Work::Now(work)) = work {
                 return Ok(work());
             }
-            assert!(work.is_none());
+            assert!(
+                work.is_none(),
+                "fetch must reach the host carrier, not a storage continuation"
+            );
             assert_eq!(request.url, "https://widget.test/value");
             Ok(Outcome::Response(Response {
                 status: 200,
@@ -97,18 +108,47 @@ fn snapshot_cannot_write_files_or_secrets_and_can_refresh_after_a_refusal() {
 #[test]
 fn snapshot_requires_the_pinned_bytes_and_identity() {
     let mut m = Module::new(HBC.to_vec(), APP, GRANTS);
-    assert!(m.prepare_snapshot(None).is_err());
+    let deadline = Instant::now() + Duration::from_secs(1);
+    assert!(m.prepare_snapshot(None, deadline).is_err());
     let mut bytes = HBC.to_vec();
     *bytes.last_mut().unwrap() ^= 1;
-    assert!(m.prepare_snapshot(Some((&receipt(), bytes))).is_err());
+    assert!(m
+        .prepare_snapshot(
+            Some(SnapshotModule {
+                receipt: &receipt(),
+                bytecode: &bytes,
+                plan: &plan().encode(),
+                kind: "card"
+            }),
+            deadline
+        )
+        .is_err());
     let wrong = receipt().replace(APP, "another.app");
-    assert!(m.prepare_snapshot(Some((&wrong, HBC.to_vec()))).is_err());
+    assert!(m
+        .prepare_snapshot(
+            Some(SnapshotModule {
+                receipt: &wrong,
+                bytecode: HBC,
+                plan: &plan().encode(),
+                kind: "card"
+            }),
+            deadline
+        )
+        .is_err());
 }
 #[test]
 fn expired_refresh_never_dispatches_io() {
     let root = super::storage::Root::new();
     let mut r = runner(&root);
-    let error = r.snapshot_timeline(2., vec![], Instant::now(), |_, _| panic!("deadline passed"));
+    let iterations = long_turn(&mut r);
+    // The source admits its fetch after a 150 ms JS turn. Its 50 ms host
+    // deadline expires in that turn, before the first I/O dispatch.
+    let error = r.snapshot_timeline(
+        -iterations,
+        vec![],
+        Instant::now() + Duration::from_millis(50),
+        |_, _| panic!("expired first call started I/O"),
+    );
     assert!(error.unwrap_err().contains("timed out"));
 }
 
@@ -124,4 +164,44 @@ fn completed_app_writes_signal_once_but_reads_do_not() {
     assert!(!m.take_storage_changed());
     super::storage::call(&mut m, &mut store, "read", "");
     assert!(!m.take_storage_changed());
+}
+
+#[test]
+fn snapshot_turn_uses_the_refresh_deadline_instead_of_the_app_budget() {
+    let root = super::storage::Root::new();
+    let mut r = runner(&root);
+    long_turn(&mut r);
+}
+
+#[test]
+fn snapshot_plan_must_be_admitted_by_the_module_receipt() {
+    let mut m = Module::new(Vec::new(), APP, GRANTS);
+    let mut plan = plan().encode();
+    *plan.last_mut().unwrap() ^= 1;
+    let error = m
+        .prepare_snapshot(
+            Some(SnapshotModule {
+                receipt: &receipt(),
+                bytecode: HBC,
+                plan: &plan,
+                kind: "card",
+            }),
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("entry does not match"));
+}
+
+// Data sources cannot read an ambient clock. Calibrate a bounded CPU turn
+// instead, and require it to pass beyond 150 ms under the snapshot budget.
+fn long_turn(r: &mut Runner<Module>) -> f64 {
+    for power in 0..12 {
+        let iterations = 1_000_000. * 2_f64.powi(power);
+        let start = Instant::now();
+        assert!(refresh(r, iterations).unwrap().contains("long turn"));
+        if start.elapsed() >= Duration::from_millis(150) {
+            return iterations;
+        }
+    }
+    panic!("calibration did not reach a 150 ms turn");
 }

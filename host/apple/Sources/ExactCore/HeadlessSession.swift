@@ -166,10 +166,10 @@ public final class HeadlessSession {
     }
 
     /// Typed source refresh; the render boot itself never opens the store.
-    public func timeline(at date: Date, moduleRoot: URL? = nil) throws -> Data {
+    public func timeline(at date: Date, moduleRoot: URL? = nil, deadline: DispatchTime = .now() + .milliseconds(900)) throws -> Data {
         let receipt = try moduleRoot.map { try Data(contentsOf: $0.appendingPathComponent("typescript/app.module.json")) } ?? Data()
         let module = try moduleRoot.map { try Data(contentsOf: $0.appendingPathComponent("typescript/app.hbc"), options: .mappedIfSafe) } ?? Data()
-        let bytes = core.runtime.entryTimeline(at: date.timeIntervalSince1970 * 1000, receipt: receipt, module: module)
+        let bytes = core.runtime.entryTimeline(at: date.timeIntervalSince1970 * 1000, deadline: deadline, receipt: receipt, module: module)
         if let object = try JSONSerialization.jsonObject(with: bytes) as? [String: Any], let error = object["error"] as? String {
             throw Failure(description: error)
         }

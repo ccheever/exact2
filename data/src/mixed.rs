@@ -522,9 +522,13 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
 }
 
 impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
-    fn prepare_snapshot(&mut self, module: Option<(&str, Vec<u8>)>) -> Result<(), DataError> {
-        self.javascript.prepare_snapshot(module)?;
-        self.rust.prepare_snapshot(None)
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<exact_runner::SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
+        self.javascript.prepare_snapshot(module, deadline)?;
+        self.rust.prepare_snapshot(None, deadline)
     }
 
     fn take_storage_changed(&mut self) -> bool {

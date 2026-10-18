@@ -76,7 +76,11 @@ pub(crate) fn emit(
     source_map(trust, app, out, &plan, &plan_bytes);
     let plan_card = json!({"sha256": hash(&plan_bytes), "bytes": plan_bytes.len()});
     let mut assets = asset_cards(app, out, manifest)?;
-    let (widget_assets, plans) = crate::widgets::emit(out, platform == "ios", entries)?;
+    let (widget_assets, plans) = crate::widgets::emit(
+        out,
+        platform == "ios" && app.join("app.ts").is_file(),
+        entries,
+    )?;
     assets.extend(widget_assets);
     let rust_assets = if let Some(directory) = std::env::var_os("EXACT_RUST_BUNDLE") {
         stage_rust_bundle(

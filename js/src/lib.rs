@@ -221,6 +221,7 @@ struct HostState {
 pub struct Module {
     bytecode: Arc<[u8]>,
     snapshot: bool,
+    snapshot_deadline: Option<Instant>,
     app_id: String,
     grants: String,
     revision: std::sync::OnceLock<String>, // the bytecode's SHA-256, when first asked
@@ -306,6 +307,7 @@ impl Module {
             revision: std::sync::OnceLock::new(),
             bytecode: bytecode.into(),
             snapshot: false,
+            snapshot_deadline: None,
             app_id: app_id.into(),
             grants,
             engine: None,
@@ -858,6 +860,9 @@ impl Module {
             _ => "",
         };
         let started = Instant::now();
+        let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
+            deadline.saturating_duration_since(started).as_secs_f64() * 1e3
+        });
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
             let text = engine
@@ -884,7 +889,7 @@ impl Module {
         })();
         self.host.store = None;
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
-        if result.is_err() || took_ms > self.budget_ms {
+        if result.is_err() || took_ms > budget_ms {
             self.engine.as_mut().expect("checked above").clear_reply();
         }
         // Socket operations ride only an answer given now (D7).
@@ -910,12 +915,12 @@ impl Module {
                 "`{source}` was interrupted"
             )));
         }
-        if took_ms > self.budget_ms {
+        if took_ms > budget_ms {
             self.overruns += 1;
             self.finish_let_go();
             return Err(DataError::Unavailable(format!(
                 "`{source}` took {took_ms:.1} ms, over the {} ms budget",
-                self.budget_ms
+                budget_ms
             )));
         }
         let answer = match result {
@@ -1032,6 +1037,9 @@ impl Module {
         }
         let payload = serde_json::json!({ "answer": json(answer, &sig.result)?, "writes": list });
         let started = Instant::now();
+        let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
+            deadline.saturating_duration_since(started).as_secs_f64() * 1e3
+        });
         let engine = self.engine.as_mut().expect("checked above");
         let text = engine
             .call(
@@ -1040,10 +1048,10 @@ impl Module {
             )
             .map_err(|e| DataError::Unavailable(format!("`{source}`'s overlay threw: {e}")))?;
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
-        if took_ms > self.budget_ms {
+        if took_ms > budget_ms {
             return Err(DataError::Unavailable(format!(
                 "`{source}`'s overlay took {took_ms:.1} ms, over the {} ms budget",
-                self.budget_ms
+                budget_ms
             )));
         }
         let reply: Json = serde_json::from_str(&text)
@@ -1114,6 +1122,9 @@ impl Module {
         let outcome_text = outcome_to_json(&outcome).to_string();
         self.host.store = Some(store as *mut Store);
         let started = Instant::now();
+        let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
+            deadline.saturating_duration_since(started).as_secs_f64() * 1e3
+        });
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
             if ticket == WAITING {
@@ -1152,7 +1163,7 @@ impl Module {
         })();
         self.host.store = None;
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
-        if result.is_err() || took_ms > self.budget_ms {
+        if result.is_err() || took_ms > budget_ms {
             self.engine.as_mut().expect("checked above").clear_reply();
         }
         if result.is_err() && self.watch.take() {
@@ -1161,12 +1172,12 @@ impl Module {
                 "`{source}` was interrupted"
             )));
         }
-        if took_ms > self.budget_ms {
+        if took_ms > budget_ms {
             self.overruns += 1;
             self.finish_let_go();
             return Err(DataError::Unavailable(format!(
                 "`{source}` took {took_ms:.1} ms, over the {} ms budget",
-                self.budget_ms
+                budget_ms
             )));
         }
         let answer = match result {
@@ -1235,6 +1246,9 @@ impl Module {
         self.host.socket_ops.clear();
         self.host.store = Some(store as *mut Store);
         let started = Instant::now();
+        let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
+            deadline.saturating_duration_since(started).as_secs_f64() * 1e3
+        });
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked by resume");
             let text = engine
@@ -1270,17 +1284,17 @@ impl Module {
             self.forget_calls(vec![call]);
         }
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
-        if result.is_err() || took_ms > self.budget_ms {
+        if result.is_err() || took_ms > budget_ms {
             self.engine
                 .as_mut()
                 .expect("checked by resume")
                 .clear_reply();
         }
-        if took_ms > self.budget_ms {
+        if took_ms > budget_ms {
             self.overruns += 1;
             return Err(DataError::Unavailable(format!(
                 "`{source}` took {took_ms:.1} ms, over the {} ms budget",
-                self.budget_ms
+                budget_ms
             )));
         }
         match result? {
