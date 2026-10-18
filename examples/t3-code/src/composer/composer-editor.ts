@@ -1,5 +1,5 @@
 import { composerInput } from './requests';
-import { composerFileIcons, noteComposerFilePaths, refreshFileMetadata, textFilePaths as textPaths } from '../shared/file-metadata';
+import { noteComposerFilePaths, refreshFileMetadata } from '../shared/file-metadata';
 // The shared field's source/selection feeds command menus and guarded edits.
 // Native sync supplies file-paste and notice channels; Contract draws the menus.
 import { preserveCitationDraft } from '../timeline/citation-draft';
@@ -19,6 +19,7 @@ import {
 import { composerFileRecords, draftFiles, fileChipContexts, foldLimit, pruneFiles, takeFold } from './composer-editor-files';
 import { imageChipContexts, imageContextRecords } from './composer-editor-attach';
 import { takePastedFiles } from './composer-controls-attach';
+import { takeFolderDrop } from './composer-folder-drop';
 import { composerDrawer, composerStackHold, NO_DRAWER, type ComposerDrawer, type StackHold } from './composer-editor-drawer';
 import { WorkspaceDiscovery, workspaceValues } from './composer-workspace-snapshots';
 import { parseTerminalContext, formatTerminalContextReference, saveTerminalContext, terminalMessageRecords, terminalDraftRecords } from '../terminal/terminal-integrations';
@@ -248,27 +249,30 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   const overLimit = limit !== '';
   const literal = composerInput(client)?.active?.initialAnswer !== undefined;
   const draft = composerInput(client)?.custom ?? client.draft, key = client.draftKey, files = draftFiles(client.local);
-  const fileIcons = composerFileIcons(client, textPaths(draft));
+  const fieldOwner = composerFieldOwner(client), snapshotOwner = client.snapshotOwner;
+  const observed = composerFieldCurrent(client, fieldOwner);
+  const mentioned = composerSourceSession(client);
+  const source = observed?.value ?? draft;
+  noteComposerFilePaths(client, (mentioned.matches(fieldOwner, source) ? mentioned.chips : composerChips(source)).flatMap(chip => chip.kind === 'mention' ? [chip.path] : []));
   let state: Obj = {};
   if (native?.available) {
     native.watch('t3.editor');
     try {
-      state = await editorCall(native, { op: 'editorSync', owner: client.draftKey, literal, richText: prefs(client).composerRichTextEnabled !== false, localEnvironment: folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'local', // local-primary.ts: Finder folders reach only the primary
-        contexts: chipContexts(client, draft), fileIcons, foldLimit: client.ready ? foldLimit(client) : 0,
-        skills: skillChipLabels(workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills')) });
+      state = await editorCall(native, { op: 'editorSync', snapshotOwner, fieldOwner,
+        localEnvironment: folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'local', foldLimit: client.ready ? foldLimit(client) : 0 });
     } catch { state = {}; }
-    const mentionPaths = Array.isArray(state.mentions) ? state.mentions.filter((path): path is string => typeof path === 'string') : textPaths(draft);
-    noteComposerFilePaths(client, mentionPaths);
     await refreshFileMetadata(client, native);
-    const resolvedIcons = composerFileIcons(client, mentionPaths);
-    if (JSON.stringify(resolvedIcons) !== JSON.stringify(fileIcons)) await editorCall(native, { op: 'editorSync', fileIcons: resolvedIcons });
+    if (state.snapshotOwner !== snapshotOwner || state.fieldOwner !== fieldOwner || client.snapshotOwner !== snapshotOwner || composerFieldOwner(client) !== fieldOwner) state = {};
     for (const notice of arr(state.notices)) pushToast(client, { kind: str(notice.kind) === 'error' ? 'error' : 'info', title: str(notice.title), description: str(notice.description), hideCopy: true });
     // Large pastes the editor held back become pasted-text.txt chips (composer-editor-files.ts).
-    for (const fold of arr(state.folds)) await takeFold(client, native, fold, localId()).catch(() => undefined);
+    for (const fact of [...arr(state.folds).map(fold => ({ fact: fold, fold: true })), ...arr(state.drops).map(drop => ({ fact: drop, fold: false }))].sort((a, b) => num(a.fact.id) - num(b.fact.id))) {
+      if (fact.fold) await takeFold(client, native, fact.fact, localId()).catch(() => undefined);
+      else await takeFolderDrop(client, native, fact.fact).catch(() => undefined);
+    }
     // Files a paste took from the pasteboard (onComposerPaste) are attached as Attach files' are.
-    if (Number(state.pastes) > 0) await takePastedFiles(client, native, key).catch(() => undefined);
+    if (Number(state.pastes) > 0) await takePastedFiles(client, native, key, { snapshotOwner, fieldOwner }).catch(() => undefined);
     // A dropped attached file's staged copy goes with it (composer-editor-attach.ts).
-    for (const dropped of pruneFiles(client.local, client.local.drafts, state.empty === true ? '' : client.draftKey, files)) {
+    for (const dropped of pruneFiles(client.local, client.local.drafts, observed?.value === '' ? '' : client.draftKey, files)) {
       if (dropped.source === 'attached' && dropped.status === 'staged') await bridgeReply(native, { op: 'composerAttachRemove', id: dropped.id }).catch(() => undefined);
     }
   }

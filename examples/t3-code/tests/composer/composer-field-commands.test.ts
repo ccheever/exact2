@@ -10,7 +10,7 @@ describe('composer shared field commands', () => {
   test('pending resource wakes and input can arrive before independent acknowledgement', async () => {
     const commands = setup(), waiting = commands.wait(0, identity), pending = commands.request(edit);
     const command = await waiting;
-    expect(command).toEqual({ ...edit, focus: true, then: '', history: 0, citation: 0, seq: 1, ready: true });
+    expect(command).toEqual({ ...edit, focus: true, then: '', history: 0, citation: 0, completion: 0, seq: 1, ready: true });
     commands.observe({ ...snapshot, value: 'one!', start: 4, end: 4 }, true);
     const result = commands.acknowledge(1, identity, { value: 'one!', start: 4, end: 4, composing: false }, true);
     expect(await pending).toEqual(result);

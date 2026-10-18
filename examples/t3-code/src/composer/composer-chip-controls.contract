@@ -1,0 +1,68 @@
+use ComposerRichView, ComposerSourceChip from "./composer-rich.contract"
+use TimelineIcon from "../timeline/timeline-icons-kit.contract"
+use FileTypeIcon from "../shared/timeline-files.contract"
+
+shape ComposerChipAnchor
+  chip: ComposerSourceChip
+  frame: Geometry
+
+shape ComposerChipLayout
+  owner: string
+  value: string
+  serial: number
+  x: number
+  y: number
+  anchors: ComposerChipAnchor[]
+
+shape ComposerChipRequest
+  generation: number
+  snapshotOwner: string
+  owner: string
+  value: string
+  inputSerial: number
+  start: number
+  end: number
+  source: string
+  surface: string
+  comment: bool
+  frame: Geometry
+
+// The shared atom measures and paints its label. Only the reserved glyph slots
+// and product actions live here, in the same scroll content as the source field.
+component ComposerChipControls
+  inject
+    rem: number
+    composerChipPress: action
+  props
+    source: ComposerRichView
+    layout: ComposerChipLayout
+    owner: string
+    value: string
+    serial: number
+    surface: string
+    size: number
+    family: string
+  derive font = size * 0.86
+  action press(start: number, end: number, source: string, comment: bool)
+    composerChipPress(surface, owner, value, serial, start, end, source, comment)
+  view
+    if source.owner == owner and source.value == value and layout.owner == owner and layout.value == value and layout.serial == serial
+      box position="absolute" left=0 top=0 right=0 bottom=0 pointer-events="none" font-family=family font-size=font
+        for anchor in layout.anchors key=anchor.chip.start
+          box position="absolute" left=(anchor.frame.x - layout.x) top=(anchor.frame.y - layout.y) width=anchor.frame.width height=anchor.frame.height pointer-events="none"
+            if anchor.chip.face.interactive
+              button press=press(anchor.chip.start, anchor.chip.end, anchor.chip.source, false) testId=`${surface}-chip-${anchor.chip.start}` aria-label=`${anchor.chip.face.kind}, ${anchor.chip.face.label}` title=anchor.chip.face.tip position="absolute" left=0 top=0 width=(anchor.frame.width - (anchor.chip.face.comment ? font * 1.4 : 0)) height="100%" padding=0 border-width=0 border-radius="0.5em" background-color="#00000000" pointer-events="auto"
+                :focus-visible
+                  box-shadow="0 0 0 2px #3b82f6"
+            row position="absolute" left=(font * 0.4) top=0 width=font height="100%" align-items="center" justify-content="center" pointer-events="none" aria-hidden=true
+              if anchor.chip.face.fileToken != ""
+                FileTypeIcon(token=anchor.chip.face.fileToken, size=(font * 0.85 * 16 / rem))
+              else if anchor.chip.face.imageId != ""
+                box width=(font * 0.85) height=(font * 0.85) hatch="t3-snapshot-tile" data-snapshot-id=`contain:${anchor.chip.face.imageId}`
+              else
+                TimelineIcon(name=anchor.chip.face.icon, size=(font * 0.85 * 16 / rem), color="light-dark(#71717a, #a1a1aa)")
+            if anchor.chip.face.comment
+              button press=press(anchor.chip.start, anchor.chip.end, anchor.chip.source, true) aria-label=(anchor.chip.comment == "" ? "Add comment to citation" : "Edit citation comment") title="" testId=`${surface}-chip-comment-${anchor.chip.start}` position="absolute" right=(font * 0.4) top=0 width=font height="100%" padding=0 border-width=0 border-radius="0.25em" background-color="#00000000" display="flex" align-items="center" justify-content="center" pointer-events="auto"
+                :focus-visible
+                  box-shadow="0 0 0 2px #3b82f6"
+                TimelineIcon(name="message-circle", size=(font * 0.85 * 16 / rem), color="light-dark(#71717a, #a1a1aa)")

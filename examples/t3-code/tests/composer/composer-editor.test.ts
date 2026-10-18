@@ -4,6 +4,7 @@ import {
   recallablePrompt, scoreQueryMatch, skillChipLabels, skillRows, slashRows, threadRows,
 } from '../../src/composer/composer-editor-menu';
 import { composerEditorView, editorLocal, messageContext, threadContextRecords, withMessageContext } from '../../src/composer/composer-editor';
+import { composerRichSource } from '../../src/composer/composer-rich-source';
 import { T3Client } from '../../src/client/client';
 import { Backend, storage } from '../support/client-fixture';
 import { arr } from '../../src/client/domain';
@@ -243,7 +244,7 @@ describe('skill chip labels', () => {
     // Exact names, as the reference's `find`: a chip `$imagegen` does not take `ImageGen`'s label.
     expect(skillChipLabels([{ name: 'ImageGen', displayName: 'Other' }])).toEqual({ ImageGen: 'Other' });
   });
-  test("the editor is synced with the selected provider's labels, the workspace's own list first", async () => {
+  test("the shared source uses selected workspace labels without sending a native stylist policy", async () => {
     const client = new T3Client(), native = new Backend(), disk = storage();
     const codex = arr(native.config.providers)[0]!;
     codex.skills = skills;
@@ -251,11 +252,16 @@ describe('skill chip labels', () => {
     await client.refresh(native, disk.files);
     await client.command('select-thread', 't1', '', 0, native, disk.files);
     await client.refresh(native, disk.files);
-    const synced = async () => { await composerEditorView(client, native); return native.calls.findLast(call => call.op === 'editorSync')!.skills; };
+    const synced = async () => {
+      await composerEditorView(client, native);
+      expect(native.calls.findLast(call => call.op === 'editorSync')).not.toHaveProperty('skills');
+      const view = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: composerFieldOwner(client), value: '$imagegen $openai-docs $frontend-design ' });
+      return Object.fromEntries(view.chips.map(chip => [chip.name, chip.face.label]));
+    };
     expect(await synced()).toEqual({ imagegen: 'Image Gen', 'openai-docs': 'OpenAI Docs', 'frontend-design': 'Frontend Design' });
     // The thread's workspace (the project root, /repo) has its own discovered list: it wins.
     native.emit('config', { type: 'providerStatuses', payload: { providers: [{ ...codex, workspaceSnapshots: [{ cwd: '/repo', skills: [{ name: 'imagegen', displayName: 'Repo Image Gen' }] }] }] } });
     await client.refresh(native, disk.files);
-    expect(await synced()).toEqual({ imagegen: 'Repo Image Gen' });
+    expect(await synced()).toEqual({ imagegen: 'Repo Image Gen', 'openai-docs': 'Openai Docs', 'frontend-design': 'Frontend Design' });
   });
 });

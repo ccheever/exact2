@@ -2,6 +2,7 @@
 import { describe, expect, test } from 'bun:test';
 import { obj } from '../../src/client/domain';
 import { snapshot } from '../../src/client/presentation';
+import { observeComposer, acceptComposerEdit } from '../support/composer-field-fixture';
 import { connected } from '../support/composer-controls-fixture';
 
 const id = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
@@ -20,12 +21,17 @@ describe('attach files', () => {
     expect(snapshot(client, 0).composer.attach).toBe(true);
     native.picked = [{ kind: 'image', id: id(1), name: 'shot.png', sizeBytes: 2048 }, { kind: 'file', id: id(2), name: 'notes.txt', mimeType: 'text/plain', sizeBytes: 10 }];
     const picks: unknown[] = [], later = native.later.bind(native);
-    native.later = async request => { if (obj(request).op === 'composerAttachPick') picks.push(request); return later(request); };
+    observeComposer(client, client.draft);
+    native.later = async request => {
+      if (obj(request).op === 'composerAttachPick') picks.push(request);
+      if (obj(request).op === 'editorInsert') return { ok: true, generation: client.generation, value: { applied: acceptComposerEdit(client, request) } };
+      return later(request);
+    };
     await command('cclocal:attach');
     // An image over 2000 px on its long edge is scaled to it as it is staged (prepareImageForAttachment).
     expect(picks).toMatchObject([{ imageMaxEdge: 2000 }]);
     expect(client.snapshotDrafts).toEqual([{ id: id(1), name: 'shot.png', mimeType: 'image/png', sizeBytes: 2048 }]);
-    // composer-editor-attach.ts: a plain file is an inline file chip (with no editor here it joins the stored draft).
+    // composer-editor-attach.ts: a plain file is inserted through the accepted shared field.
     expect(client.error).toBe('');
     expect(client.draft).toBe(`[notes.txt](t3-context://v1/file/file_${id(2)}) `);
     expect(snapshot(client, 0).snapshotDrafts.map(tile => tile.id)).toEqual([id(1)]);

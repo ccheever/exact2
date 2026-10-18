@@ -3,8 +3,23 @@ import { T3Client } from '../../src/client/client';
 import { composerRichSource } from '../../src/composer/composer-rich-source';
 import { composerIntentSource } from '../../src/composer/composer-intent-source';
 import { composerSourceSession } from '../../src/composer/composer-rich-state';
+import { refreshFileMetadata } from '../../src/shared/file-metadata';
 
 describe('root composer projection source', () => {
+  test('preview file glyphs ignore conflicting active-workspace metadata', async () => {
+    const client = new T3Client(), value = '@sample.ts ';
+    Object.assign(client, { environmentId: 'env', threadId: 't1', projectId: 'p1', scopes: ['filesystem:read'], connection: 'connected', configLive: true, shellLive: true, threadLive: true });
+    client.shell = { projects: [{ id: 'p1', workspaceRoot: '/repo' }], threads: [] };
+    client.local.drafts[client.draftKey] = value;
+    client.restAccess = () => ({ request: async () => ({ entries: [{ kind: 'directory' }] }) }) as ReturnType<T3Client['restAccess']>;
+    const native = { available: true, watch() {}, later: async () => ({}) };
+    await refreshFileMetadata(client, native, 0);
+    const active = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'thread', value });
+    const preview = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'preview', value, surface: 'preview' });
+    expect(active.chips[0]?.face.icon).toBe('folder');
+    expect(preview.chips[0]?.face.icon).toBe('at-sign');
+    expect(preview.chips[0]?.face.fileToken).toBe('');
+  });
   test('actual path-query paste protects only its literal prefix and rebases with surrounding edits', () => {
     const client = new T3Client(), owner = 'thread', text = 'src/__name__/file.ts **body**';
     composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner, value: '@' });
@@ -109,9 +124,9 @@ describe('root composer projection source', () => {
     client.config.providers = [{ instanceId: 'codex', skills: [{ name: 'frontend-design', displayName: 'Custom Workspace Skill' }] }];
     const active = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'thread', value });
     const preview = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'preview', value, surface: 'preview' });
-    expect(active.decorations.atoms[0]?.label).toBe('Custom Workspace Skill');
+    expect(active.decorations.atoms[0]?.label).toBe('\u2003Custom Workspace Skill');
     expect(active.chips[0]?.face.label).toBe('Custom Workspace Skill');
-    expect(preview.decorations.atoms[0]?.label).toBe('Frontend Design');
+    expect(preview.decorations.atoms[0]?.label).toBe('\u2003Frontend Design');
     expect(preview.chips[0]?.face.label).toBe('Frontend Design');
     const refs = '[PR #7](t3-context://v1/review-comment/review-comment_p) [gone](t3-context://v1/terminal/terminal_missing) [old](t3-context://v1/terminal/terminal_old)';
     client.local.reviewComments = { 'review-comment_p': { kind: 'review-comment', contextId: 'review-comment_p', pullRequest: { state: 'merged', number: 7 } } };
@@ -119,7 +134,7 @@ describe('root composer projection source', () => {
     const contexts = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'thread', value: refs });
     expect(contexts.chips.map(chip => chip.face.kind)).toEqual(['pr-merged', 'neutral', 'invalid']);
     expect(contexts.decorations.atoms.map(atom => atom.name)).toEqual(['cmp-chip-review-comment', 'cmp-chip-neutral', 'cmp-chip-invalid']);
-    expect(contexts.decorations.atoms.map(atom => atom.label)).toEqual(contexts.chips.map(chip => chip.face.label + (chip.face.suffix ? ` ${chip.face.suffix}` : '')));
+    expect(contexts.decorations.atoms.map(atom => atom.label)).toEqual(contexts.chips.map(chip => chip.face.atomLabel));
   });
   test('projects the live controlled value independently of persisted draft timing', () => {
     const client = new T3Client(), value = '**live** $frontend-design ';

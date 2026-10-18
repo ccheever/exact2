@@ -12,6 +12,12 @@ import { pushToast } from '../shell/toast';
 import { pendingRequests } from './requests';
 import { contextId, contextLink, contextReferences } from './composer-editor-menu';
 import { videoMimeType } from './composer-video';
+import { claimComposerOSRecord, composerOSRecord } from './composer-os-record';
+import { composerFieldCurrent } from './composer-field-bridge';
+import { composerFieldReplacement } from './composer-field-edit';
+import { composerSourceSession } from './composer-rich-state';
+import { finishAttachmentEffect, prepareAttachmentEffect } from './composer-attachment-receipts';
+import { composerFieldOwner } from './auto-balance-owner';
 
 export const PASTED_TEXT_THRESHOLD_BYTES = 32 * 1024;
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
@@ -161,6 +167,22 @@ function mapFor<T>(store: WeakMap<object, Map<string, T>>, client: T3Client): Ma
 /** A folded paste's text while this device holds it (a file chip's preview reads it). */
 export function foldedText(client: T3Client, fileId: string): string | undefined { return mapFor(texts, client).get(fileId); }
 
+export function settleFold(client: T3Client, id: string, applied: boolean, current = true): void {
+  const file = draftFiles(client.local).find(file => file.id === id);
+  if (!file) return;
+  if (applied) {
+    if (current) pushToast(client, { kind: 'info', title: `Large paste attached as ${file.name}`,
+      description: `${formatAttachmentSize(file.sizeBytes)} · Use ⌘⇧V to keep a large paste inline.`, hideCopy: true });
+    return;
+  }
+  const link = fileChipLink(file);
+  if (Object.values(client.local.drafts).some(value => value.includes(link))) return;
+  if (current) pushToast(client, { kind: 'info', title: 'Paste was not added', description: 'The prompt changed before the attachment could be inserted.', hideCopy: true });
+  setDraftFiles(client.local, draftFiles(client.local).filter(entry => entry !== file));
+  mapFor(texts, client).delete(file.id);
+  for (const [key, staged] of mapFor(folds, client)) if (staged.id === file.id) mapFor(folds, client).delete(key);
+}
+
 /** A cross-environment thread's transcript enters the ordinary attachment upload queue. */
 export function stageTextAttachment(client: T3Client, text: string, name: string, mimeType: string, id: string): DraftFile {
   const file: DraftFile = { id, contextId: contextId('file', id), draftKey: client.draftKey, environmentId: client.environmentId,
@@ -177,25 +199,36 @@ async function nativeCall(native: Native, request: Obj): Promise<Obj> {
 }
 
 /**
- * One paste the native editor holds back: stage pasted-text.txt, announce it,
- * then put its chip where the paste was. The edit comes last: its own input
- * re-asks the view, after which nothing in this answer is certain to run. The
- * editor keeps the fold until an edit names it, so a lost answer retries.
+ * Consume the owner-bound OS fact and stage its attachment before one shared
+ * source edit. Independent input acknowledgement settles cleanup and notices.
  */
 export async function takeFold(client: T3Client, native: Native, fold: Obj, id: string): Promise<void> {
-  const text = str(fold.text);
-  if (!text) return;
+  const generation = client.generation;
+  const currentOwner = () => generation === client.generation && fold.snapshotOwner === client.snapshotOwner && fold.fieldOwner === composerFieldOwner(client);
+  const text = str(fold.text), claimed = claimComposerOSRecord(client, fold);
+  const fact = claimed.kind === 'accepted' && text ? claimed.record : null;
+  if (Number.isSafeInteger(fold.id) && Number(fold.id) > 0) await nativeCall(native, { op: 'editorForgetFold', id: fold.id });
+  if (!fact || !composerOSRecord(client, fold)) {
+    if (currentOwner() && (claimed.kind === 'accepted' || claimed.kind === 'refused' && claimed.notify)) pushToast(client, { kind: 'info', title: 'Paste was not added', description: 'The prompt changed before the attachment could be inserted.', hideCopy: true });
+    return;
+  }
   const key = `${client.draftKey}\u0000${Number(fold.id)}`;
   let file = mapFor(folds, client).get(key);
   if (!file) {
     file = stageFold(client.local, client.draftKey, client.environmentId, text, id);
     mapFor(folds, client).set(key, file);
     mapFor(texts, client).set(file.id, text);
-    pushToast(client, { kind: 'info', title: `Large paste attached as ${file.name}`,
-      description: `${formatAttachmentSize(file.sizeBytes)} · Use ⌘⇧V to keep a large paste inline.`, hideCopy: true });
   }
-  await nativeCall(native, { op: 'editorEdit', start: Number(fold.start) || 0, end: Number(fold.end) || 0, expect: str(fold.expect),
-    text: `${fileChipLink(file)} `, pad: true, fold: Number(fold.id) });
+  const snapshot = composerFieldCurrent(client, fact.fieldOwner), session = composerSourceSession(client);
+  const request = { op: 'editorEdit', snapshotOwner: fact.snapshotOwner, fieldOwner: fact.fieldOwner, value: fact.value,
+    start: fact.start, end: fact.end, expect: fact.expect, text: `${fileChipLink(file)} `, pad: true };
+  const edit = snapshot && composerFieldReplacement(request, { snapshot, draftOwner: client.draftKey, mode: session.mode, chips: session.chips });
+  if (!snapshot || !edit || edit.kind === 'refused') { settleFold(client, file.id, false); return; }
+  const expected = edit.edit.value.slice(0, edit.edit.start) + edit.edit.text + edit.edit.value.slice(edit.edit.end);
+  const completion = prepareAttachmentEffect(client, snapshot, expected, { kind: 'fold', file: file.id });
+  if (!completion) { settleFold(client, file.id, false); return; }
+  const result = await nativeCall(native, { ...request, completion }).catch(() => ({ applied: false }));
+  finishAttachmentEffect(client, { ...edit.edit, completion }, result.applied === true, composerFieldCurrent(client, fact.fieldOwner));
 }
 
 /** attachmentUploadQueue at send time: mint an upload URL, send the bytes (base64), keep the id. */

@@ -26,7 +26,7 @@ describe('composer app field command normalization', () => {
     expect(composerFieldReplacement({ op: 'editorEdit', all: true, expect: 'older', text: '' }, state)).toEqual({ kind: 'refused', reason: 'changed' });
   });
   test('insert uses the retained caret without deleting a selected chip and consumes one existing space', () => {
-    const insertion = apply({ op: 'editorInsert', text: '[context](t3-context://v1/thread/thread_a)', owner: 'selected-draft' }, context('word selected rest', 5, 13));
+    const insertion = apply({ op: 'editorInsert', text: '[context](t3-context://v1/thread/thread_a)', owner: 'snapshot' }, context('word selected rest', 5, 13));
     expect(insertion.value).toBe('word [context](t3-context://v1/thread/thread_a) selected rest');
     expect(insertion.result.edit.start).toBe(5);
     expect(insertion.result.edit.end).toBe(5);
@@ -55,6 +55,7 @@ describe('composer app field command normalization', () => {
       expect(composerFieldReplacement(request, state).kind).toBe('refused');
     }
     expect(composerFieldReplacement({ op: 'editorInsert', owner: 'old-draft' }, state)).toEqual({ kind: 'refused', reason: 'another composer' });
+    expect(composerFieldReplacement({ op: 'editorInsert', owner: state.draftOwner }, state)).toEqual({ kind: 'refused', reason: 'another composer' });
     expect(composerFieldReplacement({ op: 'editorEdit' }, { ...state, snapshot: { ...state.snapshot, composing: true } })).toEqual({ kind: 'refused', reason: 'field composing' });
     expect(composerFieldReplacement({ op: 'editorEdit' }, { ...state, snapshot: { ...state.snapshot, live: false } })).toEqual({ kind: 'refused', reason: 'no composer' });
   });

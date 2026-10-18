@@ -75,11 +75,11 @@ const CHIP_STYLES: Readonly<Record<string, string>> = {
   terminal: 'terminal', image: 'image', file: 'file', folder: 'file', video: 'video', 'preview-annotation': 'preview-annotation',
   'pull-request': 'pull-request', 'pr-open': 'terminal', 'pr-draft': 'pr-draft', 'pr-merged': 'review-comment', 'pr-closed': 'image', invalid: 'invalid',
 };
-export function chipDecorations(chips: readonly ComposerChip[], labels: Readonly<Record<string, string>> = {}, faces?: readonly { kind: string; label: string; suffix: string }[]): ComposerAtom[] {
+export function chipDecorations(chips: readonly ComposerChip[], labels: Readonly<Record<string, string>> = {}, faces?: readonly { kind: string; atomLabel: string }[]): ComposerAtom[] {
   return chips.map((chip, index) => {
     const face = faces?.[index], kind = face?.kind ?? (chip.kind === 'context' ? chip.contextKind : chip.kind);
     return { name: `cmp-chip-${CHIP_STYLES[kind] ?? 'neutral'}`, start: chip.start, end: chip.end,
-      label: face ? face.label + (face.suffix ? ` ${face.suffix}` : '') : chip.kind === 'skill' ? labels[chip.name] ?? chip.label : chip.label };
+      label: face ? face.atomLabel : chip.kind === 'skill' ? labels[chip.name] ?? chip.label : chip.label };
   });
 }
 

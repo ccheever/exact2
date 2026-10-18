@@ -5,6 +5,9 @@ import { T3Client } from '../../src/client/client';
 import { snapshot } from '../../src/client/presentation';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native, Files } from '../../src/client/protocol';
+import { citationField } from '../timeline/citation-field.fixture';
+import { composerChipCurrent } from '../../src/composer/composer-chip-bridge';
+import { collectAssistantCitations } from '../../src/timeline/diff-citations';
 
 const filePatch = (path: string, extra = '') => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1,2 +1,3 @@\n one\n+added in ${path}\n two\n${extra}`;
 const stats = Array.from({ length: 10 }, (_, index) => ({ path: index < 6 ? `src/ui/f${index}.ts` : `docs/d${index}.md`, previousPath: null, additions: 1, deletions: 0 }));
@@ -210,27 +213,38 @@ describe('what sits under a selected line is painted selected (Pierre\'s renderS
 });
 
 describe('Cite', () => {
-  test('a selection across two answer blocks becomes an Assistant quote chip whose href parses back', async () => {
-    const { client, command, calls } = harness(false);
-    const stream = 'First paragraph of the answer.\nSecond block with more words.';
-    // Block 2 starts after the line break at 31; the reader selected "answer." and "Second".
-    await command('diffreview', 'cite:["t1","turn-item:provider:codex:native-item:a1"]', `23-30,31-37|412,180.5,540,22|${stream}`);
-    const insert = calls.filter(call => call.op === 'editorInsert').at(-1)!;
-    const href = /^\[Assistant quote\]\((t3-citation:\/\/v1\/[^\s)]+)\)$/.exec(String(insert.text))![1]!;
-    const { parseAssistantCitationHref } = await import('../../src/timeline/diff-citations');
-    expect(parseAssistantCitationHref(href)).toEqual({ version: 1, environmentId: 'env', threadId: 't1', messageId: 'message:provider:codex:native-item:a1',
+  test('a selection across answer blocks inserts once and opens through independent ACK', async () => {
+    const { client, command, calls, native } = harness(false);
+    const state = citationField('', 0, 0, client, { ...native, later: native.later.bind(native) });
+    native.later = state.native.later;
+    const stream = 'First paragraph of the answer.\nSecond block with more words.', waiting = state.next();
+    const pending = command('diffreview', 'cite:["t1","turn-item:provider:codex:native-item:a1"]', `23-30,31-37|412,180.5,540,22|${stream}`);
+    const insertion = await waiting;
+    const citations = collectAssistantCitations(insertion.text);
+    expect(citations).toHaveLength(1);
+    expect(citations[0]?.citation).toEqual({ version: 1, environmentId: 'env', threadId: 't1', messageId: 'message:provider:codex:native-item:a1',
       text: 'answer.\nSecond', start: 23, end: 37, prefix: 'First paragraph of the ', suffix: ' block with more words.' });
-    // Then its comment opens under the cited text's last part (ChatComposer citeAssistantText).
-    const open = calls.filter(call => call.op === 'editorCiteOpen');
-    expect(open).toEqual([{ op: 'editorCiteOpen', href, source: [412, 180.5, 540, 22] }]);
-    expect(calls.indexOf(open[0]!)).toBeGreaterThan(calls.indexOf(insert));
+    expect(insertion.citation).toBeGreaterThan(0);
+    state.input(insertion);
+    expect(composerChipCurrent(client)).toBeNull();
+    expect(state.ack(insertion).applied).toBe(true);
+    expect(composerChipCurrent(client)).toMatchObject({ kind: 'citation', open: true, anchor: 'source', anchorFrame: [412, 180.5, 540, 22] });
+    await pending;
+    expect(collectAssistantCitations(state.current().value)).toHaveLength(1);
+    expect(calls.filter(call => String(call.op).startsWith('editor'))).toEqual([]);
   });
 
-  test('no chip, no comment: a composer that refuses the quote opens nothing (citeAssistantText returns false)', async () => {
-    const { command, calls, native } = harness(false);
-    const later = native.later;
-    native.later = async (input: unknown) => obj(input).op === 'editorInsert' ? { ok: true, generation: 1, value: { applied: false } } : later(input);
-    await command('diffreview', 'cite:["t1","a1"]', '0-5||Hello world');
-    expect(calls.filter(call => call.op === 'editorCiteOpen')).toEqual([]);
+  test('shared input refusal opens nothing and does not append a fallback quote', async () => {
+    const { client, command, calls, native } = harness(false);
+    const state = citationField('kept', 4, 4, client, { ...native, later: native.later.bind(native) });
+    native.later = state.native.later;
+    const waiting = state.next();
+    const pending = command('diffreview', 'cite:["t1","a1"]', '0-5|10,20,80,18|Hello world');
+    const insertion = await waiting;
+    expect(state.ack(insertion, false).applied).toBe(false);
+    await pending;
+    expect(state.current().value).toBe('kept');
+    expect(composerChipCurrent(client)).toBeNull();
+    expect(calls.filter(call => String(call.op).startsWith('editor'))).toEqual([]);
   });
 });

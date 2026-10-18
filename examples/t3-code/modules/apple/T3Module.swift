@@ -12,8 +12,8 @@ final class T3Module: ExactModule {
     private let toolIcons = T3ToolActivityIcon()
     let ssh: T3Ssh // Add Environment → SSH: discovery, ssh -G, tunnels (T3Ssh.swift).
     let composer: T3Composer
-    /// Settings › Appearance's editable prompt sample: its own editor, never the composer's (T3ComposerEditor.swift).
-    let promptPreview = T3ComposerEditor(changed: { _ in }, hatch: .t3PromptPreview)
+    /// Weak view registry for the shared Settings prompt sample.
+    let promptPreview = T3ComposerPreview()
     let intent: T3ComposerIntent // Send gestures and ⌘ state (T3ComposerIntent.swift).
     private let frames: T3ComposerFrames // Popover anchors in window space (T3ComposerFrames.swift).
     let attach: T3ComposerAttach // Attach files: picked images become PNG drafts (T3ComposerAttach.swift).
@@ -45,11 +45,6 @@ final class T3Module: ExactModule {
         sidebar = T3Sidebar(agent: context.agent, changed: changed)
         snapShot = T3SnapShot(directory: context.data, agent: context.agent, changed: changed)
         composer = T3Composer(changed: changed)
-        composer.editor.styler.imageDirectory = context.data.appendingPathComponent("snapshots/drafts", isDirectory: true) // image chips (T3ComposerImageChip.swift)
-        promptPreview.styler.richText = false // PromptFontPreview leaves ComposerPromptEditor's richTextEnabled off: markers stay text
-        // A skill chip's press in either editor opens its details popover (T3ComposerChipPress.swift, composer-chip-popover.ts).
-        composer.editor.styler.press.onChange = { changed("t3.chip") }
-        promptPreview.styler.press.onChange = { changed("t3.chip") }
         intent = T3ComposerIntent(changed: changed)
         frames = T3ComposerFrames(changed: changed)
         attach = T3ComposerAttach(dataRoot: context.data, agent: context.agent)
@@ -124,7 +119,7 @@ final class T3Module: ExactModule {
         T3TerminalCommandKey.remove(element)
         panelTabs.remove(element); toolIcons.remove(element)
         frames.remove(element)
-        composer.remove(element); promptPreview.remove(element); media.remove(element); devices.remove(element); mediaFocus.remove(element)
+        composer.remove(element); promptPreview.remove(element); composerInput.remove(element); media.remove(element); devices.remove(element); mediaFocus.remove(element)
         rowDrop.remove(element)
         if element.hatch == .t3SnapshotTile, let view = element.view { snapShot.removeTile(view: view) }
         if element.hatch == .t3Composer { snapShot.removeComposer(key: ObjectIdentifier(element)) }

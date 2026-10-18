@@ -327,7 +327,9 @@ final class T3SnapShot {
                   let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
                   width > 0, height > 0 else { fail("Could not read the saved draft image."); return }
             let scale = min(1, 2048 / Double(max(width, height)))
-            complete(["width": (Double(width) * scale).rounded(), "height": (Double(height) * scale).rounded()])
+            var facts: [String: Any] = ["width": (Double(width) * scale).rounded(), "height": (Double(height) * scale).rounded()]
+            if let average = T3ComposerImageChip.average(at: path) { facts["average"] = average }
+            complete(facts)
         case "snapshotRead":
             guard let id = request["id"] as? String, let capture = pending[id], capture.owner == (request["owner"] as? String ?? "") else { fail("This snapshot is no longer available."); return }
             do { complete(capture.metadata.merging(["id": id, "owner": capture.owner, "mimeType": "image/png", "base64": try Data(contentsOf: capture.path).base64EncodedString()]) { _, new in new }) }

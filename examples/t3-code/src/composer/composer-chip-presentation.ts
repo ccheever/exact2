@@ -7,7 +7,7 @@ import type { ComposerChip } from './composer-source-chips';
 
 export type ComposerChipFace = {
   kind: string; label: string; suffix: string; icon: string; fileToken: string;
-  imageId: string; available: boolean; interactive: boolean; comment: boolean; tip: string;
+  imageId: string; atomLabel: string; available: boolean; interactive: boolean; comment: boolean; tip: string;
 };
 const icons: Readonly<Record<string, string>> = {
   mention: 'at-sign', skill: 'sparkles', citation: 'quote', thread: 'messages-square',
@@ -35,10 +35,13 @@ export function composerChipFaces(client: T3Client, value: string, chips: readon
       if (kind === 'image') imageId = fields[2] ?? '';
       if (!available) tip = kind === 'terminal' ? 'This terminal excerpt has expired.' : `Unavailable context, ${label}`;
     }
-    const fileToken = chip.kind === 'mention' ? workspaceFileIcon(client, chip.path) : '';
+    const fileToken = chip.kind === 'mention' && !preview ? workspaceFileIcon(client, chip.path) : '';
     const icon = !available ? 'circle-dashed' : fileToken === 'folder' ? 'folder' : icons[kind] ?? 'circle-dashed';
-    const interactive = available && (chip.kind === 'skill' || !preview && icons[kind] !== undefined);
+    const interactive = available && (chip.kind === 'skill' || !preview && icons[kind] !== undefined), comment = !preview && chip.kind === 'citation';
+    // Em spaces reserve measured display slots for Contract glyph controls;
+    // clipboard and edits continue to use the atom's original source range.
+    const atomLabel = `\u2003${label}${suffix ? ` ${suffix}` : ''}${comment ? '\u2003' : ''}`;
     return { kind: !available && kind === 'terminal' ? 'invalid' : kind, label, suffix, icon, fileToken: fileToken === 'folder' ? '' : fileToken,
-      imageId, available, interactive, comment: !preview && chip.kind === 'citation', tip };
+      imageId, atomLabel, available, interactive, comment, tip };
   });
 }

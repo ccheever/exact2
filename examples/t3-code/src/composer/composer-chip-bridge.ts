@@ -1,9 +1,9 @@
 import type { T3Client } from '../client/client';
 import { composerFieldOwner } from './auto-balance-owner';
-import { composerFieldCurrent } from './composer-field-bridge';
+import { composerFieldCurrent, composerFieldInputSerial } from './composer-field-bridge';
 import type { ComposerFieldSnapshot } from './composer-field-commands';
 import type { ComposerChipPress } from './composer-chip-state';
-import { composerChipStore as entry, type ComposerChipPreview } from './composer-chip-store';
+import { composerChipStore as entry, type ComposerChipPreview, type ComposerChipFinish } from './composer-chip-store';
 import type { ComposerCitationEffect } from './composer-citation-receipts';
 import { composerSourceSession } from './composer-rich-state';
 import { composerChipFaces } from './composer-chip-presentation';
@@ -42,10 +42,11 @@ function geometry(value: unknown): Frame | null {
 export function composerChipOpen(client: T3Client, value: unknown): ComposerChipPress | null {
   if (!record(value) || !integer(value.generation) || value.generation !== client.generation || value.snapshotOwner !== client.snapshotOwner
     || typeof value.owner !== 'string' || typeof value.value !== 'string' || !integer(value.start) || !integer(value.end)
-    || typeof value.source !== 'string' || typeof value.comment !== 'boolean' || !['composer', 'preview'].includes(String(value.surface))) return null;
+    || typeof value.source !== 'string' || typeof value.comment !== 'boolean' || !integer(value.inputSerial) || !['composer', 'preview'].includes(String(value.surface))) return null;
   const state = entry(client), surface = value.surface === 'preview' ? 'preview' : 'composer';
   const current = surface === 'preview' ? preview(client, state) : composerFieldCurrent(client, composerFieldOwner(client));
   const session = composerSourceSession(client, surface), frame = geometry(value.frame);
+  if (value.inputSerial !== (surface === 'preview' ? state.preview?.inputSerial : composerFieldInputSerial(client))) return null;
   if (!current || !frame || current.owner !== value.owner || current.value !== value.value || !session.matches(current.owner, current.value) || session.mode === 'literal') return null;
   const index = session.chips.findIndex(chip => chip.start === value.start && chip.end === value.end && chip.source === value.source);
   const faces = composerChipFaces(client, current.value, session.chips, surface === 'preview'), face = faces[index];
@@ -62,6 +63,39 @@ export function composerChipCurrent(client: T3Client): ComposerChipPress | null 
 export function composerChipClose(client: T3Client, seq: number): boolean {
   composerChipCurrent(client);
   return entry(client).presses.close(seq);
+}
+export function composerChipFinishNoEdit(client: T3Client, seq: number, options: Pick<ComposerChipFinish, 'send' | 'focus'>): boolean {
+  const press = composerChipCurrent(client), state = entry(client);
+  if (!press || press.seq !== seq || !press.open) { state.presses.close(seq); return false; }
+  const current = press.surface === 'preview' ? preview(client, state) : composerFieldCurrent(client, composerFieldOwner(client));
+  if (!current?.live || current.composing || current.owner !== press.fieldOwner || current.value.slice(press.start, press.end) !== press.link) return false;
+  if (options.send && (press.surface !== 'composer' || press.kind !== 'citation')) return false;
+  if (!state.presses.close(seq)) return false;
+  state.finish = { seq, generation: current.generation, snapshotOwner: current.snapshotOwner, owner: current.owner, value: current.value,
+    inputSerial: press.surface === 'preview' ? state.preview?.inputSerial ?? 0 : composerFieldInputSerial(client), surface: press.surface,
+    start: press.start, end: press.end, ...options, interaction: state.presses.interactionRevision };
+  return true;
+}
+export function composerCitationNoEdit(client: T3Client, seq: number, options: Pick<ComposerChipFinish, 'send' | 'focus'>): boolean {
+  const press = composerChipCurrent(client);
+  return press?.seq === seq && press.kind === 'citation' && press.surface === 'composer' && composerChipFinishNoEdit(client, seq, options);
+}
+export function composerChipFinishCurrent(client: T3Client, finish: ComposerChipFinish): boolean {
+  const state = entry(client), current = finish.surface === 'preview' ? preview(client, state) : composerFieldCurrent(client, composerFieldOwner(client));
+  return !!current?.live && !current.composing && finish.generation === client.generation && finish.snapshotOwner === client.snapshotOwner
+    && current.owner === finish.owner && current.value === finish.value && state.presses.latest === finish.seq && state.presses.interactionRevision === finish.interaction
+    && finish.inputSerial === (finish.surface === 'preview' ? state.preview?.inputSerial : composerFieldInputSerial(client));
+}
+export function composerChipFinishView(client: T3Client): ComposerChipFinish | null {
+  const state = entry(client), finish = state.finish;
+  if (finish && !composerChipFinishCurrent(client, finish)) state.finish = null;
+  return state.finish ? { ...state.finish } : null;
+}
+export function takeComposerChipFinish(client: T3Client, seq: number): ComposerChipFinish | null {
+  const state = entry(client), finish = composerChipFinishView(client);
+  if (!finish || finish.seq !== seq) return null;
+  state.finish = null;
+  return finish;
 }
 export function composerChipTake(client: T3Client, seq: number): ComposerChipPress | null {
   const current = composerFieldCurrent(client, composerFieldOwner(client));
