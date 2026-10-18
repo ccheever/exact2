@@ -33,7 +33,7 @@ private func snapshotFamily(_ family: WidgetFamily) -> SnapshotEnvironment.Famil
     case .systemSmall: .systemSmall
     case .systemMedium: .systemMedium
     case .systemLarge: .systemLarge
-    case .systemExtraLarge: .systemExtraLarge
+    case .systemExtraLarge, .systemExtraLargePortrait: .systemExtraLarge
     case .accessoryCircular: .accessoryCircular
     case .accessoryRectangular: .accessoryRectangular
     case .accessoryInline: .accessoryInline
