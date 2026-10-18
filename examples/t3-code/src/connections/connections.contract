@@ -59,6 +59,7 @@ shape SavedEnvironment
   switchTip: string
   active: bool
   traceId: string
+  mcpUrl: string
   update: string
   updateVersion: string
   // ServerUpdateAction: a desktop-managed server without remote app updates shows this sentence, no button.
@@ -312,7 +313,7 @@ component EnvironmentRow
     routesOpen = not routesOpen
     if closing and routeKeyboard.environmentId == environment.environmentId
       routeKeyboardInput(environment.environmentId, environment.key, routeKeyboard.routeId, "cancel", false)
-  derive menuItems = [KmItem(id=`environment-icon-${environment.environmentId}`, label="Icon"), KmItem(id=(busy ? "" : `environment-routes-item-${environment.environmentId}`), label=(routesOpen ? "Hide routes" : "Routes")), KmItem(id=(busy or environment.traceId == "" ? "" : `environment-trace-${environment.environmentId}`), label="Copy trace ID"), KmItem(id=(busy ? "" : (environment.active ? "forget-server" : `environment-remove-${environment.environmentId}`)), label="Remove from this device…")].filter((item) => item.id != "")
+  derive menuItems = [KmItem(id=`environment-icon-${environment.environmentId}`, label="Icon"), KmItem(id=(busy ? "" : `environment-routes-item-${environment.environmentId}`), label=(routesOpen ? "Hide routes" : "Routes")), KmItem(id=(busy or environment.mcpUrl == "" ? "" : `environment-mcp-${environment.environmentId}`), label="Copy MCP URL"), KmItem(id=(busy or environment.traceId == "" ? "" : `environment-trace-${environment.environmentId}`), label="Copy trace ID"), KmItem(id=(busy ? "" : (environment.active ? "forget-server" : `environment-remove-${environment.environmentId}`)), label="Remove from this device…")].filter((item) => item.id != "")
   action triggerKey(k: string, e: KeyboardEvent)
     if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
       preventDefault()
@@ -369,6 +370,8 @@ component EnvironmentRow
             CnMenu(menuId=`environment-menu-${environment.environmentId}-popup`, invoker=`environment-menu-${environment.environmentId}`, label=`More actions for ${environment.label}`, width=196, area="bottom span-left", items=menuItems, keyed=0)
               EnvironmentIconMenu(keysId=`environment-menu-${environment.environmentId}-popup-keys`, environment=environment, op=op)
               RouteMenuItem(keysId=`environment-menu-${environment.environmentId}-popup-keys`, label=(routesOpen ? "Hide routes" : "Routes"), menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-routes-item-${environment.environmentId}`, disabled=busy, choose=toggleRoutes)
+              if environment.mcpUrl != ""
+                CnMenuItem(keysId=`environment-menu-${environment.environmentId}-popup-keys`, label="Copy MCP URL", menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-mcp-${environment.environmentId}`, destructive=false, disabled=busy, radio=false, highlighted=false, note="", icon="", submenu="", choose=op("environment-mcp", environment.key, environment.mcpUrl))
               if environment.traceId != ""
                 CnMenuItem(keysId=`environment-menu-${environment.environmentId}-popup-keys`, label="Copy trace ID", menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-trace-${environment.environmentId}`, destructive=false, disabled=busy, radio=false, highlighted=false, note="", icon="", submenu="", choose=op("environment-trace", environment.key, environment.traceId))
               CnSeparator()
