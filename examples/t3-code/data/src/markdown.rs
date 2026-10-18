@@ -1201,7 +1201,7 @@ mod tests {
             ]
         );
         assert_eq!(pierre_icon_token("src/app.tsx"), "react");
-        assert_eq!(pierre_icon_token("Cargo.toml"), "default");
+        assert_eq!(pierre_icon_token("Cargo.toml"), "toml");
     }
 
     /// A web link's own menu is dispatched per node (FlowRuns), not per inline run (ChatRuns), so
