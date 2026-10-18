@@ -95,6 +95,11 @@ check('a look snaps through an authored transition, entering and leaving; a base
       await mouse('mouseMoved', away);
       expect(await shows(id)).toEqual(['rgb(255, 255, 255)', '1.00']); // and out of it, at once
     }
+    // A pointer crossing is one still change, its mouse events' twins taken as the same edge.
+    await evaluate(`window.pulses = 0; new MutationObserver(r => { pulses += r.filter(m => m.oldValue === null).length; }).observe(document.getElementById('eased-js'), { attributes: true, attributeOldValue: true, attributeFilter: ['data-exact-snap'] })`);
+    await mouse('mouseMoved', await at('eased-js'));
+    await mouse('mouseMoved', away);
+    expect(await evaluate('pulses')).toBe(2);
     // Moving within the node (onto a child) is no edge: nothing is touched.
     await mouse('mouseMoved', await at('eased-js'));
     await evaluate(`window.snaps = 0; new MutationObserver(r => { window.snaps += r.length; }).observe(document.getElementById('eased-js'), { attributes: true, attributeFilter: ['data-exact-snap'] })`);

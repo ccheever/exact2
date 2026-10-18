@@ -110,7 +110,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey
       || (a.target && a.target !== "_self") || a.hasAttribute("download")) { if (press) event.stopPropagation(); return; }
     const url = new URL(a.href), to = url.pathname + url.search, here = to === location.pathname + location.search || to === globalThis.history?.state?.url;
-    const { wasm, writeIn, navigate, go } = globalThis.exact;
+    // (A JS-target page with no GPU surface writes nothing in: its route table is its own.)
+    const { wasm, writeIn = () => 0, navigate, go } = globalThis.exact;
     if (url.origin !== location.origin || (here && url.hash) || wasm.exact_route_match(writeIn(to)) !== 1) return;
     const nav = root.firstElementChild, heard = nav?.hasAttribute("navigationBack") && nav.exactHandlers?.includes("navigate");
     event.preventDefault();
@@ -465,9 +466,10 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // The focused node's `:focus-visible` as last seen: a focus look's edge is its flipping. (`:hover` can't be read
   // so: a browser moves it for the style it computes next, so an edge is the pointer crossing a node's border.)
   const focusSeen = new WeakMap();
-  // The last edge a pointer event crossed: its compatibility mouse event is the same edge (a mouse event alone,
-  // Firefox's for a scroll under a still pointer, isn't).
-  let pointerEdge = null;
+  // The edges pointer events crossed whose compatibility mouse events are still owed (they come after: a pointer's
+  // out and over, then the mouse's); a mouse event alone, Firefox's for a scroll under a still pointer, is its own.
+  const pointerEdges = [];
+  const elementOf = (n) => (n instanceof Element ? n : n?.parentElement ?? null);
   const deepFocus = () => { let el = document.activeElement; while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement; return el; };
   { const el = deepFocus(); if (el instanceof Element) focusSeen.set(el, el.matches(":focus-visible")); }
   const focusLook = (el) => el instanceof Element && inPage(el) && !el.matches(DISABLED) && looks(el, document.getElementById("exact-looks")).includes("focus-visible");
@@ -481,14 +483,20 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       focusSeen.set(el, now);
       if (was !== now && focusLook(el)) els.push(el);
     } else {
-      const over = e.type.endsWith("over");
-      if (e.type.startsWith("pointer")) pointerEdge = { over, target: e.target, related: e.relatedTarget };
-      else if (pointerEdge?.over === over && pointerEdge.target === e.target && pointerEdge.related === e.relatedTarget) return;
+      // (A mouse event's target can be a text node: its element's edge.)
+      const over = e.type.endsWith("over"), target = elementOf(e.target), related = elementOf(e.relatedTarget);
+      if (e.type.startsWith("pointer")) { pointerEdges.push({ over, target, related }); if (pointerEdges.length > 4) pointerEdges.shift(); }
+      else {
+        // Its pointer event's twin, taken once; any other mouse edge is its own (and no twin is still owed).
+        const twin = pointerEdges.findIndex(p => p.over === over && p.target === target && p.related === related);
+        if (twin >= 0) { pointerEdges.splice(0, twin + 1); return; }
+        pointerEdges.length = 0;
+      }
       // A hover look holds only where the pointer can hover (looks.rs's media query), on an enabled node; entering or
       // leaving it, not moving within it.
       if (!canHover.matches) return;
-      for (let el = e.target; el instanceof Element && root.contains(el); el = el.parentElement) {
-        if (el.contains(e.relatedTarget)) break;
+      for (let el = target; el instanceof Element && root.contains(el); el = el.parentElement) {
+        if (el.contains(related)) break;
         if (!el.matches(DISABLED) && looks(el, sheet).includes(":hover")) els.push(el);
       }
     }
