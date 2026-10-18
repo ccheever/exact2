@@ -70,7 +70,7 @@ describe('options menu (buildMenuItems, getMenuActionDisabledReason)', () => {
       { kind: 'gitlab', label: 'GitLab', status: 'available', auth: { status: 'authenticated', account: { _tag: 'Some', value: 'me' } } }];
     expect(publishReadiness('github', discovered)).toMatchObject({ ready: false, hint: 'GitHub is not authenticated. Open Settings -> Source Control for setup guidance.' });
     expect(publishReadiness('bitbucket', discovered).hint).toBe('Provider status unavailable. Open Settings -> Source Control and rescan.');
-    expect(sortedPublishProviders(discovered).map(option => option.value)).toEqual(['gitlab', 'azure-devops', 'bitbucket', 'forgejo', 'github']);
+    expect(sortedPublishProviders(discovered).map(option => option.value)).toEqual(['gitlab', 'azure-devops', 'bitbucket', 'forgejo', 'gitcafe', 'github']);
   });
 });
 
@@ -150,7 +150,7 @@ describe('branch picker (BranchToolbarBranchSelector)', () => {
   });
   test('a new worktree starts from origin by default, and the label says so', () => {
     const client = { local: { composerControls: { contexts: { 'env:new:p1': { envMode: 'worktree', branch: '', worktreePath: '' } } } }, threadId: '', draftKey: 'env:new:p1', projectId: 'p1',
-      config: { settings: {} } } as unknown as T3Client;
+      config: { settings: {} }, shell: { projects: [], threads: [] } } as unknown as T3Client;
     expect(startFromOrigin(client)).toBe(true);
     branchState(client).refs = { cwd: '/repo', query: '', refs: [{ name: 'main', isDefault: true, current: true }], total: 1, nextCursor: null, loaded: true, generation: 0, stale: false };
     expect(originLabel(client, 'main')).toBe('origin/main');

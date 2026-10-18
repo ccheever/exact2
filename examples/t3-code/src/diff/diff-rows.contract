@@ -1,10 +1,11 @@
+use findPaint from "../timeline/thread-find.contract"
 // The diff rows the thread's Diff panel (diff.contract) and the pull request Code tab
 // (pages-pr-code.contract) both draw, measured against T3's served @pierre/diffs rendering: a file
 // header, a stacked or split line, a hidden-range separator, a comment under its line, and the
 // toolbar's icon button. Kept apart from diff.contract so the pull request panel can draw them
 // without reaching the window's shapes (the panel is reachable from those).
 use DiffItem from "../shared/shapes.contract"
-use DiffSegment from "../shared/shapes.contract"
+use FindDiffSegment from "./diff-find.contract"
 use diffInk from "../appearance/settings-appearance-look.contract"
 use synColor from "../timeline/markdown.contract"
 use synSlant from "../timeline/markdown.contract"
@@ -161,7 +162,7 @@ component DiffCell
   props
     family: string
     tone: string
-    segments: DiffSegment[]
+    segments: FindDiffSegment[]
     gutter: number
     size: number
     wrap: bool
@@ -214,7 +215,7 @@ component DiffCell
           box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffInk(scheme, "del-bar") background-image=`repeating-linear-gradient(to bottom, ${diffInk(scheme, "del")} 0 1px, transparent 1px 2px)`
       text flex=1 min-width=0 padding-left=(7.83 * size / 13) padding-right=(7.83 * size / 13) box-sizing="border-box" font-family=family font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "anywhere" : "normal") color="light-dark(#0a0a0a, #fafafa)"
         for segment in segments key=segment.id
-          text segment.text color=synColor(segment.syntax) font-style=synSlant(segment.syntax)
+          text segment.text background-color=findPaint(segment.find) color=(segment.find >= 2 ? "#171717" : synColor(segment.syntax)) font-style=synSlant(segment.syntax)
       // The empty side of a split run: Pierre's [data-gutter-buffer] flat and its [data-content-buffer] hatched, 45° stripes
       // rising to the right in the buffer colour (CDP, 1e2ecbd975: #f8f8f8 / #131313; stripes #e6e6e6 / #1d1d1d over the
       // code surface). Pierre paints one repeating-linear-gradient over the whole run, 2px stripes in 8px tiles. Here a

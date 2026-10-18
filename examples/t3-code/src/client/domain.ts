@@ -494,11 +494,12 @@ export function readyCheckpoint(state: ThreadState | null): number | null {
   return latest;
 }
 
-// Reference projectSettings.resolveWorktreeCleanup: off clears every rule,
+// T3 Code 9c161462c9 projectSettings.resolveWorktreeCleanup: off clears every rule,
 // custom owns a complete rule object, otherwise inherit environment retention.
 export function effectiveWorktreeRules(settings: Obj, override: Obj): Obj {
   const policy = obj(override.worktreeCleanup ?? settings.worktreeCleanup);
   const rules = policy.mode === 'off' ? {} : policy.mode === 'custom' ? obj(policy.rules) : obj(settings.storageCleanup);
-  return { worktreeAfterDays: typeof rules.worktreeAfterDays === 'number' ? rules.worktreeAfterDays : null,
+  return { worktreeKeepWhen: str(rules.worktreeKeepWhen, 'uncommitted-changes'), worktreeSettledAfterDays: typeof rules.worktreeSettledAfterDays === 'number' ? rules.worktreeSettledAfterDays : null,
+    worktreeAfterDays: typeof rules.worktreeAfterDays === 'number' ? rules.worktreeAfterDays : null,
     worktreeOnMerge: rules.worktreeOnMerge === true, worktreeOnDelete: rules.worktreeOnDelete === true, worktreeUnchanged: rules.worktreeUnchanged === true };
 }

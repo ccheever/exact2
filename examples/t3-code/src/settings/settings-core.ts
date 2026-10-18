@@ -1,5 +1,5 @@
 // Settings shell + General route data.
-// Reference: apps/web/src/components/settings/{SettingsPanels,ProjectDefaultsSettings,
+// Reference: T3 Code 9c161462c9 apps/web/src/components/settings/{SettingsPanels,ProjectDefaultsSettings,
 // settingsLayout,SettingsScopeSentence,settingsScope,scopedSettings}.tsx and
 // packages/shared/src/projectSettings.ts. Server rows read and write the connected
 // environment's ServerSettings (server.updateSettings); device rows are the
@@ -222,10 +222,10 @@ function markOf(name: string) { const identity = projectIdentity(name); return {
 export const PROJECT_SCOPED = new Set(['worktreeCleanup', 'defaultModelSelection', 'defaultRuntimeMode', 'defaultThreadEnvMode', 'newWorktreesStartFromOrigin', 'worktreeSubmodules',
   'defaultAutoPull', 'defaultProjectScripts', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'textGenerationModelSelection', 'sourceControlWriterModelSelection',
   'sourceControlWritingStyle', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod', 'sidebarAutoSettleOnMerge',
-  'sidebarAutoSettleAfterDays', 'continueThreadsAfterServerUpdate', 'responseStreamingMode']);
+  'sidebarAutoSettleAfterDays', 'sidebarAutoSettleKeepPullRequests', 'continueThreadsAfterServerUpdate', 'responseStreamingMode']);
 export const SERVER_DEFAULTS: Record<string, Json> = {
   defaultModelSelection: null, defaultRuntimeMode: 'full-access', defaultThreadEnvMode: null, worktreeSubmodules: null, autoResumeLimitedThreads: false,
-  snoozeLimitedThreads: false, sidebarAutoSettleOnMerge: true, sidebarAutoSettleAfterDays: 3, responseStreamingMode: 'paragraph', enableProviderUpdateChecks: true,
+  snoozeLimitedThreads: false, sidebarAutoSettleOnMerge: true, sidebarAutoSettleAfterDays: 3, sidebarAutoSettleKeepPullRequests: false, responseStreamingMode: 'paragraph', enableProviderUpdateChecks: true,
   continueThreadsAfterServerUpdate: true, backgroundActivity: { schemaVersion: 1, profile: 'balanced', overrides: {} }, newWorktreesStartFromOrigin: true,
   addProjectBaseDirectory: '', textGenerationModelSelection: { instanceId: 'codex', model: 'gpt-6-luna', options: [{ id: 'reasoningEffort', value: 'low' }] },
   enableAgentBrowserAccess: true,
@@ -261,7 +261,7 @@ export function effectiveSetting(settings: Obj, projectId: string, key: string, 
 
 /** One control's context: the representative target's settings (display) and every connected target (mixed, writes). */
 export type ServerContext = { settings: Obj; scope: CoreScope; files: Map<string, Obj | null>; capabilities: Obj; providers: Obj[]; environmentLabel: string;
-  targets: readonly ScopedSettingsTarget[]; restartEverywhere: boolean; settingsWritable: boolean;
+  targets: readonly ScopedSettingsTarget[]; restartEverywhere: boolean; autoSettlementScopeEverywhere: boolean; settingsWritable: boolean;
   /** Each known environment's advertised providers: a model choice must exist on every target (useScopedModelDisabledReason). */
   catalogs: Map<string, Obj[]> };
 /** A target's value for a key: its effective value, a file-backed key's built-in when nothing set it (effectiveSetting). */
@@ -466,6 +466,7 @@ export function generalSections(client: T3Client, context: ServerContext): CoreS
       serverRow(context, 'sidebarAutoSettleAfterDays', 'auto-settle-inactive-threads', 'Auto-settle inactive threads', 'Sidebar threads with no activity for this long settle automatically.', 'switch', { checked: days.value !== null, resetLabel: 'auto-settle' }),
       ...(days.value !== null ? [serverRow(context, 'sidebarAutoSettleAfterDays', 'days-before-auto-settle', 'Days of inactivity before auto-settle', 'Any new activity un-settles a thread automatically.', 'number',
         { value: String(num(days.value, 3)), min: 1, max: 90, width: 96, target: 'days' }, false)] : []),
+      ...(days.value !== null && context.autoSettlementScopeEverywhere ? [serverRow(context, 'sidebarAutoSettleKeepPullRequests', 'keep-threads-with-pr', 'Keep threads with a PR', 'Inactivity does not settle threads with a pull request. Merge and close still do.', 'switch')] : []),
     ] : []),
   ];
   const behavior: CoreRow[] = [
@@ -551,8 +552,9 @@ export function serverContext(client: T3Client, scope: CoreScope, files: Map<str
   const raw = focused ? (settings ?? obj(client.config.settings)) : obj(representative!.serverConfig?.settings);
   const connected = scope.environments.filter(entry => scope.selected.includes(entry) && entry.connection.phase === 'connected');
   const restartEverywhere = connected.length > 0 && connected.every(entry => obj(obj((entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config).environment).capabilities).threadRestartContinuation === true);
+  const autoSettlementScopeEverywhere = connected.length > 0 && connected.every(entry => obj(obj((entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config).environment).capabilities).threadAutoSettlementScope === true);
   return { settings: raw, scope, files, capabilities: obj(environment.capabilities), providers: arr(config.providers), environmentLabel: representative?.label || str(environment.label, 'environment'),
-    targets: resolveScopedSettingsTargets(scope.resolved, connectedOf(client, scope, settings), files), restartEverywhere,
+    targets: resolveScopedSettingsTargets(scope.resolved, connectedOf(client, scope, settings), files), restartEverywhere, autoSettlementScopeEverywhere,
     settingsWritable: connected.length > 0 && connected.every(entry => entry.scopes?.includes('settings:write') === true),
     catalogs: new Map(scope.environments.map(entry => [entry.environmentId, arr((entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config).providers)])) };
 }
@@ -604,7 +606,7 @@ export function settingPlan(client: T3Client, scope: CoreScope, key: string, val
 const SERVER_ROW_KEYS: Record<string, string> = {
   'default-model': 'defaultModelSelection', 'default-permissions': 'defaultRuntimeMode', 'new-threads': 'defaultThreadEnvMode', 'worktree-submodules': 'worktreeSubmodules',
   'auto-resume-limited-threads': 'autoResumeLimitedThreads', 'snooze-limited-threads': 'snoozeLimitedThreads', 'auto-settle-merged-threads': 'sidebarAutoSettleOnMerge',
-  'auto-settle-inactive-threads': 'sidebarAutoSettleAfterDays', 'days-before-auto-settle': 'sidebarAutoSettleAfterDays', 'response-streaming': 'responseStreamingMode',
+  'keep-threads-with-pr': 'sidebarAutoSettleKeepPullRequests', 'auto-settle-inactive-threads': 'sidebarAutoSettleAfterDays', 'days-before-auto-settle': 'sidebarAutoSettleAfterDays', 'response-streaming': 'responseStreamingMode',
   'provider-update-checks': 'enableProviderUpdateChecks', 'continue-threads-after-server-update': 'continueThreadsAfterServerUpdate', 'background-activity': 'backgroundActivity',
   'background-advanced': 'backgroundActivity', 'start-from-origin': 'newWorktreesStartFromOrigin', 'add-project-starts-in': 'addProjectBaseDirectory', 'text-generation-model': 'textGenerationModelSelection',
 };
@@ -664,7 +666,7 @@ export function parseCoreTarget(id: string) {
 }
 const SERVER_LABELS: Record<string, string> = {
   autoResumeLimitedThreads: 'Auto-resume limited threads', snoozeLimitedThreads: 'Snooze limited threads', sidebarAutoSettleOnMerge: 'Auto-settle merged threads',
-  sidebarAutoSettleAfterDays: 'Auto-settle inactive threads', responseStreamingMode: 'Response streaming', enableProviderUpdateChecks: 'Provider update checks',
+  sidebarAutoSettleKeepPullRequests: 'Keep threads with a PR', sidebarAutoSettleAfterDays: 'Auto-settle inactive threads', responseStreamingMode: 'Response streaming', enableProviderUpdateChecks: 'Provider update checks',
   continueThreadsAfterServerUpdate: 'Continue threads after restarts', backgroundActivity: 'Background activity', defaultThreadEnvMode: 'New thread mode',
   newWorktreesStartFromOrigin: 'New worktrees start from origin', addProjectBaseDirectory: 'Add project base directory', textGenerationModelSelection: 'Text generation model',
 };
@@ -688,7 +690,7 @@ const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser',
   ['Environment identification', 'device', ['environmentIdentificationMode']], ['Time format', 'device', ['timestampFormat']], ['Thread notifications', 'device', ['notificationMode']],
   ['In-app notifications', 'device', ['inAppNotificationsEnabled']], ['Visible threads', 'device', ['sidebarThreadPreviewCount']], ['Project Grouping', 'device', ['projectGrouping']],
   ['Project order', 'device', ['sidebarProjectSortOrder']], ['Working section', 'device', ['sidebarWorkingShelfEnabled']],
-  ['Auto-settle inactive threads', 'server', ['sidebarAutoSettleAfterDays']], ['Auto-settle merged threads', 'server', ['sidebarAutoSettleOnMerge']],
+  ['Auto-settle inactive threads', 'server', ['sidebarAutoSettleAfterDays']], ['Keep threads with a PR', 'server', ['sidebarAutoSettleKeepPullRequests']], ['Auto-settle merged threads', 'server', ['sidebarAutoSettleOnMerge']],
   ['Auto-resume limited threads', 'server', ['autoResumeLimitedThreads']], ['Snooze limited threads', 'server', ['snoozeLimitedThreads']],
   ['Word wrap', 'device', ['wordWrap']], ['Composer context', 'device', ['persistComposerContextStrip']],
   ['Interface font', 'device', ['fontFamilySans', 'fontSizeInterface']], ['Prompt font', 'device', ['fontFamilyComposer', 'fontSizePrompt']],
@@ -779,6 +781,7 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
     plan = { clientPatch: {}, hasClientWrite: false, serverWrites: [], unavailableReason: scope.message };
   } else {
     const context = serverContext(client, scope, await memberFiles(client, native, scope.members, scope), settings);
+    if (key === 'sidebarAutoSettleKeepPullRequests' && !context.autoSettlementScopeEverywhere && scope.connected) throw new ClientError('All selected connected environments must support keeping threads with a PR.');
     if (key === 'continueThreadsAfterServerUpdate' && !context.restartEverywhere && scope.connected) throw new ClientError('All selected connected environments must support restart continuation.');
     const clear = target.part === 'reset';
     if (target.part === 'clear-overrides') {

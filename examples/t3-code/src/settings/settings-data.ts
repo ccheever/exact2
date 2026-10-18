@@ -2,8 +2,10 @@ import { T3Client } from '../client/client';
 import { effectiveWorktreeRules, arr, obj, str, num, applyShell, initialShell, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { projectIdentity } from '../client/presentation';
-import { liveEnvironments, watchStorageReports } from '../client/live-streams';
-import { resolveScope } from './settings-core';
+import { liveEnvironments, watchStorageReports, watchDatabaseStorage } from '../client/live-streams';
+import { databaseNotice, cleanupHasRules, cleanupPermitted } from './storage-maintenance';
+import { shellPrefs } from '../shell/shell-prefs';
+import { resolveScope, serverContext, scopeTarget } from './settings-core';
 import { environmentClient, groupOfMember } from './projects-fleet';
 import { settingsScopeEnvironmentLabel } from './settings-scope';
 import { letGo } from '../client/let-go';
@@ -142,11 +144,12 @@ export async function diagnosticsSettings(client: T3Client, native: Native | nul
   return { ...empty, available: true, sections };
 }
 
-type StorageRuleView = { key: string; label: string; description: string; enabled: boolean; days: string; retention: boolean; first: boolean; decrease: string; increase: string };
+type StorageRuleView = { mixed: boolean; key: string; label: string; description: string; enabled: boolean; days: string; retention: boolean; first: boolean; decrease: string; increase: string };
 // StorageSettings.tsx: copy, order and scope rules of the reference route.
 const storageDefinitions = [
   ['worktreeOnDelete', 'Delete worktrees with deleted threads', 'Remove unused worktrees when active or archived threads are deleted. Worktrees with local changes are kept.', false],
   ['worktreeAfterDays', 'Delete inactive worktrees', 'Remove worktrees after their threads have been inactive for this many days. Branches and thread history are kept.', true],
+  ['worktreeSettledAfterDays', 'Delete settled worktrees', 'Remove worktrees this many days after their thread settles. Set 0 days to remove them at the next cleanup. Branches and thread history are kept.', true],
   ['worktreeOnMerge', 'Delete merged worktrees', 'Remove worktrees whose pull request is merged and whose commits are included in the default branch.', false],
   ['worktreeUnchanged', 'Delete unchanged worktrees', 'Remove worktrees with no commits beyond the default branch.', false],
   ['browserArtifactsAfterDays', 'Delete old browser artifacts', 'Delete saved browser captures after this many days. Older capture links will no longer open.', true],
@@ -159,41 +162,62 @@ export function lastRunSummary(entries: readonly { label: string; counts: string
   if (entries.length === machineCount && entries.every(entry => entry.counts === first.counts)) return `${first.counts} on every machine`;
   return entries.map(entry => `${entry.label}: ${entry.counts}`).join(' · ');
 }
-export async function storageSettings(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, machine = '', projectKey = '', checkout = '', now = 0) {
+export async function storageSettings(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, machine: string | undefined = undefined, projectKey = '', checkout = '', now = 0) {
   const modeLabels: Record<string, string> = { inherit: 'Inherit', off: 'Off', custom: 'Custom' };
-  const empty = { available: false, project: projectId !== '', error: '', notice: '', mode: 'inherit', modeLabel: 'Inherit', modeDescription: '', scope: `${environmentId}:${projectId}`, modes: [] as { value: string; label: string; selected: boolean }[], worktrees: [] as StorageRuleView[], artifacts: [] as StorageRuleView[], cleanupSummary: '', cleanupReports: [] as { id: string; label: string; counts: string; description: string; entries: { id: string; path: string; detail: string }[] }[] };
+  const empty = { writeScope: `${machine ?? environmentId}|${projectKey}|${checkout}`, cleanupAvailable: false, cleanupDisabled: true, cleanupDescription: '', databaseNotices: [] as ReturnType<typeof databaseNotice>[], directory: '', directoryMixed: false, directorySupported: false, keepSupported: false, keepValue: '', keepDescription: '', keepOptions: [] as { value: string; label: string; selected: boolean }[],
+    available: false, project: projectId !== '', error: '', notice: '', mode: 'inherit', modeLabel: 'Inherit', modeDescription: '', scope: `${environmentId}:${projectId}`, modes: [] as { value: string; label: string; selected: boolean }[], worktrees: [] as StorageRuleView[], artifacts: [] as StorageRuleView[], cleanupSummary: '', cleanupReports: [] as { id: string; label: string; counts: string; description: string; entries: { id: string; path: string; detail: string; failed: boolean }[]; omitted: string }[] };
+
+
   if (!active) return empty;
   try {
-    if (!native?.available || !client.ready || (environmentId !== "" && environmentId !== client.environmentId) || (projectId && !client.shell.projects.some(project => project.id === projectId))) throw new Error('This scope is unavailable. Choose a connected environment and existing checkout.');
-    // useScopedSettings (StorageSettings.tsx): the connection's subscribed config (server.getConfig at connect, then
-    // subscribeServerConfig), never a read per answer.
-    const config = client.config, settings = obj(config.settings);
-    const capabilities = obj(obj(config.environment).capabilities);
-    if (projectId && capabilities.projectWorktreeCleanup !== true) return { ...empty, notice: 'Update the selected machines to configure project worktree cleanup.' };
-    if (capabilities.storageCleanup !== true) return { ...empty, notice: 'Update the selected environments to use storage cleanup, or choose a machine that supports it.' };
-    const override = obj(obj(settings.projectSettingsOverrides)[projectId]);
-    const mode = projectId ? str(obj(override.worktreeCleanup).mode, 'inherit') : 'inherit';
-    const rules = { ...obj(settings.storageCleanup), ...effectiveWorktreeRules(settings, override) };
-    const view = (definitions: (typeof storageDefinitions)[number][], first: boolean) => definitions.map(([key, label, description, retention], index) => ({ key, label, description, retention, first: first && index === 0, enabled: retention ? typeof rules[key] === 'number' : rules[key] === true, days: typeof rules[key] === 'number' ? String(rules[key]) : '8',
-      decrease: String(Math.max(1, num(rules[key], 8) - 1)), increase: String(Math.min(3650, num(rules[key], 8) + 1)) }));
-    const scope = resolveScope(client, machine, projectKey, checkout);
+    if (!native?.available) throw new Error('Open on macOS to configure storage.');
+    const legacy = !projectKey && projectId ? groupOfMember(client, projectId) : undefined;
+    if (projectId && !projectKey && !legacy) throw new Error('This checkout is no longer available.');
+    const scope = resolveScope(client, machine === undefined ? environmentId : machine, legacy?.key ?? projectKey, checkout);
+    if (scope.kind === 'unavailable' || !scope.connected) throw new Error(scope.message || 'Choose a connected environment.');
+    const project = scope.kind === 'project' || scope.kind === 'checkout';
+    const context = serverContext(client, scope, new Map()), representative = scopeTarget(client, context);
+    if (!representative) throw new Error('Choose a connected environment.');
+    const selected = liveEnvironments(client, native).filter(environment => scope.selected.some(selected => selected.environmentId === environment.environmentId) && environment.connected);
+    const supports = (key: string) => selected.length > 0 && selected.every(environment => obj(obj(environment.config.environment).capabilities)[key] === true);
+    const configurable = supports('storageCleanup') && (!project || supports('projectWorktreeCleanup'));
+    if (project && !configurable) return { ...empty, project, notice: 'Update the selected environments to configure storage cleanup.' };
+    const settings = representative.settings;
+    const policy = (target: typeof representative) => obj(obj(obj(target.settings.projectSettingsOverrides)[target.projectId ?? '']).worktreeCleanup);
+    const modes = context.targets.map(target => project ? str(policy(target).mode, 'inherit') : 'inherit');
+    const mode = project ? str(policy(representative).mode, 'inherit') : 'inherit';
+    const mixedModes = modes.some(value => value !== mode);
+    const allRules = context.targets.map(target => ({ ...obj(target.settings.storageCleanup), ...effectiveWorktreeRules(target.settings, target.projectId ? obj(obj(target.settings.projectSettingsOverrides)[target.projectId]) : {}) }));
+    const rules = allRules[context.targets.indexOf(representative)] ?? allRules[0] ?? {};
+    const mixed = (key: string) => allRules.some(value => JSON.stringify(value[key]) !== JSON.stringify(rules[key]));
+    const view = (definitions: (typeof storageDefinitions)[number][], first: boolean) => definitions.map(([key, label, description, retention], index) => ({ key, label, description: mixed(key) ? `Mixed across selected machines. ${description}` : description, mixed: mixed(key), retention, first: first && index === 0, enabled: retention ? typeof rules[key] === 'number' : rules[key] === true, days: typeof rules[key] === 'number' ? String(rules[key]) : '8',
+      decrease: String(Math.max(key === 'worktreeSettledAfterDays' ? 0 : 1, num(rules[key], 8) - 1)), increase: String(Math.min(3650, num(rules[key], 8) + 1)) }));
     const environments = liveEnvironments(client, native).filter(environment => scope.selected.some(selected => selected.environmentId === environment.environmentId)
       && environment.connected && obj(obj(environment.config.environment).capabilities).storageCleanupRun === true);
-    if (!projectId) await watchStorageReports(client, native, environments.map(environment => environment.environmentId));
-    const cleanupReports = projectId ? [] : environments.flatMap(environment => {
+    if (!project) await Promise.all([watchStorageReports(client, native, environments.map(environment => environment.environmentId)), watchDatabaseStorage(client, native, selected.filter(environment => obj(obj(environment.config.environment).capabilities).databaseStorage === true).map(environment => environment.environmentId))]);
+    const cleanupReports = project ? [] : environments.flatMap(environment => {
       const report = environment.cleanup.value?.[0];
       if (!report) return [];
       const counts = obj(report.counts), selected = scope.environments.find(selected => selected.environmentId === environment.environmentId);
       return [{ id: environment.environmentId, label: selected ? settingsScopeEnvironmentLabel(selected, scope.environments) : environment.label,
         counts: `${num(counts.removed)} removed, ${num(counts.kept)} kept${num(counts.failed) > 0 ? `, ${num(counts.failed)} failed` : ''}`,
         description: `Last run ${relativeTimeLabel(str(report.finishedAt), now)}. ${bytes(report.bytesFreed)} recovered.`,
-        entries: arr(report.entries).map((entry, index) => ({ id: String(index), path: str(entry.path) || str(entry.threadTitle) || str(entry.kind), detail: `${str(entry.outcome)} · ${str(entry.reason)}` })) }];
+        entries: arr(report.entries).map((entry, index) => ({ id: String(index), path: entry.kind === 'worktree' ? (entry.threadId == null ? str(entry.path) : str(entry.path).replace(/\\/g, '/').split('/').pop() || str(entry.threadTitle)) : entry.kind === 'logs' ? 'Rotated logs' : 'Browser artifacts', detail: `${str(entry.outcome)} · ${str(entry.reason)}${entry.threadTitle ? ` · ${entry.threadTitle}` : ''}${typeof entry.bytes === 'number' ? ` · ${bytes(entry.bytes)}` : ''}${typeof entry.files === 'number' ? ` · ${entry.files} files` : ''}`, failed: entry.outcome === 'failed' })), omitted: num(report.omittedCount) > 0 ? `${num(report.omittedCount)} more results omitted.` : '' }];
     });
-    const showRules = !projectId || mode === 'custom';
-    return { ...empty, available: true, cleanupReports, cleanupSummary: lastRunSummary(cleanupReports, environments.length), mode, modeLabel: modeLabels[mode] || 'Inherit',
+    const showRules = !project || mode === 'custom';
+    const databaseNotices = project ? [] : selected.map(environment => databaseNotice(environment.database.value?.[0], environment.environmentId, environment.label, shellPrefs(client).databaseStorageDismissals)).filter(notice => notice.show);
+    const writable = environments.filter(environment => cleanupPermitted(client, environment));
+    const hasRules = environments.some(environment => cleanupHasRules(obj(environment.config.settings)));
+    const directoryMixed = context.targets.some(target => str(target.settings.worktreesDirectory) !== str(settings.worktreesDirectory));
+    const keep = str(rules.worktreeKeepWhen, 'uncommitted-changes');
+    return { ...empty, available: configurable, project, notice: !configurable ? 'Update the selected environments to configure storage cleanup.' : scope.selected.some(environment => environment.connection.phase !== 'connected') ? 'Offline environments are skipped until they reconnect.' : '', writeScope: `${machine === undefined ? environmentId : machine}|${legacy?.key ?? projectKey}|${checkout}`, databaseNotices, cleanupAvailable: !project && environments.length > 0, cleanupDisabled: !hasRules || writable.length === 0, cleanupDescription: !hasRules ? 'Turn on a cleanup rule to use this.' : environments.map(environment => { const report = environment.cleanup.value?.[0]; return `${environments.length > 1 ? environment.label + ': ' : ''}${report ? `Last run ${relativeTimeLabel(str(report.finishedAt), now)}. ${bytes(report.bytesFreed)} recovered.` : environment.cleanup.error ? 'Could not load the last run.' : environment.cleanup.value === null ? 'Loading last run…' : "Cleanup hasn't run yet."}`; }).join('\n'), cleanupReports, cleanupSummary: lastRunSummary(cleanupReports, selected.length), directory: directoryMixed ? '' : str(settings.worktreesDirectory), directoryMixed, directorySupported: !project && supports('worktreesDirectory'), keepSupported: showRules && supports('storageCleanupRun'), keepValue: mixed('worktreeKeepWhen') ? '' : keep,
+      keepDescription: mixed('worktreeKeepWhen') ? 'Mixed across selected machines.' : keep === 'any-local-files' ? 'Includes ignored files, except node_modules.' : keep === 'tracked-changes' ? 'Deletes untracked and ignored files, including .env.' : 'Keeps edits and untracked files. Deletes ignored files, including .env.',
+      keepOptions: [['any-local-files', 'Any local files'], ['uncommitted-changes', 'Uncommitted changes'], ['tracked-changes', 'Edited tracked files']].map(([value, label]) => ({ value, label, selected: !mixed('worktreeKeepWhen') && value === keep })),
+      mode, modeLabel: mixedModes ? 'Mixed' : modeLabels[mode] || 'Inherit',
+
       modeDescription: mode === 'off' ? "Keep this project's worktrees until you delete them manually." : mode === 'custom' ? 'Use these rules for this project.' : "Use each machine's worktree cleanup settings.",
       modes: ['inherit', 'off', 'custom'].map(value => ({ value, label: modeLabels[value], selected: value === mode })),
-      worktrees: showRules ? view(storageDefinitions.slice(0, 4), !projectId) : [],
-      artifacts: projectId ? [] : view(storageDefinitions.slice(4), true) };
+      worktrees: showRules ? view(storageDefinitions.slice(0, 5).filter(([key]) => key !== 'worktreeSettledAfterDays' || supports('settledWorktreeCleanup')), !project && !supports('worktreesDirectory')) : [],
+      artifacts: project ? [] : view(storageDefinitions.slice(5), true) };
   } catch(error) { return { ...empty, error: errorMessage(error) }; }
 }

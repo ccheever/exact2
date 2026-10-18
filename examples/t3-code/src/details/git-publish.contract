@@ -13,6 +13,7 @@ use ShellIcon from "../shell/shell-icons.contract"
 use BrandGitLab from "../settings/settings-brands.contract"
 use BrandAzureDevOps from "../settings/settings-brands.contract"
 use BrandBitbucket from "../settings/settings-brands.contract"
+use BrandGitCafe from "../settings/settings-brands.contract"
 use BrandForgejo from "../settings/settings-brands.contract"
 
 // The source-control host marks (Icons.tsx): GitHub in the foreground colour, the rest in their own.
@@ -30,8 +31,11 @@ component GitProviderMark
         if provider == "bitbucket"
           BrandBitbucket(size=size)
         else
-          if provider == "forgejo"
-            BrandForgejo(size=size)
+          if provider == "forgejo" or provider == "gitcafe"
+            if provider == "gitcafe"
+              BrandGitCafe(size=size)
+            else
+              BrandForgejo(size=size)
           else
             ExtraGlyph(name="github", size=size, color="light-dark(#27272a, #f5f5f5)")
 

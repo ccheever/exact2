@@ -100,7 +100,8 @@ export const detailsKey = (client: T3Client) => client.draftKey;
  * (app.contract detailsShown), so the pull request rows place their cards for it.
  */
 /** `focused`: the window has the focus and is visible (exactPage(), exact2 #219); the card's Git actions refresh the status when it returns. */
-export async function shellDetails(client: T3Client, native: Native | null | undefined, open: boolean, threadId: string, wide = false, now = 0, rightGap = 0, focused = true) {
+export async function shellDetails(client: T3Client, native: Native | null | undefined, open: boolean, threadId: string, wide = false, now = 0, rightGap = 0, focused = true,
+  workflows: string[] = [], phasesOpen: string[] = [], phasesClosed: string[] = []) {
   const inline = wide && inlineOpen(client, detailsKey(client));
   // The popover: chat is narrow, or the floating player left the docked card no placement (ThreadDetailsCard's mode).
   if (!(inline || open) || !native?.available || !client.ready || !client.projectId) {
@@ -160,6 +161,7 @@ export async function shellDetails(client: T3Client, native: Native | null | und
     // floating player left the docked card no placement (ThreadDetailsCard's mode).
     prRows: await prRowsView(client, native, { status, threadId, now, projectId: str(project?.id), rightGap, inline: inline && !open }),
     automations: await threadAutomations(client, native, thread ? threadId : '', now), // thread-automations.ts: ThreadAutomationsPanel
-    ...(thread ? lineageView(client.shell.threads, client.threadId === threadId ? client.projection : null, threadId, arr(client.config.providers), now) : noLineage),
+    ...(thread ? lineageView(client.shell.threads, client.threadId === threadId ? client.projection : null, threadId, arr(client.config.providers), now,
+      workflows, phasesOpen, phasesClosed, client.writable) : noLineage),
   };
 }
