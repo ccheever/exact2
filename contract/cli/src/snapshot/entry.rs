@@ -367,8 +367,10 @@ fn compile_file(
     plan.snapshot_entry.clone_from(&widget.kind);
     plan.snapshot_refresh = Some(refresh);
     // The snapshot reader exercises the same validating decoder as its host.
-    Plan::decode_snapshot(&plan.encode(), &widget.kind)
-        .map_err(|e| vec![fail(format!("invalid snapshot plan: {e:?}"))])
+    let plan = Plan::decode_snapshot(&plan.encode(), &widget.kind)
+        .map_err(|e| vec![fail(format!("invalid snapshot plan: {e:?}"))])?;
+    super::inline::check(&plan, &widget.families, span)?;
+    Ok(plan)
 }
 
 fn same_type(a: &TypeExpr, b: &TypeExpr) -> bool {

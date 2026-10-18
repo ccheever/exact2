@@ -198,6 +198,21 @@ final class SnapshotDriverTests: XCTestCase {
 
     // MARK: Caltrain's countdown entry
 
+    func testInlineGuardChecksTheResizedTreeAndEmptyDepartures() throws {
+        let bytes = try Self.plan("SNAPSHOT_TRAINS")
+        for size in [CGSize(width: 225, height: 26), CGSize(width: 168, height: 11.5), CGSize(width: 13.5, height: 13.5)] {
+            let session = try HeadlessSession(plan: bytes, entry: "next-trains", size: CGSize(width: 184, height: 69.5), assetRoot: Self.out)
+            defer { session.close() }
+            XCTAssertFalse(SnapshotDriver.admitsInline(try session.snapshot()), "the rectangular layout has multiple leaves")
+            XCTAssertTrue(SnapshotDriver.admitsInline(try session.resize(to: size)))
+            let empty = try HeadlessSession(plan: bytes, entry: "next-trains", props: Data(#"{"station":"Mountain View","departures":[]}"#.utf8), size: size, assetRoot: Self.out)
+            defer { empty.close() }
+            let snapshot = try empty.snapshot()
+            XCTAssertTrue(SnapshotDriver.admitsInline(snapshot))
+            XCTAssertTrue(snapshot.nodes.values.contains { $0.props["text"] == "No departures" })
+        }
+    }
+
     func testCaltrainEntryRendersEveryFamilyModeAppearanceAndSize() throws {
         let plan = try Self.plan("SNAPSHOT_TRAINS")
         for family in Family.all {

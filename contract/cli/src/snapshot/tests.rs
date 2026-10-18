@@ -1106,3 +1106,23 @@ fn round3_border_none_literals_slash_radii_and_template_images() {
         );
     }
 }
+
+#[test]
+fn inline_admission_evaluates_size_branches_with_preview_props() {
+    let mut w = widget();
+    w.families = vec!["accessoryInline".into(), "accessoryRectangular".into()];
+    let shape = "shape Viewport\n  width: number\n  height: number";
+    let inject = "  inject\n    snapshot_viewport: Viewport\n";
+    let valid = "    column\n      if snapshot_viewport.height < 40\n        text title\n        image \"symbol:sf/tram\"\n      else\n        text title\n        text \"Rectangular\"";
+    let admitted = compile(&source(valid, shape, inject), &w);
+    assert!(admitted.is_ok(), "{admitted:?}");
+    for view in [
+        "    row\n      text title\n      text \"Extra\"",
+        "    column\n      if snapshot_viewport.height >= 20\n        text title\n        text \"Extra\"\n      else\n        text title",
+        "    view",
+        "    row\n      text title\n      image \"symbol:sf/tram\"\n      image \"symbol:sf/tram\"",
+    ] {
+        let errors = compile(&source(view, shape, inject), &w).unwrap_err();
+        assert!(errors.iter().any(|e| e.id == "snapshot-inline" && e.message.contains("emit exactly one")), "{errors:?}");
+    }
+}

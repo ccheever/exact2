@@ -52,6 +52,7 @@ impl Manifest {
                         "title",
                         "description",
                         "families",
+                        "watchFamilies",
                         "component",
                         "props",
                         "refresh",
@@ -122,6 +123,19 @@ impl Manifest {
                         Ok(family.to_string())
                     })
                     .collect::<Result<Vec<_>, String>>()?;
+                let mut families = families;
+                if let Some(watch) = object.get("watchFamilies") {
+                    let watch = watch.as_array().filter(|a| !a.is_empty())
+                        .ok_or_else(|| format!("{at}.watchFamilies must be a nonempty array"))?;
+                    let mut seen = HashSet::new();
+                    for value in watch {
+                        let family = value.as_str().filter(|f| matches!(*f,
+                            "accessoryCircular" | "accessoryRectangular" | "accessoryInline" | "accessoryCorner"))
+                            .ok_or_else(|| format!("{at}.watchFamilies: use an accessory family name"))?;
+                        if !seen.insert(family) { return Err(format!("{at}.watchFamilies repeats {family}; remove the duplicate")); }
+                        if !families.iter().any(|f| f == family) { families.push(family.into()); }
+                    }
+                }
                 let preview = object
                     .get("preview")
                     .filter(|v| v.is_object())

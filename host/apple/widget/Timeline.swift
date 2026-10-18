@@ -39,7 +39,12 @@ private func snapshotFamily(_ family: WidgetFamily) -> SnapshotEnvironment.Famil
     case .accessoryCircular: .accessoryCircular
     case .accessoryRectangular: .accessoryRectangular
     case .accessoryInline: .accessoryInline
-    @unknown default: .systemSmall
+    @unknown default:
+        #if os(watchOS)
+        .accessoryRectangular
+        #else
+        .systemSmall
+        #endif
     }
 }
 
@@ -49,7 +54,7 @@ private func widgetSnapshotView(_ entry: ExactWidgetEntry, displaySize: CGSize, 
     let session = try HeadlessSession(plan: entry.plan, entry: entry.kind, props: entry.props,
                                       size: contentSize, facts: facts, assetRoot: entry.root)
     let environment = SnapshotEnvironment(
-        family: snapshotFamily(family),
+        family: snapshotFamily(family), entryName: entry.kind,
         // Both sample paths contain no account data. Only placeholder(in:) is redacted.
         placeholder: entry.preview,
         linkBase: (Bundle.main.object(forInfoDictionaryKey: "ExactLinkBase") as? String).flatMap(URL.init(string:)),
@@ -68,19 +73,10 @@ private enum WidgetRefresh {
     static let queue = DispatchQueue(label: "exact.widget-refresh", qos: .userInitiated)
     /// The group's environment is set once, before any refresh reads it.
     static let configured: Void = WidgetContainer.configure()
-    static let lock = NSLock()
-    static var waiting: [WidgetTimelineCache: [(Timeline<ExactWidgetEntry>) -> Void]] = [:]
-    static func begin(_ cache: WidgetTimelineCache, completion: @escaping (Timeline<ExactWidgetEntry>) -> Void) -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        let first = waiting[cache] == nil
-        waiting[cache, default: []].append(completion)
-        return first
-    }
-    static func finish(_ cache: WidgetTimelineCache, _ timeline: Timeline<ExactWidgetEntry>, fallback: Timeline<ExactWidgetEntry>) {
-        lock.lock()
-        let callbacks = waiting.removeValue(forKey: cache) ?? []
-        lock.unlock()
-        for callback in callbacks { callback(cache.isCurrent ? timeline : fallback) }
+    static let waiters = WidgetTimelineWaiters<ExactWidgetEntry> { entry, size in
+        var entry = entry
+        entry.displaySize = size
+        return entry
     }
     static func entries(_ bytes: Data, kind: String, plan: Data, root: URL, size: CGSize) throws -> [ExactWidgetEntry] {
         guard bytes.count <= 1 << 20,
@@ -115,6 +111,7 @@ struct ExactTimelineProvider: TimelineProvider {
         #if EXACT_INSPECT
         let start = DispatchTime.now()
         #endif
+        // Refresh computes data, not pixels; the view supplies display traits at render.
         let size = context.displaySize, date = Date(), inputs = SessionFacts(displayScale: 2, preferences: .platformInput, date: date)
         // Privacy modifiers can suppress redaction: an unredacted placeholder
         // would show fixture values as live account data. Fail with "Open app".
@@ -133,7 +130,7 @@ struct ExactTimelineProvider: TimelineProvider {
             completion(fallback)
             return
         }
-        guard WidgetRefresh.begin(cache, completion: completion) else { return }
+        guard WidgetRefresh.waiters.begin(cache, size: size, completion: completion) else { return }
         WidgetRefresh.queue.async {
             // Kinds share this queue: each refresh's 900 ms, boot included,
             // starts when it leaves the queue, not while another kind runs.
@@ -164,7 +161,7 @@ struct ExactTimelineProvider: TimelineProvider {
                     return fallback
                 }
             }
-            WidgetRefresh.finish(cache, timeline, fallback: fallback)
+            WidgetRefresh.waiters.finish(cache, timeline, fallback: fallback)
         }
     }
 }

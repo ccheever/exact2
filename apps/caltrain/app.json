@@ -27,6 +27,9 @@
       "families": [
         "systemSmall",
         "systemMedium",
+        "accessoryRectangular"
+      ],
+      "watchFamilies": [
         "accessoryRectangular",
         "accessoryCircular",
         "accessoryInline",

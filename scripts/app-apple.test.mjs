@@ -8,7 +8,7 @@ import { homedir, tmpdir } from 'node:os';
 import { delimiter, resolve, toNamespacedPath } from 'node:path';
 import { HERMES_INSTALLER, hermesBundle, hermesLeanSysRoots } from './app.mjs';
 import { checkHermesBundles, hermesCrossTargets, hermesSetupTargets } from './exact.mjs';
-import { iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, writeUsageStrings, designCompatible, COMPATIBLE_SDK, moduleTripleFor } from '../host/apple/build.mjs';
+import { iosAssets, entitlements, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, writeUsageStrings, designCompatible, COMPATIBLE_SDK, moduleTripleFor } from '../host/apple/build.mjs';
 import { useXcode } from '../host/apple/devices.mjs';
 import { macReleaseEntitlements, launchImageInventory } from '../host/apple/assets.mjs';
 
@@ -295,7 +295,7 @@ test('simulator signing gives each app and embedded host a distinct Keychain ide
 
 test('widgets share the owner Keychain groups and leave the host sample outside the group', async () => {
   const {entitlements, infoPlist} = await import('../host/apple/build.mjs');
-  const app = {id:'com.exact.test',displayName:'Test',manifest:{widgets:[{kind:'next-trains'}],host:{ios:{}}}};
+  const app = {id:'com.exact.test',displayName:'Test',manifest:{widgets:[{kind:'next-trains',families:['systemSmall']}],host:{ios:{}}}};
   for (const target of [app, {...app,id:app.id+'.widgets',widgetAppId:app.id}]) {
     const ent = entitlements(target,null,true,null,{simulator:true});
     assert.match(ent, /<key>keychain-access-groups<\/key><array><string>SIMULATORX.com.exact.test<\/string><string>com.exact.test<\/string><\/array>/);
@@ -368,11 +368,47 @@ test('watch entries keep accessory families and omit TypeScript pending the Herm
   try {
     const app = { dir, manifest: { widgets: [
       { kind: 'home', families: ['systemSmall'] },
-      { kind: 'train', families: ['systemSmall', 'accessoryCircular', 'accessoryRectangular', 'accessoryInline', 'accessoryCorner'] },
+      { kind: 'train', refresh: 'nextTrains', families: ['systemSmall', 'accessoryCircular', 'accessoryRectangular', 'accessoryInline', 'accessoryCorner'] },
     ] } };
     assert.deepEqual(platformWidgetEntries(app).map(e => e.families), [['systemSmall'], ['systemSmall', 'accessoryCircular', 'accessoryRectangular', 'accessoryInline']]);
     assert.deepEqual(watchEntries(app).map(e => [e.kind, e.families]), [['train', ['accessoryCircular', 'accessoryRectangular', 'accessoryInline', 'accessoryCorner']]]);
     writeFileSync(resolve(dir, 'app.ts'), '');
     assert.deepEqual(watchEntries(app), []);
+    assert.deepEqual(watchEntries(app, ['nextTrains']).map(e => e.kind), ['train'], 'a Rust refresh ships in a mixed app');
+    const caltrain = { dir, manifest: { widgets: [{kind:'train', families:['systemSmall', 'accessoryRectangular'], watchFamilies:['accessoryInline','accessoryCircular','accessoryCorner']}] } };
+    assert.deepEqual(platformWidgetEntries(caltrain).map(e => e.families), [['systemSmall','accessoryRectangular']]);
+    assert.deepEqual(platformWidgetEntries(caltrain, 'watchos').map(e => e.families), [['accessoryInline','accessoryCircular','accessoryCorner']]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test('corner-only entries give iOS no widget group or publishing kinds', () => {
+  const app = {id:'com.exact.corner',displayName:'Corner',manifest:{widgets:[{kind:'corner',families:['accessoryCorner']}],host:{ios:{}}}};
+  assert.doesNotMatch(infoPlist(app,false), /ExactAppGroup|ExactWidgetKinds|ExactAppIdentifier/);
+  assert.doesNotMatch(entitlements(app,null,true,null,{simulator:true}), /application-groups/);
+});
+
+test('--watch-sim requires an id before the parent build can consume flags', async () => {
+  const { watchSimulator } = await import('../host/apple/watch.mjs');
+  for (const args of [['--watch-sim'], ['--watch-sim','--release'], ['--watch-sim','s1126-wp17']]) assert.throws(() => watchSimulator(args), /requires a simulator id/);
+  const id = '114F2B20-7CA4-46F3-A1AA-22784759F58D';
+  assert.equal(watchSimulator(['--watch-sim',id,'--release']), id);
+});
+
+test('watch owns the build before the parent starts and reports a skipped TypeScript run', async () => {
+  const { buildWatch } = await import('../host/apple/watch.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-watch-lock-')), logs = [], events = [], log = console.log;
+  try {
+    writeFileSync(resolve(dir, 'app.ts'), '');
+    const app = {dir, id:'com.exact.watch-test', displayName:'Watch Test', manifest:{widgets:[{kind:'question',refresh:'question',families:['accessoryInline']}]} };
+    console.log = message => logs.push(message);
+    await buildWatch(app, ['--watchos', '--run'], {
+      appleBuildLock: () => { events.push('lock'); return () => events.push('release'); },
+      buildParent: async args => { events.push('parent'); assert.ok(args.includes('--no-install')); },
+      appleArtifacts: () => ({bundle:resolve(dir,'Parent.app')}),
+    });
+    assert.deepEqual(events, ['lock','parent','release']);
+    assert.ok(logs.some(line => line.includes('omits TypeScript entry question')));
+    assert.ok(logs.some(line => line.includes('--run skipped')));
+  } finally { console.log = log; rmSync(dir, {recursive:true,force:true}); }
 });

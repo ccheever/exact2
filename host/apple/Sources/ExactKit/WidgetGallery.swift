@@ -95,7 +95,7 @@ final class WidgetPreview: ObservableObject {
         do { try rendered.advance(to: clock) } catch { rendered.close(); throw error }
         session = rendered
         let entryDate = (first?["date"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) } ?? date
-        environment = SnapshotEnvironment(family: family,
+        environment = SnapshotEnvironment(family: family, entryName: entry.kind,
             linkBase: URL(string: ExactEnv.appMetadata["ExactOrigin"] as? String ?? ""), imageRoots: [entry.assets.root],
             contentMargins: EdgeInsets(top: variant.margin, leading: variant.margin, bottom: variant.margin, trailing: variant.margin),
             rootFontSize: SnapshotDriver.bodySize(for: variant.typeSize), entryDate: entryDate,

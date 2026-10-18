@@ -1,41 +1,52 @@
 // @ref LLP 1126.001 WP17 — watch complications use the snapshot driver and their own store.
 import { resolve, relative } from 'node:path';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, rmSync, readFileSync } from 'node:fs';
 import { buildBake, bakeOutput, developmentBuildEnv, HOST_DEV, executableName } from '../../scripts/app.mjs';
 import { plistFile } from './assets.mjs';
 import { platformWidgetEntries, prepareWidgetCore, sharedWidgetCore, packageWidgets } from './widgets.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname), pkg = resolve(root, 'host/apple');
 
-export function watchEntries(app) {
-  const entries = platformWidgetEntries(app, 'watchos');
-  // Hermes and the account transfer are LLP 1126.001 §5 Q3, not this target.
-  if (existsSync(resolve(app.dir, 'app.ts'))) {
-    for (const entry of entries) console.log(`host/apple: watchOS omits TypeScript entry ${entry.kind} until LLP 1126.001 §5 Q3 passes`);
-    return [];
-  }
-  return entries;
+export function watchEntries(app, rustSources = []) {
+  return platformWidgetEntries(app, 'watchos').filter(entry => {
+    // The mixed bake's receipt names Rust-owned refreshes without running JS.
+    if (!existsSync(resolve(app.dir, 'app.ts')) || rustSources.includes(entry.refresh)) return true;
+    console.log(`host/apple: watchOS omits TypeScript entry ${entry.kind} until LLP 1126.001 §5 Q3 passes`);
+    return false;
+  });
 }
-export async function buildWatch(app, args, { runApple, appleArtifacts, appleBuildLock, receipt }) {
+export function watchSimulator(args) {
+  const at = args.indexOf('--watch-sim');
+  if (at < 0) return undefined;
+  const id = args[at + 1];
+  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id ?? '')) throw new Error('--watch-sim requires a simulator id');
+  return id;
+}
+export async function buildWatch(app, args, { runApple, appleArtifacts, appleBuildLock, receipt, buildParent }) {
   if (args.some(a => ['--device', '--archive', '--tvos', '--host', '--embed', '--test', '--url'].includes(a))) throw new Error('--watchos currently builds the watch simulator companion; use --sim for its iPhone and --watch-sim for its paired watch');
   if (args.includes('--run') && args.includes('--no-install')) throw new Error('--no-install takes no --run');
-  const entries = watchEntries(app);
-  const parentArgs = args.filter((a, i) => !['--watchos', '--run', '--no-install', '--watch-sim'].includes(a) && args[i - 1] !== '--watch-sim');
-  runApple(process.execPath, [resolve(pkg, 'build.mjs'), ...parentArgs, '--ios', '--no-install']);
-  const parent = appleArtifacts(app, { destination: 'ios-simulator' });
-  const watch = { ...app, id: `${app.id}.watchkitapp` };
-  const bundle = resolve(parent.bundle, 'Watch', `${executableName(app)}.app`);
-  // A previous Rust bundle must not survive a manifest change to TypeScript.
-  rmSync(resolve(parent.bundle, 'Watch'), { recursive: true, force: true });
-  if (!entries.length) { console.log('host/apple: no Rust accessory entries; watch bundle omitted'); return; }
+  const watchSim = watchSimulator(args);
   const release = appleBuildLock(app);
   try {
+    const parentArgs = args.filter((a, i) => !['--watchos', '--run', '--no-install', '--watch-sim'].includes(a) && args[i - 1] !== '--watch-sim');
+    await buildParent([...parentArgs, '--ios', '--no-install']);
+    const parent = appleArtifacts(app, { destination: 'ios-simulator' });
+    const sourceReceipt = resolve(parent.bundle, 'typescript/app.module.json');
+    const rustSources = existsSync(sourceReceipt) ? JSON.parse(readFileSync(sourceReceipt, 'utf8')).rustSources ?? [] : [];
+    const entries = watchEntries(app, rustSources);
+    const watch = { ...app, id: `${app.id}.watchkitapp` };
+    const bundle = resolve(parent.bundle, 'Watch', `${executableName(app)}.app`);
+    rmSync(resolve(parent.bundle, 'Watch'), { recursive: true, force: true });
+    if (!entries.length) {
+      console.log(`host/apple: no Rust accessory entries; watch bundle omitted${args.includes('--run') ? '; --run skipped' : ''}`);
+      return;
+    }
     const production = args.includes('--release') || process.env.EXACT_UPDATE_TRUST === 'production';
     const profile = production ? 'release' : HOST_DEV;
     const directory = resolve(parent.namespace, 'watchos'), target = 'aarch64-apple-watchos-sim', triple = 'arm64-apple-watchos10.0-simulator';
     mkdirSync(directory, { recursive: true });
     const sdk = runApple('xcrun', ['--sdk', 'watchsimulator', '--show-sdk-path']).stdout.trim();
-    const env = { ...developmentBuildEnv(), WATCHOS_DEPLOYMENT_TARGET: '10.0', SDKROOT: sdk, EXACT_APPLE_LINK: 'plan' };
+    const env = { ...developmentBuildEnv(), EXACT_UPDATE_TRUST: production ? 'production' : 'development', WATCHOS_DEPLOYMENT_TARGET: '10.0', SDKROOT: sdk, EXACT_APPLE_LINK: 'plan' };
     const baked = buildBake({ ...app, hasGpu: false }, 'ios', target, { env, profile });
     const output = resolve(bakeOutput(app, env), `ios-${target}.entries`);
     const libDir = resolve(app.target, target, profile), crate = app.crate('ios');
@@ -51,7 +62,8 @@ export async function buildWatch(app, args, { runApple, appleArtifacts, appleBui
     const group = `group.${watch.id}`, entitlements = plistFile({ 'com.apple.security.application-groups': [group] });
     const entitlementPath = resolve(directory, 'watch-entitlements.plist');
     writeFileSync(entitlementPath, entitlements);
-    const sign = path => runApple('codesign', ['--force', '--sign', '-', path]);
+    // Simulator entitlements are embedded in __TEXT by each link.
+    const sign = (path, _embeddedEntitlements) => runApple('codesign', ['--force', '--sign', '-', path]);
     mkdirSync(resolve(bundle, 'Frameworks'), { recursive: true });
     cpSync(shared.framework, resolve(bundle, 'Frameworks/ExactCore.framework'), { recursive: true });
     mkdirSync(resolve(bundle, 'plans'), { recursive: true });
@@ -80,7 +92,7 @@ export async function buildWatch(app, args, { runApple, appleArtifacts, appleBui
     const pick = flag => args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined;
     const pairs = JSON.parse(runApple('xcrun', ['simctl', 'list', 'pairs', '-j']).stdout).pairs;
     const devices = Object.values(pairs).filter(pair => pair.watch && pair.phone);
-    const matches = devices.filter(pair => (!pick('--watch-sim') || [pair.watch.udid, pair.watch.name].includes(pick('--watch-sim'))) && (!pick('--sim') || [pair.phone.udid, pair.phone.name].includes(pick('--sim'))));
+    const matches = devices.filter(pair => (!watchSim || pair.watch.udid.toLowerCase() === watchSim.toLowerCase()) && (!pick('--sim') || [pair.phone.udid, pair.phone.name].includes(pick('--sim'))));
     if (matches.length !== 1) throw new Error('name one existing simulator pair with --sim <iPhone udid> --watch-sim <watch udid>; this build creates and shuts down no simulators');
     const pair = matches[0];
     for (const device of [pair.phone, pair.watch]) {

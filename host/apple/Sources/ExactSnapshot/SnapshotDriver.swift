@@ -7,6 +7,7 @@
 import SwiftUI
 import WidgetKit
 import ExactCore
+import os
 
 /// What the system supplies around one render: the family, whether this is
 /// the placeholder (redacted by the system; nothing in it is account
@@ -24,6 +25,7 @@ public struct SnapshotEnvironment {
         /// draws; the accessory families have none.
         public var isSystem: Bool { rawValue.hasPrefix("system") }
     }
+    public var entryName: String
     public var family: Family
     public var placeholder: Bool
     /// The app's origin or scheme a route path (`/prompt/3`) is a URL under.
@@ -45,9 +47,9 @@ public struct SnapshotEnvironment {
     /// An agent read freezes live leaves at its clock; WidgetKit leaves this nil.
     public var frozenDate: Date?
 
-    public init(family: Family, placeholder: Bool = false, linkBase: URL? = nil, imageRoots: [URL] = [Bundle.main.bundleURL], appGroup: URL? = nil,
+    public init(family: Family, entryName: String = "snapshot", placeholder: Bool = false, linkBase: URL? = nil, imageRoots: [URL] = [Bundle.main.bundleURL], appGroup: URL? = nil,
                 rasters: SnapshotRasters = SnapshotRasters(), contentMargins: EdgeInsets? = nil, rootFontSize: CGFloat? = nil, entryDate: Date = .now, frozenDate: Date? = nil) {
-        self.family = family; self.placeholder = placeholder; self.linkBase = linkBase; self.imageRoots = imageRoots; self.appGroup = appGroup
+        self.entryName = entryName; self.family = family; self.placeholder = placeholder; self.linkBase = linkBase; self.imageRoots = imageRoots; self.appGroup = appGroup
         self.rasters = rasters; self.contentMargins = contentMargins; self.rootFontSize = rootFontSize; self.entryDate = entryDate; self.frozenDate = frozenDate
     }
 }
@@ -103,6 +105,22 @@ public enum SnapshotDriver {
         SnapshotView(source: .snapshot(snapshot), environment: environment)
     }
 
+    /// A paragraph's styled runs remain one leaf. Hidden subtrees contribute none.
+    package static func admitsInline(_ snapshot: HeadlessSession.Snapshot) -> Bool {
+        var stack = snapshot.roots, text = 0, images = 0, other = 0
+        while let id = stack.popLast() {
+            guard let node = snapshot.nodes[id], node.style["display"]?.string != "none" else { continue }
+            switch node.kind {
+            case "text", "time": text += 1
+            case "image": images += 1
+            default:
+                if node.props["type"] == "progress" { other += 1 }
+                else { stack.append(contentsOf: node.children) }
+            }
+        }
+        return text == 1 && images <= 1 && other == 0
+    }
+
     /// The URL a snapshot opens: the first link's, in document order; a
     /// `display: none` subtree has none.
     public static func url(_ snapshot: HeadlessSession.Snapshot, environment: SnapshotEnvironment) -> URL? {
@@ -153,8 +171,15 @@ public struct SnapshotView: View {
     public var body: some View {
         let snapshot = snapshot
         let roots = snapshot.roots.compactMap { snapshot.nodes[$0] }
-        FrameLayout(frames: roots.map(\.frame), size: snapshot.size) {
-            ForEach(roots, id: \.id) { SnapshotNodeView(node: $0, tree: snapshot, environment: environment, isRoot: true) }
+        Group {
+            if environment.family == .accessoryInline && !SnapshotDriver.admitsInline(snapshot) {
+                let _ = Logger(subsystem: "dev.exact.widgets", category: "inline").error("entry \(environment.entryName, privacy: .public): accessoryInline requires one text/time leaf and at most one image")
+                Text("Open \(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "the app")")
+            } else {
+                FrameLayout(frames: roots.map(\.frame), size: snapshot.size) {
+                    ForEach(roots, id: \.id) { SnapshotNodeView(node: $0, tree: snapshot, environment: environment, isRoot: true) }
+                }
+            }
         }
         .frame(width: snapshot.size.width, height: snapshot.size.height, alignment: .topLeading)
         .padding(margins)

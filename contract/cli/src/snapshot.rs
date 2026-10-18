@@ -2,6 +2,7 @@
 //! column; absence refuses a row before an archive can silently omit it.
 
 mod entry;
+mod inline;
 mod paragraphs;
 mod refresh;
 mod values;
