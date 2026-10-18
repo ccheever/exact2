@@ -9,6 +9,7 @@ import { open, jsonLines, MalformedOperation, main } from './agent.mjs';
 import { chromium, launchFacts } from './agent-launch.mjs';
 import { need } from './coverage.mjs';
 import { typeCommand } from './agent-keys.mjs';
+import { render } from './agent-inspect.mjs';
 
 need('chrome', chromium().unavailable)('the web agent keeps desktop input facts through preferences and injected touches', async () => {
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(
@@ -492,4 +493,15 @@ test('logs --all requests the retained journal after a delta read', async () => 
   assert.deepEqual((await s.logs()).lines, []);
   assert.deepEqual((await s.logs({all:true})).lines, lines);
   assert.deepEqual(calls.filter(c=>c.op==='logs').map(c=>[c.since, c.all ?? false]), [[0,false],[2,false],[0,true]]);
+});
+
+test('whole-journal text names each canvas and its dropped prefix', () => {
+  const text = render('logs', {lines:[], world:[
+    {canvas:7, dropped:904, lines:['last a']},
+    {canvas:8, dropped:2, lines:['last b']},
+  ]});
+  assert.match(text, /world 7 \(904 earlier lines dropped/);
+  assert.match(text, /world 8 \(2 earlier lines dropped/);
+  assert.match(text, /world last a/);
+  assert.match(text, /world last b/);
 });

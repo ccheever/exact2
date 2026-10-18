@@ -186,8 +186,9 @@ impl World {
         let next = self.journal_next.get();
         let from = since.clamp(lines.front().map_or(next, |e| e.index), next);
         let mut out = format!(
-            "{{\"tick\":{},\"next\":{next},\"from\":{from},\"lines\":[",
-            self.tick()
+            "{{\"tick\":{},\"next\":{next},\"from\":{from},\"dropped\":{},\"lines\":[",
+            self.tick(),
+            from.saturating_sub(since)
         );
         for (i, event) in lines.iter().filter(|e| e.index >= from).enumerate() {
             if i != 0 {

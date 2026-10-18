@@ -179,7 +179,25 @@ uint32_t gpu_bind_at(uint32_t id, const unsigned char *text, size_t len, double 
 }
 const char *test_bound(void) { return bound; }
 static const char reply[] = "{\"hit\":{\"name\":\"cpu\"}}";
+static char journal_reply[256];
+static const char *output;
+static uint32_t journal_next;
+void test_journal_next(uint32_t next) { journal_next = next; }
 uint32_t gpu_agent(uint32_t id, const unsigned char *text, size_t len) {
+  output = reply;
+  char query[4096];
+  if(len>=sizeof(query)) return 268435457;
+  memcpy(query,text,len); query[len]=0;
+  if (strstr(query,"logs")) {
+    unsigned long since=0;
+    const char *cursor=strstr(query,"\"since\":");
+    if(cursor) sscanf(cursor+8,"%lu",&since);
+    unsigned long from=journal_next>4096 ? journal_next-4096 : 0;
+    if(since>from) from=since;
+    if(from>journal_next) from=journal_next;
+    snprintf(journal_reply,sizeof(journal_reply),"{\"from\":%lu,\"next\":%u,\"lines\":[]}",from,journal_next);
+    output=journal_reply; return strlen(output);
+  }
   for (size_t i=0; i+6<=len; ++i) if (!memcmp(text+i, "layout", 6)) return sizeof(reply)-1;
   return 268435457;
 }
@@ -210,7 +228,7 @@ uint32_t gpu_carry(void) { return 268435457; }
 uint32_t gpu_restore(void) { return 1; }
 void gpu_destroy(void) {}
 uint32_t gpu_error(void) { return 0; }
-const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
+const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)(output ? output : reply); }
 "#,
     )
     .unwrap();

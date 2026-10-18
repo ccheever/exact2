@@ -1,4 +1,6 @@
 use super::*;
+#[path = "surface_controls_tests/logs.rs"]
+mod logs;
 #[path = "surface_controls_tests/wheel.rs"]
 mod wheel;
 fn find(p: &Presenter<()>, name: &str) -> u32 {

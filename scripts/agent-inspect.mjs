@@ -241,7 +241,7 @@ export function render(op, r) {
       return lines.join('\n');
     }
     case 'logs':
-      return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => w.lines.map((line) => 'world ' + line)), ...(r.host ?? []).map((l) => '  ' + l), ...(r.crash ?? [])].join('\n') || '(nothing new)';
+      return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => [...(w.dropped > 0 ? [`world ${w.canvas ?? w.id ?? ''} (${w.dropped} earlier lines dropped by the journal ring)`] : []), ...w.lines.map((line) => 'world ' + line)]), ...(r.host ?? []).map((l) => '  ' + l), ...(r.crash ?? [])].join('\n') || '(nothing new)';
     case 'state': {
       if (!r || typeof r !== 'object' || Array.isArray(r)) return q(r);
       // One line a section: pretty-printing cost an app's state more than half again its JSON (Caltrain, 2026-10-09).
@@ -665,7 +665,7 @@ export function worldView(session, name) {
         if (r.tick !== tick || r.hash !== hash) throw new Error('world changed while paging; capture on the agent clock with no concurrent drive');
         entities.push(...r.entities);
       }
-      return {tick, hash, entities, truncated: all ? false : first.truncated};
+      return {tick, hash, entities, truncated: all ? false : first.truncated, ...(first.developmentEdits ? {developmentEdits:true} : {})};
     },
     /** Every resource's value, as `state world:* resources` reads them. */
     async resources() { return (await session.state(`${name}:*`, undefined, false, false, {limit:1, resources:true})).resources; },

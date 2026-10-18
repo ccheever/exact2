@@ -15,7 +15,6 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
 };
-
 #[cfg(target_os = "android")]
 #[path = "surfaces/android.rs"]
 mod android;
@@ -33,11 +32,9 @@ mod pixels;
 mod shaders;
 #[cfg(windows)]
 mod window;
-
 const LIMIT: usize = 256 * 1024 * 1024;
 type Read = unsafe extern "C" fn(u32) -> u32;
 type Text = unsafe extern "C" fn(u32, *const u8, usize) -> u32;
-
 struct Abi {
     // Symbols never outlive this library; unload TLS before dlclose.
     library: Library,
@@ -49,7 +46,6 @@ struct Abi {
     symbols: std::cell::RefCell<std::collections::HashMap<&'static [u8], usize>>,
 }
 const NO_IDENTITY: &str = "GPU module has no baked identity";
-
 /// Whether a module is not there at all: no baked identity, or no file where
 /// it would be. Any other failure (the directory unknown, the file unreadable)
 /// is a module that is there and refuses.
@@ -1376,6 +1372,11 @@ impl<D: DataSource> Presenter<D> {
         }
         let mut r = abi.agent(c.id, &q);
         if q["op"] == "logs" {
+            r["dropped"] = r["from"]
+                .as_u64()
+                .unwrap_or(0)
+                .saturating_sub(q["since"].as_u64().unwrap_or(0))
+                .into();
             c.since = r["next"].as_u64().unwrap_or(c.since);
             if !c.restore_logged {
                 if let Some(e) = c.restore_error.as_ref() {
