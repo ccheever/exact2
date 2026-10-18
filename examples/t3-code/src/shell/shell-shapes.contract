@@ -85,6 +85,16 @@ shape ShellLineage
   hint: string
   failed: bool
   canStop: bool
+  kind: string
+  workflowId: string
+  expanded: bool
+  phaseId: string
+  phaseOpen: bool
+  stopOp: string
+  stopTarget: string
+  count: string
+  modelLine: string
+  preview: string
 shape ShellEditor
   id: string
   label: string

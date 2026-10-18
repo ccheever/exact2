@@ -47,7 +47,7 @@ fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshne
 // the freshness card's delay={0}; PolicyTooltip's delay={200} (kind "policy", settings-kit.contract PolicyTip, drawn as a
 // tip); a Tooltip with no provider Base UI's 600 (kind "tooltip": ThreadAutomationsPanel's, thread-automations.contract); a
 // tooltip here at once (CnTooltip's, the picker's TooltipProvider delay={0}).
-fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" ? 200 : (kind == "tooltip" or kind == "code" ? 600 : 0)))
+fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" or kind == "workflow-member" ? 200 : (kind == "tooltip" or kind == "code" ? 600 : 0)))
 
 fn noHoverTip(): HoverTip = HoverTip(key="", kind="", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId="")
 

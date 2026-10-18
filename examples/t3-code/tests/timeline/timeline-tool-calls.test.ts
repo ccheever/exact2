@@ -3,7 +3,7 @@ import type { T3Client } from '../../src/client/client';
 import type { Message, Obj } from '../../src/client/domain';
 import { chatLocal, transcriptRows } from '../../src/timeline/timeline-presentation';
 import { dynamicToolTitle, claudeSkillInvocation, projectedWorkEntry, summarizeToolGroup, summaryIcon, summaryKind } from '../../src/timeline/timeline-worklog';
-import { summarizeT3ToolCalls, t3ToolDefinition } from '../../src/timeline/timeline-t3tools';
+import { summarizeT3ToolCalls, t3ToolDefinition, t3ToolPresentation, t3ActionPriority } from '../../src/timeline/timeline-t3tools';
 import type { Native } from '../../src/client/protocol';
 
 const base = Date.parse('2026-10-03T00:00:00.000Z');
@@ -210,4 +210,20 @@ describe('mermaid fences (5e35272)', () => {
     expect(row.code!.map(code => code.code)).toEqual([flow, 'const a = 1;']);
     expect(row.diagrams!.map(diagram => [diagram.code, diagram.light.diagram])).toEqual([[flow, 'loading']]);
   });
+});
+
+
+test('workflow Stop tool names its requested effect and counts unique coordinator identifiers', () => {
+  const definition = t3ToolDefinition('mcp__t3-code__t3_workflow_stop');
+  expect(definition?.summaryAction).toBe('workflow-stop');
+  expect(t3ToolPresentation(definition, 'completed')).toEqual({ displayName: 'Requested a stop for a workflow', icon: 't3-code' });
+  expect(t3ToolPresentation(definition, 'failed')?.displayName).toBe('Failed to stop a workflow');
+  expect(summarizeT3ToolCalls('workflow-stop', [
+    { input: { subagentId: 'workflow-a' }, output: {}, outcome: 'completed' },
+    { input: { subagentId: 'workflow-a' }, output: {}, outcome: 'completed' },
+    { input: { subagentId: 'workflow-b' }, output: {}, outcome: 'completed' },
+    { input: { subagentId: 'workflow-c' }, output: { isError: true }, outcome: 'failed' },
+  ])).toEqual({ label: 'Requested stops for 2 workflows', failedCount: 1 });
+  expect(summarizeT3ToolCalls('workflow-stop', [{ input: {}, output: null, outcome: 'unfinished' }]).label).toBe('Tried to stop 1 workflow');
+  expect(t3ActionPriority('workflow-stop')).toBe(0);
 });

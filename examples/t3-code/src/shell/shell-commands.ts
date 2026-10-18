@@ -18,6 +18,7 @@ import { surfaceLocal, surfaceCommand } from '../panel/panel-surfaces';
 import { openInEditorHere } from '../connections/remote-open'; // remote Open (OpenInPicker)
 import { letGo } from '../client/let-go';
 import { markUnread } from '../sidebar/sidebar-commands';
+import { canStopNativeSubagent, canStopWorkflow } from '../details/lineage-workflows';
 
 function threadOf(client: T3Client, threadId: string) {
   const thread = client.shell.threads.find(candidate => candidate.id === threadId);
@@ -49,6 +50,7 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
   if (op.startsWith('git-')) return gitShellCommand(client, native, storage, op.slice(4), id, value);
   if (op === 'mark-unread') { await markUnread(client, native, id); return ''; } // the sidebar's, silent on failure
   if (op === 'stop-subagent') { await stopSubagent(client, native, storage, id); return ''; }
+  if (op === 'stop-workflow') { await stopWorkflow(client, native, id); return ''; }
   const thread = threadOf(client, id);
   const title = str(thread.title, 'thread');
   if (op === 'rename') {
@@ -93,7 +95,18 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
  */
 async function stopSubagent(client: T3Client, native: Native, storage: Files, childThreadId: string): Promise<void> {
   try {
+    if (client.writable === false) return;
     const access = client.restAccess(native);
+    const nativeAgent = arr(client.projection?.subagents).find(agent => agent.childThreadId === childThreadId && agent.origin === 'provider_native');
+    if (nativeAgent) {
+      const owner = str(nativeAgent.threadId) || client.threadId;
+      const projection = obj(await access.request('orchestration.getThreadProjection', { threadId: owner }));
+      const agent = arr(projection.subagents).find(candidate => candidate.id === nativeAgent.id);
+      if (!canStopNativeSubagent(agent)) return;
+      const [commandId] = await access.ids(1);
+      await access.dispatch(storage, { type: 'subagent.stop', commandId, threadId: owner, runId: str(agent!.runId), subagentId: str(agent!.id) }, 'Stop subagent');
+      return;
+    }
     const projection = childThreadId === client.threadId ? client.projection : obj(await access.request('orchestration.getThreadProjection', { threadId: childThreadId }));
     const runs = arr(obj(projection).runs);
     const background = arr(client.shell.threads.find(thread => thread.id === childThreadId)?.pendingBackgroundTasks).length > 0;
@@ -105,6 +118,19 @@ async function stopSubagent(client: T3Client, native: Native, storage: Files, ch
     if (letGo(error)) throw error;
     if (client.error === messageOf(error)) client.error = ''; // the toast stands in for the transcript banner
     pushToast(client, { kind: 'error', title: 'Could not stop subagent' });
+  }
+}
+
+/** A workflow stops through its coordinator's dedicated RPC; interrupting the owner would stop unrelated work. */
+async function stopWorkflow(client: T3Client, native: Native, subagentId: string): Promise<void> {
+  try {
+    const agent = arr(client.projection?.subagents).find(candidate => candidate.id === subagentId);
+    if (!agent || !canStopWorkflow(agent, client.writable)) return;
+    await client.restAccess(native).request('orchestration.stopWorkflow', { threadId: str(agent.threadId) || client.threadId, subagentId }, true);
+  } catch (error) {
+    if (letGo(error)) throw error;
+    if (client.error === messageOf(error)) client.error = '';
+    pushToast(client, { kind: 'error', title: 'Could not stop workflow' });
   }
 }
 

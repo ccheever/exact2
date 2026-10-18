@@ -47,6 +47,7 @@ use ChatCanvasView from "./chat-canvas.contract"
 use TerminalDrawerView, TerminalDrawer from "../terminal/terminal.contract"
 use HoverTip, HoverLayer, HoverText, HoverScopes, HoverCode from "./hover-layer.contract"
 use PaFreshnessCard from "../pull-requests/pages-pr-actions.contract"
+use WorkflowMemberCard from "../details/lineage-workflows.contract"
 use PrLinkPreviewCard from "../pull-requests/pages-pr-links.contract"
 use ChipPopover, ChipPopoverLayer, ChipPopoverEscape from "../composer/composer-chip-popover.contract" // a skill chip's details
 use CitationCommentLayer from "../timeline/citation-comment.contract" // a citation chip's comment
@@ -900,6 +901,8 @@ component T3Window
               PaFreshnessCard(actions=prDetail.actions, scheme=scheme, act=prAct, keep=hoverTipAt(hoverTip, "card"), testId=hoverTip.testId)
             else if hoverTip.kind == "pr-preview"
               PrLinkPreviewCard(preview=prDetail.preview, href=hoverTip.text)
+            else if hoverTip.kind == "workflow-member"
+              WorkflowMemberCard(tip=hoverTip)
             else if hoverTip.kind == "scopes"
               HoverScopes(tip=hoverTip)
             else if hoverTip.kind == "code"

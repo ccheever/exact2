@@ -21,7 +21,7 @@ function changeRequestNumber(target: string): number | null {
 
 export type T3SummaryAction = 'capabilities' | 'delegate' | 'task-status' | 'task-cancel' | 'schedule-run' | 'schedule-create'
   | 'schedule-list' | 'schedule-update' | 'schedule-delete' | 'thread-create' | 'thread-list' | 'thread-read' | 'thread-send'
-  | 'thread-wait' | 'thread-interrupt' | 'thread-configuration' | 'thread-configure' | 'thread-fork' | 'thread-merge'
+  | 'workflow-stop' | 'thread-wait' | 'thread-interrupt' | 'thread-configuration' | 'thread-configure' | 'thread-fork' | 'thread-merge'
   | 'thread-search' | 'thread-transfers' | 'thread-organize' | 'thread-update' | 'queue-list' | 'queue-read' | 'queue-edit'
   | 'queue-cancel' | 'queue-reorder' | 'queue-steer' | 'question-list' | 'question-read' | 'question-respond'
   | 'worktree-handoff' | 'worktree-list' | 'worktree-status' | 'project-list' | 'project-read' | 'project-create'
@@ -58,6 +58,7 @@ const TOOLS: Readonly<Record<string, T3ToolDefinition>> = {
   t3_thread_read: tool(['Read', 'Reading', 'Read', 'a T3 thread'], 'thread-read'),
   t3_thread_send: tool(['Send', 'Sending', 'Sent', 'to a T3 thread'], 'thread-send'),
   t3_thread_wait: tool(['Wait', 'Waiting', 'Waited', 'for a T3 thread'], 'thread-wait'),
+  t3_workflow_stop: tool(['Stop', 'Stopping', 'Requested a stop for', 'a workflow'], 'workflow-stop'),
   t3_thread_interrupt: tool(['Interrupt', 'Interrupting', 'Requested an interrupt of', 'a T3 thread'], 'thread-interrupt'),
   t3_worktree_handoff: tool(['Hand off', 'Handing off', 'Handed off', 'thread to a git worktree'], 'worktree-handoff'),
   t3_worktree_status: tool(['Get', 'Getting', 'Got', 'thread worktree status'], 'worktree-status'),
@@ -217,6 +218,7 @@ export function summarizeT3ToolCalls(action: T3SummaryAction, calls: readonly T3
       case 'thread-wait': return phrase('Waited on', 'wait on', threadsKnown ? quantity(new Set(threadIds).size, 'thread') : `threads ${times}`);
       case 'thread-list': return phrase('Listed', 'list', `threads ${times}`);
       case 'thread-interrupt': return phrase('Requested interrupts for', 'interrupt', quantity(countEntities(threadIds), 'thread'));
+      case 'workflow-stop': return phrase('Requested stops for', 'stop', count('subagentId', 'workflow'));
       case 'task-status': return phrase('Checked', 'check', `task status ${times}`);
       case 'task-cancel': return phrase('Requested cancellation of', 'cancel', count('taskId', 'task'));
       case 'schedule-create': return phrase('Scheduled', 'schedule', count('scheduledTaskId', 'task'));
@@ -278,7 +280,7 @@ export function summarizeT3ToolCalls(action: T3SummaryAction, calls: readonly T3
 
 /** summaryActionPriority: actions with effects lead the group sentence. */
 export function t3ActionPriority(action: string): number {
-  return ['command', 'edit', 'delegate', 'task-cancel', 'thread-create', 'thread-send', 'thread-interrupt', 'schedule-create', 'schedule-update',
+  return ['command', 'edit', 'delegate', 'task-cancel', 'thread-create', 'thread-send', 'thread-interrupt', 'workflow-stop', 'schedule-create', 'schedule-update',
     'schedule-delete', 'schedule-run', 'thread-configure', 'thread-fork', 'thread-merge', 'thread-organize', 'thread-update', 'queue-edit',
     'queue-cancel', 'queue-reorder', 'queue-steer', 'question-respond', 'worktree-handoff', 'project-create', 'project-update', 'project-delete',
     'project-clone', 'environment-update', 'attachment-prepare', 'attachment-discard', 'attachment-send'].includes(action) ? 0

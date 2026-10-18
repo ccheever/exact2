@@ -677,6 +677,9 @@ component T3Code
       case none
   state commandPending = false
   state lineageStopping = ""
+  state lineageWorkflows: string[] = []
+  state lineagePhasesOpen: string[] = []
+  state lineagePhasesClosed: string[] = []
   // A row's double-click while its first click's open runs: the rename (its op and row) starts once the open lands,
   // on the environment it focused, as Sidebar.tsx's onDoubleClick renames after that click navigated.
   state renameAfterOp = ""
@@ -1568,7 +1571,7 @@ component T3Code
   state rightPanelAt = ""
   derive rightPanel = (rightPanelAt != "" and rightPanelAt == shell.panel.key) or shell.panel.launcher
   state detailsOpen = false
-  resource details = shellDetails(detailsShown, data.threadId, data.revision, conversationWidth >= 984, wallTime.epochAtZero + shellClock, floor(viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth), page.hasFocus and page.visibilityState == "visible") as shape ShellDetails
+  resource details = shellDetails(detailsShown, data.threadId, data.revision, conversationWidth >= 984, wallTime.epochAtZero + shellClock, floor(viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth), page.hasFocus and page.visibilityState == "visible", lineageWorkflows, lineagePhasesOpen, lineagePhasesClosed) as shape ShellDetails
   state canvasGestureValue = ""
   action canvasGesture(value: string)
     canvasGestureValue = value
@@ -1689,7 +1692,12 @@ component T3Code
       commandPending = true
       send changed = command((id == "diff" or id == "d" or id == "D") ? "diff" : "shelllocal:surface-open", "", id, 0)
   action detailsAct(op: string, target: string, value: string) // the window's half: the editors list, the title menu
-    if op == "shell:stop-subagent" and not commandPending
+    if op == "ui:workflow-toggle"
+      lineageWorkflows = lineageWorkflows.includes(target) ? lineageWorkflows.filter((id) => id != target) : lineageWorkflows.concat([target])
+    if op == "ui:workflow-phase"
+      lineagePhasesOpen = value == "open" ? lineagePhasesOpen.concat([target]) : lineagePhasesOpen.filter((id) => id != target)
+      lineagePhasesClosed = value == "open" ? lineagePhasesClosed.filter((id) => id != target) : lineagePhasesClosed.concat([target])
+    if (op == "shell:stop-subagent" or op == "shell:stop-workflow") and not commandPending
       lineageStopping = target
     detailsOpen = op == "toggle" ? (not detailsShown and detailsPopover) : (detailsOpen and op != "ui:project-settings" and op != "ui:scheduled-tasks" and op != "select-thread" and op != "ui:changes" and op != "dismiss") // inline: toggle remembers the thread's docked card
     detailsEpoch = op == "toggle" ? canvas.popoverEpoch : detailsEpoch
@@ -1713,7 +1721,7 @@ component T3Code
       restSubject = target == "" ? "" : `link|${value}|${target}`
       modalError = ""
       taskModelPick = ""
-    if (op != "toggle" or not detailsPopover) and op != "dismiss" and op != "ui:project-settings" and op != "ui:add-script" and op != "ui:scheduled-tasks" and not commandPending
+    if (op != "toggle" or not detailsPopover) and op != "dismiss" and op != "ui:project-settings" and op != "ui:add-script" and op != "ui:scheduled-tasks" and op != "ui:workflow-toggle" and op != "ui:workflow-phase" and not commandPending
       commandPending = true
       send changed = command(op == "toggle" ? "shelllocal:details-inline" : op == "ui:changes" ? "diff" : op == "ui:editor" ? "shell:select-editor" : op, target, value, 0)
       if op == "select-thread" or op == "shell:merge-back"

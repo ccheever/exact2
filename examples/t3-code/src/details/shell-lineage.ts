@@ -11,6 +11,7 @@
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { subagentTitle } from '../timeline/timeline-events';
+import { canStopNativeSubagent, canStopWorkflow, projectedWorkflowAgents, workflowBody, workflowGroups } from './lineage-workflows';
 
 type Kind = 'fork' | 'subagent' | 'transfer';
 type Edge = { source: string; target: string; kind: Kind; status: string | null };
@@ -19,6 +20,8 @@ type Graph = { nodes: Map<string, Node>; edges: Edge[] };
 export type LineageRow = {
   id: string; title: string; icon: string; driver: string; status: string; dot: string; group: string; index: number;
   mergeTarget: boolean; elapsed: string; agent: boolean; missing: boolean; hint: string; failed: boolean; canStop: boolean;
+  kind: string; workflowId: string; expanded: boolean; phaseId: string; phaseOpen: boolean;
+  stopOp: string; stopTarget: string; count: string; modelLine: string; preview: string;
 };
 
 const SETTLED_AGENT = new Set(['completed', 'failed', 'error', 'cancelled', 'interrupted', 'idle']);
@@ -177,10 +180,17 @@ export const canStopSubagent = (agent: Obj | undefined) => !!agent && agent.orig
 const createdAt = (node: Node | undefined) => { const at = Date.parse(str(node?.thread?.createdAt)); return Number.isFinite(at) ? at : null; };
 
 /** The Lineage section: heading, ordered and grouped rows, and the hidden "Previous agents" count. */
-export function lineageView(threads: Obj[], projection: Obj | null, threadId: string, providers: Obj[], now: number) {
+export function lineageView(threads: Obj[], projection: Obj | null, threadId: string, providers: Obj[], now: number,
+  expanded: string[] = [], phasesOpen: string[] = [], phasesClosed: string[] = [], writable = true) {
   const graph = relationshipGraph(threads, projection);
   const mergeTarget = mergeTargetOf(projection);
   const agents = new Map(arr(projection?.subagents).filter(agent => str(agent.childThreadId)).map(agent => [str(agent.childThreadId), agent]));
+  const workflows = new Map(workflowGroups(projectedWorkflowAgents(arr(projection?.subagents))).map(group => [group.workflow.id, group]));
+  // A workflow coordinator owns its phases; a child conversation's follow-up does not change that workflow's status.
+  for (const edge of graph.edges) {
+    const raw = agents.get(edge.target);
+    if (edge.kind === 'subagent' && raw && workflows.has(str(raw.id))) edge.status = str(raw.status);
+  }
   const pin = (row: { threadId: string; edge: Edge }) => isParentRelationship(row.edge, threadId) ? 0 : row.threadId === mergeTarget ? 1 : 2;
   // orderWebThreadLineageRows: parent, merge target, then newest first; missing shells sink.
   const ordered = immediateRelationships(graph, threadId).sort((left, right) => {
@@ -196,11 +206,13 @@ export function lineageView(threads: Obj[], projection: Obj | null, threadId: st
     const node = graph.nodes.get(id), thread = node?.thread ?? null;
     const subagent = edge.kind === 'subagent', parent = isParentRelationship(edge, threadId);
     const status = rowStatus(graph, { threadId: id, edge });
-    const agent = currentSubagent(subagent && !parent ? agents.get(id) : undefined, thread);
+    const raw = subagent && !parent ? agents.get(id) : undefined;
+    const workflow = raw ? workflows.get(str(raw.id)) : undefined;
+    const agent = workflow ? raw : currentSubagent(raw, thread);
     const provider = providers.find(entry => str(entry.instanceId) === (str(agent?.providerInstanceId) || str(thread?.providerInstanceId)));
     const driver = subagent && !parent ? str(agent?.driver) || str(provider?.driver) : '';
     const relationship = edge.kind === 'transfer' ? 'Context transfer' : subagent ? (edge.source === threadId ? 'Subagent' : 'Parent agent') : (edge.source === threadId ? 'Fork' : 'Parent thread');
-    const rawTitle = str(thread?.title) || str(agent?.title) || id;
+    const rawTitle = workflow?.workflow.workflowName ?? (str(thread?.title) || str(agent?.title) || id);
     const group = groupOf(edge), failed = status === 'failed' || status === 'error';
     return {
       id, title: subagent ? subagentTitle(rawTitle) : rawTitle, icon: parent ? 'corner-left-up' : subagent ? 'bot' : 'git-fork', driver,
@@ -208,17 +220,41 @@ export function lineageView(threads: Obj[], projection: Obj | null, threadId: st
       // One trailing item keeps room for the title: the badge already carries status, so a timed agent shows its time.
       elapsed: agent && !failed ? agentElapsed(agent, now, true) : '', agent: !!agent, missing: node?.missing === true,
       hint: node?.missing ? 'This related thread is unavailable' : `Open ${relationship.toLowerCase()} in this chat`,
-      failed, canStop: canStopSubagent(agent),
+      failed, canStop: writable && (workflow ? canStopWorkflow(workflow.workflow, writable, driver) : canStopSubagent(agent) || canStopNativeSubagent(agent, raw)),
+      kind: workflow ? 'workflow' : 'thread', workflowId: workflow?.workflow.id ?? '', expanded: !!workflow && expanded.includes(workflow.workflow.id),
+      phaseId: '', phaseOpen: false, stopOp: workflow ? 'shell:stop-workflow' : 'shell:stop-subagent',
+      stopTarget: workflow?.workflow.id ?? id, count: '', modelLine: '', preview: '',
     };
   });
   // Subagents without a child thread yet have no row, so they are counted on their own.
   const running = arr(projection?.subagents).filter(agent => !str(agent.childThreadId) && agent.status === 'running').length
     + ordered.filter(({ edge }) => groupOf(edge) === 'active' && edge.status === 'running').length;
   const previous = rows.filter(row => row.group === 'previous');
+  // Expansion is flattened before Contract renders it: phase and member rows share their header's pagination index.
+  const lineage = rows.flatMap(row => {
+    const group = workflows.get(row.workflowId);
+    if (!group || !row.expanded) return [row];
+    const body = workflowBody(group, threads, providers, now);
+    const memberRow = (member: ReturnType<typeof workflowBody>['unphased'][number]): LineageRow => ({
+      ...row, id: member.id, title: member.title, kind: 'member', workflowId: row.workflowId, icon: 'bot', driver: member.driver,
+      status: member.status, dot: member.dot, elapsed: member.elapsed, missing: member.disabled, failed: member.card.tone === 'error',
+      canStop: false, mergeTarget: false, stopTarget: '', hint: member.childThreadId, modelLine: member.card.modelLine, preview: member.card.preview,
+    });
+    const entries: LineageRow[] = [row];
+    for (const phase of body.phases) {
+      const phaseOpen = phasesOpen.includes(phase.id) || (!phasesClosed.includes(phase.id) && phase.running);
+      entries.push({ ...row, id: phase.id, title: phase.title, kind: 'phase', phaseId: phase.id, phaseOpen, canStop: false,
+        mergeTarget: false, elapsed: phase.elapsed, count: phase.count, status: phase.status, failed: phase.failed });
+      if (phaseOpen) entries.push(...phase.members.map(memberRow));
+    }
+    entries.push(...body.unphased.map(memberRow));
+    if (body.empty) entries.push({ ...row, id: `${row.workflowId}:empty`, kind: 'empty', title: 'No agents yet', canStop: false });
+    return entries;
+  });
   const mergeRun = latestMergeBackRun(projection);
   const parentTitle = mergeTarget ? str(graph.nodes.get(mergeTarget)?.thread?.title) : '';
   return {
-    lineageTitle: running > 0 ? `Lineage · ${running} running` : 'Lineage', lineage: rows, showLineage: rows.length > 0 || running > 0,
+    lineageTitle: running > 0 ? `Lineage · ${running} running` : 'Lineage', lineage, showLineage: rows.length > 0 || running > 0,
     previousCount: previous.length, previousFailed: ordered.filter(({ edge }) => groupOf(edge) === 'previous' && (edge.status === 'failed' || edge.status === 'error')).length,
     mergeRunId: mergeRun ? str(mergeRun.id) : '', mergeTargetId: mergeTarget, mergeSourceId: mergeTarget ? threadId : '',
     mergeLabel: parentTitle ? `Merge back to ${parentTitle}` : 'Merge back to source conversation',

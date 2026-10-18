@@ -25,6 +25,7 @@ use ShellDetails from "../shell/shell-shapes.contract"
 use ShellLineage from "../shell/shell-shapes.contract"
 use ShellEditor from "../shell/shell-shapes.contract"
 use ShellIcon from "../shell/shell-icons.contract"
+use LineageBodyRow from "./lineage-workflows.contract"
 use ShellEditorIcon from "../shell/shell-icons-kit.contract"
 use TipBubble from "../shell/shell-tip.contract"
 use TipCard from "../shell/shell-tip.contract"
@@ -161,7 +162,8 @@ component DetailsBody
               // rows do not fold away the workspace and Version Control rows.
               column width="100%" hatch="t3-frame" data-frame="details-lineage"
                 DetailsSection(title=details.lineageTitle, separated=true, heading=true)
-                  LineageGroups(details=details, busy=busy, stopping=stopping, act=act)
+                  scroll width="100%" max-height=(details.lineage.filter((row) => row.kind == "workflow" and row.expanded).length > 0 ? `min(${28 * rem}px, 55dvh)` : "13.5rem") overflow-x="hidden" testId="details-lineage-scroll"
+                    LineageGroups(details=details, busy=busy, stopping=stopping, act=act)
 
 // ThreadDetailsSection: px-2 pt-2 pb-2.5, a hairline above all but the first; the
 // heading row is hidden for Workspace and Version Control (upstream 429c625a85).
@@ -204,23 +206,23 @@ component LineageGroups
     previousShown = group == "previous" ? previousShown + 12 : previousShown
   action togglePrevious
     previousOpen = not previousOpen
-  action stop(id: string)
+  action stop(op: string, id: string)
     if not busy
-      act("shell:stop-subagent", id, "")
-  derive relatedCount = details.lineage.filter((r) => r.group == "related").length
-  derive activeCount = details.lineage.filter((r) => r.group == "active").length
+      act(op, id, "")
+  derive relatedCount = details.lineage.filter((r) => r.group == "related" and (r.kind == "thread" or r.kind == "workflow")).length
+  derive activeCount = details.lineage.filter((r) => r.group == "active" and (r.kind == "thread" or r.kind == "workflow")).length
   view
     column width="100%" role="list" aria-label="Related threads"
       for row in details.lineage key=row.id
         if row.group == "related" and row.index < relatedShown
-          LineageRow(row=row, details=details, hovered=hovered, hover=hover, focused=focused, focusRow=focusRow, act=act, busy=busy, stopping=stopping, stop=stop(row.id))
+          LineageRow(row=row, details=details, hovered=hovered, hover=hover, focused=focused, focusRow=focusRow, act=act, busy=busy, stopping=stopping, stop=stop)
     if relatedCount > relatedShown
       ShowMore(count=min(relatedCount - relatedShown, 12), hovered=(hovered == "more-related"), hover=hover("more-related"), press=more("related"))
     if activeCount > 0
       column width="100%" role="list" aria-label="Related threads"
         for row in details.lineage key=row.id
           if row.group == "active" and row.index < activeShown
-            LineageRow(row=row, details=details, hovered=hovered, hover=hover, focused=focused, focusRow=focusRow, act=act, busy=busy, stopping=stopping, stop=stop(row.id))
+            LineageRow(row=row, details=details, hovered=hovered, hover=hover, focused=focused, focusRow=focusRow, act=act, busy=busy, stopping=stopping, stop=stop)
       if activeCount > activeShown
         ShowMore(count=min(activeCount - activeShown, 12), hovered=(hovered == "more-active"), hover=hover("more-active"), press=more("active"))
     if details.previousCount > 0
@@ -235,7 +237,7 @@ component LineageGroups
         column width="100%" role="list" aria-label="Related threads"
           for row in details.lineage key=row.id
             if row.group == "previous" and row.index < previousShown
-              LineageRow(row=row, details=details, hovered=hovered, hover=hover, focused=focused, focusRow=focusRow, act=act, busy=busy, stopping=stopping, stop=stop(row.id))
+              LineageRow(row=row, details=details, hovered=hovered, hover=hover, focused=focused, focusRow=focusRow, act=act, busy=busy, stopping=stopping, stop=stop)
         if details.previousCount > previousShown
           ShowMore(count=min(details.previousCount - previousShown, 12), hovered=(hovered == "more-previous"), hover=hover("more-previous"), press=more("previous"))
 
@@ -271,42 +273,50 @@ component LineageRow
   derive stopHovered = hovered == `stop-${row.id}`
   derive stopShown = row.canStop and (hovered == row.id or stopHovered or focused == row.id)
   view
-    row position="relative" height="2rem" align-items="center" border-radius="0.625rem" role="listitem" background-color=(hovered == row.id or hovered == `merge-${row.id}` ? "light-dark(#0000000e, #ffffff13)" : "#00000000")
-      button press=act("select-thread", row.id, "") hover=hover(row.id) focus=focusRow(row.id, true) blur=focusRow(row.id, false) disabled=row.missing aria-label=`${row.title} ${row.status}` testId=`details-lineage-${row.id}` flex=1 min-width=0 height="2rem" padding-left="0.6875rem" padding-right=(row.mergeTarget ? "0.625rem" : "0.6875rem") box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" border-top-right-radius=(row.mergeTarget ? "0px" : "0.625rem") border-bottom-right-radius=(row.mergeTarget ? "0px" : "0.625rem") background-color=(row.mergeTarget and hovered == row.id ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
-        box width="1rem" height="1rem" position="relative" flex-shrink=0 display="flex" align-items="center" justify-content="center"
-          if row.driver != ""
-            ProviderMark(driver=row.driver, size=16, color="light-dark(#71717b, #818181)")
-          else
-            ShellIcon(name=row.icon, size=16, color="light-dark(#71717b, #818181)")
-          box position="absolute" right="-0.25rem" bottom="-0.25rem" width="0.5rem" height="0.5rem" box-sizing="border-box" border-radius="0.25rem" border-style="solid" border-width=2 border-color="light-dark(#ffffff, #111111)" background-color=row.dot
-        text row.title flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" font-weight=500 line-height="1rem" color="light-dark(#27272ad9, #f5f5f5d9)"
-        if not row.agent
-          box opacity=(hovered == row.id ? 1 : 0) display="flex" flex-shrink=0
-            ShellIcon(name="arrow-right", size=12, color="light-dark(#71717b, #818181)")
-        if row.elapsed != ""
-          text row.elapsed flex-shrink=0 opacity=(stopShown ? 0 : 1) font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" testId=`details-lineage-elapsed-${row.id}`
-        else if not row.mergeTarget
-          text row.status flex-shrink=0 opacity=(stopShown ? 0 : 1) font-size="0.6875rem" line-height="1rem" color=(row.failed ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)")
-      if row.mergeTarget
-        box width=1 height="1rem" flex-shrink=0 background-color="light-dark(#e4e4e7a6, #ffffff10)"
-        box position="relative" flex-shrink=0 hover=hover(`merge-${row.id}`)
-          button press=act("shell:merge-back", details.mergeSourceId, `${details.mergeTargetId}|${details.mergeRunId}`) disabled=(details.mergeRunId == "") aria-label=details.mergeLabel testId=`details-merge-${row.id}` width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.625rem" border-top-left-radius=0 border-bottom-left-radius=0 opacity=(details.mergeRunId == "" ? 0.64 : 1) background-color=(hovered == `merge-${row.id}` and details.mergeRunId != "" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-            ShellIcon(name="git-merge", size=12, color="light-dark(#27272acc, #f5f5f5cc)")
-          TipBubble(label=details.mergeHint, side="top", align="end", offset=36, inset=0, shown=(hovered == `merge-${row.id}`))
-        text row.status flex-shrink=0 padding-left="0.25rem" padding-right="0.6875rem" font-size="0.6875rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"
-      // Stop (ThreadDetailsControl part "icon", tone destructive): a 24pt square button 4pt in from the row's end,
-      // its tooltip to the left; while a command runs it is disabled, and the row it stops spins.
-      if row.canStop
-        box position="absolute" right="0.25rem" top="0.25rem" width="1.5rem" height="1.5rem" opacity=(stopShown ? 1 : 0) pointer-events=(stopShown ? "auto" : "none") hover=hover(`stop-${row.id}`)
-          button press=stop focus=focusRow(row.id, true) blur=focusRow(row.id, false) disabled=busy aria-label=`Stop subagent ${row.title}` testId=`details-lineage-stop-${row.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.375rem" opacity=(busy ? 0.64 : 1) background-color=(stopHovered and not busy ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-            if busy and stopping == row.id
-              box display="flex" animation="lineageSpin 1s linear infinite"
-                ShellIcon(name="loader", size=12, color="light-dark(#fb2c36, #fb414a)")
+    if row.kind != "thread" and row.kind != "workflow"
+      LineageBodyRow(row=row, act=act)
+    else
+      row position="relative" height="2rem" align-items="center" border-radius="0.625rem" role="listitem" background-color=(hovered == row.id or hovered == `merge-${row.id}` ? "light-dark(#0000000e, #ffffff13)" : "#00000000")
+        button press=act("select-thread", row.id, "") hover=hover(row.id) focus=focusRow(row.id, true) blur=focusRow(row.id, false) disabled=row.missing aria-label=`${row.title} ${row.status}` testId=`details-lineage-${row.id}` flex=1 min-width=0 height="2rem" padding-left="0.6875rem" padding-right=(row.kind == "workflow" ? "0.625rem" : row.mergeTarget ? "0.625rem" : "0.6875rem") box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" border-top-right-radius=(row.mergeTarget ? "0px" : "0.625rem") border-bottom-right-radius=(row.mergeTarget ? "0px" : "0.625rem") background-color=(row.mergeTarget and hovered == row.id ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+          box width="1rem" height="1rem" position="relative" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+            if row.driver != ""
+              ProviderMark(driver=row.driver, size=16, color="light-dark(#71717b, #818181)")
             else
-              svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color="light-dark(#fb2c36, #fb414a)" fill="currentColor" stroke="currentColor" stroke-width=2 stroke-linejoin="round" aria-hidden=true
-                rect x=3 y=3 width=18 height=18 rx=2
-          row position="absolute" right="1.75rem" top=0 height="1.5rem" align-items="center" pointer-events="none" z-index=140
-            TipCard(label="Stop subagent", shown=stopHovered)
+              ShellIcon(name=row.icon, size=16, color="light-dark(#71717b, #818181)")
+            box position="absolute" right="-0.25rem" bottom="-0.25rem" width="0.5rem" height="0.5rem" box-sizing="border-box" border-radius="0.25rem" border-style="solid" border-width=2 border-color="light-dark(#ffffff, #111111)" background-color=row.dot
+          text row.title flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" font-weight=500 line-height="1rem" color="light-dark(#27272ad9, #f5f5f5d9)"
+          if not row.agent
+            box opacity=(hovered == row.id ? 1 : 0) display="flex" flex-shrink=0
+              ShellIcon(name="arrow-right", size=12, color="light-dark(#71717b, #818181)")
+          if row.elapsed != ""
+            text row.elapsed flex-shrink=0 opacity=(stopShown ? 0 : 1) font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" testId=`details-lineage-elapsed-${row.id}`
+          else if not row.mergeTarget
+            text row.status flex-shrink=0 opacity=(stopShown ? 0 : 1) font-size="0.6875rem" line-height="1rem" color=(row.failed ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)")
+        if row.mergeTarget
+          box width=1 height="1rem" flex-shrink=0 background-color="light-dark(#e4e4e7a6, #ffffff10)"
+          box position="relative" flex-shrink=0 hover=hover(`merge-${row.id}`)
+            button press=act("shell:merge-back", details.mergeSourceId, `${details.mergeTargetId}|${details.mergeRunId}`) disabled=(details.mergeRunId == "") aria-label=details.mergeLabel testId=`details-merge-${row.id}` width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.625rem" border-top-left-radius=0 border-bottom-left-radius=0 opacity=(details.mergeRunId == "" ? 0.64 : 1) background-color=(hovered == `merge-${row.id}` and details.mergeRunId != "" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+              ShellIcon(name="git-merge", size=12, color="light-dark(#27272acc, #f5f5f5cc)")
+            TipBubble(label=details.mergeHint, side="top", align="end", offset=36, inset=0, shown=(hovered == `merge-${row.id}`))
+          text row.status flex-shrink=0 padding-left="0.25rem" padding-right="0.6875rem" font-size="0.6875rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"
+        // Stop (ThreadDetailsControl part "icon", tone destructive): a 24pt square button 4pt in from the row's end,
+        // its tooltip to the left; while a command runs it is disabled, and the row it stops spins.
+        if row.kind == "workflow"
+          box width=1 height="1rem" flex-shrink=0 background-color="light-dark(#e4e4e7a6, #ffffff10)"
+          button press=act("ui:workflow-toggle", row.workflowId, "") aria-expanded=row.expanded aria-label=`${row.expanded ? "Collapse" : "Expand"} ${row.title}` testId=`details-workflow-toggle-${row.workflowId}` title="" focus=focusRow(row.id, true) blur=focusRow(row.id, false) width="2rem" height="2rem" padding=0 border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center"
+            box rotate=(row.expanded ? 0 : 180) display="flex"
+              ShellIcon(name="chevron-down", size=12, color="light-dark(#71717b, #818181)")
+        if row.canStop
+          box position="absolute" right=(row.kind == "workflow" ? "2.25rem" : "0.25rem") top="0.25rem" width="1.5rem" height="1.5rem" opacity=(stopShown ? 1 : 0) pointer-events=(stopShown ? "auto" : "none") hover=hover(`stop-${row.id}`)
+            button press=stop(row.stopOp, row.stopTarget) focus=focusRow(row.id, true) blur=focusRow(row.id, false) disabled=busy aria-label=`Stop ${row.kind == "workflow" ? "workflow" : "subagent"} ${row.title}` testId=`details-lineage-stop-${row.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.375rem" opacity=(busy ? 0.64 : 1) background-color=(stopHovered and not busy ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+              if busy and stopping == row.stopTarget
+                box display="flex" animation="lineageSpin 1s linear infinite"
+                  ShellIcon(name="loader", size=12, color="light-dark(#fb2c36, #fb414a)")
+              else
+                svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color="light-dark(#fb2c36, #fb414a)" fill="currentColor" stroke="currentColor" stroke-width=2 stroke-linejoin="round" aria-hidden=true
+                  rect x=3 y=3 width=18 height=18 rx=2
+            row position="absolute" right="1.75rem" top=0 height="1.5rem" align-items="center" pointer-events="none" z-index=140
+              TipCard(label=(row.kind == "workflow" ? "Stop entire workflow" : "Stop subagent"), shown=stopHovered)
 
 // The workspace select's popup (SelectPopup alignItemWithTrigger=false, the trigger's width): a
 // "Workspace" group label, then Current checkout (the folder's name), New worktree and the

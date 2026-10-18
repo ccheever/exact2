@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test';
 import { projectedWorkflowAgents, workflowGroups, workflowPhaseStatus, workflowPhaseTiming, workflowBody, canStopNativeSubagent, canStopWorkflow } from '../../src/details/lineage-workflows';
+import { lineageView } from '../../src/details/shell-lineage';
+import { contractComponent } from '../support/contract-action-fixture';
 import type { Obj } from '../../src/client/domain';
 
 const started = '2026-10-18T12:00:00.000Z', ended = '2026-10-18T12:02:00.000Z', at = Date.parse(started);
@@ -114,4 +116,46 @@ test('native Stop requires a live strongly identified Claude task and workflows 
   expect(canStopWorkflow({ ...agent, status: 'waiting' }, true)).toBe(false);
   expect(canStopWorkflow({ ...agent, origin: 'app_owned' }, true)).toBe(false);
   expect(canStopWorkflow({ ...agent, driver: 'codex' }, true)).toBe(false);
+});
+
+
+test('workflow rows retain coordinator status, expand running phases and page headers independently of members', () => {
+  const agent = coordinator({ childThreadId: 'coordinator-child', threadId: 'owner', workflow: { name: 'Parallel review', phases: [
+    { index: 0, title: 'Read' }, { index: 1, title: 'Write' }], agents: [
+    { index: 0, label: 'Parser', phaseIndex: 0, state: 'running', childThreadId: 'member-child', startedAt: at },
+    { index: 1, label: 'Transport', phaseIndex: 1, state: 'completed', startedAt: at, durationMs: 1000 },
+  ] } });
+  const threads: Obj[] = [{ id: 'owner', title: 'Owner' }, { id: 'coordinator-child', title: 'Generic title', status: 'completed', activityRunStatus: 'running', activityRunStartedAt: ended }, { id: 'member-child' }];
+  const projection = { thread: { id: 'owner' }, subagents: [agent] };
+  const collapsed = lineageView(threads, projection, 'owner', [], at + 125000);
+  expect(collapsed.lineage).toHaveLength(1);
+  expect(collapsed.lineage[0]).toMatchObject({ title: 'Parallel review', status: 'Running', elapsed: '2m', kind: 'workflow', canStop: true,
+    stopOp: 'shell:stop-workflow', stopTarget: 'workflow', expanded: false });
+  const open = lineageView(threads, projection, 'owner', [], at + 125000, ['workflow']);
+  expect(open.lineage.map(row => [row.kind, row.title])).toEqual([['workflow', 'Parallel review'], ['phase', 'Read'], ['member', 'Parser'], ['phase', 'Write']]);
+  expect(open.lineage.every(row => row.index === 0 && row.group === 'active')).toBe(true);
+  expect(open.lineage.find(row => row.kind === 'member')).toMatchObject({ canStop: false, missing: false, hint: 'member-child', elapsed: '2m 05s' });
+  const overrides = lineageView(threads, projection, 'owner', [], at + 125000, ['workflow'], ['workflow:phase:1'], ['workflow:phase:0'], false);
+  expect(overrides.lineage.map(row => row.title)).toEqual(['Parallel review', 'Read', 'Write', 'Transport']);
+  expect(overrides.lineage[0]!.canStop).toBe(false);
+  expect(overrides.lineage.at(-1)!.missing).toBe(true);
+  const completed = lineageView(threads, { ...projection, subagents: [{ ...agent, status: 'completed', completedAt: ended }] }, 'owner', [], at + 125000);
+  expect(completed.lineage[0]).toMatchObject({ group: 'previous', status: 'Done', canStop: false });
+  expect(completed.previousCount).toBe(1);
+});
+
+test('workflow expansion and phase overrides stay local and preserve other workflows', () => {
+  const root = contractComponent('app.contract', 'T3Code');
+  const state = { lineageWorkflows: ['other'], lineagePhasesOpen: [], lineagePhasesClosed: [], detailsOpen: true, detailsEpoch: 0 };
+  const calls: unknown[][] = [], scope = { detailsPopover: false, commandPending: false, command: (...args: unknown[]) => calls.push(args) };
+  root.call('detailsAct', state, scope, ['ui:workflow-toggle', 'workflow', '']);
+  expect(state.lineageWorkflows).toEqual(['other', 'workflow']);
+  root.call('detailsAct', state, scope, ['ui:workflow-phase', 'workflow:phase:0', 'close']);
+  expect(state.lineagePhasesClosed).toEqual(['workflow:phase:0']);
+  root.call('detailsAct', state, scope, ['ui:workflow-phase', 'workflow:phase:0', 'open']);
+  expect(state.lineagePhasesClosed).toEqual([]);
+  expect(state.lineagePhasesOpen).toEqual(['workflow:phase:0']);
+  root.call('detailsAct', state, scope, ['ui:workflow-toggle', 'workflow', '']);
+  expect(state.lineageWorkflows).toEqual(['other']);
+  expect(calls).toEqual([]);
 });
