@@ -74,6 +74,8 @@ fn contact_field(tag: &str, feedback: &str, down: &str) -> (Presenter<()>, ViewI
   state seen = ""
   state shown = true
   state disabled = false
+  state fieldDisplay = "block"
+  state parentDisplay = "flex"
   action record(phase: string)
     seen = `${{seen}}${{phase}}`
   action down
@@ -83,8 +85,9 @@ fn contact_field(tag: &str, feedback: &str, down: &str) -> (Presenter<()>, ViewI
     seen = `${{seen}}pan `
   view
     column width=400 height=600
-      if shown
-        {tag} id="field" testId="field" value="abcd" appearance="none" width=180 height=120 padding=12 font-size=16 line-height="24px" disabled=disabled pointerdown=down focus=record("focus ") press=record("press ") {feedback}
+      column display=parentDisplay
+        if shown
+          {tag} id="field" testId="field" value="abcd" appearance="none" width=180 height=120 padding=12 font-size=16 line-height="24px" display=fieldDisplay disabled=disabled pointerdown=down focus=record("focus ") press=record("press ") {feedback}
       box testId="pan" pan=pan press=record("pan-press ") touch-action="none" width=180 height=40
       input id="other" testId="other" value="other" width=180 height=40
       text seen testId="log"
@@ -184,14 +187,63 @@ fn cancelled_mouse_field_contact_keeps_focus_and_never_presses() {
 
 #[test]
 fn field_down_revalidates_after_authored_pointerdown() {
-    for down in ["shown = false", "disabled = true"] {
-        let (mut p, id) = contact_field("input", "", down);
+    for down in [
+        "shown = false",
+        "disabled = true",
+        "fieldDisplay = \"none\"",
+        "parentDisplay = \"none\"",
+    ] {
+        for feedback in ["", "-exact-press-scale=0.9"] {
+            let (mut p, id) = contact_field("input", feedback, down);
+            let k = p.host.kernel();
+            let other = k.node_by_key(k.find_by_test_id("other")[0]).unwrap().id;
+            p.set_focus(Some(other), 0.);
+            let (x, y) = second_character(&mut p, id, false);
+            p.pointer_down(x, y, 1.).unwrap();
+            assert_eq!(p.focus, Some(other), "{down} {feedback}: down");
+            p.pointer_up(x, y, 2.).unwrap();
+            assert_eq!(p.focus, Some(other), "{down} {feedback}: up");
+            assert_eq!(contact_log(&p), "down ", "{down} {feedback}");
+        }
+    }
+}
+
+#[test]
+fn context_preview_field_prevents_mouse_focus_and_caret() {
+    for feedback in ["", "-exact-press-scale=0.9"] {
+        let (mut p, id) = boot_source(&format!(
+            r#"component Fields
+  state seen = ""
+  action record(phase: string)
+    seen = `${{seen}}${{phase}}`
+  view
+    column width=400 height=600
+      input id="editor" testId="editor" value="other" width=180 height=40
+      box position="absolute" top=100 width=300 height=220
+        box contextTarget="editor" width=300 height=40
+        button press=record("press ") {feedback}
+          input id="field" testId="field" value="abcd" appearance="none" width=180 height=120 padding=12 font-size=16 line-height="24px" focus=record("focus ")
+      text seen testId="log"
+"#
+        ));
+        let k = p.host.kernel();
+        let editor = k.node_by_key(k.find_by_test_id("editor")[0]).unwrap().id;
+        p.set_focus(Some(editor), 0.);
+        p.mark_field(editor, "other", FieldSelection::caret(2), false);
+        p.mark_field(id, "abcd", FieldSelection::caret(3), false);
         let (x, y) = second_character(&mut p, id, false);
+        assert_eq!(p.hit(x, y), Some(id));
+        assert!(p.pointerdown_prevents_focus(id));
         p.pointer_down(x, y, 1.).unwrap();
-        assert_eq!(p.focus, None);
+        assert_eq!(p.focus, Some(editor));
+        assert_eq!(p.field_selection(editor), FieldSelection::caret(2));
+        assert_eq!(p.field_selection(id), FieldSelection::caret(3));
+        assert_eq!(contact_log(&p), "");
         p.pointer_up(x, y, 2.).unwrap();
-        assert_eq!(p.focus, None);
-        assert_eq!(contact_log(&p), "down ");
+        assert_eq!(p.focus, Some(editor));
+        assert_eq!(p.field_selection(editor), FieldSelection::caret(2));
+        assert_eq!(p.field_selection(id), FieldSelection::caret(3));
+        assert_eq!(contact_log(&p), "press ");
     }
 }
 

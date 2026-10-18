@@ -461,6 +461,13 @@ impl<D: DataSource> Presenter<D> {
             return;
         };
         let (hit, point) = (node.id, contact.origin);
+        if self.focus_refusal(hit).is_some() {
+            // A hidden field must not regain focus or activate on release either.
+            if let Err(error) = self.pointer_cancel(now_ms) {
+                self.host.log(error);
+            }
+            return;
+        }
         self.contact.as_mut().unwrap().field_focus_on_down = true;
         self.note_press(hit, false);
         if !self.pointerdown_prevents_focus(hit) {
