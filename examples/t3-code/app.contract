@@ -480,16 +480,16 @@ component T3Code
   action guideFallback
     prSetTab("summary")
   state guideFinishHandled = ""
-  task guideFinishRequested when prDetail.guide.finishNonce > 0 and guideFinishHandled != `${prDetail.ref}:${prDetail.guide.finishNonce}` key=`${prDetail.ref}:${prDetail.guide.finishNonce}`
+  task guideFinishRequested when prDetail.guide.finishNonce > 0 and guideFinishHandled != `${prDetail.guide.key}:${prDetail.guide.finishNonce}` key=`${prDetail.guide.key}:${prDetail.guide.finishNonce}`
     after(1, guideFinishOpen)
   action guideFinishOpen
-    guideFinishHandled = `${prDetail.ref}:${prDetail.guide.finishNonce}`
+    guideFinishHandled = `${prDetail.guide.key}:${prDetail.guide.finishNonce}`
     showPopover(utilityPage == "pull-requests" ? "pr-page-scroll-composer" : "pr-surface-scroll-composer")
   state codeRevealHandled = ""
-  task codeRevealRequested when prTab == "code" and prDetail.codeTab.revealPath != "" and prDetail.codeTab.revealNonce > 0 and codeRevealHandled != `${prDetail.ref}:${prDetail.codeTab.revealNonce}` key=`${prDetail.ref}:${prDetail.codeTab.revealNonce}`
+  task codeRevealRequested when prTab == "code" and prDetail.codeTab.revealPath != "" and prDetail.codeTab.revealNonce > 0 and codeRevealHandled != `${prDetail.guide.key}:${prDetail.codeTab.revealNonce}` key=`${prDetail.guide.key}:${prDetail.codeTab.revealNonce}`
     after(1, codeRevealOpen)
   action codeRevealOpen
-    codeRevealHandled = `${prDetail.ref}:${prDetail.codeTab.revealNonce}`
+    codeRevealHandled = `${prDetail.guide.key}:${prDetail.codeTab.revealNonce}`
     if utilityPage == "pull-requests"
       scrollIntoView("pr-page-scroll-code", `file:${prDetail.codeTab.revealPath}`, block="start")
     else

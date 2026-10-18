@@ -58,3 +58,13 @@ test('programmatic Finish opens review mode before the trigger action and still 
   expect(component.derives(state, { ...scope, reviewRequest: 2 }).shownMode).toBe('review');
   expect(state.summaryText).toBe('Keep my summary');
 });
+
+
+test('Finish and Code scroll acknowledgements distinguish identical focused PR refs on different owners', () => {
+  const component = contractComponent('app.contract', 'T3Code'), state = { guideFinishHandled: '', codeRevealHandled: '' };
+  const scope = (owner: string) => ({ prDetail: { ref: 'same-focused-ref', guide: { key: owner, finishNonce: 1 }, codeTab: { revealNonce: 1, revealPath: 'src/a.ts' } }, utilityPage: 'pull-requests', showPopover: () => {}, scrollIntoView: () => {} });
+  component.call('guideFinishOpen', state, scope('env-a:pr'), []); component.call('codeRevealOpen', state, scope('env-a:pr'), []);
+  expect(state).toEqual({ guideFinishHandled: 'env-a:pr:1', codeRevealHandled: 'env-a:pr:1' });
+  component.call('guideFinishOpen', state, scope('env-b:pr'), []); component.call('codeRevealOpen', state, scope('env-b:pr'), []);
+  expect(state).toEqual({ guideFinishHandled: 'env-b:pr:1', codeRevealHandled: 'env-b:pr:1' });
+});

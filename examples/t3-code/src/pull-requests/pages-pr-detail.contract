@@ -356,7 +356,7 @@ component PrdBody
       // the pull request: a zero-height row under the scroll box is its anchor.
       if detail.writes.composer
         row position="relative" width="100%" height=0 flex-shrink=0
-          for composerKey in [detail.writes.key] key=composerKey
+          for composerKey in [`${detail.guide.key}:${detail.writes.key}`] key=composerKey
             column position="absolute" right="1rem" bottom="0.75rem" z-index=20
               PrdComposer(reviewRequest=detail.guide.finishNonce, writes=detail.writes, selected=detail.ref, scope=scrollId, act=act, local=local)
 
