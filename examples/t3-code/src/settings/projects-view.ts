@@ -13,7 +13,7 @@ import type { Native } from '../client/protocol';
 import { environmentClient, environmentLabel, memberRef, memberThreads, settingsGroups } from './projects-fleet';
 
 type Choice = { value: string; label: string; selected: boolean };
-const blank: ScopedRow = { key: '', kind: 'select', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '' };
+const blank: ScopedRow = { key: '', kind: 'select', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', traitsLabel: '', traits: [] };
 
 function iconDescription(project: Obj): string {
   const icon = obj(project.projectIcon);

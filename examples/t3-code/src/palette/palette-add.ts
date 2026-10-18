@@ -1,3 +1,4 @@
+// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
 // The palette's Add project pages: reference CommandPalette.tsx (buildAddProjectSourceGroups,
 // startAddProjectBrowse, the clone flow, the New project name step) with the path helpers of
 // packages/client-runtime/src/state/projects.ts and operations/projects.ts.
@@ -182,8 +183,10 @@ export async function addProjectView(client: T3Client, native: Native | null | u
       title: 'Add existing project', description: 'Open a folder or clone a repository', trailing: 'chevron' }) }] });
     const rows = flatten(groups);
     return { ...base, addon: 'back', placeholder: 'Project name', rows, count: rows.length, autoHighlight: false, popOnEmpty: false,
-      enterLabel: context.highlighted ? (rows.length > 1 ? 'Select' : 'Select') : 'Create', enterOp: 'flow', enterArg: 'new-project', enterArg2: name,
-      accessory: 'Create', accessoryKey: 'Enter', accessoryEnabled: name.length > 0, accessoryOp: 'flow', accessoryArg: 'new-project', accessoryArg2: name, inputPaddingRight: 128,
+      // Enter runs a highlighted option; ⌘ Enter always creates (palette.contract's inputKey).
+      enterLabel: context.highlighted ? 'Select' : 'Create', enterOp: 'flow', enterArg: 'new-project', enterArg2: name,
+      accessory: 'Create', accessoryKey: context.highlighted ? '⌘ Enter' : 'Enter', accessoryEnabled: name.length > 0, accessoryOp: 'flow', accessoryArg: 'new-project', accessoryArg2: name,
+      inputPaddingRight: context.highlighted ? 152 : 128,
       contextLabel: '', contextTitle: name || 'New project', contextDescription: root ? (name ? `Creates ${preview}` : `Goes in ${root}`) : '', contextIcon: root ? 'folder-git' : '' };
   }
   // Clone: the repository step, then the destination step.

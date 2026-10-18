@@ -5,7 +5,7 @@
 // and a remount (Advanced on or off) starts it again from the sample. Its textarea is the
 // composer's kind: `t3-prompt-preview` gives it its own native editor on macOS (T3Module
 // promptPreview, T3ComposerEditor.swift): chips, atomic chip keys and undo grouping.
-use CorePalette from "../settings/settings-core.contract"
+use CorePalette from "../settings/settings-core-shared.contract"
 
 component PromptFontPreview
   props

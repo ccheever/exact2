@@ -156,6 +156,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     ['connections.contract', 'EnvironmentIconMenu', 'triggerKey'], ['settings-b-kit.contract', 'CnSelect', 'triggerKey'],
     ['pages-pr-stack.contract', 'PrdStackControls', 'triggerKey'],
     ['settings-rows.contract', 'ScopeSentence', 'projectKey'], ['settings-rows.contract', 'ScopeSentence', 'environmentKey'],
+    ['settings-source-control.contract', 'WriterTraitsPicker', 'triggerKey'],
     ['settings-rows.contract', 'CoreRowView', 'traitsKey'], ['settings-rows.contract', 'CoreSelect', 'triggerKey'],
     ['pages-pr-code.contract', 'PrdCodeToolbar', 'triggerKey'], ['pages-pr-code.contract', 'PrdDiffOptions', 'triggerKey'], ['settings-a-hosts.contract', 'HostRowView', 'triggerKey'],
     ['pages-pr-quick.contract', 'PrRowStack', 'triggerKey'], ['settings-kit.contract', 'SettingsSelect', 'triggerKey'],

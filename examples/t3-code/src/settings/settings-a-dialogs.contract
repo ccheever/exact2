@@ -2,9 +2,9 @@
 // (backdrop, 18pt popup, header, panel, muted footer) and the dialogs it frames —
 // General's Background Activity editor, and the Appearance theme dialogs.
 use CoreIcon, CorePaintIcon from "./settings-core.contract"
-use CorePalette from "./settings-core.contract"
+use CorePalette from "./settings-core-shared.contract"
 use SettingsCore from "./settings-core.contract"
-use SettingsGhost from "./settings-core.contract"
+use SettingsGhost from "./settings-core-shared.contract"
 use CoreSelect from "./settings-rows.contract"
 use AddThemeDialog from "../appearance/settings-appearance-import.contract"
 use SettingsConfirm from "./settings-rest-dialogs.contract"
