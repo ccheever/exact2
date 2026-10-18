@@ -10,6 +10,7 @@
 import type { T3Client } from '../client/client';
 import { bridgeReply, ClientError, type Files, type Native } from '../client/protocol';
 import { arr, obj, str, type Obj } from '../client/domain';
+import { EnvironmentFleet, fleet } from '../connections/settings-b-fleet';
 import { primaryEntry } from '../connections/local-primary';
 import { letGo } from '../client/let-go';
 import { pushToast } from '../shell/toast';
@@ -135,6 +136,22 @@ export function renameBrowserProfile(client: T3Client, id: string, next: string)
   prefs.browserProfiles = prefs.browserProfiles.map(profile => profile.id === id ? { ...profile, name } : profile);
 }
 
+/** A server-hosted profile lives on its environment. The legacy local store
+ * is cleared as well, since the same profile can have desktop tabs. */
+async function clearProfileEverywhere(client: T3Client, native: Native, ids: string[], profileId: string): Promise<void> {
+  for (const environmentId of ids) {
+    if (environmentId === client.environmentId) {
+      if (obj(obj(client.config.environment).capabilities).serverBrowser === true) await client.rpc(native, 'preview.clearProfile', { profileId });
+    } else {
+      const entry = [...fleet.entries.values()].find(value => value.environmentId === environmentId);
+      if (!entry || obj(obj(entry.config.environment).capabilities).serverBrowser !== true) continue;
+      const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { op: 'request', method: 'preview.clearProfile', payload: { profileId }, generation: entry.generation });
+      if (!reply.ok) throw new ClientError(reply.error?.message ?? 'The profile could not be cleared.');
+    }
+  }
+  await clearBrowserProfileData(nativeProfileBridge(raw(client, native)), ids, profileId);
+}
+
 async function clearProfileData(client: T3Client, native: Native, id: string, name: string): Promise<void> {
   if (!hydrated(client) || ui(client).importInFlight) return;
   const environments = await knownEnvironmentIds(client, native);
@@ -143,7 +160,7 @@ async function clearProfileData(client: T3Client, native: Native, id: string, na
     return;
   }
   try {
-    await clearBrowserProfileData(nativeProfileBridge(raw(client, native)), environments.ids, id);
+    await clearProfileEverywhere(client, native, environments.ids, id);
     pushToast(client, { kind: 'success', title: `Cleared ${name}'s cookies and cache` });
   } catch { pushToast(client, { kind: 'error', title: `Could not clear ${name}'s data` }); }
 }
@@ -155,7 +172,7 @@ async function removeProfile(client: T3Client, native: Native): Promise<void> {
   if (!browserProfileRemovalAvailable(native.available, environments.ready, environments.ids.length)) { removal.error = 'Connect to an environment before removing this profile.'; return; }
   removal.error = ''; removal.inFlight = true;
   // The store's data goes too, so a removed profile's cookies are not left on disk with nothing pointing at them.
-  try { await clearBrowserProfileData(nativeProfileBridge(raw(client, native)), environments.ids, removal.profile.id); }
+  try { await clearProfileEverywhere(client, native, environments.ids, removal.profile.id); }
   catch { removal.error = 'Profile data could not be deleted. Try again.'; removal.inFlight = false; return; }
   const prefs = browserProfilePrefs(client);
   prefs.browserProfiles = prefs.browserProfiles.filter(profile => profile.id !== removal.profile.id);

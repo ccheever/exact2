@@ -28,6 +28,8 @@ function dialogKey(file: string, line: string): string {
 }
 const dialogs = files.flatMap(file => source(file).split('\n').flatMap((line, index) =>
   !line.trimStart().startsWith('//') && /role="(dialog|alertdialog)"/.test(line) ? [{ file, index, line, key: dialogKey(file, line) }] : []));
+// Native dialogs use the host's modal focus containment, including streamed page prompts.
+const nativeDialogs = new Set(dialogs.filter(dialog => dialog.line.trimStart().startsWith('dialog ')).map(dialog => dialog.key));
 
 // The FocusGuard pair of each guarded dialog: its key and the guard ids' base.
 const GUARDED: Record<string, string> = {
@@ -94,6 +96,7 @@ const NOT_MODAL: Record<string, string> = {
   'citation-comment.contract "citation-comment"': 'Popover (AssistantCitationChip\'s comment)',
   'diff.contract "diff-base-picker"': 'Popover',
   'markdown.contract `Terminal excerpt, ${chip.label}`': 'Popover',
+  'markdown.contract `Quoted assistant text: ${chip.label}`': 'Popover (AssistantCitationChip)',
   'markdown.contract "context-chip-details"': 'Popover',
   'model-picker.contract "model-dialog"': 'ProviderModelPicker PopoverPopup',
   'pages-pr-actions.contract testId': 'Popover (the freshness card)',
@@ -165,11 +168,11 @@ const named = (expression: string) => [...expression.matchAll(/(?:^|[?:])\s*\(?\
 describe('every dialog is classified: a FocusGuard pair, its own key wraps, or no modal in the reference', () => {
   test('each role="dialog" and role="alertdialog" is in exactly one list', () => {
     const keys = dialogs.map(dialog => dialog.key);
-    const unclassified = keys.filter(key => !(key in GUARDED) && !(key in KEYED) && !(key in NOT_MODAL));
+    const unclassified = keys.filter(key => !nativeDialogs.has(key) && !(key in GUARDED) && !(key in KEYED) && !(key in NOT_MODAL));
     expect(unclassified).toEqual([]);
     // Nothing listed has gone away (a renamed dialog would leave its entry behind).
     for (const key of [...Object.keys(GUARDED), ...Object.keys(KEYED), ...Object.keys(NOT_MODAL)]) expect(keys).toContain(key);
-    expect(keys.length).toBe(Object.keys(GUARDED).length + 1 + Object.keys(KEYED).length + Object.keys(NOT_MODAL).length); // palette.contract has two
+    expect(keys.length).toBe(nativeDialogs.size + Object.keys(GUARDED).length + 1 + Object.keys(KEYED).length + Object.keys(NOT_MODAL).length); // palette.contract has two
   });
 });
 
