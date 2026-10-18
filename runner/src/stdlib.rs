@@ -125,6 +125,7 @@ fn call_value(
         // geometry. The compiler admits them nowhere else, and a host refuses
         // a plan that reads geometry it doesn't link (LLP 1047 D6).
         Stdlib::Frame
+        | Stdlib::RangeFrame
         | Stdlib::Measure
         | Stdlib::ElementFromPoint
         | Stdlib::ElementsFromPoint

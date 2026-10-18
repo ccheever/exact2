@@ -1157,7 +1157,9 @@ impl Server {
         }
         let mut out = json!({
             "files": files_json(snap),
-            "changed": planned.changed.iter().map(|(f, t)| json!({"file": f, "token": t})).collect::<Vec<_>>(),
+            // A param a token's edit reaches is named in full (LLP 1122 T3:
+            // the IR token a plan names it by reaches no client).
+            "changed": self.present(json!(planned.changed.iter().map(|(f, t)| json!({"file": f, "token": t})).collect::<Vec<_>>())),
             // The closure unknown (the app's build stops before its design):
             // no edit is answered live.
             "class": if known.is_some() { planned.class.name() } else { exact_tamber::Class::Rebuild.name() },

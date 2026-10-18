@@ -114,7 +114,7 @@ the table's `select` is the closed button, as a person first sees it.
 | spinner | accent-color | android | exact | 0 | 293 | measured |
 | select | accent-color | ios | exact | 0 | 1312 | measured |
 | select | accent-color | macos | none | (28.1) | 0 | inferred: agent capture is an inactive window |
-| select | accent-color | web | none | 28.1 | 0 | measured |
+| select | accent-color | web | none | 29.1 | 0 | measured |
 | select | accent-color | linux | none | 28.1 | 0 | measured |
 | select | accent-color | windows | none | - | - | inferred: same painter, not measured |
 | select | accent-color | terminal | none | - | - | none by construction |
@@ -135,16 +135,16 @@ the table's `select` is the closed button, as a person first sees it.
 | button-prominent:disabled | accent-color | android | exact | 0 | 77238 | measured |
 | field | Field | ios | none | 18.7 | 0 | measured |
 | field | Field | macos | none | 18.7 | 0 | measured |
-| field | Field | web | none | 20.4 | 0 | measured |
-| field | Field | linux | none | 20.4 | 0 | measured |
+| field | Field | web | none | 18.7 | 0 | measured |
+| field | Field | linux | none | 18.7 | 0 | measured |
 | field | Field | windows | none | - | - | inferred: same painter, not measured |
 | field | Field | terminal | none | - | - | none by construction |
 | field | Field | android | exact | 0 | 138189 | measured |
 | field | FieldText | ios | exact | 0 | 1301 | measured |
 | field | FieldText | macos | exact | 0 | 54 | measured |
-| field | FieldText | web | none | 25.9 | 0 | measured |
-| field | FieldText | linux | none | 25.9 | 0 | measured |
-| field | FieldText | windows | none | - | - | inferred: same painter, not measured |
+| field | FieldText | web | exact | 0 | 100 | measured |
+| field | FieldText | linux | exact | 0 | 66 | measured |
+| field | FieldText | windows | exact | - | - | inferred: same painter, not measured |
 | field | FieldText | terminal | none | - | - | none by construction |
 | field | FieldText | android | exact | 0 | 848 | measured |
 | field | placeholder | ios | exact | 0 | 2403 | measured |
@@ -156,16 +156,16 @@ the table's `select` is the closed button, as a person first sees it.
 | field | placeholder | android | exact | 0 | 1633 | measured |
 | textarea | Field | ios | none | 18.7 | 0 | measured |
 | textarea | Field | macos | exact | 0 | 12142 | measured |
-| textarea | Field | web | none | 20.4 | 0 | measured |
-| textarea | Field | linux | none | 20.4 | 0 | measured |
+| textarea | Field | web | none | 18.7 | 0 | measured |
+| textarea | Field | linux | none | 18.7 | 0 | measured |
 | textarea | Field | windows | none | - | - | inferred: same painter, not measured |
 | textarea | Field | terminal | none | - | - | none by construction |
 | textarea | Field | android | exact | 0 | 172841 | measured |
 | textarea | FieldText | ios | exact | 0 | 1301 | measured |
 | textarea | FieldText | macos | exact | 0 | 53 | measured |
-| textarea | FieldText | web | none | 25.9 | 0 | measured |
-| textarea | FieldText | linux | none | 25.9 | 0 | measured |
-| textarea | FieldText | windows | none | - | - | inferred: same painter, not measured |
+| textarea | FieldText | web | exact | 0 | 100 | measured |
+| textarea | FieldText | linux | exact | 0 | 66 | measured |
+| textarea | FieldText | windows | exact | - | - | inferred: same painter, not measured |
 | textarea | FieldText | terminal | none | - | - | none by construction |
 | textarea | FieldText | android | exact | 0 | 848 | measured |
 | textarea | placeholder | ios | exact | 0 | 2403 | measured |

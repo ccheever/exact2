@@ -15,6 +15,9 @@ import { TOOL_DIST, TOOL_ORIGIN } from './tamber-server.mjs';
 import { takePort } from './port-lock.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
+// The stub's app (its components' params, which the stub's design sets):
+// the app beside a copy of stub/dials.tamber.
+const STUB_APP = readFileSync(resolve(ROOT, 'apps/design-tool/stub/app.contract'), 'utf8');
 
 // The tool's port, in turn with other runs (the contract tests' stub, other
 // checkouts'): each test takes it, and a tool that took no turn there (one
@@ -154,7 +157,7 @@ test('--via reaches only a loopback dev loop serving this app, and forwards to i
 test('every control on the dials panel comes from the design as describe gives it', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-dials-'));
   cpSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), join(app, 'app.tamber'));
-  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
   const tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   try {
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
@@ -297,7 +300,7 @@ test('a dial edit and a Dim cell edit each write one line, undo gives the bytes 
   // A second design file that sorts before the app's: a write to the app's
   // design still carries the app's digest.
   writeFileSync(join(app, 'accent.tamber'), original.replace('tamber dials', 'tamber accent'));
-  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
   const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
   git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
   let undos = 0;
@@ -336,6 +339,114 @@ test('a dial edit and a Dim cell edit each write one line, undo gives the bytes 
   }
 }, 900_000);
 
+test('T3: a re-scope reads the branch it moves: the alias there, the param that aliases a token there, a role by its spelling, none toward a value that names its destination, none from another revision', async () => {
+  const { paramInfoOf, rescopeOf, tokenOfIn } = await import('../apps/design-tool/rescope.ts');
+  const ir = { tokens: [{ name: 'radius.md' }, { name: 'radius.sm' }, { name: '-exact-label', role: 'label' }], components: [{ params: [
+    { name: 'a#Card.radius', short: 'Card.radius', kind: 'length', default: 'radius.md', set: { value: 'radius.md', whens: 1 } },
+    { name: 'a#Card.ink', short: 'Card.ink', kind: 'color', default: 'Label', set: null },
+    { name: 'a#Chip.radius', short: 'Chip.radius', kind: 'length', default: '4px', set: { value: '4px', whens: 1 } },
+  ] }] };
+  const params = paramInfoOf(ir), tokenOf = tokenOfIn(ir);
+  const compact = [{ axis: 'density', value: 'compact' }];
+  const files = { 'app.tamber': 'd1' }, key = JSON.stringify([['app.tamber', 'd1']]);
+  const branches = {
+    'a#Card.radius': { value: 'radius.md', whens: [{ when: compact, value: 'radius.sm' }], files },
+    'a#Card.ink': { value: 'Label', whens: [], files },
+    // Chip's compact branch names radius.sm too.
+    'a#Chip.radius': { value: '4px', whens: [{ when: compact, value: 'radius.sm' }], files },
+    'radius.sm': { value: '2px', whens: [], files },
+    'radius.md': { value: '12px', whens: [], files },
+    '-exact-label': { value: '#000', whens: [], files },
+  };
+  const explain = async name => branches[name] ?? null;
+  // Card.radius's compact branch aliases radius.sm, not radius.md: moved there, on compact.
+  const m = await rescopeOf({ op: 'set-param', name: 'Card.radius', when: compact, value: '8px' }, params, tokenOf, explain, key);
+  expect(m).toEqual({ text: 'Apply to the token radius.sm instead', ops: [
+    { op: 'set-param', name: 'Card.radius', when: compact, value: 'radius.sm' },
+    { op: 'set-token', name: 'radius.sm', when: compact, value: '8px' },
+  ] });
+  // A role override by its role's spelling.
+  expect((await rescopeOf({ op: 'set-param', name: 'Card.ink', when: [], value: '#111' }, params, tokenOf, explain, key)).text).toBe('Apply to the token -exact-label instead');
+  // Toward a value that names the destination: none (an alias loop).
+  expect(await rescopeOf({ op: 'set-param', name: 'Card.radius', when: [], value: 'radius.md' }, params, tokenOf, explain, key)).toBe(null);
+  // radius.sm on compact is aliased by two params there: none.
+  expect(await rescopeOf({ op: 'set-token', name: 'radius.sm', when: compact, value: '3px' }, params, tokenOf, explain, key)).toBe(null);
+  // radius.md, unconditionally, by Card.radius alone: moved to it, its own line kept.
+  expect(await rescopeOf({ op: 'set-token', name: 'radius.md', when: [], value: '10px' }, params, tokenOf, explain, key)).toEqual({ text: 'Apply to Card.radius instead', ops: [
+    { op: 'set-token', name: 'radius.md', when: [], value: '12px' },
+    { op: 'set-param', name: 'Card.radius', when: [], value: '10px' },
+  ] });
+  // A copy a shorter `when` covers (Grok's case): on dim+compact, Fill shows paper (its dim line), so an
+  // edit of ink there moves nowhere, and Fill's Only-this-mode edit there moves to paper.
+  const two = { tokens: [{ name: 'ink' }, { name: 'paper' }], components: [{ params: [{ name: 'a#Card.fill', short: 'Card.fill', kind: 'color', default: 'ink', set: { value: 'ink', whens: 1 } }] }] };
+  const dim = [{ axis: 'dark-style', value: 'dim' }], both = [...dim, ...compact];
+  const twoBranches = {
+    'a#Card.fill': { value: 'ink', whens: [{ when: dim, value: 'paper' }], files },
+    ink: { value: '#010101', whens: [{ when: both, value: '#222222' }], files },
+    paper: { value: '#ffffff', whens: [], files },
+  };
+  const ex2 = async name => twoBranches[name] ?? null;
+  expect(await rescopeOf({ op: 'set-token', name: 'ink', when: both, value: '#abcdef' }, paramInfoOf(two), tokenOfIn(two), ex2, key)).toBe(null);
+  expect((await rescopeOf({ op: 'set-param', name: 'Card.fill', when: both, value: '#abcdef' }, paramInfoOf(two), tokenOfIn(two), ex2, key)).text).toBe('Apply to the token paper instead');
+  // A line of the param more specific than the edit's keeps its copies either way: on dim, Fill shows ink.
+  const wider = { 'a#Card.fill': { value: 'ink', whens: [{ when: both, value: 'paper' }], files }, ink: { value: '#010101', whens: [], files } };
+  expect((await rescopeOf({ op: 'set-token', name: 'ink', when: dim, value: '#abcdef' }, paramInfoOf(two), tokenOfIn(two), async n => wider[n] ?? null, key)).text).toBe('Apply to Card.fill instead');
+  // An explain of another revision than the edit's: none.
+  expect(await rescopeOf({ op: 'set-param', name: 'Card.ink', when: [], value: '#111' }, params, tokenOf, async n => ({ ...branches[n], files: { 'app.tamber': 'd2' } }), key)).toBe(null);
+});
+
+test('T3: Reset gives a param\'s line back byte for byte in one undo; a param edit re-scoped to the token it aliases is one transaction, undone a level at a time; a re-scope after another write is refused', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-params-'));
+  const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8');
+  writeFileSync(join(app, 'app.tamber'), original);
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
+  const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
+  git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
+  let transactions = 0;
+  // Before the fifth transaction (the second re-scope), a hand edit of the component's default.
+  const tool = await proxied(app, request => {
+    // (The component's own source: no file the move edits, but one it was worked out on.)
+    if (request.method === 'transaction' && ++transactions === 5) writeFileSync(join(app, 'app.contract'), readFileSync(join(app, 'app.contract'), 'utf8').replace('fill: color = "accent.fill"', 'fill: color = "surface.card"'));
+  });
+  try {
+    const replies = await drive(tool.url, `design-tool-params-${process.pid}`, [
+      'type name Ada', 'tap save-name', 'clock data',
+      // Reset: the line goes; undo gives it back.
+      'tap param-Card.pad-reset', 'clock data', 'state', 'tap apply', 'clock data', 'clock +1', 'clock data', 'tap undo', 'clock data',
+      // A param edit, applied; moved to the token it aliases; undone twice.
+      'clock +1', 'clock data', 'type dial-app.contract#Card.fill-field #ff0000', 'type dial-app.contract#Card.fill-field key Enter', 'clock data', 'state',
+      'tap apply', 'clock data', 'clock +1', 'clock data', 'state', 'tap rescope', 'clock data', 'clock +1', 'clock data', 'state', 'tap undo', 'clock data', 'clock +1', 'clock data', 'tap undo', 'clock data',
+      // Again, but the file moves between the edit and the move: refused.
+      'clock +1', 'clock data', 'type dial-app.contract#Card.fill-field #00ff00', 'type dial-app.contract#Card.fill-field key Enter', 'clock data',
+      'tap apply', 'clock data', 'clock +1', 'clock data', 'tap rescope', 'clock data', 'state',
+    ]);
+    const states = replies.filter(r => r.resources);
+    expect(states[0].resources.proposal).toMatchObject({ ok: true, active: true });
+    expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['transaction', true], ['undo', true], ['transaction', true], ['transaction', true], ['undo', true], ['undo', true], ['transaction', true], ['transaction', false]]);
+    const pad = '  Card.pad = 12px';
+    expect(edit(original, tool.writes[0].after)).toEqual({ at: original.split('\n').indexOf(pad), removed: [pad], added: [] });
+    expect(tool.writes[1].after).toBe(original);
+    // The param edit: one new line in the params block.
+    expect(edit(original, tool.writes[2].after).added).toEqual(['  Card.fill = #ff0000']);
+    expect(states[2].derives.stack.rescope).toBe('Apply to the token accent.fill instead');
+    // Re-scoped: the param's line gone and the token's value the edit's, in one write.
+    const moved = tool.writes[3].after;
+    expect(moved).not.toContain('Card.fill =');
+    expect(moved).toContain('  accent.fill = #ff0000\n');
+    expect(edit(original, moved).removed).toEqual(['  accent.fill = accent']);
+    // One undo: the param edit as it was; another: the design as it was.
+    expect(tool.writes[4].after).toBe(tool.writes[2].after);
+    expect(tool.writes[5].after).toBe(original);
+    expect(states[3].derives.stack.rescope).toBe('');
+    // The move found the file changed since the edit: nothing written, said so.
+    expect(tool.writes[7].error.message).toContain('changed since');
+    expect(states.at(-1).derives.stack.error).toContain('Not moved:');
+  } finally {
+    await tool.close();
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 900_000);
+
 test('expressions are kept unless pinned, "only this mode" adds a when, redo writes it again, and tokens are added, renamed and removed; undo restores an unformatted line', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-ops-'));
   // Not in fmt's layout: undo must give these bytes back, not fmt's.
@@ -343,7 +454,7 @@ test('expressions are kept unless pinned, "only this mode" adds a when, redo wri
   const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8').replace('  text.primary = light-dark(#0f1419, #e7e9ea)  pair=surface.page', primary);
   expect(original).toContain(primary);
   writeFileSync(join(app, 'app.tamber'), original);
-  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
   const tool = await proxied(app);
   try {
     const replies = await drive(tool.url, `design-tool-ops-${process.pid}`, [
@@ -415,7 +526,7 @@ test('expressions are kept unless pinned, "only this mode" adds a when, redo wri
 function repo(name) {
   const app = mkdtempSync(join(tmpdir(), `exact-design-tool-${name}-`));
   writeFileSync(join(app, 'app.tamber'), readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8'));
-  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
   const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app, encoding: 'utf8' });
   git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
   // Who the server's commit is by, here, whatever this machine's git says.
@@ -559,10 +670,10 @@ test('an agent\'s write arrives attributed within one poll, and held proposals a
     expect(first.resources.lit).toMatchObject({ names: ['surface.card'], whos: ['agent:codex'] });
     // Only the cells that moved: the dark side, where the default applies.
     expect(first.resources.lit.cells).toEqual(['surface.card|0-dark', 'surface.card|1-dark']);
-    // Each with the tokens it changes (a role that follows one among them).
+    // Each with the tokens it changes (a role that follows one among them, the params that alias one, in full).
     expect(first.resources.changes.held.map(h => [h.proposal, h.client, [...h.tokens].sort(), h.items.map(i => i.text)])).toEqual([
       [p1, 'agent:codex', ['-exact-label', 'ink.on-brand', 'text.primary'], ['text.primary = light-dark(#101010, #e7e9ea) (app.tamber)', 'ink.on-brand = #fefefe (app.tamber)']],
-      [p2, 'agent:claude', ['accent.fill'], ['accent.fill = #2070f0 (app.tamber)']],
+      [p2, 'agent:claude', ['accent.fill', 'app.contract#Card.fill', 'app.tamber#MapCard.pin'], ['accent.fill = #2070f0 (app.tamber)']],
     ]);
     expect(part.slots.written.note).toContain(`as ${id(3)}`);
     const recomputed = part.resources.changes.held.find(h => h.proposal === id(3));
@@ -1275,7 +1386,7 @@ test('typed fields write one line through set-token for each kind: a length, a n
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-typed-'));
   const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8');
   writeFileSync(join(app, 'app.tamber'), original);
-  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
   const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
   git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
   // Each: the cell, its field edits, the line before and after.

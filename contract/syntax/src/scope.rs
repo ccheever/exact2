@@ -20,6 +20,8 @@ pub enum Kind {
     Call,
     /// `style`.
     Style,
+    /// `decoration`.
+    Decoration,
     /// `keyframes`.
     Keyframes,
     /// `timeline`.
@@ -33,6 +35,7 @@ impl Kind {
             Kind::Component => "component",
             Kind::Call => "shape or function",
             Kind::Style => "style",
+            Kind::Decoration => "decoration",
             Kind::Keyframes => "keyframes",
             Kind::Timeline => "timeline",
         }
@@ -189,6 +192,8 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         sounds: _,
         shapes,
         styles,
+        decorations,
+        decoration_scopes: _,
         keyframes,
         timelines,
         // A `@color-profile`'s dashed name is global, as in CSS.
@@ -210,6 +215,11 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
     for style in styles {
         r.scope.rename(Kind::Style, &mut style.name, style.span)?;
         r.attrs(&mut style.attrs)?;
+    }
+    for decoration in decorations {
+        r.scope
+            .rename(Kind::Decoration, &mut decoration.name, decoration.span)?;
+        r.attrs(&mut decoration.attrs)?;
     }
     for k in keyframes {
         r.scope.rename(Kind::Keyframes, &mut k.name, k.span)?;

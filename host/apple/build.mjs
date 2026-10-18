@@ -294,8 +294,8 @@ export function developmentLinks(app, page) {
     return [{ destination, href: `${admitted.scheme}://open?url=${encodeURIComponent(page)}&token=${admitted.token}` }];
   });
 }
-function openingLinks(app, platform, development) {
-  const handlers = app.manifest.protocol_handlers ?? [];
+function openingLinks(app, platform, development, distributed) {
+  const handlers = (app.manifest.protocol_handlers ?? []).filter((h) => !h.distribution_only || distributed).map(({ protocol, url }) => ({ protocol, url }));
   const schemes = [...new Map([...(app.manifest.host?.[platform]?.urlSchemes ?? []), ...handlers.map((h) => h.protocol), ...(development ? [development.scheme] : [])].map((s) => [s.toLowerCase(), s])).values()];
   return { ...(schemes.length ? { CFBundleURLTypes: [{ CFBundleURLName: app.id, CFBundleURLSchemes: schemes }] } : {}), ...(handlers.length ? { ExactProtocolHandlers: handlers } : {}),
     ...(development ? { ExactDevelopmentURLScheme: development.scheme, ExactDevelopmentOrigins: development.origins, ExactDevelopmentToken: development.token } : {}) };
@@ -378,7 +378,7 @@ const transportSecurity = (section, keys = {}) => {
 };
 
 /** The iOS `Info.plist` from the manifest (LLP 1030 D2: one declaration; `build.mjs` consumes what it generates). The dev client's local-networking permission is `host.ios.localNetworking` (a string: the prompt); the store-required version numbers are counters bake owns, not authored. */
-export const infoPlist = (app, device = false, { executable = executableName(app), id = app.id, name = app.displayName, development = null, icon = {}, distribution = null, reach = null, tv = false } = {}) => {
+export const infoPlist = (app, device = false, { executable = executableName(app), id = app.id, name = app.displayName, development = null, icon = {}, distribution = null, distributed = false, reach = null, tv = false } = {}) => {
   const ios = app.manifest.host?.ios ?? {};
   // tvOS reuses the manifest's iOS section; Apple TV is device family 3.
   const families = tv ? [3] : (ios.deviceFamily ?? ['iphone', 'ipad']).map((f) => (f === 'ipad' ? 2 : 1));
@@ -417,7 +417,7 @@ export const infoPlist = (app, device = false, { executable = executableName(app
     const exported = exportedTypes(app);
     if (exported.length) dict.UTExportedTypeDeclarations = exported;
   }
-  Object.assign(dict, openingLinks(app, 'ios', development), updateActivation(app));
+  Object.assign(dict, openingLinks(app, 'ios', development, distributed), updateActivation(app));
   Object.assign(dict, usageKeys(reach));
   Object.assign(dict, icon);
   Object.assign(dict, distribution, orientationKeys(app.manifest.orientation));
@@ -563,7 +563,7 @@ export function stripForDistribution(executable, dsym) {
 }
 
 /** The macOS `Info.plist` for a bundled build, from the same manifest. */
-export const macInfoPlist = (app, { development = null, icon = {}, reach = null } = {}) => plistFile({
+export const macInfoPlist = (app, { development = null, icon = {}, reach = null, distributed = false } = {}) => plistFile({
   ...icon,
   CFBundleExecutable: executableName(app),
   CFBundleIdentifier: app.id,
@@ -585,7 +585,7 @@ export const macInfoPlist = (app, { development = null, icon = {}, reach = null 
   // absence, `auto` and an explicit `navigate-existing` are one plist.
   ExactLaunchMode: launchMode(app),
   ...updateActivation(app),
-  ...openingLinks(app, 'macos', development),
+  ...openingLinks(app, 'macos', development, distributed),
 });
 
 const updateActivation = (app) => app.manifest.deploy?.activate ? { ExactUpdateActivate: app.manifest.deploy.activate } : {}; // `deploy.activate`, for ExactUpdates

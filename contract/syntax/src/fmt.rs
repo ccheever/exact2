@@ -251,7 +251,7 @@ impl<'a> Layout<'a> {
                 self.ty(ty);
             }
         }
-        for style in &file.styles {
+        for style in file.styles.iter().chain(&file.decorations) {
             self.attributes.extend(style.attrs.iter().map(|a| a.span));
         }
         if let Some(theme) = &file.theme {

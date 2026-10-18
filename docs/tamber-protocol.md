@@ -70,7 +70,8 @@ on macOS and Linux.
   long poll (`wait` on `/__dev/commands`); stage 8 E added held states: the `hold` method, the build
   channel's `hold` command and `held` report, the `held` and `hold-cleared` events, a build's
   `hold`/`held` in its listing, a `selection`'s `held` rows, and a lowered `:active` row's `state`
-  and `at` in the map. The window's later additive changes (stage 8) add under the same version.
+  and `at` in the map; LLP 1122 T3 added the selection's param rung. The window's later additive
+  changes (stage 8) add under the same version.
 
 ## Where it runs
 
@@ -993,7 +994,19 @@ The tool drives no input into an app; a command changes only what `prefer` would
   event: `source` `{file, line, col, end_col, component, chain}` (the component call sites above
   it), and each row with its map `origin` (`own`, `class:<Name>`, `tag`) and `editable`: `{rung:
   "token", token, modes}` only for a row the node itself sets (`authored`, `own`) whose whole
-  value is one token, else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
+  value is one token; `{rung: "param", param, short, token?, modes}` (*1.11*, LLP 1122 T3) for
+  such a row whose whole value is one component param: `param` its full name, `short` its short
+  one (null where two components share it), `token` the token it aliases directly (its value as
+  the app has it, the line's or the default, when that names one declared token, a role override
+  by its role's spelling too; none for a param with `when` lines), `modes` the copy's mode tuple,
+  as the token rung's (the client reads the branch that won by `explain`). A row's `token.names`
+  and `text`, in the `selection` event and the published `selected` report alike, name a param by
+  its full name, never by the IR token the plan names it by, also inside a synthetic token's
+  expression or as the custom property a JS page writes for it (`var(--x-param-…)`); one the server has not read yet (its `describe` of the app, read again when the
+  app's files change, for a new plan, and after a failed read) is left out, and the row is
+  read-only, said so; while a new plan's read is out the names stand and no `token` is offered. A
+  row whose one name is a param (an inherited or dynamic one) links it by its full name. A client
+  that knows no `param` rung offers no edit for it. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
   expression, a boundary, or an expression over tokens links its token, never this node's edit;
   a style's or the tag's row comes with template editing, T5). A row an `:active` part lowered to
   the press paint (*1.11*) carries `state` and `at`, its part's place, and its edit is `set-state`'s

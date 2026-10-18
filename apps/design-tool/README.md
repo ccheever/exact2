@@ -75,6 +75,19 @@ whose design the port serves.
   `resolve`; a cell edits the branch it shows, and every edit is proposed
   (its diff and "live" or "rebuilds") before Apply writes it. Undo and redo
   are this run of the server's inverses: a new run starts them again.
+- The component panel (T3, LLP 1122 D7; `components.ts`) lists every
+  component with params (`describe`'s `components`, a native view's
+  declared in the design too), grouped and ordered as the dials are, each
+  param with its declared control; `control=token`, the default, is a
+  field that takes a token or a literal. An edit is `set-param` (its line
+  in the design's `params` block), proposed with its chip and scrubbed when
+  live; a duration or easing param rebuilds. A param the app sets says so,
+  with Reset (`unset-param`, one undo), and a literal that no longer
+  follows the tokens its default reads is marked pinned.
+- A selected row that reads a param (the join's param rung) opens the param,
+  never the token it aliases (D6): on the branch that won for the copy, its
+  typed fields and "only this mode" as a token's, its edit `set-param`. The
+  token it aliases directly is offered beside it.
 - A cell's value has typed fields by its kind (`parts.ts`): a length's
   amount and unit, a number, each shadow's inset, offsets, blur, spread
   and colour (a literal or a token's name), a type's style, weight, size,

@@ -46,6 +46,7 @@ pub mod bridge;
 pub mod commands;
 pub mod compare;
 mod conform;
+pub mod decorations;
 pub mod delivery;
 pub mod design;
 pub mod device;
