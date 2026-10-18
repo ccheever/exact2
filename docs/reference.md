@@ -445,22 +445,41 @@ clock, request, input and handler refusals as widgets. `time` and `progress`
 remain platform live views.
 
 The extension renders every activity through one `ActivityConfiguration` for
-the envelope type (`host/apple/widget/Activity.swift`, LLP 1126.001 WP10): the
-attributes' `kind` names the plan, `plans/<kind>.plan` in the generation the
-attributes name (the embedded plans before the app's first publication), and
-the state is decoded by that plan, else the last decodable state kept for the
-activity id (shown dimmed, as the system's stale state is), else the preview,
-redacted as a placeholder. A placement's view answers the system's size
-proposals from the kernel (`ExactSnapshot`'s `ActivityRender`): the Lock
-Screen and the expanded bottom region are as wide as the region, the compact
+the envelope type (`host/apple/widget/Activity.swift`, LLP 1126.001 WP10), a
+thin adapter over `ExactSnapshot`'s `ActivityResolver`: the attributes' `kind`
+names the plan, `plans/<kind>.plan` in the generation the attributes name,
+which is the one published under that name in the installed cohort or the
+bundle's embedded plans when their identity (`ExactWidgetGeneration`) makes
+that generation; any other generation is refused, the activity shows "Open
+<app>" until the app publishes again, and nothing is rendered in its place.
+The state is the envelope's when its shape digest is the registry's and the
+plan decodes it (then kept as the activity's last good state), else the last
+decodable state kept for the activity id (shown dimmed, the driver's outdated
+presentation; the system's `isStale` is the system's own), else the preview,
+redacted as a placeholder. A render is keyed by the activity, its generation,
+the state's bytes and every fact the session reads (the text size, Bold Text,
+contrast, transparency, the scheme, the display scale, the locale and time
+zone); the eight placements of one push share it. A placement's view answers
+the system's size proposals from the kernel (`ActivityRender`): the Lock
+Screen and the expanded bottom region are as wide as the region; the compact
 regions, the minimal view and the expanded leading, centre and trailing
-regions as wide as their content (a text's widest line, a `time`'s widest
-reserved value, an image's box; an authored `width` as written), every
-placement as tall as its content. The Lock Screen placement sits inside the
-system's content margins, or 16 pt where the system gives none; its root
-`background-color` is the `activityBackgroundTint`, and a gradient or an
-unsaid background leaves the system's material. A link in the Lock Screen or
-an expanded region is a `Link`; the first link of any placement is its URL.
+regions as wide as their content, by the kernel's shrink-to-fit trial
+(`Kernel::fit_content_box`: the root laid out alone as a flex item in a row
+of the region's width, so an authored width is kept as written, limits and
+percentages resolve against the region, justified content is its own width,
+and a paragraph that wraps is as wide as its widest line, as SwiftUI's
+`Text` reports its own); every placement is as tall as its content, with the
+margins its root resolves. The Lock Screen placement sits inside the
+system's content margins or, where the system gives none, the standard
+layout margin for Live Activities on the Lock Screen, 14 points (Human
+Interface Guidelines, Live Activities: "The standard layout margin for Live
+Activities on the Lock Screen is 14 points"); its root's `background-color`
+is the `activityBackgroundTint`, its `background-image` gradients paint full
+bleed behind the margins, and both unsaid leave the system's material. A
+Live Activity's content is not account content: it stays on a locked phone,
+and a node that says `data-privacy="private"` is redacted there (a widget's
+is the reverse, `public` to stay). A link in the Lock Screen or an expanded
+region is a `Link`; the first link of any placement is its URL.
 The sends that start, update and end an activity are LLP 1126.001 WP9.
 
 The bake writes `plans/activities.json` and `activities/<kind>.schema.json` plus
