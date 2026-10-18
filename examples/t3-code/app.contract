@@ -1646,38 +1646,45 @@ component T3Code
     modelTarget = PickerTarget(id=`${row}:|${context}`, top=frame(`setting-${row}`).y, bottom=frame(`setting-${row}`).y + frame(`setting-${row}`).height, left=frame(`setting-${row}`).x)
   action prConfirmDisarm(ref: string, serial: string)
     send prConfirmChanged = command("chatlocal:pr-ui-disarm", ref, serial, 0)
+  derive inlineDocumentKeysBlocked = sshPrompt.open or confirmOp != "" or data.serverUpdate.confirmTitle != "" or data.updateEverything.confirm or shell.panel.deviceSetup or shell.composerFile.open or data.composerImagePreview.length > 0 or data.messages.map(message => message.inlineDocuments).flat().filter(document => document.permission != "").length > 0
   action inlineDocumentShortcut(name: string)
-    // A guest can forge keys. Resolve only the view commands admitted by BrowserDocumentFrame.
-    let candidates = shortcuts.filter((item) => item.command == name)
-    match candidates.at(0)
-      case some(item)
-        if item.command == "commandPalette.toggle" or item.command == "filePicker.toggle" or item.command == "projectSearch.toggle" or item.command == "chat.find"
-          paletteShow(item.target, item.extra)
-        else if item.command == "rightPanel.toggle" or item.command == "rightPanel.toggleMaximized" or item.command == "preview.toggle"
-          if item.kind == "diff"
-            panelUi("toggle", "")
-          else if item.kind == "command"
-            command(item.target, item.extra, "", 0)
-          else if item.kind == "panel-close"
-            panelUi("close", "")
-        else if item.command == "threadPanel.toggle"
-          detailsAct("toggle", "", "")
-        else if item.command == "sidebar.toggle" or item.command == "terminal.toggle"
-          command(item.target, item.extra, "", 0)
-        else if item.command == "thread.previous" or item.command == "thread.next" or item.command.startsWith("thread.jump.")
-          selectThread(item.target)
-        else if item.command.startsWith("modelPicker.jump.") and item.kind == "model"
-          selectModel(item.target, item.extra, false)
-        else if item.command == "navigation.back" or item.command == "navigation.forward"
-          if item.kind == "thread"
-            selectThread(item.target)
-          else if item.kind == "back"
-            closeModal()
-          else if item.kind == "palette-run"
-            paletteRun(item.target, item.extra, "")
-          else if item.kind == "new-thread-in"
-            paletteRun("new-thread", item.target, "")
-      case none
+    // A guest can forge keys while its background is inert; retain the current modal context.
+    if not inlineDocumentKeysBlocked
+      if name == "sidebar.toggle"
+        // The sidebar owns its button chord, so keyboardDispatch has no row for it.
+        if not modal and not paletteOpen and not settingsOpen
+          command("sidebar", "", data.sidebarOpen ? "closed" : "open", 0)
+      else
+        let candidates = shortcuts.filter((item) => item.command == name)
+        match candidates.at(0)
+          case some(item)
+            if item.command == "commandPalette.toggle" or item.command == "filePicker.toggle" or item.command == "projectSearch.toggle" or item.command == "chat.find"
+              paletteShow(item.target, item.extra)
+            else if item.command == "rightPanel.toggle" or item.command == "rightPanel.toggleMaximized" or item.command == "preview.toggle"
+              if item.kind == "diff"
+                panelUi("toggle", "")
+              else if item.kind == "command"
+                command(item.target, item.extra, "", 0)
+              else if item.kind == "panel-close"
+                panelUi("close", "")
+            else if item.command == "threadPanel.toggle"
+              detailsAct("toggle", "", "")
+            else if item.command == "terminal.toggle"
+              command(item.target, item.extra, "", 0)
+            else if item.command == "thread.previous" or item.command == "thread.next" or item.command.startsWith("thread.jump.")
+              selectThread(item.target)
+            else if item.command.startsWith("modelPicker.jump.") and item.kind == "model"
+              selectModel(item.target, item.extra, false)
+            else if item.command == "navigation.back" or item.command == "navigation.forward"
+              if item.kind == "thread"
+                selectThread(item.target)
+              else if item.kind == "back"
+                closeModal()
+              else if item.kind == "palette-run"
+                paletteRun(item.target, item.extra, "")
+              else if item.kind == "new-thread-in"
+                paletteRun("new-thread", item.target, "")
+          case none
   action chatLocal(op: string, id: string, value: string)
     // A disclosure toggled with the transcript at its end keeps the end in view while the rows re-measure (the list goes
     // on following it); anywhere else the toggled row holds its place (MessagesTimeline's disclosurePinsEnd).

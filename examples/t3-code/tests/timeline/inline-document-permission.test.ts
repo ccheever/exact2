@@ -16,7 +16,7 @@ test('global document confirmation focus closes and opens owners in separate com
   const width = (owner: string) => value(widthExpression, { ...state, documentPermissionOwner: owner });
   expect(width('')).toBe(1);
   expect(width('doc-a:1')).toBe(2);
-  const scope = (owner: string) => ({ documentPermissionOwner: owner, dialogOpened: (id: string) => calls.push('open:' + id), dialogClosed: (id: string) => calls.push('close:' + id) });
+  const scope = (owner: string) => ({ documentPermissionOwner: owner, documentPermissionOpened: (id: string) => calls.push('open:' + id), dialogClosed: (id: string) => calls.push('close:' + id) });
   window.call('syncDocumentPermissionFocus', state, scope('doc-a:1'), [width('doc-a:1'), 1]);
   expect(calls.splice(0)).toEqual(['open:doc-a:1']);
   expect(width('doc-a:1')).toBe(1);
@@ -94,12 +94,13 @@ test('permissions collapse every fullscreen guest, queue by unique serial and re
 
 test('a replaced permission keeps its outside focus lineage until the final confirmation closes', () => {
   const helpers = contractFns('dialog-trap.contract', ['DialogFocusFrame', 'DialogFocusReturn']);
-  const state = { documentPermissionFocusOwner: '', dialogFrames: [], dialogSeated: [], dialogFocusOwner: '', dialogFocusId: 'guest-frame', dialogFocusPopup: '', dialogFocusInvoker: '' };
+  const state = { documentPermissionFocusOwner: '', documentPermissionReturnKey: '', documentPermissionReturnSource: '', dialogFrames: [], dialogSeated: [], dialogFocusOwner: '', dialogFocusId: 'guest-frame', dialogFocusPopup: '', dialogFocusInvoker: '' };
   let owner = 'doc-a:1', live = [owner];
   const focused: string[] = [];
-  const scope = () => ({ ...helpers, documentPermissionOwner: owner, stopPropagation() {}, focus: (id: string) => focused.push(id),
+  const scope = () => ({ ...helpers, activeDocumentPermissions: [], data: { messages: [] }, documentPermissionOwner: owner, stopPropagation() {}, focus: (id: string) => focused.push(id),
     frame: (id: string) => ({ unavailable: !live.includes(id), width: live.includes(id) ? 300 : 0, height: live.includes(id) ? 160 : 0 }),
     querySelectorAll: () => live,
+    documentPermissionOpened: (id: string) => window.call('documentPermissionOpened', state, scope(), [id]),
     dialogOpened: (id: string) => window.call('dialogOpened', state, scope(), [id]),
     dialogClosed: (id: string) => window.call('dialogClosed', state, scope(), [id]),
   });
@@ -114,4 +115,66 @@ test('a replaced permission keeps its outside focus lineage until the final conf
   owner = ''; live = [];
   window.call('syncDocumentPermissionFocus', state, scope(), [1, 1]);
   expect(focused).toEqual(['guest-frame']);
+});
+
+function nativeFocusFixture(prior = '') {
+  const helpers = contractFns('dialog-trap.contract', ['DialogFocusFrame', 'DialogFocusReturn']);
+  const state = { documentPermissionFocusOwner: '', documentPermissionReturnKey: '', documentPermissionReturnSource: '', dialogFrames: [], dialogSeated: [], dialogFocusOwner: '', dialogFocusId: prior, dialogFocusPopup: '', dialogFocusInvoker: '' };
+  const documents = [{ key: 'a', src: 'adapter#a-generation1', permissionSerial: 1 }, { key: 'b', src: 'adapter#b-generation1', permissionSerial: 2 }];
+  const nodes = new Set(['inline-frame-a', 'inline-frame-b', ...(prior ? [prior] : [])]);
+  const live = new Set<string>(), focused: string[] = [];
+  let owner = '', active: typeof documents = [];
+  const scope = () => ({ ...helpers, documentPermissionOwner: owner, activeDocumentPermissions: active, data: { messages: [{ inlineDocuments: documents }] }, stopPropagation() {}, focus: (id: string) => focused.push(id),
+    frame: (id: string) => ({ unavailable: !nodes.has(id) && !live.has(id), width: nodes.has(id) || live.has(id) ? 300 : 0, height: nodes.has(id) || live.has(id) ? 160 : 0 }),
+    querySelectorAll: () => [...live],
+    documentPermissionOpened: (id: string) => window.call('documentPermissionOpened', state, scope(), [id]),
+    dialogOpened: (id: string) => window.call('dialogOpened', state, scope(), [id]),
+    dialogClosed: (id: string) => window.call('dialogClosed', state, scope(), [id]),
+  });
+  const call = (name: string, ...args: unknown[]) => window.call(name, state, scope(), args);
+  const show = (index: number) => { active = [documents[index]!]; owner = `inline-permission-${active[0]!.key}-${active[0]!.permissionSerial}`; live.clear(); live.add(owner); };
+  const sync = () => call('syncDocumentPermissionFocus', 2, 1);
+  const enter = () => call('dialogEntered', owner, { target: owner + '-cancel' });
+  const close = () => { owner = ''; active = []; live.clear(); sync(); };
+  return { state, documents, nodes, live, focused, call, show, sync, enter, close };
+}
+
+test('an empty native WK ledger returns to the requesting guest, including focusin before layout', () => {
+  for (const enteredFirst of [false, true]) {
+    const f = nativeFocusFixture(); f.show(0);
+    if (enteredFirst) f.enter();
+    f.sync(); f.enter(); f.close();
+    expect(f.focused).toEqual(['inline-frame-a']);
+    expect(f.state.documentPermissionReturnSource).toBe('adapter#a-generation1');
+  }
+});
+
+test('a real prior app control and a queued dialog keep their original outside focus lineage', () => {
+  const control = nativeFocusFixture('composer-input'); control.show(0); control.sync(); control.enter(); control.close();
+  expect(control.focused).toEqual(['composer-input']);
+  const f = nativeFocusFixture(); f.show(0); f.sync(); f.enter();
+  f.show(1); f.sync();
+  expect(f.focused).toEqual([]);
+  f.sync(); f.enter(); f.close();
+  expect(f.focused).toEqual(['inline-frame-a']);
+});
+
+test('removed, unmounted and same-id replacement guests cannot receive an old focus return', () => {
+  for (const change of ['removed', 'unmounted', 'replacement']) {
+    const f = nativeFocusFixture(); f.show(0); f.sync(); f.enter();
+    if (change === 'removed') f.documents.splice(0, 1);
+    if (change === 'unmounted') f.nodes.delete('inline-frame-a');
+    if (change === 'replacement') f.documents[0]!.src = 'adapter#a-generation2';
+    f.close();
+    expect(f.focused).toEqual([]);
+    expect(f.state.dialogFrames).toEqual([]);
+  }
+});
+
+test('a nested confirmation cannot return to a replaced guest inherited from its parent', () => {
+  const f = nativeFocusFixture(); f.show(0); f.sync(); f.enter();
+  f.live.add('nested'); f.call('dialogOpened', 'nested'); f.call('dialogEntered', 'nested', { target: 'nested-cancel' });
+  f.documents[0]!.src = 'adapter#a-generation2';
+  f.live.clear(); f.call('dialogClosed', 'nested');
+  expect(f.focused).toEqual([]);
 });
