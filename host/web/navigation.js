@@ -1141,10 +1141,7 @@ export function setFieldRangeText(el, args, log) {
   if (!el) return log(`setRangeText "${id}" refused: no live node with that id`);
   if (typeof el.setRangeText !== "function" || el.exactMarkup || el.getAttribute("markup") === "markdown") return log(`setRangeText "${id}" refused: not a plain text field`);
   const undo = range.at(-1) === 'undo'; if (undo) range.pop();
-  if (el.exactDecorations && !el.exactDecorations.painted) {
-    try { return void el.exactDecorations.replace(text, range[0] ?? el.selectionStart, range[1] ?? el.selectionEnd, range[2] ?? 'preserve', undo); }
-    catch (error) { return log(`setRangeText "${id}" refused: ${error.name}`); }
-  }
+  if (el.exactDecorations && !el.exactDecorations.painted) { try { return void el.exactDecorations.replace(text, range[0] ?? el.selectionStart, range[1] ?? el.selectionEnd, range[2] ?? 'preserve', undo); } catch (error) { return log(`setRangeText "${id}" refused: ${error.name}`); } }
   if (undo) {
     const size = el.value.length, a = Math.min(size, Number(range[0] ?? el.selectionStart) >>> 0), b = Math.min(size, Number(range[1] ?? el.selectionEnd) >>> 0), mode = range[2] ?? 'preserve';
     if (a > b || !['preserve', 'select', 'start', 'end'].includes(mode)) return log(`setRangeText "${id}" refused: IndexSizeError`);
