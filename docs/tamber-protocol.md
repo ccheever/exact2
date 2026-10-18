@@ -181,8 +181,9 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 - `builds` (*1.2*): the registered development builds with an open stream, each `{id, host,
   capabilities, inspector, plan, planDigest, design, status, pin, pinRevision, hold, held,
   unsupported}` (`pinRevision` and `unsupported` *1.3*; `inspector`, the client whose inspect mode
-  it is in or null, *1.6*; `hold`, the hold the server keeps for it, and `held`, its last `held`
-  report's `{state, reason}`, *1.11*; see [The build channel](#the-build-channel-llp-1122-d4-12));
+  it is in or null, *1.6*; `hold`, the hold the server keeps for it, and `held`, its `held`
+  report's `{state, reason}` on the last hold frame sent it (null until it reports on that frame),
+  *1.11*; see [The build channel](#the-build-channel-llp-1122-d4-12));
 - `files`;
 - `app`: the app's directory, absolute (*1.1*);
 - `epoch`: this run of the server, the same value its events carry (*1.1*);
@@ -1012,12 +1013,16 @@ The tool drives no input into an app; a command changes only what `prefer` would
   the client goes. A build that registers again is sent it again under the same plan (or `hold:
   null` when the server holds none for it); one that runs another plan (a `status` whose
   `planDigest` moved, or its registration's) is sent it at the one site of the new plan's map at
-  the old site's source location and call-site chain (a component called at two places is two
-  sites there; where the calls moved, the copy of the same rank in source order among those with
-  that chain's files and components, when both plans have as many), and when there is not
-  exactly one, the build is sent `hold: null` and every client told (`hold-cleared {build,
-  client, reason}`). Each frame, a replay included, has a new revision, and the build's `held`
-  in a listing is null until it reports on that frame. Only a report naming the last hold frame's revision counts (an
+  the old site's source location and call-site chain: a component called at two places is two
+  copies there, one copy a chain (its sites, such as a `button "…"` and its label, told apart by
+  their order). With the same calls in both plans, the copy with that chain; with as many copies
+  whose calls moved, the copy of the same rank in source order, where each pair has the same
+  calls' files and components and the copies share calls alike; else the copy whose calls did not
+  move (so with copies added or removed, a line another call now has is taken as unmoved; and a
+  slot filled at two outlets is one copy, its outlets told apart by their order). When there is
+  not exactly one, the build is sent `hold: null` and every client told (`hold-cleared {build,
+  client, reason}`). Each frame, a replay included, has a new revision, and the build's `held` in
+  a listing is null until it reports on that frame. Only a report naming the last hold frame's revision counts (an
   older one is dropped, 204): a `held` report is then every client's event (`held {build, state,
   reason}`), and one that lets the hold go ends it at the server too; a hold `unsupported` ends it
   and is its owner's `unsupported` event alone (theme2's 07:48 (c): `only` names the client, and no

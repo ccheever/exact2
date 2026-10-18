@@ -271,25 +271,40 @@ export function sitesAt(map, source) {
 }
 
 /** The one site of plan map `to` that is site `site` of plan map `from`
- * (a held node across a rebuild, LLP 1122 D8): a copy at the node's source
- * location whose call-site chain is the same (each call's place), else,
- * where the chain's calls moved (a line written above them), the copy of
- * the same rank in source order among those with that chain's files and
- * components, when both plans have as many of them (so a lone copy
- * whose call moved is still it, and one left of two is not the other).
- * Null when none, or no single one, corresponds. */
+ * (a held node across a rebuild, LLP 1122 D8), by the node's copies: the
+ * sites at its source location, one copy a call-site chain (a `button
+ * "…"` and its label, or a slot at two outlets, are several sites of one
+ * copy, told apart by their order). The same calls in both plans: the copy
+ * with this one's chain. As many copies, their calls moved (a line written
+ * above them): the copy of the same rank in source order, where each pair
+ * is of one shape (its calls' files and components) and the copies share
+ * calls alike (two under one call in one plan are so in the other). Else
+ * (copies added or removed, or regrouped): the copy whose calls did not
+ * move. Null when none, or no single one, corresponds. */
 export function correspondingSite(from, to, site) {
   const node = from?.nodes?.[site];
   if (!node || !to?.nodes) return null;
-  const sites = sitesAt(to, node).filter(i => same(to.nodes[i], node));
   const at = x => [x.file, x.line, x.col].join(':');
-  const exact = sites.filter(i => (to.nodes[i].chain ?? []).map(at).join('>') === (node.chain ?? []).map(at).join('>'));
-  if (exact.length === 1) return exact[0];
-  // By rank: each plan's copies with this chain's shape, in source order.
-  const shape = n => (n.chain ?? []).map(c => `${c.file}#${c.component ?? ''}`).join('>');
-  const order = (map, list) => list.filter(i => shape(map.nodes[i]) === shape(node)).sort((i, j) => cmp(map.nodes[i].chain ?? [], map.nodes[j].chain ?? []));
-  const was = order(from, sitesAt(from, node).filter(i => same(from.nodes[i], node))), now = order(to, sites);
-  return was.length === now.length && was.includes(site) ? now[was.indexOf(site)] : null;
+  const key = n => (n.chain ?? []).map(at).join('>');
+  // Each plan's copies (the sites of each chain), in source order.
+  const copies = map => {
+    const by = new Map();
+    map.nodes.forEach((n, i) => { if (same(n, node)) by.set(key(n), [...(by.get(key(n)) ?? []), i]); });
+    return [...by.values()].sort((a, b) => cmp(map.nodes[a[0]].chain ?? [], map.nodes[b[0]].chain ?? []));
+  };
+  const was = copies(from), now = copies(to);
+  const g = was.findIndex(c => c.includes(site));
+  const chainOf = (map, c) => map.nodes[c[0]].chain ?? [];
+  const wasKeys = was.map(c => key(from.nodes[c[0]])), nowKeys = now.map(c => key(to.nodes[c[0]]));
+  // This site among its copy's sites: the same place in a copy of as many.
+  const pick = c => (c && c.length === was[g].length ? c[was[g].indexOf(site)] : null);
+  if (was.length === now.length && wasKeys.every(k => nowKeys.includes(k))) return pick(now[nowKeys.indexOf(wasKeys[g])]);
+  if (was.length === now.length) {
+    const shape = ch => ch.map(c => `${c.file}#${c.component ?? ''}`).join('>');
+    const alike = was.every((c, i) => shape(chainOf(from, c)) === shape(chainOf(to, now[i])) && was.every((d, l) => chainOf(from, c).every((x, j) => (at(x) === at(chainOf(from, d)[j])) === (at(chainOf(to, now[i])[j]) === at(chainOf(to, now[l])[j])))));
+    if (alike) return pick(now[g]);
+  }
+  return pick(now[nowKeys.indexOf(wasKeys[g])]);
 }
 // The same node, by its place (a lowered state row's binding is not it).
 const same = (a, b) => a && a.file === b.file && a.line === b.line && a.col === b.col;

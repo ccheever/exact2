@@ -207,6 +207,21 @@ test('a held site corresponds in a new plan by its place and call-site chain: ea
   expect(correspondingSite(was, plan(4), 2)).toBe(null);
   // A lone copy whose call moved: still it.
   expect(correspondingSite(plan(4), plan(30), 1)).toBe(1);
+  // Calls moved onto each other's lines (4, 9 to 9, 14): by rank, not the line one had.
+  expect(correspondingSite(was, plan(9, 14), 2)).toBe(2);
+  expect(correspondingSite(was, plan(9, 14), 1)).toBe(1);
+  // A `button "…"` and its label: two sites of one copy, each kept as itself beside a call added or removed.
+  const pairs = (...lines) => ({ nodes: lines.flatMap(l => [{ ...def, chain: [call(l)] }, { ...def, chain: [call(l)] }]) });
+  expect(correspondingSite(pairs(4, 9), pairs(4), 1)).toBe(1);
+  expect(correspondingSite(pairs(4, 9), pairs(4, 9, 14), 3)).toBe(3);
+  expect(correspondingSite(pairs(4, 9), pairs(5, 10), 3)).toBe(3);
+  // Nested: a wrapper called twice, one button in it, becomes a wrapper called once with two: the deleted
+  // wrapper's button is none (though as many copies), the kept one's itself.
+  const inner = (line, outer) => ({ ...def, chain: [{ file: '/a/wrap.contract', line, col: 5, end_col: 9, component: 'Wrapper' }, call(outer)] });
+  const wrapped = { nodes: [inner(3, 4), inner(3, 9)] };
+  expect(correspondingSite(wrapped, { nodes: [inner(3, 4), inner(6, 4)] }, 1)).toBe(null);
+  expect(correspondingSite(wrapped, { nodes: [inner(3, 4), inner(6, 4)] }, 0)).toBe(0);
+  expect(correspondingSite(wrapped, { nodes: [inner(3, 5), inner(3, 10)] }, 1)).toBe(1);
   // A copy called from another file is not one called here.
   expect(correspondingSite(was, { nodes: [...plan(5).nodes, { ...def, chain: [{ ...call(10), file: '/a/other.contract' }] }] }, 2)).toBe(null);
 });
