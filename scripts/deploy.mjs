@@ -507,10 +507,10 @@ function keepLiveMtimes(repo, staged) {
   walk(staged);
 }
 
-/** Child tools may ask Git about their source directory. Keep discovery and
- * explicit Git process state inside the private snapshot boundary. */
+/** Keep Git discovery and process state inside the private snapshot boundary;
+ * shipping bakes ignore a proof profile inherited from the caller's shell. */
 function sealedSourceEnv(sourceRoot, extra = {}) {
-  const env = { ...process.env, ...extra };
+  const env = { ...process.env, ...extra, EXACT_GAME_PROOF_PROFILE: 'release' };
   for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE',
     'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[name];
   env.GIT_CEILING_DIRECTORIES = sourceRoot;
@@ -646,7 +646,7 @@ function bakeJs(app, run, web, exactRoot, sourceRoot) {
 }
 
 /** Bake the web app into `<run>/web` (`host/web/build.mjs` with `EXACT_WEB_DIST`): its output goes to stderr so stdout stays the table. Returns the directory. */
-function bake(app, run, exactRoot, sourceRoot) {
+export function bake(app, run, exactRoot, sourceRoot) {
   mkdirSync(run, { recursive: true });
   const web = resolve(run, 'web');
   const env = sealedSourceEnv(sourceRoot, { EXACT_WEB_DIST: web, CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'production', EXACT_BAKE_OUTPUT:resolve(run,'bake') });
