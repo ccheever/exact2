@@ -18,7 +18,7 @@ import { htmlRenderFromToolItem, mcpAppFromToolItem } from './inline-tool-output
 export type InlineReference = { kind: 'html'; reference: HtmlRenderReference } | { kind: 'mcp'; reference: McpAppReference };
 export type InlineDocumentView = { key: string; kind: string; title: string; src: string; ready: boolean; error: string; height: number; posts: { key: string; text: string }[]; permission: string; permissionSerial: number; fullscreen: boolean; closed: boolean; shortcut: string; shortcutSerial: number; outline: { key: string; kind: string; x: number; y: number; width: number; height: number; lines: number }[] };
 type Frame = { token: string; url: string; expiresAt: number; src: string; ready: boolean; error: string; height?: number; reading: boolean; lastTheme?: string; lastShortcuts?: string; shortcut?: string; shortcutSerial?: number; posts: { key: string; text: string }[]; serial: number; runtime?: DocumentRuntime; fullscreen?: boolean; width?: number; inlineWidth?: number; viewportHeight?: number };
-type State = { generation: number; environment: string; origin: string; frames: Map<string, Frame> };
+type State = { systemScheme: string; generation: number; environment: string; origin: string; frames: Map<string, Frame> };
 const states = new WeakMap<T3Client, State>();
 const MIN_URL_LIFE = 5 * 60_000;
 const LIMIT = 64;
@@ -44,8 +44,8 @@ function updateShortcuts(client: T3Client, frame: Frame): void {
   const message = documentShortcutsMessage(client.config), signature = JSON.stringify(message);
   if (frame.ready && frame.lastShortcuts !== signature) { frame.lastShortcuts = signature; postToDocument(client, frame, message); }
 }
-function updateHtmlTheme(client: T3Client, frame: Frame): void {
-  const theme = inlineTheme(client), signature = JSON.stringify(theme);
+function updateHtmlTheme(client: T3Client, frame: Frame, systemScheme: string): void {
+  const theme = inlineTheme(client, systemScheme), signature = JSON.stringify(theme);
   if (frame.ready && frame.lastTheme !== signature) { frame.lastTheme = signature; postToDocument(client, frame, htmlRenderThemeMessage(theme)); }
 }
 
@@ -53,7 +53,7 @@ function state(client: T3Client): State {
   let value = states.get(client);
   if (!value || value.generation !== client.generation || value.environment !== client.environmentId || value.origin !== client.origin) {
     if (value) for (const frame of value.frames.values()) if (frame.runtime) disposeDocumentRuntime(frame.runtime);
-    value = { generation: client.generation, environment: client.environmentId, origin: client.origin, frames: new Map() };
+    value = { systemScheme: 'dark', generation: client.generation, environment: client.environmentId, origin: client.origin, frames: new Map() };
     states.set(client, value);
   }
   return value;
@@ -68,8 +68,8 @@ export function inlineReference(item: Obj): InlineReference | null {
 }
 export const inlineDocumentKey = (client: T3Client, sourceThreadId: string, itemId: string, ref: InlineReference) => JSON.stringify([client.environmentId, sourceThreadId || client.threadId, itemId, ref.kind, ref.reference.attachmentId]);
 
-export function inlineTheme(client: T3Client) {
-  const { prefs, custom, mode } = paintOf(client), appearance = mode === 'light' ? 'light' : 'dark';
+export function inlineTheme(client: T3Client, systemScheme = 'dark') {
+  const { prefs, custom, mode } = paintOf(client), appearance = mode === 'light' || mode === 'dark' ? mode : systemScheme === 'light' ? 'light' : 'dark';
   const themeId = appearance === 'light' ? prefs.themeLight : prefs.themeDark;
   const own = custom.find(theme => theme.id === themeId);
   const colors = { ...STANDARD[appearance], ...(own?.[appearance] ?? builtInThemeColors(themeId, appearance) ?? themeRoles(themeId, appearance, custom)) };
@@ -77,8 +77,9 @@ export function inlineTheme(client: T3Client) {
 }
 
 /** Resource refresh signs once per mounted document; a changing cache URL never reloads an interactive frame. */
-export async function syncInlineDocuments(client: T3Client, native: Native, now: number): Promise<void> {
+export async function syncInlineDocuments(client: T3Client, native: Native, now: number, systemScheme?: string): Promise<void> {
   const held = state(client), threadId = client.threadId;
+  if (systemScheme === 'light' || systemScheme === 'dark') held.systemScheme = systemScheme;
   const ownedSync = () => client.generation === held.generation && client.environmentId === held.environment && client.origin === held.origin && client.threadId === threadId && states.get(client) === held;
   const active = new Set(arr(client.projection.visibleTurnItems).slice(-LIMIT).flatMap(row => { const item = obj(row.item), ref = inlineReference(item); return ref ? [inlineDocumentKey(client, str(row.sourceThreadId), str(item.id), ref)] : []; }));
   for (const [key, frame] of held.frames) if (!active.has(key)) { if (frame.runtime) disposeDocumentRuntime(frame.runtime); held.frames.delete(key); }
@@ -89,7 +90,7 @@ export async function syncInlineDocuments(client: T3Client, native: Native, now:
     const key = inlineDocumentKey(client, str(row.sourceThreadId), str(item.id), ref);
     const cached = held.frames.get(key);
     if (cached) updateShortcuts(client, cached);
-    if (cached && ref.kind === 'html') updateHtmlTheme(client, cached);
+    if (cached && ref.kind === 'html') updateHtmlTheme(client, cached, held.systemScheme);
     if (cached?.runtime) {
       await drainDocumentRuntime(cached.runtime, native, now);
       if (!ownedSync()) return;
@@ -112,12 +113,12 @@ export async function syncInlineDocuments(client: T3Client, native: Native, now:
       if (ref.kind === 'mcp' && !frame.runtime) {
         frame.runtime = makeDocumentRuntime(client, { app: ref.reference, sourceThreadId: str(row.sourceThreadId) || threadId, itemId: str(item.id), conversationThreadId: threadId,
           post: message => { if (owned()) postToDocument(client, frame, message); },
-          theme: () => inlineTheme(client), owned,
+          theme: () => inlineTheme(client, held.systemScheme), owned,
           width: () => frame.width ?? 728, viewportHeight: () => frame.viewportHeight ?? 700, canExpand: () => ![...held.frames.values()].some(other => other.runtime?.permission || other !== frame && (other.fullscreen || other.runtime?.fullscreen)), height: height => { frame.height = height; client.revision++; } });
         const result = obj(item.output);
         frame.runtime.host.setToolCall({ arguments: item.input, result: { ...result, content: arr(result.content) } });
       }
-      frame.src = inlineDocumentSource(frame.url + (ref.kind === 'html' ? htmlRenderThemeFragment(inlineTheme(client)) : ''), frame.token);
+      frame.src = inlineDocumentSource(frame.url + (ref.kind === 'html' ? htmlRenderThemeFragment(inlineTheme(client, held.systemScheme)) : ''), frame.token);
     } catch (error) {
       if (letGo(error)) { held.frames.delete(key); throw error; }
       frame.error = error instanceof Error ? error.message : 'Unable to load document.';
@@ -146,7 +147,7 @@ export async function inlineDocumentEvent(client: T3Client, key: string, op: str
   if (op === 'message') {
     let message: unknown;
     try { const envelope = obj(JSON.parse(payload)); if (envelope.t3Document !== frame.token) return; message = envelope.message; } catch { return; }
-    if (obj(message).method === 't3/adapter-ready') { frame.ready = true; updateShortcuts(client, frame); if (!frame.runtime) updateHtmlTheme(client, frame); }
+    if (obj(message).method === 't3/adapter-ready') { frame.ready = true; updateShortcuts(client, frame); if (!frame.runtime) updateHtmlTheme(client, frame, state(client).systemScheme); }
     if (!frame.runtime) {
       const link = readHtmlRenderLinkRequest(message);
       if (link && native) {
