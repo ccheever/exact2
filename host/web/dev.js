@@ -712,26 +712,44 @@ if (es) {
   // here; under another the server replays it, its site corresponded, once the status says the new plan.
   const canonical = (v) => JSON.stringify(v ?? [], (_, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
   let swaps = 0;
+  // Each hold frame is bound, as it arrives, to the generation it addresses and that generation's plan digest; one a
+  // new generation overtook while it waited applies only under the same plan (else the server's replay corresponds
+  // it). A revision the page let go of itself (input, disabled, gone) is not taken again when its frame comes again
+  // (a poll's resent answer).
+  const holdAt = new WeakMap(), ended = new Set();
+  const digestNow = () => {
+    const x = globalThis.exact;
+    if (planDigestOf === (x.generation ?? null)) return planDigestNow;
+    try { const sites = typeof x.wasm?.exact_agent === "function" ? ask({ op: "sites" }) : null; return typeof sites?.planDigest === "string" ? sites.planDigest : null; } catch { return null; }
+  };
+  const bindHold = (frame) => { holdAt.set(frame, { gen: globalThis.exact.generation ?? null, digest: digestNow() }); };
   const rehold = async () => {
     const kept = channel.hold;
-    if (kept && (await planDigest()) === kept.digest && channel.hold === kept && channel.holdLatest === kept.frame) command(kept.frame);
+    if (!kept || swaps || (await planDigest()) !== kept.digest || channel.hold !== kept || channel.holdLatest !== kept.frame) return;
+    bindHold(kept.frame);
+    command(kept.frame);
   };
   const hold = async (frame) => {
+    const at = holdAt.get(frame) ?? { gen: globalThis.exact.generation ?? null, digest: null };
     for (let i = 0; i < 40 && !globalThis.exact.hold; i++) await new Promise((ok) => setTimeout(ok, 50)); // the input glue loads after paint
-    // Only the latest frame applies (a replay queued before a newer clear does not), and only on the tree it was
-    // resolved against: one a new generation overtook is left to `rehold` or the server's replay, unsaid.
+    // Only the latest frame applies (a replay queued before a newer clear does not).
     const holds = globalThis.exact.hold, h = frame.hold, revision = frame.revision;
+    if (channel.holdLatest !== frame || (h && ended.has(revision))) return;
+    const digest = swaps ? null : await planDigest();
     if (channel.holdLatest !== frame) return;
-    const gen = generations, digest = await planDigest();
-    if (channel.holdLatest !== frame) return;
-    if (h && (swaps || gen !== generations)) { channel.hold = { frame, digest }; if (!swaps) rehold(); return; }
+    if (h && (swaps || (at.gen !== null && (globalThis.exact.generation ?? null) !== at.gen))) {
+      // Overtaken: kept for `rehold` under the plan it addressed; applied now if the swap is done and the plan is that.
+      channel.hold = at.digest ? { frame, digest: at.digest } : null;
+      if (swaps || !at.digest || digest !== at.digest) return;
+      bindHold(frame);
+    }
     channel.hold = h ? { frame, digest } : null;
     if (!holds) { report({ kind: "unsupported", what: "hold", detail: "the input glue is not loaded", revision }); return; }
     if (!h) { holds(null); report({ kind: "held", state: null, revision }); return; }
     let found = null, two = false;
     for (const [id] of globalThis.exact.views ?? []) {
       const node = ask({ op: "node", id, plan: true });
-      if (node.error) continue;
+      if (node.error || globalThis.exact.views.get(id)?.closest?.("[data-exiting]")) continue; // a leaving view is no match
       if (node.site === h.site && canonical(node.instance) === canonical(h.instance)) { if (found != null) { two = true; break; } found = id; }
     }
     const el = found != null && !two ? globalThis.exact.views.get(found) : null;
@@ -741,6 +759,7 @@ if (es) {
       // (The same frame taken again, a resent one or `rehold`'s, replaces nothing.)
       if (reason === "replaced" && applying === revision) return;
       if (channel.hold?.frame === frame) channel.hold = null;
+      if (reason !== "replaced") { ended.add(revision); if (ended.size > 64) ended.delete(ended.values().next().value); }
       report({ kind: "held", state: null, reason, revision });
     }) : (holds(null), { reason: "gone" });
     applying = null;
@@ -804,7 +823,7 @@ if (es) {
       return;
     }
     if (message.kind === "tamber-batch" || message.kind === "tamber-snapshot") { design(message); return; }
-    if (message.kind === "hold") channel.holdLatest = message;
+    if (message.kind === "hold") { channel.holdLatest = message; bindHold(message); }
     if (message.kind === "pin" || message.kind === "inspect" || message.kind === "outline" || message.kind === "hold") { command(message); return; }
     if (message.hello && message.nonce && message.nonce !== channel.nonce) {
       const nonce = channel.nonce = message.nonce;

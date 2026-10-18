@@ -333,7 +333,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // the node as it is held ends there: the hold has it (its release unpaints nothing).
   const DISABLED = ":disabled,[disabled]:not([disabled='false'])";
   let held = null;
-  const watch = new MutationObserver(() => { if (!held?.el.isConnected) letGo("gone"); else if (held.el.closest(DISABLED)) letGo("disabled"); });
+  // (A leaving view, `data-exiting`, is gone as it starts to leave.)
+  const watch = new MutationObserver(() => { if (!held?.el.isConnected || held.el.closest("[data-exiting]")) letGo("gone"); else if (held.el.closest(DISABLED)) letGo("disabled"); });
   const snap = (el, change) => { const was = el.style.transition; el.style.transition = "none"; change(); getComputedStyle(el).opacity; el.style.transition = was; };
   // `reason` null: let go unsaid (a dev loop's new generation, whose tree goes and whose hold the server replays).
   const letGo = (reason) => {
@@ -350,10 +351,10 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (state == null) return { held: null };
     // `active`: the innermost node with a press handler, as a real press's (theme2's 07:48); none there is `gone`.
     const node = state === "active" ? el?.closest?.("[data-exact-on~=press]") : el;
-    if (!node?.isConnected || !root.contains(node)) return { reason: "gone", error: state === "active" ? "no press there: the node presses nothing, nor does any around it" : "the node is not on the page" };
+    if (!node?.isConnected || !root.contains(node) || node.closest("[data-exiting]")) return { reason: "gone", error: state === "active" ? "no press there: the node presses nothing, nor does any around it" : "the node is not on the page" };
     if (node.closest(DISABLED)) return { reason: "disabled", error: "a disabled node holds no state" };
     held = { el: node, asked: el, state, dropped };
-    watch.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["disabled"] });
+    watch.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["disabled", "data-exiting"] });
     if (state === "active") {
       if (press?.el === node) press = null;
       if (keyHold?.el === node) { const up = keyHold; keyHold = null; removeEventListener("keyup", up, true); node.removeEventListener("blur", up); }

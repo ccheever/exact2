@@ -443,7 +443,9 @@ function outlineSites(frame) {
  * by its site and instance path (exactly one), held by the input glue as the real state; null lets it go. What it
  * holds or let go, and why, is reported (`held`). */
 // One at a time, in order; one a newer frame replaced while it waited is dropped unsaid (the newer one says).
+// A revision the page let go of itself (input, disabled, gone) is not taken again when its frame comes again.
 let holding = Promise.resolve(), holdLatest = null, applying = null;
+const ended = new Set();
 const canonical = (v) => JSON.stringify(v ?? [], (_, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
 // The runtime the app runs (this module is served at /__dev/inspect.js): the one beside its app.js.
 const runtime = () => new URL("rt.js", document.querySelector('script[type="module"][src$="app.js"]')?.src ?? document.baseURI).href;
@@ -461,10 +463,12 @@ async function holdNow(m) {
   const holds = globalThis.exact?.hold, h = m.hold, revision = m.revision;
   if (!holds) { env.report({ kind: "unsupported", what: "hold", detail: "the input glue is not loaded", revision }); return; }
   if (!h) { holds(null); env.report({ kind: "held", state: null, revision }); return; }
+  if (ended.has(revision)) return;
   let t;
   try { t = await inspectTable(); } catch (error) {
-    // No table to resolve it by: the hold before is let go, and this one refused by name.
-    if (!current()) return;
+    // No table to resolve it by: the hold before is let go, and this one refused by name. A rebuild's table (this
+    // page reloads to it) says nothing: the new page's registration replays the hold, its site corresponded.
+    if (!current() || /was rebuilt/.test(String(error))) return;
     holds(null);
     env.report({ kind: "unsupported", what: "hold", detail: `the inspect table is unreadable: ${String(error)}`, revision });
     return;
@@ -473,6 +477,7 @@ async function holdNow(m) {
   let found = null, two = false;
   for (const el of document.querySelectorAll(`[data-site="${Number(h.site)}"]`)) {
     // (An instance path that does not resolve is no match, not the empty path.)
+    if (el.closest("[data-exiting]")) continue; // a leaving view is no match
     const instance = instanceOf(t, el, t.sites[String(h.site)] ?? {});
     if (instance == null || canonical(instance) !== canonical(h.instance)) continue;
     if (found) { two = true; break; }
@@ -481,7 +486,11 @@ async function holdNow(m) {
   // (No one element there: the one held before is let go too.)
   // (The same frame taken again, a resent one, replaces nothing.)
   applying = revision;
-  const r = found && !two ? holds(found, h.state, (reason) => { if (reason !== "replaced" || applying !== revision) env.report({ kind: "held", state: null, reason, revision }); }) : (holds(null), { reason: "gone" });
+  const r = found && !two ? holds(found, h.state, (reason) => {
+    if (reason === "replaced" && applying === revision) return;
+    if (reason !== "replaced") { ended.add(revision); if (ended.size > 64) ended.delete(ended.values().next().value); }
+    env.report({ kind: "held", state: null, reason, revision });
+  }) : (holds(null), { reason: "gone" });
   applying = null;
   env.report(r.reason ? { kind: "held", state: null, reason: r.reason, revision } : { kind: "held", state: h.state, revision });
 }

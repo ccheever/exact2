@@ -124,6 +124,13 @@ check('a held state is the real one, until real input, its disabling or its goin
     await evaluate('exact.holdQuiet()');
     expect(await dropped()).toEqual([]);
     expect(await evaluate(`document.getElementById('card').hasAttribute('data-pressed')`)).toBe(false);
+    // Its leaving (an exit animation's `data-exiting`) lets it go, and a leaving node holds none.
+    expect((await hold('card', 'hover')).held).toBe('hover');
+    await evaluate(`document.getElementById('card').setAttribute('data-exiting', '')`);
+    await evaluate('new Promise(ok => setTimeout(ok, 0))');
+    expect(await dropped()).toEqual(['gone']);
+    expect((await hold('card', 'hover')).reason).toBe('gone');
+    await evaluate(`document.getElementById('card').removeAttribute('data-exiting')`);
     // Its going lets it go.
     expect((await hold('card', 'active')).held).toBe('active');
     await evaluate(`document.getElementById('card').remove()`);

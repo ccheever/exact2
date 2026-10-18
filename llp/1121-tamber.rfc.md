@@ -3648,3 +3648,7 @@ Built to the approved plan (`~/x2theme/x2p4-s8e-plan.md`; theme2's 07:48 ruling 
   - The server: a let-go closes its revision (a late applied report of it is dropped); an applied report with no hold kept applies nothing; a hold `unsupported` clears `held`; a hold taken before the build named a plan takes the first plan it names; the owner-only field is `only` (`to` stays the inspect handoff's).
   - `active` resolves to the innermost press handler only, as the ruling says; `heldOf` answers for the element named too (a label inside the press), with the press's rows.
   - The wasm agent's `holdState` waits for the glue as the JS agent's does. `hello`'s builds name `hold` and `held`.
+- **After review round 3 (Astra, Grok):**
+  - The wasm loop binds each hold frame, as it arrives, to the generation it addresses and that generation's plan digest. One a generation swap overtook applies only once the swap is done and under that same plan; otherwise it is left unsaid to the server's replay (no `gone` ahead of the new plan's status). `rehold` binds the frame afresh.
+  - A revision the page let go of itself (input, disabled, gone) is not taken again when a poll resends its frame (both targets).
+  - The JS target: a table of a rebuilt plan (the page reloads to it) refuses nothing; the new page's registration replays the hold. A leaving view (`data-exiting`) is no match on either target, and a held node that starts to leave is gone.
