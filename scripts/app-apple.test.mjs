@@ -504,7 +504,7 @@ test('watch owns the build before the parent starts and reports a skipped TypeSc
 
 test('a refused parent prevents use of a stale companion bundle', async () => {
   const { buildWatch } = await import('../host/apple/watch.mjs');
-  const before = process.exitCode, events = [];
+  const before = process.exitCode ?? 0, events = [];
   try {
     await assert.rejects(buildWatch({id:'fixture'}, ['--watchos'], {
       appleBuildLock: () => { events.push('lock'); return () => events.push('release'); },
