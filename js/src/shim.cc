@@ -72,6 +72,12 @@ struct State {
   size_t capture_limit;
   size_t capture_bytes = 0;
   std::vector<CapturedString> captures;
+  // A capture of this reply was made before a collection that ran after its
+  // answer began (`__exact_capture_string`'s third argument).
+  bool captures_held = false;
+  // Collections so far, Hermes' own and these: what the prelude stamps an
+  // answer with when it begins (`__exact_gc_epoch`).
+  int64_t gc_epoch = 0;
   // At the last full collection (collect_garbage): the heap's total
   // allocation then and what it held, all of it live.
   int64_t collected_at = 0;
@@ -87,6 +93,7 @@ void collect_garbage(State *state, const char *cause) {
   auto info = instrumentation.getHeapInfo(false);
   state->collected_at = info["hermes_totalAllocatedBytes"];
   state->live = info["hermes_allocatedBytes"];
+  state->gc_epoch = info["hermes_numCollections"] + info["hermes_yg_numCollections"];
 }
 
 // Hermes' young generation keeps every page it has touched (exact_js_harden),
@@ -106,6 +113,9 @@ constexpr int64_t kCollectEvery = 256 << 10;
 void collect_if_due(State *state) {
   auto info = state->rt->instrumentation().getHeapInfo(false);
   int64_t total = info["hermes_totalAllocatedBytes"];
+  // Hermes' own collections within the call count too: one may have moved
+  // an answer's value to the old generation.
+  state->gc_epoch = info["hermes_numCollections"] + info["hermes_yg_numCollections"];
   if (total - state->collected_at >= std::max(kCollectEvery, state->live / 2))
     collect_garbage(state, "between calls");
 }
@@ -113,6 +123,7 @@ void collect_if_due(State *state) {
 void clear_captures(State *state) {
   state->captures.clear();
   state->capture_bytes = 0;
+  state->captures_held = false;
 }
 
 // The prelude captures and removes this binding before app initialization.
@@ -122,11 +133,12 @@ void install_capture(State *state) {
   auto &rt = *state->rt;
   rt.global().setProperty(rt, "__exact_capture_string",
       jsi::Function::createFromHostFunction(rt,
-          jsi::PropNameID::forAscii(rt, "__exact_capture_string"), 2,
+          jsi::PropNameID::forAscii(rt, "__exact_capture_string"), 3,
           [state](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args,
                   size_t count) -> jsi::Value {
-            if (count != 2 || !args[0].isString() || !args[1].isString())
+            if (count < 2 || count > 3 || !args[0].isString() || !args[1].isString())
               throw jsi::JSError(rt, "result capture requires a path and string");
+            if (count == 3 && args[2].isBool() && args[2].getBool()) state->captures_held = true;
             auto path = args[0].getString(rt).utf8(rt);
             auto value = args[1].getString(rt).utf16(rt);
             const auto remaining = state->capture_limit - state->capture_bytes;
@@ -135,6 +147,13 @@ void install_capture(State *state) {
             state->capture_bytes += path.size() + value.size()*sizeof(char16_t);
             state->captures.push_back({std::move(path), std::move(value)});
             return jsi::Value::undefined();
+          }));
+  // The collections as of the last call's end, read when an answer begins.
+  rt.global().setProperty(rt, "__exact_gc_epoch",
+      jsi::Function::createFromHostFunction(rt,
+          jsi::PropNameID::forAscii(rt, "__exact_gc_epoch"), 0,
+          [state](jsi::Runtime &, const jsi::Value &, const jsi::Value *, size_t) -> jsi::Value {
+            return jsi::Value(static_cast<double>(state->gc_epoch));
           }));
 }
 
@@ -403,15 +422,16 @@ int exact_js_call(void *h, const char *name, const char *a, const char *b, const
                   3);
     }
     int status = fail(out, result.getString(rt).utf8(rt), 0);
-    // A reply that carried a captured string (64 Ki characters or more)
-    // leaves that string garbage now, and it may be old generation: held
-    // across calls by a pending answer, it was promoted by the collection
-    // after the call that made it, and at idle no later collection would
-    // free it (euxy's QR path: 376 KB).
-    if (state->captures.empty())
-      collect_if_due(state);
+    // A captured string (64 Ki characters or more) whose answer outlived a
+    // collection may be old generation now, promoted while its answer was
+    // pending, and once sent it is garbage that no later collection frees
+    // while the module is idle (euxy's QR path: 376 KB). One made and sent
+    // with no collection between, as a frame's answer is, waits for
+    // `collect_if_due`.
+    if (state->captures_held)
+      collect_garbage(state, "held large reply");
     else
-      collect_garbage(state, "large reply");
+      collect_if_due(state);
     return status;
   } catch (const jsi::JSError &e) {
     clear_captures(state);

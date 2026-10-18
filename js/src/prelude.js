@@ -1049,7 +1049,12 @@
   // Explicit paths avoid reserving any property spelling in application data.
   var captureString = global.__exact_capture_string;
   delete global.__exact_capture_string;
-  function ok(value) {
+  // The engine's collections so far: an answer whose value outlived one
+  // says so with its captures, and the engine collects after its reply.
+  var gcEpoch = global.__exact_gc_epoch;
+  delete global.__exact_gc_epoch;
+  function epoch() { return typeof gcEpoch === "function" ? gcEpoch() : 0; }
+  function ok(value, held) {
     var reply = { tag: 0, value: value === undefined ? null : value };
     if (typeof captureString !== "function") return JSON.stringify(reply);
     var head = null, root = true;
@@ -1076,7 +1081,7 @@
         for (var link = parent; link && link.parent; link = link.parent) pathKey(link.key);
         // Application toJSON hooks apply to its values, never our path metadata.
         Object.defineProperty(path, "toJSON", {value:undefined});
-        captureString(JSON.stringify(path), item);
+        captureString(JSON.stringify(path), item, !!held);
         return "";
       }
       // Only ancestors of the current object are needed for later capture paths.
@@ -1184,7 +1189,7 @@
       pending.forEach(function (p) { if (p.call === call && p.claimed) inFlight = true; });
       if (moduleWide && inFlight) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
       if (call.status === "done") handSocketOps(call);
-      return reply(call, call.status === "done" ? ok(call.value) : fail(call.error));
+      return reply(call, call.status === "done" ? ok(call.value, call.epoch !== epoch()) : fail(call.error));
     }
     if (moduleWide) {
       var unclaimed;
@@ -1221,7 +1226,7 @@
   // answer still waiting on nothing of its own.
   global.__exact_call = function (source, argsJson, mutation) {
     initializing = false;
-    var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false, mutation: mutation === "mutation", sync: false, socketOps: null };
+    var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false, mutation: mutation === "mutation", sync: false, socketOps: null, epoch: epoch() };
     var result;
     currentCall = call;
     try {

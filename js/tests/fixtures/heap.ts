@@ -32,7 +32,32 @@ function state(name: string): Answer {
   return cleared.has(name) ? "cleared" : "held";
 }
 
+// Frames whose answer is a large string, and how many of them saw an
+// earlier frame's sentinel finalized: at most one per collection.
+let frames = 0;
+let collectedFrames = 0;
+let clearedBefore = 0;
+
 function answer(source: string): unknown {
+  if (source === "large") {
+    frames++;
+    registry.register({}, `frame ${frames}`);
+    if (cleared.size !== clearedBefore) {
+      clearedBefore = cleared.size;
+      collectedFrames++;
+    }
+    return "l".repeat(65536) + frames;
+  }
+  if (source === "collections") return String(collectedFrames);
+  if (source === "heldLarge") {
+    // A large string the answer holds past the collection its garbage makes
+    // due after the call, sent at the settle that follows.
+    const value = { text: "h".repeat(70000) };
+    registry.register(value, "heldLarge");
+    garbage(1 << 20);
+    return value;
+  }
+  if (source === "heldLargeState") return state("heldLarge");
   if (source === "big") {
     // Allocates past the young generation with the object reachable, so
     // Hermes' own collections within the call move it to the old generation.

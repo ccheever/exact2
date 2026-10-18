@@ -11,8 +11,14 @@ use exact_runner::{Answer, DataSource, Store};
 const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/heap.hbc"));
 
 const SRC: &str = r#"
+shape Big
+  text: string
 component App
   resource atInit = atInit() as shape string
+  resource large = large() as shape string
+  resource collections = collections() as shape string
+  resource heldLarge = heldLarge() as shape Big
+  resource heldLargeState = heldLargeState() as shape string
   resource big = big() as shape string
   resource inCall = inCall() as shape string
   view
@@ -55,4 +61,38 @@ fn a_call_that_collected_within_itself_is_still_followed_by_a_full_collection() 
     // old generation, which only a full collection reclaims.
     assert_eq!(state(&mut m, &mut s, "big"), "held");
     assert_eq!(state(&mut m, &mut s, "inCall"), "cleared");
+}
+
+/// A large string made and sent in one answer, as a frame's is, is left to
+/// the allocation-driven collections: a frame does not collect each time.
+#[test]
+fn a_large_reply_each_frame_does_not_collect_each_frame() {
+    let mut m = module();
+    let mut s = Store::new("", []);
+    state(&mut m, &mut s, "atInit");
+    for _ in 0..20 {
+        assert!(state(&mut m, &mut s, "large").len() > 65536);
+    }
+    let collected: u32 = state(&mut m, &mut s, "collections").parse().unwrap();
+    assert!(
+        collected <= 10,
+        "{collected} of 20 frames followed a collection"
+    );
+}
+
+/// A large string an answer held past a collection is collected after the
+/// reply that sends it, though nothing else would make a collection due.
+#[test]
+fn a_large_reply_held_past_a_collection_is_collected_after_it() {
+    let mut m = module();
+    let mut s = Store::new("", []);
+    state(&mut m, &mut s, "atInit");
+    assert!(matches!(
+        m.answer(&mut s, "heldLarge", &[]),
+        Ok(Answer::Now(_))
+    ));
+    // The registry reports at the drain that ends the call after the
+    // collection; with no collection, the second call still finds it held.
+    state(&mut m, &mut s, "heldLargeState");
+    assert_eq!(state(&mut m, &mut s, "heldLargeState"), "cleared");
 }
