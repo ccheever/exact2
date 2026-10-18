@@ -28,7 +28,11 @@ export function enqueueSecretAnswer(client: T3Client, key: string, decision: str
   responses(client).set(key, { owner: identity(client), thread: answer.threadId, item: answer.turnItemId, answer: answer.answer, pending: true, claimed: false, submitted: false, error: '' });
 }
 export function secretAnswersNeeded(client: T3Client): boolean {
-  for (const state of responses(client).values()) if (state.owner === identity(client) && state.pending && !state.claimed) return true;
+  const values = responses(client), owner = identity(client);
+  for (const [key, state] of values) {
+    if (state.owner !== owner) { state.answer = null; values.delete(key); continue; }
+    if (state.pending && !state.claimed) return true;
+  }
   return false;
 }
 /** A root read owns each request. Independent read slots can answer separate cards concurrently. */

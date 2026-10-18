@@ -1,3 +1,8 @@
+import { replArguments } from './tool-activity';
+import { commandOutputView, commandSpans } from './command-output';
+import { terminalOutputPlainText } from './terminal-output';
+import { toolImages } from './tool-images';
+import { secretCard } from './secret-card';
 // Message presentation adapted from T3 Code 9c161462c9 (MIT; see LICENSE-T3):
 // apps/web/src/components/chat/MessagesTimeline.tsx and packages/client-runtime/src/userMessage.ts.
 import { notePreviewHover } from '../pull-requests/pages-pr-links';
@@ -260,6 +265,7 @@ function activity(entry: WorkEntry, root: string, client: T3Client, label?: stri
   const fetches = turnItemNeedsDetailFetch(entry.item);
   const detail = turnItemDetailView(client, entry.item, undefined, entry.id);
   entry = { ...entry, item: detail.item };
+  const argumentsView = entry.itemType === 'dynamic_tool' ? replArguments(entry.item.toolName, entry.item.input) : [];
   const item = entry.item, warning = entry.sourceActivityKind === 'runtime.warning';
   const failedError = item.type === 'error' && item.status === 'failed';
   const failed = !warning && displayFailed(entry);
@@ -269,6 +275,8 @@ function activity(entry: WorkEntry, root: string, client: T3Client, label?: stri
   // V2ItemInspector draws search results and file changes as their own parts, not as tool output.
   const extras = plain === undefined ? inspectorExtras(item, path => workspaceRelativePath(path, root)) : NO_INSPECTOR_EXTRAS;
   const structured = item.type === 'file_search' || item.type === 'web_search';
+  const terminal = commandOutputView(client, entry.id, item), terminalText = terminal?.value?.output.text ?? '';
+  const terminalState = terminal?.value ? terminalText ? '' : terminal.value.running ? '' : 'empty' : terminal?.error ? 'error' : 'loading';
   const reasoning = entry.itemType === 'reasoning';
   const usage = failedError && obj(item.failure).class === 'usage_limit';
   // An answered question leads with what was asked (even over a lone tool's label) and trails its answer.
@@ -278,8 +286,9 @@ function activity(entry: WorkEntry, root: string, client: T3Client, label?: stri
   // A thread read names the thread by its live title, linked to it (ThreadReadLabel).
   const read = failedError || reasoning ? null : threadReadLabel(entry, title, client.shell.threads);
   // Reads and skills expand to plain text (output) instead of the inspector (body).
-  return { id: entry.id, label: read?.text ?? title, linkPrefix: read?.prefix ?? '', linkTitle: read?.title ?? '', linkThreadId: read?.threadId ?? '', body: entry.questionAnswer ? '' : plain !== undefined && fetches ? plain ?? '' : inspect.input, icon: failedError || warning || severe ? 'circle-alert' : entryIcon(entry),
-    output: reasoning ? str(entry.detail) : fetches ? detail.text : structured ? '' : plain ?? detail.text, outputState: detail.state, ...extras, detailOpen: turnItemIsOpen(client, entry.id), ...toolActivityIconSources(client, item), result: inspect.result, failed, timestamp: entry.createdAt,
+  return { id: entry.id, label: read?.text ?? title, linkPrefix: read?.prefix ?? '', linkTitle: read?.title ?? '', linkThreadId: read?.threadId ?? '', replArguments: argumentsView, body: entry.questionAnswer || argumentsView.length ? '' : plain !== undefined && fetches ? plain ?? '' : inspect.input, icon: failedError || warning || severe ? 'circle-alert' : entryIcon(entry),
+    terminal: terminal !== null, terminalSpans: commandSpans(terminalText), terminalTruncated: terminal?.value?.output.truncated === true, toolImages: toolImages(item),
+    output: terminal ? terminalText ? terminalOutputPlainText(terminalText) : terminal.error || (terminal.value?.running === false ? 'No output.' : terminal.value ? '' : 'Loading output…') : reasoning ? str(entry.detail) : fetches ? detail.text : structured ? '' : plain ?? detail.text, outputState: terminal ? terminalState : detail.state, ...extras, detailOpen: turnItemIsOpen(client, entry.id), ...toolActivityIconSources(client, item), result: inspect.result, failed, timestamp: entry.createdAt,
     tone: failedError ? usage ? 'provider-warning' : 'provider-error' : warning ? 'warning' : severe ? 'error' : failed ? 'failed' : '',
     ok: inspect.ok, reasoning, expandable: !failedError && (!!entry.questionAnswer || (plain !== undefined ? !!plain || entry.item.outputOmitted === true || !!detail.text : turnItemHasDetail(entry.item))),
     detail: failedError && !usage ? str(obj(item.failure).message) : '', status: entry.status === 'inProgress' ? 'Thinking' : 'Thought',
@@ -370,7 +379,8 @@ function present(row: Row, context: PresentContext): Message {
     }
     case 'checkpoint': return { ...base, kind: 'checkpoint', title: 'Changes', checkpointId: str(row.entry.item.checkpointId), runId: str(row.entry.item.runId),
       sourceThreadId: str(row.entry.row.sourceThreadId), files: arr(row.entry.item.files).map(file => ({ path: str(file.path), additions: num(file.additions), deletions: num(file.deletions) })) };
-    case 'event': return { ...base, ...eventRow(row.entry.item, row.subagents, row.entry.row, { agents: context.subagents, providers: context.providers, runs: arr(context.client.projection.runs), threads: context.threads }) };
+    case 'event': if (row.entry.item.type === 'secret_request') return { ...base, kind: 'secret', secret: secretCard(context.client, row.entry.item, row.entry.row.visibility) };
+      return { ...base, ...eventRow(row.entry.item, row.subagents, row.entry.row, { agents: context.subagents, providers: context.providers, runs: arr(context.client.projection.runs), threads: context.threads }) };
 
     case 'meta': return { ...base, kind: 'meta', body: str(row.entry.item.text), runId: str(row.entry.item.runId), completed: true, canFork: forkable(context.client, row.entry.row, row.entry.item),
       actionsId: row.entry.id, copied: view.copies.get(row.entry.id)?.nonce ?? 0, copyFailed: view.copies.get(row.entry.id)?.ok === false };
@@ -416,10 +426,10 @@ export function userMessagePresentation(item: Obj): { text: string; attribution:
 
 type RowActivity = Activity & Required<Pick<Activity, 'tone' | 'ok' | 'reasoning' | 'expandable' | 'detail' | 'status' | 'targetId' | 'answer' | 'retryRunId' | 'outputState' | 'detailOpen' | 'iconLight' | 'iconDark'
   | 'results' | 'changePath' | 'stats' | 'additions' | 'deletions' | 'diffRunId' | 'diffPath' | 'startedMs' | 'initials' | 'driverIcon' | 'targetLabel' | 'modelLine' | 'effort' | 'speed' | 'speedLabel'
-  | 'linkPrefix' | 'linkTitle' | 'linkThreadId'>> & { timeTip: string };
+  | 'replArguments' | 'linkPrefix' | 'linkTitle' | 'linkThreadId' | 'terminal' | 'terminalTruncated' | 'terminalSpans' | 'toolImages'>> & { timeTip: string };
 const blankActivity = (activity: Activity): RowActivity => ({
   tone: '', ok: true, reasoning: false, expandable: true, detail: '', status: '', targetId: '', answer: '', retryRunId: '', timeTip: '',
-  ...activity, outputState: activity.outputState ?? '', detailOpen: activity.detailOpen ?? false, iconLight: activity.iconLight ?? '', iconDark: activity.iconDark ?? '',
+  ...activity, replArguments: activity.replArguments ?? [], terminal: activity.terminal ?? false, terminalTruncated: activity.terminalTruncated ?? false, terminalSpans: activity.terminalSpans ?? [], toolImages: activity.toolImages ?? [], outputState: activity.outputState ?? '', detailOpen: activity.detailOpen ?? false, iconLight: activity.iconLight ?? '', iconDark: activity.iconDark ?? '',
   results: activity.results ?? NO_INSPECTOR_EXTRAS.results, changePath: activity.changePath ?? '', stats: activity.stats ?? false, additions: activity.additions ?? 0,
   deletions: activity.deletions ?? 0, diffRunId: activity.diffRunId ?? '', diffPath: activity.diffPath ?? '', startedMs: activity.startedMs ?? 0,
   initials: activity.initials ?? '', driverIcon: activity.driverIcon ?? '', targetLabel: activity.targetLabel ?? '',
@@ -455,7 +465,7 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
       attribution: message.attribution ?? '', targetId: message.kind === 'checkpoint' ? files[0]?.path ?? '' : message.targetId ?? '', actionLabel: message.actionLabel ?? '',
       copied: message.copied ?? 0, copyFailed: message.copyFailed === true, meta: message.meta !== false,
       collapsible: message.collapsible === true, code: message.code ?? [], diagrams: message.diagrams ?? [], setup: message.setup ?? [], fileCount: message.kind === 'checkpoint' ? files.length : 0,
-      images: message.images ?? [], attachFiles: message.attachFiles ?? [], md: { ...md, chips: message.chips ?? [], runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
+      secret: message.secret ?? [], images: message.images ?? [], attachFiles: message.attachFiles ?? [], md: { ...md, chips: message.chips ?? [], runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
   });
   timelineView(client).lastRows = { threadId: client.threadId, rows: rows.map(row => ({ id: row.id, kind: row.kind, body: row.body })) };
   rows.forEach((row, index) => {

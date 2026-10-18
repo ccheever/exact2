@@ -73,7 +73,7 @@ export const TIMELINE_ICON = [
   'chevrons-down-up', 'folder-open', 'folder-closed', ['check-mark', 'check'], ['redo', 'redo-2'], 'ellipsis',
   'download', 'quote', 'message-square', 'triangle-alert', ['list-collapse', 'list-chevrons-down-up'],
   ['device', 'smartphone'], 'loader-circle', 'minus', 'circle', 'chevron-down', 'chevron-right', 'code',
-  'workflow', 'external-link', 'arrow-right', 'alarm-clock', 'circle-check',
+  'workflow', 'external-link', 'arrow-right', 'alarm-clock', 'circle-check', 'shield-check',
 ];
 
 /** panel-icons.contract PanelIcon: the right panel's surfaces. */

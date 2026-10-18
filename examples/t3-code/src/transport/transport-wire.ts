@@ -129,10 +129,27 @@ export function failure(value: unknown): TransportFailure {
   return typed(value);
 }
 
+// packages/contracts/src/secretRequest.ts at 9c161462c9 (MIT, LICENSE-T3).
+const SECRET_REQUEST_FAILURE_MESSAGES: Record<string, string> = {
+  load_failed: "Could not load the secret request.",
+  not_found: "This secret request no longer exists.",
+  already_answered: "This secret request was already answered.",
+  agent_stopped: "The agent that asked has stopped, so this secret can't be used.",
+  store_failed: "Could not store the secret.",
+  record_failed: "Saved the secret, but could not update the request.",
+  invalid_ref: "That secretRef is not valid.",
+  read_failed: "Could not read the secret.",
+  ref_unavailable:
+    "That secretRef was already used or does not exist. Ask the user again with request_secret.",
+  ref_expired: "That secretRef expired. Ask the user again with request_secret.",
+  consume_failed: "Could not use that secretRef. Try again.",
+};
+
 function typed(value: unknown): TransportFailure {
   if (!isObject(value)) return failure(value);
   const tag = text(value._tag) || text(value.name) || 'RPC';
   const field = (key: string) => text(value[key]).trim();
+  if (tag === 'SecretRequestError') return new TransportFailure(tag, SECRET_REQUEST_FAILURE_MESSAGES[field('reason')] ?? 'Could not answer the request. Try again.', false, field('reason'));
   let message = field('message');
   // PullRequestOperationError's and PullRequestUnavailableError's messages are getters, not wire fields.
   if (!message && tag === 'PullRequestOperationError' && field('detail')) message = `Pull request operation ${field('operation')} failed: ${field('detail')}`;

@@ -265,8 +265,8 @@ export function statusSince(thread: Obj, status: SidebarStatus): string | null {
 
 export interface TopStatus { label: string; icon: string; color: string }
 /** Sidebar.tsx topStatus: the pill that replaces the age at the card's top right. */
-export function topStatus(status: SidebarStatus, woke: boolean, unread: boolean): TopStatus | null {
-  if (status === 'working') return { label: 'Working', icon: 'circle-dashed', color: '#2b7fff' };
+export function topStatus(status: SidebarStatus, woke: boolean, unread: boolean, goalActive = false): TopStatus | null {
+  if (status === 'working') return { label: goalActive ? 'Goal' : 'Working', icon: 'circle-dashed', color: '#2b7fff' };
   if (status === 'waiting') return { label: 'Waiting', icon: 'circle-dot-dashed', color: 'light-dark(#71717b, #818181)' };
   if (status === 'approval') return { label: 'Approval', icon: 'shield-question', color: 'light-dark(#bb4d00, #ffb900)' };
   if (status === 'input') return { label: 'Input', icon: 'message-circle-question', color: 'light-dark(#4f39f6, #a3b3ff)' };

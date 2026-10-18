@@ -6,7 +6,7 @@ import type { Native } from '../client/protocol';
 import { subscriptionSerial } from '../details/shell-vcs';
 import { composerNow } from '../composer/composer-controls';
 import { turnItemIsOpen } from './timeline-item-fetch';
-import { appendTerminalOutput, EMPTY_TERMINAL_OUTPUT, type TerminalOutputState } from './terminal-output';
+import { appendTerminalOutput, EMPTY_TERMINAL_OUTPUT, terminalOutputSpans, TERMINAL_PALETTES, type TerminalOutputState } from './terminal-output';
 
 export type CommandOutputFrame = { kind: 'replace' | 'append'; text: string; truncated: boolean; running: boolean };
 export type CommandOutputView = { output: TerminalOutputState; running: boolean };
@@ -95,4 +95,12 @@ export function commandOutputView(client: T3Client, row: string, item: Obj): { v
   if (state?.owner !== owner(client)) return { value: null, error: '' };
   const stream = [...state.streams.values()].find(stream => stream.row === row || stream.item === row);
   return stream ? { value: stream.value, error: stream.error } : { value: null, error: '' };
+}
+
+export function commandSpans(text: string) {
+  const light = terminalOutputSpans(text, TERMINAL_PALETTES.light), dark = terminalOutputSpans(text, TERMINAL_PALETTES.dark);
+  return light.map((span, index) => ({ id: String(index), text: span.text, light: span.style?.color ?? '#71717b', dark: dark[index]?.style?.color ?? '#818181',
+    bgLight: span.style?.backgroundColor ?? '#00000000', bgDark: dark[index]?.style?.backgroundColor ?? '#00000000',
+    bold: span.style?.fontWeight === '600', dim: span.style?.opacity !== undefined, italic: span.style?.fontStyle === 'italic',
+    underline: span.style?.textDecorationLine?.includes('underline') === true, strike: span.style?.textDecorationLine?.includes('line-through') === true }));
 }

@@ -55,3 +55,15 @@ test('queued answers are discarded when their environment generation changes', a
   await refreshSecretAnswer(client, native);
   expect(native.answers).toHaveLength(0); expect(secretAnswersNeeded(client)).toBe(false);
 });
+
+test('projected local and inherited secret requests stay standalone through native view serialization', async () => {
+  const { transcriptRows, timelineMessages } = await import('../../src/timeline/timeline-presentation');
+  for (const visibility of ['local', 'inherited']) {
+    const { client, item } = await fixture(visibility);
+    Object.assign(item, { ordinal: 1, runId: null, nodeId: null, status: 'pending', startedAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
+    const rows = timelineMessages(client, transcriptRows(client), Date.parse('2026-01-01T00:00:00.000Z'));
+    expect(rows.filter(row => row.kind === 'secret')).toHaveLength(1);
+    expect(rows.find(row => row.kind === 'secret')?.secret[0]).toMatchObject({ label: 'Webhook key', kind: visibility === 'local' ? 'pending' : 'pending-elsewhere' });
+    expect(JSON.stringify(rows)).not.toContain('private-fixture-value');
+  }
+});

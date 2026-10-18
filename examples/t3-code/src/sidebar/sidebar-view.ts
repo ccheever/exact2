@@ -230,7 +230,7 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
   const visited = lastVisited(thread, prefs.visited[id]);
   const status = sidebarStatus(thread), unread = unseenCompletion(thread, visited), woke = isWoke(thread, wokeAt(thread, now), visited);
   const recede = recedes(status, unread, woke, active, multi), idleRecede = recedes(status, unread, woke, false, multi);
-  const pill = topStatus(status, woke, unread);
+  const pill = topStatus(status, woke, unread, obj(thread.goal).status === 'active');
   const card = section === 'active' || section === 'pinned' || section === 'working';
   const started = statusSince(thread, status);
   const scratch = str(thread.branch) ? null : scratchMachine(client, thread, extra.spans);

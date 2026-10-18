@@ -42,3 +42,30 @@ test('command stream replacements reset terminal state and appends preserve spli
   view = applyCommandOutputFrame(view, { kind: 'replace', text: 'Done\n', truncated: true, running: false });
   expect(view).toMatchObject({ output: { text: 'Done\n', truncated: true, pending: '' }, running: false });
 });
+
+test('tool images replace raster payload text while preserving unsupported blocks and asset order', async () => {
+  const { turnItemOutputText } = await import('../../src/timeline/timeline-item-detail');
+  const { toolOutputImages, turnItemOutputImages } = await import('../../src/timeline/tool-output-images');
+  const { toolImages } = await import('../../src/timeline/tool-images');
+  const output = { content: [{ type: 'text', text: 'Screenshot captured.' }, { type: 'image', mimeType: 'IMAGE/PNG' },
+    { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'aGVsbG8=' } }] };
+  const item = { id: 'capture', threadId: 'source', type: 'dynamic_tool', output };
+  expect(turnItemOutputText(item)).toBe('Screenshot captured.');
+  expect(toolOutputImages(output).map(image => image.mimeType)).toEqual(['image/png', 'image/jpeg']);
+  expect(turnItemOutputImages(item)).toEqual([{ _tag: 'tool-output-image', threadId: 'source', itemId: 'capture', index: 0 }, { _tag: 'tool-output-image', threadId: 'source', itemId: 'capture', index: 1 }]);
+  expect(toolImages(item)[0]?.source).toContain('tool-output-image');
+  expect(turnItemOutputText({ type: 'dynamic_tool', output: { type: 'image', mimeType: 'image/svg+xml', data: '<svg />' } })).toBe('[image]');
+  expect(toolOutputImages(Array.from({ length: 30 }, () => ({ type: 'image', mimeType: 'image/png' })))).toHaveLength(8);
+  expect(turnItemOutputImages({ ...item, outputOmitted: true })).toEqual([]);
+});
+
+
+test('REPL arguments preserve labels and values while highlighting only code', async () => {
+  const { replArguments } = await import('../../src/timeline/tool-activity');
+  const args = replArguments('node_repl.js', { title: 'Inspect', code: 'const answer = 42;', timeout_ms: 1000 });
+  expect(args.map(arg => [arg.key, arg.text])).toEqual([['title', 'Inspect'], ['code', 'const answer = 42;'], ['timeout_ms', '1000']]);
+  expect(args[1]?.tokens.map(token => token.text).join('')).toBe('const answer = 42;');
+  expect(args[1]?.tokens.some(token => token.cls !== '')).toBe(true);
+  expect(args[0]?.tokens).toEqual([]);
+  expect(replArguments('other', { code: 'const answer = 42;' })).toEqual([]);
+});

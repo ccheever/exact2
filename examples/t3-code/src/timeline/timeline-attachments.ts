@@ -1,3 +1,4 @@
+import { toolImageAction, toolImagePreview, toolImageUrls } from './tool-images';
 // Sent attachments in user messages, adapted from T3 Code (MIT, see
 // LICENSE-T3): MessagesTimeline.tsx UserTimelineRow (a two-column image grid
 // at most 210pt wide, a SnapShot spanning both columns in a 208×112 frame with
@@ -82,7 +83,7 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
   }
   if (preview) media.push(preview.url ? { id: preview.key, url: preview.url, ...NO_INKS } : { id: `failed:${preview.key}`, url: '', ...NO_INKS });
   media.push(...await galleryUrls(client, native, now, new Set(media.map(item => item.id))));
-  return { items: [...await withAccents(client, native, items, videoIds), ...failed.map(item => ({ ...item, ...NO_INKS })), ...media] };
+  return { items: [...await withAccents(client, native, items, videoIds), ...failed.map(item => ({ ...item, ...NO_INKS })), ...media, ...await toolImageUrls(client, native, now)] };
 }
 /** The open Markdown gallery's URLs the transcript's do not hold: a web image as written, a host path signed through the
  *  thread (a draft's own in Files) with the document's folder and workspace, as its view signed it. */
@@ -121,6 +122,7 @@ function messageImages(client: T3Client, messageId: string, selected = ''): Mess
 }
 /** ExpandedImageDialog: open on an image, step to its neighbours, close. */
 export function imagePreviewAction(client: T3Client, op: string, id: string, value: string): string {
+  if (toolImageAction(client, op, id, value)) { previews.set(client, null); galleries.set(client, null); mediaPreviews.set(client, null); return ''; }
   const current = previews.get(client);
   if (op === 'image-close') { previews.set(client, null); mediaPreviews.set(client, null); galleries.set(client, null); return ''; }
   if (op === 'image-open') {
@@ -190,6 +192,8 @@ export function forgetMediaPreviewUrl(client: T3Client, key: string): boolean {
   return true;
 }
 export function imagePreviewView(client: T3Client) {
+  const tool = toolImagePreview(client);
+  if (tool) return tool;
   const media = activeMediaPreview(client);
   if (media) {
     const source = markdownMedia(media.name, media.path, '', media.root).source;

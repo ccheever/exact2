@@ -1,3 +1,4 @@
+use SecretRequestCard from "./secret-card.contract"
 // T3 MessagesTimeline rows (MIT, see LICENSE-T3), measured against the built
 // reference: a 736pt lane inside a 20pt scroll gutter, rows spaced by their own
 // bottom padding, hover-revealed metadata that keeps its layout space.
@@ -331,6 +332,8 @@ component TimelineContent
     attachments: AttachmentUrl[]
   view
     column width="100%"
+      for card in message.secret key=`${card.key}:${card.submitted}`
+        SecretRequestCard(card=card, command=command)
       if message.kind == "assistant"
         // The answer is a citation's jump target (app-main.contract ChatColumn citePlace).
         column id=`cite-${message.id}` width="100%" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box"
@@ -389,7 +392,7 @@ component TimelineContent
                     WorkGroupHeader(message=message, local=local)
                   else
                     if message.kind == "details" or message.kind == "entry"
-                      WorkEntries(message=message, command=command)
+                      WorkEntries(message=message, command=command, urls=attachments)
                     else
                       if message.kind == "attempt"
                         button press=local("attempt", message.groupId, "") testId=`attempt-${message.groupId}` aria-expanded=message.expanded width="100%" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" background-color="light-dark(#fafafa33, #ffffff02)" display="flex" flex-direction="row" align-items="center" gap="0.5rem"
@@ -490,6 +493,7 @@ component WorkEntries
   props
     message: Message
     command: action
+    urls: AttachmentUrl[]
   state extras = [EntryExtra(id="", extra=0)].filter((e) => e.id != "")
   state opened = 0
   action entrySized(id: string, extra: number)
@@ -501,11 +505,11 @@ component WorkEntries
       scroll width="100%" max-height=`calc(min(${18 * rem}px, 50dvh) + ${opened}px)` overflow-x="hidden" aria-label="Tool calls" testId=`tool-calls-${message.id}`
         column width="100%"
           for entry in message.activities key=`${entry.id}\t${entry.label}`
-            WorkEntry(entry=entry, grouped=true, command=command, code=message.code, codeSize=message.md.codeSize, sized=entrySized)
+            WorkEntry(entry=entry, grouped=true, command=command, code=message.code, codeSize=message.md.codeSize, sized=entrySized, urls=urls)
     else
       column width="100%"
         for entry in message.activities key=`${entry.id}\t${entry.label}`
-          WorkEntry(entry=entry, grouped=false, command=command, code=message.code, codeSize=message.md.codeSize, sized=entrySized)
+          WorkEntry(entry=entry, grouped=false, command=command, code=message.code, codeSize=message.md.codeSize, sized=entrySized, urls=urls)
 
 // TimelineHistoryControl: "Load earlier turns" leads the scrolling timeline and
 // a failed load reads as a centred status line beneath it.

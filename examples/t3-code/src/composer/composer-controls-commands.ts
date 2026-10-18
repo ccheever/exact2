@@ -4,6 +4,7 @@
 // onProviderModelSelect's provider lock), ChatView.logic.ts (deriveLockedProvider,
 // resolveComposerProviderSelection), threadWorkflows.ts (threadSupportsProviderHandoff),
 // TraitsPicker.tsx (option choice) and QueuedRunsControl.tsx.
+import { providerGoal, presentProviderGoal } from './provider-goal';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError, activeRun, launchPayload, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
@@ -179,10 +180,14 @@ export async function composerCommand(client: T3Client, native: Native, storage:
     await access.dispatch(storage, { type: 'thread.unsnooze', commandId, threadId, reason: 'user' }, 'Wake thread');
     return '';
   }
-  if (op === 'compact') {
-    // onCompactContext: a standalone "/compact" turn; the draft stays local.
+  if (op === 'compact' || op === 'goal-resume' || op === 'goal-clear') {
+    // Native commands run as separate turns; the draft and its attachments stay local.
     const projection = requireThread(client), threadId = client.threadId;
-    if (activeRun(projection)) throw new ClientError('Compacting is unavailable right now');
+    if (activeRun(projection)) throw new ClientError(op === 'compact' ? 'Compacting is unavailable right now' : 'Wait for the current turn to finish.');
+    if (op !== 'compact') {
+      const goal = providerGoal(client.shell.threads.find(thread => thread.id === threadId)?.goal);
+      if (!goal || op === 'goal-resume' && !presentProviderGoal(goal, false).canResume) throw new ClientError('That goal action is no longer available.');
+    }
     requireProvider(client);
     const staged = stagedFor(client), key = client.draftKey;
     for (const command of nextTurnCommands(obj(projection.thread), staged)) {
@@ -190,8 +195,9 @@ export async function composerCommand(client: T3Client, native: Native, storage:
       await access.dispatch(storage, { ...command, commandId, threadId }, 'Change mode');
     }
     const [commandId, messageId] = await access.ids(2);
-    await access.dispatch(storage, { type: 'message.dispatch', commandId, threadId, messageId, text: '/compact', attachments: [], createdBy: 'user', creationSource: 'web',
-      modelSelection: dispatchSelection(client, client.providerId, client.modelId, client.modelOptions), deliveryIntent: 'auto', dispatchMode: { type: 'start_immediately' } }, 'Compact context');
+    const chosen = composerSelection(client);
+    await access.dispatch(storage, { type: 'message.dispatch', commandId, threadId, messageId, text: op === 'compact' ? '/compact' : op === 'goal-resume' ? '/goal resume' : '/goal clear', attachments: [], createdBy: 'user', creationSource: 'web',
+      modelSelection: dispatchSelection(client, chosen.instanceId, chosen.model, client.modelOptions), deliveryIntent: 'auto', dispatchMode: { type: 'start_immediately' } }, op === 'compact' ? 'Compact context' : op === 'goal-resume' ? 'Resume goal' : 'Clear goal');
     clearStaged(client, key);
     return '';
   }
