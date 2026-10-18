@@ -33,7 +33,7 @@ use ProjectsPage from "./src/settings/settings-projects.contract"
 use SbPicker from "./src/settings/settings-b-icons.contract"
 use PickerCatalog, PickerTarget, ComposerBranches from "./src/composer/composer-shapes.contract"
 use ComposerEditorView from "./src/composer/composer-editor.contract"
-use ComposerRichView, ComposerIntentReply, ComposerFieldObservation, ComposerFieldCommand, ComposerFieldResult, ComposerFieldAcknowledgement from "./src/composer/composer-rich.contract"
+use ComposerRichView, ComposerIntentReply, ComposerIntentMetadata, ComposerFieldObservation, ComposerFieldCommand, ComposerFieldResult, ComposerFieldAcknowledgement from "./src/composer/composer-rich.contract"
 use ComposerCodeAnchor, ComposerCodeLayout from "./src/composer/composer-code-headers.contract"
 use ComposerChipAnchor, ComposerChipLayout, ComposerChipRequest from "./src/composer/composer-chip-controls.contract"
 use promptPreviewSample from "./src/appearance/settings-prompt-preview.contract"
@@ -273,6 +273,7 @@ component T3Code
     richComposerOwner
     composerMoved
     composerBeforeInput
+    composerIntentNotice
     composerTaskToggle
     composerLanguage
     composerCodeLayout
@@ -1173,6 +1174,19 @@ component T3Code
   state composerShift = false
   state composerCommand = false
   state composerIntentSerial = 0
+  state composerIntentQueue: ComposerIntentMetadata[] = []
+  state composerIntentActive = 0
+  state composerIntentPhase = ""
+  state composerIntentMode = ""
+  state composerIntentNotice = ""
+  state composerIntentObserved = ComposerFieldObservation(generation=-1, snapshotOwner="", owner="", value="", start=0, end=0, composing=false, live=false, focused=false, inputSerial=0)
+  state composerIntentExpected = ""
+  state composerIntentStart = 0
+  state composerIntentEnd = 0
+  state composerIntentInputStart = 0
+  state composerIntentInputEnd = 0
+  state composerIntentPreserves = false
+  state composerIntentCaretSeen = false
   state composerCodeLayout = ComposerCodeLayout(owner="", value="", x=0, y=0, width=0, anchors=[])
   task composerCodeLayoutNeeded when composerRichCurrent and richComposer.headers.length > 0 key=`${richComposerOwner}|${composerText}|${richComposer.mode}|${conversationWidth}|${data.look.fontSize}|${data.look.promptFont}|${data.look.promptSize}|${composerSelectionStart}:${composerSelectionEnd}|${restResting}`
     after(1, measureComposerCode)
@@ -1254,64 +1268,165 @@ component T3Code
   derive composerInList = composerRichCurrent and composerSelectionStart == composerSelectionEnd and richComposer.blocks.filter((b) => b.kind == "list" and composerSelectionStart >= b.contentStart and composerSelectionEnd <= b.end).length > 0
   derive composerCodeStart = composerRichCurrent and composerSelectionStart == composerSelectionEnd and richComposer.blocks.filter((b) => b.kind == "code" and composerSelectionStart == b.bodyStart).length > 0
   derive composerRequiresModifier = settings.sendShortcut == "mod-enter" or (settings.sendShortcut == "mod-enter-multiline" and (composerText.includes("\n") or composerText.includes("\u{d}")))
-  action composerIntentRequest(kind: string, text: string, key: string, shift: bool, command: bool, start: number, end: number)
-    let serial = composerIntentSerial + 1
-    composerIntentSerial = serial
-    send composerEdited = composerIntent(data.snapshotOwner, richComposerOwner, composerText, serial, start, end, kind, text, key, shift, command, false, richComposer.mode)
+  derive composerIntentContextCurrent = composerIntentObserved.owner == richComposerOwner and composerIntentObserved.snapshotOwner == data.snapshotOwner and composerIntentObserved.generation == richComposer.generation and composerIntentMode == richComposer.mode and composerFieldLive and not composerComposing
+  derive composerIntentBaseCurrent = composerIntentContextCurrent and composerIntentObserved.value == composerText and composerIntentObserved.inputSerial == composerFieldInputSerial and composerSelectionCurrent and composerIntentObserved.start == composerSelectionStart and composerIntentObserved.end == composerSelectionEnd
+  derive composerIntentReceiptCurrent = composerIntentContextCurrent and composerText == composerIntentExpected and composerFieldInputSerial == composerIntentObserved.inputSerial + 1 and composerSelectionCurrent and composerSelectionStart == composerIntentStart and composerSelectionEnd == composerIntentEnd
+  task composerIntentReady when composerIntentQueue.length > 0 and composerIntentPhase == "" key=`${composerIntentSerial}|${composerFieldInputSerial}`
+    after(1, composerIntentPump)
+  task composerIntentReceipt when composerIntentPhase == "projection" and composerIntentReceiptCurrent and composerRichCurrent key=`${composerIntentActive}|${composerFieldInputSerial}|${richComposer.value}|${composerSelectionStart}:${composerSelectionEnd}`
+    after(1, composerIntentConfirmed)
+  task composerIntentInvalidated when composerIntentQueue.length > 0 and not composerIntentContextCurrent key=`${data.snapshotOwner}|${richComposerOwner}|${richComposer.generation}|${richComposer.mode}|${composerComposing}|${composerFieldLive}`
+    after(1, composerIntentCancelStale)
+  task composerIntentOwnerNotice key=`${data.snapshotOwner}|${richComposerOwner}|${richComposer.generation}`
+    after(1, composerIntentOwnerChanged)
+  action composerIntentOwnerChanged
+    if composerIntentObserved.owner != richComposerOwner or composerIntentObserved.snapshotOwner != data.snapshotOwner or composerIntentObserved.generation != richComposer.generation
+      composerIntentClear("")
+  action composerIntentClear(message: string)
+    composerIntentQueue = []
+    composerIntentActive = 0
+    composerIntentPhase = ""
+    composerIntentNotice = message
+  action composerIntentCancelStale
+    if not composerIntentContextCurrent
+      composerIntentClear("The prompt changed. Please try that edit again.")
+  action composerIntentRequest(kind: string, text: string, key: string, shift: bool, command: bool, start: number, end: number, composing: bool)
+    let explicit = kind == "language" or kind == "toggle"
+    let current = composerIntentPhase == "projection" ? composerIntentReceiptCurrent : composerIntentBaseCurrent
+    if not composerRichCurrent or not composerFieldLive or composing or (composerIntentQueue.length > 0 and (not current or (not explicit and (start != composerSelectionStart or end != composerSelectionEnd))))
+      composerIntentClear("The prompt changed. Please try that edit again.")
+    else if composerIntentQueue.length >= 32
+      composerIntentNotice = "Too many edits are waiting. Please try that edit again."
+    else
+      let serial = composerIntentSerial + 1
+      let starting = composerIntentQueue.length == 0
+      composerIntentSerial = serial
+      composerIntentNotice = ""
+      composerIntentQueue = composerIntentQueue.concat([ComposerIntentMetadata(serial=serial, kind=kind, text=text, key=key, shift=shift, command=command, start=start, end=end, inputSerial=composerFieldInputSerial)])
+      if starting
+        composerIntentMode = richComposer.mode
+        composerIntentObserved = ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=composerText, start=(explicit ? composerSelectionStart : start), end=(explicit ? composerSelectionEnd : end), composing=false, live=composerFieldLive, focused=composerFocused, inputSerial=composerFieldInputSerial)
+  action composerIntentPump
+    if composerIntentPhase == "" and composerIntentBaseCurrent and composerRichCurrent
+      match first(composerIntentQueue)
+        case some(item)
+          let explicit = item.kind == "language" or item.kind == "toggle"
+          if explicit and item.inputSerial != composerFieldInputSerial
+            composerIntentClear("The prompt changed. Please try that edit again.")
+          else
+            composerIntentActive = item.serial
+            composerIntentPhase = "request"
+            send composerEdited = composerIntent(data.snapshotOwner, richComposerOwner, composerText, item.serial, explicit ? item.start : composerSelectionStart, explicit ? item.end : composerSelectionEnd, item.kind, item.text, item.key, item.shift, item.command, false, richComposer.mode)
+        case none
+    else if composerIntentPhase == "" and composerIntentQueue.length > 0
+      composerIntentClear("The prompt changed. Please try that edit again.")
   action composerEditDone
     match composerEdited
       case some(result)
-        if result.owner == richComposerOwner and result.value == composerText and result.mode == richComposer.mode and result.serial == composerIntentSerial and not composerComposing
-          if result.kind == "edit"
-            // The field command emits input; its input action persists the draft.
-            setRangeText("composer", result.text, result.start, result.end, "preserve", "undo")
-            if not result.preserveSelection
-              setSelectionRange("composer", result.selectionStart, result.selectionEnd)
-          if result.kind == "send"
-            send("")
+        if composerIntentPhase == "request" and result.serial == composerIntentActive
+          if composerIntentBaseCurrent and composerRichCurrent and result.owner == richComposerOwner and result.value == composerText and result.mode == richComposer.mode
+            if result.kind == "edit"
+              // Expected source is a receipt only; input independently persists the textarea's actual value.
+              composerIntentExpected = `${composerText.slice(0, result.start)}${result.text}${composerText.slice(result.end)}`
+              composerIntentStart = result.selectionStart
+              composerIntentEnd = result.selectionEnd
+              composerIntentPreserves = result.preserveSelection
+              composerIntentCaretSeen = false
+              composerIntentPhase = "input"
+              setRangeText("composer", result.text, result.start, result.end, "preserve", "undo")
+              if not result.preserveSelection
+                setSelectionRange("composer", result.selectionStart, result.selectionEnd)
+            else if result.kind == "handled"
+              composerIntentQueue = composerIntentQueue.slice(1)
+              composerIntentActive = 0
+              composerIntentPhase = ""
+            else
+              composerIntentClear(composerIntentQueue.length > 1 or result.kind != "send" ? "That edit could not be applied. Please try again." : "")
+              if result.kind == "send"
+                send("")
+          else
+            composerIntentClear("The prompt changed. Please try that edit again.")
       case none
+  action composerIntentInput(value: string, e: InputEvent)
+    if composerIntentQueue.length > 0
+      if composerIntentPhase == "input" and composerIntentContextCurrent and not e.isComposing and value == composerIntentExpected and composerFieldInputSerial == composerIntentObserved.inputSerial
+        composerIntentPhase = "projection"
+        composerIntentInputStart = e.selectionStart
+        composerIntentInputEnd = e.selectionEnd
+        composerIntentCaretSeen = composerIntentPreserves or (e.selectionStart == composerIntentStart and e.selectionEnd == composerIntentEnd)
+        if composerIntentPreserves
+          composerIntentStart = e.selectionStart
+          composerIntentEnd = e.selectionEnd
+      else
+        composerIntentClear("The prompt changed. Please try that edit again.")
+  action composerIntentConfirmed
+    if composerIntentPhase == "projection" and composerIntentReceiptCurrent and composerRichCurrent
+      composerIntentQueue = composerIntentQueue.slice(1)
+      composerIntentActive = 0
+      composerIntentPhase = ""
+      composerIntentObserved = composerFieldSnapshot
   action composerMoved(e: InputEvent)
+    if composerIntentQueue.length > 0
+      if e.isComposing or not composerIntentContextCurrent
+        composerIntentClear("The prompt changed. Please try that edit again.")
+      else if composerIntentPhase == "projection"
+        if e.value != composerIntentExpected or ((e.selectionStart != composerIntentStart or e.selectionEnd != composerIntentEnd) and (composerIntentCaretSeen or e.selectionStart != composerIntentInputStart or e.selectionEnd != composerIntentInputEnd))
+          composerIntentClear("The prompt changed. Please try that edit again.")
+        else if e.selectionStart == composerIntentStart and e.selectionEnd == composerIntentEnd
+          composerIntentCaretSeen = true
+      else if e.value == composerText and (e.selectionStart != composerIntentObserved.start or e.selectionEnd != composerIntentObserved.end)
+        composerIntentClear("The prompt changed. Please try that edit again.")
+    composerSelectionObserved(e, composerComposing)
+  action composerSelectionObserved(e: InputEvent, composing: bool)
     if e.value == composerText
       composerSelectionOwner = richComposerOwner
       composerSelectionValue = e.value
       composerSelectionStart = e.selectionStart
       composerSelectionEnd = e.selectionEnd
-      send composerFieldChanged = composerFieldObserved(ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=e.value, start=e.selectionStart, end=e.selectionEnd, composing=composerComposing, live=composerFieldLive, focused=composerFocused, inputSerial=composerFieldInputSerial), false)
+      send composerFieldChanged = composerFieldObserved(ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=e.value, start=e.selectionStart, end=e.selectionEnd, composing=composing, live=composerFieldLive, focused=composerFocused, inputSerial=composerFieldInputSerial), false)
   action composerBeforeInput(e: InputEvent)
-    composerMoved(e)
-    composerComposing = e.isComposing
-    if e.cancelable and not e.isComposing and e.value == composerText and composerRichCurrent
+    if e.isComposing
+      if composerIntentQueue.length > 0
+        composerIntentClear("The prompt changed. Please try that edit again.")
+    else if e.cancelable and e.value == composerText and composerRichCurrent
       if e.inputType == "insertParagraph" or e.inputType == "insertLineBreak"
         preventDefault()
-        composerIntentRequest("key", "", "Enter", true, false, e.selectionStart, e.selectionEnd)
+        composerIntentRequest("key", "", "Enter", e.inputType == "insertLineBreak" or composerShift or (composerRequiresModifier and not composerCommand), composerCommand, e.selectionStart, e.selectionEnd, e.isComposing)
       else
         match e.data
           case some(text)
             if e.inputType == "insertFromPaste" or (e.inputType == "insertText" and richComposer.blocks.filter((b) => b.kind == "code" and e.selectionStart >= b.bodyStart and e.selectionEnd <= b.bodyEnd).length > 0)
               preventDefault()
-              composerIntentRequest(e.inputType == "insertFromPaste" ? "paste" : "input", text, "", false, false, e.selectionStart, e.selectionEnd)
+              composerIntentRequest(e.inputType == "insertFromPaste" ? "paste" : "input", text, "", false, false, e.selectionStart, e.selectionEnd, e.isComposing)
           case none
+    composerSelectionObserved(e, e.isComposing)
+    composerComposing = e.isComposing
   action composerTaskToggle(e: ToggleEvent)
     if composerRichCurrent and richComposer.mode == "rich" and not composerComposing and richComposer.blocks.filter((block) => block.kind == "list" and block.start == e.start and block.end == e.end).length > 0
-      composerIntentRequest("toggle", e.newState == "checked" ? "checked" : "unchecked", "", false, false, e.start, e.end)
+      composerIntentRequest("toggle", e.newState == "checked" ? "checked" : "unchecked", "", false, false, e.start, e.end, composerComposing)
   action composerLanguage(start: number, end: number, language: string, owner: string, value: string)
     if composerRichCurrent and richComposer.mode == "rich" and owner == richComposerOwner and value == composerText and not composerComposing
       focus("composer")
-      composerIntentRequest("language", language, "", false, false, start, end)
+      composerIntentRequest("language", language, "", false, false, start, end, composerComposing)
   action composerKeyEvent(k: string, e: KeyboardEvent)
     let heldCommand = e.metaKey or e.ctrlKey
+    // This macOS-only app receives nonmodifier keys after unmarking (contract-grammar.md: Keys).
+    let composing = composerComposing and (k == "Shift" or k == "Control" or k == "Alt" or k == "Meta" or k == "CapsLock")
     composerShift = e.shiftKey
     composerCommand = heldCommand
-    if composerRichCurrent and composerSelectionCurrent and not composerComposing and richComposer.mode == "rich" and e.metaKey and not e.ctrlKey and not e.shiftKey and not e.altKey and (k == "b" or k == "B" or e.code == "KeyB" or k == "i" or k == "I" or e.code == "KeyI")
+    if composerComposing and not composing and composerRichCurrent and composerSelectionCurrent
+      send composerFieldChanged = composerFieldObserved(ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=composerText, start=composerSelectionStart, end=composerSelectionEnd, composing=composing, live=composerFieldLive, focused=composerFocused, inputSerial=composerFieldInputSerial), false)
+    if composerRichCurrent and composerSelectionCurrent and not composing and richComposer.mode == "rich" and e.metaKey and not e.ctrlKey and not e.shiftKey and not e.altKey and (k == "b" or k == "B" or e.code == "KeyB" or k == "i" or k == "I" or e.code == "KeyI")
       preventDefault()
       stopPropagation()
       if not e.repeat
-        composerIntentRequest("key", "", k == "b" or k == "B" or e.code == "KeyB" ? "Bold" : "Italic", false, true, composerSelectionStart, composerSelectionEnd)
+        composerIntentRequest("key", "", k == "b" or k == "B" or e.code == "KeyB" ? "Bold" : "Italic", false, true, composerSelectionStart, composerSelectionEnd, composing)
     else
-      composerGrammarKey(k, e)
-  action composerGrammarKey(k: string, e: KeyboardEvent)
+      composerGrammarKey(k, e, composing)
+    composerComposing = composing
+  action composerGrammarKey(k: string, e: KeyboardEvent, composing: bool)
     let heldCommand = e.metaKey or e.ctrlKey
-    if composerRichCurrent and composerSelectionCurrent and not composerComposing and not editor.menu.open and not editor.stash.menuOpen and not e.altKey
+    if composerRichCurrent and composerSelectionCurrent and not composing and not editor.menu.open and not editor.stash.menuOpen and not e.altKey
       if not heldCommand and not e.shiftKey and composerSelectionStart == composerSelectionEnd and ((k == "ArrowUp" and richComposer.historyPrevious) or (k == "ArrowDown" and richComposer.historyNext))
         let caret = rangeFrame("composer", composerSelectionStart, composerSelectionStart)
         let edge = rangeFrame("composer", k == "ArrowUp" ? 0 : composerText.length, k == "ArrowUp" ? 0 : composerText.length)
@@ -1323,7 +1438,7 @@ component T3Code
         preventDefault()
         stopPropagation()
         if k != "Enter" or not e.repeat
-          composerIntentRequest("key", "", k, e.shiftKey or (k == "Enter" and composerRequiresModifier and not heldCommand), heldCommand, composerSelectionStart, composerSelectionEnd)
+          composerIntentRequest("key", "", k, e.shiftKey or (k == "Enter" and composerRequiresModifier and not heldCommand), heldCommand, composerSelectionStart, composerSelectionEnd, composing)
   action composerKeyReleased(k: string, e: KeyboardEvent)
     composerShift = e.shiftKey
     composerCommand = e.metaKey or e.ctrlKey
@@ -1948,6 +2063,7 @@ component T3Code
       else
         projectsOpen = true
   action write(value: string, e: InputEvent)
+    composerIntentInput(value, e)
     let inputSerial = composerFieldInputSerial + 1
     composerFieldInputSerial = inputSerial
     send composerFieldChanged = composerFieldObserved(ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=value, start=e.selectionStart, end=e.selectionEnd, composing=e.isComposing, live=composerFieldLive, focused=composerFocused, inputSerial=inputSerial), true)

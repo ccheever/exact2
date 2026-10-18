@@ -1,11 +1,12 @@
 import type { ComposerFieldEdit, ComposerFieldEffects, ComposerFieldSnapshot } from './composer-field-commands';
 import { composerTrigger, type ComposerChip } from './composer-source-chips';
 import type { ComposerMode } from './composer-source-session';
+import type { ComposerBlockOrigin } from './composer-markdown';
 
 export type ComposerFieldReplacement = {
   kind: 'edit'; edit: ComposerFieldEdit; fold: number | null;
 } & ComposerFieldEffects | { kind: 'refused'; reason: string };
-type Context = { snapshot: ComposerFieldSnapshot; draftOwner: string; mode: ComposerMode; chips: readonly ComposerChip[] };
+type Context = { snapshot: ComposerFieldSnapshot; draftOwner: string; mode: ComposerMode; chips: readonly ComposerChip[]; blockOrigins?: readonly ComposerBlockOrigin[] };
 const blank = (character: string) => /^[ \t\r\n]$/.test(character);
 const integer = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value);
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -45,7 +46,7 @@ export function composerFieldReplacement(request: unknown, context: Context): Co
   let end = requestedEnd, text = body;
   if (request.expect !== undefined && source.slice(start, end) !== request.expect) return refused('changed');
   if (request.kind !== undefined) {
-    const trigger = mode === 'literal' ? null : composerTrigger(source, snapshot.start, [...context.chips], mode === 'rich');
+    const trigger = mode === 'literal' ? null : composerTrigger(source, snapshot.start, [...context.chips], mode === 'rich', context.blockOrigins);
     if (!trigger || trigger.kind !== request.kind || trigger.start !== start || trigger.end !== end) return refused('changed');
   }
   if (insert) {

@@ -18,6 +18,29 @@ function setup() {
   return { host, observation, passthrough, native, resource };
 }
 describe('composer field app bridge', () => {
+  test('menu replacements use current fence policy and reject another owner or source policy', async () => {
+    for (const situation of ['current', 'owner', 'source']) {
+      const state = setup(), owner = state.host.renderedOwner, value = '```\n@path';
+      const session = composerSourceSession(state.host), sessionOwner = situation === 'owner' ? 'other' : owner;
+      const extra = situation === 'source' ? 'x' : '';
+      session.observe(sessionOwner, '\n@path' + extra);
+      session.observe(sessionOwner, value + extra, 'insertText');
+      const observed = { ...state.observation, value, start: value.length, end: value.length, inputSerial: 1 };
+      composerFieldObserved(state.host, [observed, true], owner);
+      const native = composerFieldNative(state.host, state.native, () => owner);
+      const pending = native.later({ op: 'editorEdit', kind: 'path', start: 4, end: 9, text: '@next ' });
+      if (situation !== 'current') {
+        expect(await pending).toMatchObject({ value: { applied: false, reason: 'changed' } });
+        continue;
+      }
+      const command = await state.resource;
+      expect(command).toMatchObject({ start: 4, end: 9, text: '@next ' });
+      const accepted = { ...observed, value: '```\n@next ', start: 10, end: 10, inputSerial: 2 };
+      composerFieldObserved(state.host, [accepted, true], owner);
+      composerFieldAcknowledged(state.host, [accepted, command.seq, true], owner);
+      expect(await pending).toMatchObject({ value: { applied: true } });
+    }
+  });
   test('native callers await shared edit and independent ACK carries finite effects once', async () => {
     const state = setup(), native = composerFieldNative(state.host, state.native, () => state.host.renderedOwner);
     const pending = native.later({ op: 'editorEdit', text: '!', then: 'models', focus: false });
@@ -192,6 +215,32 @@ describe('citation effects through the actual field bridge', () => {
     const press = chip ? composerChipOpen(client, { ...observation, ...chip, surface: 'composer', comment: chip.kind === 'citation', frame: { unavailable: false, x: 10, y: 20, width: 80, height: 18 } }) : null;
     return { client, owner, observation, resource, native, session, press };
   }
+  test('citation ACK uses live paragraph atoms only for the matching session owner and value', async () => {
+    for (const situation of ['current', 'owner', 'source']) {
+      const state = await citationField('\n$skill '), value = '```\n$skill ';
+      state.session.observe(state.owner, value, 'insertText');
+      const observed = { ...state.observation, value, start: value.length, end: value.length, inputSerial: 1 };
+      composerFieldObserved(state.client, [observed, true], state.owner);
+      const inserted = insertCitation(value, value.length, link);
+      const receipt = composerCitationPrepare(state.client, value, inserted.citation.value,
+        { kind: 'open', fresh: inserted.citation, sourceFrame: [10, 20, 80, 18] });
+      if (!receipt) throw new Error('expected guarded citation receipt');
+      const pending = state.native.later({ op: 'editorEdit', all: true, expect: value, text: inserted.citation.value, citation: receipt.citation });
+      const command = await state.resource;
+      const accepted = { ...observed, value: inserted.citation.value, start: inserted.citation.value.length, end: inserted.citation.value.length, inputSerial: 2 };
+      composerFieldObserved(state.client, [accepted, true], state.owner);
+      state.session.observe(state.owner, accepted.value, 'insertReplacementText');
+      if (situation !== 'current') {
+        const other = situation === 'owner' ? 'other' : state.owner, extra = situation === 'source' ? 'x' : '';
+        state.session.observe('reset', '');
+        state.session.observe(other, accepted.value.slice(3) + extra);
+        state.session.observe(other, accepted.value + extra, 'insertText');
+      }
+      expect(composerFieldAcknowledged(state.client, [accepted, command.seq, true], state.owner).applied).toBe(true);
+      expect(await pending).toMatchObject({ value: { applied: true } });
+      expect(composerChipCurrent(state.client)?.kind).toBe(situation === 'current' ? 'citation' : undefined);
+    }
+  });
   test('save-and-send completes once through ACK after original input, while later typing prevents send', async () => {
     for (const situation of ['ordinary', 'typing', 'dismissed']) {
       const extra = situation === 'typing' ? ' later' : '';

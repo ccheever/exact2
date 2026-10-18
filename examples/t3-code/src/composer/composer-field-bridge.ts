@@ -99,7 +99,8 @@ export function composerFieldAcknowledged(host: ComposerFieldHost, args: readonl
   const session = composerSourceSession(host);
   const chips = effect?.kind === 'open' && session.mode !== 'literal'
     ? session.matches(current.owner, current.value) ? session.chips : composerChips(current.value) : [];
-  const atoms = effect?.kind === 'open' ? composerMarkdown(current.value, { styling: session.mode === 'rich', atoms: chipDecorations(chips) }).decorations.atoms : [];
+  const atoms = effect?.kind === 'open' ? composerMarkdown(current.value, { styling: session.mode === 'rich', atoms: chipDecorations(chips),
+    blockOrigins: session.matches(current.owner, current.value) ? session.blockOrigins : undefined }).decorations.atoms : [];
   const send = composerChipCompleted(host, effect, current, chips.filter(chip => atoms.some(atom => atom.start === chip.start && atom.end === chip.end)));
   if (entry.active?.seq === seq) entry.active = null;
   return { ...completed, generation: value.generation, snapshotOwner: value.snapshotOwner, owner: value.owner, seq,
@@ -119,7 +120,8 @@ export function composerFieldNative(host: ComposerFieldHost, native: Native, cur
       || scoped.draftKey !== host.draftKey || scoped.owner !== current.owner) return reply({ applied: false, reason: 'no composer' });
     if (request.op === 'editorState') return reply({ text: current.value, caret: current.start, selectionLength: current.end - current.start, focused: entry.focused, composing: current.composing });
     const session = composerSourceSession(host);
-    const replacement = composerFieldReplacement(request, { snapshot: current, draftOwner: host.draftKey, mode: session.mode, chips: session.chips });
+    const replacement = composerFieldReplacement(request, { snapshot: current, draftOwner: host.draftKey, mode: session.mode, chips: session.chips,
+      blockOrigins: session.matches(current.owner, current.value) ? session.blockOrigins : undefined });
     if (replacement.kind === 'refused') return reply({ applied: false, reason: replacement.reason });
     if (replacement.fold !== null) await native.later({ op: 'editorForgetFold', id: replacement.fold });
     field(host, currentOwner());

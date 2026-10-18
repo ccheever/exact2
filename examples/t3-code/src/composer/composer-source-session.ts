@@ -1,12 +1,12 @@
 // Live grammar identity belongs to the composer, independently of its serialized source.
-import { codeAt, composerLines, composerMarkdown, type ComposerBlockOrigin } from './composer-markdown';
+import { codeAt, composerLines, composerMarkdown, parseOpeningFence, type ComposerBlockOrigin } from './composer-markdown';
 import { composerBlockInputRule } from './composer-input-rules';
 import { applyComposerEdit, composerCodeInput, composerMarkdownKey, type ComposerEdit, type ComposerKey, type ComposerKeyResult } from './composer-markdown-edit';
 import type { ComposerRange } from './composer-markdown-inline';
 import { composerChips, pastedPathQueryLength, reconcileComposerChips, type ComposerChip } from './composer-source-chips';
 
 type FenceOrigins = Map<number, string>;
-type SourceOrigins = { literal: readonly ComposerRange[]; chips: readonly ComposerChip[]; blocks: readonly ComposerBlockOrigin[] };
+type SourceOrigins = { literal: readonly ComposerRange[]; chips: readonly ComposerChip[]; blocks: readonly ComposerBlockOrigin[]; fences: ReadonlyMap<number, string> };
 type SourceChange = ComposerRange & { text: string };
 type Pending = { value: string; origins: FenceOrigins; literal: ComposerRange[]; blocks: ComposerBlockOrigin[] };
 export type ComposerMode = 'rich' | 'plain' | 'literal';
@@ -51,7 +51,7 @@ export class ComposerSourceSession {
       else if (enteredRichText) this.currentChips = composerChips(value);
       return;
     }
-    this.rememberOrigins(this.value, this.literal, this.currentChips, this.currentBlocks);
+    this.rememberOrigins(this.value, this.literal, this.currentChips, this.currentBlocks, this.origins);
     if (this.pending?.value === value) {
       this.origins = this.pending.origins;
       this.literal = this.pending.literal;
@@ -84,12 +84,13 @@ export class ComposerSourceSession {
     if (inputType === 'historyUndo' || inputType === 'historyRedo') {
       const remembered = this.historyOrigins.get(value);
       this.currentBlocks = mode === 'rich' ? remembered?.blocks.map(block => ({ ...block })) ?? [] : [];
+      this.origins = mode === 'rich' ? new Map(remembered?.fences) : new Map();
       if (remembered) {
         this.literal = remembered.literal.map(range => ({ ...range }));
         if (mode !== 'literal') this.currentChips = remembered.chips.map(chip => ({ ...chip }));
       }
     }
-    this.rememberOrigins(value, this.literal, this.currentChips, this.currentBlocks);
+    this.rememberOrigins(value, this.literal, this.currentChips, this.currentBlocks, this.origins);
     this.value = value;
     this.pending = null;
   }
@@ -102,7 +103,7 @@ export class ComposerSourceSession {
       const origins = this.after(outcome.edit);
       if (code) origins.set(code.start, this.origins.get(code.start) ?? code.fence);
       const next = applyComposerEdit(value, outcome.edit), literal = this.literalAfter(outcome.edit, next);
-      const prefix = paste ? pastedPathQueryLength(value.slice(0, selection.start), text, selection.start === selection.end) : 0;
+      const prefix = paste ? pastedPathQueryLength(value.slice(0, selection.start), text, selection.start === selection.end, this.currentBlocks) : 0;
       if (prefix) literal.push({ start: selection.start, end: selection.start + prefix });
       this.pending = { value: next, origins, literal, blocks: this.blocksAfter(outcome.edit, next, !paste) };
     }
@@ -123,7 +124,13 @@ export class ComposerSourceSession {
       if (code && composerMarkdown(next).blocks.some(block => block.kind === 'code' && block.start === code.start)) {
         origins.set(code.start, this.origins.get(code.start) ?? code.fence);
       }
-      this.pending = { value: next, origins, literal: this.literalAfter(outcome.edit, next), blocks: this.blocksAfter(outcome.edit, next, true) };
+      let blocks = this.blocksAfter(outcome.edit, next, true);
+      // The admitted Enter gesture replaces exactly the opening line. Release
+      // its live suppression only after the shared edit has been accepted.
+      if (key.name === 'Enter' && parseOpeningFence(value.slice(outcome.edit.start, outcome.edit.end))) {
+        blocks = blocks.filter(origin => origin.start !== outcome.edit.start);
+      }
+      this.pending = { value: next, origins, literal: this.literalAfter(outcome.edit, next), blocks };
     }
     return outcome;
   }
@@ -143,6 +150,7 @@ export class ComposerSourceSession {
     const delta = edit.text.length - (edit.end - edit.start), next: ComposerBlockOrigin[] = [];
     const lines = new Map(composerLines(this.value).map(line => [line.start, line]));
     const nextLines = new Map(composerLines(value).map(line => [line.start, line]));
+    const rawBlocks = new Map(composerMarkdown(value).blocks.map(block => [block.start, block]));
     for (const origin of this.currentBlocks) {
       const line = lines.get(origin.start);
       if (!line) continue;
@@ -153,10 +161,14 @@ export class ComposerSourceSession {
         if (!preserveTouched && !appendedLine || edit.start < start) continue;
       }
       if (start !== 0 && value.charAt(start - 1) !== '\n') continue;
-      if (origin.kind !== 'paragraph') {
-        const line = nextLines.get(start);
-        if (!line) continue;
-        const block = composerMarkdown(line.text, { blockOrigins: [{ start: 0, kind: origin.kind }] }).blocks[0];
+      const nextLine = nextLines.get(start);
+      if (!nextLine) continue;
+      if (origin.kind === 'paragraph') {
+        // The full source matters: a fence before an existing newline already
+        // parses as code, although its live Enter gesture has not happened.
+        if (rawBlocks.get(start)?.kind === 'paragraph') continue;
+      } else {
+        const block = composerMarkdown(nextLine.text, { blockOrigins: [{ start: 0, kind: origin.kind }] }).blocks[0];
         if (block?.kind !== 'list' || block.list !== origin.kind) continue;
       }
       next.push({ start, kind: origin.kind });
@@ -175,7 +187,7 @@ export class ComposerSourceSession {
     if (previous.kind === 'paragraph') {
       const rule = composerBlockInputRule(value.slice(line.start, end), { kind: 'paragraph' });
       if (rule?.kind === 'task') kind = 'task';
-      else if (!rule && composerMarkdown(line.text).blocks[0]?.kind !== 'paragraph') kind = 'paragraph';
+      else if (!rule && composerMarkdown(value).blocks.find(block => block.start === line.start)?.kind !== 'paragraph') kind = 'paragraph';
     } else if (previous.kind === 'list' && previous.list === 'bullet') {
       const prefix = /^([ \t]*)([-*+])([ \t]+)/.exec(line.text);
       if (!prefix || prefix[2] !== previous.marker) return rebased;
@@ -188,16 +200,16 @@ export class ComposerSourceSession {
     return next.slice(-1024);
   }
 
-  private rememberOrigins(value: string, literal: readonly ComposerRange[], chips: readonly ComposerChip[], blocks: readonly ComposerBlockOrigin[]): void {
+  private rememberOrigins(value: string, literal: readonly ComposerRange[], chips: readonly ComposerChip[], blocks: readonly ComposerBlockOrigin[], fences: ReadonlyMap<number, string>): void {
     this.historyOrigins.delete(value);
-    if (!literal.length && !chips.length && !blocks.length || value.length > 262_144 || literal.length + chips.length + blocks.length > 1024) return;
-    this.historyOrigins.set(value, { literal: literal.map(range => ({ ...range })), chips: chips.map(chip => ({ ...chip })), blocks: blocks.map(block => ({ ...block })) });
+    if (!literal.length && !chips.length && !blocks.length && !fences.size || value.length > 262_144 || literal.length + chips.length + blocks.length + fences.size > 1024) return;
+    this.historyOrigins.set(value, { literal: literal.map(range => ({ ...range })), chips: chips.map(chip => ({ ...chip })), blocks: blocks.map(block => ({ ...block })), fences: new Map(fences) });
     let characters = 0, count = 0;
-    for (const [source, retained] of this.historyOrigins) { characters += source.length; count += retained.literal.length + retained.chips.length + retained.blocks.length; }
+    for (const [source, retained] of this.historyOrigins) { characters += source.length; count += retained.literal.length + retained.chips.length + retained.blocks.length + retained.fences.size; }
     for (const [source, retained] of this.historyOrigins) {
       if (this.historyOrigins.size <= 32 && characters <= 262_144 && count <= 1024) break;
       this.historyOrigins.delete(source);
-      characters -= source.length; count -= retained.literal.length + retained.chips.length + retained.blocks.length;
+      characters -= source.length; count -= retained.literal.length + retained.chips.length + retained.blocks.length + retained.fences.size;
     }
   }
 

@@ -278,7 +278,8 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   }
   const owner = composerFieldOwner(client), field = composerFieldCurrent(client, owner), session = composerSourceSession(client);
   const candidate = field && !field.composing && field.start === field.end && !literal
-    ? composerTrigger(field.value, field.start, session.matches(owner, field.value) ? [...session.chips] : composerChips(field.value), prefs(client).composerRichTextEnabled !== false) : null;
+    ? composerTrigger(field.value, field.start, session.matches(owner, field.value) ? [...session.chips] : composerChips(field.value),
+      prefs(client).composerRichTextEnabled !== false, session.matches(owner, field.value) ? session.blockOrigins : undefined) : null;
   if (entry.owner !== owner) entry.dismissed = null;
   const trigger = candidate && entry.dismissed?.kind === candidate.kind && entry.dismissed.start === candidate.start ? null : candidate;
   if (!candidate || trigger) entry.dismissed = null;

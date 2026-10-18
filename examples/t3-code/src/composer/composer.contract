@@ -58,6 +58,7 @@ component ComposerCard
     composerFieldInputSerial: number
     composerMoved: action
     composerBeforeInput: action
+    composerIntentNotice: string
     composerTaskToggle: action
     composerKeyEvent: action
     composerKeyReleased: action
@@ -146,6 +147,8 @@ component ComposerCard
             ComposerChipControls(source=richComposer, layout=composerChipLayout, owner=richComposerOwner, value=text, serial=composerFieldInputSerial, surface="composer", size=data.look.promptSize, family=data.look.promptFont)
       // The prompt editor (composer-editor.contract): the length line,
       // and ⇧⇥'s plan toggle as a key button the native editor presses.
+      if composerIntentNotice != ""
+        text composerIntentNotice role="status" padding="0.5rem 1rem" testId="composer-intent-notice"
       if editor.promptLimit != "" and not resting
         PromptLengthValidation(message=editor.promptLimit)
       if data.composer.planVisible

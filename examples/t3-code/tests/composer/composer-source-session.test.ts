@@ -2,6 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { ComposerSourceSession, type ComposerSessionResult } from '../../src/composer/composer-source-session';
 import { applyComposerEdit } from '../../src/composer/composer-markdown-edit';
 import { composerMarkdown } from '../../src/composer/composer-markdown';
+import { T3Client } from '../../src/client/client';
+import { composerRichSource } from '../../src/composer/composer-rich-source';
+import { composerIntentSource } from '../../src/composer/composer-intent-source';
 
 function apply(session: ComposerSourceSession, owner: string, source: string, result: ComposerSessionResult): { source: string; start: number; end: number } {
   if (result.kind !== 'edit') throw new Error(`expected edit, got ${result.kind}`);
@@ -57,6 +60,19 @@ describe('composer live source identity', () => {
     expect(apply(admitted, 'one', '- a', admitted.key('one', '- a', { start: 3, end: 3 }, shiftEnter)).source).toBe('- a\n- ');
     const task = typed('* [x] ');
     expect(apply(task, 'one', '* [x] ', task.key('one', '* [x] ', { start: 6, end: 6 }, shiftEnter)).source).toBe('');
+  });
+  test('deleting an unadmitted list prefix permits the remaining fence to open on Enter', () => {
+    const session = typed('- [```');
+    expect(block(session, '- [```')?.kind).toBe('paragraph');
+    session.observe('one', '```', 'deleteContentBackward');
+    expect(session.blockOrigins).toEqual([]);
+    const opened = apply(session, 'one', '```', session.key('one', '```', { start: 3, end: 3 }, enter));
+    expect(opened.source).toBe('```\n```');
+    expect(block(session, opened.source)).toMatchObject({ kind: 'code', fence: '```' });
+    session.observe('one', '- [```', 'historyUndo');
+    expect(block(session, '- [```')?.kind).toBe('paragraph');
+    session.observe('one', opened.source, 'historyRedo');
+    expect(block(session, opened.source)?.kind).toBe('code');
   });
   test('history restores live origins; paste, owner replacement and rich-mode entry parse restored Markdown', () => {
     const session = typed('***');
@@ -130,6 +146,50 @@ describe('composer live source identity', () => {
     expect(protectedSource.source).toBe('````ts\nx\n```\n````');
     const exited = apply(session, 'one', protectedSource.source, session.key('one', protectedSource.source, protectedSource, enter));
     expect(exited).toEqual({ source: '```ts\nx\n```\n', start: 12, end: 12 });
+  });
+  test('language undo and redo restore logical fence gestures through the actual source producer', () => {
+    for (const history of ['historyUndo', 'historyRedo']) {
+      const client = new T3Client(), owner = 'thread', source = '```ts\nx\n```';
+      const project = (value: string, inputType = 'insertReplacementText') => composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner, value, inputType });
+      const common = { snapshotOwner: client.snapshotOwner, owner, composing: false, mode: 'rich' as const };
+      const replace = (value: string, edit: { start: number; end: number; text: string }) => value.slice(0, edit.start) + edit.text + value.slice(edit.end);
+      project(source);
+      const insertion = composerIntentSource(client, { ...common, value: source, serial: 1, start: 7, end: 7, kind: 'input', text: '\n```' });
+      expect(insertion.kind).toBe('edit');
+      const protectedSource = replace(source, insertion), header = project(protectedSource).headers[0];
+      if (!header) throw new Error('expected protected fence header');
+      const language = composerIntentSource(client, { ...common, value: protectedSource, serial: 2, start: header.start, end: header.end, kind: 'language', language: 'go' });
+      expect(language.kind).toBe('edit');
+      const updated = replace(protectedSource, language);
+      project(updated);
+      project(protectedSource, 'historyUndo');
+      if (history === 'historyRedo') project(updated, history);
+      const value = history === 'historyUndo' ? protectedSource : updated;
+      const close = composerIntentSource(client, { ...common, value, serial: 3, start: insertion.selectionStart, end: insertion.selectionEnd,
+        kind: 'key', key: 'Enter', shift: false, command: false });
+      expect(close.kind).toBe('edit');
+      expect(replace(value, close)).toBe(`\`\`\`${history === 'historyUndo' ? 'ts' : 'go'}\nx\n\`\`\`\n`);
+    }
+  });
+  test('logical fences share the bounded history origin budget with block metadata', () => {
+    for (const suppressed of [false, true]) {
+      const session = new ComposerSourceSession(), source = '```ts\nx\n```' + '\n\n```txt\nx\n```'.repeat(511);
+      session.observe('one', source);
+      const inserted = apply(session, 'one', source, session.input('one', source, { start: 7, end: 7 }, '\n```'));
+      const tail = inserted.source + '\nx';
+      session.observe('one', tail, 'insertText');
+      const retained = suppressed ? inserted.source + '\n-' : tail;
+      if (suppressed) session.observe('one', retained, 'insertText');
+      session.observe('one', retained + (suppressed ? ' ' : 'y'), 'insertText');
+      // Two sources with 512 fences fit exactly. Adding one paragraph origin
+      // to each exceeds the same combined 1024-origin budget and evicts the old one.
+      session.observe('one', retained, 'historyUndo');
+      const close = session.key('one', retained, inserted, enter);
+      expect(close.kind).toBe('edit');
+      if (close.kind !== 'edit') throw new Error('expected fence edit');
+      expect(close.edit.start).toBe(suppressed ? inserted.start : 0);
+      expect(close.edit.text).toBe(suppressed ? '\n' : '```ts\nx\n```\n');
+    }
   });
   test('closing a middle body line retains following source as paragraphs', () => {
     const session = new ComposerSourceSession(), source = '```\nx\n```\nafter';

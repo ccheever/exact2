@@ -69,6 +69,19 @@ describe('command menus from the shared field', () => {
     client.local.clientSettings.composerRichTextEnabled = false;
     expect((await composerEditorView(client, native)).menu.rows.map(row => row.label)).toContain('/model');
   });
+  test('menus use live fence policy only for the exact observed field owner and source', async () => {
+    const { client, native, observe } = await opened(), owner = composerFieldOwner(client), value = '```\n/mod';
+    const project = (owner: string, value: string, inputType = '') => composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner, value, inputType });
+    project(owner, '\n/mod');
+    project(owner, value, 'insertText');
+    observe(value);
+    expect((await composerEditorView(client, native)).menu.rows.map(row => row.label)).toContain('/model');
+    project(owner, value + 'x', 'insertText');
+    expect((await composerEditorView(client, native)).menu.open).toBe(false);
+    project('other', '\n/mod');
+    project('other', value, 'insertText');
+    expect((await composerEditorView(client, native)).menu.open).toBe(false);
+  });
 });
 
 describe('slash command menu', () => {
