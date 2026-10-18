@@ -314,8 +314,8 @@ export function takeWorldLogs(s, world) {
     && Number.isSafeInteger(row.from) && Number.isSafeInteger(row.next) && row.next >= row.from;
   for (const row of [...previous, ...(world ?? [])]) {
     const index = latest.get(row?.canvas), before = merged[index];
-    // Errors stay visible. A cursor that restarts belongs to a new canvas lifetime.
-    if (batch(row) && batch(before) && row.from >= before.next) {
+    // Errors and cursor gaps stay separate: a replacement can restore a later journal.
+    if (batch(row) && batch(before) && row.from === before.next) {
       merged[index] = { ...before, ...row, from: before.from, lines: [...before.lines, ...row.lines],
         ...(before.dropped != null || row.dropped != null ? { dropped: (before.dropped ?? 0) + (row.dropped ?? 0) } : {}) };
     } else {

@@ -446,6 +446,11 @@ test('canvas journals separate restarted cursors and reset with a web reload', a
   pending = [old, fresh];
   await peekLogs(s, 0);
   assert.deepEqual((await s.logs()).world, [old, fresh], 'replacement without reload keeps lifetimes separate');
+  const restored = { canvas: 7, from: 5000, next: 9096, dropped: 5000, lines: ['restored canvas'] };
+  pending = [old, restored];
+  await peekLogs(s, 0);
+  assert.deepEqual((await s.logs()).world, [old, restored], 'a replacement with a later cursor retains its own span and dropped count');
+  assert.deepEqual((await s.logs()).world, [], 'both lifetimes are consumed once');
   pending = [old];
   s.logCursor = 99;
   await peekLogs(s, 99);
