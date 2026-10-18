@@ -32,6 +32,18 @@ describe('pull request list bounds and project order', () => {
 });
 
 describe('shared pull request observations', () => {
+  test('the same project, repository and number stay separate on different hosts', () => {
+    const client = new T3Client(); client.environmentId = 'env';
+    const enterprise = { ...ref, host: 'github.enterprise.test' };
+    observePullRequestSummary(client, 'env', ref, summary({ state: 'merged', title: 'Public change' }));
+    observePullRequestSummary(client, 'env', enterprise, summary({ ...enterprise, title: 'Enterprise change', url: 'https://github.enterprise.test/acme/repo/pull/7' }));
+    expect(sharedPullRequestSummary(client, ref, null)).toMatchObject({ state: 'merged', title: 'Public change' });
+    expect(sharedPullRequestSummary(client, enterprise, null)).toMatchObject({ state: 'open', title: 'Enterprise change' });
+    expect(sharedPullRequestSummary(client, { ...enterprise, host: 'GITHUB.ENTERPRISE.TEST' }, null)?.title).toBe('Enterprise change');
+    expect(sharedPullRequestSummary(client, { ...ref, host: '' }, null)).toBeNull();
+    expect(sharedPullRequestSummary(client, enterprise, null, 'other-env')).toBeNull();
+  });
+
   test('merged is final; newer host updates beat a later receipt of stale state', () => {
     const merged = summary({ state: 'merged' }), newer = summary({ state: 'closed', updatedAt: '2026-10-18T11:00:00Z' });
     expect(newestPullRequestSummary(merged, newer)).toBe(merged);
@@ -42,10 +54,11 @@ describe('shared pull request observations', () => {
     client.shell.threads = [{ id: 't', projectId: 'p', pullRequests: [{ ...ref, url: 'https://github.com/acme/repo/pull/7', snapshot: summary({ state: 'merged', updatedAt: '2026-10-18T11:00:00Z' }) }] }];
     observePullRequestSummary(client, 'env', ref, summary({ additions: 100, checksState: 'passing' }));
     expect(sharedPullRequestSummary(client, ref, summary())).toMatchObject({ state: 'merged' });
-    expect(sharedPullRequestSummary(client, { ...ref, host: 'other.example' }, null)).toMatchObject({ checksState: 'passing' });
+    expect(sharedPullRequestSummary(client, { ...ref, host: 'other.example' }, null)).toBeNull();
     expect(sharedPullRequestSummary(client, { ...ref, projectId: 'other' }, null)?.state).toBe('merged');
     expect(sharedPullRequestSummary(client, ref, null, 'other-env')).toBeNull();
-    expect(sharedPullRequestSummary(client, { ...ref, host: '' }, null)).not.toHaveProperty('additions');
+    expect(sharedPullRequestSummary(client, ref, null)).not.toHaveProperty('additions');
+    expect(sharedPullRequestSummary(client, { ...ref, host: '' }, null)).toBeNull();
   });
   test('a snapshot without the host update time does not replace a fresh read', () => {
     const client = new T3Client(); client.environmentId = 'env';

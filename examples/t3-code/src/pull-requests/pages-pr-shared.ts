@@ -6,7 +6,7 @@ import { num, obj, str, type Obj } from '../client/domain';
 import { visiblePullRequests } from '../panel/shell-pr';
 
 const observations = new WeakMap<object, Map<string, Obj>>();
-const keyOf = (environmentId: string, ref: Obj) => JSON.stringify([environmentId, str(ref.projectId), str(ref.repository).toLowerCase(), num(ref.number)]);
+const keyOf = (environmentId: string, ref: Obj) => JSON.stringify([environmentId, str(ref.projectId), str(ref.host).toLowerCase(), str(ref.repository).toLowerCase(), num(ref.number)]);
 export function newestPullRequestSummary(current: Obj | null, incoming: Obj | null): Obj | null {
   if (!current) return incoming;
   if (!incoming) return current;
