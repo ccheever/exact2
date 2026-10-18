@@ -111,3 +111,17 @@ fn expired_refresh_never_dispatches_io() {
     let error = r.snapshot_timeline(2., vec![], Instant::now(), |_, _| panic!("deadline passed"));
     assert!(error.unwrap_err().contains("timed out"));
 }
+
+#[test]
+fn completed_app_writes_signal_once_but_reads_do_not() {
+    let root = super::storage::Root::new();
+    let mut m = root.module();
+    let mut store = exact_runner::Store::new(super::storage::GRANTS, vec![]);
+    m.activate().unwrap();
+    assert!(!m.take_storage_changed());
+    super::storage::call(&mut m, &mut store, "file", "saved");
+    assert!(m.take_storage_changed());
+    assert!(!m.take_storage_changed());
+    super::storage::call(&mut m, &mut store, "read", "");
+    assert!(!m.take_storage_changed());
+}

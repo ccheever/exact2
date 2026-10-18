@@ -360,7 +360,7 @@ the shared Keychain only during refresh. The extension never persists store
 writes. The app reloads widget timelines after a successful store write.
 Refresh has a 900 ms deadline, leaving 100 ms below LLP 1126 D8's one-second
 line for completion and teardown. Failure or timeout keeps the extension
-process's last good timeline, or a redacted placeholder after a cold start,
+process's last good timeline, or an “Open app” placeholder after a cold start,
 and schedules a retry no sooner than 15 minutes later. Rendering and gallery
 previews do not load Hermes or read the store.
 

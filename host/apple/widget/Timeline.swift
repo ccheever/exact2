@@ -112,8 +112,15 @@ struct ExactTimelineProvider: TimelineProvider {
                 #endif
                 completion(Timeline(entries: entries, policy: .after(max(date.addingTimeInterval(900), entries.last!.date.addingTimeInterval(1)))))
             } catch {
+                #if EXACT_INSPECT
+                measurement("getTimeline refused", start: start, details: "kind=\(kind)")
+                #endif
                 widgetLog.error("getTimeline refused: \(String(describing: error), privacy: .private)")
-                completion(Timeline(entries: WidgetRefresh.lastGood[kind] ?? [placeholder], policy: .after(Date().addingTimeInterval(900))))
+                // A failed cold refresh must never archive fixture values as data.
+                // WidgetKit's privacy modifiers can suppress explicit redaction.
+                var unavailable = placeholder
+                unavailable.unavailable = true
+                completion(Timeline(entries: WidgetRefresh.lastGood[kind] ?? [unavailable], policy: .after(Date().addingTimeInterval(900))))
             }
         }
     }
