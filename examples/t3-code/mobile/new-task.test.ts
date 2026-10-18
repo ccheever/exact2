@@ -694,6 +694,72 @@ test('automatic choice follows catalog order and defaults without treating model
 });
 
 
+const effort = [{ id: 'effort', label: 'Reasoning effort', type: 'select', currentValue: 'medium',
+  options: [{ id: 'medium', label: 'Medium' }, { id: 'high', label: 'High' }] }];
+function twoProviders(client: T3Client) {
+  const ready = { enabled: true, installed: true, status: 'ready', auth: { status: 'authenticated' }, supportedRuntimeModes: ['approval-required', 'full-access'] };
+  client.config = { environment: { capabilities: { serverResolvedCommandContext: true } }, settings: { projectSettingsFolded: true, defaultModelSelection: null,
+    providerInstances: { codex: { driver: 'codex', enabled: true, config: {} }, claude: { driver: 'claudeAgent', enabled: true, config: {} } }, projectSettingsOverrides: {} },
+    providers: [{ instanceId: 'codex', driver: 'codex', ...ready, models: [{ slug: 'gpt-a', name: 'GPT A', isDefault: true }, { slug: 'gpt-b', name: 'GPT B' }] },
+      { instanceId: 'claude', driver: 'claudeAgent', ...ready, models: [{ slug: 'opus', name: 'Opus', isDefault: true },
+        { slug: 'sonnet', name: 'Sonnet', capabilities: { optionDescriptors: effort } }] }] };
+}
+const sticky = (client: T3Client) => { const prefs = client.local.composerControls;
+  return { provider: prefs.stickyProvider, choice: prefs.stickyByProvider[prefs.stickyProvider] }; };
+
+test('existing-thread Save and option changes keep the New Task sticky pick while remembering per-model options', async () => {
+  const f = await fixture(); twoProviders(f.client);
+  const settings = (kind: string, id = '', value = '') => mobileComposerSettingsAction(kind, id, value, f.native, f.files, f.client);
+  const chooser = f.snapshot('/new');
+  expect(await f.action(chooser.owner, 'project', '["env","a"]')).toMatchObject({ message: '' });
+  expect(f.client.modelId).toBe('gpt-a');
+  await settings('open'); await settings('pick', 'codex', 'gpt-b');
+  expect(await settings('save')).toMatchObject({ closed: true, message: '' });
+  expect(sticky(f.client)).toEqual({ provider: 'codex', choice: { model: 'gpt-b', options: [] } });
+  // The same client opens an existing thread and changes its model and options.
+  f.client.threadId = 'thread';
+  f.client.thread = { sequence: 1, historyCursor: null, hasMore: false, latestLocalTurnOrdinal: null,
+    projection: { thread: { id: 'thread', projectId: 'a', modelSelection: { instanceId: 'codex', model: 'gpt-a' } }, runs: [], turnItems: [] } };
+  f.client.providerId = 'codex'; f.client.modelId = 'gpt-a'; f.client.modelOptions = [];
+  const dispatched = () => f.calls.filter(call => call.method === 'orchestration.dispatchCommand').map(call => obj(obj(call.payload).modelSelection));
+  await settings('open'); await settings('pick', 'claude', 'sonnet'); await settings('option', 'effort', 'high');
+  expect(await settings('save')).toMatchObject({ closed: true, message: '' });
+  await settings('open'); expect((await settings('option', 'effort', 'medium')).message).toBe(''); await settings('cancel');
+  const high = [{ id: 'effort', value: 'high' }], medium = [{ id: 'effort', value: 'medium' }];
+  expect({ dispatched: dispatched(), sticky: sticky(f.client), memory: f.client.local.composerControls.stickyOptionsByModel.claude?.sonnet })
+    .toEqual({ dispatched: [{ instanceId: 'claude', model: 'sonnet', options: high }, { instanceId: 'claude', model: 'sonnet', options: medium }],
+      sticky: { provider: 'codex', choice: { model: 'gpt-b', options: [] } }, memory: medium });
+  // Back in New Task, the default is the earlier New Task pick; a later pick of the thread model brings back its options.
+  f.client.threadId = ''; f.client.thread = null;
+  const next = f.snapshot('/new', 'again', 'again-flow');
+  expect(await f.action(next.owner, 'project', '["env","a"]', '', 'again')).toMatchObject({ message: '' });
+  expect({ provider: f.client.providerId, model: f.client.modelId }).toEqual({ provider: 'codex', model: 'gpt-b' });
+  await settings('open'); await settings('pick', 'claude', 'sonnet');
+  expect(await settings('save')).toMatchObject({ closed: true, message: '' });
+  expect({ options: f.client.modelOptions, sticky: sticky(f.client) }).toEqual({ options: medium, sticky: { provider: 'claude', choice: { model: 'sonnet', options: medium } } });
+});
+
+test('New Task option-only change sticks the current model with its options, not an older provider sticky model', async () => {
+  const f = await fixture(); twoProviders(f.client);
+  const overrides = obj(obj(f.client.config.settings).projectSettingsOverrides);
+  overrides.a = { defaultModelSelection: { instanceId: 'claude', model: 'sonnet' } };
+  const prefs = f.client.local.composerControls;
+  prefs.stickyProvider = 'codex';
+  prefs.stickyByProvider = { codex: { model: 'gpt-a', options: [] }, claude: { model: 'opus', options: [] } };
+  const chooser = f.snapshot('/new');
+  expect(await f.action(chooser.owner, 'project', '["env","a"]')).toMatchObject({ message: '' });
+  expect({ provider: f.client.providerId, model: f.client.modelId }).toEqual({ provider: 'claude', model: 'sonnet' });
+  await mobileComposerSettingsAction('open', '', '', f.native, f.files, f.client);
+  expect((await mobileComposerSettingsAction('option', 'effort', 'high', f.native, f.files, f.client)).message).toBe('');
+  const high = [{ id: 'effort', value: 'high' }];
+  expect({ options: f.client.modelOptions, sticky: sticky(f.client), memory: prefs.stickyOptionsByModel.claude?.sonnet })
+    .toEqual({ options: high, sticky: { provider: 'claude', choice: { model: 'sonnet', options: high } }, memory: high });
+  overrides.a = {};
+  const next = f.snapshot('/new', 'again', 'again-flow');
+  expect(await f.action(next.owner, 'project', '["env","a"]', '', 'again')).toMatchObject({ message: '' });
+  expect({ model: f.client.modelId, options: f.client.modelOptions }).toEqual({ model: 'sonnet', options: high });
+});
+
 test('draft file reads use explicit worktree cwd and shared source rendering', async () => {
   const f = await fixture(), chooser = f.snapshot('/new'); await f.action(chooser.owner, 'project', '["env","a"]');
   const location = '/new/draft/files/src%2Fa.ts?environmentId=env&cwd=%2Fworktree&projectName=Worktree&line=2';
