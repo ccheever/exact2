@@ -152,7 +152,7 @@ const sources: Sources = {
   },
   keyboardDismiss: args => mobileKeyboardDismiss(mobileClient, Number(args[0])),
   projectFaviconDemand: args => mobileRootFaviconAdmission(args),
-  projectFavicons: (args, _store, _storage, native) => mobileRootFavicons(Number(args[0]), Number(args[1]), native),
+  projectFavicons: (args, _store, _storage, native) => mobileRootFavicons(Number(args[0]), native),
   projectImages: () => mobileRootFaviconImages(),
   projectImageEvent: args => mobileRootFaviconEvent(str(args[0]), str(args[1]), str(args[2]), str(args[3])),
   incomingShareInbox: (_args, _store, _storage, native) => mobileIncomingShareRead(mobileClient, native),
