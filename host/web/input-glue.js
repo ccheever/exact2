@@ -174,6 +174,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // unsaid dim needs nothing here: it is the browser's own `:active`.)
     if (event.key === " " && el?.matches?.("button:enabled") && root.contains(el) && (el.hasAttribute("data-button-style") || declaresPress(el))) return keyed(el);
     if (typeof el?.matches !== "function" || !root.contains(el) || !pressesByKey(el)) return;
+    if (el.closest(":disabled,[disabled]:not([disabled='false'])")) return; // a disabled box takes no press by key either (LLP 1121 D8)
     if (event.key !== "Enter" && !(event.key === " " && el.getAttribute("role") !== "link")) return;
     event.preventDefault();
     el.click();
@@ -267,6 +268,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // So does a live edit that reaches it through a sheet (a state look's rule, the theme's) or the root's
   // modes and tokens (the JS target's), which change no style of the node's own (LLP 1121 D8).
   const sheets = new MutationObserver(() => { for (const el of paints.keys()) repaint(el); });
+  // The JS target writes its tokens and tuples through the CSSOM, which no observer sees: it calls this (modes.js).
+  (globalThis.exact ??= {}).repaintPress = () => { for (const el of paints.keys()) repaint(el); };
   // `now`: the press ends at once (the window or the page went), as it does
   // for a node no longer in the page.
   const showPaint = (el, down, now = false) => {

@@ -3421,8 +3421,6 @@ verifying build (not reproduced in three replays).
   `propose` says `rebuild`); `scripts/tamber-server.test.mjs` (a hand edit announced, `commit`
   takes a written `.contract`, one dirty at its baseline refused).
 
-### Stage 8, commit B1: host looks on the runner and the web (draft for theme2)
-
 ### Stage 8, commit B1: `:active` as the press paint; looks on the runner and the web (draft for theme2)
 
 Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on the replan).
@@ -3444,9 +3442,9 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
   - Web: `--exact-press-opacity-to`. The glue's `PAINT` list takes it, and index.html computes `base + (to − base) × paint`.
   - Apple, Linux and Android: B2 and B3.
 - **Looks are `:hover` and `:focus-visible` only.**
-  - The looks table's state 0 is retired: the reader refuses it, and codes 1 and 2 are kept. `format.json`'s comment says so, so FORMAT_DIGEST moves to `0xa73a_9b21_a5db_bd34`.
+  - The looks table's state 0 is retired: the reader refuses it, and codes 1 and 2 are kept. `format.json`'s comment says so, so FORMAT_DIGEST moves to `0x973e_e759_65ad_8001` (over main's at the push).
   - The runner resolves a node's looks rows in its tuple (`set_plan_style`) and sends `Op::SetLooks` (op 9: at most 2 looks, states 1 and 2, ascending; look rows only, set or cleared). It sends them at mount and when its tuple moves (a mode, a pin). `ThemeIndex::looks` keeps those that read a token, and `set_tokens` (a live batch, a role's value) sends them again.
-  - SCHEMA_DIGEST moves to `0x249a_8376_117a_eb08` (op 9 and bit 215), in stage 8's window. Every host takes a new binary.
+  - SCHEMA_DIGEST moves to `0x8b10_52ba_0e04_2f0b` (op 9 and bit 215, over main's at the push), in stage 8's window. Every host takes a new binary.
 - **The web, wasm** (`host/web/src/host/looks.rs`). A node with looks gets a `looks` batch op: one rule per state in the page's `#exact-looks` sheet, written as follows.
   - `:hover` goes under `@media (hover:hover)`, then `:focus-visible`; none applies on a disabled node (`:disabled`, or a box's `disabled` of any value but "false").
   - The rows are `!important` over the inline base, and below the shell's pressed-paint rules, which are `#exact-root`-scoped. So the press paint shows over a hover.
@@ -3458,6 +3456,12 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
   - The press paint re-reads what's beneath when a sheet or the root changes under a hold (a look's rule, the theme, the JS target's modes).
   - `-exact-press-opacity-to` is refused in a `style` block, not suggested for a typo, and not described by `contract vocab`.
   - `uses` lists a token a `:hover` or `:focus-visible` row reads, at its node, with its state.
+  - Round 3 (the last):
+    - A disabled box takes no press by key either.
+    - The design tool's inspect join and the agent's `layout` carry an `:active` row's `state` and `at`, and the inspector names it `:active opacity` and so on. Its edit is `set-state`'s; a token rung stands.
+    - `outline` finds a node from a `uses` location that is a part's row.
+    - The JS target's CSSOM token and tuple writes call the glue's `repaintPress`.
+    - The wasm looks sheet is written once per batch (a microtask).
   - theme2's 07:06 question: a node's own `:active` where it has no `press` (nor `href`) never holds, and is `lower-state-dead` (a lint, as `:disabled`'s); a class's part is not judged.
   - **Deviation (QUEUE):** on the web, a node's own `transition` on a property a look sets times the look's change. The look rule can't keep it out.
 - **The JS target** (`host/web-js`):

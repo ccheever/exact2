@@ -3112,7 +3112,8 @@ Motion too, as the press is feedback) and replacing the host's unsaid press (no
 Say each once: `:active background-color` beside `-exact-press-background-color`
 is refused (`lower-state-press-paint`), as is a border or shadow there, which the
 press cannot paint yet. `:hover` and `:focus-visible` take `background-color`,
-`border-color`, `opacity` and `box-shadow`, shown at once while they hold, the
+`border-color`, `opacity` and `box-shadow`, shown at once while they hold (on
+the web a `transition` of the node's own on one of those rows still times it), the
 focus's over the hover's, under the press. Each host applies them on its own
 tracking, over the node's rows (rows a part doesn't name show the base, also a
 base that changes while pressed); their rows are literals, tokens included. A

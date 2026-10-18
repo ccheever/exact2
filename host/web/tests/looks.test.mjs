@@ -91,6 +91,10 @@ check('a hover look composes over the base, under the press paint', async () => 
     await evaluate(`(s => { s.textContent = s.textContent.replace('255,255,0', '0,255,255'); })(document.getElementById('exact-looks'))`);
     await evaluate('new Promise(ok => setTimeout(ok, 0))');
     expect(await beneath()).toBe('rgb(0, 255, 255)');
+    // A CSSOM write (the JS target's tokens, modes.js) no observer sees: modes.js calls the glue's hook.
+    await evaluate(`document.getElementById('exact-looks').sheet.cssRules[0].cssRules[0].style.setProperty('background-color', 'rgb(255, 0, 255)', 'important')`);
+    await evaluate('exact.repaintPress()');
+    expect(await beneath()).toBe('rgb(255, 0, 255)');
     await evaluate(`(s => { s.textContent = s.textContent.replace('0,255,255', '255,255,0'); })(document.getElementById('exact-looks'))`);
     await mouse('mouseReleased', card);
     expect(await look()).toEqual(['rgb(255, 255, 0)', 'rgb(18, 52, 86)', '0.80']); // the hover again
@@ -118,6 +122,11 @@ check('a hover look composes over the base, under the press paint', async () => 
     expect(await evaluate(`['data-pressed', 'data-exact-painting'].map(a => document.getElementById('card').hasAttribute(a))`)).toEqual([false, false]);
     expect(await look()).toEqual(['rgb(238, 238, 238)', 'rgb(18, 52, 86)', '1.00']);
     await mouse('mouseReleased', card);
+    // Nor by key (Space on the focused box).
+    await evaluate(`document.getElementById('card').focus()`);
+    await call('Input.dispatchKeyEvent', { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
+    expect(await evaluate(`['data-pressed', 'data-exact-painting'].map(a => document.getElementById('card').hasAttribute(a))`)).toEqual([false, false]);
+    await call('Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
   } finally {
     await cdp.send('Target.closeTarget', { targetId });
   }

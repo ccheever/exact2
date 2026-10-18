@@ -90,6 +90,7 @@ function apply() {
       was[j] = text;
     }
   }
+  globalThis.exact?.repaintPress?.(); // a held press eases over the tuples as they are now (input-glue.js)
 }
 const set = (e, k) => { if (e.getAttribute("data-x-modes") !== k) e.setAttribute("data-x-modes", k); };
 
@@ -257,6 +258,7 @@ function setTokens(frame) {
     });
   }
   Design = (globalThis.exact ??= {}).designDigest = frame.design;
+  globalThis.exact.repaintPress?.(); // a held press eases over the new values (LLP 1121 D8, input-glue.js)
   // A symbol sized by a type token's property redraws its mask, as the
   // build channel's scheme pin asks it (symbols.js listens for a resize).
   if (frame.tokens.some(t => t.parts) && typeof dispatchEvent === "function") dispatchEvent(new Event("resize"));

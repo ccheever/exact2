@@ -77,7 +77,7 @@ mod tests {
         let at = |s: &str| css.find(s).unwrap_or_else(|| panic!("{s} in {css}"));
         assert!(at(":hover") < at(":focus-visible"), "{css}");
         assert!(css.contains("opacity:0.5!important"), "{css}");
-        assert!(!css.contains("transition"), "a look snaps: {css}");
+        assert!(!css.contains("transition"), "the rules add no transition: {css}");
         assert!(rules("x", &[]).is_empty(), "no looks, no rule");
     }
 }

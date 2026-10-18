@@ -70,6 +70,32 @@ test('a selection is joined to its site\'s source, each row\'s origin and editab
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('an `:active` row lowered to the press paint is joined at its part, read-only but by token, and outlines its node (LLP 1121 D8)', () => {
+  const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-active-'));
+  try {
+    const app = joinPath(dir, 'app.contract');
+    writeFileSync(app, 'app');
+    const part = { file: app, line: 9, col: 9, end_col: 20 };
+    const map = { digest: 'p1', sources: [{ file: app, sha256: sha('app') }], nodes: [
+      { file: app, line: 7, col: 5, end_col: 11, component: 'App', chain: [], bindings: [{ row: 'press_background_color', origin: 'own', state: 'active', at: part }, { row: 'press_color', origin: 'own', state: 'active', at: { ...part, line: 10 } }] },
+    ] };
+    const selected = { node: 1, site: 0, instance: [], rows: [
+      { name: 'press_background_color', value: '#00f', source: 'authored', token: { names: ['accent.soft'], text: 'accent.soft', modes: '', implied: false } },
+      { name: 'press_color', value: '#f00', source: 'authored' },
+    ] };
+    const s = join({ id: 'web-1' }, selected, map);
+    expect(s.rows.map(r => [r.name, r.state, r.at?.line, r.editable.rung])).toEqual([
+      ['press_background_color', 'active', 9, 'token'],
+      ['press_color', 'active', 10, null],
+    ]);
+    expect(s.rows[1].editable.reason).toContain('set-state');
+    // `uses` names the part's own place; outlining it finds the node.
+    expect(sitesAt(map, part)).toEqual([0]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('editability fails closed: only a row the node itself sets to one token, its whole value, offers the token rung', () => {
   const token = (names, implied = false, text = names[0]) => ({ names, text, modes: '', implied });
   expect(editable({ source: 'authored', token: token(['ink']) }, 'own')).toMatchObject({ rung: 'token', token: 'ink' });
