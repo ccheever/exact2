@@ -13,6 +13,7 @@ use WorkLine from "./timeline-work.contract"
 use LiveActivity from "./timeline-work.contract"
 use LiveLabel from "./timeline-work.contract"
 use SystemDivider from "./timeline-work.contract"
+use HandoffDivider from "./timeline-work.contract"
 use SubagentRow from "./timeline-work.contract"
 use CopyButton from "./timeline-work.contract"
 use PlanCard from "./timeline-plan.contract"
@@ -387,8 +388,11 @@ component TimelineContent
                                   text keyed.label font-size="0.75rem" line-height="1rem" white-space="nowrap" color="light-dark(#71717b, #818181)"
                             box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0b)"
                         else
-                          if message.kind == "event"
-                            SystemDivider(label=message.title, detail=message.detail, icon=message.icon, danger=(message.tone == "danger"))
+                          if message.kind == "event" or message.kind == "handoff"
+                            if message.kind == "handoff"
+                              HandoffDivider(label=message.title, detail=message.detail, endpoints=message.activities, danger=(message.tone == "danger"))
+                            else
+                              SystemDivider(label=message.title, detail=message.detail, icon=message.icon, danger=(message.tone == "danger"))
                           else
                             if message.kind == "subagent" or message.kind == "subagents"
                               column width="100%"

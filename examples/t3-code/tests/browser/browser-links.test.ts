@@ -261,20 +261,15 @@ describe('links from the UI (chatlocal:link-open)', () => {
     await chatLocal(client, native, 'link-open', 'link', 'https://example.com/c');
     expect(external(ops)).toEqual(['https://example.com/c']);
   });
-  it('a fragment link leaves the thread for the most recently active project\'s draft; a modified click does nothing', async () => {
-    // The reference (measured 2026-10-12 on a fixture reply, CDP and its main process): a click on
-    // `[the notes](#notes)` finds no element with that id (handleMarkdownFragmentClick), so it goes on and sets the hash,
-    // `t3code://app/#notes`; the hash router reads it as the index route, whose IndexDraftLanding replaces it with the draft
-    // of the most recently active project (`#/draft/<id>`, "work") and the composer takes the focus. A cell's
-    // `[the summary](#summary)` does the same.
+  it('a fragment link keeps the active thread; the Markdown component handles scrolling', async () => {
     const projects = [{ id: 'p', title: 'Verification fixture', updatedAt: '2026-10-01T00:00:00Z' }, { id: 'work', title: 'work', updatedAt: '2026-10-05T00:00:00Z' }];
     const threads = [{ id: 'thread-1', projectId: 'p', updatedAt: '2026-10-03T00:00:00Z' }];
     for (const preference of ['app', 'system'] as const) {
       for (const url of ['#notes', '#summary']) {
         const { client, rpcs, ops, native } = linkClient({ preference });
         client.shell = { projects, threads, sequence: 1 };
-        expect(await openLinkFromUi(client, native, 'link|', url)).toBe('sidebar:new-thread');
-        expect([client.threadId, client.projectId]).toEqual(['', 'work']);
+        expect(await openLinkFromUi(client, native, 'link|', url)).toBe('');
+        expect([client.threadId, client.projectId]).toEqual(['thread-1', 'p']);
         expect(ops.map(op => op.op)).toEqual([]); // the click's own modifiers ride with it
         expect(rpcs.some(call => call.method === 'preview.open')).toBe(false);
         expect(toasts(client)).toEqual([]);

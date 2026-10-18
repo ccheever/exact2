@@ -1,3 +1,5 @@
+import { commandDisplayText, commandProgramName } from './command-label';
+export { commandDisplayText, commandProgramName } from './command-label';
 // Work-log presentation adapted from T3 Code (MIT, see LICENSE-T3):
 // apps/web/src/session-logic.ts (projectedWorkEntry, providerErrorPresentation),
 // packages/client-runtime/src/work-log/presentation.ts (summaries, failure),
@@ -217,49 +219,6 @@ export function workspaceRelativePath(path: string, root: string): string {
     return normalized.startsWith(`${label}/`) ? normalized : `${label}/${relative}`;
   }
   return normalized;
-}
-
-// ---- command labels (client-runtime/work-log/commandLabel.ts, reduced) ----
-const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ash', 'ksh', 'fish']);
-function tokenize(command: string): string[] {
-  const tokens: string[] = []; let current = '', quote = '', active = false;
-  for (const character of command) {
-    if (quote) { if (character === quote) quote = ''; else current += character; continue; }
-    if (character === '"' || character === "'") { quote = character; active = true; continue; }
-    if (/\s/.test(character)) { if (active || current) tokens.push(current); current = ''; active = false; continue; }
-    current += character;
-  }
-  if (active || current) tokens.push(current);
-  return tokens;
-}
-/** Removes a plain `sh -c` wrapper for display. */
-export function commandDisplayText(command: string): string {
-  const trimmed = command.trim();
-  if (/&&|\|\||;|\|/.test(trimmed.replace(/(["'])(?:(?!\1).)*\1/g, ''))) return trimmed;
-  const tokens = tokenize(trimmed), program = tokens[0]?.split(/[\\/]/u).pop()?.replace(/\.exe$/iu, '');
-  if (!program || !SHELLS.has(program)) return trimmed;
-  const flag = tokens.findIndex((token, index) => index > 0 && /^-[a-z]*c[a-z]*$/i.test(token));
-  return flag >= 0 && flag === tokens.length - 2 ? tokens[flag + 1]!.trim() || trimmed : trimmed;
-}
-/** The first real program of a command line: wrappers, assignments and `cd` steps skipped. */
-export function commandProgramName(command: string, depth = 0): string | null {
-  const display = commandDisplayText(command);
-  if (display !== command.trim() && depth < 3) return commandProgramName(display, depth + 1);
-  for (const segment of command.split(/&&|\|\||;|\|/)) {
-    const tokens = tokenize(segment.trim());
-    let index = 0;
-    while (index < tokens.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[index]!) || ['env', 'sudo', 'command', 'builtin', 'exec', 'time', 'noglob', 'nocorrect'].includes(tokens[index]!))) index++;
-    const token = tokens[index];
-    if (!token || ['cd', 'pushd', 'popd', 'export', 'set', 'source', '.', 'true', ':'].includes(token)) continue;
-    const name = token.split(/[\\/]/u).pop()?.replace(/\.exe$/iu, '');
-    if (!name || /^[<>(){}[\];|&$`#!%@:]/.test(name)) continue;
-    if (SHELLS.has(name) && depth < 3) {
-      const script = tokens.slice(index + 1).find((value, position, all) => position > 0 && /^-[a-z]*c/i.test(all[position - 1]!));
-      if (script) return commandProgramName(script, depth + 1) ?? name;
-    }
-    return name;
-  }
-  return null;
 }
 
 // ---- T3 tool identity (work-log/presentation.ts workEntryToolName, resolveWorkEntryToolPresentation) ----
