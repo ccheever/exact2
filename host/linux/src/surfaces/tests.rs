@@ -232,7 +232,7 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)(output ? 
     )
     .unwrap();
     compile_fixture(&source, &path);
-    let digest = digest::file_digest(&path, false).unwrap();
+    let digest = digest::file(&path, true).unwrap();
     let compat = json!({"id":"cohort", "inputs":{"app":"test.app"}, "embedded":{"gpu":{
             "name":path.file_name().unwrap().to_str().unwrap(),"sha256":digest,
             "app":"test.app","cohort":"cohort","trust":"production"}}});
