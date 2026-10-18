@@ -23,6 +23,20 @@ pub const MAX_CONTENT: f32 = -1.0;
 /// Offer value meaning "as narrow as the content can be".
 pub const MIN_CONTENT: f32 = -2.0;
 
+/// Native editor layout over a plain source request and its decoration metadata.
+/// All input buffers are borrowed until the synchronous callback returns.
+pub type DecoratedMeasureFn = extern "C" fn(
+    *mut c_void,
+    u32,
+    *const CRequest,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    f32,
+    f32,
+) -> CMetrics;
+
 /// One run, as the callback sees it.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -269,6 +283,7 @@ pub struct CallbackMeasurer {
     f: MeasureFn,
     time_format: Option<crate::time::TimeFormatFn>,
     field_chrome: Option<crate::control_text::FieldChromeFn>,
+    decorated_field: Option<DecoratedMeasureFn>,
     button_measure: Option<crate::control_text::ButtonMeasureFn>,
     measure_revision: Option<std::rc::Rc<std::cell::Cell<u64>>>,
     lines: Option<LinesFn>,
@@ -292,6 +307,7 @@ impl CallbackMeasurer {
             f,
             time_format: None,
             field_chrome: None,
+            decorated_field: None,
             button_measure: None,
             measure_revision: None,
             lines,
@@ -347,6 +363,12 @@ impl CallbackMeasurer {
     /// Measure system symbols with `f` (`TextMeasurer::symbol_size`).
     pub fn with_symbol(mut self, f: Option<SymbolFn>) -> Self {
         self.symbol = f;
+        self
+    }
+
+    /// Install optional editor measurement using its source decoration metadata.
+    pub fn with_decorated_field(mut self, callback: Option<DecoratedMeasureFn>) -> Self {
+        self.decorated_field = callback;
         self
     }
 
@@ -473,6 +495,33 @@ fn sanitize(m: CMetrics) -> TextMetrics {
 }
 
 impl TextMeasurer for CallbackMeasurer {
+    fn decorated_field_text(
+        &mut self,
+        _kind: exact_kernel::FieldKind,
+        request: &TextMeasureRequest<'_>,
+        decorations: exact_kernel::text::DecoratedField<'_>,
+    ) -> Option<TextMetrics> {
+        let read = self.decorated_field?;
+        let reply = self.foreign(request, None, |ctx, request| {
+            read(
+                ctx,
+                decorations.view,
+                request,
+                decorations.record.as_ptr(),
+                decorations.record.len(),
+                decorations.styles.as_ptr(),
+                decorations.styles.len(),
+                decorations.root_font_size,
+                decorations.display_scale,
+            )
+        });
+        (reply.width.is_finite()
+            && reply.height.is_finite()
+            && reply.width >= 0.
+            && reply.height >= 0.)
+            .then(|| sanitize(reply))
+    }
+
     fn format_time(&mut self, r: &exact_kernel::time::TimeRequest<'_>) -> Option<String> {
         match self.time_format {
             Some(f) => crate::time::format(f, self.ctx, r),
