@@ -16,7 +16,7 @@ component ScopeNotice
     message: string
     groups: ScopeNoticeGroup[]
     noticeId: string
-    // The scope sentence's choose(project axis?, id, member).
+    // Select both scope axes in one transaction.
     choose: action
   view
     column width="100%" gap="0.75rem" testId=noticeId
@@ -43,8 +43,7 @@ component ScopeNoticeRow
   action hover(over: bool)
     hovered = over
   action pick
-    choose(true, item.project, item.member)
-    choose(false, item.machine, "")
+    choose(item.project, item.machine, item.member)
   view
     button press=pick hover=hover aria-label=(item.secondary != "" ? `${item.label}, ${item.secondary}` : item.label) testId=`${noticeId}-choice-${item.key}` display="flex" flex-direction="row" align-items="center" gap="0.75rem" width="100%" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" border-width=0 border-top-width=(first ? 0 : 1) border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" border-radius=0 background-color=(hovered ? "light-dark(#f4f4f580, #ffffff05)" : "#00000000") title=""
       if item.icon == "environment"
