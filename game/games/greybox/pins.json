@@ -11,10 +11,10 @@
     "linux",
     "web"
   ],
-  "inputs": "a1dcc3a3fafd926c1a62fd8c5f6b3107e024f0b4aed32212180fcea3d4306712",
-  "sourceInputs": "fe9e28cdd3c9398e741d44a72b86ab82dec208fc597b7a245288136cc368ac59",
+  "inputs": "27323bef2d19d50f47ef29c3b455a5337c54e185bb69bdbafddc96316f04aa87",
+  "sourceInputs": "a5ae1d676a22fdf77479cbaec6f2cf7fca359768ab24edb366ec63f21a1c0db4",
   "game": "greybox",
   "generated": "bun game/prove.mjs greybox --repin --hosts 'linux,web'",
-  "at": "d668f3773434b3b5ae1ad6e246c474ea5654f567",
-  "reason": "Consume hashed BeaconLit events on the next tick and version saves as EXGAME v5"
+  "at": "8cd7a1a4db2fe780d22803ff3df6fbfa99d6c0bc",
+  "reason": "Consume hashed BeaconLit events on the next tick, snapshot its registered queue, and version saves as EXGAME v5"
 }
