@@ -1,4 +1,5 @@
 // Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
+import { sourceControlHosts } from '../shared/source-control-hosts';
 // The palette's Add project pages: reference CommandPalette.tsx (buildAddProjectSourceGroups,
 // startAddProjectBrowse, the clone flow, the New project name step) with the path helpers of
 // packages/client-runtime/src/state/projects.ts and operations/projects.ts.
@@ -9,9 +10,9 @@ import { closedView, filterGroups, flatten, row, type Group, type Item, type Pal
 import { letGo } from '../client/let-go';
 import { focusedOnPrimary } from '../connections/local-primary';
 
-export const SOURCES = ['github', 'gitlab', 'forgejo', 'bitbucket', 'azure-devops'] as const;
-export const SOURCE_LABELS: Record<string, string> = { url: 'Git URL', github: 'GitHub', gitlab: 'GitLab', forgejo: 'Forgejo / Gitea', bitbucket: 'Bitbucket', 'azure-devops': 'Azure DevOps' };
-const SOURCE_HINTS: Record<string, string> = { url: 'URL', github: 'owner/repo', forgejo: 'owner/repo', gitlab: 'group/project', bitbucket: 'workspace/repository', 'azure-devops': 'project/repository' };
+export const SOURCES = sourceControlHosts.map(host => host.kind);
+export const SOURCE_LABELS: Record<string, string> = { url: 'Git URL', ...Object.fromEntries(sourceControlHosts.map(host => [host.kind, host.pickerLabel])) };
+const SOURCE_HINTS: Record<string, string> = { url: 'URL', ...Object.fromEntries(sourceControlHosts.map(host => [host.kind, host.pathHint])) };
 
 // ── Paths ──────────────────────────────────────────────────────────────────
 export const hasTrailingSeparator = (value: string) => /\/$/.test(value);
@@ -84,11 +85,11 @@ export function initialBrowseQuery(client: T3Client): string {
 
 // ── Flow state (per client): the clone step's repository and the New project option ──
 export type CloneFlow = { source: string; repositoryInput: string; title: string; description: string; remoteUrl: string; pinned: string };
-type Flow = { clone: CloneFlow | null; publish: boolean; discovery: { key: string; value: Obj } | null; discoveryFailed?: { key: string; revision: number }; browse: { key: string; value: Obj; error: string } | null };
+type Flow = { clone: CloneFlow | null; publish: boolean; publishKind: string; discovery: { key: string; value: Obj } | null; discoveryFailed?: { key: string; revision: number }; browse: { key: string; value: Obj; error: string } | null };
 const flows = new WeakMap<T3Client, Flow>();
 export function flowOf(client: T3Client): Flow {
   let flow = flows.get(client);
-  if (!flow) { flow = { clone: null, publish: false, discovery: null, browse: null }; flows.set(client, flow); }
+  if (!flow) { flow = { clone: null, publish: false, publishKind: '', discovery: null, browse: null }; flows.set(client, flow); }
   return flow;
 }
 
@@ -108,10 +109,14 @@ export function readiness(discovery: Obj | null): Readiness {
   }
   return result;
 }
-export function githubAccount(discovery: Obj | null): string | null {
-  if (!readiness(discovery).github?.ready) return null;
-  const auth = obj(arr(obj(discovery).sourceControlProviders).find(candidate => str(candidate.kind) === 'github')?.auth);
-  return typeof auth.account === 'string' ? auth.account : str(obj(auth.account).value);
+export function newProjectPublishTargets(discovery: Obj | null) {
+  const ready = readiness(discovery);
+  return sourceControlHosts.flatMap(definition => {
+    if (!definition.inferOwner || !ready[definition.kind]?.ready) return [];
+    const account = obj(arr(obj(discovery).sourceControlProviders).find(provider => provider.kind === definition.kind)?.auth).account;
+    const owner = typeof account === 'string' ? account : str(obj(account).value);
+    return owner ? [{ definition, owner }] : [];
+  });
 }
 async function discover(client: T3Client, native: Native): Promise<Obj | null> {
   const flow = flowOf(client), key = `${client.origin}:${client.generation}`;
@@ -174,11 +179,15 @@ export async function addProjectView(client: T3Client, native: Native | null | u
   // New project: the name step.
   if (leafPage === 'new-project') {
     const root = str(client.config.newProjectsRoot), name = query.trim();
-    const account = githubAccount(discovery);
+    const targets = newProjectPublishTargets(discovery), target = targets.find(target => target.definition.kind === flow.publishKind) ?? targets[0];
     const preview = root ? cloneDestination(root, newProjectFolder(name)) : '';
     const groups: Group[] = [];
-    if (account !== null && root) groups.push({ value: 'new-project-options', label: 'Options', items: [{ terms: [], row: row({ key: 'github', op: 'flow', arg: 'toggle-publish', icon: 'source-github',
-      title: 'Create private repository on GitHub', description: name ? (account ? `${account}/${preview.split('/').pop()}` : preview.split('/').pop() ?? '') : (account || 'Your GitHub account'), checkbox: true, checked: flow.publish }) }] });
+    if (target && root) {
+      groups.push({ value: 'new-project-options', label: 'Options', items: [{ terms: [], row: row({ key: 'publish', op: 'flow', arg: 'toggle-publish', icon: `source-${target.definition.kind}`,
+        title: targets.length > 1 ? 'Create private repository' : `Create private repository on ${target.definition.label}`, description: name ? `${target.owner}/${preview.split('/').pop()}` : target.owner, checkbox: true, checked: flow.publish,
+        publishHost: target.definition.kind, publishHostLabel: target.definition.label,
+        publishHosts: targets.length > 1 ? targets.map(candidate => ({ value: candidate.definition.kind, label: candidate.definition.label, selected: candidate === target })) : [] }) }] });
+    }
     groups.push({ value: 'new-project-existing', label: '', items: [{ terms: [], row: row({ key: 'existing', op: 'page', arg: parent.endsWith('add-project') ? parent : 'add-project', icon: 'folder-plus',
       title: 'Add existing project', description: 'Open a folder or clone a repository', trailing: 'chevron' }) }] });
     const rows = flatten(groups);

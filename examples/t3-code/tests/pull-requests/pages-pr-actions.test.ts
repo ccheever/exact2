@@ -603,3 +603,24 @@ describe('inline confirmation input', () => {
     expect(requests).toEqual([['chatlocal:pr-ui-disarm', 'pr7', 'serial:9', 0]]);
   });
 });
+
+
+test('source branch deletion keeps its destructive dialog alongside inline merge confirmations', async () => {
+  const detail = base({ state: 'merged', capabilities: { ...CAPABILITIES, deleteBranch: true, actions: ['delete-branch'] }, viewerPermissions: { actions: ['delete-branch'] } });
+  const { client, writes } = fakeClient(defaults(detail));
+  (client as unknown as Obj).writable = true;
+  await panel(client);
+  prUiLocal(client, 'ask', selected, 'delete-branch');
+  let actions = (await panel(client)).actions;
+  expect(actions).toMatchObject({ dialogOpen: true, dialogDestructive: true, dialogTitle: 'Delete branch feature/changelog?', dialogConfirm: 'Delete branch', dialogValue: 'delete-branch', armedAction: '', armedControl: '' });
+  expect(actions.dialogDescription).toContain('lane/sandbox');
+  expect(writes()).toEqual([]);
+  prUiLocal(client, 'disarm', selected, '');
+  expect((await panel(client)).actions.dialogOpen).toBe(true);
+  prUiLocal(client, 'cancel', selected, '');
+  expect((await panel(client)).actions.dialogOpen).toBe(false);
+  prUiLocal(client, 'ask', selected, 'delete-branch');
+  await prCommand(client, native, 'action', selected, 'delete-branch');
+  expect(writes().map(payload => payload.action)).toEqual(['delete-branch']);
+  expect((await panel(client)).actions.dialogOpen).toBe(false);
+});
