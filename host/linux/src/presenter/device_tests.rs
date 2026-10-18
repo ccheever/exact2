@@ -159,20 +159,20 @@ fn a_date_control_is_materials_field_and_fits_the_value_as_the_device_writes_it(
     // Told nothing, the field fits HTML's value; 56 points tall either way.
     assert!(p.set_device(&phone()).is_none());
     let iso = size(&p);
-    assert_eq!(iso.1, crate::paint::material::HEIGHT);
+    assert_eq!(iso.1, crate::paint::material::height());
     let us = Device {
         dates: US_DATES.into(),
         ..phone()
     };
     assert!(p.set_device(&us).is_none());
     let written = size(&p);
-    assert_eq!(written.1, crate::paint::material::HEIGHT);
+    assert_eq!(written.1, crate::paint::material::height());
     // The widest month's date and the trailing icon.
     let widest = ["May 28, 2000", "Sep 28, 2000", "Dec 28, 2000"]
         .map(|s| text(&p, s))
         .into_iter()
         .fold(0f32, f32::max);
-    assert!(written.0 >= (widest + crate::paint::material::WITH_ICON).floor());
+    assert!(written.0 >= (widest + crate::paint::material::with_icon()).floor());
     assert_ne!(written, iso);
     // A telling of nothing returns to HTML's value.
     assert!(p.set_device(&phone()).is_none());
