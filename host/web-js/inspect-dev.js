@@ -483,6 +483,8 @@ export function glueHold(ms, stale = () => false) {
 async function holdNow(m) {
   // (The latest frame, on the stream it came on: a new one's server knows nothing of it.)
   const current = () => holdLatest === m && m.epoch === epoch && m.stream === (env.nonce?.() ?? null);
+  // A let-go needs no glue: with none loaded, nothing is held.
+  if (!m.hold) { if (!current()) return; globalThis.exact?.hold?.(null); env.report({ kind: "held", state: null, revision: m.revision }); return; }
   // The input glue, which a page with no press may not have loaded yet, loads after paint: waited for (a page
   // reloading after a rebuild, on a loaded machine, takes far longer than a fixed wait), unless a newer frame comes.
   if (!globalThis.exact?.hold) await import(runtime()).then((rt) => rt.pressFeedback?.()).catch(() => {});
@@ -490,7 +492,6 @@ async function holdNow(m) {
   if (!current()) return;
   const holds = globalThis.exact?.hold, h = m.hold, revision = m.revision;
   if (!holds) { env.report({ kind: "unsupported", what: "hold", detail: "the input glue is not loaded", revision }); return; }
-  if (!h) { holds(null); env.report({ kind: "held", state: null, revision }); return; }
   // One ended here is not taken again; one addressing another plan (a rebuild this page reloads to) is nothing,
   // unsaid: the new page's registration replays it, its site corresponded.
   if (ended.has(revision) || (typeof m.plan === "string" && m.plan !== (globalThis.exact?.plan ?? null))) return;

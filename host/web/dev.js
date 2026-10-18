@@ -746,13 +746,14 @@ if (es) {
   });
   const hold = async (frame) => {
     const at = holdAt.get(frame) ?? { gen: globalThis.exact.generation ?? null, digest: null, epoch, stream: channel.nonce };
-    // The input glue loads after paint: waited for (a page restarting after a rebuild, on a loaded machine, takes
-    // far longer than a fixed wait), unless a newer frame comes (as host/web-js/inspect-dev.js's `glueHold`).
-    await glueHold(HOLD_WAIT, () => channel.holdLatest !== frame);
     // Only the latest frame applies (a replay queued before a newer clear does not), and only on the stream it came
     // on (a new one's server knows nothing of it).
-    const holds = globalThis.exact.hold, h = frame.hold, revision = frame.revision;
     const current = () => channel.holdLatest === frame && at.stream === channel.nonce && at.epoch === epoch;
+    // The input glue loads after paint: a hold waits for it (a page restarting after a rebuild, on a loaded machine,
+    // takes far longer than a fixed wait) while it is still the latest frame on its stream (as host/web-js/
+    // inspect-dev.js's `glueHold`); a let-go needs none.
+    if (frame.hold) await glueHold(HOLD_WAIT, () => !current());
+    const holds = globalThis.exact.hold, h = frame.hold, revision = frame.revision;
     if (!current() || (h && ended.has(revision))) return;
     const digest = swaps ? null : await planDigest();
     if (!current()) return;
@@ -760,8 +761,9 @@ if (es) {
     const moved = addressed ? digest !== addressed : at.gen !== null && (globalThis.exact.generation ?? null) !== at.gen;
     if (h && (swaps || moved)) { channel.hold = addressed ? { frame, digest: addressed } : null; return; }
     channel.hold = h ? { frame, digest } : null;
+    // (A let-go with no glue loaded: nothing was held.)
+    if (!h) { holds?.(null); report({ kind: "held", state: null, revision }); return; }
     if (!holds) { report({ kind: "unsupported", what: "hold", detail: "the input glue is not loaded", revision }); return; }
-    if (!h) { holds(null); report({ kind: "held", state: null, revision }); return; }
     let found = null, two = false;
     for (const [id] of globalThis.exact.views ?? []) {
       const node = ask({ op: "node", id, plan: true });
