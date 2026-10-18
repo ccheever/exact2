@@ -28,7 +28,9 @@
 // column too, and the number stays on its line, drawn smaller where it would
 // not fit, as UIKit's readouts are (`adjustsFontSizeToFitWidth`): at the
 // largest text size a card that took its content's width ran off both edges
-// of the phone (trivia-quiz, LLP 1116.020 D4).
+// of the phone (trivia-quiz, LLP 1116.020 D4). The symbol is the label's text
+// style, so it grows with Dynamic Type as an SF Symbol configured with that
+// style does; a 20-point box kept it small beside a label that grew.
 // Call: SummaryCard(label="Streak", value="12", detail="days in a row", progress=some(0.4), symbol=some("symbol:star"))
 component SummaryCard
   props
@@ -42,8 +44,7 @@ component SummaryCard
       row align-items="center" gap=6 min-width=0
         match symbol
           case some(s)
-            image s width=20 height=20 object-fit="contain" flex-shrink=0 aria-hidden=true
-              -exact-tint-color="AccentColor"
+            image s font="-exact-headline" flex-shrink=0 aria-hidden=true -exact-tint-color="AccentColor"
           case none
         text label font="-exact-headline" flex=1 min-width=0 aria-hidden=true
       row flex-wrap="wrap" align-items="baseline" column-gap=10 min-width=0
