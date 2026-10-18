@@ -88,6 +88,24 @@ whose design the port serves.
   never the token it aliases (D6): on the branch that won for the copy, its
   typed fields and "only this mode" as a token's, its edit `set-param`. The
   token it aliases directly is offered beside it.
+- Held states (T4, LLP 1122 D8; `holds.ts`): Pressed, Hovered or Focused
+  holds that state on the selected copy (`hold`), one a build, a new one
+  replacing the last; Let go ends it. The status says whether the build has
+  confirmed it (Holding, then Held), where it is (here, the node its press
+  resolves to when the build names it, or another node of the build), why
+  the last one went (real input, disabled, its node gone in a new plan,
+  another hold) and a state a build cannot hold. While it is held here,
+  the selection's page is asked again for the held look's rows, each shown
+  at its part's place; a host that reports none, or not their tokens, says
+  provenance incomplete and leaves them read-only.
+- A style's state part row (an `:active` part's, the map's `state` and
+  `at`) is edited by `set-state` by default (D6): "Edit Style :active row"
+  opens a field from the value as written in the part (empty when it is not
+  one literal), proposed as Rebuilds and applied; the token its whole value
+  is, offered beside it. The edit is bound to the copy and the files it was
+  opened on: a write since, or a stale or read-only copy, refuses Apply
+  until the copy is selected and the row opened again. A part in a package
+  is read-only; an inline state row on a node waits for `set-row` (T5).
 - Act first, re-scope after (D6, `rescope.ts`): the last edit of a param
   whose value there aliases one token offers "Apply to the token … instead",
   and the last edit of a token that one param aliases there offers "Apply to
