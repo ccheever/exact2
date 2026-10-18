@@ -16,7 +16,7 @@ async function browser(engine) {
   if (!browsers.has(engine)) browsers.set(engine, playwright[engine].launch({ headless: true, ...(engine === 'chromium' ? { executablePath: chromium().executable } : {}) }));
   return browsers.get(engine);
 }
-afterAll(async () => { for (const value of browsers.values()) await (await value).close(); });
+afterAll(async () => { await Promise.all([...browsers.values()].map(async value => (await value).close())); }, 30000);
 
 const source = '## Heading\nhello **world** @alice\n- [ ] task';
 const layout = { value: source, spans: [{ name: 'accent', start: 19, end: 24 }],
@@ -109,13 +109,17 @@ for (const engine of engines) {
       const composition = await editor.evaluate(el => {
         el.dispatchEvent(new CompositionEvent('compositionstart'));
         const before = el.firstChild;
+        const text = el.lastElementChild.lastElementChild.firstChild; text.data += '한';
+        getSelection().setBaseAndExtent(text,text.length,text,text.length);
+        el.dispatchEvent(new InputEvent('input',{inputType:'insertCompositionText',data:'한',isComposing:true,bubbles:true}));
+        const marked = el.value.endsWith('!한') && events.at(-1)[0] === el.value;
         const record = JSON.parse(el.getAttribute('data-decorations')); record.value = el.value;
         el.setAttribute('data-decorations',JSON.stringify(record)); el.exactDecorations.sync();
         const held = before === el.firstChild;
         el.dispatchEvent(new CompositionEvent('compositionend'));
-        return [held,el.value,el.exactDecorations.applied.provisional];
+        return [held,marked,el.value,el.exactDecorations.applied.provisional];
       });
-      expect(composition).toEqual([true,source+'!',false]);
+      expect(composition).toEqual([true,true,source+'!한',false]);
     });
   }, 30000);
 
@@ -172,6 +176,7 @@ for (const engine of engines) {
       expect(await editor.evaluate(el => el.value)).toBe(source);
       await editor.evaluate(el => el.setSelectionRange(33,33)); await editor.press('Backspace');
       expect(await editor.evaluate(el => el.value)).toBe(source.replace('@alice',''));
+      expect(await page.evaluate(()=>events.at(-1)[1])).toBe('deleteContentBackward');
       await editor.evaluate(el => {el.value = 'Server replacement';}); await editor.press('ControlOrMeta+z');
       expect(await editor.evaluate(el => el.value)).toBe('Server replacement');
     });

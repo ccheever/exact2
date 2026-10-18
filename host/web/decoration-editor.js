@@ -141,7 +141,7 @@ function installContentEditable(textarea, host) {
   function restore(value, type) {
     ({ value: source, start, end, direction } = value); render(); emit(type);
   }
-  function replace(text, from = start, to = end, mode = 'preserve', undoable = false) {
+  function replace(text, from = start, to = end, mode = 'preserve', undoable = false, inputType = 'insertReplacementText') {
     if (!writable() || composing) return false;
     const size = source.length; from = Math.max(0, Math.min(size, Number(from) >>> 0)); to = Math.max(0, Math.min(size, Number(to) >>> 0));
     if (from > to || !['preserve', 'select', 'start', 'end'].includes(mode)) throw new DOMException('Invalid range', 'IndexSizeError');
@@ -151,7 +151,7 @@ function installContentEditable(textarea, host) {
     source = source.slice(0, from) + text + source.slice(to);
     const carry = (p, finish) => p <= from ? p : p >= to ? p + delta : finish ? from + text.length : from;
     [start, end] = mode === 'select' ? [from, from + text.length] : mode === 'start' ? [from, from] : mode === 'end' ? [from + text.length, from + text.length] : [carry(oldStart, false), carry(oldEnd, true)];
-    render(); emit('insertReplacementText', text); return true;
+    render(); emit(inputType, inputType.startsWith('insert') ? text : null); return true;
   }
   function history(back) {
     const from = back ? undo : redo, to = back ? redo : undo;
@@ -167,15 +167,14 @@ function installContentEditable(textarea, host) {
     selectFromDOM();
     if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') { e.preventDefault(); history(e.inputType === 'historyUndo'); return; }
     const atom = start === end && resolved.atoms.find(a => e.inputType === 'deleteContentBackward' && start === a.end || e.inputType === 'deleteContentForward' && start === a.start);
-    if (atom) { e.preventDefault(); replace('', atom.start, atom.end, 'start', true); return; }
+    if (atom) { e.preventDefault(); replace('', atom.start, atom.end, 'start', true, e.inputType); return; }
     remember();
   });
   el.addEventListener('input', e => {
     if (e.inputType === 'insertReplacementText' && el.textContent !== source && rendering) return;
-    if (composing || e.isComposing) return;
     const read = readDecoratedSource(el); if (read.value === source) return;
     const selection = getSelection(); start = read.offset(selection?.anchorNode, selection?.anchorOffset); end = read.offset(selection?.focusNode, selection?.focusOffset);
-    if (start > end) [start, end] = [end, start]; source = read.value; render();
+    if (start > end) [start, end] = [end, start]; source = read.value; if (!composing && !e.isComposing) render();
   });
   el.addEventListener('compositionstart', () => { selectFromDOM(); remember(); composing = true; });
   el.addEventListener('compositionend', () => {
@@ -190,12 +189,12 @@ function installContentEditable(textarea, host) {
   for (const kind of ['copy', 'cut']) el.addEventListener(kind, e => {
     if (e.defaultPrevented || !e.clipboardData || !selectFromDOM() || start === end) return;
     e.clipboardData.setData('text/plain', source.slice(start, end)); e.preventDefault();
-    if (kind === 'cut' && writable()) replace('', start, end, 'start', true);
+    if (kind === 'cut' && writable()) replace('', start, end, 'start', true, 'deleteByCut');
   });
   el.addEventListener('blur', () => { if (lastChange !== source) { lastChange = source; el.dispatchEvent(new Event('change', { bubbles: true })); } });
   document.addEventListener('selectionchange', selectionChanged);
   Object.defineProperties(el, {
-    value: { get: () => source, set(value) { value = String(value); if (composing) { pendingValue = value; return; } if (source === value) return; undo.length = 0; redo.length = 0; source = value; start = Math.min(start, source.length); end = Math.min(end, source.length); render(); } },
+    value: { get: () => source, set(value) { value = String(value); if (source === value) { pendingValue = undefined; return; } if (composing) { pendingValue = value; return; } undo.length = 0; redo.length = 0; source = value; start = Math.min(start, source.length); end = Math.min(end, source.length); render(); } },
     selectionStart: { get: () => start }, selectionEnd: { get: () => end }, selectionDirection: { get: () => direction },
   });
   el.setSelectionRange = (a, b, dir = 'none') => { end = Math.min(source.length, Number(b) >>> 0); start = Math.min(end, Number(a) >>> 0); direction = dir; render(); };
@@ -222,7 +221,7 @@ function paintOnly(el) {
 
 /** Keep the browser's textarea and native editing for paint-only records. */
 function installPaint(textarea, host) {
-  const id = ++nextPaintId, sheet = document.createElement('style'), registrations = [], abort = new AbortController();
+  const id = ++nextPaintId, sheet = document.createElement('style'), registrations = [], warned = new Set(), abort = new AbortController();
   document.head.append(sheet); let composing = false, disposed = false;
   const clear = () => { for (const [name, range] of registrations) { CSS.highlights.delete(name); range.disconnect(); } registrations.length = 0; };
   const sync = () => {
@@ -232,7 +231,7 @@ function installPaint(textarea, host) {
     const record = JSON.parse(textarea.getAttribute('data-decorations')), table = JSON.parse(textarea.getAttribute('data-decoration-styles') ?? '{}');
     const resolved = reconcileDecorations(record, textarea.value), rules = [];
     resolved.spans.forEach((span, index) => {
-      if (!Object.hasOwn(table, span.name)) return;
+      if (!Object.hasOwn(table, span.name)) { if (!warned.has(span.name)) { warned.add(span.name); host.log?.(`decorations: unknown declaration ${JSON.stringify(span.name)}`); } return; }
       const name = `exact-decoration-${id}-${index}`, range = textarea.createValueRange(span.start, span.end);
       CSS.highlights.set(name, new Highlight(range)); registrations.push([name, range]);
       rules.push(`::highlight(${name}){${table[span.name]}}`);
