@@ -403,7 +403,15 @@ int exact_js_call(void *h, const char *name, const char *a, const char *b, const
                   3);
     }
     int status = fail(out, result.getString(rt).utf8(rt), 0);
-    collect_if_due(state);
+    // A reply that carried a captured string (64 Ki characters or more)
+    // leaves that string garbage now, and it may be old generation: held
+    // across calls by a pending answer, it was promoted by the collection
+    // after the call that made it, and at idle no later collection would
+    // free it (euxy's QR path: 376 KB).
+    if (state->captures.empty())
+      collect_if_due(state);
+    else
+      collect_garbage(state, "large reply");
     return status;
   } catch (const jsi::JSError &e) {
     clear_captures(state);
