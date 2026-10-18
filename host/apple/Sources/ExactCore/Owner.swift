@@ -14,8 +14,11 @@ package final class Owner: @unchecked Sendable {
         var body: (() -> Void)?
         var done = false
         /// Signalled when the job is done, or when a call waits for main.
-        let wake = DispatchSemaphore(value: 0)
-        init(_ body: @escaping () -> Void) { self.body = body }
+        let wake: DispatchSemaphore
+        init(_ body: @escaping () -> Void, wake: DispatchSemaphore = DispatchSemaphore(value: 0)) {
+            self.body = body
+            self.wake = wake
+        }
     }
     private final class MainCall {
         var body: (() -> Void)?
@@ -33,6 +36,12 @@ package final class Owner: @unchecked Sendable {
     /// Notifications (T5): run after the job that posted them.
     private var later: [Job] = []
     private var mailbox: [MainCall] = []
+    /// Wakes `sync` waited on, kept for the next: a semaphore makes its
+    /// kernel object at its first wait, a Mach call that a frame task's
+    /// sixty syncs a second each paid. One may hold a stale signal (a job
+    /// done before its waiter waited); each waiter checks its job's state
+    /// after every wake, so a stale one only loops it once.
+    private var spareWakes: [DispatchSemaphore] = []
     /// The job main is waiting on: a call for main wakes it.
     private var mainWaits: Job?
     private var thread: pthread_t?
@@ -95,8 +104,8 @@ package final class Owner: @unchecked Sendable {
         }
         return withoutActuallyEscaping(body) { body in
             var result: T?
-            let job = Job { result = body() }
             lock.lock()
+            let job = Job({ result = body() }, wake: spareWakes.popLast() ?? DispatchSemaphore(value: 0))
             jobs.append(job)
             if main { mainWaits = job }
             lock.unlock()
@@ -105,6 +114,7 @@ package final class Owner: @unchecked Sendable {
                 lock.lock()
                 if job.done {
                     if main { mainWaits = nil }
+                    spareWakes.append(job.wake)
                     lock.unlock()
                     break
                 }
