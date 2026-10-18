@@ -198,6 +198,8 @@ extension Presenter {
     /// reaches. True when taken. `focused`: the window's focus is in this
     /// session (the shortcuts and handlers are its).
     func routeKey(_ event: NSEvent, focused: Bool, in window: NSWindow? = nil) -> Bool {
+        // Before the shortcuts and a composition: a key on a held node lets its hold go (HeldState.swift).
+        if event.type == .keyDown || event.type == .flagsChanged && KeyCodes.pressed(event) { heldKey(at: keyTarget((window ?? event.window)?.firstResponder)) }
         if focused {
             keyboardUsed(event, in: window)
             // A keyup's handlers (#140); AppKit gets the event either way.

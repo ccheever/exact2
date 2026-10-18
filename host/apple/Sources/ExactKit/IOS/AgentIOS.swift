@@ -354,12 +354,25 @@ extension Agent {
     func layout(_ req: [String: Any]) -> [String: Any] {
         var reply = layout()
         guard let id = req["id"] as? Int else { return reply }
-        guard let v = presenter.textHost(UInt32(id)) else { return ["error": "stale node #\(id)"] }
+        // A flat leaf (FlatLeavesIOS) is a layer in its parent's view: answered as one, its own id kept.
+        let leaf = presenter.textHost(UInt32(id)) == nil ? presenter.flats.leaves[UInt32(id)] : nil
+        guard presenter.textHost(UInt32(id)) != nil || leaf != nil else { return ["error": "stale node #\(id)"] }
         let includePlan = req["plan"] as? Bool == true
         guard let d = session.agent("{\"op\":\"node\",\"id\":\(id),\"plan\":\(includePlan)}").data(using: .utf8),
               var node = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return ["error": "node #\(id): unreadable"] }
         if let e = node["error"] { return ["error": e] }
         MainActor.assumeIsolated { if let held = HeldState.rows(for: UInt32(id), in: presenter) { node["held"] = held } } // what is held on it (LLP 1122 D8)
+        if let leaf, let parent = leaf.parent.flatMap({ presenter.views[$0] }) {
+            let b = box(parent, region: leaf.frame)
+            node["space"] = ["viewport": ["x": Agent.r2(b.minX), "y": Agent.r2(b.minY), "w": Agent.r2(b.width), "h": Agent.r2(b.height)],
+                             "local": ["w": Agent.r2(leaf.frame.width), "h": Agent.r2(leaf.frame.height)]]
+            node["visible"] = ["hidden": leaf.layer.isHidden || leaf.opacity == 0, "inert": false, "inViewport": b.intersects(presenter.reach(of: parent)), "clipped": b.isEmpty]
+            node["native"] = ["view": "CALayer", "flatLeaf": true, "parent": "#\(parent.id)", "sheet": presenter.modals.active]
+            node["observed"] = ["clock": session.now(), "wall": Date().timeIntervalSince1970 * 1000]
+            reply["node"] = node
+            return reply
+        }
+        guard let v = presenter.textHost(UInt32(id)) else { return ["error": "stale node #\(id)"] }
         if presenter.menus.ownsConfirmationNode(v) {
             node["space"] = ["unavailable": "UIAlertAction exposes no public action geometry"]
             node["native"] = ["presentation": "confirmation"]
@@ -524,6 +537,10 @@ extension Agent {
         // Each synthetic contact ends a live press's handoff before it is
         // delivered, as a real one's touch-down does (PressHandoffIOS).
         presenter.supersedePress()
+        // A press the agent makes, whichever way below delivers it, lets a hold on the node it names go at its down (HeldState.swift).
+        if req["wheel"] == nil, req["hover"] == nil, (req["phase"] as? String ?? "down") == "down", let id = req["id"] as? Int {
+            MainActor.assumeIsolated { HeldState.input(on: UInt32(id), in: presenter) }
+        }
         if req["scrollDrag"] != nil { return scrollDrag(req) }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
@@ -1082,6 +1099,7 @@ extension Agent {
                 if phase != "down" { heardUp() }
                 if phase == "down", let token = req["releaseKey"] as? String { keyReleases[token] = { heardUp(); return ["phase": "up", "delivery": "recognized"] } }
             }
+            if phase != "up" { presenter.heldKey(at: focus) } // before the shortcuts: a key on a held node lets its hold go (HeldState.swift)
             if phase != "up", req["repeat"] as? Bool != true { for m in presses { _ = presenter.keyDown(at: focus, m.key, held: m.held, code: KeyCodes.device(m.key)?.code ?? "") } }
             // The page's shortcuts first, as the web's capture listener and
             // macOS's `routeKey` hear them (gallery F18, ShortcutsIOS).

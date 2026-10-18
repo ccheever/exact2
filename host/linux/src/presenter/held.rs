@@ -54,7 +54,11 @@ impl<D: DataSource> Presenter<D> {
         let mut at = kernel.node(view).map(|n| n.id);
         if state == HoldState::Active {
             while let Some(id) = at {
-                kernel.node(id).ok_or("gone")?;
+                let node = kernel.node(id).ok_or("gone")?;
+                // A disabled node stops the press there, as a real one's does.
+                if node.props.bool(PropId::Disabled) == Some(true) {
+                    return Err("disabled");
+                }
                 let handlers = self.host.runner().handlers_of(id);
                 if handlers.contains(&EventKind::Press) {
                     break;
@@ -86,6 +90,7 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         self.repaint_looks(vec![view]);
+        self.held_feedback();
         Ok(Some(state))
     }
 
@@ -104,6 +109,7 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         self.repaint_looks(vec![held.view]);
+        self.held_feedback();
         let (Some(reason), Some(revision)) = (reason, held.revision) else {
             return;
         };
@@ -118,6 +124,15 @@ impl<D: DataSource> Presenter<D> {
             link.end(revision);
         }
         link.report(json!({"kind": "held", "state": null, "reason": reason, "revision": revision}));
+    }
+
+    /// The painted control's pressed look, as the hold now stands.
+    fn held_feedback(&mut self) {
+        let pressed = self.pressed_feedback();
+        if self.brush.feedback.1 != pressed {
+            self.brush.feedback.1 = pressed;
+            self.dirty = true;
+        }
     }
 
     /// Before the looks are read again: a held node gone (or mounted again)
@@ -251,7 +266,7 @@ impl<D: DataSource> Presenter<D> {
         if !holds {
             link.hold = None;
         }
-        if report["reason"].is_string() {
+        if report["reason"].is_string() || report["kind"] == "unsupported" {
             link.end(revision);
         }
         let mut report = report;

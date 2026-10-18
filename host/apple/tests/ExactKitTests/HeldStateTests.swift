@@ -31,9 +31,12 @@ final class HeldStateTests: XCTestCase {
 
     /// A card (1) that presses, with a press paint and hover and focus looks;
     /// a node inside it with a view (2) and one with none (3: a flat leaf on
-    /// iOS); a node beside it (4).
-    @MainActor private func fixture() throws -> (Presenter, NodeView, NodeView) {
-        let p = Presenter()
+    /// iOS); a node beside it (4) that takes the focus; a native button (5);
+    /// a button whose press is its default link (6) over a label (7); a
+    /// button with a key shortcut (8); a press with no press rows of its own
+    /// (9), which shows the platform's (iOS's dim, the Mac's tint).
+    @MainActor private func fixture(session: ExactSession? = nil) throws -> (Presenter, NodeView, NodeView) {
+        let p = session?.presenter ?? Presenter()
         #if os(iOS)
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
         p.viewport.frame = window.bounds
@@ -50,8 +53,19 @@ final class HeldStateTests: XCTestCase {
             ["op": "create", "id": 2, "kind": "view", "props": ["testId": "inner"], "style": ["background_color": green]], // (a prop: no flat leaf)
             ["op": "create", "id": 3, "kind": "view", "style": ["background_color": green]],
             ["op": "create", "id": 4, "kind": "view", "props": ["testId": "beside"], "handlers": ["focus"]],
+            ["op": "create", "id": 5, "kind": "control", "handlers": ["press"], "props": ["type": "button", "testId": "native"]],
+            ["op": "create", "id": 6, "kind": "button", "props": ["href": "/elsewhere", "testId": "link"]],
+            ["op": "create", "id": 7, "kind": "view", "props": ["testId": "link-label"]],
+            ["op": "create", "id": 8, "kind": "button", "handlers": ["press"], "props": ["accessibilityKeyShortcuts": "Escape", "testId": "escape"]],
+            ["op": "create", "id": 9, "kind": "view", "handlers": ["press"], "props": ["testId": "plain"], "style": ["background_color": blue]],
             ["op": "children", "id": 1, "ids": [2, 3]],
-            ["op": "roots", "ids": [1, 4]],
+            ["op": "children", "id": 6, "ids": [7]],
+            ["op": "roots", "ids": [1, 4, 5, 6, 8, 9]],
+            ["op": "frame", "id": 5, "x": 270.0, "y": 50.0, "w": 100.0, "h": 40.0],
+            ["op": "frame", "id": 6, "x": 270.0, "y": 110.0, "w": 100.0, "h": 40.0],
+            ["op": "frame", "id": 7, "x": 0.0, "y": 0.0, "w": 50.0, "h": 20.0],
+            ["op": "frame", "id": 8, "x": 270.0, "y": 170.0, "w": 100.0, "h": 40.0],
+            ["op": "frame", "id": 9, "x": 50.0, "y": 280.0, "w": 100.0, "h": 40.0],
             ["op": "frame", "id": 1, "x": 50.0, "y": 50.0, "w": 200.0, "h": 100.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 50.0, "h": 50.0],
             ["op": "frame", "id": 3, "x": 60.0, "y": 0.0, "w": 50.0, "h": 50.0],
@@ -245,18 +259,196 @@ final class HeldStateTests: XCTestCase {
         XCTAssertEqual(dropped, [])
     }
 
+    /// A key shortcut (the Mac's `routeKey`, UIKit's key command) on the
+    /// focused held node lets its hold go before the shortcut takes the key.
+    @MainActor func testAShortcutOnTheFocusedHeldNodeLetsItGoBeforeItPresses() throws {
+        let (p, _, _) = try fixture()
+        let beside = try XCTUnwrap(p.views[4])
+        var dropped: [String] = []
+        #if os(macOS)
+        XCTAssertTrue(window.makeFirstResponder(beside))
+        #else
+        XCTAssertTrue(beside.becomeFirstResponder())
+        #endif
+        XCTAssertTrue(p.focusedNode === beside)
+        XCTAssertEqual(beside.hold("focus-visible") { dropped.append($0) }.held, "focus-visible")
+        #if os(macOS)
+        let escape = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                                    context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
+        XCTAssertTrue(p.routeKey(escape, focused: true, in: window), "the shortcut took the key")
+        #else
+        p.performShortcut(UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(UIResponder.becomeFirstResponder)))
+        #endif
+        XCTAssertEqual(dropped, ["input"])
+    }
+
+    /// A held press on a native button is its highlight, and on a press with
+    /// no press rows the platform's own; each beside a real press, which a
+    /// hold landing as it is down takes over.
+    @MainActor func testANativeButtonAndAPlainPressShowAHeldPressBesideTheRealOne() throws {
+        let (p, _, _) = try fixture()
+        let native = try XCTUnwrap(p.views[5]), plain = try XCTUnwrap(p.views[9])
+        #if os(macOS)
+        let button = try XCTUnwrap(p.controls.controls[5] as? NSButton)
+        func highlighted() -> Bool { button.cell?.isHighlighted == true }
+        func physical(_ on: Bool) { button.highlight(on) }
+        func platform() -> Bool { plain.pressTinted }
+        #else
+        let button = try XCTUnwrap(p.controls.controls[5] as? UIButton)
+        func highlighted() -> Bool { button.isHighlighted }
+        func physical(_ on: Bool) { button.isHighlighted = on }
+        func platform() -> Bool { plain.press.dimmedAt != nil }
+        #endif
+        XCTAssertEqual(native.hold("active", dropped: nil).held, "active")
+        XCTAssertTrue(highlighted(), "held: the button's highlight")
+        XCTAssertNil(native.hold(nil, dropped: nil).held)
+        XCTAssertFalse(highlighted())
+        // Down (the platform's tracking), held, up: the highlight stays till the hold goes.
+        physical(true)
+        XCTAssertEqual(native.hold("active", dropped: nil).held, "active")
+        physical(false)
+        XCTAssertTrue(highlighted(), "a release of a press taken over")
+        XCTAssertNil(native.hold(nil, dropped: nil).held)
+        XCTAssertFalse(highlighted())
+        // A press with no press rows: the platform's, held and taken over the same.
+        var dropped: [String] = []
+        XCTAssertEqual(plain.hold("active") { dropped.append($0) }.held, "active")
+        XCTAssertTrue(platform())
+        XCTAssertNil(plain.hold(nil, dropped: nil).held)
+        XCTAssertFalse(platform())
+        down(plain, press: plain)
+        XCTAssertTrue(platform())
+        XCTAssertEqual(plain.hold("active") { dropped.append($0) }.held, "active")
+        up(plain)
+        XCTAssertTrue(platform(), "a release of a press taken over")
+        XCTAssertNil(plain.hold(nil, dropped: nil).held)
+        XCTAssertFalse(platform())
+        XCTAssertEqual(dropped, ["replaced", "replaced"])
+    }
+
+    /// `active` resolves to the host's real press: a button's default link is one (theme2's 11:48).
+    @MainActor func testAButtonsDefaultLinkIsThePressAnActiveHoldResolvesTo() throws {
+        let (p, _, _) = try fixture()
+        let link = try XCTUnwrap(p.views[6])
+        XCTAssertNotNil(link.defaultLink)
+        XCTAssertEqual(try XCTUnwrap(p.views[7]).hold("active", dropped: nil).held, "active")
+        XCTAssertTrue(link.holds("active"))
+    }
+
+    /// A held node that starts to leave (an exit) is gone, said once; its
+    /// destroy after says nothing more; and a presenter reset (its session
+    /// ending) is gone too, unsaid in a generation swap.
+    @MainActor func testAnExitOrAResetLetsAHoldGoOnceAsGone() throws {
+        let (p, card, _) = try fixture()
+        var dropped: [String] = []
+        XCTAssertEqual(card.hold("active") { dropped.append($0) }.held, "active")
+        p.apply(wireBatch([["op": "exit", "id": 1]]))
+        XCTAssertEqual(dropped, ["gone"])
+        XCTAssertNil(HeldState.view)
+        p.apply(wireBatch([["op": "destroy", "id": 1]]))
+        XCTAssertEqual(dropped, ["gone"])
+        XCTAssertEqual(try XCTUnwrap(p.views[4]).hold("focus-visible") { dropped.append($0) }.held, "focus-visible")
+        p.reset()
+        XCTAssertEqual(dropped, ["gone", "gone"])
+    }
+
+    #if EXACT_INSPECT
+    /// The fixture plan booted in a session in a window: the card and its child (a flat leaf on iOS).
+    @MainActor private func booted(_ label: String) throws -> (ExactSession, Presenter, NodeView, UInt32) {
+        let session = ExactApp.shared.makeSession(label: label)
+        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_HELD_STATE_PLAN"], "build.mjs --test compiles tests/fixtures/held-state.contract")))
+        #if os(iOS)
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        session.presenter.viewport.frame = window.bounds
+        window.addSubview(session.presenter.viewport)
+        window.makeKeyAndVisible()
+        #else
+        _ = NSApplication.shared
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = ExactView(session: session)
+        #endif
+        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 400, height: 400)).error)
+        let p = session.presenter
+        let card = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "card" })
+        let child = try XCTUnwrap(Inspect.sites(session).views.map(\.id).first { id in
+            let node = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"node\",\"id\":\(id)}").utf8))) as? [String: Any]
+            return node?["parent"] as? NSNumber == NSNumber(value: card.id)
+        })
+        return (session, p, card, child)
+    }
+    private func hold(_ app: ExactApp, _ session: ExactSession, _ id: UInt32, revision: Int) {
+        let node = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"node\",\"id\":\(id)}").utf8))) as? [String: Any] ?? [:]
+        app.holdCommand(["kind": "hold", "revision": revision, "hold": ["site": node["site"] ?? NSNull(), "instance": node["instance"] ?? [], "state": "active"]])
+    }
+
+    /// On the build channel: an exit then a destroy, and a session's end, each say `gone` once, at the held revision.
+    @MainActor func testALeavingNodeAndAnEndingSessionSayGoneOnceAtTheHeldRevision() throws {
+        var heard: [[String: Any]] = []
+        HeldState.heard = { heard.append($0) }
+        let (first, p, card, _) = try booted("held-exit")
+        defer { first.destroy() }
+        hold(ExactApp.shared, first, card.id, revision: 9)
+        XCTAssertTrue(card.holds("active"), "\(heard)")
+        p.apply(wireBatch([["op": "exit", "id": Int(card.id)]]))
+        p.apply(wireBatch([["op": "destroy", "id": Int(card.id)]]))
+        XCTAssertEqual(heard.count, 2, "\(heard)")
+        XCTAssertEqual(heard.last?["reason"] as? String, "gone")
+        XCTAssertEqual(heard.last?["revision"] as? Int, 9)
+        first.destroy()
+        heard = []
+        let (second, _, again, _) = try booted("held-end")
+        defer { second.destroy() }
+        hold(ExactApp.shared, second, again.id, revision: 10)
+        XCTAssertTrue(again.holds("active"), "\(heard)")
+        second.destroy()
+        XCTAssertEqual(heard.map { $0["reason"] as? String }, [nil, "gone"], "\(heard)")
+        XCTAssertEqual(heard.last?["revision"] as? Int, 10)
+    }
+
+    #if os(iOS)
+    /// The agent's tap lets a hold go at its down, on the press or on its
+    /// flat child; and the agent's `layout` of that flat child answers, with
+    /// the press's held rows.
+    @MainActor func testAnAgentTapLetsAHoldGoAndLayoutAnswersForAFlatChild() throws {
+        let (session, p, card, leaf) = try booted("held-agent")
+        defer { session.destroy() }
+        XCTAssertNil(p.views[leaf], "a flat leaf")
+        let agent = Agent(session: session)
+        var dropped: [String] = []
+        XCTAssertEqual(HeldState.hold("active", on: leaf, in: p) { dropped.append($0) }.held, "active")
+        XCTAssertTrue(card.holds("active"))
+        let reply = agent.layout(["id": Int(leaf)])
+        let node = try XCTUnwrap(reply["node"] as? [String: Any], "\(reply)")
+        XCTAssertEqual((node["native"] as? [String: Any])?["flatLeaf"] as? Bool, true)
+        let rows = try XCTUnwrap((node["held"] as? [String: Any])?["rows"] as? [[String: Any]], "\(node)")
+        XCTAssertEqual(rows.first?["value"] as? String, "#0000ff")
+        _ = agent.tap(["id": Int(leaf)])
+        XCTAssertEqual(dropped, ["input"], "the agent's tap on the flat child")
+        p.views[card.id]?.pressed = false
+        XCTAssertEqual(card.hold("active") { dropped.append($0) }.held, "active")
+        _ = agent.tap(["id": Int(card.id)])
+        XCTAssertEqual(dropped, ["input", "input"], "the agent's tap on the press")
+    }
+    #endif
+    #endif
+
     #if os(macOS)
     @MainActor func testAHeldHoverGoesWhenThePointerComesOrLeavesNotAsItMovesWithin() throws {
         let (p, card, inner) = try fixture()
         var dropped: [String] = []
+        // (The agent's pointer, as the hold hit-tests it: over the node beside.)
+        let beside = p.views[4]!
+        p.agentPointer = beside.convert(NSPoint(x: beside.bounds.midX, y: beside.bounds.midY), to: nil)
         XCTAssertEqual(card.hold("hover") { dropped.append($0) }.held, "hover")
         XCTAssertEqual(card.style["background_color"], ink(green))
-        p.setHoverPath([p.views[4]!])
+        p.setHoverPath([beside])
         XCTAssertEqual(dropped, [], "the pointer elsewhere leaves a held hover")
         p.setHoverPath([inner, card])
         XCTAssertEqual(dropped, ["input"], "the pointer coming over it, on a node inside")
         XCTAssertEqual(card.style["background_color"], ink(green), "and the real hover shows the same look")
         // Held under the pointer: moving within keeps it, leaving lets it go.
+        p.agentPointer = card.convert(NSPoint(x: card.bounds.midX, y: card.bounds.midY), to: nil)
         XCTAssertEqual(card.hold("hover") { dropped.append($0) }.held, "hover")
         p.setHoverPath([card])
         p.setHoverPath([inner, card])
@@ -336,6 +528,38 @@ final class HeldStateTests: XCTestCase {
         XCTAssertTrue(app.apply(try plan("Another")))
         XCTAssertEqual(heard.count, 2, "\(heard)")
         XCTAssertNil(HeldState.view)
+    }
+
+    /// A hover held under the pointer through a same-plan swap: the new
+    /// card's hover is taken from a live hit test, so a move within it after
+    /// says nothing.
+    @MainActor func testAHeldHoverKeepsThroughASamePlanSwapWhileThePointerMovesWithin() throws {
+        _ = NSApplication.shared
+        let app = ExactApp.shared, session = app.makeSession(label: "held-hover-swap")
+        defer { session.destroy() }
+        let first = try plan("Label")
+        XCTAssertNil(session.boot(plan: first, size: CGSize(width: 400, height: 300)).error)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = ExactView(session: session)
+        let p = session.presenter
+        let card = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "card" })
+        p.agentPointer = card.convert(NSPoint(x: card.bounds.midX, y: card.bounds.midY), to: nil)
+        let node = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"node\",\"id\":\(card.id)}").utf8)) as? [String: Any])
+        var heard: [[String: Any]] = []
+        HeldState.heard = { heard.append($0) }
+        app.holdCommand(["kind": "hold", "revision": 8, "hold": ["site": node["site"]!, "instance": node["instance"] ?? [], "state": "hover"]])
+        XCTAssertTrue(card.holds("hover"), "\(heard)")
+        XCTAssertTrue(app.apply(first))
+        let again = try XCTUnwrap(HeldState.view)
+        XCTAssertFalse(again === card)
+        var path: [NodeView] = []
+        var at: NSView? = again.subviews.compactMap { $0 as? NodeView }.first ?? again
+        while let v = at { if let n = v as? NodeView { path.append(n) }; at = v.superview }
+        p.setHoverPath(path)
+        p.setHoverPath(Array(path.drop { $0 !== again }))
+        XCTAssertTrue(again.holds("hover"), "a move within: \(heard)")
+        XCTAssertEqual(heard.map { $0["reason"] as? String }, [nil, nil], "\(heard)")
     }
     #endif
     #else

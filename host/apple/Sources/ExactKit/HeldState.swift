@@ -61,9 +61,16 @@ enum HeldState {
         asked = nil
         dropped = nil
         if let held {
-            if state == "active" { if !(held.pressed && !held.pressPaint.outside) { held.showPress(false) } } else { held.relook() }
+            if state == "active" { if !(held.pressed && !held.pressPaint.outside) { held.showPress(false) }; held.heldHighlight() } else { held.relook() }
         }
         if let reason { told?(reason) }
+    }
+
+    /// `presenter` resets (its session destroyed, or a new generation's
+    /// tree): a hold on one of its nodes goes with it (`gone`; unsaid while
+    /// swapping).
+    static func retire(_ presenter: Presenter) {
+        if let held = view, held.presenter === presenter || presenter.views[held.id] === held { letGo(swapping ? nil : "gone") }
     }
 
     /// A dev loop's new generation is about to replace the tree: the hold
@@ -78,6 +85,15 @@ enum HeldState {
     static func input(at hit: PlatformView?) {
         guard !swapping, let held = view, let hit, within(hit, held) else { return }
         letGo("input")
+    }
+
+    /// Real input on node `id` of `presenter` (the agent's tap names one, a
+    /// flat leaf's included): its nearest view, as `input(at:)`.
+    static func input(on id: UInt32, in presenter: Presenter) {
+        guard view != nil else { return }
+        var at: UInt32? = id
+        while let n = at, presenter.views[n] == nil { at = presenter.logicalParent(of: n) }
+        input(at: at.flatMap { presenter.views[$0] })
     }
 
     /// The pointer's hover path moved (the Mac): a hover held lets go when
@@ -123,7 +139,8 @@ enum HeldState {
         while let n = at {
             if let view = presenter.views[n] {
                 if view.disabled { return (nil, "disabled", false) }
-                if state != "active" || view.handlers.contains("press") { found = view; break }
+                // The host's real press: a `press` handler, or a button's default link (theme2's 11:48).
+                if state != "active" || view.handlers.contains("press") || view.defaultLink != nil { found = view; break }
             } else if state != "active" { return (nil, "gone", false) }
             at = presenter.logicalParent(of: n)
         }
@@ -133,9 +150,14 @@ enum HeldState {
         self.state = state
         asked = id
         self.dropped = dropped
-        over = pointerPath.contains { $0.view === node }
+        // Over it now: a live hit test of the resting pointer (a new generation's tree included), else the path last seen.
+        #if os(macOS)
+        over = presenter.pointerOver(node) ?? pointerPath.contains { $0.view === node }
+        #else
+        over = false
+        #endif
         focused = presenter.focusedNode.map { within($0, node) } ?? false
-        if state == "active" { node.showPress(true) } else { node.relook() }
+        if state == "active" { node.showPress(true); node.heldHighlight() } else { node.relook() }
         return (state, nil, false)
     }
 
@@ -187,6 +209,16 @@ extension NodeView {
         return HeldState.hold(state, on: id, in: presenter, dropped: dropped)
     }
 
+    /// A native button's highlight again, as the platform's tracking and a
+    /// held press have it (`NativeButtonIOS`, `NativeButtonCellMac`).
+    func heldHighlight() {
+        #if os(iOS)
+        if let button = presenter?.controls.controls[id] as? NativeButtonIOS { button.isHighlighted = button.isTracking && button.isTouchInside }
+        #elseif os(macOS)
+        presenter?.controls.controls[id]?.needsDisplay = true
+        #endif
+    }
+
     /// Whether this node's `state` is held.
     func holds(_ state: String) -> Bool { HeldState.view === self && HeldState.state == state }
 
@@ -201,6 +233,11 @@ extension NodeView {
 }
 
 extension Presenter {
+    /// A key at keyboard input's entry, before shortcuts, composition or a
+    /// field's own handling take it: at `focus` (else the focused node), a
+    /// held node it is on or in lets its hold go (HeldState.swift).
+    func heldKey(at focus: NodeView? = nil) { MainActor.assumeIsolated { HeldState.input(at: focus ?? focusedNode) } }
+
     /// The node above `id` in the logical tree: a paragraph's run's owner, a
     /// flat leaf's parent (iOS), else as the runner says it.
     func logicalParent(of id: UInt32) -> UInt32? {

@@ -384,6 +384,7 @@ extension Agent {
             var contact = AgentPan(node: node, pointer: Agent.pointerNode(from: hit).map(HeldNode.init), path: Agent.fingerPath(from: hit), at: at, t: t, held: Agent.heldPrefix(req))
             // A lift that never panned is the press it landed on, through a finger's lift (`lift`).
             if pressInside || node.handlers.contains("press") { contact.reach = fingerReach(hit, at: p) }
+            MainActor.assumeIsolated { HeldState.input(at: hit) } // where the finger lands, a held node inside the pan's included
             panContact = contact
             panPointer(contact, .down)
             return ["contact": Int(node.id), "phase": "down", "at": point(at), "delivery": "recognized"]

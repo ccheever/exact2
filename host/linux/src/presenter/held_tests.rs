@@ -33,6 +33,10 @@ const APP: &str = r##"component App
           background-color = "#ffff00"
       box press=disable width=100 height=30 testId="disable"
       box press=hide width=100 height=30 testId="hide"
+      box press=go width=100 height=30 testId="outer"
+        box disabled=true width=20 height=20 testId="inner-off"
+      button press=go testId="native"
+        text "n"
 "##;
 
 fn plan(app: &str) -> Vec<u8> {
@@ -248,6 +252,12 @@ fn a_disabled_node_refuses_a_hold_and_disabling_lets_one_go() {
         [json!({"kind": "held", "state": null, "reason": "disabled", "revision": 2})]
     );
     assert!(p.held().is_none());
+    // A disabled node inside an enabled press stops `active` there, as a real press does.
+    let inner = target(&p, "inner-off", "active");
+    assert_eq!(
+        serve(&mut p, vec![hold(3, inner)]),
+        [json!({"kind": "held", "state": null, "reason": "disabled", "revision": 3})]
+    );
 }
 
 #[test]
@@ -446,4 +456,17 @@ fn a_held_press_let_go_with_its_contact_off_the_node_unpaints() {
     serve(&mut p, vec![hold(3, Value::Null)]);
     p.clock(600.);
     assert_eq!(pixel(&mut p, at), GREEN);
+}
+
+/// A held press on a control the painter draws shows its pressed look, as
+/// a contact's press does, and letting it go takes it off.
+#[test]
+fn a_held_press_on_a_painted_control_shows_its_pressed_look() {
+    let mut p = boot();
+    let native = view(&p, "native");
+    let held = target(&p, "native", "active");
+    assert_eq!(serve(&mut p, vec![hold(1, held)])[0]["state"], "active");
+    assert_eq!(p.brush.feedback.1, Some(native));
+    serve(&mut p, vec![hold(2, Value::Null)]);
+    assert_eq!(p.brush.feedback.1, None);
 }

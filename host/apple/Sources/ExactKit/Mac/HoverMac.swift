@@ -21,6 +21,15 @@ extension Presenter {
             setHoverPath(hoveredNodes.filter { !$0.isDescendant(of: view) })
         }
     }
+    /// Whether the pointer rests over `node` (or a node inside it) now, by a
+    /// live hit test, as a held hover takes it (HeldState.swift); nil with
+    /// no resting pointer to ask (a button held down).
+    func pointerOver(_ node: NodeView) -> Bool? {
+        guard pointerHeld == nil, pointerSource == nil else { return nil }
+        guard let p = restingPointer(), let content = viewport.window?.contentView,
+              let hit = content.hitTest(content.superview?.convert(p, from: nil) ?? p) else { return false }
+        return MainActor.assumeIsolated { HeldState.within(hit, node) }
+    }
     /// The `:hover` looks of the path from `leaf` in its own window (a
     /// sheet's, a popover's): it and its authored ancestors.
     func hoverLooks(from leaf: NodeView?) {

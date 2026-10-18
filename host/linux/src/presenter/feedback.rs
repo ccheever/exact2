@@ -45,6 +45,20 @@ impl<D: DataSource> Presenter<D> {
         None
     }
 
+    /// The control a press shows on: a contact's, else a held `active`'s
+    /// (HeldState, as the real press it stands for).
+    pub(super) fn pressed_feedback(&self) -> Option<ViewId> {
+        let contact = self
+            .contact_hit()
+            .and_then(|key| self.host.kernel().node_by_key(key).map(|node| node.id));
+        let held = self
+            .held()
+            .filter(|h| h.state == crate::host::press::HoldState::Active);
+        contact
+            .or(held.map(|h| h.view))
+            .and_then(|id| self.feedback_at(id))
+    }
+
     /// Read both again, after anything that moved the pointer or a contact.
     pub(super) fn refresh_feedback(&mut self) {
         // A finger hovers nothing; a held contact is not also a hover (but
@@ -56,10 +70,7 @@ impl<D: DataSource> Presenter<D> {
         let hover = hit
             .filter(|_| self.contact.is_none())
             .and_then(|id| self.feedback_at(id));
-        let pressed = self
-            .contact_hit()
-            .and_then(|key| self.host.kernel().node_by_key(key).map(|node| node.id))
-            .and_then(|id| self.feedback_at(id));
+        let pressed = self.pressed_feedback();
         if self.brush.feedback != (hover, pressed) {
             self.brush.feedback = (hover, pressed);
             self.dirty = true;
