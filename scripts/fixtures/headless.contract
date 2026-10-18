@@ -14,6 +14,7 @@ component Headless
       box width="2rem" height="-exact-hairline" testId="hairline"
       text "Hello world" width=60 font-size=16 line-clamp=1 testId="clamped"
       text "👨‍👩‍👧‍👦 hello world" width=40 font-size=16 line-clamp=1 testId="clamped-emoji"
+      text "fox jumps over the lazy dog" width=90 font-size=16 line-clamp=1 testId="clamped-tight"
       text "ab­cdef" width=30 font-size=16 font-family="monospace" testId="hyphen"
       text font-size=16 testId="styled"
         text "plain "

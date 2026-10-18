@@ -42,10 +42,9 @@ public final class HeadlessSession {
             self.run = run; self.text = text; self.range = range
         }
     }
+    /// A laid-out line. Justification lives in Core Text glyph positions, not
+    /// these strings: a renderer that cannot preserve it must refuse justified text.
     public struct Line {
-        /// Justification lives in Core Text glyph positions, not these strings.
-        /// A renderer that cannot preserve it must refuse justified text.
-
         public let text: String
         /// UTF-16 range in the shaped text, after whitespace collapse, Markdown
         /// expansion and hyphenation; these are not offsets in the source prop.
@@ -302,7 +301,7 @@ fileprivate final class HeadlessLines {
                 flow: flow.map { $0.translated(CGPoint(x: -box.minX, y: -box.minY)) })
             let source = spec.runs.map(\.text).joined() as NSString
             let renderedRuns = spec.runs.enumerated().map { index, run in
-                let input = props["text"] == nil && index < inline.count ? inline[index] : nil
+                let input = markdown == nil && props["text"] == nil && index < inline.count ? inline[index] : nil
                 return HeadlessSession.Run(text: run.text, size: run.size, weight: run.weight, family: run.family, italic: run.italic,
                     letterSpacing: run.letterSpacing, numeric: run.numeric,
                     color: Self.color(input?.colorRef, light: run.color, dark: input?.darkColor),
@@ -314,18 +313,23 @@ fileprivate final class HeadlessLines {
             let geometry = LineGeometry(paragraph)
             let lines = paragraph.lines.enumerated().map { index, line in
                 let r = geometry.ranges[index], range = NSRange(location: r.location, length: r.length)
-                let suffix = index == geometry.ranges.count - 1 && geometry.clamped != nil ? "…" : ""
-                let painted = Self.ink(source.substring(with: range)) + suffix
+                let clamped = index == geometry.ranges.count - 1 && geometry.clamped != nil
+                // A clamped line is drawn as the ellipsized line paints it: the
+                // prefix its glyphs keep, then the token; `range` stays the broken range.
+                let end = clamped ? Self.kept(line, range: range, source: source) : NSMaxRange(range)
+                let suffix = clamped ? "…" : ""
+                let shown = NSRange(location: range.location, length: end - range.location)
+                let painted = clamped ? source.substring(with: shown) + suffix : Self.ink(source.substring(with: shown))
                 var segments: [HeadlessSession.Segment] = [], from = range.location
-                for (run, end) in ends.enumerated() where end > from && from < NSMaxRange(range) {
-                    let to = min(end, NSMaxRange(range))
+                for (run, runEnd) in ends.enumerated() where runEnd > from && from < end {
+                    let to = min(runEnd, end)
                     let part = NSRange(location: from, length: to - from)
                     segments.append(.init(run: run, text: source.substring(with: part), range: part))
                     from = to
                 }
                 if let tail = segments.popLast() {
-                    segments.append(.init(run: tail.run, text: Self.ink(tail.text) + suffix, range: tail.range))
-                } else if !suffix.isEmpty {
+                    segments.append(.init(run: tail.run, text: clamped ? tail.text + suffix : Self.ink(tail.text), range: tail.range))
+                } else if clamped {
                     segments.append(.init(run: 0, text: suffix))
                 }
                 var ascent: CGFloat = 0, descent: CGFloat = 0
@@ -336,6 +340,29 @@ fileprivate final class HeadlessLines {
             }
             return (lines, renderedRuns)
         }
+    }
+    /// Where a clamped line's kept text ends: past the last glyph the ellipsized
+    /// line keeps from the broken text (the token's glyphs sit at the stripped
+    /// end, `TextEngine.clampedLine`), with trailing breaks and spaces removed.
+    private static func kept(_ line: CTLine, range: NSRange, source: NSString) -> Int {
+        let breaks: Set<Int> = [9, 10, 13, 32, 0x2028, 0x2029]
+        var stripped = NSMaxRange(range)
+        while stripped > range.location && breaks.contains(Int(source.character(at: stripped - 1))) { stripped -= 1 }
+        var kept = range.location
+        for run in CTLineGetGlyphRuns(line) as? [CTRun] ?? [] {
+            let count = CTRunGetGlyphCount(run)
+            guard count > 0 else { continue }
+            var indices = [CFIndex](repeating: 0, count: count)
+            CTRunGetStringIndices(run, CFRange(location: 0, length: count), &indices)
+            let range = CTRunGetStringRange(run)
+            for (i, index) in indices.enumerated() where index >= range.location && index < stripped {
+                // A glyph's characters run to the next glyph's index, or the run's end.
+                let next = i + 1 < count ? indices[i + 1] : range.location + range.length
+                kept = max(kept, min(max(next, index + 1), stripped))
+            }
+        }
+        while kept > range.location && breaks.contains(Int(source.character(at: kept - 1))) { kept -= 1 }
+        return kept
     }
     private static func ink(_ text: String) -> String {
         text.last == "\u{AD}" ? String(text.dropLast()) + "-" : text

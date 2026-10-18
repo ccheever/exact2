@@ -120,7 +120,6 @@ enum DisplayPreferences {
             contrast: contrast, dark: systemDark, gamut: displayGamut, highDynamicRange: high,
             displayMode: Preferences.DisplayMode(rawValue: displayMode(view)) ?? .standalone, boldText: boldText).rawValue
     }
-    static let inputBits = Preferences.platformInput.rawValue
 
     // Same order as runner/src/viewport.rs's DisplayMode (media bits 11–13).
     static let displayModes = ["standalone", "browser", "fullscreen", "minimal-ui", "window-controls-overlay", "picture-in-picture", "tabbed"]
