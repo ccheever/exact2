@@ -997,7 +997,7 @@ extension Agent {
         }
         #if os(iOS)
         if let node = presenter.shortcut(key: device.key, held: held, focus: v) {
-            presenter.press(node.id)
+            presenter.pressShortcut(node)
             reply["shortcut"] = Int(node.id)
             return taken()
         }
@@ -1113,7 +1113,7 @@ extension Agent {
             #if os(iOS)
             if phase != "up", let node = presenter.shortcut(key: name, held: held, focus: focus ?? presenter.focusedNode) {
                 presenter.supersedePress() // a key, as `keyDown` and `performShortcut` take it
-                presenter.press(node.id)
+                presenter.pressShortcut(node)
                 return ["typed": Int(v.id), "key": key, "shortcut": Int(node.id), "delivery": "recognized"]
             }
             #endif
