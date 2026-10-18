@@ -331,10 +331,11 @@ export function pinRecorder(previous, app, check, collecting = false, provenance
   return {pins,
     pin(tick, state) {
       provenance.observe([state]);
+      provenance.assert();
       check(`pin ${tick} sampled at expected tick (got ${state?.tick})`, state?.tick === tick && /^0x[0-9a-f]{16}$/.test(state?.hash));
       record('ticks', String(tick), state?.hash);
     },
-    pinSave(key, path) { record('saves', key, createHash('sha256').update(readFileSync(path)).digest('hex')); },
+    pinSave(key, path) { provenance.assert(); record('saves', key, createHash('sha256').update(readFileSync(path)).digest('hex')); },
   };
 }
 // Gameplay assertions can succeed before a game's first baseline exists.

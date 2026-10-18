@@ -7,7 +7,7 @@ import {editProvenance, pinRecorder} from './proof.mjs';
 test('admitted edits refuse capture, match and collection across restart, restore and close', () => {
   for (const collecting of [false, true]) {
     const provenance = editProvenance();
-    const clean = {tick:0, hash:'0x0000000000000001'};
+    const clean = {tick:0, hash:'0x' + '0'.repeat(15) + '1'};
     const edited = {...clean, developmentEdits:true};
     const recorder = pinRecorder({ticks:{0:clean.hash}}, 'fixture', () => {}, collecting, provenance);
     provenance.observe([edited]);
@@ -27,4 +27,10 @@ test('admitted edits refuse capture, match and collection across restart, restor
   const refused = editProvenance();
   refused.observe([{}], [{lines:['t=17 tick=1 set refused: production bake']}]);
   expect(() => refused.assert()).not.toThrow();
+});
+
+test('the ordinary world snapshot keeps admitted-edit provenance', async () => {
+  const {worldView} = await import('../scripts/agent-inspect.mjs');
+  const snapshot = await worldView({state:async () => ({tick:1, hash:'0x' + '0'.repeat(15) + '1', developmentEdits:true, entities:[]})}, 'world').snapshot();
+  expect(snapshot.developmentEdits).toBe(true);
 });

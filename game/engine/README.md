@@ -134,10 +134,17 @@ input queue, in stamp order, applied at the start of the tick its stamp falls in
 keys and pads, messages, `set`, a replaced table. Everything the tick itself produces
 for a later tick enters a hashed world queue: typed events, sequence markers.
 Messages and typed events do not coalesce or reorder; overflow journals a named refusal.
-Device input is normalized before tick delivery: adjacent motion for the same pointer
-or control retains the latest position and accumulates deltas; adjacent wheels
-accumulate deltas. At capacity the queue discards the oldest move first (otherwise
-its oldest event), journalling one overflow refusal until the queue drains. Tables, pads and sequence markers use this contract when admitted;
+Device input is normalized within one projected tick boundary and across only
+other moves/wheels, never across a key, contact edge or message: pointer moves with
+the same contact and buttons keep the latest position/stamp and sum deltas; control
+moves with the same action/contact keep the latest position/stamp; wheels sum
+at the earlier wheel's stamp. Duplicate key states are omitted. At the 1,024-event
+bound a new message refuses. A device event displaces the oldest move, otherwise
+the oldest non-message; if all entries are messages it refuses the new device event.
+A displaced pointer's deltas join its next queued event when one exists. Each
+kind journals once per overflow episode, which ends below capacity. Paused input
+updates held state directly without tick edges or queued wheel deltas.
+Tables, pads and sequence markers use this contract when admitted;
 this engine currently admits keys, pointers, controls, wheels, messages and typed events.
 
 ## HUD and events
