@@ -689,10 +689,11 @@ browserTest('flowed keys reach ancestors once in both web runtimes', async () =>
       { heard: ['column', 'native'], prevented: false },
       { heard: ['column', 'capture', 'native'], prevented: false },
       ...Array.from({ length: 3 }, () => ({ heard: bubble, prevented: true })),
-      ...Array.from({ length: 2 }, () => ({ heard: ['column', 'capture', 'bubble', 'native-stop'], prevented: false })),
+      ...Array.from({ length: 3 }, () => ({ heard: ['column', 'capture', 'bubble', 'native-stop'], prevented: false })),
       { heard: ['up', ...(nested ? ['span-up'] : []), 'column-up', 'native'], prevented: false },
       { heard: ['up', 'native'], prevented: false },
       { heard: ['up', ...(nested ? ['span-up'] : []), 'column-up', 'native'], prevented: true },
+      { heard: ['up', 'native-stop'], prevented: false },
     ];
     expect({ runtime, nested, deliveries: unflowed }).toEqual({ runtime, nested, deliveries: expected });
     expect({ runtime, nested, deliveries: flowed }).toEqual({ runtime, nested, deliveries: expected });
@@ -700,9 +701,23 @@ browserTest('flowed keys reach ancestors once in both web runtimes', async () =>
   }
 }, 60000);
 
+for (const scenario of ['redispatch', 'commits']) browserTest(`flowed keys preserve ${scenario}`, async () => {
+  const results = await inChrome(flowKeyFixture, undefined, {
+    '/glue.js': new URL('./glue.js', import.meta.url).pathname,
+  }, true);
+  for (const { runtime, nested, redispatch, commits } of results) {
+    if (scenario === 'redispatch') for (const [first, second] of redispatch) {
+      expect({ runtime, nested, heard: second }).toEqual({ runtime, nested, heard: first });
+    }
+    if (scenario === 'commits' && runtime === 'js') expect({ nested, commits }).toEqual({ nested,
+      commits: ['column', 'capture', 'bubble', 'up'].map(site => ({ site, wrote: true, bubbles: 1 })),
+    });
+  }
+}, 60000);
+
 async function flowKeyFixture() {
   const { createTextFlow } = await import('/textflow-glue.js');
-  const { on, onKey, Hosts } = await import('/rt.js');
+  const { on, onKey, Hosts, act, sig, W, Before, After } = await import('/rt.js');
   const glue = await fetch('/glue.js').then(r => r.text());
   const attach = glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('));
   const bindWasm = new Function(`
@@ -722,31 +737,35 @@ async function flowKeyFixture() {
   };
   const root = document.getElementById('root'), results = [];
   for (const [runtime, bind] of [['wasm', bindWasm], ['js', bindJs]]) for (const nested of [false, true]) {
-    const views = new Map(), heard = [];
+    const views = new Map(), heard = [], writes = sig(0), bubbles = sig(0);
+    let commitAt = null;
+    const write = act(() => W(writes, writes() + 1)), count = act(() => W(bubbles, bubbles() + 1));
+    const commitAtSite = site => { if (commitAt === site) write(); };
     root.innerHTML = '<div style="position:relative"><div id="paragraph" style="width:200px;height:100px;font:16px/24px serif"><a href="#story" tabindex="0">flowed link</a></div><div id="ball" style="position:absolute;left:80px;top:0;width:20px;height:20px"></div></div>';
     const parent = root.firstElementChild, paragraph = parent.firstElementChild, original = paragraph.firstElementChild, ball = parent.lastElementChild;
     bind(parent, {
-      keycapture(key, api) { heard.push('column'); if (key === 'x') api.stopPropagation(); if (key === 'z') api.preventDefault(); },
-      key() { heard.push('column-bubble'); }, keyup() { heard.push('column-up'); },
+      keycapture(key, api) { heard.push('column'); commitAtSite('column'); if (key === 'x') api.stopPropagation(); if (key === 'z') api.preventDefault(); },
+      key() { heard.push('column-bubble'); if (commitAt) count(); }, keyup() { heard.push('column-up'); if (commitAt) count(); },
     });
     if (nested) {
       const span = document.createElement('span'); paragraph.append(span); span.append(original);
       bind(span, { key() { heard.push('span'); }, keyup() { heard.push('span-up'); } });
     }
     bind(original, {
-      key(key, api) { heard.push('bubble'); if (key === 'p') api.preventDefault(); },
-      keycapture(key, api) { heard.push('capture'); if (key === 'y') api.stopPropagation(); if (key === 'Enter') api.preventDefault(); },
-      keyup(key, api) { heard.push('up'); if (key === 'y') api.stopPropagation(); if (key === 'p') api.preventDefault(); },
+      key(key, api) { heard.push('bubble'); commitAtSite('bubble'); if (key === 'p') api.preventDefault(); },
+      keycapture(key, api) { heard.push('capture'); commitAtSite('capture'); if (key === 'y') api.stopPropagation(); if (key === 'Enter') api.preventDefault(); },
+      keyup(key, api) { heard.push('up'); commitAtSite('up'); if (key === 'y') api.stopPropagation(); if (key === 'p') api.preventDefault(); },
     });
     // Exact's stop leaves browser propagation intact; native stops do not.
-    original.addEventListener('keydown', e => {
+    for (const type of ['keydown', 'keyup']) original.addEventListener(type, e => {
+      if (e.key === 'c') { heard.push('native-stop'); e.cancelBubble = true; }
       if (e.key === 'n' || e.key === 'i') { heard.push('native-stop'); e[e.key === 'n' ? 'stopPropagation' : 'stopImmediatePropagation'](); }
     });
     for (const type of ['keydown', 'keyup']) parent.addEventListener(type, () => heard.push('native'));
     const deliver = target => {
       const deliveries = [];
       target.focus();
-      for (const [type, keys] of [['keydown', ['b', 'x', 'y', 'z', 'p', 'Enter', 'n', 'i']], ['keyup', ['b', 'y', 'p']]]) for (const key of keys) {
+      for (const [type, keys] of [['keydown', ['b', 'x', 'y', 'z', 'p', 'Enter', 'n', 'i', 'c']], ['keyup', ['b', 'y', 'p', 'c']]]) for (const key of keys) {
         heard.length = 0;
         const event = new KeyboardEvent(type, { key, bubbles: true, cancelable: true });
         target.dispatchEvent(event);
@@ -764,7 +783,31 @@ async function flowKeyFixture() {
     await flow.settle();
     const clone = paragraph.querySelector('[data-flow-fragment] a');
     if (!clone || clone === original) throw Error('fixture must key a flowed clone');
-    results.push({ runtime, nested, events: original.exactFlowEvents, unflowed, flowed: deliver(clone) });
+    const flowed = deliver(clone), redispatch = [], commits = [];
+    for (const type of ['keydown', 'keyup']) {
+      const event = new KeyboardEvent(type, { key: 'b', bubbles: true });
+      const deliveries = [];
+      for (let i = 0; i < 2; i++) { heard.length = 0; clone.dispatchEvent(event); deliveries.push([...heard]); }
+      redispatch.push(deliveries);
+    }
+    if (runtime === 'js') {
+      // Match flow.js's commit hooks, with the real runtime action and slot writes.
+      const batch = { ops: [{ op: 'children' }] };
+      const before = () => flow.beforeBatch(batch), after = () => flow.afterBatch(batch);
+      Before.push(before); After.push(after);
+      try {
+        for (const site of ['column', 'capture', 'bubble', 'up']) {
+          await flow.settle();
+          const target = paragraph.querySelector('[data-flow-fragment] a');
+          if (!target || original.isConnected) throw Error('commit case must start with a detached original');
+          commitAt = site;
+          const oldWrites = writes(), oldBubbles = bubbles();
+          target.dispatchEvent(new KeyboardEvent(site === 'up' ? 'keyup' : 'keydown', { key: 'b', bubbles: true }));
+          commits.push({ site, wrote: writes() > oldWrites, bubbles: bubbles() - oldBubbles });
+        }
+      } finally { Before.splice(Before.indexOf(before), 1); After.splice(After.indexOf(after), 1); }
+    }
+    results.push({ runtime, nested, events: original.exactFlowEvents, unflowed, flowed, redispatch, commits });
     flow.dispose();
   }
   return results;
