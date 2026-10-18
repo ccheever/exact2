@@ -1388,6 +1388,14 @@ screen, 2026-10-16.)
   appearance belongs in the bake, under `art/` (`Game::STREAMED` if setup need not wait
   for it): a delivered model carries no save identity. (Skirmish's art trials, LLP
   1046.012 F5, 2026-10-07.)
+- **`tap world stick left 0 1` walks the player backward.** The agent's stick is a
+  pad's raw axes, as the Gamepad API reports them: positive y is down. `input.stick`
+  turns it so positive y is forward. Forward is `tap world stick left 0 -1`. (LLP
+  1127.003, 2026-10-18.)
+- **A pad's stick moves the player a little short of a key.** Cause: the stick's radial
+  dead zone (0.15 unless `Stick::dead_zone` names another) rescales a partial deflection;
+  only full deflection reads 1, as a key does. A test comparing a key and a stick drives
+  the stick to 1. (LLP 1127.003, 2026-10-18.)
 
 ## Access hatches
 

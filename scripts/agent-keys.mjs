@@ -449,6 +449,10 @@ export function tapWords(args, held = false) {
     // The mouse's buttons (#107): the left, a double click, the right (`contextmenu`), the middle (`auxclick`), n clicks.
     case 'mouse': case 'dblclick': case 'contextmenu': case 'auxclick': return [first, { [form]: true, ...options(rest, ['at', 'modifiers']) }];
     case 'clicks': return [first, { clicks: number(rest[0], 'clicks'), ...options(rest.slice(1), ['at', 'modifiers']) }];
+    // A pad's stick on a world canvas (LLP 1127.003 D3): `tap world stick left 0.7 -0.2 [for <ms>]`.
+    case 'stick':
+      if (!['left', 'right'].includes(rest[0]) || !(rest.length === 3 || (rest.length === 5 && rest[3] === 'for'))) refuse('stick takes left or right, x and y in [-1, 1], and optionally for <ms>');
+      return [first, { stick: rest[0], value: [number(rest[1], 'stick'), number(rest[2], 'stick')], ...(rest[3] === 'for' ? { for: number(rest[4], 'for') } : {}) }];
     // Most often a target of several words left unquoted (sb4 farm wave 4, 053: `tap Why are my…`).
     default: refuse(`unknown word ${JSON.stringify(form)}; a target of several words is quoted inside the op (\`tap "${args.join(' ').replace(/["\\]/g, '\\$&')}"\`), and after a target come only: tap <target> [at <x> <y> [modifiers <M>] | modifiers <M> | down [at <x> <y>] [modifiers <M>] | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <M>] | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <M>]) | hover | drop <path…> | into <key> … | pinch <scale> [at <x> <y>] | history <n> | mediasession <action> [seconds] | drag …]`);
   }
@@ -544,4 +548,22 @@ export function typeArguments(args) {
     return [args[0], {key:args[2], for:Number(args[4])}];
   }
   return [args[0], {key:args[2], ...(args[3] != null ? {phase:args[3]} : {})}];
+}
+
+/** A pad on a world canvas (LLP 1127.003 D3): `type <canvas> key Gamepad…` presses a pad button, `tap <canvas> stick
+ * left|right <x> <y>` moves a stick in the Gamepad API's axes (positive y is down). Each is the agent's pad 0, reported to
+ * the world as a host reports a real one (`delivery: synthesized`) and held across requests; `for <ms>` holds it that long
+ * on the clock, then lets go. */
+export async function padOp({ op, s, target, opts, host, timing }) {
+  if (op === 'tap' && (!['left', 'right'].includes(opts.stick) || !opts.value?.every?.((v) => Number.isFinite(v) && Math.abs(v) <= 1))) throw new MalformedOperation('tap <canvas> stick left|right <x> <y>: x and y in [-1, 1]');
+  if (opts.for !== undefined && !(Number.isFinite(opts.for) && opts.for >= 0 && opts.phase == null)) throw new MalformedOperation(`${op} for: expected a nonnegative finite duration, without phase`);
+  const node = await s.target(target), word = op === 'type' ? 'typed' : 'tapped';
+  const form = op === 'type' ? { key: String(opts.key), ...(opts.phase ? { phase: opts.phase } : {}) } : { stick: opts.stick, value: opts.value };
+  const send = (extra = {}) => s.op({ op, id: node.id, world: true, ...form, ...extra });
+  const tag = (r) => ({ ...r, [word]: node.id, target, carrier: host, mode: timing });
+  if (opts.for === undefined) return s.landed(tag(await send()));
+  const steps = [await send(op === 'type' ? { phase: 'down' } : {})];
+  try { steps.push(await s.clock(`+${opts.for}`)); }
+  finally { steps.push(await send(op === 'type' ? { phase: 'up' } : { value: [0, 0] })); }
+  return s.landed(tag({ ...steps[0], for: opts.for, steps }));
 }

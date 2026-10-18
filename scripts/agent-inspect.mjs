@@ -599,13 +599,20 @@ function renderAgreement(a) {
 }
 
 /** The `state` op's words (LLP 1116.007 D3.9). `state` is the whole record; `state <target>` a view's own (a game's `world:*`
- * or `world:entity`: its entities); a name that is no view but a state, derive or resource, or a field of the record
+ * or `world:entity`: its entities; `state <canvas> input` its world's input); a name that is no view but a state, derive or resource, or a field of the record
  * (`mediaSession`), reads that, down a dotted path (`groceries.0.done`) as an authored `expect state` does. A view's testId
  * keeps its meaning when a state is named alike. */
 export async function stateOp(s, args) {
   const page = { ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}), ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}), ...(args.includes('resources') ? { resources: true } : {}) };
   const read = (target) => s.state(target, args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy', page);
   if (args[0] == null) return read();
+  // `state <canvas> input` (LLP 1127.003 D8): the world's controls, the devices and pads held, contexts, bindings, and
+  // what fired at the last tick.
+  if (args[1] === 'input') {
+    const r = await s.op({ op: 'state', ...await s.target(args[0]), world: true });
+    if (!r.world?.input) throw new Error(`state ${args[0]} input: ${args[0]} is not a world's canvas`);
+    return { tick: r.tick, ...r.world.input };
+  }
   try { return await read(args[0]); } catch (error) {
     if (!/^no view matches/.test(error.message)) throw error;
     const record = await s.state(), bag = { ...record.resources, ...record.derives, ...record.slots };

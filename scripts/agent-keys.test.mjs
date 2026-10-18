@@ -2,7 +2,7 @@
 // a keyboard does (#140), each repeat a keydown whose `repeat` is true.
 import { test, expect } from 'bun:test';
 import { chordKeys } from './agent-playwright.mjs';
-import { KEY_REPEAT, validateKey, typeFor, cdpKey, withHeldModifiers, browserKey, nativeKey, typeArguments, typeCommand, tapWords, intoArguments, MalformedOperation, clockSlices } from './agent-keys.mjs';
+import { KEY_REPEAT, validateKey, typeFor, cdpKey, withHeldModifiers, browserKey, nativeKey, typeArguments, typeCommand, tapWords, intoArguments, MalformedOperation, clockSlices, padOp } from './agent-keys.mjs';
 import { open } from './agent.mjs';
 import { launchFacts } from './agent-launch.mjs';
 
@@ -15,6 +15,26 @@ test('tap midi is a MIDI input\'s message, its bytes two hex digits each; a test
   expect(tapWords(['midi', '"clk"', 'fa'])).toEqual([null, { midi: { input: 'clk', data: [0xfa] } }]);
   expect(() => tapWords(['midi', 'clk', 'clock', '0', '100'])).toThrow('a tempo above 0');
   expect(clockSlices({ bpm: 125, ms: 110 })).toEqual([{ to: 50, ticks: [20, 40] }, { to: 100, ticks: [60, 80, 100] }, { to: 110, ticks: [] }]);
+});
+
+test('a pad on a world canvas: tap stick and type key Gamepad… reach the world as its pad 0, held across requests (LLP 1127.003 D3)', async () => {
+  expect(tapWords(['world', 'stick', 'left', '0.7', '-0.2'])).toEqual(['world', { stick: 'left', value: [0.7, -0.2] }]);
+  expect(tapWords(['world', 'stick', 'right', '1', '0', 'for', '1500'])).toEqual(['world', { stick: 'right', value: [1, 0], for: 1500 }]);
+  for (const words of [['world', 'stick', 'middle', '0', '0'], ['world', 'stick', 'left', '1'], ['world', 'stick', 'left', '1', '0', 'over', '5']]) expect(() => tapWords(words)).toThrow(MalformedOperation);
+  const sent = [];
+  const s = {
+    target: async () => ({ id: 7 }),
+    op: async (req) => { sent.push(req); return { pad: 0, delivery: 'synthesized' }; },
+    clock: async (spec) => { sent.push(spec); return {}; },
+    landed: (r) => r,
+  };
+  const r = await padOp({ op: 'type', s, target: 'world', opts: { key: 'GamepadSouth', for: 100 }, host: 'linux', timing: 'agent' });
+  expect(sent).toEqual([{ op: 'type', id: 7, world: true, key: 'GamepadSouth', phase: 'down' }, '+100', { op: 'type', id: 7, world: true, key: 'GamepadSouth', phase: 'up' }]);
+  expect([r.typed, r.for, r.delivery]).toEqual([7, 100, 'synthesized']);
+  sent.length = 0;
+  await padOp({ op: 'tap', s, target: 'world', opts: { stick: 'left', value: [1, 0], for: 50 }, host: 'web', timing: 'agent' });
+  expect(sent).toEqual([{ op: 'tap', id: 7, world: true, stick: 'left', value: [1, 0] }, '+50', { op: 'tap', id: 7, world: true, stick: 'left', value: [0, 0] }]);
+  await expect(padOp({ op: 'tap', s, target: 'world', opts: { stick: 'left', value: [2, 0] } })).rejects.toBeInstanceOf(MalformedOperation);
 });
 
 test('into accepts CSS alignments and labels invalid values in the shared check and CLI', () => {

@@ -41,7 +41,7 @@ import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { pageAim, namedRefusal } from './agent-aim.mjs'; import { checkOp } from './agent-check.mjs'; import { compareScreenshot } from './agent-compare.mjs';
 import { dragArguments, dragTap, duringAllowed, duringOp, heldDown, heldPhase, heldRead } from './agent-drag.mjs';
 import { driveNotes, STORAGE_REFUSED, STORAGE_NOTE, runTests, nodeNamed, targetsIn, unopenedHint, refuseDisabled, reloadWeb, fetchOrigins, loopbackOrigins, faultRequest } from './agent-test.mjs';
-import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pinchArguments, intoArguments, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, tapArguments, pointerGap, chordModifiers, withChordModifiers, heldForClick, clockSlices } from './agent-keys.mjs';
+import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pinchArguments, intoArguments, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, tapArguments, pointerGap, chordModifiers, withChordModifiers, heldForClick, clockSlices, padOp } from './agent-keys.mjs';
 import { jsonLines, hangup } from './agent-wire.mjs';
 export { jsonLines, hangup };
 export { MalformedOperation, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
@@ -1010,6 +1010,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (opts.midi?.clock) { let r = {}, prev = 0; for (const { to, ticks } of clockSlices(opts.midi.clock)) { await s.clock(`+${to - prev}`); prev = to; r = await s.op({ op: 'midi', input: opts.midi.input, clock: ticks.map(k => [s.now - to + k, 0xF8]) }); if (r?.error) break; } return s.landed({ ...r, delivery: 'substituted', carrier: host, mode: timing }); }
       if (opts.midi) return s.landed({ ...await s.op({ op: 'midi', ...opts.midi }), delivery: 'substituted', carrier: host, mode: timing }); // a MIDI input's message (LLP 1125 §4): the runner's input, the arm absent
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
+      if (opts.stick !== undefined) return padOp({ op: 'tap', s, target, opts, host, timing }); // a pad's stick on a world canvas (LLP 1127.003 D3)
       let node, part = await partTap({ s, host, touch }, target, opts); if (part) return part; // `tap <node>/<part>` (agent-inspect.mjs)
       try { node = await s.target(target, true); }
       catch (error) { throw await tapRefusal(s, target, error); } await refuseDisabled(s, node, target, opts); // a disabled control is refused the same on every host (LLP 1116.010 D3)
@@ -1142,8 +1143,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     async type(target, text) {
       if (holdOf(target)) { if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`); return s.answer('type', target, typeof text === 'object' && text !== null ? JSON.stringify(text) : text); }
       const options = typeof text === 'object' && text !== null ? text : { text };
-      keyArguments(options);
-      if (options.key != null) await validateKey(options.key, carrier);
+      if (/^Gamepad/.test(options.key ?? '')) return padOp({ op: 'type', s, target, opts: options, host, timing }); // a pad button on a world canvas (LLP 1127.003 D3)
+      keyArguments(options); if (options.key != null) await validateKey(options.key, carrier);
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       const node = await s.find(target);
       const key = options.key;

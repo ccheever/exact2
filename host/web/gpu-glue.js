@@ -13,6 +13,7 @@
 import { pacer } from "./pace.js";
 import { assetDelivery } from "./gpu-assets.js";
 import { inertAncestor } from "./navigation.js";
+import { padPoller } from "./gpu-pads.js";
 const artifact = new URL(import.meta.url).searchParams.get("artifact");
 const stem = artifact ?? "gpu";
 let gpu;
@@ -400,6 +401,8 @@ function frame(now) {
 }
 
 function schedule() { if ((!hidden || exact.now) && raf === null) raf = requestAnimationFrame(frame); }
+// Pads go to the world whose canvas has focus, as keys do.
+padPoller(() => [...surfaces.values()].find(e => e.pads && live(e.view) === e && e.host.contains(document.activeElement)) ?? null);
 
 // Creation/binding is a hard result. Staging never publishes or attaches listeners.
 function create(entry, module, carry) {
@@ -524,6 +527,9 @@ function listen(entry) {
     if (recoveringDevice) recoveringDevice.then(deliver); else deliver();
   };
   const controls = entry.controls ??= new Map(), controlKeys = entry.controlKeys ??= new Map();
+  // The pads this world was last sent (gpu-pads.js); a blur forgets them, so a pad still held reports again.
+  entry.pads = new Map();
+  entry.sendPad = value => send({ timeStamp: performance.now() }, value);
   const control = target => {
     const node = target instanceof Element ? target.closest('button[data-action]') : null;
     return node && node.closest('[data-gpu-input]') === el && node.getAttribute('data-action') && !node.disabled && !node.hidden && !node.closest('[hidden]') && !inertAncestor(node) ? node : null;
@@ -614,7 +620,7 @@ function listen(entry) {
     entry.resampleHeld();
     for (const [id, owner] of controls) sendControl(event, owner, "cancel", id);
     for (const [code, owner] of controlKeys) sendControl(event, owner, "cancel", code === "Space" ? 4294967294 : 4294967293);
-    held.clear(); controls.clear(); controlKeys.clear(); send(event, { t: "blur" });
+    held.clear(); controls.clear(); controlKeys.clear(); entry.pads.clear(); send(event, { t: "blur" });
   };
   // A pointer-owned control may coexist with a focused editor outside this canvas.
   const pressedKey = (event, down) => {
@@ -773,6 +779,12 @@ const api = {
       if (ok) entry.controls.delete(request.contact);
       messages(entry); schedule();
       return ok ? tagged({phase:request.phase, delivery:"recognized"}) : {error:gpu.gpu_error()};
+    }
+    // The agent's pad (LLP 1127.003 D3): the world queues it as a host's pad event.
+    if ((request.op === "type" && /^Gamepad/.test(request.key ?? "")) || (request.op === "tap" && request.stick !== undefined)) {
+      if (!entry.wantsInput) return { error: `view ${request.id}'s surface does not take input` };
+      const reply = agent(request.id, request) ?? { error: `view ${request.id} has no world` };
+      return reply.error ? reply : tagged(reply);
     }
     if (request.op === "focus") {
       if (!entry.wantsInput) return { error: `view ${request.id}'s surface does not take input` };
