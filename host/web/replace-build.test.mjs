@@ -37,7 +37,7 @@ async function stress(env, swaps = 100, gap = 20) {
 
 const { directoryExchange } = await import(SERVE);
 
-test.skipIf(!directoryExchange())('exchanged in one step, a reader never finds no build nor a file gone', async () => {
+test.skipIf(!directoryExchange(mkdtempSync(join(tmpdir(), "exact-exchange-probe-"))))('exchanged in one step, a reader never finds no build nor a file gone', async () => {
   const got = await stress({});
   expect(got.final).toBe('<p>100');
   expect(got.ok).toBeGreaterThan(1000);
@@ -46,9 +46,10 @@ test.skipIf(!directoryExchange())('exchanged in one step, a reader never finds n
 
 test('by two renames (no exchange) the swap still lands whole, but a reader can find no build or a file gone', async () => {
   // As fast as it can, to meet the moment between the renames (a run that
-  // never met it is run again, three times at most).
+  // never met it is run again, eight times at most: the reader's turns can
+  // all fall outside it).
   let got;
-  for (let run = 0; run < 3 && !(got?.miss + got?.err); run++) {
+  for (let run = 0; run < 8 && !(got?.miss + got?.err); run++) {
     got = await stress({ EXACT_DIRECTORY_EXCHANGE: '0' }, 400, 0);
     expect(got.final).toBe('<p>400');
     expect(got.ok).toBeGreaterThan(1000);
@@ -72,5 +73,10 @@ test('a swap that fails leaves the build as it was', async () => {
   renameSync(dist, `${dist}.previous`);
   expect(() => replaceBuild(join(dir, 'no-stage'), dist)).toThrow();
   expect(readFileSync(join(`${dist}.previous`, 'index.html'), 'utf8')).toBe('<p>kept');
+  // ...and a stage then goes in place before `.previous` goes.
+  mkdirSync(join(dir, 'stage')); writeFileSync(join(dir, 'stage', 'index.html'), '<p>new');
+  replaceBuild(join(dir, 'stage'), dist);
+  expect(readFileSync(join(dist, 'index.html'), 'utf8')).toBe('<p>new');
+  expect(() => lstatSync(`${dist}.previous`)).toThrow();
   rmSync(dir, { recursive: true, force: true });
 });
