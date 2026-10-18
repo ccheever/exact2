@@ -37,9 +37,13 @@ const stopBuild = (signal = 'SIGTERM') => {
   if (!building) return;
   const pid = building.pid;
   try { process.kill(-pid, signal); } catch { building.kill(signal); }
-  // One that does not stop is killed in 5 s, its group with it.
-  if (signal !== 'SIGKILL') setTimeout(() => { try { process.kill(-pid, 'SIGKILL'); } catch { /* gone */ } }, 5000).unref();
+  // One that does not stop is killed in 5 s, its group with it (not once
+  // it is gone: its group id could be another's by then).
+  if (signal !== 'SIGKILL') building.escalate ??= setTimeout(() => { try { process.kill(-pid, 'SIGKILL'); } catch { /* gone */ } }, 5000).unref();
 };
+// The sources the last build read that were there as the next began (one
+// absent when consulted is no source gone).
+let lastSources = [];
 
 /** The Contract packages a build read (LLP 1091 D10), outside the app and
  * its skipped `node_modules`: the dev loop watches them too. */
@@ -79,8 +83,9 @@ function build(app, dist, keep = () => false, compiler = null, superseded = null
   rmSync(stage, { recursive: true, force: true });
   const began = Date.now();
   // The app's own inputs beside its Contract sources, and which were there.
-  const own = [designPath(app.dir), resolve(app.dir, 'app.ts'), resolve(app.dir, 'app.json'), resolve(app.dir, '.exact/backend-origin')].filter(Boolean);
+  const own = [designPath(app.dir) ?? resolve(app.dir, 'app.tamber'), resolve(app.dir, 'app.ts'), resolve(app.dir, 'app.json'), resolve(app.dir, '.exact/backend-origin')];
   const there = new Set(own.filter((path) => existsSync(path)));
+  const known = new Set(lastSources.filter((path) => existsSync(path)));
   return new Promise((done) => {
     // The JS target's build itself, rendering no pages (every route is the
     // shell), with the completion marker host/web/build.mjs writes.
@@ -95,7 +100,7 @@ function build(app, dist, keep = () => false, compiler = null, superseded = null
     // outlive a stopped leader for a moment, holding Cargo's lock): waited
     // for, 5 s at most before they are killed.
     const groupGone = (then, until = Date.now() + 5000) => {
-      try { process.kill(-child.pid, 0); } catch (e) { if (e.code === 'ESRCH') return then(); }
+      try { process.kill(-child.pid, 0); } catch (e) { if (e.code === 'ESRCH') { clearTimeout(child.escalate); return then(); } }
       if (Date.now() > until) { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } }
       setTimeout(() => groupGone(then, until), 20);
     };
@@ -110,8 +115,9 @@ function build(app, dist, keep = () => false, compiler = null, superseded = null
       // A time past now is a file dated ahead (an archive's, a clock's),
       // which this build read as it is: only one since it began and by now
       // is a change.
-      const since = (path) => { const s = lstatSync(path), t = Math.max(s.mtimeMs, s.ctimeMs); return t >= began && t <= Date.now() + 1; };
-      const newer = () => packages.sources.some((path) => { try { return since(path); } catch { return true; } })
+      const since = (path) => { const s = lstatSync(path), now = Date.now() + 1; return [s.mtimeMs, s.ctimeMs].some((t) => t >= began && t <= now); };
+      lastSources = packages.sources;
+      const newer = () => packages.sources.some((path) => { try { return since(path); } catch { return known.has(path); } })
         || own.some((path) => { try { lstatSync(path); } catch { return there.has(path); } return !there.has(path) || since(path); });
       const setAside = () => { rmSync(stage, { recursive: true, force: true }); done({ superseded: true, packages }); };
       const moved = () => superseded && (superseded() || newer());
@@ -170,12 +176,14 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // moved during (the watchers come after it) is built again before the
   // loop serves anything.
   // At most three times: a build that writes one of its own inputs (a
-  // build script's generated file) is served after that.
-  let built;
+  // build script's generated file) is served after that, and built again
+  // once the watchers are on.
+  let built, startMoved = false;
   for (let moved = false, tries = 1; ; moved = false, tries++) {
     const input = (name) => name && ((!skipped.test(String(name)) && String(name) !== 'app.contract.d.ts') || /^\.exact(?:[\\/]backend-origin)?$/.test(String(name)));
     const early = [watch(app.dir, { recursive: true }, (_, name) => { if (input(name)) moved = true; }), watch(resolve(root, 'host/web-js'), { recursive: true }, (_, name) => { if (name && !skipped.test(String(name))) moved = true; })];
     try { built = await build(app, dist, () => false, null, tries < 3 ? () => moved : null); } finally { for (const w of early) w.close(); }
+    startMoved = moved;
     if (!built.superseded) break;
     console.log('a source moved while the first build ran: building again');
   }
@@ -401,9 +409,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // An edit stops the build in flight, once in a burst and only while it
   // is young (under 2 s, and under half the last build's time): one past
   // that finishes, set aside, so sustained edits never starve a build.
-  // After three builds set aside in a row, the next is published whatever
-  // moved (a build that writes one of its own inputs would never be), and
-  // the build after it takes what moved.
+  // Builds set aside in a row past three are said: an input that moves in
+  // every build (a build that writes one of its own) is never published.
   let inputs = 0, buildBegan = 0, lastBuildMs = 0, stopped = false, asideRun = 0;
   const stopYoungBuild = () => {
     const age = Date.now() - buildBegan;
@@ -510,9 +517,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       && next.structure === design.structure && next.tokens.length === design.tokens.length
       && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent) && (!t.inline || same(t, design.tokens[i])));
     buildBegan = Date.now();
-    built = await build(app, dist, keep, compiler, asideRun < 3 ? () => inputs !== began : null);
-    if (built.superseded) asideRun++;
-    else { stopped = false; lastBuildMs = Date.now() - buildBegan; asideRun = 0; }
+    built = await build(app, dist, keep, compiler, () => inputs !== began);
+    if (built.superseded && ++asideRun === 3) console.log('edit → three builds in a row set aside: an input moves during every build (does one write its own input?)');
+    if (!built.superseded) { stopped = false; lastBuildMs = Date.now() - buildBegan; asideRun = 0; }
     // An input moved while it built (a value-only edit's batch included):
     // what it read is behind the files, and nothing of it is published (not
     // dist, which a fresh page loads, nor the design or a reload). The
@@ -667,6 +674,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     }
   };
   watchPackages(built.packages);
+  // The first build was served though a source moved during its last try:
+  // built again now, its edits seen by the watchers from here.
+  if (startMoved) { edited.add(resolve(app.dir, 'app.contract')); rebuild(); }
   // The one TypeScript configuration app.ts is checked with (js/bake/src/typescript.mjs).
   watchers.push(watch(resolve(root, 'js/bake/src/typescript.mjs'), changed(resolve(root, 'js/bake/src'))));
   // The page's side: reload on a new build, the errors of a failed one in an
