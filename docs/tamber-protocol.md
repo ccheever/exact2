@@ -420,8 +420,12 @@ to no file while the gesture lasts, and is written once, on release. The wire ru
     design server sends, ends included, and the server's run (a name per start: a restarted
     server's revisions start again). A build drops a frame or snapshot of the run it last applied
     a frame of (with no `run`, of the scrub) whose `rev` is not above that one's, so a polled
-    host's late fetch of an earlier scrub's frame never shows over a later scrub or its end; and
-    applies a scrub's frames with no transition: an authored
+    host's late fetch of an earlier scrub's frame never shows over a later scrub or its end. A
+    build that has applied a frame of a later run drops any frame of an earlier one; a frame with
+    a `run` after a mark with none is a new run's. A notice that stands for a scrub frame (one over
+    a stream's bound, a polled queue collapsed) keeps its mark, and the build of what a release
+    wrote carries a mark above the scrub's frames. A build applies a scrub's frames with no
+    transition: an authored
     `transition` on a row the frame sets neither starts nor goes on (a development preview that
     follows the tool's gesture; any other edit moves as authored).
   - **A frame set without compiling is checked** once the gesture rests (150 ms with no update):
