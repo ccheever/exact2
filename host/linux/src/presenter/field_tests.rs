@@ -796,19 +796,27 @@ fn the_agents_text_is_cut_to_the_room_maxlength_leaves_at_the_caret() {
 }
 
 #[test]
-fn the_agents_empty_fitted_insertion_deletes_a_range() {
-    // Chrome 151, CDP Input.insertText: a rejected insertion still deletes
-    // a range, and its caret counts the original text's UTF-16 units.
+fn the_agents_fitted_insertion_matches_chromes_value_events_and_caret() {
+    // Chrome 151, CDP Input.insertText: endpoints inside a surrogate pair
+    // advance past it; the caret counts the original insertion's UTF-16 units.
     let mut actual = Vec::new();
     let mut expected = Vec::new();
     for (tag, body, limit, start, end, typed, value, caret, data) in [
-        ("input", "abc", 0, 0, 3, "x", "", 0, ""),
-        ("textarea", "abcdef", 5, 1, 2, "x", "acdef", 2, ""),
-        ("textarea", "abcdef", 5, 1, 2, "xy", "acdef", 3, ""),
-        ("textarea", "abcde", 5, 1, 2, "😀", "acde", 3, ""),
-        ("textarea", "abcdef", 5, 5, 6, "xy", "abcde", 5, ""),
-        ("textarea", "abcdef", 5, 1, 2, "", "acdef", 1, ""),
-        ("textarea", "abcde", 5, 1, 2, "x", "axcde", 2, "x"),
+        ("input", "abc", 0, 0, 3, "x", "", 0, Some("")),
+        ("textarea", "abcdef", 5, 1, 2, "x", "acdef", 2, Some("")),
+        ("textarea", "abcdef", 5, 1, 2, "xy", "acdef", 3, Some("")),
+        ("textarea", "abcde", 5, 1, 2, "😀", "acde", 3, Some("")),
+        ("textarea", "abcdef", 5, 5, 6, "xy", "abcde", 5, Some("")),
+        ("textarea", "abcdef", 5, 1, 2, "", "acdef", 1, Some("")),
+        ("textarea", "abcde", 5, 1, 2, "x", "axcde", 2, Some("x")),
+        ("textarea", "abcde", 5, 1, 3, "xyz", "axyde", 4, Some("xy")),
+        ("input", "abcde", 5, 1, 3, "xyz", "axyde", 4, Some("xy")),
+        ("textarea", "😀bc", 4, 0, 1, "x", "xbc", 1, Some("x")),
+        ("textarea", "😀bc", 4, 1, 2, "x", "😀bc", 3, None),
+        ("textarea", "a😀bc", 5, 1, 2, "x", "axbc", 2, Some("x")),
+        ("textarea", "a😀bc", 5, 2, 3, "x", "a😀bc", 4, None),
+        ("textarea", "😀bc", 0, 0, 1, "x", "bc", 1, Some("")),
+        ("textarea", "abcde", 5, 1, 1, "xyz", "abcde", 4, None),
     ] {
         let source = format!(
             r#"component App
@@ -848,11 +856,16 @@ fn the_agents_empty_fitted_insertion_deletes_a_range() {
             p.field_text(editor),
             p.field_selection(editor),
             text(&p, "events"),
+            p.edited == Some(editor),
         ));
+        let input = data.map_or_else(String::new, |data| {
+            format!("input:insertText:{data}:{caret}-{caret}|")
+        });
         expected.push((
             value.to_owned(),
             FieldSelection::caret(caret),
-            format!("before:insertText:{typed}|input:insertText:{data}:{caret}-{caret}|"),
+            format!("before:insertText:{typed}|{input}"),
+            data.is_some(),
         ));
     }
     assert_eq!(actual, expected);

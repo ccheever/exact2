@@ -124,26 +124,46 @@ impl<D: DataSource> Presenter<D> {
             is_composing: false,
         };
         if self.before_input(target, &edit, now)? {
-            let fitted = field::fit(text, &value, selection, limit);
-            if !fitted.is_empty() || text.is_empty() || selection.start != selection.end {
-                let (next, mut caret) = field::replace(&value, selection, fitted);
-                if fitted.is_empty() {
-                    // Chrome's rejected insertion advances by the original
-                    // text's UTF-16 length, clamped to the remaining value.
-                    caret = FieldSelection::caret(
-                        caret
-                            .start
-                            .saturating_add(field::utf16_len(text))
-                            .min(field::utf16_len(&next)),
-                    );
+            // Chromium advances an endpoint inside a surrogate pair past
+            // the character before fitting or replacing the selection.
+            let boundary = |offset| {
+                let mut at = 0;
+                for ch in value.chars() {
+                    if at >= offset {
+                        break;
+                    }
+                    at += ch.len_utf16() as u32;
                 }
+                at
+            };
+            let selection = FieldSelection {
+                start: boundary(selection.start),
+                end: boundary(selection.end),
+                ..selection
+            };
+            let fitted = field::fit(text, &value, selection, limit);
+            let removes =
+                field::byte_at(&value, selection.start) != field::byte_at(&value, selection.end);
+            let (next, _) = field::replace(&value, selection, fitted);
+            // Even a rejected insertion advances by the original text's
+            // UTF-16 length, clamped to the remaining value.
+            let caret = FieldSelection::caret(
+                selection
+                    .start
+                    .saturating_add(field::utf16_len(text))
+                    .min(field::utf16_len(&next)),
+            );
+            if !fitted.is_empty() || text.is_empty() || removes {
                 edit.data = Some(fitted.to_owned());
                 edit.cancelable = false;
                 if let Some(e) = self.apply_field_edit(target, next, caret, bound, now, edit) {
                     return Err(e);
                 }
+            } else {
+                self.mark_field(target, &value, caret, false);
             }
         }
+
         let value = self.field_text(target);
         let mut s = format!("{{\"typed\":{target},\"value\":");
         // A password's value is never agent output (#134).
