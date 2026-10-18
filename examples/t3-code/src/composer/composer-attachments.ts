@@ -4,7 +4,7 @@
 // composerAttachmentFiles isPreviewableComposerVideo and packages/shared video.ts.
 import type { T3Client } from '../client/client';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
-import { str, type Obj } from '../client/domain';
+import { obj, str, type Obj } from '../client/domain';
 import { draftFiles, setDraftFiles } from './composer-editor-files';
 import { contextId, contextReferences } from './composer-editor-menu';
 import { videoMimeType } from './composer-video';
@@ -37,18 +37,17 @@ export function referencedImageIds(prompt: string, imageIds: ReadonlyArray<strin
 
 /**
  * composerDraftStore removeImage / removeFile: the draft's prompt loses every
- * chip for the removed attachment. The stored draft changes first; the open
- * editor then takes the same text as one edit, whose input supersedes it.
+ * chip for the removed attachment. A live field persists its accepted input;
+ * a background draft has no field and updates its stored source directly.
  */
 export async function removeAttachmentReferences(client: T3Client, native: Native, key: string, kind: 'image' | 'file', producerId: string): Promise<boolean> {
   const prompt = client.local.drafts[key] ?? '';
   const next = removeInlineContextReference(prompt, kind === 'image' ? contextId('image', producerId) : producerId).prompt;
   if (next === prompt) return false;
-  client.local.drafts[key] = next;
-  if (key !== client.draftKey) return true;
+  if (key !== client.draftKey) { client.local.drafts[key] = next; return true; }
   // `expect`: a prompt typed past this one is never overwritten; its own input carries the chips then.
-  await bridgeReply(native, { op: 'editorEdit', all: true, expect: prompt, text: next, focus: false }).catch(() => null);
-  return true;
+  const reply = await bridgeReply(native, { op: 'editorEdit', all: true, expect: prompt, text: next, focus: false }).catch(() => null);
+  return reply?.ok === true && obj(reply.value).applied === true;
 }
 
 // ── Video tiles (composerVideos) ────────────────────────────────────────────

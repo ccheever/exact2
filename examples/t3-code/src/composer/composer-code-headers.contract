@@ -1,0 +1,38 @@
+use ComposerRichView from "./composer-rich.contract"
+
+shape ComposerCodeAnchor
+  start: number
+  end: number
+  label: string
+  language: string
+  frame: Geometry
+
+shape ComposerCodeLayout
+  owner: string
+  value: string
+  x: number
+  y: number
+  width: number
+  anchors: ComposerCodeAnchor[]
+
+component ComposerCodeHeaders
+  inject
+    composerCodeLayout: ComposerCodeLayout
+    composerLanguage: action
+  props
+    source: ComposerRichView
+    owner: string
+    value: string
+    resting: bool
+  action pick(start: number, end: number, language: string)
+    composerLanguage(start, end, language, composerCodeLayout.owner, composerCodeLayout.value)
+  view
+    if not resting and source.owner == owner and source.value == value and source.mode == "rich" and source.headers.length > 0 and composerCodeLayout.owner == owner and composerCodeLayout.value == value
+      box position="absolute" left=0 top=0 right=0 bottom=0 pointer-events="none" aria-label="Code block controls"
+        for header in composerCodeLayout.anchors key=header.start
+          row position="absolute" left=composerCodeLayout.x top=(header.frame.y - composerCodeLayout.y) width=composerCodeLayout.width height=header.frame.height align-items="center" justify-content="flex-end" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" pointer-events="none"
+            select value=header.language change=pick(header.start, header.end) aria-label="Code block language" testId=`composer-code-language-${header.start}` height="1.25rem" max-width="10rem" font-size="0.6875rem" pointer-events="auto"
+              if source.languages.filter((language) => language.id == header.language).length == 0
+                option header.label value=header.language
+              for language in source.languages key=language.id
+                option language.label value=language.id

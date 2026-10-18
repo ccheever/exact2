@@ -2,7 +2,7 @@ import AppKit
 import XCTest
 
 // T3ComposerInput.swift: the composer's focus reaches its node on a click, not only on
-// typing; ⌘B bolds under a non-Latin source and while a syllable is composing; a press elsewhere
+// typing; formatting keys pass to the shared field; a press elsewhere
 // ends composition first. The transcript's remembered position moved to Contract (ChatColumn in
 // app-main.contract); its cases are in timeline-anchor.test.ts.
 // Real AppKit views in a real window; compiled with every file in modules/apple.
@@ -89,29 +89,29 @@ final class ComposerInputTests: XCTestCase {
         XCTAssertEqual(T3ComposerInput.chordKey(f.key("ㅠ", "ㅠ", 99)), "ㅠ", "an unmapped key keeps its characters")
     }
 
-    func testCommandBBoldsAfterAClickAndUnderKorean() {
+    func testFormattingKeysPassThroughAfterAClickAndUnderKorean() {
         let f = ComposerFixture()
         f.editor.string = "draft"
         f.window.makeFirstResponder(f.editor); tick()
         f.editor.setSelectedRange(NSRange(location: 0, length: 5))
-        XCTAssertNil(f.composer.handle(f.key("b", "b", 11)), "⌘B is consumed")
-        XCTAssertEqual(f.editor.string, "**draft**")
+        XCTAssertNotNil(f.composer.handle(f.key("b", "b", 11)))
+        XCTAssertEqual(f.editor.string, "draft")
         f.editor.string = "word"; f.editor.setSelectedRange(NSRange(location: 0, length: 4))
-        XCTAssertNil(f.composer.handle(f.key("ㅠ", "ㅠ", 11)), "⌘B under Korean 2-Set is consumed")
-        XCTAssertEqual(f.editor.string, "**word**")
+        XCTAssertNotNil(f.composer.handle(f.key("ㅠ", "ㅠ", 11)))
+        XCTAssertEqual(f.editor.string, "word")
     }
 
-    func testCommandBEndsCompositionThenBolds() {
+    func testFormattingAdapterLeavesCompositionForTheSharedHost() {
         let f = ComposerFixture()
         f.window.makeFirstResponder(f.editor); tick()
         f.editor.string = ""
         f.editor.insertText("안", replacementRange: f.editor.selectedRange())
         f.editor.setMarkedText("녕", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
         XCTAssertTrue(f.editor.hasMarkedText())
-        XCTAssertNil(f.composer.handle(f.key("ㅠ", "ㅠ", 11)))
-        XCTAssertFalse(f.editor.hasMarkedText(), "composition ended")
+        XCTAssertNotNil(f.composer.handle(f.key("ㅠ", "ㅠ", 11)))
+        XCTAssertTrue(f.editor.hasMarkedText())
         XCTAssertTrue(f.editor.string.hasPrefix("안녕"), "the composed syllable stays: \(f.editor.string)")
-        XCTAssertTrue(f.editor.string.contains("**"), "and the chord toggled bold: \(f.editor.string)")
+        XCTAssertFalse(f.editor.string.contains("**"))
     }
 
     func testPressElsewhereEndsComposition() {
