@@ -4,7 +4,7 @@ import { mobileClient } from './client';
 import { answer } from './app';
 import { obj, type Obj } from './shared/domain';
 import type { Native } from './shared/protocol';
-import { collectLimitAccounts, collectLimitPools, displayLimitWindows, type LimitPresentations } from './settings-usage-limits';
+import { CHATGPT_USAGE_URL, collectLimitAccounts, collectLimitPools, displayLimitWindows, type LimitPresentations } from './settings-usage-limits';
 import { mobileUsageConfig } from './settings-usage-types';
 import { mobileUsage, mobileUsageCommand, mobileUsageSelection, mobileUsageSnapshot, mobileUsageWindow, usageGrant } from './settings-usage';
 import { mobileUsagePresentation, mobileUsageAccount, mobileUsageProviderRows } from './settings-usage-view';
@@ -1414,4 +1414,50 @@ test('all twelve themes expose their existing warning background, border and for
     const colors=settingsColors(mode,theme),tokens=settingsTokens(mode,theme);
     expect([colors.warning,colors.warningBorder,colors.warningForeground]).toEqual([tokens['--color-warning'],tokens['--color-warning-border'],tokens['--color-warning-foreground']]);
   }
+});
+
+function externalUsageView(providers:Obj[],tab='usage',external=true,selected?:LimitPresentations){
+  const presentations=selected??new Map([['a',{entry:{target:{label:'A'}},serverConfig:mobileUsageConfig({providers})}]]);
+  return mobileUsagePresentation({tab,window:mobileUsageWindow(30,now),metric:'cost',now,presentations,external,
+    sources:[...presentations].map(([id,value])=>({id,label:value.entry.target.label,connected:true,summary:null,error:'',canRead:false,canWrite:false,canManage:false,config:{}}))},false);
+}
+test('external cards keep complete URL order and deduplicated accounts while Usage selects only ChatGPT',()=>{
+  const make=(id:string,name:string,url:string,label:string)=>({...nativeAccount({...limits,externalUsage:{url,label}}),instanceId:id,displayName:name});
+  const a=mobileUsageConfig({providers:[make('generic','Generic','https://usage.example.test/account','External account'),make('alpha','Alpha',CHATGPT_USAGE_URL,'First ChatGPT'),make('alpha2','Alpha',CHATGPT_USAGE_URL,'First ChatGPT')]}),
+    b=mobileUsageConfig({providers:[make('beta','Beta',CHATGPT_USAGE_URL,'Last ChatGPT')]});
+  const selected:LimitPresentations=new Map([['a',{entry:{target:{label:'A'}},serverConfig:a}],['b',{entry:{target:{label:'B'}},serverConfig:b}]]),before=JSON.stringify([...selected]);
+  const usage=externalUsageView([],'usage',true,selected),limitsView=externalUsageView([],'limits',true,selected);
+  expect(usage.links).toEqual([{url:'https://usage.example.test/account',label:'External account',accounts:'Generic on A',message:'',disabled:false},{url:CHATGPT_USAGE_URL,label:'Last ChatGPT',accounts:'Alpha on A, Beta on B',message:'',disabled:false}]);
+  expect(usage.chatGptUsage).toEqual([usage.links[1]!]);expect(limitsView.links).toEqual(usage.links);expect(limitsView.chatGptUsage).toEqual([]);
+  expect(externalUsageView([],'usage',true,new Map([['a',selected.get('a')!]])).chatGptUsage[0]?.accounts).toBe('Alpha on A');
+  expect(externalUsageView([],'usage',true,new Map()).chatGptUsage).toEqual([]);expect(JSON.stringify([...selected])).toBe(before);
+});
+test.each(['https://chatgpt.com/#settings/usage','https://chatgpt.com/#settings/Usage/','https://chatgpt.com/?qa=1#settings/Usage'])('only exact canonical ChatGPT URL selects Usage summary, not %s',url=>{
+  const data=externalUsageView([nativeAccount({...limits,externalUsage:{url,label:'Near match'}})]);
+  expect(data.links.map(link=>link.url)).toEqual([url]);expect(data.chatGptUsage).toEqual([]);
+});
+test('unsupported external subscription destination remains eligible and preserves optional message without an empty Limits state',()=>{
+  const provider=nativeAccount({...limits,windows:[],unavailable:{reason:'unsupported',message:'Open this account externally'},externalUsage:{url:CHATGPT_USAGE_URL,label:'Provider custom label'}});
+  const data=externalUsageView([provider],'limits');expect(data.links).toEqual([{url:CHATGPT_USAGE_URL,label:'Provider custom label',accounts:'one on A',message:'Open this account externally',disabled:false}]);
+  expect([data.limitsEmpty,data.limitWarnings,data.pools]).toEqual(['',[],[]]);
+  const usage=externalUsageView([provider]);expect(usage.chatGptUsage).toEqual(usage.links);expect(usage.hasUsage).toBe(false);
+  expect(usage.emptyMessage).toBe('No usage summary is available for these environments.');
+});
+test.each([{enabled:false},{installed:false},{availability:'unavailable'},{auth:{status:'unauthenticated'}}])('ineligible provider does not expose external cards or shared Usage summary: %j',override=>{
+  const provider={...nativeAccount({...limits,externalUsage:{url:CHATGPT_USAGE_URL,label:'Hidden account'}}),...override},data=externalUsageView([provider]);
+  expect(data.links).toEqual([]);expect(data.chatGptUsage).toEqual([]);
+});
+test('external capability disables both presentations without removing the exact owner URL',()=>{
+  const providers=[nativeAccount({...limits,externalUsage:{url:CHATGPT_USAGE_URL,label:'Shared account'}})];
+  const unavailable=externalUsageView(providers,'usage',false),available=externalUsageView(providers);
+  expect(unavailable.links).toEqual([{url:CHATGPT_USAGE_URL,label:'Shared account',accounts:'one on A',message:'',disabled:true}]);
+  expect(unavailable.chatGptUsage).toEqual(unavailable.links);expect(available.chatGptUsage).toEqual([{...unavailable.links[0]!,disabled:false}]);
+});
+test('the Usage-specific ChatGPT action still uses the full exact-URL owner without reprojecting its summary',async()=>{
+  const fixture=transport();mobileClient.config={settings:{},providers:[nativeAccount({...limits,externalUsage:{url:CHATGPT_USAGE_URL,label:'Shared account'}})]};
+  const native:Native={...fixture.native,async later(input){if(obj(input).op==='mobileOpenURL'){fixture.calls.push(obj(input));return {ok:true,generation:mobileClient.generation,value:{opened:true}};}return fixture.native.later(input);}};
+  await mobileUsage('null','usage',windowJSON,'cost',now,native,true);const summary=mobileUsageSnapshot('null','usage','cost').chatGptUsage[0]!;
+  const before=fixture.calls.length,result=await mobileUsageCommand('open-link','',summary.url,now+60000,native);
+  expect(result.message).toBe('');expect(fixture.calls.slice(before)).toEqual([{op:'mobileOpenURL',url:CHATGPT_USAGE_URL}]);
+  expect(mobileUsageSnapshot('null','usage','cost').chatGptUsage).toEqual([summary]);
 });

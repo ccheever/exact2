@@ -2,7 +2,7 @@
 // Pinned UsageRouteScreen/UsageLimitsPooled projection. Clock supplied by route owner.
 import { arr, obj, str, type Obj } from './shared/domain';
 import { formatCount, formatTokens, formatUsd, formatPercent, formatDayShort, formatHourShort, mergeUsage, windowPeriods, isModelCostUnknown, type UsageWindow } from './shared/pages-usage';
-import { collectLimitAccounts, collectLimitPools, collectLimitNotices, collectExternalUsageLinks, cursorUsageWindowDetails, displayLimitWindows, remainingPercent, formatResetsIn, formatDuration, type LimitAccount, type LimitPresentations } from './settings-usage-limits';
+import { CHATGPT_USAGE_URL, collectLimitAccounts, collectLimitPools, collectLimitNotices, collectExternalUsageLinks, cursorUsageWindowDetails, displayLimitWindows, remainingPercent, formatResetsIn, formatDuration, type LimitAccount, type LimitPresentations } from './settings-usage-limits';
 export interface UsageSourceView {id:string;label:string;connected:boolean;summary:Obj|null;error:string;canRead:boolean;canWrite:boolean;canManage:boolean;config:Obj}
 interface Prepared {tab:string;window:UsageWindow;metric:string;now:number;sources:UsageSourceView[];presentations:LimitPresentations;external:boolean;failedLabels?:string[]}
 export const MOBILE_USAGE_PROVIDERS=[
@@ -42,13 +42,14 @@ export function mobileUsagePresentation(input:Prepared|null,publish=true,pending
     buttonLabel:cursorSources.length>1?`Enable on ${source.label}`:'Enable',disabled:!source.connected||!source.canWrite||pendingCursor(source.id)}));
   const providers=mobileUsageProviderRows(merged.providers,tokens),afterCore=(ids:string[],claude:string)=>Math.max(ids.indexOf('codex'),ids.indexOf(claude))+1;
   const limitNotices=collectLimitNotices(input?.presentations??new Map()),externalLinks=collectExternalUsageLinks(input?.presentations??new Map()),failedLabels=input?.failedLabels??[];
+  const links=externalLinks.map(link=>({...link,accounts:link.accounts.join(', '),message:link.message??'',disabled:!input?.external}));
   return {ready:!!input,error:'',tab:input?.tab??'limits',metric:tokens?'tokens':'cost',hasUsage:actual,canRefresh:(input?.tab??'limits')==='limits'||sources.some(source=>source.canRead),refreshing:false,
     emptyMessage:!input||input.tab!=='usage'?'':!sources.length?'Select an environment to see usage.':!actual?'No usage summary is available for these environments.':'',
     environments:sources.map(source=>({id:source.id,label:source.label,status:source.error||(!source.connected?'Waiting for connection…':''),connected:source.connected})),
     notices:input?.tab==='usage'?[...limitNotices,...merged.mismatches.map(item=>`${item.environment}: ${item.direction==='serverBehind'?'Update the server to read usage.':'Update this app to read usage.'}`),...sources.flatMap(source=>arr(source.summary?.sources).flatMap(item=>str(item.message)?[`${source.label}: ${str(item.message)}`]:[]))].map((text,index)=>({id:String(index),text})):[],
     limitWarnings:input?.tab==='limits'?[...limitNotices,...(failedLabels.length?[`${failedLabels.join(', ')} could not refresh limits. Showing the last known values.`]:[])].map((text,index)=>({id:String(index),text})):[],
     duplicateMessage:merged.duplicates.length?`Counted once across environments sharing a transcript directory: ${merged.duplicates.join(', ')}`:'',
-    links:externalLinks.map(link=>({...link,accounts:link.accounts.join(', '),message:link.message??'',disabled:!input?.external})),
+    links,chatGptUsage:input?.tab==='usage'?links.filter(link=>link.url===CHATGPT_USAGE_URL).slice(0,1):[],
     cursor,cursorInsertAt:afterCore(providers.map(item=>item.id),'claude'),cursorPoolInsertAt:afterCore(pools.map(pool=>pool.driver),'claudeAgent'),
     pools:pools.map(pool=>({id:pool.driver,label:LIMIT_DRIVER_LABEL[pool.driver]??pool.driver,light:provider(pool.driver==='claudeAgent'?'claude':'codex').light,dark:provider(pool.driver==='claudeAgent'?'claude':'codex').dark,
       windows:displayLimitWindows(pool).map(window=>{
