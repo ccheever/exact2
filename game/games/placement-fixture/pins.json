@@ -9,10 +9,10 @@
     "linux",
     "web"
   ],
-  "inputs": "df86ea6d9339ff01a7ab561ae8df19ad6088b9006767483ac336dcff4dc591a2",
-  "sourceInputs": "5b146369789c4345b97fb6c8aadbf0e180df7bf9d5148019253b692e3c3fd12c",
+  "inputs": "f410a9bfeb32538909212ab0c15fc46c8faa9454fc551a5aabdcbdacbb3e005c",
+  "sourceInputs": "db7886301230a62348036ffe5dbabf96273e73e823a6d2272d7990137b25d1d8",
   "game": "placement-fixture",
   "generated": "bun game/prove.mjs placement-fixture --repin --hosts 'linux,web'",
-  "at": "6a5d49bf2820d38f83f50b0913ee207f8a62a1f5",
-  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream; 2e49129cb: EXSIM v7 header"
+  "at": "9a0232b0edfc35246dea0760bce29d429915d6dc",
+  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream"
 }
