@@ -596,7 +596,6 @@ final class MenuHost {
         context.reset()
         #endif
         laidOut.removeAll()
-        blocked.removeAll()
     }
 
     /// The top-layer boxes given back to layout to show in Exact's views.
@@ -604,27 +603,14 @@ final class MenuHost {
     /// closed (`host/apple/src/closed.rs`), as a browser lays out neither:
     /// UIKit's alert and menu read their rows, never their frames.
     private var laidOut = Set<UInt32>()
-    /// The popovers of `laidOut` laid out in a block of their own.
-    private var blocked = Set<UInt32>()
     private var coverPending = false
+    /// Whether `box`, a `dialog` or popover, is given back to layout now.
+    func isLaidOut(_ box: NodeView) -> Bool { laidOut.contains(box.id) }
     /// `box` laid out now, before it shows in Exact's views: a sheet, the
     /// top layer, a context menu's preview.
     func layOut(_ box: NodeView) {
-        guard let presenter, let session = presenter.session, laidOut.insert(box.id).inserted else { return }
-        // An open popover is in the top layer, out of its parent's flow, so
-        // its siblings stay where they are (a route's scroller keeps its
-        // edges, `NavigationHost.inFlow`): it is laid out in a block of its
-        // own, as wide as its parent's content (the width it had in the
-        // flow), its height its content's, at most the viewport's. A `dialog`
-        // is `position: absolute` already.
-        var blocks: [(UInt32, HostBlock?)] = []
-        if box.props["popover"] != nil, !isDialog(box) {
-            let parent = sequence(first: box.superview, next: { $0?.superview }).lazy.compactMap { $0 as? NodeView }.first
-            let width = parent.map { $0.contentBox().width }.flatMap { $0 > 0 ? $0 : nil } ?? presenter.viewport.bounds.width
-            blocks.append((box.id, HostBlock(width: .size(width), height: .fit(presenter.viewport.bounds.height))))
-            blocked.insert(box.id)
-        }
-        session.apply(session.runtime.blocks(blocks, covers: [(box.id, nil)]))
+        guard let session = presenter?.session, laidOut.insert(box.id).inserted else { return }
+        session.apply(session.runtime.covers([(box.id, nil)]))
         var stack: [UIView] = [box]
         while let view = stack.popLast() {
             (view as? NodeView)?.makeWaitingField()
@@ -681,15 +667,14 @@ final class MenuHost {
     private func coverClosedNow() {
         coverPending = false
         guard let presenter, let session = presenter.session else { return }
-        var covers: [(UInt32, HostCover?)] = [], blocks: [(UInt32, HostBlock?)] = []
+        var covers: [(UInt32, HostCover?)] = []
         for id in laidOut {
-            guard let node = presenter.views[id] else { laidOut.remove(id); blocked.remove(id); continue }
+            guard let node = presenter.views[id] else { laidOut.remove(id); continue }
             guard !showsInViews(node) else { continue }
             laidOut.remove(id)
-            if blocked.remove(id) != nil { blocks.append((id, nil)) }
             if node.props["popover"] != nil || isDialog(node) { covers.append((id, .whole)) }
         }
-        if !covers.isEmpty || !blocks.isEmpty { session.apply(session.runtime.blocks(blocks, covers: covers)) }
+        if !covers.isEmpty { session.apply(session.runtime.covers(covers)) }
     }
     private func showsInViews(_ node: NodeView) -> Bool {
         if sheets.owns(node) || agentOpen.values.contains(where: { $0.popover === node }) { return true }

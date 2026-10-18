@@ -547,8 +547,8 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertNil(NavigationHost.bottomScroller(in: route), "a last child above its sibling is not at the edge")
     }
 
-    /// A route's menus and confirmations take no place in its flow, as a
-    /// browser lays out neither: one written after its scroller leaves the
+    /// A route's closed menus and confirmations take no place in its flow, as
+    /// a browser lays out neither: one written after its scroller leaves the
     /// scroller at the bottom edge (euxy's Patterns tab, clipped at the tab
     /// bar by its sort menu and its "Restore factory presets?" dialog).
     func testTopLayerBoxesAfterAScrollerLeaveItAtTheBottomEdge() {

@@ -54,8 +54,10 @@ extension MenuHost {
     /// Whether `row` lays `texts` one under the other, as its style says (a
     /// closed menu's rows are not laid out): block texts in a block box, or
     /// the texts of a flex column, whose face places its image at the `top`
-    /// or `bottom` (the kernel's `press_face`).
+    /// or `bottom` (the kernel's `press_face`). A text positioned out of the
+    /// flow (a count at the row's corner) is in neither.
     static func stacks(_ row: NodeView, _ texts: [NodeView]) -> Bool {
+        guard texts.allSatisfy({ !["absolute", "fixed"].contains($0.style["position_type"]?.string ?? "") }) else { return false }
         switch row.style["display"]?.string ?? "block" {
         case "block": return texts.allSatisfy { ($0.style["display"]?.string ?? "block") == "block" }
         case "flex": return ["top", "bottom"].contains(row.face?.placement ?? "")

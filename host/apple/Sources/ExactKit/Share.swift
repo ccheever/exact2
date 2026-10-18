@@ -180,23 +180,27 @@ enum ShareSheet {
     /// A picture's file name, which the share sheet's header and whoever
     /// receives it show: the share's title, as a person names a file they
     /// save (`/` and `:`, which a file name cannot hold, and control
-    /// characters as `-`), cut at a character to at most 251 bytes of UTF-8
-    /// so that it and `.png` fit APFS's 255; with no title, the id's
-    /// letters, digits, `-` and `_`, others as `-`.
+    /// characters as `-`); with no title, the id's letters, digits, `-` and
+    /// `_`, others as `-`. Either is cut at a character to at most 251 bytes
+    /// of UTF-8, so that it and `.png` fit APFS's 255.
     static func pictureName(_ id: String, title: String? = nil) -> String {
-        var scalars = String.UnicodeScalarView()
-        for s in (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars {
-            // Control characters only: `CharacterSet.controlCharacters` also
-            // holds the format characters, the joiner of an emoji sequence.
-            scalars.append(s == "/" || s == ":" || s.properties.generalCategory == .control ? "-" : s)
+        func fit(_ text: String, _ keep: (Unicode.Scalar) -> Bool) -> String {
+            var scalars = String.UnicodeScalarView()
+            for s in text.unicodeScalars { scalars.append(keep(s) ? s : "-") }
+            var name = ""
+            for c in String(scalars) {
+                guard name.utf8.count + c.utf8.count <= 251 else { break }
+                name.append(c)
+            }
+            return name
         }
-        var named = ""
-        for c in String(scalars) {
-            guard named.utf8.count + c.utf8.count <= 251 else { break }
-            named.append(c)
+        // Control characters only: `CharacterSet.controlCharacters` also
+        // holds the format characters, the joiner of an emoji sequence.
+        let named = fit((title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)) {
+            $0 != "/" && $0 != ":" && $0.properties.generalCategory != .control
         }
         if !named.isEmpty { return named + ".png" }
-        return String(id.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_" ? Character($0) : "-" }) + ".png"
+        return fit(id) { CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_" } + ".png"
     }
     /// A PNG of `view` and its subviews as they are drawn now, at the
     /// display's scale, and its size in pixels; nil for a view with no area.

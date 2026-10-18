@@ -2282,7 +2282,8 @@ one field at a time: with it, a cancel and at most three buttons, no `for`
 
 A menu row's second `text` is its item's grey subtitle on iOS when it is a line
 under the first (two texts in a block `button`, or a `flex-direction="column"`
-one), with or without an `if` around it; two texts side by side in a row stay one title.
+one), with or without an `if` around it; two texts side by side in a row, or one
+positioned `absolute` (a count at the corner), stay one title.
 
 A submenu is a row whose `popovertarget` names another menu popover (`Copy ▸
 path / link`): a submenu `NSMenuItem` on macOS, a nested `UIMenu` on iOS, and

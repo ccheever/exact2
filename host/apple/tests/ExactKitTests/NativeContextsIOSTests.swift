@@ -52,30 +52,35 @@ final class NativeContextsIOSTests: XCTestCase {
     /// "Date Added Newest first" as a two-line title. Two texts side by side
     /// (`Inbox` and its count, `Save` and `⌘S`) stay one title.
     func testABareMenuRowsStackedSecondTextIsItsSubtitle() throws {
-        func row(_ id: Int, _ texts: [String], display: String? = nil) -> [[String: Any]] {
+        var ops: [[String: Any]] = view(1, ["popover": "auto", "id": "menu"])
+        /// A row of `texts`, the second styled `second`.
+        func row(_ id: Int, _ texts: [String], display: String? = nil, second: [String: Any] = [:]) {
             let kids = texts.indices.map { 100 * id + $0 }
-            return [["op": "create", "id": id, "kind": "button", "handlers": ["press"], "props": [:],
-                     "style": ["text_color": [0, 0, 0, 255]].merging(display.map { ["display": $0] } ?? [:]) { $1 }]]
-                + zip(kids, texts).map { ["op": "create", "id": $0, "kind": "text", "props": ["text": $1]] }
-                + [["op": "children", "id": id, "ids": kids]]
+            var style: [String: Any] = ["text_color": [0, 0, 0, 255]]
+            if let display { style["display"] = display }
+            ops.append(["op": "create", "id": id, "kind": "button", "handlers": ["press"], "props": [:], "style": style])
+            for (i, (kid, text)) in zip(kids, texts).enumerated() {
+                ops.append(["op": "create", "id": kid, "kind": "text", "props": ["text": text], "style": i == 1 ? second : [:]])
+            }
+            ops.append(["op": "children", "id": id, "ids": kids])
         }
+        row(2, ["Date Added", "Newest first"])
+        row(3, ["BPM"])
+        row(4, ["Tempo", "Fastest first"], display: "flex")
+        row(5, ["Inbox", "3"], display: "flex")
+        row(6, ["Save", "⌘S"], second: ["display": "inline"])
+        // A count positioned at the row's top right, in a block row and in a
+        // flex column: out of the flow, no line under the title.
+        row(7, ["Drafts", "12"], second: ["position_type": "absolute"])
+        row(8, ["Drafts", "12"], display: "flex", second: ["position_type": "absolute"])
+        ops += [["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6, 7, 8]], ["op": "roots", "ids": [1]]]
         var column = ButtonFace(); column.placement = "top"
         var across = ButtonFace(); across.placement = "leading"
-        let p = presenter(view(1, ["popover": "auto", "id": "menu"])
-            + row(2, ["Date Added", "Newest first"])
-            + row(3, ["BPM"])
-            + row(4, ["Tempo", "Fastest first"], display: "flex")
-            + row(5, ["Inbox", "3"], display: "flex")
-            + [["op": "create", "id": 6, "kind": "button", "handlers": ["press"], "props": [:], "style": ["text_color": [0, 0, 0, 255]]],
-               ["op": "create", "id": 61, "kind": "text", "props": ["text": "Save"]],
-               ["op": "create", "id": 62, "kind": "text", "props": ["text": "⌘S"], "style": ["display": "inline"]],
-               ["op": "children", "id": 6, "ids": [61, 62]],
-               ["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6]], ["op": "roots", "ids": [1]]],
-            faces: [4: column, 5: across])
+        let p = presenter(ops, faces: [4: column, 5: across, 8: column])
         defer { window.isHidden = true }
         let items = p.menus.items(of: try XCTUnwrap(p.views[1])).compactMap { $0 as? UIAction }
-        XCTAssertEqual(items.map(\.title), ["Date Added", "BPM", "Tempo", "Inbox 3", "Save ⌘S"])
-        XCTAssertEqual(items.map(\.subtitle), ["Newest first", nil, "Fastest first", nil, nil])
+        XCTAssertEqual(items.map(\.title), ["Date Added", "BPM", "Tempo", "Inbox 3", "Save ⌘S", "Drafts 12", "Drafts 12"])
+        XCTAssertEqual(items.map(\.subtitle), ["Newest first", nil, "Fastest first", nil, nil, nil, nil])
     }
     func testCustomHideOnlyButtonClosesNativeContentPopoverInProduction() throws {
         XCTAssertFalse(ExactEnv.agentMode, "this test exercises production handling")

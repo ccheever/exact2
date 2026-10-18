@@ -92,6 +92,11 @@ enum SharePictureCase {
             let url = try ShareSheet.scratchFile(dir, 9, name)
             XCTAssertNoThrow(try Data("x".utf8).write(to: url), name)
         }
+        // So is a long id, when there is no title.
+        let id = ShareSheet.pictureName(String(repeating: "카드", count: 60))
+        XCTAssertEqual(id, String(repeating: "카드", count: 41) + "카.png", "83 characters of 3 bytes, then `.png`")
+        XCTAssertLessThanOrEqual(id.utf8.count, 255)
+        XCTAssertNoThrow(try Data("x".utf8).write(to: try ShareSheet.scratchFile(dir, 10, id)))
         // A view with no area has no picture.
         p.apply(wireBatch([["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 0.0, "h": 50.0]]))
         XCTAssertNil(ShareSheet.picture(of: card))
