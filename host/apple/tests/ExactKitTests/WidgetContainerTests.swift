@@ -94,7 +94,32 @@ final class WidgetContainerTests: XCTestCase {
         try Data("corrupt".utf8).write(to: root.appendingPathComponent("widget-store-generation"), options: .atomic)
         XCTAssertFalse(cache.isCurrent)
         XCTAssertThrowsError(try cache.resolve { throw RefreshFailure.offline })
-        XCTAssertThrowsError(try WidgetTimelineCache(root: root, kind: "question", generation: "one"))
+        // An unreadable counter still lets a refresh answer from the live
+        // store; it keeps nothing and reuses nothing.
+        let unknown = try WidgetTimelineCache(root: root, kind: "question", generation: "one")
+        XCTAssertThrowsError(try unknown.resolve { throw RefreshFailure.offline })
+        try FileManager.default.removeItem(at: file)
+        XCTAssertEqual(try unknown.resolve { Data("account B".utf8) }, Data("account B".utf8))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    func testAFailedCacheWriteKeepsTheGoodRefreshAndAnOlderEntryIsRemoved() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let caches = root.appendingPathComponent("Library/Caches/widget-timelines")
+        try FileManager.default.createDirectory(at: caches, withIntermediateDirectories: true)
+        // A file where the generation's directory goes: the cache cannot be written.
+        try Data().write(to: caches.appendingPathComponent("one"))
+        let blocked = try WidgetTimelineCache(root: root, kind: "question", generation: "one")
+        XCTAssertEqual(try blocked.resolve { Data("account A".utf8) }, Data("account A".utf8))
+        try FileManager.default.removeItem(at: caches.appendingPathComponent("one"))
+        let file = caches.appendingPathComponent("two/question.json")
+        _ = try WidgetTimelineCache(root: root, kind: "question", generation: "two").resolve { Data("account A".utf8) }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+        try Data("1".utf8).write(to: root.appendingPathComponent("widget-store-generation"), options: .atomic)
+        let switched = try WidgetTimelineCache(root: root, kind: "question", generation: "two")
+        XCTAssertThrowsError(try switched.resolve { throw RefreshFailure.offline })
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path), "account A's answer is not kept past the switch")
     }
 
 }

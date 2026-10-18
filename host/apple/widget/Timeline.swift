@@ -63,6 +63,8 @@ private func widgetSnapshotView(_ entry: ExactWidgetEntry, displaySize: CGSize, 
 // Families share an in-flight answer only within one generation and store revision.
 private enum WidgetRefresh {
     static let queue = DispatchQueue(label: "exact.widget-refresh", qos: .userInitiated)
+    /// The group's environment is set once, before any refresh reads it.
+    static let configured: Void = WidgetContainer.configure()
     static let lock = NSLock()
     static var waiting: [WidgetTimelineCache: [(Timeline<ExactWidgetEntry>) -> Void]] = [:]
     static func begin(_ cache: WidgetTimelineCache, completion: @escaping (Timeline<ExactWidgetEntry>) -> Void) -> Bool {
@@ -104,14 +106,14 @@ struct ExactTimelineProvider: TimelineProvider {
     func placeholder(in context: Context) -> ExactWidgetEntry { preview(context, placeholder: true) }
     func getSnapshot(in context: Context, completion: @escaping (ExactWidgetEntry) -> Void) { completion(preview(context, placeholder: false)) }
     func getTimeline(in context: Context, completion: @escaping (Timeline<ExactWidgetEntry>) -> Void) {
-        let start = DispatchTime.now(), deadline = start + .milliseconds(900)
+        let start = DispatchTime.now()
         let size = context.displaySize, date = Date(), inputs = facts(.current, at: Date())
         // Privacy modifiers can suppress redaction: an unredacted placeholder
         // would show fixture values as live account data. Fail with "Open app".
         var unavailable = preview(context, placeholder: true)
         unavailable.unavailable = true
         let fallback = Timeline(entries: [unavailable], policy: .after(date.addingTimeInterval(900)))
-        WidgetContainer.configure()
+        _ = WidgetRefresh.configured
         // A binary update can precede the app's first launch/publication.
         let root = (try? WidgetContainer.pin()) ?? embeddedRoot()
         let generation = root == embeddedRoot()
@@ -119,12 +121,15 @@ struct ExactTimelineProvider: TimelineProvider {
             : root.lastPathComponent
         guard let group = WidgetContainer.root,
               let cache = try? WidgetTimelineCache(root: group, kind: kind, generation: generation) else {
-            widgetLog.error("getTimeline refused: store counter unavailable")
+            widgetLog.error("getTimeline refused: app group unavailable")
             completion(fallback)
             return
         }
         guard WidgetRefresh.begin(cache, completion: completion) else { return }
         WidgetRefresh.queue.async {
+            // Kinds share this queue: each refresh's 900 ms, boot included,
+            // starts when it leaves the queue, not while another kind runs.
+            let deadline = DispatchTime.now() + .milliseconds(900)
             let timeline: Timeline<ExactWidgetEntry> = autoreleasepool {
                 let plan = try? Data(contentsOf: root.appendingPathComponent("plans/\(kind).plan"))
                 do {

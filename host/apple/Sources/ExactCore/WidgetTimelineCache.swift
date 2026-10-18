@@ -6,7 +6,9 @@ import Foundation
 public struct WidgetTimelineCache: Hashable {
     private let file: URL
     private let counterFile: URL
-    private let counter: UInt64
+    /// Nil when the counter file is unreadable: the refresh still answers from
+    /// the live store, but nothing is kept or reused under an unknown revision.
+    private let counter: UInt64?
     private enum Failure: Error { case storeChanged }
     private struct Saved: Codable {
         let counter: UInt64
@@ -16,7 +18,7 @@ public struct WidgetTimelineCache: Hashable {
     public init(root: URL, kind: String, generation: String) throws {
         file = root.appendingPathComponent("Library/Caches/widget-timelines/\(generation)/\(kind).json")
         counterFile = root.appendingPathComponent("widget-store-generation")
-        counter = try Self.readCounter(counterFile)
+        counter = try? Self.readCounter(counterFile)
     }
 
     private static func readCounter(_ file: URL) throws -> UInt64 {
@@ -29,26 +31,32 @@ public struct WidgetTimelineCache: Hashable {
 
     /// Recheck after refresh and before delivery: a write can race either path.
     /// An unreadable counter cannot authorize account content.
-    public var isCurrent: Bool { (try? Self.readCounter(counterFile)) == counter }
+    public var isCurrent: Bool { counter == nil || (try? Self.readCounter(counterFile)) == counter }
 
     /// Only validated timeline bytes belong here. A failure may reuse an answer
     /// from this store revision, never one written before an account switch.
     public func resolve(_ refresh: () throws -> Data) throws -> Data {
+        guard let counter else { return try refresh() }
+        let bytes: Data
         do {
             guard isCurrent else { throw Failure.storeChanged }
-            let bytes = try refresh()
+            bytes = try refresh()
             guard isCurrent else { throw Failure.storeChanged }
-            let saved = try JSONEncoder().encode(Saved(counter: counter, bytes: bytes))
-            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try saved.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-            guard isCurrent else { throw Failure.storeChanged }
-            return bytes
         } catch {
             // This cache is separate from the app's store and update pointer.
             // A fresh process must prove the saved counter matches as well.
-            guard isCurrent, let saved = try? JSONDecoder().decode(Saved.self, from: Data(contentsOf: file)),
-                  saved.counter == counter, isCurrent else { throw error }
+            let saved = try? JSONDecoder().decode(Saved.self, from: Data(contentsOf: file))
+            if let saved, saved.counter < counter { try? FileManager.default.removeItem(at: file) }
+            guard isCurrent, let saved, saved.counter == counter, isCurrent else { throw error }
             return saved.bytes
         }
+        // Keeping the answer is best effort: a full or purged cache must not
+        // turn a good refresh into a failure.
+        if let saved = try? JSONEncoder().encode(Saved(counter: counter, bytes: bytes)) {
+            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? saved.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        }
+        guard isCurrent else { throw Failure.storeChanged }
+        return bytes
     }
 }

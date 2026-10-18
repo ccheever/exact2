@@ -531,17 +531,27 @@ pub(crate) fn widget_changed(app: &str) {
 
 #[allow(unsafe_code)]
 fn publish_widget_change(root: std::path::PathBuf, app: String) {
+    // A kept answer reaches disk on its own writer: wait for it, so a refresh
+    // that reads this counter reads the store the counter stands for.
+    flush_kept();
     let current = root.join("widget-store-generation");
-    let value = std::fs::read_to_string(&current)
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(0)
-        .saturating_add(1);
     let temporary = root.join(format!(".widget-store-{}", std::process::id()));
-    if std::fs::write(&temporary, value.to_string())
-        .and_then(|_| std::fs::rename(&temporary, &current))
-        .is_err()
-    {
+    // Until the counter advances, the extension's fallback still matches the
+    // store before this write: retry rather than leave it current.
+    let published = (0..3).any(|attempt| {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(50 << attempt));
+        }
+        let value = std::fs::read_to_string(&current)
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0)
+            .saturating_add(1);
+        std::fs::write(&temporary, value.to_string())
+            .and_then(|_| std::fs::rename(&temporary, &current))
+            .is_ok()
+    });
+    if !published {
         return;
     }
     #[cfg(target_vendor = "apple")]
@@ -770,6 +780,58 @@ mod tests {
         // behind it, are one write per platform and key.
         assert!(gated.sets.load(std::sync::atomic::Ordering::SeqCst) <= 4);
         assert!(platform.kept_failures().is_empty());
+    }
+
+    #[test]
+    fn the_widget_counter_advances_only_after_the_kept_answers_it_announces() {
+        let gated = std::sync::Arc::new(Gated {
+            inner: ibex2::kv::MemoryStore::new(),
+            open: std::sync::Mutex::new(false),
+            opened: std::sync::Condvar::new(),
+            sets: Default::default(),
+        });
+        let platform = Platform::of(
+            &endow_in(
+                Host::new()
+                    .with_secret_store(Box::new(ibex2::secrets::MemoryStore::new()))
+                    .with_kv_store(Box::new(GatedStore(gated.clone()))),
+                "",
+            )
+            .unwrap(),
+        );
+        struct Opens(std::sync::Arc<Gated>);
+        impl Drop for Opens {
+            fn drop(&mut self) {
+                *self.0.open.lock().unwrap() = true;
+                self.0.opened.notify_all();
+            }
+        }
+        let opens = Opens(gated.clone());
+        let root =
+            std::env::temp_dir().join(format!("exact-widget-counter-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let counter = root.join("widget-store-generation");
+        // Account B's answer is kept while the disk is shut.
+        platform
+            .write(&StoreWrite {
+                name: "exact.kept.question".into(),
+                value: Some("account B".into()),
+            })
+            .unwrap();
+        let publisher = {
+            let root = root.clone();
+            std::thread::spawn(move || publish_widget_change(root, "com.example.none".into()))
+        };
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(
+            !counter.exists(),
+            "a refresh reading this counter would read account A's answer"
+        );
+        drop(opens);
+        publisher.join().unwrap();
+        assert_eq!(std::fs::read_to_string(&counter).unwrap(), "1");
+        assert_eq!(gated.sets.load(std::sync::atomic::Ordering::SeqCst), 1);
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
