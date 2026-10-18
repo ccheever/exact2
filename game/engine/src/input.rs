@@ -8,6 +8,7 @@ pub(crate) use contexts::seed;
 pub use contexts::{Binding, Bindings, InputContexts};
 pub(crate) use pad::pad_index;
 pub use pad::{Curve, Pad, PadState, MAX_PADS, PAD_BUTTONS};
+pub use triggers::InputGestures;
 use triggers::{Trigger, TriggerState};
 
 /// Canvas regions used by discoverable touch controls (coordinates in points).
@@ -86,8 +87,9 @@ impl Stick {
     pub fn pad(pad: Pad) -> Self {
         Self::default().or_pad(pad)
     }
-    /// Add a pad's stick, or its triggers, alongside keys and touch. Every
-    /// connected pad contributes; the sum is unit-clamped like the rest.
+    /// Add a pad's stick, or its triggers, alongside keys and touch. Of the
+    /// connected pads the one pushed furthest counts; the sum with keys and
+    /// touch is unit-clamped like the rest.
     pub fn or_pad(mut self, pad: Pad) -> Self {
         self.pads.push(pad);
         self
@@ -529,12 +531,15 @@ pub struct Input {
     messages: Vec<String>,
     // Connected pads, by index.
     pads: Vec<PadState>,
-    // Timers and states of trigger actions mid-gesture, by action name.
+    // Timers and states of trigger actions mid-gesture, by action name, and
+    // the latched actions: a working copy of the world's InputGestures.
+    #[data(skip)]
     triggers: Vec<TriggerState>,
     // The InputContexts and Bindings resources as of the tick's start.
     contexts: Vec<String>,
     bindings: Vec<Binding>,
     // Actions that read up until their binding lifts: rebound or newly in context while held.
+    #[data(skip)]
     latched: Vec<String>,
 }
 impl Input {
@@ -631,7 +636,7 @@ impl Input {
         for pad in &saved.pads {
             pad.valid()?;
         }
-        self.validate_triggers(saved)
+        Ok(())
     }
     pub(crate) fn control_contacts(&self) -> Vec<ControlContact> {
         self.contacts
@@ -705,14 +710,21 @@ impl Input {
                 v += (p.position - p.origin) * Vec2::new(1.0, -1.0) / 60.0;
             }
         }
-        for pad in &self.pads {
-            for &control in &s.pads {
-                v += pad::shape(
-                    pad.stick(control),
-                    s.dead_zone.unwrap_or(pad::DEAD_ZONE),
-                    s.curve,
-                );
-            }
+        // Of the pads, the one pushed furthest steers (the lowest index on a
+        // tie), so two players' opposite sticks never cancel.
+        for &control in &s.pads {
+            let dead_zone = s.dead_zone.unwrap_or(pad::DEAD_ZONE);
+            let shaped = self
+                .pads
+                .iter()
+                .map(|p| pad::shape(p.stick(control), dead_zone, s.curve));
+            v += shaped.fold(Vec2::ZERO, |best, next| {
+                if next.length_squared() > best.length_squared() {
+                    next
+                } else {
+                    best
+                }
+            });
         }
         v.clamp_length_max(1.0)
     }
@@ -840,10 +852,8 @@ impl Input {
         self.pointer = saved.pointer;
         self.contacts = saved.contacts;
         self.pads = saved.pads;
-        self.triggers = saved.triggers;
         self.contexts = saved.contexts;
         self.bindings = saved.bindings;
-        self.latched = saved.latched;
         self.clear_edges();
     }
     /// Held state changes; trigger timers start at `at_us`; no edges remain.

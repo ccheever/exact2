@@ -2,7 +2,7 @@
 //! of the events that moved their keys. Every window is world microseconds,
 //! so a seek and a 60 Hz panel fire the same ticks.
 use super::{Action, Input};
-use crate::Data;
+use crate::{Data, Resource};
 
 /// What makes an action's edges. Windows are world microseconds.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data)]
@@ -19,10 +19,9 @@ pub(super) enum Trigger {
     /// The last key down while the others are held.
     Chord,
 }
-/// A trigger action mid-gesture. Idle triggers are not kept, so a save holds
-/// only live gestures.
-#[derive(Clone, Default, Data)]
-pub(super) struct TriggerState {
+/// A trigger action mid-gesture. Idle triggers are not kept.
+#[derive(Clone, Debug, Default, PartialEq, Data)]
+pub(crate) struct TriggerState {
     action: String,
     // Tap and Hold: when the binding went down. Double: the first press.
     at_us: Option<i64>,
@@ -32,6 +31,21 @@ pub(super) struct TriggerState {
 impl TriggerState {
     pub(super) fn live(&self) -> bool {
         self.at_us.is_some() || self.on
+    }
+}
+/// Trigger gestures in progress and latched actions: what the coming ticks'
+/// edges depend on beyond the keys held, so they are world state, saved and
+/// hashed (LLP 1128 I1). Input works on a copy the simulation writes back
+/// after each change; a world whose triggers and latches were never used
+/// has no such resource.
+#[derive(Clone, Debug, Default, PartialEq, Resource)]
+pub struct InputGestures {
+    triggers: Vec<TriggerState>,
+    latched: Vec<String>,
+}
+impl InputGestures {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.triggers.is_empty() && self.latched.is_empty()
     }
 }
 pub(super) fn window(seconds: f32) -> i64 {
@@ -96,8 +110,11 @@ impl Input {
                     };
                 }
                 if was && !now {
-                    let state = std::mem::take(self.state(name));
-                    if state.on {
+                    // Reset in place: the sorted lookup must keep every name
+                    // while the rest of this event's actions are stepped.
+                    let state = self.state(name);
+                    state.at_us = None;
+                    if std::mem::take(&mut state.on) {
                         self.release(name);
                     }
                 }
@@ -162,7 +179,34 @@ impl Input {
     pub(super) fn reset_trigger(&mut self, name: &str) {
         self.triggers.retain(|t| t.action != name);
     }
-    pub(super) fn validate_triggers(&self, saved: &Self) -> Result<(), String> {
+    pub(crate) fn gestures(&self) -> InputGestures {
+        InputGestures {
+            triggers: self.triggers.clone(),
+            latched: self.latched.clone(),
+        }
+    }
+    pub(crate) fn load_gestures(&mut self, gestures: InputGestures) {
+        self.triggers = gestures.triggers;
+        self.latched = gestures.latched;
+    }
+    /// The earliest world microsecond at which a pending gesture changes on
+    /// its own (a hold matures; a tap or a first press lapses), for settling.
+    pub(crate) fn next_deadline(&self) -> Option<(i64, &str)> {
+        let actions = self.actions.as_deref()?;
+        self.triggers
+            .iter()
+            .filter_map(|t| {
+                let at = t.at_us?;
+                let due = match actions.find(&t.action)?.trigger {
+                    Trigger::Hold(window) => at + window,
+                    Trigger::Tap(window) | Trigger::Double(window) => at + window + 1,
+                    _ => return None,
+                };
+                Some((due, t.action.as_str()))
+            })
+            .min()
+    }
+    pub(crate) fn validate_gestures(&self, saved: &InputGestures) -> Result<(), String> {
         if saved
             .triggers
             .windows(2)

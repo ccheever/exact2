@@ -42,7 +42,9 @@ fn a_same_tick_tap_is_pressed_but_never_held() {
     assert_eq!((fired.shots, fired.held_ticks), (1, 0));
 }
 
-const NAMES: [&str; 6] = ["jump", "sprint", "roll", "special", "dash", "brake"];
+const NAMES: [&str; 9] = [
+    "jump", "sprint", "roll", "special", "dash", "brake", "combo", "z", "a",
+];
 /// Every edge the tick saw, as `tick name+` and `tick name-`.
 #[derive(Default, Resource)]
 struct Seen {
@@ -61,6 +63,10 @@ impl Game for Pads {
             .chord("special", &["ControlLeft", "KeyE"])
             .tap("dash", &["KeyQ", "GamepadEast"])
             .context("driving", |a| a.button("brake", &["KeyB", "GamepadWest"]))
+            .chord("combo", &["GamepadL1", "GamepadSouth"])
+            // Declared out of name order, on one key: their sorted states share an event.
+            .hold("z", &["KeyH"], 0.2)
+            .hold("a", &["KeyH"], 0.2)
     }
     fn setup(w: &mut World, _: &()) {
         w.spawn_named("player", Transform::default());
@@ -425,8 +431,8 @@ fn the_agent_drives_a_pad_and_reads_what_fired() {
         "{state}"
     );
     assert!(
-        // Both changes share a tick and the buttons the second carries: one event.
-        state.contains(r#""fired":{"pressed":["move","jump"],"released":[]}"#),
+        // The press keeps its own event in the tick, before the stick's.
+        state.contains(r#""fired":{"pressed":["jump","move"],"released":[]}"#),
         "{state}"
     );
     assert!(
@@ -441,4 +447,127 @@ fn the_agent_drives_a_pad_and_reads_what_fired() {
     ] {
         assert!(sim.agent(refused).contains("\"error\""), "{refused}");
     }
+}
+
+/// A resting world: it changes only on the sprint hold's edges.
+#[derive(Default, Resource)]
+struct Sprints(u32);
+struct Rest;
+impl Game for Rest {
+    const ID: &'static str = "input-rest";
+    type Args = ();
+    fn actions() -> Actions {
+        Actions::new().hold("sprint", &["ShiftLeft"], 0.2)
+    }
+    fn setup(w: &mut World, _: &()) {
+        w.insert_resource(Sprints::default());
+    }
+    fn tick(w: &mut World, input: &Input, _: &()) {
+        if input.pressed("sprint") {
+            w.resource_mut::<Sprints>().0 += 1;
+        }
+    }
+}
+
+/// LLP 1128 I2: a pending hold is work `clock settle` waits for, and a world
+/// whose hold started earlier is a different world (I1).
+#[test]
+fn a_pending_hold_keeps_the_world_unsettled_and_is_hashed() {
+    let mut sim = started(Sim::<Rest>::new(()).unwrap());
+    at(&mut sim, 105.);
+    sim.key_down("ShiftLeft");
+    at(&mut sim, 150.);
+    let clock = sim.agent(r#"{"op":"clock"}"#);
+    assert!(
+        clock.contains(r#""changing":["input trigger sprint"]"#),
+        "{clock}"
+    );
+    assert!(sim.settle());
+    assert_eq!(sim.world().resource::<Sprints>().0, 1);
+    assert!(
+        sim.world().tick() >= 19,
+        "settled at {}",
+        sim.world().tick()
+    );
+
+    let pending = |start: f64| {
+        let mut sim = started(Sim::<Rest>::new(()).unwrap());
+        at(&mut sim, start);
+        sim.key_down("ShiftLeft");
+        at(&mut sim, 150.);
+        sim
+    };
+    let (early, late) = (pending(105.), pending(110.));
+    assert_eq!(early.world().tick(), late.world().tick());
+    assert_ne!(early.world().hash(), late.world().hash());
+    assert_eq!(early.world().hash(), pending(105.).world().hash());
+}
+
+#[test]
+fn edge_bearing_pad_states_keep_their_stamps() {
+    // Press at 101 ms, a stick change at 115 ms in the same tick, release at
+    // 310 ms: a 209 ms press, not a 195 ms tap.
+    let mut sim = pads();
+    at(&mut sim, 101.);
+    sim.pad_button(0, "GamepadEast", 1.);
+    at(&mut sim, 115.);
+    sim.pad_stick(0, Pad::Left, 0.5, 0.);
+    at(&mut sim, 310.);
+    sim.pad_button(0, "GamepadEast", 0.);
+    at(&mut sim, 400.);
+    assert!(
+        !seen(&sim).iter().any(|l| l.contains("dash")),
+        "{:?}",
+        seen(&sim)
+    );
+
+    // A chord across two pads keeps its order when a stick moves after it.
+    let mut sim = pads();
+    at(&mut sim, 101.);
+    sim.pad_button(1, "GamepadL1", 1.);
+    at(&mut sim, 105.);
+    sim.pad_button(0, "GamepadSouth", 1.);
+    at(&mut sim, 110.);
+    sim.pad_stick(1, Pad::Left, 0.5, 0.);
+    at(&mut sim, 200.);
+    assert!(seen(&sim).contains(&"6 combo+".into()), "{:?}", seen(&sim));
+}
+
+#[test]
+fn holds_sharing_a_key_release_together() {
+    for blur in [false, true] {
+        let mut sim = pads();
+        at(&mut sim, 105.);
+        sim.key_down("KeyH");
+        at(&mut sim, 400.);
+        if blur {
+            sim.input(InputEvent::Blur {
+                at_ms: 400.,
+                player: 0,
+            });
+        } else {
+            sim.key_up("KeyH");
+        }
+        at(&mut sim, 500.);
+        let lines = seen(&sim);
+        assert_eq!(lines, ["18 z+", "18 a+", "24 z-", "24 a-"], "blur {blur}");
+        let state = sim.agent(r#"{"op":"state"}"#);
+        assert!(state.contains(r#""heldActions":[]"#), "{state}");
+    }
+}
+
+#[test]
+fn the_pad_pushed_furthest_steers() {
+    let run = |pads: &[(u32, f32)]| {
+        let mut sim = self::pads();
+        at(&mut sim, 100.);
+        for &(index, x) in pads {
+            sim.pad_stick(index, Pad::Left, x, 0.);
+        }
+        at(&mut sim, 1600.);
+        sim.local_position("player").unwrap().x
+    };
+    // Opposite sticks do not cancel: pad 0 at full deflection wins.
+    assert_eq!(run(&[(0, 1.), (1, -0.5)]), run(&[(0, 1.)]));
+    assert_eq!(run(&[(0, -0.5), (1, 1.)]), run(&[(0, 1.)]));
 }

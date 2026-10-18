@@ -1052,8 +1052,7 @@ impl<G: Game> Sim<G> {
                 delivered = true;
             }
             // Holds mature on world time, whether or not an event arrived.
-            self.input
-                .mature(|due| (due.max(0) as u128) * (G::HZ as u128) < end);
+            self.mature_input(end);
             self.restored = false;
             self.restored_from = None;
             G::tick(&mut self.world, &self.input, &self.args);
@@ -1281,9 +1280,11 @@ impl<G: Game> Sim<G> {
     /// Pending input and unobserved mutations prevent rest unless time is paused.
     pub fn quiescent(&self) -> bool {
         self.check_epoch();
+        // A pending hold or tap window changes the world on its own (I2).
         let settled = !self.setup_pending
             && self.queue.is_empty()
-            && (G::paused(&self.args) || self.world.quiescent());
+            && (G::paused(&self.args)
+                || (self.world.quiescent() && self.input.next_deadline().is_none()));
         if settled {
             self.settle_delay.set(100);
         }
@@ -1307,6 +1308,9 @@ impl<G: Game> Sim<G> {
         if !self.queue.is_empty() && reasons.len() < 8 {
             reasons.push("input queued".into());
         }
+        if let Some((_, action)) = self.input.next_deadline().filter(|_| reasons.len() < 8) {
+            reasons.push(format!("input trigger {action}"));
+        }
         reasons
     }
     pub(crate) fn settle_at(&self, settle: bool) -> f64 {
@@ -1326,6 +1330,12 @@ impl<G: Game> Sim<G> {
             let tick =
                 (self.projected(event).max(0) as u128 * G::HZ as u128 / 1_000_000) as u64 + 1;
             next = next.min(tick_us(tick));
+        }
+        if let Some((due, _)) = self.input.next_deadline() {
+            // The deadline's own tick: it fires before that tick's end.
+            next = next.min(tick_us(
+                (due.max(0) as u128 * G::HZ as u128 / 1_000_000) as u64 + 1,
+            ));
         }
         next = next.max(tick_us(self.world.tick() + 1));
         if settle {

@@ -308,7 +308,8 @@ impl World {
         use crate::scene::*;
         self.register_resource::<crate::Shadows>()
             .register_resource::<crate::InputContexts>()
-            .register_resource::<crate::Bindings>();
+            .register_resource::<crate::Bindings>()
+            .register_resource::<crate::InputGestures>();
         self.register::<Transform>()
             .register::<Parent>()
             .register::<Mesh>()

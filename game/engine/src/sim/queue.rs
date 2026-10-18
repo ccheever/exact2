@@ -45,21 +45,7 @@ impl<G: Game> Sim<G> {
         }
         // A host may repeat a pad's state; only a change is an event.
         if let InputEvent::Pad { index, .. } = &e.event {
-            let previous = self
-                .queue
-                .range(..position)
-                .rev()
-                .find_map(|old| match &old.event {
-                    InputEvent::Pad { index: i, .. } if i == index => Some(pad_reading(&old.event)),
-                    InputEvent::Blur { .. } => Some(None),
-                    _ => None,
-                })
-                .unwrap_or_else(|| {
-                    self.input
-                        .pad(*index)
-                        .map(|p| (p.standard, p.buttons, p.axes))
-                });
-            if previous == pad_reading(&e.event) {
+            if self.pad_before(position, *index) == pad_reading(&e.event) {
                 return;
             }
         }
@@ -70,8 +56,18 @@ impl<G: Game> Sim<G> {
             if self.boundary(&self.queue[i]) != boundary {
                 break;
             }
+            // A pad state that pressed, released or connected keeps its stamp:
+            // only a sticks-only state may be replaced by a later one.
+            let edge = match &self.queue[i].event {
+                InputEvent::Pad { index, .. } => {
+                    let before = self.pad_before(i, *index);
+                    let at = pad_reading(&self.queue[i].event);
+                    before.map(|(s, b, _)| (s, b)) != at.map(|(s, b, _)| (s, b))
+                }
+                _ => false,
+            };
             match (&mut self.queue[i].event, &e.event) {
-                (old, new) if old.same_motion(new) => {
+                (old, new) if old.same_motion(new) && !edge => {
                     let mut e = e;
                     e.event.add_motion(old);
                     self.queue.remove(i);
@@ -95,7 +91,6 @@ impl<G: Game> Sim<G> {
                     | InputEvent::Wheel { .. },
                     _,
                 ) => {}
-                (InputEvent::Pad { index: a, .. }, InputEvent::Pad { index: b, .. }) if a != b => {}
                 _ => break,
             }
         }
@@ -211,6 +206,25 @@ impl<G: Game> Sim<G> {
         } else {
             self.input.apply(event, at_us);
         }
+        self.store_gestures();
+    }
+    /// Write input's gestures back to the world, where they are hashed, when
+    /// they changed. An unused world never gains the resource.
+    pub(super) fn store_gestures(&mut self) {
+        let gestures = self.input.gestures();
+        let stored = self
+            .world
+            .try_resource::<crate::InputGestures>()
+            .map(|g| g.clone());
+        if stored.as_ref() != Some(&gestures) && (stored.is_some() || !gestures.is_empty()) {
+            self.world.insert_resource(gestures);
+        }
+    }
+    /// Mature holds and let windows lapse up to a tick's end (in µs × HZ).
+    pub(super) fn mature_input(&mut self, end: u128) {
+        self.input
+            .mature(|due| (due.max(0) as u128) * (G::HZ as u128) < end);
+        self.store_gestures();
     }
     /// Bring the world's input contexts and bindings into input at a tick's start.
     pub(super) fn sync_input(&mut self) {
@@ -227,6 +241,26 @@ impl<G: Game> Sim<G> {
         for line in self.input.sync(&contexts, &bindings) {
             self.world.log(line);
         }
+        self.store_gestures();
+    }
+}
+impl<G: Game> Sim<G> {
+    /// A pad's reading before queue position `end`: the last queued state for
+    /// it (none after a blur), else the state input holds.
+    fn pad_before(&self, end: usize, index: u32) -> Option<(bool, [f32; 17], [f32; 4])> {
+        self.queue
+            .range(..end)
+            .rev()
+            .find_map(|old| match &old.event {
+                InputEvent::Pad { index: i, .. } if *i == index => Some(pad_reading(&old.event)),
+                InputEvent::Blur { .. } => Some(None),
+                _ => None,
+            })
+            .unwrap_or_else(|| {
+                self.input
+                    .pad(index)
+                    .map(|p| (p.standard, p.buttons, p.axes))
+            })
     }
 }
 /// What a pad event reports, or None for a disconnect.

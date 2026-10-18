@@ -49,8 +49,8 @@ pub use exact_motion::spring::SpringConfig;
 pub use exact_plan::Value;
 pub use glam::{Affine3A, Mat4, Quat, Vec2, Vec3, Vec3Swizzles, Vec4};
 pub use input::{
-    Actions, Binding, Bindings, Curve, Input, InputContexts, InputEvent, Pad, PadState,
-    PointerPhase, PointerState, Region, Stick, MAX_PADS, MOUSE_BUTTONS, PAD_BUTTONS,
+    Actions, Binding, Bindings, Curve, Input, InputContexts, InputEvent, InputGestures, Pad,
+    PadState, PointerPhase, PointerState, Region, Stick, MAX_PADS, MOUSE_BUTTONS, PAD_BUTTONS,
 };
 pub use particle_look::ParticleLook;
 pub use placed::{CanvasChild, Facing, Placed, PlacedPlane};
