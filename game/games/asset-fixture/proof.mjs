@@ -51,15 +51,11 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
       // Observe the actual surface before delivery, below the agent's mandatory
       // settlement barrier. This probe exists only in this proof's HTTP response.
       const source = `let fixtureDevice; const fixtureErrors=[];
-      let fixtureFailAdapter = false, fixtureAdapterFailures = 0;
+      let fixtureFailDevice = false, fixtureDeviceFailures = 0;
       let fixtureLoseReplacement = false, replacementLosses = 0, lossDuringSecondRecovery = false;
-      const fixtureAdapter = navigator.gpu.requestAdapter.bind(navigator.gpu);
-      navigator.gpu.requestAdapter = async (...args) => {
-        if (fixtureFailAdapter) { fixtureFailAdapter = false; fixtureAdapterFailures++; return null; }
-        return fixtureAdapter(...args);
-      };
       const fixtureRequest = GPUAdapter.prototype.requestDevice;
       GPUAdapter.prototype.requestDevice = async function(...args) {
+        if (fixtureFailDevice) { fixtureFailDevice = false; fixtureDeviceFailures++; throw new Error('transient fixture device failure'); }
         fixtureDevice = await fixtureRequest.apply(this, args); fixtureDevice.addEventListener('uncapturederror',e=>fixtureErrors.push(e.error.message));
         if (fixtureLoseReplacement) { fixtureLoseReplacement=false; replacementLosses++; lossDuringSecondRecovery=!!recoveringDevice; fixtureDevice.destroy(); await fixtureDevice.lost; }
         return fixtureDevice;
@@ -71,13 +67,13 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
           await recoverDevice();
           const healthyNoCutover = exact.gpu.recovery?.status === 'healthy' && [...surfaces.values()].every((e,i)=>e.el===originalCanvases[i]);
           if (!healthyNoCutover) throw new Error('healthy recovery replaced a canvas');
-          fixtureFailAdapter = true;
+          fixtureFailDevice = true;
           fixtureDevice.destroy(); await fixtureDevice.lost;
           await new Promise(resolve=>setTimeout(resolve, 0));
-          for(const entry of surfaces.values()) render(entry, 0);
+          for(const entry of surfaces.values()) render(entry, clockFor(0));
           await recoveringDevice;
           for(let retry=0; exact.gpu.recovery?.status !== 'recovered' && retry<200; retry++) await new Promise(r=>setTimeout(r,10));
-          if(exact.gpu.recovery?.status !== 'recovered' || fixtureAdapterFailures !== 1) throw new Error('fail-once recovery did not retry successfully');
+          if(exact.gpu.recovery?.status !== 'recovered' || fixtureDeviceFailures !== 1) throw new Error('fail-once recovery did not retry successfully');
           await settled();
           fixtureLoseReplacement = true;
           fixtureDevice.destroy(); await fixtureDevice.lost;
@@ -85,7 +81,7 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
           for(let retry=0; (replacementLosses!==1 || exact.gpu.recovery?.status!=='recovered') && retry<200; retry++) await new Promise(r=>setTimeout(r,10));
           if(replacementLosses!==1 || !lossDuringSecondRecovery || exact.gpu.recovery?.status!=='recovered') throw new Error('loss during second recovery did not retry');
           await settled();
-          for(const entry of surfaces.values()) render(entry, 0);
+          for(const entry of surfaces.values()) render(entry, clockFor(0));
           await fixtureDevice.queue.onSubmittedWorkDone();
           await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
           const entry = [...surfaces.values()][0];
@@ -174,7 +170,7 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
     {
       const invalid = resolve(out, 'invalid.world'); writeFileSync(invalid, 'invalid deferred save');
       const g = next(), refused = await open({...options, world:invalid});
-      const opening = refused.tap('play').then(()=>null, error=>String(error));
+      const opening = refused.tap('play').then(reply=>reply.landError ?? reply.error ?? null, error=>String(error));
       if (web) {
         const [observation] = await Promise.race([Promise.all([g.probe,g.request]), opening.then(error=>{throw new Error(`restore completed before the asset delivery gate: ${error}`);})]);
         check('invalid carrier waits for declared content before validation', observation.world?.restored===false && observation.world?.loading.includes('crate.model'));
