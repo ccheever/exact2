@@ -1,5 +1,6 @@
 # Queue
 
+- **Android reader agent locale** (LLP 1126 D6): device configuration overrides `--locale`; honor the drive locale or make the refusal explicit. Per-app Android locales currently drive locale checks.
 - **Linux desktop locale for dates** (LLP 1126 D6): `time` and `formatDate` format in English whatever the viewer locale.
 
 - **Mac: a native list row's pressed paint** (2026-10-17, LLP 1061 D7's gap). A row of a list drawn as an `NSTableView` shows the table's selection on a press, never its `-exact-press-opacity`/`-background-color`/`-color`: the table tracks the click (`TableRowCell.hitTest` → `TableFeed.keepsClick`, `pressRow`, double-click), so `NodeView.pressed` never turns. Drive the row's `pressed` from the table's click tracking and suppress only its selection highlight, keeping selection, first responder and `pressRow`.
