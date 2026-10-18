@@ -208,9 +208,9 @@ struct ActivityGalleryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Lock Screen · \(preview.scheme)").font(.caption).foregroundStyle(.secondary)
-            // The tint stands in for the system's `activityBackgroundTint` (iOS only) over its material.
+            // The tint stands in for the system's `activityBackgroundTint` (iOS only); unsaid, the scheme's material.
             preview.view(.lockScreen)
-                .background(SnapshotActivity.tint(preview.render, dark: preview.scheme == "dark") ?? Color.black.opacity(0.85))
+                .background(SnapshotActivity.tint(preview.render, dark: preview.scheme == "dark") ?? Color(white: preview.scheme == "dark" ? 0.15 : 0.93))
                 .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                 .environment(\.colorScheme, preview.scheme == "dark" ? .dark : .light)
             Text("Dynamic Island · expanded").font(.caption).foregroundStyle(.secondary)
