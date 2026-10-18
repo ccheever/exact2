@@ -11,13 +11,15 @@
 import { describe, expect, it } from 'bun:test';
 import {
   DEFAULT_BROWSER_PROFILE_ID, addBrowserSurface, browserHost, browserLocal, browserTabFavicon, browserTabTitle, browserView,
-  buildReportInput, closePreviewSession, installBrowserCleanup, listPreviewSessions, liveSessions, openBrowserIn, openPreviewSession, projectDesktopState,
+  revealServerSessions, effectiveNav, buildReportInput, closePreviewSession, installBrowserCleanup, listPreviewSessions, liveSessions, openBrowserIn, openPreviewSession, projectDesktopState,
   reconcileBrowserSurfaces, syncNativeSessions, type NativeTab, type Rpc,
 } from '../../src/browser/browser-surface';
 import { PreviewStateStore, previewRuntimeTabId, type PreviewSessionSnapshot } from '../../src/browser/browser-state';
 import { BrowserSettingsReadError, resolveBrowserDefaults } from '../../src/browser/browser-profiles';
 import { panelState, panelView, surfaceLocal, surfaceStore, panelKey, type PanelState } from '../../src/panel/panel-surfaces';
 import type { T3Client } from '../../src/client/client';
+import { floatingTabOf } from '../../src/browser/browser-capture';
+import { miniStoreOf, deviceThreadId } from '../../src/device/device-session';
 import { ClientError, type Native } from '../../src/client/protocol';
 import type { Obj } from '../../src/client/domain';
 
@@ -371,4 +373,28 @@ describe('desktopTabLifetime (through the panel)', () => {
     expect(synced().at(-1)).toEqual([]);
     expect(panelState(client).surfaces).toEqual([]);
   });
+});
+
+it('a server runtime keeps server navigation and never creates or reports a local web view', () => {
+  const { client } = fakeClient(() => ({}));
+  const server = { ...snapshot, runtime: 'server' as const };
+  browserHost(client).store.applyServerSnapshot(threadRef, server);
+  const id = previewRuntimeTabId(threadRef, null, server.tabId);
+  client.presentation = { browserTabs: { [id]: nativeTab({ url: 'https://stale-local.example' }) } };
+  expect(liveSessions(client)).toEqual([]);
+  expect(effectiveNav(client, threadRef, server.tabId)).toMatchObject({ tab: null, nav: server.navStatus });
+});
+
+it('server reveals baseline persisted sessions and only reopen a preview for a fresh reveal request', () => {
+  const { client } = fakeClient(() => ({})), state = emptyPanel(), store = browserHost(client).store;
+  store.applyServerSnapshot(threadRef, { ...snapshot, tabId: 'persisted', runtime: 'server', reveal: true });
+  revealServerSessions(client, state, threadRef); expect(floatingTabOf(client)).toBeNull();
+  store.applyServerSnapshot(threadRef, { ...snapshot, tabId: 'hidden-agent', runtime: 'server', reveal: false });
+  revealServerSessions(client, state, threadRef); expect(floatingTabOf(client)).toBeNull();
+  store.applyServerSnapshot(threadRef, { ...snapshot, tabId: 'revealed', runtime: 'server', reveal: true });
+  revealServerSessions(client, state, threadRef); expect(floatingTabOf(client)).toBe('revealed');
+  miniStoreOf(client).close(deviceThreadId(client)); revealServerSessions(client, state, threadRef); expect(floatingTabOf(client)).toBeNull();
+  openBrowserIn(state, 'revealed', 'local:thread-1'); state.visible = false;
+  store.applyServerSnapshot(threadRef, { ...snapshot, tabId: 'revealed', runtime: 'server', reveal: true, revealRequest: { id: 'again', force: true } });
+  revealServerSessions(client, state, threadRef); expect(state.visible).toBe(true); expect(state.active).toBe('browser:revealed');
 });
