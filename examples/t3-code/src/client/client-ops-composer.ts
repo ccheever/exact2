@@ -11,6 +11,8 @@ import { forgetDraftThreadId, launchThreadId } from '../composer/draft-thread-id
 import { composerNow, stagesChanges, stage, rememberModel, rememberOptions, stagedFor, clearStaged, nextTurnCommands, resolveDispatchMode, followUpBehavior, withDispatchMode, planFollowUp, resolvePlanSubmission } from '../composer/composer-controls';
 import { additiveGesture, fanoutSelections, fanoutSupported, sendFanout, setFanout, toggleFanout } from '../composer/composer-controls-fanout';
 import { acknowledgeWoke, lockedProviderReason, applyOptionChoice, backgroundStarted } from '../composer/composer-controls-commands';
+import { keepsFullHistory, resumeCompactionTokens, setKeepFullHistory } from '../composer/composer-controls-resume';
+import { contextSnapshot } from '../composer/composer-controls-view';
 import { dispatchSelection, promptForSend, ultrathinkChoice } from '../composer/composer-ultrathink';
 import { queuedEdit, saveQueuedEdit } from '../composer/composer-controls-queue';
 import { fanoutBase, serverThreadWorkspace, workspaceStrategy } from '../composer/composer-controls-branch';
@@ -23,7 +25,8 @@ import { pressGesture, sendIntent } from '../composer/composer-editor-intent';
 import { launchTitle } from '../composer/composer-editor-title';
 import { promptLengthMessage } from '../composer/composer-editor-menu';
 import { composerFileAttachments } from '../composer/composer-editor-files';
-import { activeInput, pendingRequests, setCustomAnswer, chooseOption, advanceQuestion, previousQuestion, dismissPayload, approvalPayload } from '../composer/requests';
+import { activeInput, composerInput, composerRequests, setCustomAnswer, chooseOption, advanceQuestion, previousQuestion, dismissPayload, approvalPayload } from '../composer/requests';
+import { releaseHeldRequests } from '../composer/composer-typing-guard';
 import { threadPhase } from '../composer/composer-presentation';
 import { autoBalanceSend } from '../composer/auto-balance';
 import { fleet } from '../connections/settings-b-fleet'; // favorites from another environment's catalog
@@ -69,10 +72,12 @@ export async function composerOps(this: T3Client, op: string, id: string, value:
 export async function composerWrites(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
   let resultMessage = '';
   try {
-    if (op === 'send' && pendingRequests(this.projection).approvals.length) throw new ClientError('Resolve this approval request to continue.');
-    else if (op === 'send' && activeInput(this) && annotationSendMarked(this)) resultMessage = annotationAttachedToDraft(this); // onSend: a direct annotation never answers a question
-    else if (op === 'send' && activeInput(this)) await submitAnswers.call(this, native, storage, '', value);
-    else if (op === 'send') await autoBalanceSend(this, native, async () => { resultMessage = (await send.call(this, native, storage, value, id)) || ''; }); // onSend's guard (a move in flight finishes first)
+    // A request held while the user typed (composer-typing-guard.ts) leaves the composer theirs: this send goes to the
+    // thread, and sending releases the request.
+    if (op === 'send' && composerRequests(this).approvals.length) throw new ClientError('Resolve this approval request to continue.');
+    else if (op === 'send' && composerInput(this) && annotationSendMarked(this)) resultMessage = annotationAttachedToDraft(this); // onSend: a direct annotation never answers a question
+    else if (op === 'send' && composerInput(this)) await submitAnswers.call(this, native, storage, '', value);
+    else if (op === 'send') { try { await autoBalanceSend(this, native, async () => { resultMessage = (await send.call(this, native, storage, value, id)) || ''; }); } finally { releaseHeldRequests(this); } } // onSend's guard (a move in flight finishes first)
     else if (op === 'provider' || op === 'model') await changeModel.call(this, native, storage, op, id, value, n === 1); // n 1: the picker's Shift+click or Shift+Return
     else if (op === 'model-option') await changeModelOption.call(this, native, storage, id, value);
     else if (op === 'runtime' || op === 'interaction') await changeMode.call(this, native, storage, op, value);
@@ -94,6 +99,8 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   const assertOwner = () => {
     if (selection.generation !== this.generation || selection.environmentId !== this.environmentId || selection.origin !== this.origin || selection.projectId !== this.projectId || selection.threadId !== this.threadId || selection.providerId !== this.providerId || selection.modelId !== this.modelId || selection.options !== JSON.stringify(this.modelOptions) || selection.runtimeMode !== this.runtimeMode || selection.interactionMode !== this.interactionMode) throw new ClientError('The draft or model changed before sending. Your original draft is preserved.');
   };
+  // The Compact chip as the composer showed it when Send was pressed (read before the send's own writes make it busy).
+  const compactOffered = !!selection.threadId && resumeCompactionTokens(this, composerNow(this), contextSnapshot(this.projection)) !== null;
   // "/usage-limits" is answered locally from the provider snapshots; the agent never sees it.
   if (isUsageLimitsCommand(value || this.draft) && !this.snapshotDrafts.length && usageLimitsOffered(this)) { if (openUsageLimits(this, composerNow(this))) this.local.drafts[this.draftKey] = ''; return; }
   if (feedbackInFlight(this)) return; // feedbackUploadsInFlightRef: this thread's /feedback upload runs (composer-feedback.ts); onSend checks /usage-limits first
@@ -149,11 +156,20 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
       await this.write(native, storage, { method: 'orchestration.launchThread', payload: withMessageContext(this, payload, text),
         description: 'Send', threadId: selection.threadId, text, uncertain: false }, assertOwner);
     } else {
-      const mode = submission || annotationSend ? 'auto' : resolveDispatchMode(running, followUpBehavior(this), intent === 'alternate');
-      const payload = withDispatchMode(withMessageContext(this, sendPayload(commandId, selection.threadId, messageId, text, attachments), text), mode,
-        dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options)));
+      // A stale Claude session compacts before this message, so the turn does not re-read the old history (the Compact chip,
+      // composer-controls-resume.ts). The message queues behind the /compact run, since steering into it is rejected.
+      const compactFirst = compactOffered && !keepsFullHistory(this, selection.threadId) && text.trim().toLowerCase() !== '/compact';
+      const mode = compactFirst ? 'queue' : submission || annotationSend ? 'auto' : resolveDispatchMode(running, followUpBehavior(this), intent === 'alternate');
+      const turnSelection = dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options));
+      if (compactFirst) {
+        const [compactCommandId, compactMessageId] = await this.ids(native, 2);
+        assertOwner();
+        await this.dispatch(native, storage, withDispatchMode(sendPayload(compactCommandId, selection.threadId, compactMessageId, '/compact', []), 'auto', turnSelection), 'Compact context', assertOwner);
+      }
+      const payload = withDispatchMode(withMessageContext(this, sendPayload(commandId, selection.threadId, messageId, text, attachments), text), mode, turnSelection);
       if (submission?.interactionMode === 'default' && plan) payload.sourcePlanRef = { threadId: selection.threadId, planId: plan.planId };
       await this.dispatch(native, storage, payload, 'Send', assertOwner);
+      setKeepFullHistory(this, false, selection.threadId); // a turn that starts clears the chip's choice; a failed send keeps it
     }
     clearStaged(this, key);
     if (submission) this.interactionMode = submission.interactionMode;
