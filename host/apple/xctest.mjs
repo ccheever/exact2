@@ -20,7 +20,7 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   const question = 'host/apple/tests/ExactKitTests/SnapshotFixtures/open-question';
   const copies = new Map();
   for (const [app, kind, key] of [['apps/caltrain', 'next-trains', 'SNAPSHOT_TRAINS'], [question, 'question-small', 'SNAPSHOT_QUESTION_SMALL'],
-    [question, 'question-medium', 'SNAPSHOT_QUESTION_MEDIUM'], [question, 'question-rectangular', 'SNAPSHOT_QUESTION_RECTANGULAR'], [question, 'gradient-card', 'SNAPSHOT_GRADIENT']]) {
+    [question, 'question-medium', 'SNAPSHOT_QUESTION_MEDIUM'], [question, 'question-rectangular', 'SNAPSHOT_QUESTION_RECTANGULAR'], [question, 'question-adaptive', 'SNAPSHOT_QUESTION_ADAPTIVE'], [question, 'gradient-card', 'SNAPSHOT_GRADIENT']]) {
     let copy = copies.get(app);
     if (!copy) {
       copy = resolve(dir, 'entries', app.split('/').pop());

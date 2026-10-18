@@ -214,6 +214,28 @@ final class SnapshotDriverTests: XCTestCase {
         }
     }
 
+    /// D3: the family's content size is the entry's viewport fact, given at
+    /// boot and again at a resize, so one entry lays out per family by width
+    /// and height as a page does.
+    func testTheViewportFactChoosesTheLayoutByFamily() throws {
+        let plan = try Self.plan("SNAPSHOT_QUESTION_ADAPTIVE")
+        func layout(_ snapshot: HeadlessSession.Snapshot) -> [String] {
+            snapshot.nodes.values.compactMap { $0.props["testId"] }.filter { $0.hasPrefix("layout-") }.sorted()
+        }
+        for family in Family.all {
+            let session = try HeadlessSession(plan: plan, entry: "question-adaptive", size: family.content.size)
+            defer { session.close() }
+            XCTAssertEqual(layout(try session.snapshot()), ["layout-\(family.name)"], family.name)
+            let (image, snapshot) = try plain(session, family: family, environment: environment(family))
+            try assertTextDrew(image, snapshot, family: family, "adaptive \(family.name)")
+        }
+        let session = try HeadlessSession(plan: plan, entry: "question-adaptive", size: Family.all[0].content.size)
+        defer { session.close() }
+        XCTAssertEqual(layout(try session.resize(to: Family.all[1].content.size)), ["layout-medium"])
+        XCTAssertEqual(layout(try session.resize(to: Family.all[2].content.size)), ["layout-rectangular"])
+        XCTAssertEqual(layout(try session.resize(to: Family.all[0].content.size)), ["layout-small"])
+    }
+
     /// A running host's boot refuses an entry plan, and the entry boots by
     /// its kind alone.
     func testAnEntryPlanBootsOnlyByItsKind() throws {

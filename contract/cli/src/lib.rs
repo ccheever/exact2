@@ -816,6 +816,49 @@ fn compile_file_output(
 /// warnings use lowering's typography and control decisions, even if lowering
 /// refuses. An analysis failure uses the checked tree alone. A compile nobody
 /// reads warnings from does not look for them.
+/// A component below the root may read `exactViewport()` as the root does
+/// (a widget entry's root is one, LLP 1126 D3): the fact is the plan's, not
+/// an instance's, so the declaration moves to the root as a resource it
+/// provides and the component injects. `None` when no component needs it.
+fn hoist_viewport_facts(file: &File) -> Option<File> {
+    use contract_syntax::{Binding, Expr, Param};
+    const SOURCE: &str = exact_runner::viewport::SOURCE;
+    if !file
+        .components
+        .iter()
+        .skip(1)
+        .any(|c| c.resources.iter().any(|r| r.source == SOURCE))
+    {
+        return None;
+    }
+    let mut file = file.clone();
+    let (root, rest) = file.components.split_first_mut()?;
+    for c in rest {
+        let (viewport, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut c.resources)
+            .into_iter()
+            .partition(|r| r.source == SOURCE);
+        c.resources = kept;
+        for r in viewport {
+            c.injects.push(Param {
+                name: r.name.clone(),
+                ty: Some(r.shape.clone()),
+                span: r.span,
+            });
+            if !root.provides.iter().any(|p| p.name == r.name) {
+                root.provides.push(Binding {
+                    name: r.name.clone(),
+                    expr: Expr::Ident(r.name.clone(), r.span),
+                    span: r.span,
+                });
+            }
+            if !root.resources.iter().any(|x| x.name == r.name) {
+                root.resources.push(r);
+            }
+        }
+    }
+    Some(file)
+}
+
 fn compile_file_warned(
     file: &File,
     asset_root: Option<&Path>,
@@ -824,6 +867,8 @@ fn compile_file_warned(
     profile: contract_lower::Profile,
     warned: Option<&mut Vec<CompileError>>,
 ) -> Result<(Plan, Option<contract_lower::Sites>), Vec<CompileError>> {
+    let hoisted = hoist_viewport_facts(file);
+    let file = hoisted.as_ref().unwrap_or(file);
     // Each pass runs on what the one before it accepted, and reports all of
     // its own refusals.
     fn each<E: Into<CompileError>>(

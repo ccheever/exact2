@@ -172,8 +172,14 @@ fn check(file: &File, styles: &HashSet<String>) -> Result<(), Vec<CompileError>>
         for t in &c.tasks {
             errors.push(refusal("snapshot-timer", "a snapshot has no timer or `every`; return dated entries from the refresh function and use `time` for ticking text", t.span));
         }
+        // The one source a render reads: the family's content size and a
+        // still page's preferences, a fact the driver gives at boot (LLP
+        // 1126 D3), so a layout chooses by width and height as a page does.
         for r in &c.resources {
-            errors.push(refusal("snapshot-request", format!("`{}` requests data during render; move it into the refresh function and pass its answer as props", r.name), r.span));
+            if r.source == exact_runner::viewport::SOURCE && r.args.is_empty() {
+                continue;
+            }
+            errors.push(refusal("snapshot-request", format!("`{}` requests data during render; move it into the refresh function and pass its answer as props (`exactViewport()` alone is answered: the entry's width and height)", r.name), r.span));
         }
         if !c.mutations.is_empty() || !c.sequences.is_empty() || !c.persist.is_empty() {
             errors.push(refusal("snapshot-effect", "a snapshot render is read-only; move mutations, sequences and persisted writes into the refresh function", c.span));

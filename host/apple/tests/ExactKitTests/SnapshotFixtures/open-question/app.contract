@@ -105,6 +105,37 @@ component QuestionRectangular
       text title font="-exact-caption1" line-clamp=2
       text `Answered ${answeredAgo} ago` font="-exact-caption2" color="-exact-secondary-label" line-clamp=1 data-privacy="public"
 
+// One entry for every family: the layout follows the viewport fact the
+// driver gives at boot, the family's content size (LLP 1126 D3).
+shape Viewport
+  width: number
+  height: number
+
+component QuestionAdaptive
+  props
+    id: string
+    title: string
+    topic: string
+    answerCount: number
+    authorName: string
+    authorInitials: string
+    isAI: bool
+    summary: string
+    score: number
+    answeredAgo: string
+  resource viewport = exactViewport() as shape Viewport
+  view
+    column width="100%" height="100%"
+      if viewport.height < 100
+        column testId="layout-rectangular"
+          QuestionRectangular(id=id, title=title, topic=topic, answerCount=answerCount, authorName=authorName, authorInitials=authorInitials, isAI=isAI, summary=summary, score=score, answeredAgo=answeredAgo)
+      else if viewport.width >= 250
+        column testId="layout-medium"
+          QuestionMedium(id=id, title=title, topic=topic, answerCount=answerCount, authorName=authorName, authorInitials=authorInitials, isAI=isAI, summary=summary, score=score, answeredAgo=answeredAgo)
+      else
+        column testId="layout-small"
+          QuestionSmall(id=id, title=title, topic=topic, answerCount=answerCount, authorName=authorName, authorInitials=authorInitials, isAI=isAI, summary=summary, score=score, answeredAgo=answeredAgo)
+
 component App
   view
     text "The widget fixture has no app."

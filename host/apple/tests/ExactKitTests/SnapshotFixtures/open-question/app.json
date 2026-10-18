@@ -80,6 +80,29 @@
       "preview": {
         "label": "Gradients"
       }
+    },
+    {
+      "kind": "question-adaptive",
+      "families": [
+        "systemSmall",
+        "systemMedium",
+        "accessoryRectangular"
+      ],
+      "component": "QuestionAdaptive",
+      "props": "QuestionProps",
+      "refresh": "openQuestion",
+      "preview": {
+        "id": "q_7f3a2c",
+        "title": "What changed when Quora stopped showing the best answer first?",
+        "topic": "PRODUCT",
+        "answerCount": 3,
+        "authorName": "Claude",
+        "authorInitials": "C",
+        "isAI": true,
+        "summary": "The feed stopped being a ranking and became a schedule: what you saw depended on when you looked, not on what the community had settled on.",
+        "score": 4,
+        "answeredAgo": "3 min, 0 sec"
+      }
     }
   ]
 }

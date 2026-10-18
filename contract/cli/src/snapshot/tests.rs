@@ -82,6 +82,45 @@ fn entry_shares_route_urls_and_only_reachable_types_and_helpers() {
 }
 
 #[test]
+fn the_viewport_fact_is_the_one_resource_a_render_reads() {
+    let viewport = "  resource viewport = exactViewport() as shape Viewport\n";
+    let shape = "shape Viewport\n  width: number\n  height: number\n  prefersColorScheme: string";
+    let src = source(
+        "    column\n      if viewport.height < 100\n        text title testId=\"short\"\n      else\n        text `${title} ${viewport.width}` testId=\"tall\"",
+        shape,
+        viewport,
+    );
+    let entry = compile(&src, &widget()).unwrap();
+    assert_eq!(entry.resources.len(), 1);
+    assert_eq!(entry.str(entry.resources[0].source), "exactViewport");
+    // The app compiles the same file: the child's fact is the page's, hoisted.
+    let app = crate::compile(&src).unwrap();
+    assert_eq!(app.resources.len(), 1);
+    for (members, id) in [
+        (
+            "  resource other = other() as shape Props\n",
+            "snapshot-request",
+        ),
+        (
+            "  resource viewport = exactViewport(1) as shape Viewport\n",
+            "snapshot-request",
+        ),
+    ] {
+        let errors = compile(
+            &source("    column\n      text title", shape, members),
+            &widget(),
+        )
+        .unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.id == id && e.message.contains("exactViewport()")),
+            "{members}: {errors:?}"
+        );
+    }
+}
+
+#[test]
 fn refusals_name_an_edit_including_shared_styles_and_functions() {
     for (view, decl, members, id, edit) in [
         (
