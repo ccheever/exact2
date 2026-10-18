@@ -298,6 +298,10 @@ fn manifest_and_preview_are_checked_and_no_widgets_is_unchanged() {
         json!({"live_activities":[{"kind":"a"},{"kind":"A"}]}),
         json!({"live_activities":[{"kind":"a","push":"yes"}]}),
         json!({"live_activities":[{"kind":"a","frequent":1}]}),
+        json!({"live_activities":[{"kind":"a","Push":true}]}),
+        json!({"live_activities":[{"kind":"a","pushed":true}]}),
+        json!({"live_activities":[{"kind":"a","frequant":true}]}),
+        json!({"live_activities":[{"kind":"a","frequently":true}]}),
     ] {
         assert!(Manifest {
             json: value,
@@ -306,8 +310,15 @@ fn manifest_and_preview_are_checked_and_no_widgets_is_unchanged() {
         .live_activities()
         .is_err());
     }
+    assert!(Manifest {
+        json: json!({"live_activities":[{"kind":"a","pushes":true}]}),
+        ..empty.clone()
+    }
+    .live_activities()
+    .unwrap_err()
+    .contains("live_activities[0].pushes is misspelt; write push"));
     let activities = Manifest {
-        json: json!({"live_activities":[{"kind":"departure","push":true},{"kind":"alert","frequent":true}]}),
+        json: json!({"live_activities":[{"kind":"departure","push":true,"preview":{}},{"kind":"alert","frequent":true}]}),
         ..empty.clone()
     }
     .live_activities()

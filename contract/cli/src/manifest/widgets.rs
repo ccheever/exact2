@@ -41,6 +41,39 @@ pub struct LiveActivity {
 
 use exact_plan::entry_identifier;
 
+/// Whether `key` is `word` within one edit (a letter changed, dropped or added) or `word` with a suffix
+/// (`pushes`, `frequently`): the misspellings worth naming.
+fn near(key: &str, word: &str) -> bool {
+    let (a, b): (Vec<char>, Vec<char>) = (key.chars().collect(), word.chars().collect());
+    if key.starts_with(word) {
+        return true;
+    }
+    if a.len().abs_diff(b.len()) > 1 {
+        return false;
+    }
+    let (mut i, mut j, mut edits) = (0, 0, 0);
+    while i < a.len() && j < b.len() {
+        if a[i] == b[j] {
+            i += 1;
+            j += 1;
+            continue;
+        }
+        edits += 1;
+        if edits > 1 {
+            return false;
+        }
+        match a.len().cmp(&b.len()) {
+            std::cmp::Ordering::Greater => i += 1,
+            std::cmp::Ordering::Less => j += 1,
+            std::cmp::Ordering::Equal => {
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    edits + (a.len() - i) + (b.len() - j) <= 1
+}
+
 impl Manifest {
     /// Read the activity entries' packaging fields. A row is an object with an
     /// identifier `kind`, unique across rows, and Boolean `push` and `frequent`
@@ -68,6 +101,14 @@ impl Manifest {
                     return Err(format!(
                         "{at}.kind repeats {kind}; give each activity a unique kind"
                     ));
+                }
+                // A misspelt flag would silently leave the entitlement or the plist key off.
+                for key in object.keys() {
+                    for flag in ["push", "frequent"] {
+                        if key != flag && near(&key.to_ascii_lowercase(), flag) {
+                            return Err(format!("{at}.{key} is misspelt; write {flag}"));
+                        }
+                    }
                 }
                 let flag = |key: &str| -> Result<bool, String> {
                     match object.get(key) {
