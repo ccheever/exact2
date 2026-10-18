@@ -294,3 +294,93 @@ fn reservation_measurement_uses_the_painted_case_and_hyphens() {
     );
     assert!(!seen.borrow().iter().any(|s| s.contains('\u{ad}')));
 }
+
+#[test]
+fn archived_durations_fit_the_hour_boundary_and_cache_their_reservation() {
+    use exact_kernel::time::{english, reservation, TimeRequest};
+    use std::{cell::Cell, rc::Rc};
+    struct Counting(Rc<Cell<usize>>);
+    impl TextMeasurer for Counting {
+        fn measure(&mut self, r: &TextMeasureRequest<'_>) -> TextMetrics {
+            MonospaceMeasurer::default().measure(r)
+        }
+        fn measure_reservation(&mut self, r: &TextMeasureRequest<'_>) -> Option<TextMetrics> {
+            self.0.set(self.0.get() + 1);
+            Some(self.measure(r))
+        }
+    }
+    for format in ["timer", "countdown"] {
+        let request = TimeRequest {
+            datetime: if format == "timer" { 0. } else { 7200000. },
+            now: 0.,
+            format,
+            locale: "en-US",
+            time_zone: "UTC",
+            utc_offset: 0.,
+        };
+        let values = reservation(&request, english);
+        assert!(values.lines().all(|s| s.len() == 7), "{values}");
+        let count = Rc::new(Cell::new(0));
+        let mut k = Kernel::new(Box::new(Counting(count.clone())));
+        k.apply(
+            0,
+            1,
+            &[
+                Op::CreateView {
+                    id: 1,
+                    node_type: NodeType::View,
+                },
+                Op::AttachRoot { id: 1 },
+                Op::CreateView {
+                    id: 2,
+                    node_type: NodeType::Text,
+                },
+                Op::SetChildren {
+                    id: 1,
+                    children: vec![2],
+                },
+                Op::SetStyle {
+                    id: 1,
+                    patch: Box::new({
+                        let mut style = StyleProps::default();
+                        style
+                            .set_dynamic(StyleId::Display, &StyleValue::Text("flex".into()))
+                            .unwrap();
+                        style
+                    }),
+                },
+                Op::SetProp {
+                    id: 2,
+                    prop: PropId::Text,
+                    value: english(&request).unwrap().into(),
+                },
+                Op::SetProp {
+                    id: 2,
+                    prop: PropId::TextReservation,
+                    value: values.into(),
+                },
+            ],
+        )
+        .unwrap();
+        let mut frames = Vec::new();
+        for (batch, now) in [(2, 3599000.), (3, 3600000.), (4, 3601000.)] {
+            k.apply(
+                0,
+                batch,
+                &[Op::SetProp {
+                    id: 2,
+                    prop: PropId::Text,
+                    value: english(&TimeRequest { now, ..request }).unwrap().into(),
+                }],
+            )
+            .unwrap();
+            k.compute_layout(1, Offer::definite(400., 100.)).unwrap();
+            frames.push(k.node(2).unwrap().frame);
+        }
+        assert!(frames.iter().all(|f| *f == frames[0]));
+        k.compute_layout(1, Offer::definite(300., 100.)).unwrap();
+        let before = count.get();
+        k.compute_layout(1, Offer::definite(400., 100.)).unwrap();
+        assert_eq!(count.get(), before, "cached leaf remeasured reservation");
+    }
+}

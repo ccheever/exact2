@@ -117,7 +117,7 @@ fn duration_reservations_keep_the_initial_fields_and_grow_at_hour_digits() {
     .unwrap();
     let initial = prop(&r, "timer", PropId::TextReservation);
     assert_eq!(initial.lines().count(), 11);
-    assert!(initial.lines().all(|s| s.len() == 5), "{initial}");
+    assert!(initial.lines().all(|s| s.len() == 7), "{initial}");
     let countdown = prop(&r, "countdown", PropId::TextReservation);
     r.advance(2000.).unwrap();
     assert_eq!(text(&r, "timer"), "00:02");
@@ -126,10 +126,10 @@ fn duration_reservations_keep_the_initial_fields_and_grow_at_hour_digits() {
     assert_eq!(prop(&r, "timer", PropId::TextReservation), initial);
     r.advance(3600000.).unwrap();
     let hour = prop(&r, "timer", PropId::TextReservation);
-    assert!(hour.lines().all(|s| s.len() == 7), "{hour}");
+    assert!(hour.lines().all(|s| s.len() == 8), "{hour}");
     r.advance(36000000.).unwrap();
     let ten = prop(&r, "timer", PropId::TextReservation);
-    assert!(ten.lines().all(|s| s.len() == 8), "{ten}");
+    assert!(ten.lines().all(|s| s.len() == 9), "{ten}");
     assert_eq!(prop(&r, "countdown", PropId::TextReservation), countdown);
     assert_eq!(text(&r, "countdown"), "00:00");
 }
@@ -214,4 +214,55 @@ fn datetime_edits_name_the_instant_and_the_wrong_tag() {
         error.message.contains("`view`") && error.message.contains("`time`"),
         "{error:?}"
     );
+}
+
+#[test]
+fn relative_uses_the_kernel_unit_and_rounding_above_an_hour() {
+    let mut r = Runner::boot(contract::compile("component App\n  view\n    time datetime=9000000 format=\"relative\" testId=\"time\"\n").unwrap(), NoData,
+        Kernel::with_monospace(), Default::default(), "/").unwrap();
+    assert_eq!(text(&r, "time"), "in 3 hr.");
+    assert_eq!(r.timer_due_ms(), Some(60000.));
+    r.advance(60000.).unwrap();
+    assert_eq!(text(&r, "time"), "in 2 hr.");
+}
+
+#[test]
+fn a_runtime_inverted_interval_has_no_range_and_can_recover() {
+    let source = r#"component App
+  state end = 120000
+  action invert
+    end = -1
+  action restore
+    end = 120000
+  view
+    column
+      button "Invert" press=invert testId="invert"
+      button "Restore" press=restore testId="restore"
+      progress start=0 end=end testId="progress"
+"#;
+    let mut r = Runner::boot(
+        contract::compile(source).unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let bar = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("progress")[0])
+        .unwrap()
+        .id;
+    for (button, valid) in [("invert", false), ("restore", true)] {
+        let id = r
+            .kernel()
+            .node_by_key(r.kernel().find_by_test_id(button)[0])
+            .unwrap()
+            .id;
+        r.dispatch(id, exact_runner::Event::Press).unwrap();
+        let props = &r.kernel().node(bar).unwrap().props;
+        assert_eq!(props.get(PropId::Start).is_some(), valid);
+        assert_eq!(props.get(PropId::End).is_some(), valid);
+        assert_eq!(props.get(PropId::Value).is_some(), valid);
+    }
 }

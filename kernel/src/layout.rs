@@ -1161,7 +1161,7 @@ impl LayoutTree {
                         // its own.
                         runs_slot = None;
                         let natural = &mut context.fit_natural;
-                        let Some((metrics, scale)) =
+                        let Some((mut metrics, scale)) =
                             fit::measure(arena, slot, measurer, &mut runs, natural, width, height)
                         else {
                             return Size::ZERO;
@@ -1169,6 +1169,7 @@ impl LayoutTree {
                         if context.measurements.len() == LEAF_OFFERS {
                             context.measurements.remove(0);
                         }
+                        crate::time::reserve(arena, slot, measurer, &mut metrics);
                         let m = Measurement {
                             width,
                             height,
@@ -1185,7 +1186,7 @@ impl LayoutTree {
                                 context.flow.is_empty() || !matches!(width, AxisOffer::Definite(_))
                             })
                             .and_then(|stamp| measurer.measure_known(stamp, width, height));
-                        let metrics = if let Some(metrics) = known {
+                        let mut metrics = if let Some(metrics) = known {
                             metrics
                         } else {
                             // A pass borrows an immutable arena. Consecutive offers
@@ -1229,6 +1230,7 @@ impl LayoutTree {
                         if context.measurements.len() == LEAF_OFFERS {
                             context.measurements.remove(0);
                         }
+                        crate::time::reserve(arena, slot, measurer, &mut metrics);
                         context.measurements.push(Measurement {
                             width,
                             height,
@@ -1238,7 +1240,6 @@ impl LayoutTree {
                         metrics
                     };
                     let mut metrics = metrics;
-                    crate::time::reserve(arena, slot, measurer, &mut metrics);
                     if let Some(h) = style.multicol.and_then(|m| m.used_height) {
                         metrics.height = h;
                     }

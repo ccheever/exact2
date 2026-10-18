@@ -156,8 +156,8 @@ fn standalone_time_frame_stays_constant_across_runner_clock_steps() {
     let (text, before) = read(&host);
     assert_eq!(text, "2 min. ago");
     assert!(
-        before.1.width < 60.,
-        "timer reserves only mm:ss: {:?}",
+        before.1.width < 80.,
+        "timer reserves one hour digit: {:?}",
         before.1
     );
     for (now, expected) in [(60000., "3 min. ago"), (480000., "10 min. ago")] {

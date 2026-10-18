@@ -156,12 +156,11 @@ pub fn english(r: &TimeRequest<'_>) -> Option<String> {
             let h = s / 3600;
             let period = if h < 12 { "AM" } else { "PM" };
             let h = if h.is_multiple_of(12) { 12 } else { h % 12 };
-            let base = if r.format == "time-short" {
+            if r.format == "time-short" {
                 format!("{h}:{:02} {period}", s / 60 % 60)
             } else {
                 format!("{h}:{:02}:{:02} {period}", s / 60 % 60, s % 60)
-            };
-            base
+            }
         }
     })
 }
@@ -201,7 +200,17 @@ pub fn reservation(
     }
     if matches!(r.format, "timer" | "countdown") {
         let mut values = Vec::new();
-        if let Some(model) = format(r) {
+        // An archived timer must fit the next hour-field shape without a runner.
+        let model = if r.format == "timer" {
+            format(&TimeRequest {
+                datetime: 0.,
+                now: 3_600_000. * 10_f64.powi(duration_shape(r) as i32),
+                ..*r
+            })
+        } else {
+            format(r)
+        };
+        if let Some(model) = model {
             let digits: Vec<_> = (0..=9)
                 .filter_map(|d| {
                     format(&TimeRequest {
