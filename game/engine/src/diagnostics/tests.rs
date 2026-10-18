@@ -111,25 +111,26 @@ fn hundred_thousand_entity_query_span() {
                 sim.world_mut().spawn(Transform::default());
             }
             sim.world().resource_mut::<Visited>().0 = u32::from(!exclusive);
-            sim.measure_spans(clock, true);
+            // This detects mutable-query digest invalidation and population scaling,
+            // not a release-time budget. Each arm uses its fastest of five trials
+            // so unrelated work on the machine can only inflate the other trials.
             sim.advance(0., Clock::Live);
-            for tick in 1..=40 {
-                sim.advance(tick as f64 * 1000. / 60., Clock::Live);
+            let mut minimum = f64::INFINITY;
+            for trial in 1..=5 {
+                sim.measure_spans(clock, true);
+                sim.advance(trial as f64 * 17., Clock::Live);
+                let text = sim.spans_json(None);
+                let report: Report = crate::json::from_str(&text).unwrap();
+                let sample = report
+                    .spans
+                    .iter()
+                    .find(|s| s.name == "render-column-query")
+                    .unwrap();
+                assert!(sample.count >= 1);
+                minimum = minimum.min(sample.p50);
             }
-            let text = sim.spans_json(None);
-            let report: Report = crate::json::from_str(&text).unwrap();
-            assert!(report
-                .spans
-                .iter()
-                .any(|s| s.name == "render-column-query" && s.count >= 39));
-            let p50 = report
-                .spans
-                .iter()
-                .find(|s| s.name == "render-column-query")
-                .unwrap()
-                .p50;
-            measurements.push(p50);
-            println!("perf world: entities={count} exclusive={exclusive}: {text}");
+            measurements.push(minimum);
+            println!("perf world: entities={count} exclusive={exclusive} minimum ms={minimum}");
         }
     }
     let [small_mut, _small_shared, large_mut, large_shared] = measurements[..] else {

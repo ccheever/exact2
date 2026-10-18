@@ -46,6 +46,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                     feed.reset();
                 }
                 self.perf = Perf::default();
+                self.gpu_timing = None;
             }
         } else {
             let mut sim = Sim::from_values(values).map_err(SurfaceError)?;

@@ -711,7 +711,8 @@ Development trace exports include bounded Chrome `traceEvents` after `perf` arms
 measurement: CPU ticks and nested spans under their submitted frame, plus GPU pass
 intervals after asynchronous readback. Frame numbers join the two clocks; GPU timestamp
 values are a separate clock domain and are never placed on a fabricated CPU timeline.
-A GPU-less host reports no GPU intervals. Each clock retains at most 65,536 intervals;
+Restore and argument restart discard both CPU and GPU recordings, including
+in-flight GPU readbacks. A GPU-less host reports no GPU intervals. Each clock retains at most 65,536 intervals;
 CPU rows report the dropped count. `bun scripts/agent.mjs trace <file>` summarizes them;
 Perfetto reads the same file. Arm before the session being captured, then use Save Trace,
 ⌥⇧T or `SIGUSR1` as supported by the host.

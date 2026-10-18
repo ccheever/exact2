@@ -471,7 +471,10 @@ comparing state does not advance the clock or mutate the world.
 ## The agent's interface
 
 Use Exact2's same ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
-`layout`, `logs` and `clock`. An entity is addressed as `world:player`.
+`layout`, `logs`, `clock`, `prefer` and `perf`. `trace <file>` reads an exported
+trace separately from these session operations. The CLI also accepts `check`,
+`sample`, `resize`, `close`, `back`, `pick`, `reload`, `fail fetch` and `pass fetch`.
+An entity is addressed as `world:player`.
 
 ```sh
 EXACT_APP_DIR=./my-game EXACT_WEB_DIST=./my-game/artifacts/web-dist bun scripts/agent.mjs web \

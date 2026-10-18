@@ -158,6 +158,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         self.error = None;
         self.reported = false;
         self.perf = Perf::default();
+        self.gpu_timing = None;
         Ok(())
     }
     fn finish_restore(&mut self) {
