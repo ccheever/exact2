@@ -257,26 +257,31 @@ struct SnapshotImageView: View {
             .font(.system(size: points, weight: Font.Weight(css: Int(weight))))
             .foregroundStyle(ink)
         } else if let commands = node.props["symbolPath"] {
-            // An icon with no SF Symbol draws its own path (LLP 1121 D10, stage 9 A): each of its paths filled
-            // nonzero under its viewBox, in the box's middle, in its tint else its colour.
+            // An icon with no SF Symbol draws its own path (LLP 1121 D10, stage 9 A), as the page hosts do: its
+            // em square placed by `object-fit` in the box, the viewBox met in that square, each path filled
+            // nonzero into one mask that its tint (else its colour) shows through once.
             let style = SnapshotStyle(node)
             let ink = SnapshotColor.style(style.color("tint_color") ?? style.color("text_color"), dark: scheme == .dark, context: .ink) ?? AnyShapeStyle(.tint)
             let box = node.contentBox.size, viewBox = node.props["symbolViewBox"] ?? ""
-            ZStack {
-                ForEach(Array(IconPath.paths(commands).enumerated()), id: \.offset) { _, path in
-                    IconShape(path: path, viewBox: viewBox).fill(ink)
-                }
-            }
-            .frame(width: box.width, height: box.height)
+            let points = style.number("font_size") ?? 17
+            let square = IconPath.placed(em: points, fit: fit, in: CGRect(origin: .zero, size: box))
+            Rectangle().fill(ink)
+                .mask(ZStack {
+                    ForEach(Array(IconPath.paths(commands).enumerated()), id: \.offset) { _, path in
+                        IconShape(path: path, viewBox: viewBox, square: square).fill(Color.black)
+                    }
+                })
+                .frame(width: box.width, height: box.height)
+                .clipped()
         }
     }
 }
 
-/// One of an icon's paths, fitted into its frame as the running host fits it (`IconPath.fitted`).
+/// One of an icon's paths, its viewBox met in the em square placed in the box (`IconPath.placed`, `fitted`).
 private struct IconShape: Shape {
-    let path: CGPath, viewBox: String
+    let path: CGPath, viewBox: String, square: CGRect
     func path(in rect: CGRect) -> Path {
-        var transform = IconPath.fitted(IconPath.viewBox(viewBox), in: rect)
+        var transform = IconPath.fitted(IconPath.viewBox(viewBox), in: square)
         return Path(path.copy(using: &transform) ?? path)
     }
 }

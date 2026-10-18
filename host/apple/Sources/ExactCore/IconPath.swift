@@ -56,6 +56,22 @@ package enum IconPath {
         return CGAffineTransform(a: scale, b: 0, c: 0, d: scale, tx: dx, ty: dy)
     }
 
+    /// An icon's em square (`em` points, its natural size) placed in `box` by
+    /// `object-fit`, as Linux places it (paint/svg.rs): `fill` and `contain`
+    /// fit it in its aspect, `cover` covers, `none` keeps it, `scale-down`
+    /// keeps it unless it doesn't fit; centred.
+    package static func placed(em: CGFloat, fit: String, in box: CGRect) -> CGRect {
+        let fitted = min(box.width, box.height), covered = max(box.width, box.height)
+        let side: CGFloat
+        switch fit {
+        case "cover": side = covered
+        case "none": side = em
+        case "scale-down": side = min(em, fitted)
+        default: side = fitted
+        }
+        return CGRect(x: box.midX - side / 2, y: box.midY - side / 2, width: side, height: side)
+    }
+
     /// Fill each path, placed into `rect` (a top-left origin), in `ctx`'s fill colour.
     package static func fill(_ paths: [CGPath], viewBox text: String, in rect: CGRect, _ ctx: CGContext) {
         var transform = fitted(viewBox(text), in: rect)
@@ -68,7 +84,9 @@ package enum IconPath {
         let paths = paths(commands)
         guard size.width > 0, size.height > 0, !paths.isEmpty else { return nil }
         let rect = CGRect(origin: .zero, size: size)
-        #if canImport(UIKit)
+        #if os(watchOS)
+        return nil // (no image renderer on watchOS; no watch host draws the path yet)
+        #elseif canImport(UIKit)
         let format = UIGraphicsImageRendererFormat.preferred(); format.opaque = false
         let image = UIGraphicsImageRenderer(size: size, format: format).image { ctx in
             ctx.cgContext.setFillColor(UIColor.black.cgColor); fill(paths, viewBox: text, in: rect, ctx.cgContext)

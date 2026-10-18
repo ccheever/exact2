@@ -2947,8 +2947,8 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
 - **Per target** (`contract/lower/src/icons.rs`): the targets an app ships are its manifest's
   (`.shells/app.json` first, as the build reads it, else `app.json`) `host`, `deploy.store` and
   `deploy.binaries` keys, and its target crates (`android/`, `linux/`, `web/`, theme2's ruling); an app with no manifest is checked for none. The source graph names each
-  icon's SVG, so a watcher rebuilds on its edit. Every target draws a template SVG (Apple's too since stage 9 A,
-  where no `sf` is given: the limit stage 6 F had, an SVG no source on Apple, is gone), Apple's an `sf`, and the web
+  icon's SVG, so a watcher rebuilds on its edit. Every target but a watch draws a template SVG (Apple's page and widget hosts too since stage 9 A,
+  where no `sf` is given; a watch still needs an `sf`: the limit stage 6 F had, an SVG no source on Apple, is gone), Apple's an `sf`, and the web
   also a file that is no template, as written; a multicolour (non-template) SVG needs an `sf` for Apple, which draws
   no SVG file (theme2's 17:03 (a); QUEUE: rasterise it into the asset catalog). Else `tamber-icon-missing: <icon> has no source
   for <target>`, or `tamber-icon-svg` naming why the file is no one-colour shape and the target.
@@ -3893,3 +3893,5 @@ Built to the approved plan (`~/x2theme/x2p4-s9a-plan.md`; theme2's 17:03 ruling 
   - A path icon with no tint row takes its text colour, else the platform's text colour (live), never the SF Symbol's unsaid grey.
   - The lint keeps requiring an `sf` for a watch (no watch host draws the path yet).
   - Tests: an asymmetric bar's pixels (right side up), two opposite-winding paths solid, an accent tint; docs (D10, the known-limits line, stage 6 F3's Apple bullet).
+- **After review round 2 (Astra, Grok):** the image helper is left out of watchOS (it has no image renderer); a centred path icon on iOS shows its em square again whatever the box was before; the widget snapshot places the em square by `object-fit` and meets the viewBox in it, as the page hosts do, and its tint shows through one mask (overlapping paths don't compound a translucent tint); a watch target names its missing `sf` (`tamber-icon-missing`) instead of calling a template no one-colour shape.
+

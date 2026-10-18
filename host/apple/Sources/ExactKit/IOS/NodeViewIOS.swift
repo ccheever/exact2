@@ -622,9 +622,11 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         default: leaf.contentMode = .scaleAspectFit
         }
         // An icon path is a vector: drawn again at the box it fills, not its em square stretched (UIKit scales a bitmap).
-        if props["symbolPath"] != nil, leaf.contentMode != .center, image != nil {
+        if props["symbolPath"] != nil, let image {
             let side = max(content.width, content.height)
-            if side > 0, leaf.image?.size.width != side { leaf.image = iconPathImage(side: side) }
+            // (Centred, it is its em square again, whatever the box was before.)
+            if leaf.contentMode == .center { if leaf.image !== image { leaf.image = image } }
+            else if side > 0, leaf.image?.size.width != side { leaf.image = iconPathImage(side: side) }
         }
         // A square box clips nothing the content box does not.
         if cornerRadii(in: bounds).allSatisfy({ $0 == 0 }) { if leaf.layer.mask != nil { leaf.layer.mask = nil }; return }

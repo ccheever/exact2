@@ -193,6 +193,11 @@ pub(crate) fn declare(
                 continue;
             }
             errors.push(match (&svg, &icon.svg) {
+                // A one-colour SVG a watch doesn't draw yet: it needs the SF Symbol.
+                (Some(_), Some(_)) if template => refuse(
+                    "tamber-icon-missing",
+                    format!("{} has no source for {target}: a watch draws an icon only as an SF Symbol (an `sf` source)", icon.name),
+                ),
                 (Some(s), Some(file)) => refuse(
                     "tamber-icon-svg",
                     format!(

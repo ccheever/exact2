@@ -107,7 +107,29 @@ final class IconPathTests: XCTestCase {
         let t = IconPath.fitted(IconPath.viewBox("0 0 24 24"), in: CGRect(x: 0, y: 0, width: 48, height: 24))
         XCTAssertEqual(CGPoint(x: 0, y: 0).applying(t), CGPoint(x: 12, y: 0))
         XCTAssertNil(IconPath.path("Q 1 2"), "a verb it doesn't send")
+        // The em square placed by object-fit, as Linux places it (the widget snapshot's model).
+        let box = CGRect(x: 0, y: 0, width: 96, height: 48)
+        XCTAssertEqual(IconPath.placed(em: 24, fit: "fill", in: box), CGRect(x: 24, y: 0, width: 48, height: 48))
+        XCTAssertEqual(IconPath.placed(em: 24, fit: "cover", in: box), CGRect(x: 0, y: -24, width: 96, height: 96))
+        XCTAssertEqual(IconPath.placed(em: 24, fit: "none", in: box), CGRect(x: 36, y: 12, width: 24, height: 24))
+        XCTAssertEqual(IconPath.placed(em: 24, fit: "scale-down", in: box).width, 24, "it fits: its own size")
+        XCTAssertEqual(IconPath.placed(em: 64, fit: "scale-down", in: box).width, 48, "it doesn't: contained")
     }
+
+    #if os(iOS)
+    /// Drawn again at a box it fills, and its em square again once centred.
+    @MainActor func testAPathIconFollowsItsBoxAndIsItsEmSquareCentred() throws {
+        let p = presenter(icon(2, [:]))
+        let v = try XCTUnwrap(p.views[2]), leaf = try XCTUnwrap(v.symbolView as? UIImageView)
+        p.apply(wireBatch([["op": "frame", "id": 2, "x": 0.0, "y": 60.0, "w": 96.0, "h": 96.0]]))
+        v.layoutSymbol()
+        XCTAssertEqual(leaf.image?.size.width, 96, "drawn at the box it fills")
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["font_size": 24.0, "object_fit": "none"]]]))
+        v.layoutSymbol()
+        XCTAssertEqual(leaf.contentMode, .center)
+        XCTAssertEqual(leaf.image?.size.width, 24, "its em square, not the box's bitmap")
+    }
+    #endif
 
     /// The image's pixels: an asymmetric bar near its top inks its top rows
     /// only (right side up on both platforms), and two paths of opposite

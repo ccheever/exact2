@@ -90,6 +90,11 @@ fn a_shipped_target_without_a_source_is_refused() {
         e.message.contains("ios") && e.message.contains("an SF Symbol"),
         "{e:?}"
     );
+    // A watch draws only the SF Symbol yet: a one-colour SVG alone is no source there, said so.
+    let path = app("watch", "\"watchos\": {}", svg_only, &view("symbol:icon.svg"));
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-icon-missing", "{e:?}");
+    assert!(e.message.contains("a watch draws an icon only as an SF Symbol"), "{e:?}");
     let path = app("web-only", "\"web\": {}", design, &view("symbol:icon.two"));
     let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
     assert!(
