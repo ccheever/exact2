@@ -18,6 +18,7 @@ import { surfaceLocal, surfaceCommand } from '../panel/panel-surfaces';
 import { openInEditorHere } from '../connections/remote-open'; // remote Open (OpenInPicker)
 import { letGo } from '../client/let-go';
 import { markUnread } from '../sidebar/sidebar-commands';
+import { replaceLinkedPrompt } from '../prompt-links/linked-prompt';
 
 function threadOf(client: T3Client, threadId: string) {
   const thread = client.shell.threads.find(candidate => candidate.id === threadId);
@@ -110,6 +111,7 @@ async function stopSubagent(client: T3Client, native: Native, storage: Files, ch
 
 /** Local window actions: clipboard copies with the reference's toasts. */
 export async function shellLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
+  if (op === 'prompt-link-replace') { replaceLinkedPrompt(client, Number(id)); return ''; }
   const copy = async (text: string) => {
     const response = obj(await native.later({ op: 'copyText', text, generation: client.generation }));
     if (response.ok !== true) throw new ClientError('Could not copy to the clipboard.');
