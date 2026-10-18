@@ -37,7 +37,12 @@ async function stress(env, swaps = 100, gap = 20) {
 
 const { directoryExchange } = await import(SERVE);
 
-test.skipIf(!directoryExchange(mkdtempSync(join(tmpdir(), "exact-exchange-probe-"))))('exchanged in one step, a reader never finds no build nor a file gone', async () => {
+// Exchanged here: two directories made beside where the stress test's go.
+const probe = mkdtempSync(join(tmpdir(), 'exact-exchange-probe-'));
+const exchanged = directoryExchange(probe);
+rmSync(probe, { recursive: true, force: true });
+
+test.skipIf(!exchanged)('exchanged in one step, a reader never finds no build nor a file gone', async () => {
   const got = await stress({});
   expect(got.final).toBe('<p>100');
   expect(got.ok).toBeGreaterThan(1000);
