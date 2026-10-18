@@ -15,6 +15,10 @@
 //! `Chrome 151 shrink-to-fit row max` uses the same version and date for
 //! capped absolute rows, rows inside capped absolute blocks, and controls
 //! for normal flow, no maximum, nowrap, widths below the maximum and columns.
+//! `Chrome 151 wrapping min-content` uses that version and date for contents
+//! wider and narrower than the flex basis, zero and automatic minima, hidden
+//! overflow, preferred widths, item bounds, margins, padding and nowrap.
+//! The same frames were measured with float:left wrappers in an 80px offer.
 //!
 //! A fixture line is `name`, the root's declarations, the nodes (`id>parent>
 //! declarations>text`, joined by ` & `) and Chrome's frames (`id=x,y,w,h`),

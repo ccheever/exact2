@@ -428,10 +428,13 @@ fn compute_preliminary(tree: &mut impl LayoutFlexboxContainer, node: NodeId, inp
         // clamped inner width governs line breaks for both measured height and
         // final frames. A max-content root need not receive another layout pass.
         // https://www.w3.org/TR/css-flexbox-1/#main-sizing
+        // EXACT PATCH 48: min-content width can fit several flex bases, or be
+        // narrower than the maximum used for initial line collection. It also
+        // needs line breaks at the resolved width before measuring height.
         let rewrap = constants.is_row
             && constants.is_wrap
-            && available_space.width == AvailableSpace::MaxContent
-            && constants.max_size.width.is_some();
+            && (available_space.width == AvailableSpace::MinContent
+                || (available_space.width == AvailableSpace::MaxContent && constants.max_size.width.is_some()));
         #[cfg(feature = "flexbox_balance")]
         let rewrap = rewrap && !constants.is_balance;
         if rewrap {
@@ -1557,6 +1560,10 @@ fn determine_container_main_size(
             + child.margin.main_axis_sum(dir)
     };
 
+    let is_wrapping_row = constants.is_row && constants.is_wrap;
+    #[cfg(feature = "flexbox_balance")]
+    let is_wrapping_row = is_wrapping_row && !constants.is_balance;
+
     let outer_main_size: f32 = constants.node_outer_size.main(constants.dir).unwrap_or_else(|| {
         match available_space.main(dir) {
             AvailableSpace::Definite(main_axis_available_space) => {
@@ -1616,6 +1623,25 @@ fn determine_container_main_size(
                 } else {
                     size
                 }
+            }
+            AvailableSpace::MinContent if is_wrapping_row => {
+                // EXACT PATCH 48: a wrapping row takes its widest item's intrinsic
+                // contribution, including contents when its automatic minimum is zero.
+                // Chrome 151 uses the preferred width and min/max but neither flex-basis
+                // clamp here, even for inflexible items or scroll containers (§9.9.1.3).
+                // https://www.w3.org/TR/css-flexbox-1/#intrinsic-item-contributions
+                lines.iter().flat_map(|line| line.items.iter()).map(|item| {
+                    let width = tree.measure_child_size(
+                        item.node,
+                        Size::NONE,
+                        constants.node_inner_size,
+                        available_space.maybe_sub(item.margin.sum_axes()),
+                        SizingMode::InherentSize,
+                        dir.main_axis(),
+                        Line::FALSE,
+                    );
+                    width.max(item.resolved_minimum_main_size) + item.margin.horizontal_axis_sum()
+                }).fold(0.0, f32_max) + main_content_box_inset
             }
             AvailableSpace::MinContent if constants.is_wrap => {
                 let longest_line_length: f32 = lines
@@ -3617,6 +3643,147 @@ mod intrinsic_tests {
     use crate::geometry::{Line, Size};
     use crate::prelude::*;
     use crate::tree::{LayoutPartialTreeExt, SizingMode};
+    use crate::Overflow;
+
+    // Chrome 151.0.7922.34, 2026-10-18: rows inside width:min-content wrappers.
+    #[test]
+    fn wrapping_min_content_width_uses_contents_independently_of_flex_basis() {
+        let mut failures = Vec::new();
+        for (name, content, preferred, shrink, minimum, overflow, wrap, width, item_width, reverse_x) in [
+            ("zero minimum", 100.0, auto(), 0.0, length(0.0), Overflow::Visible, FlexWrap::Wrap, 100.0, 60.0, 40.0),
+            ("hidden overflow", 100.0, auto(), 0.0, auto(), Overflow::Hidden, FlexWrap::Wrap, 100.0, 60.0, 40.0),
+            ("shrinkable", 100.0, auto(), 1.0, length(0.0), Overflow::Visible, FlexWrap::Wrap, 100.0, 60.0, 40.0),
+            ("automatic minimum", 100.0, auto(), 0.0, auto(), Overflow::Visible, FlexWrap::Wrap, 100.0, 100.0, 0.0),
+            ("preferred width", 100.0, length(60.0), 0.0, length(0.0), Overflow::Visible, FlexWrap::Wrap, 60.0, 60.0, 0.0),
+            ("narrow contents rigid", 20.0, auto(), 0.0, length(0.0), Overflow::Visible, FlexWrap::Wrap, 20.0, 60.0, -40.0),
+            ("narrow contents shrinkable", 20.0, auto(), 1.0, length(0.0), Overflow::Visible, FlexWrap::Wrap, 20.0, 20.0, 0.0),
+            ("preferred width narrow contents", 20.0, length(60.0), 0.0, length(0.0), Overflow::Visible, FlexWrap::Wrap, 60.0, 60.0, 0.0),
+            ("nowrap", 100.0, auto(), 0.0, length(0.0), Overflow::Visible, FlexWrap::NoWrap, 180.0, 60.0, 120.0),
+        ] {
+            for direction in [FlexDirection::Row, FlexDirection::RowReverse] {
+                let mut tree = TaffyTree::<()>::new();
+                let items: Vec<_> = (0..3).map(|_| {
+                    let child = tree.new_leaf(Style {
+                        size: Size { width: length(content), height: length(10.0) },
+                        ..Default::default()
+                    }).unwrap();
+                    tree.new_with_children(Style {
+                        display: Display::Block,
+                        size: Size { width: preferred, height: length(100.0) },
+                        min_size: Size { width: minimum, height: auto() },
+                        flex_basis: if preferred.is_auto() { length(60.0) } else { auto() },
+                        flex_shrink: shrink,
+                        overflow: crate::geometry::Point { x: overflow, y: overflow },
+                        ..Default::default()
+                    }, &[child]).unwrap()
+                }).collect();
+                let row = tree.new_with_children(Style {
+                    flex_direction: direction,
+                    flex_wrap: wrap,
+                    align_content: Some(AlignContent::FLEX_START),
+                    ..Default::default()
+                }, &items).unwrap();
+                let available = Size { width: AvailableSpace::MinContent, height: AvailableSpace::MaxContent };
+                let expected = Size { width, height: if wrap == FlexWrap::NoWrap { 100.0 } else { 300.0 } };
+                for mode in [SizingMode::ContentSize, SizingMode::InherentSize] {
+                    tree.mark_dirty(row).unwrap();
+                    let size = tree.as_layout_tree().measure_child_size_both(
+                        row, Size::NONE, Size::NONE, available, mode, Line::FALSE,
+                    );
+                    if size != expected {
+                        failures.push(format!("{name}; {direction:?}; {mode:?}: {size:?}, Chrome {expected:?}"));
+                    }
+                }
+                tree.mark_dirty(row).unwrap();
+                tree.compute_layout(row, available).unwrap();
+                let size = tree.layout(row).unwrap().size;
+                if size != expected {
+                    failures.push(format!("{name}; {direction:?}; layout: {size:?}, Chrome {expected:?}"));
+                }
+                for (index, item) in items.into_iter().enumerate() {
+                    let layout = tree.layout(item).unwrap();
+                    let x = if direction == FlexDirection::RowReverse { reverse_x } else { 0.0 };
+                    let (x, y) = if wrap == FlexWrap::NoWrap {
+                        (x + index as f32 * if direction == FlexDirection::RowReverse { -60.0 } else { 60.0 }, 0.0)
+                    } else {
+                        (x, index as f32 * 100.0)
+                    };
+                    let got = [layout.location.x, layout.location.y, layout.size.width, layout.size.height];
+                    let want = [x, y, item_width, 100.0];
+                    if got != want {
+                        failures.push(format!("{name}; {direction:?}; item {index}: {got:?}, Chrome {want:?}"));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    // Chrome 151.0.7922.34, 2026-10-18: width:min-content wrappers. The
+    // intrinsic width can fit several bases, or be smaller than a maximum
+    // that initially put several items on one line.
+    #[test]
+    fn min_content_rows_wrap_at_their_resolved_width() {
+        let mut failures = Vec::new();
+        for (content, basis, maximum, width, height, xs, reverse_xs, ys) in [
+            (200.0, 60.0, auto(), 200.0, 100.0, [0.0, 60.0, 120.0], [140.0, 80.0, 20.0], [0.0; 3]),
+            (100.0, 0.0, auto(), 100.0, 100.0, [0.0; 3], [100.0; 3], [0.0; 3]),
+            (100.0, 60.0, length(400.0), 100.0, 300.0, [0.0; 3], [40.0; 3], [0.0, 100.0, 200.0]),
+            (100.0, 60.0, length(90.0), 90.0, 300.0, [0.0; 3], [30.0; 3], [0.0, 100.0, 200.0]),
+        ] {
+            for direction in [FlexDirection::Row, FlexDirection::RowReverse] {
+                let mut tree = TaffyTree::<()>::new();
+                let items: Vec<_> = (0..3).map(|_| {
+                    let child = tree.new_leaf(Style {
+                        size: Size { width: length(content), height: length(10.0) },
+                        ..Default::default()
+                    }).unwrap();
+                    tree.new_with_children(Style {
+                        display: Display::Block,
+                        size: Size { width: auto(), height: length(100.0) },
+                        min_size: Size { width: length(0.0), height: auto() },
+                        flex_basis: length(basis),
+                        flex_shrink: 0.0,
+                        ..Default::default()
+                    }, &[child]).unwrap()
+                }).collect();
+                let row = tree.new_with_children(Style {
+                    flex_direction: direction,
+                    flex_wrap: FlexWrap::Wrap,
+                    max_size: Size { width: maximum, height: auto() },
+                    align_content: Some(AlignContent::FLEX_START),
+                    ..Default::default()
+                }, &items).unwrap();
+                let available = Size { width: AvailableSpace::MinContent, height: AvailableSpace::MaxContent };
+                let expected = Size { width, height };
+                for mode in [SizingMode::ContentSize, SizingMode::InherentSize] {
+                    tree.mark_dirty(row).unwrap();
+                    let size = tree.as_layout_tree().measure_child_size_both(
+                        row, Size::NONE, Size::NONE, available, mode, Line::FALSE,
+                    );
+                    if size != expected {
+                        failures.push(format!("content {content}; basis {basis}; {direction:?}; {mode:?}: {size:?}, Chrome {expected:?}"));
+                    }
+                }
+                tree.mark_dirty(row).unwrap();
+                tree.compute_layout(row, available).unwrap();
+                let size = tree.layout(row).unwrap().size;
+                if size != expected {
+                    failures.push(format!("content {content}; basis {basis}; {direction:?}; layout: {size:?}, Chrome {expected:?}"));
+                }
+                let xs = if direction == FlexDirection::RowReverse { reverse_xs } else { xs };
+                for (index, item) in items.into_iter().enumerate() {
+                    let layout = tree.layout(item).unwrap();
+                    let got = [layout.location.x, layout.location.y, layout.size.width, layout.size.height];
+                    let want = [xs[index], ys[index], basis, 100.0];
+                    if got != want {
+                        failures.push(format!("content {content}; basis {basis}; {direction:?}; item {index}: {got:?}, Chrome {want:?}"));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
 
     // Chrome 151.0.7922.34, 2026-10-18: rows inside width:max-content wrappers.
     #[test]
