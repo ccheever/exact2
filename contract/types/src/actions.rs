@@ -208,6 +208,12 @@ impl Cx<'_, '_> {
                         *span,
                     );
                 };
+                if matches!(
+                    source.as_str(),
+                    "startActivity" | "updateActivity" | "endActivity"
+                ) {
+                    crate::activities::send(source, args, scope, shapes, *span)?;
+                }
                 let mut params = Vec::with_capacity(args.len());
                 for arg in args {
                     params.push(crate::source_argument(arg, source, scope, shapes)?);

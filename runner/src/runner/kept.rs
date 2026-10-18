@@ -609,9 +609,12 @@ impl<D: DataSource> Runner<D> {
             let target = super::Target::Mutation(m);
             let name = self.plan.str(self.plan.mutations[m].name).to_string();
             self.mutation_requests += 1;
-            let answer = self
-                .data
-                .answer_for(target, &mut self.store, &source, &args);
+            let answer = if Self::activity_send(&source) {
+                self.activity_request(&source, &args)
+            } else {
+                self.data
+                    .answer_for(target, &mut self.store, &source, &args)
+            };
             // What its turn sent as an answer (LLP 1016.000 D7, the amendment
             // of 2026-10-18).
             self.stage_answer(target);

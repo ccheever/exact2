@@ -176,8 +176,17 @@ impl<D: DataSource> Bridge<D> {
 }
 
 impl<D: DataSource> Bridge<D> {
-    /// A MIDI message in the input buffer (LLP 1125 D6–D8): the arm's
-    /// report of the ports or the inputs, or the agent's (`Host::midi`).
+    /// Activity facts or one send completion in the input buffer.
+    pub fn activities(&mut self, len: usize) -> u32 {
+        let text = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.activities(&text));
+        self.emit(out)
+    }
+
+    /// MIDI ports or messages in the input buffer.
     pub fn midi(&mut self, len: usize) -> u32 {
         let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])
             .unwrap_or("")

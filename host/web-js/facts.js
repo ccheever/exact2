@@ -59,6 +59,10 @@ export function page(readers) {
 
 /** Each reader's second entry: the value the build baked, if it baked one
  * (a plan built from source did not): the embedded answer. */
+export function activities(readers) {
+  (data.reserved ??= {}).exactActivities = (_, a, name) => byName(readers, name, { activities: [], frequentPushesEnabled: false });
+}
+
 export function delivery(readers) {
   const embedded = { stream: "embedded", seq: 0, embeddedSeq: 0, staged: false, sunset: "", interpreted: [], compatibilityId: "" };
   (data.reserved ??= {}).exactDelivery = (_, a, name) => readers[name][1] ?? byName(readers, name, embedded);

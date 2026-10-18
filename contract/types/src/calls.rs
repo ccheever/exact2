@@ -430,6 +430,7 @@ pub(super) fn unknown_function(
             | "exactSurface"
             | "exactTransport"
             | "exactMIDI"
+            | "exactActivities"
     ) {
         let call = if name == "exactSurface" {
             "exactSurface(\"world\")".to_string()

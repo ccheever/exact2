@@ -430,7 +430,7 @@ function closeLetGo() {
     say(`close stream ${t.id}: its ticket was let go`);
   }
 }
-function ask(source, args, name, mutation = false) {
+function ask(source, args, name, mutation = false) { if (["startActivity", "updateActivity", "endActivity"].includes(source)) throw new Refusal(`${source} is not linked into this artifact`);
   let a; try { a = data.reserved?.[source] ? { v: data.reserved[source](source, args, name) } : data.answer(source, args, Store, name, mutation); } catch (e) { Out.push(...(data.thrown?.() ?? [])); throw e; } // what a resource's source sent before it threw goes if the commit stands (ts-data.js)
   return a && a.then ? { promise: a } : a;
 }

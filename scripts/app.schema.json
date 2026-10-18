@@ -480,7 +480,9 @@
             "backgroundModes": {
               "type": "array",
               "items": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^(?!remote-notification$).*$",
+                "description": "remote-notification is refused; ActivityKit update tokens need no background mode (LLP 1126.001 WP9)."
               }
             },
             "associatedDomains": {

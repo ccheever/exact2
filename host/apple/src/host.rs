@@ -22,6 +22,8 @@ use exact_motion::{Change, Engine, HoldToken, Property};
 #[path = "agent.rs"]
 mod agent;
 
+#[path = "activities.rs"]
+mod activities;
 #[path = "arrange.rs"]
 mod arrange;
 #[path = "arrange_group.rs"]

@@ -325,6 +325,48 @@ tempo is rounded to 0.1 and it and the anchor are said again only when they
 move by 0.5 bpm or 1/48 of a beat, or the state does); it is answered by a
 commit of its own after each change, as an answer's `then` runs.
 
+### Live Activities: `startActivity`, `updateActivity`, `endActivity`
+
+The three reserved mutation sources (LLP 1126.001 WP9) compile on every host.
+They run on iOS through an ActivityKit arm loaded at first use; other hosts
+refuse the send with `… is not linked into this artifact`.
+Declare the entry in `app.json`'s `live_activities`, its state shape and slots
+as in `apps/caltrain/activities.contract`. Each send answers a shape with
+`id: string`:
+
+```contract
+shape ActivityHandle
+  id: string
+
+component App
+  mutation activity as shape ActivityHandle
+  action follow(state: DepartureState)
+    send activity = startActivity("departure", state)
+  action delay(id: string, state: DepartureState)
+    send activity = updateActivity(id, state, some("Train delayed"), none)
+  action finish(id: string, state: DepartureState)
+    send activity = endActivity(id, state, "immediate")
+```
+
+`state` is a record, checked against the entry's state shape at runtime.
+An update's optional third argument is `option<string>` (the alert's title,
+with the default sound); its optional fourth is `option<number>` (the stale
+date in Unix milliseconds). Ending takes `"default"`, `"immediate"`, or a
+Unix millisecond dismissal date. Attributes plus state obey the same 4 KB
+bound as the bake.
+
+`resource activities = exactActivities() as shape Activities` reads a record
+whose fields are `activities: Activity[]` and `frequentPushesEnabled: bool`.
+An activity has `id`, `kind`, `state` (a JSON string), `activityState`
+(`pending`, `active`, `stale`, `ended`, `dismissed`) and `token: option<string>`.
+Readers may name only the fields they need. Off iOS the list is empty and
+frequent pushes are false. A first demand enumerates existing activities,
+including after a relaunch without a send; later token, state and content
+updates re-answer the source. A token is absent until ActivityKit supplies
+it, and exists only for an entry declaring `push: true`. The data module
+sends it to its own backend. Push-to-start, remote notification registration
+and the `remote-notification` background mode stay refused.
+
 ### MIDI: `exactMIDI`, `sendMIDI`, `midimessage`
 
 MIDI is Web MIDI's, by its names (LLP 1125 D6–D8), and needs the grant line

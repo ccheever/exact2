@@ -592,6 +592,7 @@ uint32_t exact_set_place(ExactRuntime rt, size_t len);
 /* @ref LLP 1125 D6-D8: a MIDI message, JSON in the input buffer: the MIDI
  * arm's {"ports":…} or {"messages":…}, or the agent's `prefer midi` and
  * `tap midi`. Returns the batch length. */
+uint32_t exact_activities(uint32_t rt, size_t len);
 uint32_t exact_midi(ExactRuntime rt, size_t len);
 /* @ref LLP 1121 D5: app modes, `axis=value` pins comma-separated (the agent's `prefer mode`); a leading `?` only checks them. */
 uint32_t exact_set_mode(ExactRuntime rt, size_t len);

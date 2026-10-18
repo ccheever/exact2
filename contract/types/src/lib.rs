@@ -18,6 +18,7 @@
 #![deny(missing_docs)]
 
 mod actions;
+mod activities;
 mod bounds;
 mod calls;
 mod checks;

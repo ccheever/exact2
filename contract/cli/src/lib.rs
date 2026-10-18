@@ -991,6 +991,12 @@ fn first_frame<D: DataSource>(
     midi::shape(plan)?;
     fact_shape(
         plan,
+        "exactActivities",
+        &["activities", "frequentPushesEnabled"],
+        "bake-activities-field",
+    )?;
+    fact_shape(
+        plan,
         delivery::SOURCE,
         &delivery::FIELDS,
         "bake-delivery-field",

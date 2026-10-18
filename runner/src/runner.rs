@@ -89,6 +89,7 @@ pub use lists::{ListTextPolicy, ListTextPosition};
 mod settlement;
 mod sockets;
 pub use sockets::{SocketReader, SocketState};
+mod activities;
 mod apply;
 mod live_time;
 pub mod midi;
@@ -515,6 +516,7 @@ pub struct Runner<D: DataSource> {
     settled: Option<settlement::Settled>,
     /// Per derive: its value depends on the durable store (bake provenance).
     derive_store_dependent: Vec<bool>,
+    activities: activities::Activities,
     /// What this binary and its update store know about delivery (LLP 1030
     /// D4, D7): the embedded answer until a host says otherwise.
     delivery: crate::delivery::Delivery,
@@ -914,6 +916,7 @@ impl<D: DataSource> Runner<D> {
             awaiting: Vec::new(),
             keeping: Default::default(),
             churn: Default::default(),
+            activities: activities::Activities::default(),
             delivery,
             viewport,
             page: Default::default(),

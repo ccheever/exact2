@@ -16,6 +16,11 @@ pub fn reserved(plan: &Plan, body: &mut String) -> Result<String, String> {
         ("exactPage", page::FIELDS, "page"),
         ("exactDelivery", &delivery::FIELDS[..], "delivery"),
         ("exactSurface", &[][..], "surfaces"),
+        (
+            "exactActivities",
+            &["activities", "frequentPushesEnabled"][..],
+            "activities",
+        ),
     ] {
         // Each reader by its resource name: its fields (by its own shape),
         // with what the build baked for delivery, or its surface and shape.
