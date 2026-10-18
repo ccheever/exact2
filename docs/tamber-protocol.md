@@ -65,8 +65,8 @@ on macOS and Linux.
   later wire changes add under the same version.
 - `tamber/1.11` (LLP 1121 stage 8, commit D) added the app's own Contract sources to the design's
   files (`hello`, every reply's `files`, the journal, `commit`, `history` and `revert`) and the
-  state part operations `set-state` and `unset-state`. The window's later additive changes (stage 8, real-time scrubs)
-  add under the same version.
+  state part operations `set-state` and `unset-state`. The window's later additive changes
+  (stage 8, real-time scrubs) add under the same version.
 
 ## Where it runs
 
