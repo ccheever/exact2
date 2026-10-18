@@ -29,7 +29,8 @@ import { activeInput, composerInput, composerRequests, setCustomAnswer, chooseOp
 import { releaseHeldRequests } from '../composer/composer-typing-guard';
 import { threadPhase } from '../composer/composer-presentation';
 import { autoBalanceSend } from '../composer/auto-balance';
-import { fleet } from '../connections/settings-b-fleet'; // favorites from another environment's catalog
+import { providersHost, routedNative } from '../providers/providers-scope';
+import { toggleModelFavorite } from '../providers/model-preferences';
 import { obj, str, arr, type Obj } from './domain';
 import { ClientError, activeRun, providerAvailable, modelSelection, sendPayload,
   launchPayload, type Native, type Files } from './protocol';
@@ -42,14 +43,12 @@ export async function composerOps(this: T3Client, op: string, id: string, value:
       if (value.length > 1_000_000) throw new ClientError('Keep a draft under 1,000,000 characters.');
       if (!setCustomAnswer(this, value)) this.local.drafts[this.draftKey] = value;
      } else if (op === 'favorite-model') {
-      const key = JSON.stringify([id, value]);
-      // A Settings scope's representative may be another environment (settings-model-picker.ts): any known catalog counts.
-      const catalogs = [this.config, ...[...fleet.entries.values()].map(entry => entry.config)];
-      if (!catalogs.some(config => arr(obj(config).providers).some(provider => provider.instanceId === id && arr(provider.models).some(model => model.slug === value)))) {
+      const tab = id.indexOf('\t'), environmentId = tab < 0 ? this.environmentId : id.slice(0, tab), instanceId = tab < 0 ? id : id.slice(tab + 1);
+      const host = tab < 0 && out.providers ? out.providers.host : providersHost(this, environmentId);
+      if (!arr(host.config.providers).some(provider => provider.instanceId === instanceId && arr(provider.models).some(model => model.slug === value))) {
         throw new ClientError('That model is no longer advertised by T3.');
       }
-      this.local.favoriteModels = this.local.favoriteModels.includes(key)
-        ? this.local.favoriteModels.filter(entry => entry !== key) : [...this.local.favoriteModels, key].slice(-200);
+      await toggleModelFavorite(host, routedNative(host, native), instanceId, value);
     } else if (op === 'answer') setCustomAnswer(this, value);
     else if (op === 'choice') chooseOption(this, id, value, text => carryAnswer.call(this, text));
     else if (op === 'previous-question') previousQuestion(this);

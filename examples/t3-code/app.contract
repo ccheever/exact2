@@ -449,7 +449,8 @@ component T3Code
     if not pending(timelineReadsRefreshedNext)
       send timelineReadsRefreshedNext = refreshTimelineReads(wallTime.epochAtZero + performanceNow())
   state liveNow = 0 // The timeline's "Working for 12s" ticks each second while a run is live.
-  resource workspaceDiscovery = composerWorkspace(data.revision, not settingsOpen and not pageCover and not welcome.show) as shape WorkspaceDiscovery // ChatComposer is mounted on the chat view only
+  state workspaceNow = 0 // The mounted composer checks its five-minute workspace snapshot TTL.
+  resource workspaceDiscovery = composerWorkspace(data.revision, not settingsOpen and not pageCover and not welcome.show, wallTime.epochAtZero + max(workspaceNow, elapsed)) as shape WorkspaceDiscovery // ChatComposer is mounted on the chat view only
   mutation workspaceRefreshed as shape WorkspaceRefresh refreshes workspaceDiscovery, data then workspaceRefreshFinished
   state workspaceRetryKey = ""
   state workspaceRetryAt = 0
@@ -466,6 +467,8 @@ component T3Code
   // leaves a pending data answer alone, as the highlight pump does (highlightStepped): asked again each second, a
   // launch's slow snapshot answer could never land.
   action liveTick
+    if not settingsOpen and not pageCover and not welcome.show
+      workspaceNow = performanceNow()
     if data.timelineReadsNeeded and not pending(data)
       dispatchTimelineReads()
     if workspaceDiscovery.needed and not pending(workspaceRefreshed)
@@ -971,8 +974,8 @@ component T3Code
           if pendingModal == "welcome-pair"
             welcomeLink = ""
             welcomePairOpen = false
-          if pendingModal == "provider-add"
-            providerDialog = wizardManual or wizardDriver == "acpRegistry" ? providerDialog : ""
+          if pendingModal == "provider-add" or pendingModal == "provider-add-local"
+            providerDialog = pendingModal == "provider-add-local" ? "" : wizardManual or wizardDriver == "acpRegistry" ? providerDialog : ""
             providerSelected = providerCreated
           if pendingModal == "provider-close"
             providerDialog = ""
@@ -1314,27 +1317,27 @@ component T3Code
       wizardStep = wizardStep <= 1 and target > 1 and providerWizard.idError != "" ? 1 : target // the window's half marks the attempt
   action providerOp(op: string, id: string, field: string, value: string, apply: bool)
     if op.startsWith("upkeep:update") and apply
-      send providerUpdateRun = providerChange(op, id, field, value, providerPage.environment)
+      send providerUpdateRun = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)
     else if (op.startsWith("setup:") or op.startsWith("upkeep:")) and apply
-      send providerAuthChanged = providerChange(op, id, field, value, providerPage.environment)
+      send providerAuthChanged = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)
     else if apply and not commandPending
       commandPending = true
       pendingModal = op == "acp-prepare" ? "provider-acp" : (op == "provider-hub-add" or op == "provider-hub-remove" or (op == "provider-chatgpt" and welcome.show) ? "provider-close" : "provider")
       modalError = ""
-      send changed = providerChange(op, id, field, value, providerPage.environment)
+      send changed = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)
   action providerAccent(id: string, hex: string, vx: number, vy: number)
     if not commandPending
       commandPending = true
       pendingModal = "provider"
       modalError = ""
-      send changed = providerChange("provider-accent", id, "", hex, providerPage.environment)
-  action providerAdd(driver: string, label: string, id: string, accent: string, f0: string, f1: string, f2: string, f3: string, f4: string) // the window's half marks the attempt
+      send changed = providerChange("provider-accent", id, "", hex, providerPage.environment, "")
+  action providerAdd(driver: string, label: string, id: string, accent: string, fields: string[], commandArgs: string[]) // the window's half marks the attempt
     if not commandPending
       commandPending = true
-      pendingModal = "provider-add"
-      providerCreated = id == "" ? providerWizard.instanceId : id
+      pendingModal = driver == "acpRegistry" and fields.slice(0, 1).join("") == "local" ? "provider-add-local" : "provider-add"
+      providerCreated = id
       modalError = ""
-      send changed = providerAdd(driver, label, id, accent, f0, f1, f2, f3, f4, providerPage.environment)
+      send changed = providerAdd(driver, label, id, accent, fields, providerPage.environment, commandArgs)
   action connectionOp(op: string, id: string, value: string)
     if not commandPending
       sshReturnToConnect = op == "environment-ssh-add" or op == "environment-ssh-pick"
@@ -1641,7 +1644,7 @@ component T3Code
       settingsFocusTarget = value
       modalError = ""
     if op.startsWith("upkeep:")
-      send providerUpdateRun = providerChange(op, target, "", value, "") // a toast's update: the launch prompt's own environments, never the page's
+      send providerUpdateRun = providerChange(op, target, "", value, "", "") // a toast's update: the launch prompt's own environments, never the page's
     if op != "copy" and op != "dismiss" and op != "ui:settings" and not op.startsWith("upkeep:") and not commandPending
       commandPending = true
       send changed = command(op, target, value, 0)

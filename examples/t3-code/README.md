@@ -343,6 +343,19 @@ values of older builds) reads as unset, so the real time is stored (`onboarding-
 After a lost connection the client follows the reference reconnect ladder
 and resynchronizes before permitting writes. A submission with an uncertain result keeps
 its command identifiers and draft and is never retried automatically.
+Providers follow the selected Settings environment. With a project or checkout selected, the
+provider switch writes that project's checkout overrides; Reset uses the environment setting.
+Provider update details show live installer progress and failures. The Models section can rename
+built-in models and stores favorites, visibility, and order on that environment. Legacy device
+preferences seed only an unset server list; an explicit empty list stays empty.
+
+The model picker explains models that need a newer CLI and links to Provider settings. Workspace
+skills refresh after five minutes. Muse Code is available in Add provider; Usage includes Pi
+sessions and Antigravity quota groups. For a local ACP executable, choose ACP Registry → Enter
+manually → Local command, enter its path, and add one literal argument per row. Secret fields
+show Configured; enter a replacement or use Clear. Provider editor questions keep their prefilled
+answer as literal text, including whitespace and an intentionally cleared answer.
+
 ## Known differences and framework gaps
 
 The clone follows the reference wherever exact2 allows it. Where it cannot, the gap is an

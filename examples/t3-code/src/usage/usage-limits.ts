@@ -109,6 +109,7 @@ export function formatResetsIn(window: Obj, now: number): string | null {
 /** UsageLimits.tsx barColor: the series colour the cost chart uses for this driver, as [light, dark]. */
 export function barColor(driver: string): [string, string] {
   if (driver === 'codex') return ['#27272a', '#f5f5f5'];
+  if (driver === 'antigravity') return ['#8c7bd1', '#8c7bd1'];
   if (driver === 'claudeAgent') return ['#d97757', '#d97757'];
   return ['#27272a', '#f5f5f5'];
 }

@@ -102,7 +102,7 @@ describe('Settings › Providers follows the scope selector', () => {
     expect(obj(await answer('providerWizard', [true, 1, 'claudeAgent', true, 'Work', false, '', 0, 'add', '', 'env2'], null, files, native)).environment).toBe('LAN box');
     await answer('acpRegistry', ['', true, 0, 'env2'], null, files, native);
     expect(native.calls.filter(call => obj(call).method === 'server.searchAcpRegistry').map(call => call.fleet ?? 'focused')).toEqual([KEY]);
-    await answer('providerAdd', ['claudeAgent', 'Work', '', '', '', '', '', '', '', 'env2'], null, files, native);
+    await answer('providerAdd', ['claudeAgent', 'Work', '', '', [], 'env2', []], null, files, native);
     expect(Object.keys(obj(obj(second.config.settings).providerInstances))).toContain('claudeAgent_work');
     expect(native.calls.filter(call => obj(call).method === 'server.updateSettings').map(call => call.fleet ?? 'focused')).toEqual([KEY, KEY]);
   });
@@ -170,7 +170,7 @@ test('provider mutation sources return the complete Change shape without request
     ['providerChange', ['setup:chatgpt-connect', 'codex', '', '', '']],
     ['providerChange', ['setup:auth-start', 'codex', '', '', '']],
     ['providerChange', ['provider-enabled', 'codex', '', 'false', '']],
-    ['providerAdd', ['codex', 'Work', '', '', '', '', '', '', '', '']],
+    ['providerAdd', ['codex', 'Work', '', '', [], '', []]],
     ['command', ['endpoint-default', '', 'tailscale:ip:http', 0]],
   ] satisfies [string, unknown[]][]) {
     const result = obj(await answer(source, args, null, files, null));

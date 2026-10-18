@@ -313,7 +313,12 @@ shape PickerSetup
   id: string
   message: string
   label: string
+shape PickerUpdateNotice
+  id: string
+  message: string
 shape PickerCatalog
+  updateRequired: PickerUpdateNotice[]
+  environmentId: string
   searching: bool
   provider: string
   favoritesSelected: bool

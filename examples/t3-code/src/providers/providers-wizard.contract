@@ -21,6 +21,7 @@ use FocusGuard from "../shared/dialog-trap.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 
 shape WizardDriver
+  badge: string
   id: string
   label: string
   selected: bool
@@ -123,6 +124,13 @@ component AddProviderDialog
   state f2 = ""
   state f3 = ""
   state f4 = ""
+  state commandArgs: string[] = []
+  action addArgument
+    commandArgs = commandArgs.concat([""])
+  action editArgument(index: number, value: string)
+    commandArgs = commandArgs.map((arg, at) => at == index ? value : arg)
+  action removeArgument(index: number)
+    commandArgs = commandArgs.filter((arg, at) => at != index)
   state accentOpen = false
   state accent = ""
   state signOutOpen = false
@@ -152,6 +160,7 @@ component AddProviderDialog
   action clearAccent
     accent = ""
     accentOpen = false
+  derive localAcp = wizard.driver == "acpRegistry" and f0 == "local"
   derive isAcp = wizard.driver == "acpRegistry"
   derive shownLabel = labelSet ? label : wizard.label
   derive shownId = idSet ? id : wizard.instanceId
@@ -175,7 +184,8 @@ component AddProviderDialog
           row width="100%" height="2.75rem" box-sizing="border-box" padding="0.25rem" gap="0.25rem" border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfc, #ffffff0a)" role="list" aria-label="Setup progress"
             WizardStep(number=0, title="Provider", summary=(shownStep > 0 ? (isAcp ? wizard.label : wizard.driverLabel) : ""), current=shownStep, disabled=(wizard.created != ""), go=ui)
             WizardStep(number=1, title="Identity", summary=(shownStep > 1 ? wizard.preview : ""), current=shownStep, disabled=(wizard.created != ""), go=ui)
-            WizardStep(number=2, title=(isAcp ? "Sign in" : "Config"), summary="", current=shownStep, disabled=(wizard.created != ""), go=ui)
+            if not localAcp
+              WizardStep(number=2, title=(isAcp ? "Sign in" : "Config"), summary="", current=shownStep, disabled=(wizard.created != ""), go=ui)
         scroll width="100%" flex=1 min-height=0 box-sizing="border-box" border-top-style="solid" border-top-width=1 border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfccc, #ffffff05)" testId="add-provider-panel"
           column width="100%" box-sizing="border-box" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" gap=0
             if shownStep == 0
@@ -186,6 +196,8 @@ component AddProviderDialog
                     button press=ui("driver", driver.id) role="radio" aria-checked=(driver.selected and not manual) aria-label=driver.label testId=`provider-driver-${driver.id}` width="calc(50% - 6px)" height="2.75rem" box-sizing="border-box" padding="0.75rem" gap="0.75rem" border-radius="0.625rem" border-style="solid" border-width=(driver.selected and not manual ? 2 : 1) border-color=(driver.selected and not manual ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#0000000d, #ffffff0d)") display="flex" flex-direction="row" align-items="center" justify-content="flex-start" background-color=(driver.selected and not manual ? "light-dark(#1a4dd914, #366bf226)" : "light-dark(#ffffff, #ffffff08)")
                       DriverMark(driver=driver.id, size=16, initials=driver.label, icon="")
                       text driver.label flex=1 min-width=0 font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 text-align="left"
+                      if driver.badge != ""
+                        text driver.badge font-size="0.6875rem" color="light-dark(#71717b, #818181)"
                       if driver.selected and not manual
                         box width="1.25rem" height="1.25rem" border-radius="624.9375rem" flex-shrink=0 display="flex" align-items="center" justify-content="center" background-color="light-dark(#1b4ed8, #346bf1)"
                           PvIcon(name="check", size=14, color="#ffffff")
@@ -205,8 +217,20 @@ component AddProviderDialog
                     for session in wizard.sessions key=session.key
                       column width="100%" gap="0.25rem"
                         for field in wizard.fields key=field.key
-                          WizardFieldRow(field=field, value=(field.index == 0 ? f0 : (field.index == 1 ? f1 : (field.index == 2 ? f2 : (field.index == 3 ? f3 : f4)))), set=setField)
-                    if attempted and f0 == ""
+                          if not localAcp or field.key == "source" or field.key == "commandPath"
+                            WizardFieldRow(field=field, local=localAcp, value=(field.index == 0 ? f0 : (field.index == 1 ? f1 : (field.index == 2 ? f2 : (field.index == 3 ? f3 : f4)))), set=setField)
+                    if localAcp
+                      column gap="0.5rem"
+                        text "Arguments" font-size="0.875rem" font-weight=500
+                        text "One literal argument per row, in launch order." font-size="0.75rem" color="light-dark(#71717b, #818181)"
+                        for arg, index in commandArgs key=index
+                          row gap="0.5rem"
+                            input value=arg input=editArgument(index) aria-label=`Argument ${index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 testId=`new-provider-argument-${index}`
+                            button press=removeArgument(index) class=PvIconButton aria-label=`Remove argument ${index + 1}` title=""
+                              PvIcon(name="x", size=12, color="light-dark(#71717b, #818181)")
+                        button press=addArgument class=PvOutline testId="new-provider-add-argument"
+                          text "Add argument" font-size="0.8125rem"
+                    if attempted and (localAcp ? f2 == "" : f1 == "")
                       text "Select an ACP or configure one manually." font-size="0.6875rem" color="light-dark(#e7000b, #ff6467)" role="alert"
                 else
                   column width="100%" gap="0.75rem" testId="acp-search"
@@ -275,7 +299,7 @@ component AddProviderDialog
                 for session in wizard.sessions key=session.key
                   column width="100%" gap="0.25rem"
                     for field in wizard.fields key=field.key
-                      WizardFieldRow(field=field, value=(field.index == 0 ? f0 : (field.index == 1 ? f1 : (field.index == 2 ? f2 : (field.index == 3 ? f3 : f4)))), set=setField)
+                      WizardFieldRow(field=field, local=localAcp, value=(field.index == 0 ? f0 : (field.index == 1 ? f1 : (field.index == 2 ? f2 : (field.index == 3 ? f3 : f4)))), set=setField)
             // ProviderWizardAuthenticationStep: the created agent's Account row (AddProviderInstanceDialog createdInstanceId).
             for auth in wizard.auth key=auth.instanceId
               ProviderWizardAuthStep(auth=auth, scheme=scheme, wide=true, busy=setupBusy, op=op, askSignOut=askSignOut)
@@ -299,8 +323,8 @@ component AddProviderDialog
               button press=ui("step", "next") class=PvPrimary disabled=busy testId="wizard-next"
                 text "Next" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
             if step == lastStep
-              button press=add(wizard.driver, shownLabel, idSet ? id : "", accent, f0, f1, f2, f3, f4) class=PvPrimary disabled=busy testId="create-provider"
-                text (busy ? "Adding..." : (isAcp ? "Continue to sign-in" : "Add instance")) font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
+              button press=add(wizard.driver, shownLabel, shownId, accent, [f0, f1, f2, f3, f4], commandArgs) class=PvPrimary disabled=busy testId="create-provider"
+                text (busy ? "Adding..." : (isAcp and not localAcp ? "Continue to sign-in" : "Add instance")) font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
         button id="close-add-provider-x" press=ui("close", "") class=PvIconButton width="2rem" height="2rem" position="absolute" top="0.5rem" right="0.5rem" aria-label="Close" aria-keyshortcuts="Escape" disabled=busy testId="close-add-provider-x" title="" data-focus-stop=(busy ? "" : "enabled")
           PvIcon(name="x", size=16, color="light-dark(#71717b, #818181)")
         FocusGuard(guardId="add-provider-guard-end", targets=dialogTargets, popup="add-provider-dialog")
@@ -330,11 +354,12 @@ component WizardRow
 // One driver setting in the wizard's Config step (ProviderSettingsForm).
 component WizardFieldRow
   props
+    local: bool
     field: WizardField
     value: string
     set: action
   view
-    WizardRow(title=field.label, description=field.description, status="")
+    WizardRow(title=(local and field.key == "commandPath" ? "Executable" : field.label), description=(local and field.key == "commandPath" ? "Executable name or path on this environment." : field.description), status="")
       if field.control == "select"
         row gap="0.25rem" role="radiogroup" aria-label=field.label flex-wrap="wrap" justify-content="flex-end" max-width="20rem"
           for option in field.options key=option.value

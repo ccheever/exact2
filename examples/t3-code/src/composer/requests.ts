@@ -12,7 +12,7 @@ import { heldRequestIds } from './composer-typing-guard';
 
 /** One draft per question (`request::question`) and one per request (its question index). */
 export type RequestDraft = { selected: string[]; custom: string; index: number };
-type Question = { id: string; header: string; question: string; multiSelect: boolean; allowCustom: boolean; options: { label: string; value: string; description: string }[] };
+type Question = { initialAnswer?: string; id: string; header: string; question: string; multiSelect: boolean; allowCustom: boolean; options: { label: string; value: string; description: string }[] };
 type PendingApproval = { requestId: string; kind: string; createdAt: string; detail: string; appName: string; options: Obj[]; live: boolean };
 type PendingInput = { requestId: string; createdAt: string; questions: Question[]; resumable: boolean; dismissible: boolean };
 
@@ -30,7 +30,7 @@ function approvalLabel(kind: string): string {
 }
 function question(value: Obj): Question {
   return { id: str(value.id), header: str(value.header), question: str(value.question), multiSelect: value.multiSelect === true,
-    allowCustom: value.allowCustomAnswer !== false,
+    allowCustom: value.allowCustomAnswer !== false, ...(typeof value.initialAnswer === 'string' ? { initialAnswer: value.initialAnswer } : {}),
     options: arr(value.options).map(option => ({ label: str(option.label), value: typeof option.value === 'string' ? option.value : str(option.label), description: str(option.description) })) };
 }
 
@@ -61,12 +61,18 @@ export function pendingRequests(projection: Obj): { approvals: PendingApproval[]
 function draft(client: T3Client, key: string): RequestDraft { return client.answers[key] ?? { selected: [], custom: '', index: 0 }; }
 /** resolvePendingUserInputAnswer: a non-empty custom answer outranks selected options. */
 export function resolveAnswer(question: Question, answer: RequestDraft | undefined): string | string[] | null {
-  const custom = question.allowCustom ? answer?.custom.trim() ?? '' : '';
-  if (custom) return custom;
+  const custom = !question.allowCustom || answer?.custom === undefined ? null
+    : question.initialAnswer !== undefined ? answer.custom : answer.custom.trim() || null;
+  if (custom !== null && custom.length > 0) return custom;
   const selected = [...new Set(answer?.selected ?? [])].filter(value => question.options.some(option => option.value === value));
-  return question.multiSelect ? (selected.length ? selected : null) : selected[0] ?? null;
+  return question.multiSelect ? (selected.length ? selected : custom) : selected[0] ?? custom;
 }
 function progress(client: T3Client, input: PendingInput) {
+  for (const question of input.questions) {
+    const key = `${input.requestId}::${question.id}`;
+    if (question.allowCustom && question.initialAnswer !== undefined && client.answers[key] === undefined)
+      client.answers[key] = { selected: [], custom: question.initialAnswer, index: 0 };
+  }
   const index = Math.max(0, Math.min(draft(client, input.requestId).index, input.questions.length - 1));
   const active = input.questions[index];
   const answers: Record<string, string | string[]> = {};
@@ -128,7 +134,7 @@ export function requestPresentation(client: T3Client) {
     const { input, active: entry, index } = active;
     const reason = responseReason(client, input.resumable);
     const current = client.answers[`${input.requestId}::${entry.id}`];
-    const customActive = active.custom.trim().length > 0;
+    const customActive = (entry.initialAnswer !== undefined ? active.custom : active.custom.trim()).length > 0;
     return { id: `${input.requestId}::${entry.id}`, requestId: input.requestId, header: entry.header, question: entry.question,
       multiSelect: entry.multiSelect, customAllowed: entry.allowCustom, canRespond: !reason, live: input.resumable, responseReason: reason,
       responding: responding(input.requestId), dismissible: input.dismissible, answer: active.custom,
@@ -188,7 +194,7 @@ export function setCustomAnswer(client: T3Client, value: string): boolean {
   if (!current.active.allowCustom) throw new ClientError('Choose one of the offered options.');
   if (value.length > 100_000) throw new ClientError('Keep an answer under 100,000 characters.');
   const key = `${current.input.requestId}::${current.active.id}`;
-  setDraft(client, key, { custom: value, selected: value.trim() ? [] : draft(client, key).selected });
+  setDraft(client, key, { custom: value, selected: current.active.initialAnswer !== undefined || value.trim() ? [] : draft(client, key).selected });
   return true;
 }
 /** Selecting replaces the custom answer; its text returns to the thread draft. */

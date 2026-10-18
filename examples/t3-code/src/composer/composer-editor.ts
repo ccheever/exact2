@@ -1,3 +1,4 @@
+import { composerInput } from './requests';
 // The prompt editor's projection and commands. The native editor
 // (T3ComposerEditor.swift) reports the trigger at the caret; this builds the
 // command menu's rows (composer-editor-menu.ts), applies a picked row back
@@ -222,8 +223,8 @@ function holds(client: T3Client): StackHold {
 }
 /** Root readiness resource; independent from the editor/menu resource. */
 /** `shown`: whether the chat view (and so ChatComposer) is on screen; omitted, the last answer's. */
-export function composerWorkspaceView(client: T3Client, shown?: boolean) {
-  return cache(client).discovery.state(client.ready ? client.environmentId : '', client.generation, selectedProvider(client), workspaceCwd(client), { prompt: client.draft, config: client.config }, shown);
+export function composerWorkspaceView(client: T3Client, shown?: boolean, now?: number) {
+  return cache(client).discovery.state(client.ready ? client.environmentId : '', client.generation, selectedProvider(client), workspaceCwd(client), { prompt: client.draft, config: client.config }, shown, now);
 }
 /** Root mutation: await the RPC, then Contract starts its retry clock on completion. */
 export async function refreshComposerWorkspace(client: T3Client, native: Native | null | undefined, key: string) {
@@ -240,10 +241,11 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   const overLimit = limit !== '';
   if (!native?.available) return { ...EDITOR_BAKED, promptLimit, overLimit, stash };
   native.watch('t3.editor');
+  const literal = composerInput(client)?.active?.initialAnswer !== undefined;
   const draft = client.draft, key = client.draftKey, files = draftFiles(client.local);
   let state: Obj;
   try {
-    state = await editorCall(native, { op: 'editorSync', owner: client.draftKey, richText: prefs(client).composerRichTextEnabled !== false, localEnvironment: folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'local', // local-primary.ts: Finder folders reach only the primary
+    state = await editorCall(native, { op: 'editorSync', owner: client.draftKey, literal, richText: prefs(client).composerRichTextEnabled !== false, localEnvironment: folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'local', // local-primary.ts: Finder folders reach only the primary
       history: client.thread ? historyEntries(messages(client.thread)) : [], contexts: chipContexts(client, draft), foldLimit: client.ready ? foldLimit(client) : 0,
       skills: skillChipLabels(workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills')) });
   } catch { return { owner: client.snapshotOwner, menu: CLOSED, promptLimit, overLimit, usageLimits: entry.usageLimits, stash }; }
@@ -261,7 +263,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
     ? { kind: str(raw.kind), query: str(raw.query), start: Number(raw.start) || 0, end: Number(raw.end) || 0 } : null;
   entry.trigger = trigger;
   entry.owner = client.snapshotOwner;
-  if (!trigger || !client.ready) { entry.rows = []; return { owner: client.snapshotOwner, menu: CLOSED, promptLimit, overLimit, usageLimits: entry.usageLimits, stash }; }
+  if (literal || !trigger || !client.ready) { entry.rows = []; return { owner: client.snapshotOwner, menu: CLOSED, promptLimit, overLimit, usageLimits: entry.usageLimits, stash }; }
   const current = selectedProvider(client);
   const cwd = workspaceCwd(client);
   const driver = str(current.driver);

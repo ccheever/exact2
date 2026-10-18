@@ -130,10 +130,11 @@ component ModelPicker
   // The setup footer (max-h-44, a 1pt border, 8pt inset, each entry two message lines and its button) replaces "No models found".
   derive setupCount = catalog.setup.length
   derive footer = (setupCount > 0 ? min(176, 17 + 58 * setupCount) : 0)
+  derive updateHeight = min(176, catalog.updateRequired.length * 76)
   derive sharing = (catalog.chatgptSharing ? 41 : 0) // ChatGptSharingControl: 1pt border, 8pt inset, a 24pt button
   derive listHeight = (count > 0 ? count * 47 + 18 : (setupCount > 0 ? 0 : 36)) + footer
   derive restListHeight = (restRows > 0 ? restRows * 47 + 18 : 36)
-  derive natural = (catalog.searching ? max(rails > 0 ? 49 + 40 * rails : 0, 43 + restListHeight) : max(sidebar ? 49 + 40 * rails : 0, 43 + listHeight)) + sharing
+  derive natural = (catalog.searching ? max(rails > 0 ? 49 + 40 * rails : 0, 43 + restListHeight) : max(sidebar ? 49 + 40 * rails : 0, 43 + listHeight)) + sharing + updateHeight
   // The trigger's window-space edges: its top sits 4pt under the given bottom edge; resting triggers are 24pt.
   // A Settings row's picker opens under its trigger, start-aligned (PopoverPopup align start), flipped above when it does not fit.
   derive anchored = anchor.bottom > 0
@@ -144,6 +145,8 @@ component ModelPicker
   derive y = (below ? triggerBottom + 4 : triggerTop - 4 - height)
   derive edge = (anchored ? anchor.left : left + 7)
   derive x = (edge + width <= viewport.width - 5 ? edge : max(5, viewport.width - 5 - width))
+  action favoriteModel(op: string, id: string, model: string, n: number)
+    command(op, catalog.environmentId + "\t" + id, model, n)
   action searchFocus
     searchFocused = true
   action searchBlur
@@ -214,11 +217,17 @@ component ModelPicker
               column gap="0.125rem" width="100%" role="listbox"
                 for row in catalog.models key=row.key
                   if row.kind != "legacy-model" or legacyOpen
-                    ModelRow(row=row, highlighted=(row.index == highlight), busy=(busy or (not anchored and data.running)), select=select, favorite=command, toggleLegacy=toggleLegacy, legacyOpen=legacyOpen)
+                    ModelRow(row=row, highlighted=(row.index == highlight), busy=(busy or (not anchored and data.running)), select=select, favorite=favoriteModel, toggleLegacy=toggleLegacy, legacyOpen=legacyOpen)
             // ComboboxEmpty, the list's sibling: inside the list's scroll, which has no height when nothing
             // matches, it was clipped away (#298 bug 8).
             if count == 0 and setupCount == 0
               text "No models found" flex-shrink=0 font-size="0.875rem" line-height="1.25rem" text-align="center" padding="0.5rem" color="light-dark(#71717a, #818181)" testId="model-empty"
+            if catalog.updateRequired.length > 0
+              scroll max-height="11rem" flex-shrink=0 width="100%" box-sizing="border-box" padding="0.75rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" testId="model-update-required"
+                for notice in catalog.updateRequired key=notice.id
+                  column gap="0.25rem" padding-bottom="0.5rem"
+                    text notice.message font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #818181)"
+                    ProviderSetupLink(label="Provider settings", fontSize="0.75rem", lineHeight="1rem", testId=`model-update-settings-${notice.id}`, press=setup(notice.id))
             if setupCount > 0
               scroll max-height="11rem" flex-shrink=0 width="100%" box-sizing="border-box" padding="0.5rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" testId="model-picker-setup"
                 for entry in catalog.setup key=entry.id
