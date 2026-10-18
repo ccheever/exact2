@@ -697,6 +697,80 @@ fn hardware_keys_reach_module_with_code_character_repeat_and_clock() {
     done(p, path);
 }
 
+/// LLP 1127.003 D9: the pads follow the focus. The canvas they leave hears
+/// each pad go; the one they reach hears each pad as it is, so a button held
+/// across the move is released by the canvas that now has it.
+#[test]
+fn pads_follow_the_focus_and_release_the_canvas_they_leave() {
+    let (mut p, path) = fixture();
+    let (a, b, editor) = (find(&p, "a"), find(&p, "b"), find(&p, "editor"));
+    let id = |p: &Presenter<()>, view| p.surfaces.canvases[&view].id;
+    let pad = |e: &Value| {
+        (
+            e["t"].clone(),
+            e["connected"].clone(),
+            e["buttons"][0].clone(),
+        )
+    };
+    let mut south = [0.; 17];
+    south[0] = 1.;
+    p.set_focus(Some(a), 0.);
+    p.hardware_pad(0, true, south, [0.; 4]);
+    let (to, _, event) = last_input(&p);
+    assert_eq!(
+        (to, pad(&event)),
+        (id(&p, a), (json!("pad"), json!(true), json!(1.)))
+    );
+    p.set_focus(Some(b), 0.);
+    let (to, _, event) = last_input(&p);
+    assert_eq!(
+        (to, pad(&event)),
+        (id(&p, b), (json!("pad"), json!(true), json!(1.)))
+    );
+    let previous: Value = serde_json::from_str(unsafe {
+        std::ffi::CStr::from_ptr(p.surfaces.abis[""]
+            .symbol::<unsafe extern "C" fn() -> *const std::ffi::c_char>(
+            b"test_previous_input",
+        )())
+        .to_str()
+        .unwrap()
+    })
+    .unwrap();
+    assert_eq!(
+        pad(&previous),
+        (json!("pad"), json!(false), json!(0.)),
+        "a hears the pad go"
+    );
+    p.hardware_pad(0, true, [0.; 17], [0.; 4]);
+    let (to, _, event) = last_input(&p);
+    assert_eq!(
+        (to, pad(&event)),
+        (id(&p, b), (json!("pad"), json!(true), json!(0.)))
+    );
+    // An editor takes the pads from every canvas; they wait for the next canvas.
+    p.hardware_pad(0, true, south, [0.; 4]);
+    p.set_focus(Some(editor), 0.);
+    let (to, count, event) = last_input(&p);
+    assert_eq!(
+        (to, pad(&event)),
+        (id(&p, b), (json!("pad"), json!(false), json!(0.)))
+    );
+    p.hardware_pad(0, true, south, [0.5, 0., 0., 0.]);
+    assert_eq!(
+        last_input(&p).1,
+        count,
+        "no canvas hears a pad while an editor has the focus"
+    );
+    p.set_focus(Some(a), 0.);
+    let (to, _, event) = last_input(&p);
+    assert_eq!(
+        (to, pad(&event)),
+        (id(&p, a), (json!("pad"), json!(true), json!(1.)))
+    );
+    assert_eq!(event["axes"][0], json!(0.5));
+    done(p, path);
+}
+
 #[test]
 fn hardware_typing_stays_in_editor_and_repeats_but_button_repeat_does_not_activate() {
     let (mut p, path) = fixture();

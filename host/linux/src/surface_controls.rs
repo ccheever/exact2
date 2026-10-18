@@ -20,6 +20,14 @@ pub(crate) fn disabled_control(n: &exact_kernel::NodeRef<'_>) -> bool {
         }
 }
 
+/// Where the pads' states go: the canvas that has them, and each connected
+/// pad's last reading, so moving the pads releases them on the old canvas
+/// and gives the new one each pad as it is.
+#[derive(Default)]
+pub(crate) struct PadRoute {
+    owner: Option<u32>,
+    readings: std::collections::BTreeMap<u8, ([f32; 17], [f32; 4])>,
+}
 impl<D: DataSource> Presenter<D> {
     pub(crate) fn control_target(&self, id: u32) -> Option<u32> {
         let mut cursor = Some(id);
@@ -271,25 +279,70 @@ impl<D: DataSource> Presenter<D> {
             self.surfaces
                 .input(view, serde_json::json!({"t":"blur","at":self.host.now()}));
         }
+        // The pads leave their canvas; the next pad state finds one again.
+        self.move_pads(None, None);
         if let Some(e) = self.set_focus(None, self.host.now()) {
             eprintln!("exact: {e}");
         }
     }
 
-    /// A gamepad's state goes to the canvas a key would: the focus, or with
-    /// none the first canvas that takes input (LLP 1127.003 D2).
+    /// A gamepad's state (LLP 1127.003 D2, D9) goes to the canvas that has
+    /// the pads: the focus's canvas, or with no focus the first canvas that
+    /// takes input; an editor's focus takes them from every canvas.
     pub fn hardware_pad(&mut self, index: u8, connected: bool, buttons: [f32; 17], axes: [f32; 4]) {
-        let target = self.focus.or_else(|| {
-            let mut canvases = self.surfaces.canvases.keys().copied();
-            canvases.find(|view| self.surfaces.wants_input(*view))
-        });
-        if let Some(view) = target.filter(|v| self.surfaces.wants_input(*v)) {
-            self.surfaces.input(
-                view,
-                json!({"t":"pad","index":index,"connected":connected,"standard":true,
-                "buttons":buttons,"axes":axes,"at":self.host.now()}),
-            );
+        let was = if connected {
+            self.pads.readings.insert(index, (buttons, axes)).is_some()
+        } else {
+            self.pads.readings.remove(&index).is_some()
+        };
+        let target = self.pad_target();
+        if target != self.pads.owner {
+            return self.move_pads(target, (!connected && was).then_some(index));
         }
+        if let Some(view) = target.filter(|_| connected || was) {
+            self.send_pad(view, index, connected.then_some((buttons, axes)));
+        }
+    }
+    fn pad_target(&self) -> Option<u32> {
+        match self.focus {
+            Some(id) => self.input_surface(id),
+            None => {
+                let mut canvases = self.surfaces.canvases.keys().copied();
+                canvases.find(|view| self.surfaces.wants_input(*view))
+            }
+        }
+    }
+    /// The focus moved: the pads follow it to its canvas, or leave every
+    /// canvas for an editor.
+    pub(crate) fn pads_follow_focus(&mut self) {
+        let target = self.pad_target();
+        if target != self.pads.owner {
+            self.move_pads(target, None);
+        }
+    }
+    /// The old canvas hears every pad go (and `gone`, one that just did); the
+    /// new one hears every connected pad as it is now.
+    fn move_pads(&mut self, target: Option<u32>, gone: Option<u8>) {
+        let readings: Vec<_> = self.pads.readings.iter().map(|(i, r)| (*i, *r)).collect();
+        if let Some(old) = self.pads.owner.take() {
+            for index in readings.iter().map(|(i, _)| *i).chain(gone) {
+                self.send_pad(old, index, None);
+            }
+        }
+        self.pads.owner = target;
+        if let Some(view) = target {
+            for (index, reading) in readings {
+                self.send_pad(view, index, Some(reading));
+            }
+        }
+    }
+    fn send_pad(&mut self, view: u32, index: u8, reading: Option<([f32; 17], [f32; 4])>) {
+        let (buttons, axes) = reading.unwrap_or_default();
+        self.surfaces.input(
+            view,
+            json!({"t":"pad","index":index,"connected":reading.is_some(),"standard":true,
+            "buttons":buttons,"axes":axes,"at":self.host.now()}),
+        );
     }
     /// Route device keys through the same targeted path as agent keys.
     pub fn hardware_key(&mut self, code: &str, key: &str, down: bool, repeat: bool) {

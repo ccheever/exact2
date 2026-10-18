@@ -59,6 +59,7 @@ pub mod fetch;
 pub mod fields;
 mod file;
 pub mod frames;
+pub mod gamepad;
 pub mod gpu;
 pub mod hatches;
 pub mod host;

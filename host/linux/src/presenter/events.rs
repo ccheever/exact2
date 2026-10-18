@@ -234,6 +234,9 @@ impl<D: DataSource> Presenter<D> {
             .map(|id| self.host.runner().focus_bubble(id, previous, true))
             .unwrap_or_default();
         self.focus = next;
+        if next.is_some() {
+            self.pads_follow_focus();
+        }
         self.focus_out = next
             .map(|id| self.host.runner().focus_bubble(id, None, false))
             .unwrap_or_default();

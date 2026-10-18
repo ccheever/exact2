@@ -13,7 +13,8 @@ use evdev::{
 use std::os::fd::AsRawFd;
 
 mod pad;
-pub use pad::{Reading as PadReading, MAX_PADS};
+pub use crate::gamepad::Reading as PadReading;
+pub use pad::MAX_PADS;
 
 /// One thing the user did.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -109,7 +110,7 @@ type Ranges = [(i32, i32); 2];
 pub struct Input {
     devices: Vec<(Device, Option<Ranges>)>,
     // A pad, its index, its state, and whether its connection was reported.
-    pads: Vec<(Device, u8, pad::State, bool)>,
+    pads: Vec<(Device, u8, crate::gamepad::State, bool)>,
     keyboard: Keyboard,
 }
 
@@ -119,12 +120,12 @@ impl Input {
     /// skipped.
     pub fn open() -> Input {
         let (mut devices, mut pads) = (Vec::new(), Vec::new());
-        for (_, d) in evdev::enumerate() {
+        for (path, d) in evdev::enumerate() {
             // A pad's sticks are ABS_X/ABS_Y too: it is a pad, not a pointer.
             if pad::is_pad(&d) {
                 if pads.len() < MAX_PADS {
                     nonblocking(&d);
-                    let state = pad::State::new(pad::ranges(&d));
+                    let state = pad::open(&path, &d);
                     pads.push((d, pads.len() as u8, state, false));
                 }
                 continue;
@@ -210,19 +211,21 @@ impl Input {
                     return false;
                 }
             };
-            let mut changed = false;
-            for e in events {
-                changed |= match e.destructure() {
-                    EventSummary::Key(_, code, value) => state.key(code.0, value),
-                    EventSummary::AbsoluteAxis(_, code, value) => state.axis(code.0, value),
-                    _ => false,
-                };
-            }
-            if changed {
+            // A reading at each report, so a press and release in one read are both seen.
+            use crate::gamepad::Change;
+            let changes = events.filter_map(|e| match e.destructure() {
+                EventSummary::Key(_, code, value) => Some(Change::Key(code.0, value)),
+                EventSummary::AbsoluteAxis(_, code, value) => Some(Change::Abs(code.0, value)),
+                EventSummary::Synchronization(_, SynchronizationCode::SYN_REPORT, _) => {
+                    Some(Change::Report)
+                }
+                _ => None,
+            });
+            for reading in state.events(changes) {
                 out.push(InputEvent::Pad {
                     index,
                     connected: true,
-                    reading: state.reading,
+                    reading,
                 });
             }
             true
