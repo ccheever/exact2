@@ -70,6 +70,7 @@ function mapDesignSource(app, dir) {
 function build(app, dist, keep = () => false, compiler = null, superseded = () => false) {
   const stage = resolve(app.target, 'web-js-dev-stage');
   rmSync(stage, { recursive: true, force: true });
+  const began = Date.now();
   return new Promise((done) => {
     // The JS target's build itself, rendering no pages (every route is the
     // shell), with the completion marker host/web/build.mjs writes.
@@ -80,10 +81,23 @@ function build(app, dist, keep = () => false, compiler = null, superseded = () =
     child.stderr.on('data', (d) => { log += d; });
     // EXACT_DEV_BUILD_HOLD_MS (a test's): the build's end taken that much later, as a slow one ends.
     const hold = Number(process.env.EXACT_DEV_BUILD_HOLD_MS) || 0;
-    child.on('exit', (code) => setTimeout(() => {
+    // Its end is its whole group's (cargo and the compilers it ran, which
+    // outlive a stopped leader for a moment, holding Cargo's lock): waited
+    // for, 5 s at most before they are killed.
+    const groupGone = (then, until = Date.now() + 5000) => {
+      try { process.kill(-child.pid, 0); } catch { return then(); }
+      if (Date.now() > until) { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } }
+      setTimeout(() => groupGone(then, until), 20);
+    };
+    child.on('exit', (code) => groupGone(() => setTimeout(() => {
       building = null;
       const packages = devPackages(stage);
-      if (superseded()) { rmSync(stage, { recursive: true, force: true }); return done({ superseded: true, packages }); }
+      // Or a source it read is newer than it (a watcher's event can come
+      // after the build ends): its Contract sources, the design, app.ts and
+      // app.json, by their times.
+      const newer = () => [...packages.sources, designPath(app.dir), resolve(app.dir, 'app.ts'), resolve(app.dir, 'app.json')]
+        .some((path) => { try { const s = statSync(path); return Math.max(s.mtimeMs, s.ctimeMs) >= began; } catch { return false; } });
+      if (superseded() || (code === 0 && newer())) { rmSync(stage, { recursive: true, force: true }); return done({ superseded: true, packages }); }
       // The one line a build says when it rewrote the types app.ts imports, built or not (LLP 1116.001 D4.5).
       const types = /^app\.contract\.d\.ts: .*$/m.exec(log)?.[0];
       if (types) console.log(types);
@@ -95,7 +109,7 @@ function build(app, dist, keep = () => false, compiler = null, superseded = () =
         manifestSha256: appManifestDigest(app), files: buildFileCards(stage) }) + '\n');
       replaceBuild(stage, dist);
       done({ error: null, logic, packages, design, designSource, warnings: compilerWarnings(log) });
-    }, hold));
+    }, hold)));
   });
 }
 
@@ -124,8 +138,17 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
   const t0 = Date.now();
   // A first build that fails (a refusal or a compile error) serves its
-  // errors in the page and builds again at the next edit.
-  let built = await build(app, dist), error = built.error, logicRevision = built.logic ?? '';
+  // errors in the page and builds again at the next edit. One an app source
+  // moved during (the watchers come after it) is built again before the
+  // loop serves anything.
+  let built;
+  for (let moved = false; ; moved = false) {
+    const early = watch(app.dir, { recursive: true }, (_, name) => { if (name && !skipped.test(String(name)) && String(name) !== 'app.contract.d.ts') moved = true; });
+    try { built = await build(app, dist, () => false, null, () => moved); } finally { early.close(); }
+    if (!built.superseded) break;
+    console.log('a source moved while the first build ran: building again');
+  }
+  let error = built.error, logicRevision = built.logic ?? '';
   // The page's own plan's source map (LLP 1122 T2b, the JS target), kept
   // after each build by that plan's digest (the SHA-256 of dist's app.plan,
   // which the page says as `planDigest` and the map must name), the 8 last:
@@ -350,7 +373,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   let inputs = 0, buildBegan = 0, lastBuildMs = 0, stopped = false;
   const stopYoungBuild = () => {
     const age = Date.now() - buildBegan;
-    if (!building || stopped || age >= 2000 || (lastBuildMs && age >= lastBuildMs / 2)) return;
+    if (!building || building.exitCode !== null || building.signalCode !== null || stopped || age >= 2000 || (lastBuildMs && age >= lastBuildMs / 2)) return;
     stopped = true;
     console.log(`edit → the build in flight stopped after ${age} ms (aborted): an input moved`);
     stopBuild();
@@ -390,9 +413,18 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       designing = true;
       let next;
       let text = null;
+      const readAt = inputs;
       try { next = existsSync(file) ? await designOf(text = readFileSync(file, 'utf8')) : { error: 'no design' }; } catch (e) { next = { error: e.message }; } finally { designing = false; }
       // The loop stopped while it read: no build follows.
       if (stopping) return;
+      // An edit came while it read: this read is behind it, and the next
+      // one, with that edit's, runs now (not after a build in flight).
+      if (inputs !== readAt) {
+        for (const p of pendingEdits) edited.add(p);
+        for (const p of pendingAppeared) appeared.add(p);
+        again = false;
+        return rebuild();
+      }
       if (!next.error && sameShape(design, next)) {
         const from = scrubbed ?? design;
         design = next;
@@ -408,10 +440,18 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
           tamber?.channel.broadcast(batch);
         }
         // A check already under way is set aside, and done again after it.
-        if (building) { again = true; return; }
+        if (building) { for (const p of pendingEdits) edited.add(p); again = true; return; }
       }
     }
     if (building) { for (const p of pendingEdits) edited.add(p); for (const p of pendingAppeared) appeared.add(p); again = true; return; }
+    // An edit (or a set-aside build's edits) came while its design read:
+    // the next pass takes them all, and starts the one build.
+    if (again || edited.size) {
+      for (const p of pendingEdits) edited.add(p);
+      for (const p of pendingAppeared) appeared.add(p);
+      again = false;
+      return rebuild();
+    }
     // The design reader's compiler is this build's too: a copy (Cargo
     // replaces even a fresh binary), taken while it is done and fresh, then
     // kept while it is fresh, so a build while the reader builds again (as

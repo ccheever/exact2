@@ -6,7 +6,7 @@
 import { expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -96,13 +96,20 @@ test('the JS loop: an edit stops a young build, leaving dist as it was; a value 
     await until(() => said().includes('plan ready') && said().includes('design reader ready'), 900_000);
     const bytes = () => { const out = []; const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) e.isDirectory() ? walk(join(d, e.name)) : out.push(e.name, sha(readFileSync(join(d, e.name)))); }; walk(dist); return out.join(','); };
     const first = bytes(), seen = new Set();
-    const sampler = setInterval(() => { try { seen.add(bytes()); } catch { /* replaced meanwhile */ } }, 10);
-    // An edit and another at once: the first's build is stopped young.
+    // A sample is one dist (the same directory before and after it is read;
+    // a swap is two renames).
+    const sample = () => { const ino = statSync(dist).ino, b = bytes(); return statSync(dist).ino === ino ? b : null; };
+    const sampler = setInterval(() => { try { const b = sample(); if (b) seen.add(b); } catch { /* replaced meanwhile */ } }, 10);
+    // Three edits at once: the first's build is stopped young, and only
+    // that one (one stop in a burst); the last edit's build publishes.
     writeFileSync(join(dir, 'app.contract'), view('qz-two'));
     await new Promise(ok => setTimeout(ok, 30));
     writeFileSync(join(dir, 'app.contract'), view('qz-three'));
     await until(() => said().includes('(aborted)'), 60_000);
+    await new Promise(ok => setTimeout(ok, 300));
+    writeFileSync(join(dir, 'app.contract'), view('qz-four'));
     await until(() => said().includes('edit → plan ready'), 300_000);
+    expect(count(/\(aborted\)/g)).toBe(1);
     clearInterval(sampler);
     // dist was the first build's until the last one published: never the
     // stopped build's, nor a half-written one.
@@ -117,8 +124,12 @@ test('the JS loop: an edit stops a young build, leaving dist as it was; a value 
     writeFileSync(join(dir, 'app.tamber'), design('#202020'));
     await until(() => count(/edit → batch ready/g) >= 1, 60_000);
     await new Promise(ok => setTimeout(ok, 500));
+    const held = Date.now();
     writeFileSync(join(dir, 'app.tamber'), design('#303030'));
-    await until(() => count(/edit → batch ready/g) >= 2, 60_000);
+    // Its batch from the design read, not a build's, before the held
+    // build could end.
+    await until(() => count(/edit → batch ready .*no build/g) >= 2, 60_000);
+    expect(Date.now() - held).toBeLessThan(3000);
     await until(() => count(/edit → a build superseded/g) > supersededBefore, 60_000);
     await until(() => said().includes('edit → checked'), 120_000);
     const served = await (await fetch(`${base}/__dev/design`)).json();
