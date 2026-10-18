@@ -1,4 +1,7 @@
-// Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: apps/web/src/terminal/ghostty/surface.ts).
+// Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: apps/web/src/terminal/ghostty/surface.ts),
+// with 9c161462c9's history keys (Shift+PageUp/PageDown, Cmd+Shift+Home/End), `selectAll`, the PTY
+// resize on a pointer release and the selection autoscroll at the window edge. 9c161462c9's touch
+// scrolling, link gating (`canActivateLink`, `resendSize`) and shared resize observer are not here.
 // This part holds `GhosttyTerminalSurface`: its creation, public API and DOM event handlers.
 // Changes from the reference:
 // - `isMacPlatform` comes from `src/shims/utils.ts` (lib/utils.ts imports contracts, effect and tailwind-merge).
@@ -352,6 +355,22 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     }, 150);
   }
 
+  /**
+   * Releasing a panel, drawer, or split divider settles the size, so the PTY
+   * hears it now instead of after the debounce. Otherwise typing right after
+   * the release reaches a shell that still lays out the old width.
+   */
+  private readonly onWindowPointerRelease = () => {
+    if (this.disposed || this.resizeNotifyTimer === null) return;
+    // The drag hook writes the release position before this bubbles to window,
+    // so fit now rather than wait a frame for the observer.
+    this.fit();
+    if (this.resizeNotifyTimer === null) return;
+    window.clearTimeout(this.resizeNotifyTimer);
+    this.resizeNotifyTimer = null;
+    this.options.onResize(this.cols, this.rows);
+  };
+
   focus(): void {
     if (this.disposed || !this.visible) return;
     this.input.focus({ preventScroll: true });
@@ -401,6 +420,21 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     return this.core.selectionText();
   }
 
+  /** Select the active screen's entire history, including rows outside the viewport. */
+  selectAll(): void {
+    this.clearPrimedCopy();
+    const range = this.core.selectAll();
+    this.selectionAnchorScreen = range?.start ?? null;
+    this.selectionEndScreen = range?.end ?? null;
+    this.selectionEnd = range ? this.core.screenPointToViewport(range.end.x, range.end.y) : null;
+    this.selectionMode = "cell";
+    this.selectionBase = null;
+    this.setSelectionAutoscroll(0);
+    this.options.onSelectionChange();
+    this.forceFullRender = true;
+    this.requestRender();
+  }
+
   getSelectionPosition(): GhosttySelectionPosition | null {
     if (!this.selectionAnchorScreen || !this.selectionEndScreen || !this.hasSelection())
       return null;
@@ -417,7 +451,15 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     const position = this.getSelectionPosition();
     if (!position) return null;
     const viewportEnd = this.core.screenPointToViewport(position.end.x, position.end.y);
-    if (!viewportEnd) return null;
+    if (
+      !viewportEnd ||
+      viewportEnd.x < 0 ||
+      viewportEnd.x >= this.cols ||
+      viewportEnd.y < 0 ||
+      viewportEnd.y >= this.rows
+    ) {
+      return null;
+    }
     const bounds = this.canvas.getBoundingClientRect();
     return {
       right: bounds.left + CONTENT_PADDING + (viewportEnd.x + 1) * this.metrics.width,
@@ -492,6 +534,55 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     if (isTerminalAltGraphText(event) || !this.options.beforeKey(event)) {
       this.suppressedKeyCodes.add(event.code);
       return;
+    }
+    // IME candidates belong to the textarea, even if the key also resembles
+    // a local shortcut. Safari signals the initial composition with code 229.
+    if (isTerminalCompositionKey(event, this.composing)) {
+      this.suppressedKeyCodes.add(event.code);
+      return;
+    }
+    const mac = isMacPlatform(navigator.platform);
+    const primaryModifier = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+    const selectAllShortcut =
+      event.key.toLowerCase() === "a" &&
+      primaryModifier &&
+      !event.altKey &&
+      (mac ? !event.shiftKey : event.shiftKey);
+    if (selectAllShortcut) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.suppressedKeyCodes.add(event.code);
+      this.selectAll();
+      return;
+    }
+    // Shift+PageUp/Down pages history; Ctrl+Shift+Home/End (Cmd on macOS)
+    // jumps to its edges. Full-screen applications retain these keys.
+    const pageHistory =
+      event.shiftKey &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      (event.key === "PageUp" || event.key === "PageDown");
+    const jumpHistory =
+      event.shiftKey &&
+      !event.altKey &&
+      primaryModifier &&
+      (event.key === "Home" || event.key === "End");
+    if ((pageHistory || jumpHistory) && !this.core.isAlternateScreen()) {
+      const state = this.readScrollbarState();
+      if (state !== null) {
+        event.preventDefault();
+        event.stopPropagation();
+        this.suppressedKeyCodes.add(event.code);
+        const delta =
+          event.key === "Home"
+            ? -state.offset
+            : event.key === "End"
+              ? state.total - state.len - state.offset
+              : Math.max(1, state.len) * (event.key === "PageUp" ? -1 : 1);
+        this.scrollViewport(delta);
+        return;
+      }
     }
     if (isTerminalCopyShortcut(event) && this.hasSelection()) {
       // A plain Ctrl+C/Cmd+C fires the browser's native copy event, caught in
@@ -569,12 +660,6 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
           },
         );
       }
-      return;
-    }
-    // keyCode 229 is Safari's only signal that this keydown opens an IME
-    // composition; encoding it would double the committed text. Do not blank
-    // the textarea first: onInput leaves the in-progress candidate there.
-    if (isTerminalCompositionKey(event, this.composing)) {
       return;
     }
     this.clearPrimedCopy();
@@ -800,9 +885,9 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     this.clearHoveredLink();
     this.selectionPointer = { x: event.clientX, y: event.clientY };
     const bounds = this.canvas.getBoundingClientRect();
-    this.setSelectionAutoscroll(
-      event.clientY < bounds.top ? -1 : event.clientY > bounds.bottom ? 1 : 0,
-    );
+    const top = Math.max(bounds.top, 0) + CONTENT_PADDING;
+    const bottom = Math.min(bounds.bottom, window.innerHeight) - CONTENT_PADDING;
+    this.setSelectionAutoscroll(event.clientY < top ? -1 : event.clientY > bottom ? 1 : 0);
     const cell = this.cellAt(event.clientX, event.clientY);
     if (cell.x === this.selectionEnd?.x && cell.y === this.selectionEnd.y) return;
     this.extendSelectionTo(event.clientX, event.clientY);
@@ -1005,6 +1090,8 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     this.scrollbar.addEventListener("pointerup", this.onScrollbarPointerUp);
     this.scrollbar.addEventListener("pointercancel", this.onScrollbarPointerUp);
     this.scrollbar.addEventListener("keydown", this.onScrollbarKeyDown);
+    window.addEventListener("pointerup", this.onWindowPointerRelease);
+    window.addEventListener("pointercancel", this.onWindowPointerRelease);
   }
 
   private removeEvents(): void {
@@ -1031,5 +1118,7 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     this.scrollbar.removeEventListener("pointerup", this.onScrollbarPointerUp);
     this.scrollbar.removeEventListener("pointercancel", this.onScrollbarPointerUp);
     this.scrollbar.removeEventListener("keydown", this.onScrollbarKeyDown);
+    window.removeEventListener("pointerup", this.onWindowPointerRelease);
+    window.removeEventListener("pointercancel", this.onWindowPointerRelease);
   }
 }

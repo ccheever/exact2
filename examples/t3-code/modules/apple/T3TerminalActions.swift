@@ -1,7 +1,8 @@
 #if os(macOS)
 import AppKit
 
-/// ThreadTerminalDrawer's selection popup and context menu (T3 Code 1e2ecbd975, MIT).
+/// ThreadTerminalDrawer's selection popup and context menu (T3 Code 1e2ecbd975 with 9c161462c9's Select all
+/// and Jump to latest, MIT).
 /// The vendored page's observeSelectionActions owns release/multi-click timing. This side
 /// presents its settled selection as an AppKit menu and owns synchronous clipboard access.
 /// A newer gesture invalidates an older popup before any action can write, focus, or emit a chip.
@@ -40,7 +41,11 @@ final class T3TerminalActions: NSObject {
         var result: [[String: Any]] = []
         if canAddToChat { result.append(["id": "add-to-chat", "label": "Add to chat", "disabled": context && !hasSelection]) }
         result.append(["id": "copy", "label": "Copy", "disabled": context && !hasSelection])
-        if context { result.append(["id": "paste", "label": "Paste", "disabled": false]) }
+        if context {
+            result.append(["id": "paste", "label": "Paste", "disabled": false])
+            result.append(["id": "select-all", "label": "Select all"])
+            result.append(["id": "scroll-to-bottom", "label": "Jump to latest"])
+        }
         return result
     }
 
@@ -123,6 +128,8 @@ final class T3TerminalActions: NSObject {
             if !NSPasteboard.general.setString(selection.clipboard, forType: .string) { view.systemMessage("Unable to copy terminal selection") }
         case "paste":
             if let text = NSPasteboard.general.string(forType: .string) { view.send(["type": "paste", "text": text]) }
+        case "select-all": view.send(["type": "selectAll"])
+        case "scroll-to-bottom": view.send(["type": "scrollToBottom"])
         default: return
         }
         if token == request { view.focusTerminal() }

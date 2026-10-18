@@ -1,4 +1,4 @@
-// ManagedCodexSetup's commands and effects, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+// ManagedCodexSetup's commands and effects, T3 Code 9c161462c9 (MIT, see LICENSE-T3):
 // apps/web/src/components/settings/CodexSetupSection.tsx `run` :318-347, the handoff
 // :349-387, cancelSignIn :388-395, signIn :397-454, setup :456-479, the auto start, continue
 // and refresh effects :283-298 and :481-514, openPage and the listener cleanup :516-566, the
@@ -17,7 +17,7 @@ import { setupOf, watchedSetup } from './provider-setup';
 import { codexFlow, codexFlows, codexStatus, readCodexSetupMode, codexInstance, type CodexFlow, type CodexHost } from './codex-setup';
 import { isLoopbackHost } from './codex-auth-request';
 import { CHATGPT_USAGE_URL, acknowledgeChatGptPlan } from './chatgpt-plan';
-import { driverMeta } from './providers-meta';
+import { driverMeta, legacyProviders } from './providers-meta';
 import { letGo } from '../client/let-go';
 
 export const RECEIVE_FAILED = 'Could not finish sign-in on this computer. Try again or paste the redirect URL below.';
@@ -138,8 +138,8 @@ async function changeMode(context: CodexContext, mode: 'managed' | 'existing'): 
   const instance = codexInstance(settings, context.instanceId);
   const config = obj(instance.config);
   const next = { ...instance, driver: 'codex', enabled: true, config: { ...config, enabled: true, setupMode: mode } };
-  const legacyDefault = context.instanceId === 'codex' ? driverMeta('codex')?.legacyDefault : undefined;
-  await context.host.rpc(context.native, 'server.updateSettings', { patch: legacyDefault ? { providers: { ...obj(settings.providers), codex: legacyDefault } } : {},
+  const legacy = legacyProviders(settings), legacyDefault = context.instanceId === 'codex' && legacy ? driverMeta('codex')?.legacyDefault : undefined;
+  await context.host.rpc(context.native, 'server.updateSettings', { patch: legacy && legacyDefault ? { providers: { ...legacy, codex: legacyDefault } } : {},
     providerInstanceMutation: { operation: 'upsert', instanceId: context.instanceId, instance: next } }, true);
   context.host.config = await context.host.rpc(context.native, 'server.getConfig', {});
 }

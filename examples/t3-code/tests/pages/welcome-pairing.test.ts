@@ -29,7 +29,17 @@ test('a pairing that never connected is not listed as a computer that is still c
   const live = wizardClient('connected');
   expect((await welcomeView(live, native([]), { step: 'connect', now: 1 })).computers.map(computer => computer.status)).toEqual(['Connected']);
   (live as unknown as { connection: string }).connection = 'reconnecting';
-  expect((await welcomeView(live, native([]), { step: 'connect', now: 1 })).computers.map(computer => computer.status)).toEqual(['Connecting…']);
+  expect((await welcomeView(live, native([]), { step: 'connect', now: 1 })).computers.map(computer => computer.status)).toEqual(['Reconnecting…']);
+});
+
+// WelcomeWizard ConnectionStep (0ae1091d01): the same rule as Settings, a switched-off computer reads Off.
+test('a switched-off saved computer reads Off, not Not connected', async () => {
+  const client = wizardClient('connected');
+  const saved = [{ origin: 'http://127.0.0.1:9', environmentId: 'env-x', label: 'Mac', enabled: true }, { origin: 'http://10.0.0.7:3773', environmentId: 'env-off', label: 'Studio', enabled: false }];
+  // The wizard opened with nothing saved yet; the computers saved since are listed in it.
+  expect((await welcomeView(client, native([]), { step: 'connect', now: 1 })).show).toBe(true);
+  const view = await welcomeView(client, native(saved), { step: 'connect', now: 1 });
+  expect(view.computers.map(computer => [computer.label, computer.status])).toEqual([['Mac', 'Connected'], ['Studio', 'Off']]);
 });
 
 test('copying the pairing command flips the button to Check without a toast', async () => {

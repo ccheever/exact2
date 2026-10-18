@@ -11,6 +11,7 @@
 // (`keptThread`, `handoffKeptThread`) and resumes its stream after it, so nothing replays. The
 // primary's lifecycle stream (local-lifecycle.ts) rides the same fleet pass.
 import { arr, obj, str, num, applyThread, threadSnapshot, type Obj, type Shell, type ThreadState } from './domain';
+import { threadPullRequestKeysEqual } from '../pull-requests/pages-pr-links-logic';
 import type { Native } from './protocol';
 import type { FleetEntry } from '../connections/settings-b-fleet';
 import { lifecycleEvent, lifecycleFleetEvent, lifecycleFleetPass, watchLifecycle } from '../connections/local-lifecycle';
@@ -78,7 +79,7 @@ function applyKept(detail: KeptDetail, item: Obj): KeptDetail {
   if (item.kind === 'synchronized') return { ...detail, status: detail.thread ? 'live' : detail.status };
   try {
     if (item.kind === 'snapshot') return { status: 'live', thread: threadSnapshot(item), error: '' };
-    return detail.thread ? { ...detail, thread: applyThread(detail.thread, item) } : detail;
+    return detail.thread ? { ...detail, thread: applyThread(detail.thread, item, threadPullRequestKeysEqual) } : detail;
   } catch (error) { return { ...detail, error: error instanceof Error ? error.message : 'The thread stream failed.' }; }
 }
 
