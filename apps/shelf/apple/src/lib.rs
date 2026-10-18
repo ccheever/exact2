@@ -1,8 +1,6 @@
 //! Shelf, the native recipe app (LLP 1115): its Contract UI and TypeScript data.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
-const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
-const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
 type ExactEmbeddedData = exact_js::Placed<exact_js::Module>;

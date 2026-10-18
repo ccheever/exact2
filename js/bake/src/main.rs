@@ -1,4 +1,6 @@
-//! `exact-js-bake <app-dir> --out <new-generation-dir>`.
+//! `exact-js-bake <app-dir> --out <new-generation-dir>`, `--serve`, or
+//! `--cargo <platform> <target> <out-dir>` (an Apple build's bake, made
+//! before Cargo runs: `exact_js_bake::build`).
 use std::io::{BufRead, Write};
 use std::path::Path;
 use std::process::ExitCode;
@@ -21,8 +23,13 @@ fn main() -> ExitCode {
             return serve(Path::new(app));
         }
     }
+    if let [app, flag, platform, target, out] = args.as_slice() {
+        if flag == "--cargo" {
+            return cargo(Path::new(app), platform, target, out);
+        }
+    }
     let [app, flag, output] = args.as_slice() else {
-        eprintln!("usage: exact-js-bake <app-dir> --out <new-generation-dir> | --serve");
+        eprintln!("usage: exact-js-bake <app-dir> --out <new-generation-dir> | --serve | --cargo <platform> <target> <out-dir>");
         return ExitCode::from(2);
     };
     if flag != "--out" {
@@ -46,6 +53,25 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("TypeScript bake: {error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// `--cargo`: the app's build-script bake for `target`, run outside Cargo into
+/// `out` as Cargo would have run it (`exact_js_bake::bake_outside`); its
+/// `cargo:` lines on stdout, its failure on stderr.
+fn cargo(app: &Path, platform: &str, target: &str, out: &str) -> ExitCode {
+    if let Err(error) = std::fs::create_dir_all(out) {
+        eprintln!("{out}: {error}");
+        return ExitCode::from(1);
+    }
+    std::env::set_var("OUT_DIR", out);
+    std::env::set_var("TARGET", target);
+    match exact_js_bake::bake_outside(app, platform) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("{error}");
             ExitCode::from(1)
         }
     }
