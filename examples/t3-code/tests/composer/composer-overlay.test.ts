@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { composerOverlay, composerOverlaySnapshot, contentKey, newOverlayHold, UNMEASURED_INSET } from '../../src/composer/composer-overlay';
 import type { Obj } from '../../src/client/domain';
+import { noteTranscriptFacts } from '../../src/timeline/transcript-facts';
 
 // Window-space frames [x, top, width, height] as T3ComposerFrames reports them.
 const frames = (height: number, card = 118, extra: Obj = {}): Obj => ({ overlay: [276, 840 - height, 736, height], card: [276, 840 - height, 736, card], ...extra });
@@ -61,12 +62,13 @@ describe('composer overlay reservation (resolveComposerTimelineInset, TimelineLi
     expect(contentKey([{ id: 'a', body: 'hey' }])).toBe('1:a:3:0');
     expect(contentKey([{ id: 'a', body: 'hey', expanded: true }])).not.toBe(contentKey([{ id: 'a', body: 'hey' }]));
   });
-  test('the snapshot reads T3Timeline only for its own thread', () => {
-    const client = { origin: 'o', projectId: 'p', threadId: 't', presentation: { owner: 'o:p:t', atEnd: true, transcriptPulls: 0, frames: frames(170) } as Obj };
+  test('the snapshot reads the transcript\'s viewport only for its own thread', () => {
+    const client = { origin: 'o', projectId: 'p', threadId: 't', presentation: { frames: frames(170) } as Obj };
+    noteTranscriptFacts(client, [0, '', '', '', 'o:p:t', false, true, 0]);
     expect(composerOverlaySnapshot(client, [{ id: 'a', body: 'x' }])).toEqual({ transcriptTail: 182, scrollLift: 182 });
     client.presentation = { ...client.presentation, frames: frames(250, 198) };
     expect(composerOverlaySnapshot(client, [{ id: 'a', body: 'x' }]).transcriptTail).toBe(182);
-    client.presentation = { ...client.presentation, atEnd: false };
+    noteTranscriptFacts(client, [0, '', '', '', 'o:p:t', false, false, 0]);
     expect(composerOverlaySnapshot(client, [{ id: 'a', body: 'x' }]).transcriptTail).toBe(262);
   });
 });

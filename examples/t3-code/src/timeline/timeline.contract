@@ -65,7 +65,7 @@ component TimelineRow
     // A user turn's box entering or leaving the transcript (ChatColumn turnSeen).
     seen: action
   view
-    column hover=hoverPart(message.hoverKey, "") width="100%" padding-top=(message.first ? lead : 0) padding-left="1.25rem" padding-right="1.25rem" box-sizing="border-box" align-items="center"
+    column id=`row-${message.id}` hover=hoverPart(message.hoverKey, "") width="100%" padding-top=(message.first ? lead : 0) padding-left="1.25rem" padding-right="1.25rem" box-sizing="border-box" align-items="center"
       if message.first and (hasMore or historyError != "")
         HistoryControl(lane=lane, hasMore=hasMore, loading=historyLoading, error=historyError, busy=busy, load=earlier)
       column width="100%" max-width=lane min-width=0 box-sizing="border-box" padding-bottom=(message.last ? 0.75 * rem + tail : 0) margin-bottom=`${rowGap(message.kind, message.continues, message.expanded, message.actionsId != "", message.kind == "checkpoint" and message.attached, message.meta) / 16}rem`
@@ -316,8 +316,8 @@ component TimelineContent
   view
     column width="100%"
       if message.kind == "assistant"
-        // The answer registers as a citation's jump target (T3TimelineTurns.swift, `cite:` rows).
-        column hatch="t3-turn" data-turn=`cite:${message.id}` width="100%" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box"
+        // The answer is a citation's jump target (app-main.contract ChatColumn citePlace).
+        column id=`cite-${message.id}` width="100%" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box"
           for document in documents.filter((doc) => doc.id == message.id) key=document.id
             AnswerMarkdown(document=document, local=local, code=message.code, diagrams=message.diagrams, scheme=scheme, copiedText=message.codeCopied, copiedNonce=message.codeCopyNonce, env=message.md, source=message.id, urls=attachments)
       else

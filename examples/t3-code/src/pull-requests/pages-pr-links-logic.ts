@@ -12,7 +12,7 @@
 // apps/web/src/components/pullRequest/PullRequestThreadLinks.tsx (ThreadPicker, the count's label).
 //
 // Port change: the reference adds its autolinks as a remark plugin over the parsed Markdown tree.
-// This clone parses Markdown in Rust (macos/src/markdown.rs renderPullRequestMarkdown), so the same
+// This clone parses Markdown in Rust (data/src/markdown.rs renderPullRequestMarkdown), so the same
 // rule runs over the Markdown source instead and writes each autolink as a Markdown link. The
 // reference's tree never holds a match inside code (fenced, indented, inline), a link, a link
 // reference, an image, raw HTML or a bare URL (a GFM autolink literal is a link node), so the

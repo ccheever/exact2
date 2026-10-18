@@ -20,8 +20,15 @@ component Tip
       if label != ""
         TipBubble(label=label, side=side, align=align, offset=offset, inset=0, shown=over)
 
-// Timeline tooltips close on an actual scroll, remaining suppressed until physical pointer motion.
+// TooltipScrollDismissArea (ui/tooltip.tsx; T3 Code 1e2ecbd975, MIT, see LICENSE-T3): a tooltip in the transcript
+// closes when the transcript scrolls, unless its trigger holds the focus, and stays closed until the pointer moves.
+// The transcript (app-main.contract ChatColumn) moves `tipEpoch` on a scroll after a tip was hovered or moved over
+// (`tipArm`); a tip whose `seen` epoch is older is dismissed. The host's hover of a still pointer after a scroll
+// (exact2 #139) sends `hover`, never `pointermove`, so it cannot reopen it.
 component TimelineTip
+  inject
+    tipEpoch: number
+    tipArm: action
   props
     label: string
     side: string
@@ -29,39 +36,54 @@ component TimelineTip
     offset: number
   slot
   state over = false
-  state dismissed = false
+  state seen = tipEpoch
+  state focused = false
   action setOver(value: bool)
     over = value
-  action scrollDismiss
-    dismissed = not dismissed
+    if value
+      tipArm()
+      seen = tipEpoch
+  action moved
+    tipArm()
+    seen = tipEpoch
+  action focusEntered(e: FocusEvent)
+    focused = true
+  action focusLeft(e: FocusEvent)
+    focused = false
+    seen = tipEpoch
   view
-    box position="relative" hover=setOver flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0
+    box position="relative" hover=setOver pointermove=moved focusin=focusEntered focusout=focusLeft flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0
       children
-      box position="absolute" width=0 height=0 padding=0 border-width=0 pointer-events="none" aria-hidden=true tabindex=-1 hatch="t3-timeline-tip" press=scrollDismiss
       if label != ""
-        TipBubble(label=label, side=side, align=align, offset=offset, inset=0, shown=(over and not dismissed))
+        TipBubble(label=label, side=side, align=align, offset=offset, inset=0, shown=(over and (focused or seen == tipEpoch)))
 
 // TimelineRowTimestamp: a plain span trigger (Base UI's trigger adds no
 // tabIndex), shown while its row is hovered, focused or open. It is never a
-// Tab stop; keyboard focus on the row reveals it.
+// Tab stop; keyboard focus on the row reveals it. The transcript's scroll closes its tooltip as TimelineTip's.
 component TimelineTimestamp
+  inject
+    tipEpoch: number
+    tipArm: action
   props
     id: string
     label: string
     timestamp: string
     visible: bool
   state over = false
-  state dismissed = false
+  state seen = tipEpoch
   action hoverTimestamp(value: bool)
     over = value
-  action scrollDismiss
-    dismissed = not dismissed
+    if value
+      tipArm()
+      seen = tipEpoch
+  action moved
+    tipArm()
+    seen = tipEpoch
   view
-    box position=(visible ? "relative" : "absolute") opacity=(visible ? 1 : 0) pointer-events=(visible ? "auto" : "none") margin-right="0.25rem" hover=hoverTimestamp testId=`work-timestamp-${id}` aria-label=label flex-shrink=0 display="flex" flex-direction="row" align-items="center" border-radius="0.25rem"
+    box position=(visible ? "relative" : "absolute") opacity=(visible ? 1 : 0) pointer-events=(visible ? "auto" : "none") margin-right="0.25rem" hover=hoverTimestamp pointermove=moved testId=`work-timestamp-${id}` aria-label=label flex-shrink=0 display="flex" flex-direction="row" align-items="center" border-radius="0.25rem"
       text timestamp font-size="0.75rem" line-height="1rem" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
-      box position="absolute" width=0 height=0 padding=0 border-width=0 pointer-events="none" aria-hidden=true tabindex=-1 hatch="t3-timeline-tip" press=scrollDismiss
       if label != ""
-        TipBubble(label=label, side="top", align="center", offset=20, inset=0, shown=(over and not dismissed))
+        TipBubble(label=label, side="top", align="center", offset=20, inset=0, shown=(over and seen == tipEpoch))
 
 // The bubble alone, for triggers that already track their own hover. `inset`
 // moves an end- (or start-) aligned bubble past the trigger's edge, as Base

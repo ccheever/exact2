@@ -1,7 +1,8 @@
 // T3 Code 1e2ecbd975 (MIT; see LICENSE-T3): ChatMarkdown's `img` renderer
 // in Files' rendered Markdown (FileMarkdownPreview: `cwd` the workspace, `imageBaseDir` the file's folder, the thread or
 // draft ref) and in a sent attachment's (AttachmentFilePreview: no `cwd`, no thread).
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { serveAssets } from '../support/asset-server';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import { surfaceLocal, panelView } from '../../src/panel/panel-surfaces';
@@ -15,13 +16,17 @@ const native = { available: true } as unknown as Native;
 const FILE = '# Media\n\nBeside the file: ![Shot](shot.png) and its parent: ![Logo](../assets/logo.png)\n\n![Shot](shot.png)\n\n![Abs](</repo/assets/logo.png>)\n\n![Web](http://127.0.0.1:16483/badge.png)\n\n![Clip](clip.mp4#t=2)\n';
 const ATTACHED = '# Attached notes\n\n![Relative](docs/shot.png)\n\n![Absolute](/repo/assets/logo.png)\n\n![Web](http://127.0.0.1:16483/badge.png)\n\nInline ![In](/repo/docs/shot.png) too.\n';
 
+// The asset server answers the attached Markdown's text (attachment-files.ts reads it).
+let server: ReturnType<typeof serveAssets>;
+beforeEach(() => { server = serveAssets(() => ({ body: ATTACHED })); });
+afterEach(() => server.restore());
+
 function fakeClient(over: Record<string, unknown> = {}) {
   const calls: Call[] = [];
   const replies: Record<string, (payload: Record<string, unknown>) => unknown> = {
     'projects.listEntries': payload => ({ entries: payload.directoryPath === '' ? [{ path: 'docs', kind: 'directory' }] : [{ path: 'docs/media.md', kind: 'file' }], truncated: false }),
     'projects.readFile': () => ({ relativePath: 'docs/media.md', contents: FILE, byteLength: FILE.length, truncated: false }),
     'assets.createUrl': payload => ({ relativeUrl: `/api/assets/${encodeURIComponent(String((payload.resource as { path?: string; attachmentId?: string }).path ?? (payload.resource as { attachmentId?: string }).attachmentId))}?sig=1`, expiresAt: 0 }),
-    attachmentText: () => ({ ok: true, text: ATTACHED, truncated: false }),
   };
   const request = async (method: string, payload: Record<string, unknown>) => { calls.push({ method, payload }); const reply = replies[method]; if (!reply) throw new Error(`no reply for ${method}`); return reply(payload); };
   const client = {

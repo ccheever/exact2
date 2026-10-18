@@ -1,29 +1,32 @@
 // Mermaid fences in the transcript, adapted from T3 Code (MIT, see LICENSE-T3):
 // apps/web/src/components/ChatMarkdown.tsx (MarkdownMermaidCodeBlock: a settled
-// ```mermaid fence draws as a diagram) and chat/MermaidDiagram.tsx (render queue,
-// errors and retry). The app module lays diagrams out with the reference's own
-// Mermaid build (T3TimelineMermaid.swift) and answers flattened paths and text
-// runs in both themes; the transcript and a rendered Markdown file in Files draw
-// them (markdown.contract CodeBlock).
-import { arr, obj, str, type Obj } from '../client/domain';
+// ```mermaid fence draws as a diagram) and chat/MermaidDiagram.tsx (render cache,
+// errors and retry). Each fence renders in the Mermaid page (assets/mermaid/, an
+// `iframe` per fence, markdown.contract MermaidBlock) with the reference's Mermaid
+// build and configuration; the page reports its natural size or Mermaid's error
+// (`diagram-frame`), which this keeps per theme and source, as the reference's
+// render cache keys its renders. The transcript and a rendered Markdown file in
+// Files draw them.
+import { arr, obj, str } from '../client/domain';
 import type { T3Client } from '../client/client';
-import type { Native } from '../client/protocol';
 
-export interface MermaidItem {
-  id: string; kind: string; d: string; transform: string; fill: string; fillDark: string; stroke: string; strokeDark: string;
-  width: number; dash: string; cap: string; join: string; text: string; x: number; y: number; size: number; weight: number; slant: string; baseline: string;
-}
-/** A fence's diagram: "loading" until both themes are answered, then "rendered" or "error". */
-export interface DiagramFields { diagram: string; message: string; retryable: boolean; width: number; height: number; viewBox: string; items: MermaidItem[] }
-/** markdown.contract MermaidDiagram: one settled fence, matched to its parsed block by its text. */
-export interface MermaidDiagramView extends DiagramFields { id: string; code: string }
-export const NO_DIAGRAM: DiagramFields = Object.freeze({ diagram: '', message: '', retryable: false, width: 0, height: 0, viewBox: '', items: [] }) as DiagramFields;
+/** What one theme's page reported: "loading" until it answers, then "rendered" or "error". */
+export interface MermaidFrame { diagram: string; message: string; retryable: boolean; width: number; height: number }
+/** markdown.contract MermaidDiagram: one settled fence, matched to its parsed block by its text, in both themes. */
+export interface MermaidDiagramView { id: string; code: string; srcLight: string; srcDark: string; light: MermaidFrame; dark: MermaidFrame }
 export const MERMAID_FONT = '-apple-system, "system-ui", "Segoe UI", system-ui, sans-serif';
-const LOADING: DiagramFields = { ...NO_DIAGRAM, diagram: 'loading' };
+/** The Mermaid page under the app's assets (LLP 1020.001: served at exact-app://app/ on Apple). */
+export const MERMAID_PAGE = 'assets/mermaid/index.html';
+const LOADING: MermaidFrame = Object.freeze({ diagram: 'loading', message: '', retryable: false, width: 0, height: 0 }) as MermaidFrame;
+/** MermaidDiagram's MAX_CACHED_RENDERS. */
+const MAX_CACHED_RENDERS = 64;
 
-const answers = new Map<string, { light: string; dark: string }>();
-const parsed = new Map<string, DiagramFields>();
-const retries = new Set<string>();
+type Theme = 'light' | 'dark';
+const key = (theme: Theme, code: string) => `${theme}\n${code.trim()}`;
+/** Reported renders by `theme\nsource`, oldest first (MermaidDiagram's renderCache). */
+const reports = new Map<string, MermaidFrame>();
+/** Retries asked per `theme\nsource`: each one is a new page load. */
+const attempts = new Map<string, number>();
 
 const fence = /^( {0,3})(`{3,}|~{3,})([^\n`]*)\n([\s\S]*?)\n? {0,3}\2[`~]*[ \t]*(?:\n|$)/gm;
 /** The code of every ```mermaid fence, as the parsed block's text (messageCodeBlocks' matching). */
@@ -39,6 +42,57 @@ export function mermaidFences(markdown: string): string[] {
   return found;
 }
 
+/** The page for one fence in one theme; a retry's attempt number makes it a new load. */
+export function mermaidSrc(code: string, theme: Theme): string {
+  const params = new URLSearchParams({ theme, font: MERMAID_FONT, source: code.trim() });
+  const attempt = attempts.get(key(theme, code)) ?? 0;
+  if (attempt) params.set('attempt', String(attempt));
+  return `${MERMAID_PAGE}#${params.toString()}`;
+}
+
+/** A fence's frame in one theme as its page reported it, or loading. */
+export function frameFor(code: string, theme: Theme): MermaidFrame {
+  return reports.get(key(theme, code)) ?? LOADING;
+}
+
+/** A fence as the view draws it: both themes' pages and what each reported. */
+export function diagramFor(id: string, code: string): MermaidDiagramView {
+  return { id, code, srcLight: mermaidSrc(code, 'light'), srcDark: mermaidSrc(code, 'dark'), light: frameFor(code, 'light'), dark: frameFor(code, 'dark') };
+}
+
+/** A message's settled Mermaid fences as diagrams; a streaming message keeps plain code blocks. */
+export function messageDiagrams(markdown: string, streaming: boolean): MermaidDiagramView[] {
+  return streaming ? [] : mermaidFences(markdown).map((code, index) => diagramFor(String(index), code));
+}
+
+/**
+ * `diagram-frame`: a Mermaid page's report, the JSON it posts to its parent (assets/mermaid/render.js). A report for a
+ * source and theme no fence asked for still lands: the page renders only what its fragment names.
+ */
+export function noteMermaidFrame(payload: string): string {
+  let report;
+  try { report = obj(JSON.parse(payload)); } catch { return ''; }
+  const theme: Theme = report.theme === 'dark' ? 'dark' : 'light', source = str(report.source);
+  if (!source.trim()) return '';
+  const frame: MermaidFrame = report.status === 'rendered'
+    ? { diagram: 'rendered', message: '', retryable: false, width: Number(report.width) || 0, height: Number(report.height) || 0 }
+    : { diagram: 'error', message: str(report.message, 'The diagram could not be rendered.'), retryable: report.retryable === true, width: 0, height: 0 };
+  if (frame.diagram === 'rendered' && (!(frame.width > 0) || !(frame.height > 0))) return '';
+  const at = key(theme, source);
+  reports.delete(at);
+  reports.set(at, frame);
+  while (reports.size > MAX_CACHED_RENDERS) reports.delete(reports.keys().next().value!);
+  return '';
+}
+
+/** MermaidDiagram's Retry: forget the failed render and load its page again. */
+export function retryMermaid(code: string, theme: string): string {
+  const at = key(theme === 'dark' ? 'dark' : 'light', code);
+  reports.delete(at);
+  attempts.set(at, (attempts.get(at) ?? 0) + 1);
+  return '';
+}
+
 /** Settled messages and plans of the open thread: a streaming fence stays a code block. */
 export function transcriptMermaid(client: T3Client): string[] {
   const sources: string[] = [];
@@ -52,84 +106,16 @@ export function transcriptMermaid(client: T3Client): string[] {
 }
 
 /**
- * Asks the module for every diagram not yet answered in both themes; the module
- * answers at once ('' while rendering) and announces each finished render.
- * `sources`: the transcript's fences, or another surface's (filesMermaid).
- */
-export async function prepareMermaid(client: T3Client, native: Native | null | undefined, sources = transcriptMermaid(client)): Promise<void> {
-  if (!native?.available || !client.origin) return;
-  const missing = sources.filter(code => { const known = answers.get(code); return !known || !known.light || !known.dark; });
-  if (!missing.length) return;
-  const asked = missing.filter(code => retries.has(code));
-  const retry = asked.flatMap(code => [`light\n${code.trim()}`, `dark\n${code.trim()}`]);
-  for (const code of asked) retries.delete(code);
-  try {
-    const value = await client.restAccess(native).call({ op: 'mermaidRender', origin: client.origin, font: MERMAID_FONT, retry,
-      diagrams: missing.flatMap(code => [{ source: code.trim(), theme: 'light' }, { source: code.trim(), theme: 'dark' }]) });
-    for (const entry of arr(value.items)) {
-      const [theme, ...rest] = str(entry.key).split('\n'), source = rest.join('\n'), json = str(entry.json);
-      for (const code of missing.filter(candidate => candidate.trim() === source)) {
-        const known = answers.get(code) ?? { light: '', dark: '' };
-        const next = theme === 'dark' ? { ...known, dark: json } : { ...known, light: json };
-        if (next.light !== known.light || next.dark !== known.dark) parsed.delete(code);
-        answers.set(code, next);
-      }
-    }
-  } catch { /* Not connected to the app module: the fences stay code blocks until it answers. */ }
-  if (answers.size > 64) for (const code of [...answers.keys()].slice(0, answers.size - 64)) { answers.delete(code); parsed.delete(code); }
-}
-
-/** Paints are drawn through light-dark(), so a missing one is transparent rather than `none`. */
-const color = (value: unknown) => typeof value === 'string' && /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(value) ? value : '#00000000';
-/** Joins the two themes' flattened renders: one geometry, both paints. */
-export function joinThemes(lightJson: string, darkJson: string): DiagramFields {
-  let light: Obj, dark: Obj;
-  try { light = obj(JSON.parse(lightJson)); dark = obj(JSON.parse(darkJson)); } catch { return { ...NO_DIAGRAM, diagram: 'error', message: 'The diagram could not be rendered.' }; }
-  if (light.status !== 'rendered') return { ...NO_DIAGRAM, diagram: 'error', message: str(light.message, 'The diagram could not be rendered.'), retryable: light.retryable === true };
-  const darkItems = dark.status === 'rendered' ? arr(dark.items) : [];
-  const items = arr(light.items).map((item, index): MermaidItem => {
-    const other = darkItems[index]?.kind === item.kind ? darkItems[index]! : item;
-    return { id: String(index), kind: str(item.kind), d: str(item.d), transform: str(item.transform, 'matrix(1 0 0 1 0 0)'), fill: color(item.fill), fillDark: color(other.fill),
-      stroke: color(item.stroke), strokeDark: color(other.stroke), width: Number(item.width) || 0, dash: str(item.dash) || 'none', cap: str(item.cap, 'butt'),
-      join: str(item.join, 'miter'), text: str(item.text), x: Number(item.x) || 0, y: Number(item.y) || 0, size: Number(item.size) || 16,
-      weight: Number(item.weight) || 400, slant: str(item.slant, 'normal'), baseline: str(item.baseline, 'alphabetic') };
-  });
-  return { diagram: 'rendered', message: '', retryable: false, width: Number(light.width) || 0, height: Number(light.height) || 0, viewBox: str(light.viewBox), items };
-}
-
-/** A fence's diagram as its code highlight carries it: loading until both themes are answered. */
-export function diagramFor(code: string): DiagramFields {
-  const known = answers.get(code);
-  if (!known || !known.light || !known.dark) return LOADING;
-  let diagram = parsed.get(code);
-  if (!diagram) { diagram = joinThemes(known.light, known.dark); parsed.set(code, diagram); }
-  return diagram;
-}
-
-/** A message's settled Mermaid fences as diagrams; a streaming message keeps plain code blocks. */
-export function messageDiagrams(markdown: string, streaming: boolean): MermaidDiagramView[] {
-  return streaming ? [] : mermaidFences(markdown).map((code, index) => ({ id: String(index), code, ...diagramFor(code) }));
-}
-
-/** MermaidDiagram's Retry: forget the failed render so the next snapshot asks again. */
-export function retryMermaid(code: string): string {
-  answers.delete(code); parsed.delete(code); retries.add(code);
-  return '';
-}
-
-/**
  * FileMarkdownPreview is ChatMarkdown, so a rendered Markdown file's settled
- * ```mermaid fences draw as diagrams too (MarkdownMermaidCodeBlock, isStreaming false). Files asks for them while it
- * builds its view and remembers them, per client, so the expand button can open them. A sent attachment's rendered
- * Markdown is ChatMarkdown too (attachment-surface.ts) and asks the same way: the right
- * panel shows one of the two at a time.
+ * ```mermaid fences draw as diagrams too (MarkdownMermaidCodeBlock, isStreaming false). Files remembers them per
+ * client while it builds its view, so the expand button can open them. A sent attachment's rendered Markdown is
+ * ChatMarkdown too (attachment-surface.ts) and draws the same way: the right panel shows one of the two at a time.
  */
 const fileFences = new WeakMap<object, string[]>();
-export async function filesMermaid(client: T3Client, native: Native | null | undefined, markdown: string): Promise<MermaidDiagramView[]> {
+export function filesMermaid(client: T3Client, markdown: string): MermaidDiagramView[] {
   const sources = mermaidFences(markdown).slice(0, 24);
   fileFences.set(client, sources);
-  await prepareMermaid(client, native, sources);
-  return sources.map((code, index) => ({ id: String(index), code, ...diagramFor(code) }));
+  return sources.map((code, index) => diagramFor(String(index), code));
 }
 
 /** The expanded diagram (ExpandedImageDialog "Mermaid diagram"), per client and thread. */
@@ -140,9 +126,10 @@ export function diagramPreviewAction(client: T3Client, op: string, code: string)
   previews.set(client, { threadId: client.threadId, code });
   return '';
 }
+/** The open preview: offered only once a theme's page has rendered it (the dialog draws the window's theme). */
 export function diagramPreviewView(client: T3Client): { diagramPreview: MermaidDiagramView[] } {
   const current = previews.get(client);
   if (!current || current.threadId !== client.threadId) return { diagramPreview: [] };
-  const diagram = diagramFor(current.code);
-  return { diagramPreview: diagram.diagram === 'rendered' ? [{ id: 'diagram-preview', code: current.code, ...diagram }] : [] };
+  const diagram = diagramFor('diagram-preview', current.code);
+  return { diagramPreview: diagram.light.diagram === 'rendered' || diagram.dark.diagram === 'rendered' ? [diagram] : [] };
 }

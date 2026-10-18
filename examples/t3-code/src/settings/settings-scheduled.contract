@@ -25,6 +25,7 @@ use kmTriggerKey from "../shared/menu-keys.contract"
 use kmTriggerTarget from "../shared/menu-keys.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
+use RefPageScroll from "../composer/ref-paging.contract"
 
 shape TaskRowView
   id: string
@@ -428,8 +429,8 @@ component ScheduledEditor
                       LucideSearch(size=16, color="light-dark(#71717b8c, #8181818c)")
                       input value=refQuery input=setText("refs") placeholder="Search refs..." class=FieldPlaceholder aria-label="Search refs" testId="task-branch-search" flex=1 min-width=0 height="1.25rem" line-height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
                   // The server's answer for the search (filteredItems = items); a scroll toward the end loads the next
-                  // page (T3RefPaging.swift counts it for `scroll:task-refs`, scheduled-view.ts loads it).
-                  scroll max-height="14rem" width="100%" hatch="t3-anchor" data-anchor="scroll:task-refs"
+                  // page (ref-paging.contract RefPageScroll tells it, scheduled-view.ts loads it).
+                  RefPageScroll(name="task-refs")
                     column padding-left="0.25rem" padding-top="0.5rem" padding-bottom="0.25rem" width="100%" box-sizing="border-box"
                       for group in data.branches key=group.projectId
                         if group.projectId == chosenProject

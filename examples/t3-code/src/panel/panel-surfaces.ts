@@ -9,7 +9,7 @@ import { activeRef, terminalAvailable, terminalDrawerView, emptyTerminalDrawerVi
 // this model lists it as a tab and keeps it in step. Every op here is a
 // `shelllocal:surface-*` (or `shell:surface-*` for writes) routed from
 // shell-commands.ts, so the window's root state only learns `shell.panel.open`.
-import { closeSurface, closePanelSurfaces, openDeviceSurface, editTabName, tabRename, copyTabPath, showTabMenu, tabMenuRows, type TabMenuRow } from './right-panel-tabs';
+import { closeSurface, closePanelSurfaces, openDeviceSurface, editTabName, tabRename, copyTabPath, tabMenuRows, type TabMenuRow } from './right-panel-tabs';
 import { selectDeviceTarget } from '../device/device-session';
 import type { T3Client } from '../client/client';
 import { obj, str, type Obj } from '../client/domain';
@@ -207,7 +207,6 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   if (op === 'open') return openSurface(client, native, id || value);
   if (op === 'file') { await openFileSurface(client, native, id, Number(value) || 0, value === 'tree'); return ''; }
   if (op === 'toggle-mute') return browserLocal(client, native, state, 'toggle-mute', id.replace(/^browser:/, ''), '');
-  if (op === 'menu') { const action = await showTabMenu(client, native, state, id, value === 'key', surface => browserTabMute(client, surface)); return action && panelState(client) === state ? surfaceLocal(client, native, action, id, '') : ''; }
   if (op.startsWith('rename')) { editTabName(state, op, id, value); return ''; }
   if (op === 'copy-path') { const surface = state.surfaces.find(entry => entry.id === id); if (surface) await copyTabPath(client, native, surface); return ''; }
   if (op === 'activate') {

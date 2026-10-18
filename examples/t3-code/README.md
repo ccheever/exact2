@@ -39,7 +39,7 @@ packages pinned beside it (`tools/generate/package.json` and `bun.lock`, the ver
 reference locks; network once) and from committed inputs: the Shiki grammar tables
 (`src/highlight/grammar*.ts`), the CSS word lists (`src/highlight/css-words.ts`), the Lucide and
 Pierre icon data (`src/settings/settings-b-lucide.ts`, `src/shared/pages-icons.contract`,
-`src/shared/timeline-files.contract` and `timeline-files-tables.ts`, `macos/pierre-icons.tsv`,
+`src/shared/timeline-files.contract` and `timeline-files-tables.ts`, `data/pierre-icons.tsv`,
 `assets/composer-icons.json`), the ten icon tables (`icons`, `shell-icons`, `sidebar-icons`,
 `timeline-icons`, `panel-icons`, `settings-icons`, `provider-icons`, `diff-glyphs`, `editor-icons`
 and `settings-brands`, each a `.contract` in its feature's folder under `src/`, from the Lucide names
@@ -47,7 +47,7 @@ in `tools/generate/icon-tables.mjs` and the marks in `icon-marks.mjs`; their han
 components are in the `*-kit.contract` files), the morph plans (`src/shell/shell-morph.contract`)
 and the terminal buffer vectors
 (`macos/tests/terminal/vectors.json`, whose expectations are test data committed in
-`gen-vectors.mjs`). The app build runs it before it bakes (`macos/build.rs`);
+`gen-vectors.mjs`). The app build runs it before it bakes (`data/build.rs`);
 run it yourself before the tests and checks below:
 
 ```sh
@@ -82,7 +82,7 @@ no server: build the bundle, then point `EXACT_MAC_BIN` at its `Contents/MacOS/T
 (the driver then skips its stale-build check, so rebuild after every source change).
 
 Safari's Web Inspector (exact2 #101): in a development build the app's own web views (the
-terminal, the browser surface, the rendered-HTML preview, the offscreen Mermaid renderer) are
+terminal, the browser surface, the rendered-HTML preview) are
 `isInspectable`, so Safari's Develop menu lists them. A release build's are not: the packaged
 build (that marker), a production-trust bake or a distributed bundle (`--distribution`, what
 `exact release` signs), as main #309 decides for Exact's own `iframe` web views
@@ -126,7 +126,9 @@ server to come back on the new version and shares that state with Settings › C
 - Conversation: bounded history with older-page loading, streaming assistant and
   tool rows, work-log inspector, checkpoints and changed files, fork dividers, answered
   questions, mention and file chips, Markdown with code blocks (wrap, copy) and Mermaid
-  diagrams rendered by the connected server's own Mermaid build. A failed workspace
+  diagrams: each fence renders in the Mermaid page (`assets/mermaid/`, an `iframe` per fence,
+  LLP 1020.001) with the Mermaid and DOMPurify builds the reference locks, which
+  `tools/generate/` vendors into `assets/mermaid/vendor/`. A failed workspace
   preparation offers Retry (`prepared-run.retry`), and the failure row hides once a retry
   supersedes it (`workspace-retry.ts`, 737993303d). Code colouring follows Shiki for
   every declarator of a `const`/`let`/`var` list, object keys versus type annotations,
@@ -191,9 +193,11 @@ server to come back on the new version and shares that state with Settings › C
   pull request chip, or a hand-off draft's from its branch status, with its tooltip list,
   +N and stack forms, `strip-pr-badge.ts`), sent attachment
   previews (Markdown, table or numbered source, images, Copy contents and Save file;
-  opened from a sent file chip; `attachment-media*`, `T3MediaPreview.swift`: PDFs in PDFKit, HTML rendered in a sandboxed
+  opened from a sent file chip; the text is fetched from the signed asset URL, and Save file
+  hands the bytes to the window's Save panel, `attachment-files.ts`, `save-file.ts`;
+  `attachment-media*`, `T3MediaPreview.swift`: PDFs in PDFKit, HTML rendered in a sandboxed
   WebKit view that loads its token directory and external hosts as the reference's frame does, or as source coloured by Shiki's html grammar under the
-  Pierre themes (`html-syntax.ts`), audio and video in AVKit players, "Unable to
+  Pierre themes (`html-syntax.ts`), audio and video in the platform's players, "Unable to
   load audio/video." with Try again) and Device (the "Set up devices" wizard over
   `device.configure` / `subscribeDeviceState`; Escape closes it; after onboarding a row
   opens its simulator with `device.open`, then the workspace shows the hub's H.264 screen
@@ -251,15 +255,22 @@ the menu's standard items, the terminal's web view or the module's own key monit
 re-issue stays. After the thread list re-renders or scrolls under a still pointer, the row that
 slid under it is hovered, as a browser's synthetic mouse move does (the host's own, exact2 #139). The menu bar is the reference
 desktop app's (`T3MenuBar.swift`): File shows only Close Window, View starts with Reload
-and Force Reload, and the host's Develop and Go menus are removed, so ⌘D (diff), ⌘O (open in
+and Force Reload (two Contract buttons the host files there, `-exact-menu="view"`, which run
+`reload()`; settings-shortcuts.contract `ViewReload`), and the host's Develop and Go menus are removed, so ⌘D (diff), ⌘O (open in
 editor) and ⌘1–9 reach the window; every button chord stays a hidden File key equivalent,
 one dispatch button per chord (⌘N and ⇧⌘O both start a thread with no text field focused).
 Edit › Undo sends ⌘Z to thread.undo when no editable text has the focus, and ⌘W closes the
 active right-panel surface tab (its neighbour becomes active; the last tab closes the panel;
 on the Pull Requests page the open pull request) before it closes the window. The surface launcher takes the focus when it mounts (`autofocus`), and
 its letters are its rows' `aria-keyshortcuts` (`shell-panels.contract`), which Exact presses before type-to-focus; a Markdown table's Copy
-menu is a window-level popup, placed from the trigger's drawn frame (`T3Measure.swift`),
-that Escape and an outside press close (`table-menu.*`). A global hotkey of another
+menu is a window-level popup, placed from the trigger's `frame()` (scroll offsets applied),
+that Escape and an outside press close (`table-menu.*`). The row context menus are Contract context
+popovers, which the host presents as an `NSMenu` at the pointer, or for the ContextMenu key at the
+focused row's centre (exact2 #314): the sidebar's thread, draft and selection menus, the legacy sidebar's
+row, selection and project menus, the Files tree's, a panel tab's and a pull request number's. A draft
+row's ContextMenu and Shift+F10, and a tab's Shift+F10, show theirs from the row, below it. The branch
+picker's Copy branch name, the chat's file and web link menus, the media menu and the legacy sidebar's
+choice of project members stay the module's (`T3ContextMenu.swift` and `T3Sidebar.swift` say why). A global hotkey of another
 app (a launcher holding ⌘1, say) never reaches the window.
 
 Saved environments and their credentials are one kept secret, `t3-catalog` (granted by `secret.keep
@@ -345,7 +356,8 @@ relaunch for the Local environment switch, Network access and Tailscale HTTPS (`
 and capture-phase key handlers for the keybinding recorder and the reply's Markdown
 (`keycapture`, [`issues/closed/20261009-capture-phase-key-events.md`](../../issues/closed/20261009-capture-phase-key-events.md)),
 and `repeating-linear-gradient()` with length stops for the usage bars and the diff's deletion bars
-([`issues/closed/20261011-repeating-hatch-across-list-rows.md`](../../issues/closed/20261011-repeating-hatch-across-list-rows.md)).
+([`issues/closed/20261011-repeating-hatch-across-list-rows.md`](../../issues/closed/20261011-repeating-hatch-across-list-rows.md)),
+and `-exact-menu` for View › Reload and Force Reload ([`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)).
 These it does not use, because on macOS they do not do what the reference does:
 
 - `showModal(id)` / `close(id)` ([`issues/closed/20261009-gui-dialog-action-commands.md`](../../issues/closed/20261009-gui-dialog-action-commands.md), #282).
@@ -354,18 +366,56 @@ These it does not use, because on macOS they do not do what the reference does:
   by a click gives the focus back to nothing. So each dialog keeps its own Tab trap
   (`dialog-trap.contract` says why), and closing a dialog whose opener the view cannot name
   still leaves the focus nowhere (Base UI gives it back).
-- App-declared menu bar items ([`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)).
-  An `-exact-menu` item is enabled only while its window is key and has no sheet, app-menu items
-  are filed after About's separator, and `-exact-menu-remove` names none of the items the app
-  hides, so the menu bar stays the module's (`T3Menus.swift`, `T3MenuBar.swift`, `T3LatinChords.swift`).
+- The rest of the menu bar's app items ([`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)).
+  On main (checked at `44ad32092`) an `-exact-menu` item is still enabled only while its window is key and has
+  no sheet (`ShortcutsMac.swift` `validateMenuItem`), app-menu items are still filed after About's separator
+  (`sync`), and `-exact-menu-remove` still takes only its twelve standard ids. So Check for Updates… (always
+  enabled and directly under About in the reference, with a box that has no parent window where a Contract
+  `alertdialog` is a sheet), Paste as Text, View's zoom, the hidden Help book item, the ⌘Q hold and the
+  trimmed File, Edit, Develop and Go stay the module's (`T3Menus.swift`, `T3MenuBar.swift`, `T3LatinChords.swift`).
+  Settings… is the host's: it files the ⌘, dispatch button there.
 - The notification click ([`issues/closed/20261009-notification-default-click-design.md`](../../issues/closed/20261009-notification-default-click-design.md)).
   Main's click needs a Contract `showNotification(navigate=)`, which always plays the system
-  sound (the reference's notification is silent), cannot be posted from the data module, and
-  is delivered to a navigation root the app does not have. The click stays in `T3Notifications.swift`.
+  sound (`Notify.swift` posts with `.default` and presents with `.sound`; the reference's notification is
+  `silent: true`, ThreadNotificationCoordinator.tsx:203-207), cannot be posted from the data module, and
+  is delivered to a navigation root the app does not have. Badges and a permission fact stay refused
+  (`rules/DEFERRED.md`). So the post, its click, the sounds, the Dock badge and the permission request stay
+  in `T3Notifications.swift`.
 - An inline link run as a Tab stop on macOS
   ([`issues/closed/20261012-macos-inline-link-run-tab-stop.md`](../../issues/closed/20261012-macos-inline-link-run-tab-stop.md)). This fix is the host's, so the
   clone gets it on main with no change of its own. No drive has tabbed to a link in a Markdown
   table cell since.
+
+App Swift this clone keeps, where moving it onto what main offers would change what someone using
+the app sees, or where main has nothing to move it onto (each is a framework capability to add):
+
+- `T3MediaPreview.swift`: a PDF in PDFKit on Chromium's viewer surface, fitted to the width and
+  top-aligned; an `iframe` would show WebKit's own PDF viewer. A rendered HTML attachment opens a
+  `target="_blank"` link in the default browser and shows `alert` and `confirm` as sheets; an
+  `iframe` refuses popups (LLP 1020 §5) and has no dialogs.
+- `T3MediaActions.swift`: the media menu, Copy image and Save. Save opens in Downloads first and then
+  in the session's last folder, as Electron's download dialog does, where `saveFile` names no
+  folder; Copy image needs an image clipboard write (`ClipboardItem`), which main does not have;
+  the menu's Menu-key form opens at the media's bottom-left corner, where a `contextPopover` opens
+  at the focused node's centre.
+- `T3ToolActivityIcon.swift`: a muted tool icon is drawn at the reference's `brightness(0.6)` in the
+  light appearance; CSS `filter` applies only to SVG elements, and an SVG `image` is not built.
+- `T3ImageAccent.swift` and the composer's image chips (`T3ComposerImageChip.swift`): an image's
+  average colour needs its pixels, and readback is refused.
+- `T3RowDrop.swift`: a legacy row takes any file and rings while a drag is over it; `drop` takes only
+  `file_handlers` types and has no `dragenter` or `dragleave`.
+- `RightPanelTabsInput.swift`: the device tab's rename field keeps Escape and ⌘ chords to itself;
+  an `aria-keyshortcuts` button hears its chord before a field's `key` handler.
+- `T3RemoteEditors.swift` (probing installed editors needs a process and file checks; `openURL`
+  opens only http, https, mailto and tel), `T3InstalledFonts.swift` (no `queryLocalFonts`),
+  `T3Locale.swift` (`exactTime().locale` is the preferred language, where Electron's
+  `getSystemLocale` follows the Region setting), `T3WindowChrome.swift` (no
+  `env(titlebar-area-*)`), `T3RootFont.swift` (the native views' rem), `T3PanelsNative.swift` (the
+  Files editor's caret under the press that mounted it), and the data module's sleep
+  (`timelineSleep`: data modules have no timers).
+- The composer's editor core and what rides on it (`T3ComposerAttach`, `T3ComposerIntent`,
+  `T3ComposerQueueKey` and the rest of `T3Composer*`): inline atoms, the caret's rectangle, pasted
+  files and a video's first frame are not in main's Markdown editor or media surface.
 
 Differences that belong to the app:
 
@@ -838,8 +888,12 @@ sessions, routes, saved-environment catalog, activity reporter and outdated host
 `transport.contract`, the slots app.contract gives them). A labelled `button` or `link` that may mount no text says `title=""`: since
 LLP 1115 the Mac host shows the `aria-label` of a button whose mounted, not `aria-hidden` children
 give no text as its help tag, and the reference shows only its own tips (`help-tags.test.ts`
-applies the host's rule to the view tree). `modules/apple/` is the native module; `macos/` holds the bake adapter crate (`t3-code-macos`)
-and the AppKit tests; `tools/` holds the lanes (`github-lane/`, `network-lane/`), the generator
+applies the host's rule to the view tree). `modules/apple/` is the native module. `data/` is the
+Rust data source (`t3-code-data`): the chat Markdown that `app.ts` leaves to Rust (`renderMarkdown`,
+`renderPullRequestMarkdown`, `renderFileMarkdown`) over `apps/markdown/parse`, with its tests; it does
+no I/O when it runs, so any host can link it, and its build script runs the generator below. `macos/`
+is the macOS host crate (`t3-code-macos`: the bake and the Apple host's entry), its tests of the baked
+plan, and the AppKit tests. `tools/` holds the lanes (`github-lane/`, `network-lane/`), the generator
 of the generated sources (`generate/`), the embedded server's staging (`stage-runtime/`) and the
 Shiki comparison. T3's MIT notice is retained in `LICENSE-T3`.
 
@@ -869,6 +923,7 @@ bun node_modules/typescript/bin/tsc --noEmit --strict --target ES2023 --module E
 cargo run -q -p contract -- build examples/t3-code/app.contract -o /tmp/t3-code.plan
 cargo test -p contract --test it button_migration -- --ignored   # the async lane's sweep of this app: app.contract and its imports (minutes)
 cargo test --manifest-path examples/t3-code/Cargo.toml --lib   # the app's workspace: the bake, then its tests (Hermes env of the root setup)
+cargo test --manifest-path examples/t3-code/Cargo.toml -p t3-code-data   # the chat Markdown's tests alone, without the app's bake
 ```
 
 A Cargo build alone does not compile or launch the Apple crate's Swift module. Use the app
@@ -896,7 +951,7 @@ for d in examples/t3-code/macos/tests/*/; do
     -Xlinker -rpath -Xlinker "$F" -Xlinker -rpath -Xlinker "$L" \
     host/apple/modules/ExactNativeModule.swift $T "$R/ExactDataKeys.swift" $M "$d"*.swift -o "$O/$n-tests" || continue
   [ $n = snapshot ] && { rm -rf "$O/fixture"; mkdir -p "$O/fixture"; export T3_SNAPSHOT_TEST_ROOT="$O/fixture"; }
-  EXACT_ASSETS="$T3_APP_DIR" T3_BROWSER_TEST_DIR="$O" T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_MERMAID_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" T3_TERMINAL_TEST_DIR="$O" "$O/$n-tests" $([ $n = mermaid ] && echo "$T3_SERVER")
+  EXACT_ASSETS="$T3_APP_DIR" T3_BROWSER_TEST_DIR="$O" T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" T3_TERMINAL_TEST_DIR="$O" "$O/$n-tests"
 done
 ```
 
@@ -921,8 +976,7 @@ target/t3-tests/timeline-keyboard-tests
 `terminal` needs `bun examples/t3-code/terminal-host/build.mjs` first (it loads the page from
 `assets/`); `T3_TERMINAL_SCALE=1` adds the 1/4/11/44-view cost table, and
 `bun examples/t3-code/terminal-host/verify-vendor.mjs` checks the vendored binaries.
-`mermaid` needs `T3_SERVER` set to a running T3 server's origin (it loads that server's
-Mermaid build into an offscreen web view). The SSH tests read
+The SSH tests read
 a temporary home, never `~/.ssh`; the live tunnel test skips unless `T3_SSH_COMMAND`
 names an ssh test double, and agent runs of the app read hosts only from `T3_SSH_HOME`.
 `macos/tests/ssh/fake-ssh.sh` is that double (its header lists the variables): the password

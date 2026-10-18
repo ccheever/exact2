@@ -2,17 +2,30 @@
 // LICENSE-T3): state/queries.ts usePaginatedBranches (pages of VCS_REF_LIST_LIMIT
 // refs by cursor, merged by name, the last page's cursor, the largest total) and
 // BranchPicker.tsx maybeFetchNextBranchPage (a scroll toward the end within
-// 96px loads the next page). The scroll signal is native: T3RefPaging.swift
-// counts qualifying scrolls of a list hooked `data-anchor="scroll:<name>"`.
-import { arr, num, obj, str, type Obj } from '../client/domain';
+// 96px loads the next page). The list's own `scroll` event tells it
+// (ref-paging.contract RefPageScroll), and `ref-scroll-end` counts it here.
+import { arr, num, str, type Obj } from '../client/domain';
 
 export const REF_PAGE = 100;
 // `loadingMore` is BranchPicker's isFetchingNextPage, shown for one answer before the page is read.
 export type RefPages = { refs: Obj[]; total: number; nextCursor: number | null; ends: number; loadingMore?: boolean };
 
+const reported = new WeakMap<object, Record<string, number>>();
+/** Each ref list's scrolls toward its end so far, by `scroll:<name>`, for one client. */
+export function refScrollEnds(client: object): Record<string, number> {
+  let ends = reported.get(client);
+  if (!ends) reported.set(client, ends = {});
+  return ends;
+}
+/** `ref-scroll-end`: the list `name` was scrolled toward its end (RefPageScroll). */
+export function noteRefScrollEnd(client: object, name: string): void {
+  const ends = refScrollEnds(client);
+  ends[`scroll:${name}`] = (ends[`scroll:${name}`] ?? 0) + 1;
+}
+
 /** How many qualifying scrolls the list `name` has reported. */
-export function scrollEnds(presentation: Obj, name: string): number {
-  return num(obj(presentation.scrollEnds)[`scroll:${name}`], 0);
+export function scrollEnds(ends: Obj, name: string): number {
+  return num(ends[`scroll:${name}`], 0);
 }
 
 /** A fresh first page: earlier scrolls of the list are spent. */
@@ -36,8 +49,8 @@ export function mergePage(pages: RefPages, result: Obj): RefPages {
  * status when it returns, so "Loading more refs..." needs an answer of its own);
  * the root's shell clock asks again while `pageWanted` holds, and that look reads it.
  */
-export async function morePages(pages: RefPages, presentation: Obj, name: string, fetch: (cursor: number) => Promise<Obj>): Promise<RefPages> {
-  const ends = scrollEnds(presentation, name);
+export async function morePages(pages: RefPages, reports: Obj, name: string, fetch: (cursor: number) => Promise<Obj>): Promise<RefPages> {
+  const ends = scrollEnds(reports, name);
   if (ends <= pages.ends) return pages;
   if (pages.nextCursor === null) return { ...pages, ends, loadingMore: false };
   if (!pages.loadingMore) return { ...pages, loadingMore: true };
@@ -46,8 +59,8 @@ export async function morePages(pages: RefPages, presentation: Obj, name: string
 }
 
 /** A scroll toward the list's end has not been answered with its page yet (the shell clock keeps asking). */
-export function pageWanted(pages: Pick<RefPages, 'nextCursor' | 'ends'> | null | undefined, presentation: Obj, name: string): boolean {
-  return !!pages && pages.nextCursor !== null && scrollEnds(presentation, name) > pages.ends;
+export function pageWanted(pages: Pick<RefPages, 'nextCursor' | 'ends'> | null | undefined, reports: Obj, name: string): boolean {
+  return !!pages && pages.nextCursor !== null && scrollEnds(reports, name) > pages.ends;
 }
 
 /** BranchPicker's status line ("Loading more refs..." is the moment the page is in flight). */

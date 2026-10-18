@@ -27,76 +27,44 @@ final class TabInputTests: XCTestCase {
         window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 300, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         input = RightPanelTabsInput()
-        let row = NSView(frame: NSRect(x: 0, y: 0, width: 140, height: 24))
-        window.contentView!.addSubview(row)
-        install("tab-chip:device:test", node: 1, view: row)
-        let close = NSButton(frame: NSRect(x: 0, y: 0, width: 16, height: 24))
-        row.addSubview(close)
-        install("tab-close:device:test", node: 2, view: close)
+        field = NSTextField(frame: NSRect(x: 0, y: 0, width: 96, height: 20))
+        window.contentView!.addSubview(field)
+        install("tab-editor:device:test", node: 3, view: field)
         install("tab-cancel:device:test", node: 4, view: nil)
     }
+    private var field: NSTextField!
     private func install(_ name: String, node: UInt32, view: NSView?) {
         let element = ExactElement(hatch: .t3Anchor, id: name, node: node, hatches: hooks)
-        element.data = ExactData(["anchor": name]); element.view = view
+        element.data = ExactData(["anchor": name]); element.view = view; element.platform = view
         elements.append(element); input.install(element)
     }
     override func tearDown() {
         input.destroy(); elements.removeAll(); window.close(); hooks = nil; table.deallocate()
     }
-    private func mouse(_ type: NSEvent.EventType, count: Int = 1, x: CGFloat = 60) -> NSEvent {
-        let event = NSEvent.mouseEvent(with: type, location: NSPoint(x: x, y: 12), modifierFlags: [], timestamp: 0,
-                          windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: count, pressure: 1)!
-        guard type == .otherMouseDown, let cg = event.cgEvent else { return event }
-        // NSEvent's convenience constructor always sets button zero. Round-trip
-        // through CG to produce the real middle-button number, preserving location.
-        cg.setIntegerValueField(.mouseEventButtonNumber, value: 2)
-        let converted = NSEvent(cgEvent: cg)!
-        cg.location = CGPoint(x: cg.location.x + x - converted.locationInWindow.x,
-                              y: cg.location.y - (12 - converted.locationInWindow.y))
-        return NSEvent(cgEvent: cg)!
+    private func key(_ code: UInt16, _ flags: NSEvent.ModifierFlags = [], _ characters: String = "") -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                         characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
     }
-    func testMiddleClickClosesExactlyOneTabAndConsumesEvent() {
-        XCTAssertNil(input.handle(mouse(.otherMouseDown)))
-        XCTAssertEqual(tabActions.map { $0.0 }, [2])
+    private func mouse(_ type: NSEvent.EventType) -> NSEvent {
+        NSEvent.mouseEvent(with: type, location: NSPoint(x: 60, y: 12), modifierFlags: [], timestamp: 0,
+                           windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
     }
-    func testMiddleClickClosesTheTabUnderThePointerAmongSeveral() {
-        // A second tab beside the first: a middle click closes the one it is on, not the first
-        // the monitor lists (found by the agent's `auxclick`, exact2 #186).
-        let row = NSView(frame: NSRect(x: 150, y: 0, width: 100, height: 24))
-        window.contentView!.addSubview(row)
-        install("tab-chip:files", node: 5, view: row)
-        let close = NSButton(frame: NSRect(x: 0, y: 0, width: 16, height: 24))
-        row.addSubview(close)
-        install("tab-close:files", node: 6, view: close)
-        XCTAssertNil(input.handle(mouse(.otherMouseDown, x: 200)))
-        XCTAssertEqual(tabActions.map { $0.0 }, [6])
-        tabActions = []
-        XCTAssertNil(input.handle(mouse(.otherMouseDown, x: 60)))
-        XCTAssertEqual(tabActions.map { $0.0 }, [2])
-        tabActions = []
-        XCTAssertNotNil(input.handle(mouse(.otherMouseDown, x: 145)), "Between the tabs nothing closes.")
+    func testEscapeInTheEditorPressesCancel() {
+        window.makeFirstResponder(field)
+        XCTAssertNil(input.handle(key(53, [], "\u{1B}")))
+        XCTAssertEqual(tabActions.map { $0.0 }, [4])
+    }
+    func testAChordInTheEditorStaysInTheEditor() {
+        // ⌘K is a window shortcut elsewhere; while renaming it goes to the field editor and no further.
+        window.makeFirstResponder(field)
+        XCTAssertNil(input.handle(key(40, .command, "k")))
         XCTAssertTrue(tabActions.isEmpty)
+        XCTAssertNotNil(input.handle(key(0, [], "a")), "Typing reaches the field.")
     }
-    func testDoubleClickIsLeftToTheTitleButtonsOwnDblclick() {
-        // panel.contract PanelTabChip: the title button's `dblclick` starts rename, so the
-        // agent's `tap … dblclick` and a person's reach the same path; the monitor passes it on.
-        XCTAssertNotNil(input.handle(mouse(.leftMouseDown, count: 2)))
-        XCTAssertTrue(tabActions.isEmpty)
-    }
-    func testOrdinaryClickAndRemovedTabsDoNotDispatch() {
+    func testKeysOutsideTheEditorAndMiceGoOn() {
+        // The middle click is the tab's own pointerdown/pointerup in Contract (panel.contract PanelTabChip).
+        XCTAssertNotNil(input.handle(key(53, [], "\u{1B}")))
         XCTAssertNotNil(input.handle(mouse(.leftMouseDown)))
-        input.remove(elements[0])
-        XCTAssertNotNil(input.handle(mouse(.otherMouseDown)))
-        XCTAssertTrue(tabActions.isEmpty)
-    }
-    func testShiftF10PassesToTheTabsOwnKeyHandler() {
-        // The tab's buttons answer Shift+F10 in Contract (panel.contract PanelTabChip tabKey); the monitor leaves it alone.
-        let button = NSButton(frame: NSRect(x: 24, y: 0, width: 90, height: 24))
-        elements[0].view!.addSubview(button)
-        window.makeFirstResponder(button)
-        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .shift, timestamp: 0,
-                                    windowNumber: window.windowNumber, context: nil, characters: "\u{F70D}", charactersIgnoringModifiers: "\u{F70D}", isARepeat: false, keyCode: 109)!
-        XCTAssertNotNil(input.handle(event))
         XCTAssertTrue(tabActions.isEmpty)
     }
 }

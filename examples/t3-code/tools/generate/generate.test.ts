@@ -36,6 +36,8 @@ test('the generator pins its packages at the integrity values the reference lock
     ['lucide-react@0.564.0', 'JJ8GVTQqFwuliifD48U6+h7DXEHdkhJ/E87kksGByII3qHxtPciVb8T8woQONHBQgHVOl7rSMrrip3SeVNy7Fg=='],
     ['@pierre/trees@1.0.0-beta.4', 'OfT1yk9ne8Te5+GB5zUY8yqE6B8BqjBHQJleH4lu8ltwNpoocZl4vXt1AzlEExpxI/pp+AFX5QG+lR3JjtTEag=='],
     ['morphicons@1.7.1', 'q5ylxy5/d7vBg0OAzanlooXf05PekovMYDuuQVpr6vAQZxl99lrJbaIi+jJ32PXQf9WEEaDO2pbNBsx1ZhEnFQ=='],
+    ['mermaid@11.17.2', 'V6K3C8EBdEsPFZXSKMJe6ppQOENxuHARr9GvHX4hh47lAbhMRD9qf4oEK7LoaRQxULMa80/qt5gHO73aCleBBg=='],
+    ['dompurify@3.4.16', 'sqo+pNp3qRhCIpbgRi1y8Tgk27Bo2Ry7w0dC1NBeNTdZChWjz9Xb/KOoZbRP/R6pQZ80Qw8YhXw13hWWBbMRnQ=='],
   ]) {
     const entry = lock.split('\n').find(line => line.includes(`["${name}"`)) ?? '';
     expect(entry).toContain(`sha512-${integrity}`);

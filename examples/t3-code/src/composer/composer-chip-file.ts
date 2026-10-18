@@ -10,9 +10,10 @@
 import type { T3Client } from '../client/client';
 import type { Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
-import { base64Utf8, draftFiles, foldedText, type DraftFile } from './composer-editor-files';
-import { attachmentOp, attachmentView, emptyAttachment, forgetPreview, type AttachmentMeta, type AttachmentView, type PreviewSource } from '../panel/attachment-surface';
-import { videoOp } from './composer-attachments';
+import { draftFiles, foldedText, type DraftFile } from './composer-editor-files';
+import { attachmentOp, attachmentView, emptyAttachment, forgetPreview, previewKind, type AttachmentMeta, type AttachmentView, type PreviewSource } from '../panel/attachment-surface';
+import { stagedMediaSrc, videoOp } from './composer-attachments';
+import { saveStaged, saveText, stagedText } from '../panel/attachment-files'; // a draft's staged copy, read and saved
 
 /** FILE_TEXT_PREVIEW_MAX_BYTES. */
 const PREVIEW_BYTES = 1024 * 1024;
@@ -50,20 +51,20 @@ export function draftSource(client: T3Client, native: Native, file: DraftFile): 
   const key = `draft:${file.id}`;
   const meta = { id: file.status === 'ready' && file.attachmentId ? file.attachmentId : file.id, name: file.name, mimeType: file.mimeType, sizeBytes: file.sizeBytes };
   if (file.status === 'ready' && file.attachmentId) return { meta, source: { id: file.id, key, origin: 'Draft', dialog: true, local: null } };
-  const call = (request: Obj) => client.restAccess(native).call(request) as Promise<Obj>;
   const pasted = file.source !== 'attached';
   return { meta, source: { id: file.id, key, origin: 'Draft', dialog: true, local: {
-    url: `t3-staged:${file.id}`,
+    // AudioPreview plays the staged copy's typed link (a Contract `audio`); a PDF or a page is the media body's, by id.
+    url: previewKind(file) === 'audio' && !pasted ? stagedMediaSrc(file.id, file.name) : `t3-staged:${file.id}`,
     text: async () => {
-      if (!pasted) return call({ op: 'attachmentText', staged: file.id });
+      if (!pasted) return stagedText(file.id);
       const text = foldedText(client, file.id);
       return text === undefined ? { ok: false, message: 'Could not load this file.' } : pastedPreview(text);
     },
     save: async () => {
-      if (!pasted) return call({ op: 'attachmentSave', staged: file.id, name: file.name });
+      if (!pasted) return saveStaged(client, file.id, file.name);
       const text = foldedText(client, file.id);
       if (text === undefined) throw new ClientError('The file could not be loaded. Try again.');
-      return call({ op: 'attachmentSave', base64: base64Utf8(text), name: file.name });
+      await saveText(client, text, file.name);
     },
   } } };
 }

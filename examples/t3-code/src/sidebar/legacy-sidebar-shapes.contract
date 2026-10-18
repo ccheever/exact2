@@ -1,5 +1,5 @@
 // The "Sidebar (legacy)" projection (legacy-sidebar-view.ts; LegacySidebar.tsx, MIT, see LICENSE-T3).
-use ProjectGlyph from "./sidebar-shapes.contract"
+use ProjectGlyph, SidebarMenuRow from "./sidebar-shapes.contract"
 
 shape LegacyThreadRow
   terminalCount: number
@@ -28,6 +28,7 @@ shape LegacyThreadRow
   age: string
   jump: string
   enter: bool
+  menu: SidebarMenuRow[]
 shape LegacyProjectRow
   key: string
   name: string
@@ -51,6 +52,7 @@ shape LegacyProjectRow
   hiddenPulse: bool
   newThreadLabel: string
   enter: bool
+  menu: SidebarMenuRow[]
 shape LegacySidebarView
   enabled: bool
   projects: LegacyProjectRow[]

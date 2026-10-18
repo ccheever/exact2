@@ -1,22 +1,14 @@
 //! The native T3 client: Contract views, TypeScript projections and server connections, and an
 //! app-local Swift module for the native views. T3's separately running server owns all agent execution.
 
-mod markdown;
-
-/// Pierre's file-icon tables for the Markdown module (pierre_icons.rs): the build script generates
-/// `pierre-icons.tsv` before this crate compiles (tools/generate/gen-icons.mjs).
-fn pierre_tables() -> &'static str {
-    include_str!("../pierre-icons.tsv")
-}
-
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
-type ExactEmbeddedData = markdown::Data<exact_js::Placed<exact_js::Module>>;
+type ExactEmbeddedData = t3_code_data::Data<exact_js::Placed<exact_js::Module>>;
 fn embedded_data() -> ExactEmbeddedData {
-    markdown::mixed(
+    t3_code_data::mixed(
         exact_js::Module::new(BYTECODE.to_vec(), APP, GRANTS).placed(TYPESCRIPT_PLACEMENT),
         RUST_PLACEMENT,
     )

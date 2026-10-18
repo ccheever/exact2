@@ -15,7 +15,7 @@ import { emptyDraft, matchesScheduledTaskScope, resolveTaskScope, scheduledTaskD
 import { liveEnvironments, watchLive, type LiveEnvironment } from '../client/live-streams';
 import { letGo } from '../client/let-go';
 import { sanitizeNewRefName } from '../composer/composer-controls-branch';
-import { REF_PAGE, firstPage, morePages, pageWanted, refsStatus, scrollEnds, type RefPages } from '../composer/ref-paging';
+import { REF_PAGE, firstPage, morePages, pageWanted, refScrollEnds, refsStatus, scrollEnds, type RefPages } from '../composer/ref-paging';
 export const WORKSPACE_LABELS: Record<string, string> = { worktree: 'Create a new worktree', root: 'Use the project checkout', existing_worktree: 'Use a specific checkout' };
 export { scheduleLabel, relativeLabel as runLabel, taskStatus } from './scheduled-tasks';
 
@@ -122,13 +122,13 @@ type Visit = { key: string; pages: Map<string, ProjectRefs>; lookups: Map<string
 /** The topic the page watches while a search's first page is pending: its own wake asks it again (command-waits.ts). */
 export const TASK_REFS_WAKE = 't3.notify';
 const editorRefs = new WeakMap<T3Client, Visit>();
-export const TASK_REFS = 'task-refs'; // settings-scheduled.contract's list: `data-anchor="scroll:task-refs"`
+export const TASK_REFS = 'task-refs'; // settings-scheduled.contract's list (RefPageScroll name="task-refs")
 const failed = (error: unknown) => (error instanceof Error && error.message.trim() ? error.message : 'Failed to load refs.');
 
 /** The picker's list asked for its next page and has not had it yet (the shell clock keeps asking, ref-loading.ts). */
 export function scheduledRefsWanted(client: T3Client): boolean {
   const visit = editorRefs.get(client), pages = visit?.pages.get(visit.picker);
-  return !!pages && !pages.error && pageWanted(pages, obj(client.presentation), TASK_REFS);
+  return !!pages && !pages.error && pageWanted(pages, refScrollEnds(client), TASK_REFS);
 }
 
 /**
@@ -202,12 +202,12 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     // VcsListRefsInput's query is optional and non-empty: an empty search omits it (usePaginatedBranches). The focused
     // environment's read is shared (the request's `share`): an answer asked again before its reply joins it.
     const listRefs = async (payload: Obj) => (editing.focused ? client.restAccess(native).read('vcs.listRefs', payload) : editing.request('vcs.listRefs', payload));
-    const kept = visit, presentation = obj(client.presentation);
+    const kept = visit, reports = refScrollEnds(client);
     let pending = false;
     const branches: Refs[] = await Promise.all(projects.map(async project => {
       const cwd = str(project.workspaceRoot), projectId = str(project.id), query = projectId === shown ? search : '';
       const list = (cursor?: number) => listRefs({ cwd, limit: REF_PAGE, ...(query ? { query } : {}), ...(cursor === undefined ? {} : { cursor }) });
-      const pagesKey = `${projectId}\n${query}`, ends = scrollEnds(presentation, TASK_REFS);
+      const pagesKey = `${projectId}\n${query}`, ends = scrollEnds(reports, TASK_REFS);
       let pages = kept.pages.get(pagesKey);
       if (pages && projectId === shown && moved) {
         // Shown again: its first page, and only a scroll from now on loads the next (a failed read is read again).
@@ -225,7 +225,7 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
         if (pages) Object.assign(pages, read, { loading: false }); else kept.pages.set(pagesKey, pages = read);
       } else if (projectId === shown && !pages.error) {
         // A scroll toward the list's end loads the next page (BranchPicker maybeFetchNextBranchPage).
-        try { Object.assign(pages, await morePages(pages, presentation, TASK_REFS, list)); }
+        try { Object.assign(pages, await morePages(pages, reports, TASK_REFS, list)); }
         catch (error) { if (letGo(error)) throw error; Object.assign(pages, { error: failed(error), loadingMore: false }); }
       }
       const shownPages = pages;

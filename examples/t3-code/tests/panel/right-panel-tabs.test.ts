@@ -2,7 +2,8 @@
 // closeSurface maps to closeSurfaceIn; files/diff/devices replace Browser/terminal.
 // Host/device test port is complete; Zustand/refA plumbing becomes PanelState.
 import { describe, expect, test } from 'bun:test';
-import { closeSurface, closeOtherSurfaces, closeSurfacesToRight, closeAllSurfaces, openDeviceSurface, renameDevice, tabContextMenuItems, registerSurfaceClose, closePanelSurfaces, editTabName, tabRename, copyTabPath, showTabMenu, tabMenuRows } from '../../src/panel/right-panel-tabs';
+import { closeSurface, closeOtherSurfaces, closeSurfacesToRight, closeAllSurfaces, openDeviceSurface, renameDevice, tabContextMenuItems, registerSurfaceClose, closePanelSurfaces, editTabName, tabRename, copyTabPath, tabMenuRows } from '../../src/panel/right-panel-tabs';
+import { contractComponent } from '../support/contract-action-fixture';
 import { panelState, surfaceLocal, type PanelState, type Surface } from '../../src/panel/panel-surfaces';
 import { savedPanel, adoptRightPanels, restoreRightPanel } from '../../src/panel/saved-panel';
 import { deviceTargetOf } from '../../src/device/device-session';
@@ -42,7 +43,17 @@ describe('rightPanelStore', () => {
 describe('tab menu and rename editor', () => {
   test('menu order, kinds and disabled flags', () => { const state = panel(); expect(tabContextMenuItems(state.surfaces[0]!, state.surfaces).map(item => item.id)).toEqual(['copy-path', 'close', 'close-others', 'close-to-right', 'close-all']); const device = openDeviceSurface(state, android); expect(tabContextMenuItems(device, state.surfaces).map(item => item.id)).toEqual(['rename', 'close', 'close-others', 'close-to-right', 'close-all']); expect(tabContextMenuItems(device, state.surfaces).find(item => item.id === 'close-to-right')?.disabled).toBe(true); const diff = surface('diff', 'diff'); expect(tabContextMenuItems(diff, [diff])).toEqual([{ id: 'close', label: 'Close' }, { id: 'close-others', label: 'Close others', disabled: true }, { id: 'close-to-right', label: 'Close to the right', disabled: true }, { id: 'close-all', label: 'Close all', disabled: false }]); expect(tabContextMenuItems(diff, [])).toEqual([]); const attachment = { ...surface('attached'), attachment: { id: 'a', name: 'a', mimeType: '', sizeBytes: 0 } }; expect(tabContextMenuItems(attachment, [attachment]).some(item => item.id === 'copy-path')).toBe(false); });
   test('Enter/blur commit; Escape cancels even if blur follows', () => { const state = panel(), device = openDeviceSurface(state, android); editTabName(state, 'rename', device.id, ''); expect(tabRename(state)).toEqual({ id: device.id, value: 'Pixel' }); editTabName(state, 'rename-cancel', device.id, ''); editTabName(state, 'rename-commit', device.id, 'Changed'); expect(device.title).toBeUndefined(); editTabName(state, 'rename', device.id, ''); editTabName(state, 'rename-commit', device.id, ' New '); expect(device.title).toBe('New'); expect(tabRename(state).id).toBe(''); editTabName(state, 'rename-commit', device.id, 'After blur'); expect(device.title).toBe('New'); editTabName(state, 'rename', device.id, ''); editTabName(state, 'rename-commit', device.id, ''); expect(device.title).toBe('Pixel'); });
-  test('menu ignores disabled, unknown and dismissed responses', async () => { const state = panel(); for (const clicked of ['close-to-right', 'toggle-mute', '', null]) expect(await showTabMenu(client(async () => ({ clicked })), native, state, 'c')).toBe(''); });
+  test('Shift+F10 at a tab\'s title or close button opens the strip\'s menu from that button; no other key does', () => {
+    const chip = contractComponent('panel.contract', 'PanelTabChip'), state = chip.state(), done: unknown[][] = [];
+    const scope = { tab: { id: 'file:a' }, menu: (...args: unknown[]) => done.push(['menu', ...args]), preventDefault: () => done.push(['preventDefault']),
+      showPopover: (...args: unknown[]) => done.push(['showPopover', ...args]) };
+    const key = (shiftKey: boolean, metaKey = false) => ({ shiftKey, metaKey, ctrlKey: false, altKey: false });
+    chip.call('tabKey', state, scope, ['panel-tab-title-file:a', 'F10', key(true)]);
+    expect(done).toEqual([['preventDefault'], ['menu', 'file:a'], ['showPopover', 'panel-tab-menu', { source: 'panel-tab-title-file:a' }]]);
+    done.length = 0;
+    for (const [name, e] of [['F10', key(false)], ['F10', key(true, true)], ['ContextMenu', key(false)], ['Enter', key(true)]] as const) chip.call('tabKey', state, scope, ['panel-tab-close-file:a', name, e]);
+    expect(done).toEqual([], 'ContextMenu is the host\'s default; F10 alone or with ⌘ is no menu key');
+  });
 });
 describe('close hooks and integration', () => {
   test('single close can be cancelled, all bulk actions bypass guard but run cleanup', async () => {

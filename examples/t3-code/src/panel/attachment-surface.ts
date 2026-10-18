@@ -23,6 +23,7 @@ import { fileIconToken } from '../shared/timeline-files';
 import { mediaBody, mediaErrorMessage } from '../media/attachment-media'; // PDF, HTML, audio and video bodies
 import { sourceGutter } from './files-crumbs-settle'; // the reference's line-number column
 import { letGo } from '../client/let-go';
+import { attachmentText, saveAttachment } from './attachment-files'; // the preview's text and Save file
 
 export type AttachmentMeta = { id: string; name: string; mimeType: string; sizeBytes: number };
 type Content = { text: string; truncated: boolean };
@@ -35,7 +36,7 @@ type Content = { text: string; truncated: boolean };
  */
 export type PreviewSource = {
   id: string; key: string; origin: string; dialog: boolean;
-  local: { url: string; text: () => Promise<Obj>; save: () => Promise<Obj> } | null;
+  local: { url: string; text: () => Promise<Obj>; save: () => Promise<void> | void } | null;
 };
 const sentSource = (meta: AttachmentMeta): PreviewSource => ({ id: meta.id, key: meta.id, origin: 'Attachment', dialog: false, local: null });
 export type AttachmentView = {
@@ -121,7 +122,7 @@ const NO_MARKDOWN = () => ({ markdownSource: [], md: { codeFont: 'ui-monospace',
 /**
  * AttachmentFilePreview's rendered Markdown: `<ChatMarkdown text cwd={undefined} />`, the chat renderer Files' rendered
  * file uses (files-surface.ts renderedMarkdown), with no folder: relative links resolve against nothing
- * (macos/src/markdown_media.rs links_without_cwd), code blocks keep their colours and Copy code, tables their menu,
+ * (data/src/markdown_media.rs links_without_cwd), code blocks keep their colours and Copy code, tables their menu,
  * ```mermaid fences draw (filesMermaid: Files and an attachment are never the active surface together), and the task
  * checkboxes stay disabled. Its media have no folder and no thread: a
  * web URL loads as written, and a host path, relative or absolute, is "Image unavailable · <alt>" (MarkdownImage's
@@ -129,7 +130,7 @@ const NO_MARKDOWN = () => ({ markdownSource: [], md: { codeFont: 'ui-monospace',
  */
 async function renderedAttachment(client: T3Client, native: Native | null | undefined, id: string, text: string) {
   const copy = timelineView(client).codeCopy, copied = copy.threadId === client.threadId;
-  const diagrams = await filesMermaid(client, native, text);
+  const diagrams = filesMermaid(client, text);
   return {
     markdownSource: [{ id: `attachment:${id}`, kind: 'attachment', title: '', body: text }],
     md: { ...markdownEnv(client), chips: messageChips({ text }, '', [], `attachment:${id}`, { thread: false }) }, // the owner names the document
@@ -156,7 +157,7 @@ export async function attachmentView(client: T3Client, native: Native | null | u
       catch (error) { if (letGo(error)) throw error; state.urlError = message(error, 'The attachment is unavailable.'); }
     }
     if (needsText && state.url && !state.content && !state.contentError) {
-      const reply = obj(await client.restAccess(native).call({ op: 'attachmentText', url: state.url }).catch(error => { if (letGo(error)) throw error; return { ok: false, message: message(error, 'Could not load this file.') }; }));
+      const reply = obj(await attachmentText(state.url));
       if (reply.ok === true) state.content = { text: str(reply.text), truncated: reply.truncated === true };
       else state.contentError = str(reply.message, 'Could not load this file.');
     }
@@ -166,7 +167,7 @@ export async function attachmentView(client: T3Client, native: Native | null | u
   const showsRawText = !failure && needsText && !!content && !(delimiter && rendered) && !(kind === 'markdown' && rendered);
   const preview = failure ? 'error' : !state.url || (needsText && !content) ? 'loading'
     : needsText && content ? (delimiter && rendered ? 'table' : kind === 'markdown' && rendered ? 'markdown' : 'code')
-      : kind === 'image' ? 'image' : source.local && kind === 'audio' ? 'audio-local' : mediaBody(kind, rendered) || 'none';
+      : kind === 'image' ? 'image' : mediaBody(kind, rendered) || 'none';
   const text = content?.text ?? '';
   const table = preview === 'table' ? tableRows(meta.name, text) : null;
   const lines = preview === 'code' ? codeLines(meta.name, text) : [];
@@ -185,7 +186,7 @@ export async function attachmentView(client: T3Client, native: Native | null | u
     canSave: !!state.url, saving: state.saving, saveLabel: state.saving ? 'Preparing file…' : 'Save file',
     truncatedNote: content?.truncated ? `Preview limited to the first 1 MB of a ${meta.sizeBytes.toLocaleString('en-US')} byte file. Save the file to read it in full.` : '',
     ...rich, table: table?.rows ?? [],
-    lines, gutter: sourceGutter(lines.length), url: preview === 'image' || preview === 'audio-local' || mediaBody(preview, true) ? state.url : '',
+    lines, gutter: sourceGutter(lines.length), url: preview === 'image' || mediaBody(preview, true) ? state.url : '',
     // The unsupported body.
     noPreview: preview === 'none' ? `Save it to open in an app that supports ${extension} files.` : '',
   };
@@ -223,9 +224,8 @@ export async function attachmentOp(client: T3Client, native: Native, meta: Attac
     if (state.saving) return '';
     state.saving = true;
     try {
-      const reply = source.local ? obj(await source.local.save())
-        : obj(await client.restAccess(native).call({ op: 'attachmentSave', url: await mint(client, native, meta, 'attachment'), name: meta.name }));
-      if (reply.ok !== true) throw new ClientError(str(reply.message, 'Please try again.'));
+      if (source.local) await source.local.save();
+      else await saveAttachment(client, await mint(client, native, meta, 'attachment'), meta.name);
     } catch (error) {
       if (letGo(error)) throw error;
       pushToast(client, { kind: 'error', title: 'Could not save file', description: message(error, 'Please try again.') });

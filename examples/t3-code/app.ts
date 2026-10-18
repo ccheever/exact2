@@ -31,6 +31,8 @@ import { ariaChord } from './src/shell/keyboard-dispatch';
 import { snapshot, modelCatalog } from './src/client/presentation';
 import { obj, str, type Obj } from './src/client/domain';
 import { nativeFiles, type Native, type Files } from './src/client/protocol';
+import { adoptAppFiles } from './src/media/save-file';
+import { noteTranscriptFacts } from './src/timeline/transcript-facts';
 import { paletteView } from './src/palette/palette-view';
 import { attachmentUrls } from './src/timeline/timeline-attachments';
 import { noteNow } from './src/composer/composer-controls';
@@ -58,7 +60,9 @@ import type { SecretStore } from './src/transport/transport-catalog';
 export const appId = 'com.exact.t3code.macos';
 // The server connections (src/transport/transport.ts): servers are named at run time (a pairing link, a learned
 // route, the embedded server's port), so whole schemes; the tokens and saved environments are one secret.
-export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog';
+// Save file and the media menu's Save fetch a server's signed asset and write it under app:/tmp/saves for the window's
+// Save panel; a draft's staged copy is read and saved from composer-files (save-file.ts, attachment-files.ts).
+export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog\nfs.read app:/tmp/saves\nfs.write app:/tmp/saves\nfs.read app:/data/composer-files';
 const client = new T3Client();
 const transport = new Transport();
 
@@ -81,6 +85,7 @@ export function answer(source: string, args: unknown[], store: unknown, storage:
 // that the module is available, after its ordinary first-frame adoption.
 export async function answerClient(source: string, args: unknown[], _store: unknown, _storage: Files, native: Native | null | undefined) {
   if (native?.available) native = letGoAware(native);
+  adoptAppFiles(_storage); // the app's own files: Save's bytes, a draft's staged copy (save-file.ts)
   const storage = native?.available ? nativeFiles(native) : _storage;
   if (source === 'highlightSlice') return highlightSlice(); // a background highlight turn
   startHighlightTurn(); // any other answer tokenizes code within one turn's budget
@@ -88,6 +93,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     noteNow(client, Number(args[0]) || 0);
     transport.observe(Number(args[0]) || 0); // the tick's clock, until its first tick
     noteServerUpdateClock(client, String(args[1] ?? ''), String(args[2] ?? '')); // server-update-notices.ts: the 2 s and 20 s timers
+    noteTranscriptFacts(client, args); // the transcript's viewport (transcript-facts.ts)
     await client.refresh(native, storage);
     await prepareTimeline(client, native); // Mermaid layouts and the worktree setup stream (timeline-prepare.ts).
     await autoBalancePrepare(client, native); // auto-balance.ts

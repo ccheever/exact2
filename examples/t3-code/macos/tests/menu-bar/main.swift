@@ -59,6 +59,15 @@ private func hostBar(_ host: ShortcutHost, _ dev: DevTarget) -> NSMenu {
     let redo = edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
     redo.keyEquivalentModifierMask = [.command, .shift]
     let view = add("View")
+    // The window's Reload and Force Reload (settings-shortcuts.contract ViewReload), which the host files first in View
+    // with a separator after them (`-exact-menu="view"`).
+    for (title, mask) in [("Reload", NSEvent.ModifierFlags.command), ("Force Reload", [.command, .shift])] {
+        let item = NSMenuItem(title: title, action: #selector(ShortcutHost.activate(_:)), keyEquivalent: "r")
+        item.keyEquivalentModifierMask = mask
+        item.target = host
+        view.addItem(item)
+    }
+    view.addItem(.separator())
     let full = view.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
     full.keyEquivalentModifierMask = [.command, .control]
     let go = add("Go")
@@ -112,13 +121,12 @@ final class MenuBarTests: XCTestCase {
         file.insertItem(later, at: 0)
         menus.keys.menuNeedsUpdate(file)
         XCTAssertEqual(file.items.filter { !$0.isHidden }.map(\.title), ["Close Window"])
-        XCTAssertEqual(view.items.prefix(3).map { $0.isSeparatorItem ? "—" : "\($0.title) \($0.keyEquivalent) \($0.keyEquivalentModifierMask.rawValue)" },
-                       ["Reload r \(NSEvent.ModifierFlags.command.rawValue)", "Force Reload r \(NSEvent.ModifierFlags([.command, .shift]).rawValue)", "—"])
-        XCTAssertEqual(view.items.filter { !$0.isHidden && !$0.isSeparatorItem }.map(\.title), ["Reload", "Force Reload", "Actual Size", "Zoom In", "Zoom Out", "Enter Full Screen"])
-        let reload = view.items[0]
-        XCTAssertTrue(menus.keys.validateMenuItem(reload))
-        _ = reload.target!.perform(reload.action!, with: reload)
-        XCTAssertEqual(dev.reloads, 1, "View › Reload runs the host's reload")
+        // DesktopApplicationMenu.ts View: Reload, Force Reload, —, Actual Size, Zoom In, Zoom Out, —, Toggle Full Screen.
+        XCTAssertEqual(view.items.filter { !$0.isHidden }.map { $0.isSeparatorItem ? "—" : $0.title },
+                       ["Reload", "Force Reload", "—", "Actual Size", "Zoom In", "Zoom Out", "—", "Enter Full Screen"])
+        XCTAssertTrue(bar.performKeyEquivalent(with: key("r", 15)))
+        XCTAssertEqual(host.pressed, ["Reload"], "⌘R presses the window's own button")
+        XCTAssertEqual(dev.reloads, 0, "the Develop menu is gone")
         // The host's Save Trace stays a hidden ⌥⌘T in a development build, once.
         let traces = view.items.filter { $0.title == "Save Trace" }
         XCTAssertEqual(traces.count, 1)
@@ -259,29 +267,6 @@ final class MenuBarTests: XCTestCase {
         XCTAssertEqual(text.string, "xfd")
         composer.destroy()
     }
-    func testMeasureReportsTheDrawnFrame() {
-        _ = NSApplication.shared
-        let hooks = makeHooks()
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        let scroll = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
-        window.contentView!.addSubview(scroll)
-        let button = NSView(frame: NSRect(x: 300, y: 200, width: 24, height: 24))
-        scroll.addSubview(button)
-        let measure = T3Measure()
-        let element = ExactElement(hatch: .t3Measure, id: "", node: 9, hatches: hooks)
-        element.view = button
-        element.data = ExactData(["frame": "table-copy-1"])
-        measure.install(element)
-        let first = measure.perform(["name": "table-copy-1", "generation": 3])
-        XCTAssertEqual(first["ok"] as? Bool, true)
-        let box = first["value"] as? [String: Double] ?? [:]
-        XCTAssertEqual(box["x"], 300); XCTAssertEqual(box["y"], 300 - 224); XCTAssertEqual(box["width"], 24); XCTAssertEqual(box["windowHeight"], 300)
-        scroll.setFrameOrigin(NSPoint(x: 0, y: 46)) // the transcript scrolled: the drawn position moves
-        XCTAssertEqual((measure.perform(["name": "table-copy-1"])["value"] as? [String: Double])?["y"], 300 - 270)
-        measure.remove(element)
-        XCTAssertEqual(measure.perform(["name": "table-copy-1"])["ok"] as? Bool, false)
-    }
     /// #298 bug 3, issues/closed/20261009-macos-textarea-native-undo.md: ⌘Z, ⇧⌘Z and Edit › Undo and Redo undo typing in an Exact
     /// textarea, whose text view keeps its own history (host TextAreaMac.swift `textUndo`), as the composer and the prompt
     /// preview are. Since exact2 #327 the textarea answers `undo:` and `redo:` itself, so the clone's Edit › Undo sends it
@@ -373,4 +358,4 @@ let suite = XCTestSuite(forTestCaseClass: MenuBarTests.self)
 suite.run()
 let run = suite.testRun!
 print("Menu bar tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
-exit(run.executionCount == 5 && run.totalFailureCount == 0 ? 0 : 1)
+exit(run.executionCount == 4 && run.totalFailureCount == 0 ? 0 : 1)

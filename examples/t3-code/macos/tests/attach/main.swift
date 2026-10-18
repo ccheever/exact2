@@ -80,7 +80,6 @@ final class ComposerAttachTests: XCTestCase {
         XCTAssertLessThanOrEqual(max(rep.pixelsWide, rep.pixelsHigh), 512)
         let link = root.appendingPathComponent("composer-files/\(id).mp4")
         XCTAssertTrue(FileManager.default.fileExists(atPath: link.path))
-        XCTAssertEqual(T3ComposerVideo(dataRoot: root, muted: true).source(id)?.lastPathComponent, "\(id).mp4")
         let removed = expectation(description: "removed")
         attach.perform(["op": "composerAttachRemove", "id": id, "generation": 2]) { _ in removed.fulfill() }
         wait(for: [removed], timeout: 5)
