@@ -394,6 +394,11 @@ The watch extension keeps the accessory families (`accessoryCircular`,
 bundle until the watch Hermes gate passes (LLP 1126.001 §5 Q3). Rust entries
 refresh against the watch's own App Group and store. No account transfer is
 performed. The watch app is a placeholder gallery until the live driver lands.
+For `accessoryInline`, emit one `text` or `time` leaf: the watch's archive
+keeps the first text leaf and supplies the inline presentation. Caltrain uses
+one countdown. Multiple text leaves do not preserve their layout there
+(LLP 1126 D4; the admission restriction is still owed in `QUEUE.md`). See
+Apple's [inline family](https://developer.apple.com/documentation/widgetkit/widgetfamily/accessoryinline).
 
 The `snapshot` columns on the style and prop rows declare admission. Unsupported
 rows, scrolling, sticky positioning, timers, requests, native modules and handlers

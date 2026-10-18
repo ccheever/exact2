@@ -18,6 +18,8 @@ struct ExactWidgetEntry: TimelineEntry {
     let root: URL
     let preview: Bool
     let placeholder: Bool
+    // Inline archives ask for intrinsic content; GeometryReader receives zero.
+    var displaySize = CGSize.zero
     var unavailable = false
 }
 private func embeddedRoot() -> URL {
@@ -80,7 +82,7 @@ private enum WidgetRefresh {
         lock.unlock()
         for callback in callbacks { callback(cache.isCurrent ? timeline : fallback) }
     }
-    static func entries(_ bytes: Data, kind: String, plan: Data, root: URL) throws -> [ExactWidgetEntry] {
+    static func entries(_ bytes: Data, kind: String, plan: Data, root: URL, size: CGSize) throws -> [ExactWidgetEntry] {
         guard bytes.count <= 1 << 20,
               let rows = try JSONSerialization.jsonObject(with: bytes) as? [[String: Any]],
               !rows.isEmpty, rows.count <= 100 else {
@@ -93,7 +95,7 @@ private enum WidgetRefresh {
             }
             last = ms
             return ExactWidgetEntry(date: Date(timeIntervalSince1970: ms / 1000), kind: kind, plan: plan,
-                props: try JSONSerialization.data(withJSONObject: props, options: [.sortedKeys]), root: root, preview: false, placeholder: false)
+                props: try JSONSerialization.data(withJSONObject: props, options: [.sortedKeys]), root: root, preview: false, placeholder: false, displaySize: size)
         }
     }
 }
@@ -101,8 +103,11 @@ struct ExactTimelineProvider: TimelineProvider {
     let kind: String
     private func preview(_ context: Context, placeholder: Bool) -> ExactWidgetEntry {
         let date = Date(), root = embeddedRoot()
+        #if EXACT_INSPECT
+        widgetLog.notice("context family=\(String(describing: context.family), privacy: .public) width=\(context.displaySize.width) height=\(context.displaySize.height)")
+        #endif
         let plan = (try? Data(contentsOf: root.appendingPathComponent("plans/\(kind).plan"))) ?? Data()
-        return ExactWidgetEntry(date: date, kind: kind, plan: plan, props: nil, root: root, preview: true, placeholder: placeholder)
+        return ExactWidgetEntry(date: date, kind: kind, plan: plan, props: nil, root: root, preview: true, placeholder: placeholder, displaySize: context.displaySize)
     }
     func placeholder(in context: Context) -> ExactWidgetEntry { preview(context, placeholder: true) }
     func getSnapshot(in context: Context, completion: @escaping (ExactWidgetEntry) -> Void) { completion(preview(context, placeholder: false)) }
@@ -143,10 +148,10 @@ struct ExactTimelineProvider: TimelineProvider {
                         defer { refresh.close() }
                         let module = Bundle.main.object(forInfoDictionaryKey: "ExactWidgetTypeScript") as? Bool == true ? root : nil
                         let bytes = try refresh.timeline(at: date, moduleRoot: module, deadline: deadline)
-                        _ = try WidgetRefresh.entries(bytes, kind: kind, plan: plan, root: root)
+                        _ = try WidgetRefresh.entries(bytes, kind: kind, plan: plan, root: root, size: size)
                         return bytes
                     }
-                    let entries = try WidgetRefresh.entries(bytes, kind: kind, plan: plan, root: root)
+                    let entries = try WidgetRefresh.entries(bytes, kind: kind, plan: plan, root: root, size: size)
                     #if EXACT_INSPECT
                     measurement("getTimeline", start: start.uptimeNanoseconds, details: "kind=\(kind) entries=\(entries.count) bytes=\(plan.count)")
                     #endif
@@ -209,16 +214,20 @@ struct ExactWidgetView: View {
     @Environment(\.dynamicTypeSize) private var textSize
     @Environment(\.widgetContentMargins) private var margins
     private var unavailable: some View { Text("Open \(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "the app")") }
-    var body: some View {
-        GeometryReader { geometry in
+    @ViewBuilder var body: some View {
+        if family == .accessoryInline { content(size: entry.displaySize).fixedSize() }
+        else { GeometryReader { geometry in content(size: geometry.size) } }
+    }
+    private func content(size displaySize: CGSize) -> some View {
+        Group {
             if entry.unavailable { unavailable.padding(margins).containerBackground(.background, for: .widget) }
             else {
-                let size = CGSize(width: max(1, geometry.size.width - margins.leading - margins.trailing), height: max(1, geometry.size.height - margins.top - margins.bottom))
+                let size = CGSize(width: max(1, displaySize.width - margins.leading - margins.trailing), height: max(1, displaySize.height - margins.top - margins.bottom))
                 let preferences = Preferences(reducedMotion: motion, reducedTransparency: transparency,
                     contrast: contrast == .increased ? "more" : "no-preference", dark: scheme == .dark,
                     gamut: gamut, highDynamicRange: false, boldText: legibility == .bold)
                 let facts = SessionFacts(displayScale: scale, preferences: preferences, rootFontSize: bodySize, date: entry.date)
-                if let view = try? widgetSnapshotView(entry, displaySize: geometry.size, contentSize: size, facts: facts, family: family) {
+                if let view = try? widgetSnapshotView(entry, displaySize: displaySize, contentSize: size, facts: facts, family: family) {
                     view.redacted(reason: entry.placeholder ? .placeholder : [])
                 } else {
                     unavailable.padding(margins).containerBackground(.background, for: .widget)

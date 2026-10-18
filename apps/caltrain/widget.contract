@@ -22,14 +22,17 @@ component NextTrains
     departures: WidgetDeparture[]
   view
     view
-      if snapshot_viewport.height < 40
+      if snapshot_viewport.height < 20
+        for departure in departures.slice(0, 1) key=departure.id
+          time datetime=departure.at format="countdown" font-variant-numeric="tabular-nums"
+      else if snapshot_viewport.height < 40 && snapshot_viewport.width >= 100
         row gap=4
           text "Train" line-clamp=1
           for departure in departures.slice(0, 1) key=departure.id
             time datetime=departure.at format="countdown" font-variant-numeric="tabular-nums"
       else if snapshot_viewport.width < 100
-        column gap=2
-          text "Train" font-size=12 line-clamp=1
+        column width=snapshot_viewport.width height=snapshot_viewport.height align-items="center" justify-content="center" gap=0
+          text "Train" font-size=10 line-clamp=1
           for departure in departures.slice(0, 1) key=departure.id
             time datetime=departure.at format="countdown" font-size=12 font-variant-numeric="tabular-nums"
       else

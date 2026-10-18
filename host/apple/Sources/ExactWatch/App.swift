@@ -25,9 +25,10 @@ private struct WatchPlaceholder: View {
     @Environment(\.dynamicTypeSize) private var textSize
     var size: CGSize {
         switch family {
-        case "accessoryCircular", "accessoryCorner": CGSize(width: 58, height: 58)
-        case "accessoryInline": CGSize(width: 160, height: 26)
-        default: CGSize(width: 160, height: 72)
+        case "accessoryCorner": CGSize(width: 39, height: 39)
+        case "accessoryCircular": CGSize(width: 51, height: 51)
+        case "accessoryInline": CGSize(width: 168, height: 11.5)
+        default: CGSize(width: 184, height: 69.5)
         }
     }
     var body: some View {

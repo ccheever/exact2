@@ -1,6 +1,7 @@
 // @ref LLP 1126.001 WP17 — watch complications use the snapshot driver and their own store.
 import { resolve, relative } from 'node:path';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, cpSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, rmSync } from 'node:fs';
 import { buildBake, bakeOutput, developmentBuildEnv, HOST_DEV, executableName } from '../../scripts/app.mjs';
 import { plistFile } from './assets.mjs';
 import { platformWidgetEntries, prepareWidgetCore, sharedWidgetCore, packageWidgets } from './widgets.mjs';
@@ -53,7 +54,6 @@ export async function buildWatch(app, args, { runApple, appleArtifacts, appleBui
     const sign = path => runApple('codesign', ['--force', '--sign', '-', path]);
     mkdirSync(resolve(bundle, 'Frameworks'), { recursive: true });
     cpSync(shared.framework, resolve(bundle, 'Frameworks/ExactCore.framework'), { recursive: true });
-    sign(resolve(bundle, 'Frameworks/ExactCore.framework'));
     mkdirSync(resolve(bundle, 'plans'), { recursive: true });
     for (const entry of entries) copyFileSync(resolve(output, `plans/${entry.kind}.plan`), resolve(bundle, `plans/${entry.kind}.plan`));
     for (const name of ['assets', 'deck']) if (existsSync(resolve(app.dir, name))) cpSync(resolve(app.dir, name), resolve(bundle, name), { recursive: true });
@@ -61,7 +61,7 @@ export async function buildWatch(app, args, { runApple, appleArtifacts, appleBui
     const info = { CFBundleIdentifier: watch.id, CFBundleName: app.displayName, CFBundleDisplayName: app.displayName, CFBundleExecutable: 'ExactWatch', CFBundlePackageType: 'APPL',
       CFBundleVersion: appInfo.CFBundleVersion, CFBundleShortVersionString: appInfo.CFBundleShortVersionString, CFBundleSupportedPlatforms: ['WatchSimulator'], MinimumOSVersion: '10.0', UIDeviceFamily: [4],
       WKApplication: true, WKCompanionAppBundleIdentifier: app.id, WKRunsIndependentlyOfCompanionApp: true,
-      ExactAppGroup: group, ExactAppIdentifier: app.id, ExactWidgetTypeScript: false, ExactWidgetGeneration: baked.compat.id,
+      ExactAppGroup: group, ExactAppIdentifier: app.id, ExactWidgetTypeScript: false, ExactWidgetGeneration: createHash('sha256').update(JSON.stringify([baked.compat.id, baked.graph.artifacts])).digest('hex'),
       ExactWatchEntries: entries.map(({ kind, families, title }) => ({ kind, families, title: title ?? kind })) };
     writeFileSync(resolve(bundle, 'Info.plist'), plistFile(info));
     const executableArgs = [...swiftArgs, '-Xlinker', '-rpath', '-Xlinker', '@executable_path/Frameworks',
@@ -71,6 +71,7 @@ export async function buildWatch(app, args, { runApple, appleArtifacts, appleBui
     const bin = runApple('swift', [...executableArgs, '--show-bin-path'], options).stdout.trim();
     copyFileSync(resolve(bin, 'ExactWatch'), resolve(bundle, 'ExactWatch'));
     packageWidgets({ app: watch, bundle, shared, directory, sdk, triple, device: false, entitlements, sign, runApple, production, platform: 'watchos', entries });
+    sign(resolve(bundle, 'Frameworks/ExactCore.framework'));
     sign(bundle);
     sign(parent.bundle);
     writeFileSync(resolve(directory, 'receipt.json'), receipt(app, { platform: 'watchos-simulator', target, sdk, bundle, compatibilityId: baked.compat.id, build: baked }));
