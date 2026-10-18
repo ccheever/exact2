@@ -355,7 +355,10 @@ The generated proof uses `pin(tick, snapshot)` and `pinSave(name, path)`;
 Rust tests use `sim.assert_pin(include_str!("../../pins.json"))`.
 
 A run containing a development `set` edit refuses both pin matching and repinning,
-including after save/restore or journal rollover. Production bakes refuse the command.
+including after save/restore or journal rollover. `pinSave` inspects the saved bytes
+and refuses admitted edits and complete edit commands retained in the input queue,
+even after the live queue is cleared. Pending observations are tracked per session.
+Production bakes refuse the command.
 
 Pins cover the simulation only. Presentation state (`#[derive(Presentation)]`,
 `Game::present`) is outside hashes and saves, so prove looks separately: assert

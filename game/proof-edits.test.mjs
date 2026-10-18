@@ -35,17 +35,68 @@ test('the ordinary world snapshot keeps admitted-edit provenance', async () => {
   expect(snapshot.developmentEdits).toBe(true);
 });
 
-test('queued sets refuse pin and pinSave until the queue drains', () => {
-  for (const collecting of [false, true]) {
-    const provenance = editProvenance();
-    const state = {tick:0, hash:'0x' + '0'.repeat(15) + '1', queuedSets:1};
-    const recorder = pinRecorder({ticks:{0:state.hash}}, 'fixture', () => {}, collecting, provenance);
-    provenance.observe({world:[state]});
-    expect(() => recorder.pinSave('queued', '/unused')).toThrow('queued set development edit');
-    expect(() => recorder.pin(0, state)).toThrow('queued set development edit');
-    provenance.observe({world:[{...state, queuedSets:0}]});
-    expect(() => provenance.assert()).not.toThrow();
-  }
+// Captured EXSIM v7 bytes from Editable in world/edit_tests.rs, before and
+// after admission. The pending artifact replays its edit even after live restart.
+const editSaves = {
+  clean:Buffer.from('RVhTSU0ABwgBAARnYW1lBgpzZXQtb3JhY2xlAQAFd29ybGQM/wFFWEdBTUUABQgBAAVzdGF0ZQgBAAR0aWNrAgABAAJoegI8AQAEc2VlZAIAAQAFc2xvdHMMNgADCmdlbmVyYXRpb24FYWxpdmUEbmFtZQEMCAEAAgEBEAECCwYAAQAAAgAAAgECBnBsYXllcgEABGJ1c3kHAAABAANybmcIAQECstrppZjCu4QaAAEACmNvbXBvbmVudHMIAQAGVHVuaW5nDE0BAAEDBXNwZWVkBWxhYmVsCWRpcmVjdGlvbgEPCAEABAEBBgECBwMEBAQAAQAAAgAAgEAAAgAAAAAAAgAAAAAAAgAAAAACBnBsYXllcgABAAlyZXNvdXJjZXMIAAABAARhcmdzBhF7InJlc3RhcnQiOmZhbHNlfQEABWlucHV0CAEABGtleXMHAAEAB3ByZXNzZWQHAAEACHJlbGVhc2VkBwABAAdwb2ludGVyCgEACGNvbnRhY3RzBwABAAV3aGVlbAcCBAAAAAAEAAAAAAEACHZpZXdwb3J0BwIEAAAAAAQAAAAAAQAIbWVzc2FnZXMHAAABAAVxdWV1ZQcAAQAId29ybGRfdXMDAAEAB2pvdXJuYWwHAQgBAAVpbmRleAIAAQAEdGljawIAAQAHc2Vjb25kcwUAAAAAAAAAAAEABGxpbmUGE3Q9MCB0aWNrPTAgc3Bhd24gIzAAAQAMam91cm5hbF9uZXh0AgEBAA9vdmVyZmxvd19sb2dnZWQAAQAJcHVibGlzaGVkCAAA', 'base64'),
+  pending:Buffer.from('RVhTSU0ABwgBAARnYW1lBgpzZXQtb3JhY2xlAQAFd29ybGQM/wFFWEdBTUUABQgBAAVzdGF0ZQgBAAR0aWNrAgABAAJoegI8AQAEc2VlZAIAAQAFc2xvdHMMNgADCmdlbmVyYXRpb24FYWxpdmUEbmFtZQEMCAEAAgEBEAECCwYAAQAAAgAAAgECBnBsYXllcgEABGJ1c3kHAAABAANybmcIAQECstrppZjCu4QaAAEACmNvbXBvbmVudHMIAQAGVHVuaW5nDE0BAAEDBXNwZWVkBWxhYmVsCWRpcmVjdGlvbgEPCAEABAEBBgECBwMEBAQAAQAAAgAAgEAAAgAAAAAAAgAAAAAAAgAAAAACBnBsYXllcgABAAlyZXNvdXJjZXMIAAABAARhcmdzBhF7InJlc3RhcnQiOmZhbHNlfQEABWlucHV0CAEABGtleXMHAAEAB3ByZXNzZWQHAAEACHJlbGVhc2VkBwABAAdwb2ludGVyCgEACGNvbnRhY3RzBwABAAV3aGVlbAcCBAAAAAAEAAAAAAEACHZpZXdwb3J0BwIEAAAAAAQAAAAAAQAIbWVzc2FnZXMHAAABAAVxdWV1ZQcBCAEAB2hvc3RfdXMDAAEACHdvcmxkX3VzCwMAAQAFZXZlbnQJBQAHTWVzc2FnZQgBAAR0ZXh0BhlzZXQgcGxheWVyIFR1bmluZy5zcGVlZCA4AQAFYXRfbXMFAAAAAAAAAAAAAAEPAwABAAdqb3VybmFsBwEIAQAFaW5kZXgCAAEABHRpY2sCAAEAB3NlY29uZHMFAAAAAAAAAAABAARsaW5lBhN0PTAgdGljaz0wIHNwYXduICMwAAEADGpvdXJuYWxfbmV4dAIBAQAPb3ZlcmZsb3dfbG9nZ2VkAAEACXB1Ymxpc2hlZAgAAA==', 'base64'),
+  edited:Buffer.from('RVhTSU0ABwgBAARnYW1lBgpzZXQtb3JhY2xlAQAFd29ybGQMkwJFWEdBTUUABQgBAAVzdGF0ZQgBAAR0aWNrAgEBAAJoegI8AQAEc2VlZAIAAQAFc2xvdHMMNgADCmdlbmVyYXRpb24FYWxpdmUEbmFtZQEMCAEAAgEBEAECCwYAAQAAAgAAAgECBnBsYXllcgEABGJ1c3kHAAABAANybmcIAQECstrppZjCu4QaAAEAEGRldmVsb3BtZW50RWRpdHMBAQAKY29tcG9uZW50cwgBAAZUdW5pbmcMTQEAAQMFc3BlZWQFbGFiZWwJZGlyZWN0aW9uAQ8IAQAEAQEGAQIHAwQEBAABAAACAAAAQQACAAAAAAACAAAAAAACAAAAAAIGcGxheWVyAAEACXJlc291cmNlcwgAAAEABGFyZ3MGEXsicmVzdGFydCI6ZmFsc2V9AQAFaW5wdXQIAQAEa2V5cwcAAQAHcHJlc3NlZAcAAQAIcmVsZWFzZWQHAAEAB3BvaW50ZXIKAQAIY29udGFjdHMHAAEABXdoZWVsBwIEAAAAAAQAAAAAAQAIdmlld3BvcnQHAgQAAAAABAAAAAABAAhtZXNzYWdlcwcAAAEABXF1ZXVlBwABAAh3b3JsZF91cwPQiQIBAAdqb3VybmFsBwIIAQAFaW5kZXgCAAEABHRpY2sCAAEAB3NlY29uZHMFAAAAAAAAAAABAARsaW5lBhN0PTAgdGljaz0wIHNwYXduICMwAAgBEAIBARECAAESBQAAAAAAAAAAARMGJHQ9MCB0aWNrPTAgc2V0IHBsYXllciBUdW5pbmcuc3BlZWQgOAABAAxqb3VybmFsX25leHQCAgEAD292ZXJmbG93X2xvZ2dlZAABAAlwdWJsaXNoZWQIAAA=', 'base64'),
+};
+
+test('pinSave inspects captured saves after argument restart cancels the live queue', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'proof-saved-edits-'));
+  try {
+    const paths = Object.fromEntries(Object.entries(editSaves).map(([name, bytes]) => {
+      const path = join(dir, `${name}.world`); writeFileSync(path, bytes); return [name, path];
+    }));
+    for (const collecting of [false, true]) {
+      const provenance = editProvenance();
+      const state = {tick:0, hash:'0x' + '0'.repeat(15) + '1', queuedSets:1};
+      const recorder = pinRecorder({}, 'fixture', () => {}, collecting, provenance);
+      provenance.observe({world:[state]}, [], 'A');
+      expect(() => recorder.pinSave('pending', paths.pending)).toThrow('queued set development edit');
+      expect(() => recorder.pin(0, state)).toThrow('queued set development edit');
+      // Argument restart clears the live queue before its admitting tick.
+      provenance.observe({world:[{...state, queuedSets:0}]}, [], 'A');
+      expect(() => recorder.pin(0, {...state, queuedSets:0})).not.toThrow();
+      expect(() => recorder.pinSave('pending', paths.pending)).toThrow('save contains a queued set development edit');
+      expect(() => recorder.pinSave('edited', paths.edited)).toThrow('save contains a set development edit');
+      expect(() => recorder.pinSave('clean', paths.clean)).not.toThrow();
+      expect(Object.keys(recorder.pins.saves)).toEqual(['clean']);
+      // Replace only the captured Message's length-prefixed text; keep its queue envelope.
+      const command = Buffer.from('set player Tuning.speed 8'), at = editSaves.pending.indexOf(command);
+      expect(at).toBeGreaterThan(0);
+      for (const [text, refused] of [
+        ['  set\u0085player Tuning.speed 8  ', true],
+        ['set player Tuning.speed.extra 8', false],
+        ['set difficulty hard', false],
+        ['set player Tuning.speed   ', false],
+      ]) {
+        const path = join(dir, 'message.world'), bytes = Buffer.from(text);
+        writeFileSync(path, Buffer.concat([editSaves.pending.subarray(0, at - 1),
+          Buffer.from([bytes.length]), bytes, editSaves.pending.subarray(at + command.length)]));
+        const run = () => recorder.pinSave('message', path);
+        if (refused) expect(run).toThrow('save contains a queued set development edit');
+        else expect(run).not.toThrow();
+      }
+      const malformed = join(dir, 'malformed.world');
+      for (const bytes of [Buffer.from('not a save'), editSaves.pending.subarray(0, -1)]) {
+        writeFileSync(malformed, bytes);
+        expect(() => recorder.pinSave('malformed', malformed)).toThrow('pinSave refused: invalid');
+      }
+    }
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+test('a clean session observation cannot clear another session pending edit', () => {
+  const provenance = editProvenance();
+  provenance.observe({world:[{queuedSets:1}]}, [], 'A');
+  provenance.observe({world:[{queuedSets:0}]}, [], 'B');
+  expect(() => provenance.assert()).toThrow('queued set development edit');
+  provenance.observe({world:[]}, [], 'B');
+  expect(() => provenance.assert()).toThrow('queued set development edit');
+  provenance.observe({world:[{queuedSets:0}]}, [], 'A');
+  expect(() => provenance.assert()).not.toThrow();
 });
 
 test('host session evidence refuses pins when no edited world was observed', () => {
@@ -83,18 +134,24 @@ test('E10 real admission survives canvas removal and remount inside one clock op
       createGame(app);
       write('logic/src/lib.rs', `use exact_game::*;
 #[derive(Default, Component)] struct Tuning { speed: f32 }
+#[derive(Default, Args)] pub struct Options { #[restart] pub restart: bool }
 pub struct EditLifetime;
 impl Game for EditLifetime {
     const ID: &'static str = "edit-lifetime";
-    type Args = ();
-    fn setup(w: &mut World, _: &()) { w.spawn_named("player", Tuning { speed: 4. }); }
-    fn tick(w: &mut World, input: &Input, _: &()) {
+    type Args = Options;
+    fn setup(w: &mut World, _: &Options) { w.spawn_named("player", Tuning { speed: 4. }); }
+    fn tick(w: &mut World, input: &Input, _: &Options) {
         if input.messages().iter().any(|m| m == "replace") { w.emit("replace"); }
     }
 }
 `);
       write('app.contract', `component EditLifetime
   state alternate = false
+  state again = false
+  action restart
+    again = not again
+  action queue
+    postMessage("set player Tuning.speed 8", "world")
   action replace(message: string)
     if message == "replace"
       alternate = not alternate
@@ -103,22 +160,33 @@ impl Game for EditLifetime {
     postMessage("replace", "world")
   view
     column
+      button press=restart testId="restart"
+        text "Restart"
+      button press=queue testId="queue"
+        text "Queue"
       button press=cycle testId="cycle"
         text "Cycle"
       if alternate
-        canvas surface=world() message=replace testId="world" width=64 height=64
+        canvas surface=world(restart=again) message=replace testId="world" width=64 height=64
       else
-        canvas surface=world() message=replace testId="world" width=64 height=64
+        canvas surface=world(restart=again) message=replace testId="world" width=64 height=64
 `);
     }
     write('pins.json', JSON.stringify({ticks:{}, saves:{}}));
     write('proof.mjs', `import {proof} from ${JSON.stringify(resolve(root, 'game/proof.mjs'))};
-await proof(import.meta, async ({open, check, pin, pinSave}) => {
+await proof(import.meta, async ({open, check, pin, pinSave, out}) => {
   const s = await open();
   if ((await s.tree()).nodes.some(n => n.props?.testId === 'play')) await s.tap('play');
   const refused = (label, run, text) => {
     try { run(); check(label, false); } catch (e) { check(label, e.message.includes(text), e.message); }
   };
+  await s.tap('queue');
+  const pendingFile = out + '/pending.world';
+  await s.world('world').save(pendingFile);
+  await s.tap('restart');
+  const restarted = await s.world('world').snapshot();
+  check('restart before admission clears only the live queue', restarted.queuedSets === 0 && !restarted.developmentEdits);
+  refused('captured pending save after restart', () => pinSave('pending', pendingFile), 'save contains a queued set development edit');
   await s.tap('cycle');
   const queued = await s.world('world').snapshot();
   check('queued set count', queued.queuedSets === 1 && !queued.developmentEdits);
@@ -149,4 +217,4 @@ await proof(import.meta, async ({open, check, pin, pinSave}) => {
     for (const [path, bytes] of originals) writeFileSync(path, bytes);
     if (existsSync(temporary)) rmSync(temporary, {recursive:true, force:true});
   }
-}, 600000);
+}, 1200000);

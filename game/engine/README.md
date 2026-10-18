@@ -200,10 +200,12 @@ The whole candidate is decoded and validated before replacement. Production bake
 refuse `set` by name. The complete `set entity Component.field value` form reserves the message only
 when the edit succeeds. Refused forms journal and remain available to `input.messages()`;
 other `set` messages are ordinary gameplay messages. A saved sticky diagnostic records
-successful edits after admission. Simulation provenance survives restart and restore;
+successful edits after admission. Simulation provenance survives consecutive raw-world
+loads, restart and restore;
 host-session provenance also survives canvas removal and remount, even within one
 agent operation. Neither depends on retained journal lines. State exposes `queuedSets`;
-`pin` and `pinSave` refuse while a complete edit command awaits admission.
+`pin` and `pinSave` refuse while a complete edit command awaits admission in any
+observed session. `pinSave` also checks the saved marker and retained input queue.
 `prove.mjs` and `Sim::assert_pin` refuse a run carrying that diagnostic: put tuning
 that a pin should accept in the authored files. Arguments tune settings a save
 should not carry.

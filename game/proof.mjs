@@ -312,18 +312,115 @@ export function assertNoLiveEdits(worlds, journals = []) {
 }
 
 export function editProvenance() {
-  let refusal, queued = false;
+  let refusal;
+  const pending = new Map();
   return {
-    observe(worlds, journals) {
+    observe(worlds, journals, session = 'default') {
       const rows = Array.isArray(worlds) ? worlds : [worlds, ...(worlds?.world ?? [])];
-      queued = rows.some(w => w?.queuedSets > 0);
+      pending.set(session, rows.some(w => w?.queuedSets > 0));
       try { assertNoLiveEdits(worlds, journals); } catch (error) { refusal ??= error; }
     },
     assert() {
       if (refusal) throw refusal;
-      if (queued) throw new Error('pin refused: queued set development edit awaits admission');
+      if ([...pending.values()].some(Boolean)) throw new Error('pin refused: queued set development edit awaits admission');
     },
   };
+}
+// Read only provenance fields; walk skipped values to preserve the binary name table.
+// Tags and bounds follow engine/src/data/bin.rs. This does not restore gameplay.
+function savedFields(bytes, magic, fields) {
+  const fail = reason => { throw new Error(`pinSave refused: invalid ${magic.startsWith('EXSIM') ? 'EXSIM v7' : 'EXGAME v5'} save: ${reason}`); };
+  if (!bytes.subarray(0, magic.length).equals(Buffer.from(magic, 'binary'))) fail('unsupported format');
+  if (bytes.length > 2 * 1024 ** 3) fail('load size limit');
+  let pos = magic.length;
+  const names = [], utf8 = new TextDecoder('utf-8', {fatal:true});
+  const take = n => {
+    if (!Number.isSafeInteger(n) || n < 0 || n > bytes.length - pos) fail('truncated value');
+    const part = bytes.subarray(pos, pos += n); return part;
+  };
+  const byte = () => take(1)[0];
+  const variable = () => {
+    let n = 0n;
+    for (let shift = 0n; shift < 70n; shift += 7n) {
+      const b = byte();
+      if (shift === 63n && b > 1) fail('varint overflow');
+      n |= BigInt(b & 127) << shift;
+      if (b < 128) return n;
+    }
+    fail('varint overflow');
+  };
+  const text = () => {
+    const n = Number(variable());
+    if (n > 64 * 1024 ** 2) fail('string size limit');
+    try { return utf8.decode(take(n)); } catch { fail('invalid string'); }
+  };
+  const name = () => {
+    const n = variable();
+    if (n === 0n) { const s = text(); names.push(s); return s; }
+    if (n > BigInt(names.length)) fail('unknown name index');
+    return names[Number(n - 1n)];
+  };
+  const value = (keep, depth = 0) => {
+    if (depth >= 256) fail('nesting limit');
+    const tag = byte();
+    switch (tag) {
+      case 0: case 1: return Boolean(tag);
+      case 2: case 3: return variable();
+      case 4: take(4); return;
+      case 5: take(8); return;
+      case 6: return text();
+      case 7: {
+        const n = Number(variable()), out = keep ? [] : null;
+        if (!Number.isSafeInteger(n) || n > bytes.length - pos) fail('sequence size limit');
+        for (let i = 0; i < n; i++) { const item = value(keep, depth + 1); if (keep) out.push(item); }
+        return out;
+      }
+      case 8: {
+        const out = Object.create(null), seen = new Set();
+        for (let field = byte(); field !== 0; field = byte()) {
+          if (field !== 1) fail('expected field');
+          const key = name();
+          if (seen.has(key)) fail('duplicate field');
+          seen.add(key);
+          const retain = keep === true || keep instanceof Set && keep.has(key);
+          const item = value(retain, depth + 1);
+          if (retain) out[key] = item;
+        }
+        return out;
+      }
+      case 9: {
+        variable(); const variant = name(), item = value(keep, depth + 1);
+        return keep ? {variant, value:item} : null;
+      }
+      case 10: return null;
+      case 11: return value(keep, depth + 1);
+      case 12: case 13: case 14: case 15: {
+        const part = take(Number(variable())); return keep ? part : null;
+      }
+      default: fail('unknown value tag');
+    }
+  };
+  if (bytes[pos] !== 8) fail('expected record');
+  const out = value(new Set(fields));
+  if (pos !== bytes.length) fail('trailing data');
+  return out;
+}
+function assertSaveEdits(bytes) {
+  const saved = savedFields(bytes, 'EXSIM\0\x07', ['world', 'queue']);
+  if (!Buffer.isBuffer(saved.world) || !Array.isArray(saved.queue))
+    throw new Error('pinSave refused: invalid EXSIM v7 world or queue');
+  const world = savedFields(saved.world, 'EXGAME\0\x05', ['developmentEdits']);
+  if (world.developmentEdits !== undefined && typeof world.developmentEdits !== 'boolean')
+    throw new Error('pinSave refused: invalid developmentEdits marker');
+  if (world.developmentEdits) throw new Error('pinSave refused: save contains a set development edit');
+  // Rust char::is_whitespace uses Unicode White_Space, unlike JS trim/\s.
+  const completeSet = text => {
+    const words = text.split(/\p{White_Space}+/u).filter(Boolean), path = words[2]?.split('.') ?? [];
+    return words[0] === 'set' && words.length >= 4 && path.length === 2 && path.every(Boolean);
+  };
+  if (saved.queue.some(q => q?.event?.variant === 'Message'
+      && typeof q.event.value?.text === 'string' && completeSet(q.event.value.text)))
+    throw new Error('pinSave refused: save contains a queued set development edit awaiting admission');
 }
 export function pinRecorder(previous, app, check, collecting = false, provenance = editProvenance()) {
   const pins = {ticks:{}, saves:{}};
@@ -343,7 +440,12 @@ export function pinRecorder(previous, app, check, collecting = false, provenance
       check(`pin ${tick} sampled at expected tick (got ${state?.tick})`, state?.tick === tick && /^0x[0-9a-f]{16}$/.test(state?.hash));
       record('ticks', String(tick), state?.hash);
     },
-    pinSave(key, path) { provenance.assert(); record('saves', key, createHash('sha256').update(readFileSync(path)).digest('hex')); },
+    pinSave(key, path) {
+      provenance.assert();
+      const bytes = readFileSync(path);
+      assertSaveEdits(bytes);
+      record('saves', key, createHash('sha256').update(bytes).digest('hex'));
+    },
   };
 }
 // Gameplay assertions can succeed before a game's first baseline exists.
@@ -633,7 +735,7 @@ export async function proof(meta, script) {
       try {
         const journal = (await raw.logs({all:true})).world ?? [];
         const state = await raw.state();
-        try { provenance.observe(state, journal); provenance.assert(); } catch (error) { check(error.message, false); }
+        try { provenance.observe(state, journal, id); provenance.assert(); } catch (error) { check(error.message, false); }
         if (compareParanoid || process.env.EXACT_PROOF_COMPARE === '1') {
           const state = await raw.op({op:'state', ...await raw.target('world'), world:true});
           const world = state.world;
@@ -664,9 +766,9 @@ export async function proof(meta, script) {
       if (!['op','tap','type','clock','state','tree','layout','logs','screenshot'].includes(method)) return target[method];
       return async (...args) => {
         try {
-          provenance.observe(await raw.state());
+          provenance.observe(await raw.state(), [], id);
           const reply = await target[method](...args);
-          provenance.observe(await raw.state(), method === 'logs' ? reply.world : []);
+          provenance.observe(await raw.state(), method === 'logs' ? reply.world : [], id);
           if (method === 'state') worldObservations(observations, id)(reply);
           replies.push({session:id, method, args, reply, clock:target.now});
           return reply;
