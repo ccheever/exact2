@@ -1,8 +1,10 @@
 # Beacons
 
 A small exact2 game: walk a quiet field and light three beacons. WASD or arrow
-keys move along world axes, Space jumps, E lights a nearby beacon. The on-screen
-Move, Jump and Light controls also feed the engine input. Pause freezes the world;
+keys move along world axes, Space jumps, E lights a nearby beacon, and left Shift
+held for 200 ms sprints. On a gamepad the left stick moves, the south button (A on
+an Xbox pad) jumps, the west button (X) lights and the left shoulder sprints. The
+on-screen Move, Jump and Light controls also feed the engine input. Pause freezes the world;
 Play again reconstructs it from seed 7.
 
 The game is `logic/src/lib.rs`, `app.contract`, `proof.mjs`, its hostless tests

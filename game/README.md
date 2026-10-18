@@ -299,28 +299,31 @@ until it lifts and goes down again.
 
 A host reports a pad's whole state when a button or an axis changed (in 1/256 steps),
 stamped like a key; a press keeps its own stamp, and only a sticks-only change may fold
-into a later one in the same tick. Pads go to the canvas that has the focus (on Linux,
-Windows and Android, with nothing focused, to the first canvas that takes input; an
-editor's focus takes them from every canvas). When the focus moves to another canvas the
-one they leave hears each pad go and the new one each pad as it is. A pad that
-disconnects, or a blur, releases everything it held; a pad that connects again at that
-index is a fresh device. Of several pads, a stick reads the one pushed furthest; a
-button is down while any pad holds it. Per host:
+into a later one in the same tick. Pads go to the canvas that has the focus (on the Mac,
+in the key window; on Linux, Windows and Android, with nothing focused, to the first
+canvas that takes input; an editor's focus takes them from every canvas). When the focus
+or the key window moves them, the canvas they leave hears each pad go, whether the focus
+left the canvas or a control in it, and the canvas that takes them hears each connected
+pad as the host last read it (the table says when that is). A blur releases everything
+the world held, and a disconnect what that pad held; a pad that connects again at that
+index is a fresh device. Of several pads, a stick reads the one pushed furthest (of two
+pushed as far, the lower index); a button is down while any pad holds it. Per host:
 
 | Host | Reads | Limits |
 |---|---|---|
 | Web | the Gamepad API, polled each frame while a pad is connected; a pad without the standard mapping is reported (`pad 1 connected unmapped` in the journal) and delivers nothing | as the browser exposes pads |
-| macOS, iOS, tvOS | GameController's extended gamepad, on each change, and every pad again when a canvas takes the focus or the app becomes active | a controller without the extended profile (the Siri Remote) is unmapped |
-| Android | gamepad keys and joystick axes; a pad with trigger axes reports their travel, one without its L2/R2 keys | every pad is reported standard; Android cannot read a pad's state, so after the background a pad reports itself with its next event, and a button held through it reads up until pressed again |
-| Linux | evdev, at each report, in the kernel's gamepad layout (Xbox drivers' letters read as their positions); a pad's state is read when it opens | pads present at launch only; every pad is reported standard |
-| Windows | XInput's four slots, every 8 ms while one is connected and every 250 ms otherwise, while the window has focus | `GamepadHome` is never down (XInput does not report the guide button) |
+| macOS, iOS, tvOS | GameController's extended gamepad, on each change, and every pad as it is now when a canvas or a control in it takes or gives up the focus, when the app becomes active, and on the Mac when a window becomes or stops being key | a controller without the extended profile (the Siri Remote) is unmapped; on iPadOS with several windows the pads go to the earliest-made canvas holding the focus in any of them, not to the key window's |
+| Android | gamepad keys and joystick axes; each trigger with an axis (LTRIGGER or BRAKE for the left, RTRIGGER or GAS for the right) reports its travel, one without its key | every pad is reported standard; the host reads no pad's state on its return from the background, so a pad reports itself with its next event, and a button held through the background reads up until pressed again |
+| Linux | evdev, at each report and stamped with the report's time, so readings buffered in one read keep their spacing and several pads' arrive in the order they happened (ties by index), in the kernel's gamepad layout (Xbox drivers' letters read as their positions); a pad's state is read when it opens | pads present at launch only; every pad is reported standard |
+| Windows | XInput's four slots, every 8 ms while one is connected and every 250 ms otherwise, while the window has focus, and all four at once when it regains focus, so a pad unplugged meanwhile reads gone | `GamepadHome` is never down (XInput does not report the guide button); a reading is stamped at its poll |
 
 What is saved and what is hashed differ. A save holds the input queue and the keys,
 pads and contacts held, which the world hash leaves out. The world hash covers the world
 the input changed, plus three resources that exist only once a game uses them:
-`InputContexts`, `Bindings`, and `InputGestures`, the triggers' gestures in progress and
-the latched actions, so two worlds whose holds started at different times differ, and a
-restore mid-hold continues the hold. `InputEvent`'s `player` is 0 from every host and means
+`InputContexts`, `Bindings`, and `InputState`: the triggers' gestures in progress, the
+latched actions, and the contexts and bindings as last applied. So two worlds whose holds
+started at different times differ, as do two whose context or rebind has yet to apply,
+and a restore mid-hold continues the hold. `InputEvent`'s `player` is 0 from every host and means
 nothing yet.
 
 ### Movement and appearance
