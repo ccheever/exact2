@@ -466,6 +466,7 @@ impl Lowerer<'_> {
                     None => (class_len, None),
                 };
                 let class = class_label.is_some();
+                let pressed = states.as_ref().is_some_and(|s| index >= s.pressed);
                 let origin = if class
                     && (folded == Some(true)
                         || folded.is_none() && index >= sheet.len() && index < class_len)
@@ -475,6 +476,15 @@ impl Lowerer<'_> {
                     Origin::Tag
                 } else {
                     Origin::Own
+                };
+                // `:active`'s, lowered to the press paint: where it is written.
+                let origin = match pressed {
+                    true => Origin::State {
+                        of: Box::new(origin),
+                        state: "active",
+                        span: a.span,
+                    },
+                    false => origin,
                 };
                 origins.resize(bindings.len(), origin);
             }

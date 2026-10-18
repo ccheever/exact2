@@ -154,3 +154,17 @@ fn a_looks_unset_crosses_written_with_no_value() {
             && !look.mask.has(exact_kernel::StyleId::Opacity)
     );
 }
+
+/// An `:active` row lowered to the press paint is used where it is written
+/// (theme2's 06:14 condition): `uses` names its `:active` line and state.
+#[test]
+fn uses_names_an_active_rows_own_line() {
+    let path = app("uses", &[("app.tamber", DESIGN), ("app.contract", VIEW)]);
+    let (plan, map) = contract::compile_path_mapped(&path).unwrap();
+    let map: serde_json::Value = serde_json::from_str(&map.json(&plan.encode())).unwrap();
+    let sites = contract::tamber_uses::sites(&plan, &map, "accent.soft", &Default::default(), &[]);
+    assert_eq!(sites.len(), 1, "{sites:?}");
+    assert_eq!(sites[0]["row"], "press_background_color", "{sites:?}");
+    assert_eq!(sites[0]["state"], "active");
+    assert_eq!(sites[0]["line"], 8, "the `:active` row's line: {sites:?}");
+}

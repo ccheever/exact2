@@ -415,3 +415,46 @@ fn the_map_says_each_source_and_the_digest_of_its_text_as_compiled() {
     assert_eq!(of(&child), Some(hex(child_text)));
     assert_eq!(of(&design), Some(hex(design_text)));
 }
+
+/// @ref LLP 1121 D8 — an `:active` row lowers to the press paint, and the
+/// map names its `:active` line (the class's or the node's), not the
+/// lowered row's node.
+#[test]
+fn an_active_row_keeps_its_own_location() {
+    let app = App::new("active");
+    app.write(
+        "app.contract",
+        r##"style Card
+  :active
+    color = "#ff0000"
+component App
+  state n = 0
+  action go
+    n = n + 1
+  view
+    column class=Card press=go testId="card"
+      :active
+        background-color = "#0000ff"
+        opacity = 0.5
+      text "c"
+"##,
+    );
+    let (plan, map) = app.compile();
+    let runner = boot(plan);
+    let rows = at(&runner, &map, "card")["bindings"].as_array().unwrap();
+    let row = |name: &str| {
+        rows.iter()
+            .find(|r| r["row"] == name)
+            .unwrap_or_else(|| panic!("{name}: {rows:?}"))
+    };
+    for (name, line, origin) in [
+        ("press_background_color", 11, "own"),
+        ("press_opacity_to", 12, "own"),
+        ("press_color", 3, "class:Card"),
+    ] {
+        assert_eq!(row(name)["state"], "active", "{name}");
+        assert_eq!(row(name)["at"]["line"], line, "{name}");
+        assert_eq!(row(name)["origin"], origin, "{name}");
+    }
+    assert!(row("display").get("state").is_none());
+}

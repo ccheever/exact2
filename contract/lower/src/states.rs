@@ -72,6 +72,8 @@ pub(crate) struct Folded {
     /// How many of `attrs` are base rows; each after is a fold's, and
     /// `by_class` says whether its class wrote it.
     pub base_len: usize,
+    /// Where `:active`'s press paint rows start in `attrs` (the last).
+    pub pressed: usize,
     pub by_class: Vec<bool>,
 }
 
@@ -533,6 +535,7 @@ impl Lowerer<'_> {
             disabled_look: disabled_look || base_styled,
             class_len,
             base_len,
+            pressed,
             by_class,
         }))
     }
