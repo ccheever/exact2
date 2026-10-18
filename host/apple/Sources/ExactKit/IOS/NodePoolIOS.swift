@@ -329,7 +329,7 @@ final class NodePool {
             && v.overlay == nil && v.canvasInput == nil
             && idle(v)
             && v.swipeHold == nil && v.heightHold == nil && v.reorderHold == nil && v.transformHold == nil
-            && !v.pressed && !v.hasPressContact && (v.gestureRecognizers ?? []).allSatisfy({ ($0 as? PointerRecognizer)?.idle == true || contextual($0, of: v) })
+            && !v.pressed && !v.hasPressContact && (v.gestureRecognizers ?? []).allSatisfy({ ($0 as? PointerRecognizer)?.idle == true || contextual($0, of: v) || lookAtRest($0, of: v) })
             && v.interactions.allSatisfy({ contextual($0, of: v) })
             && v.flowShapes.isEmpty && v.contextTransform.isIdentity
             && v.pendingScrollLeft == nil && v.pendingScrollTop == nil
@@ -339,6 +339,16 @@ final class NodePool {
             // with interactions or gestures left on it. Its props and the mark
             // stay until it is forgotten, after its own destroy op.
             && unhatched(v)
+    }
+    /// A `:hover` look's recognizer with no pointer over it (LookHoverIOS.swift):
+    /// it follows the style, which the next row's create ops set again
+    /// (`rebind` drops the paint it shows).
+    private func lookAtRest(_ recognizer: UIGestureRecognizer, of v: NodeView) -> Bool {
+        #if os(iOS)
+        return recognizer === v.lookHoverRecognizer && recognizer.state == .possible
+        #else
+        return false
+        #endif
     }
     /// Not a hatched node, or one whose hatch undoes what it adds: a hatched
     /// heavy leaf is destroyed as any is, but its row stays out of the pool

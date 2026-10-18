@@ -67,7 +67,11 @@ enum HeldState {
         dropped = nil
         if let held {
             if state == "active" { if !(held.pressed && !held.pressPaint.outside) { held.showPress(false) }; held.heldHighlight() } else { held.relook() }
+            #if os(iOS)
+            if state == "hover" { held.lookHover(NodeView.look("hover", in: held.pressPaint.lookBase ?? [:]) != nil) } // the hold's recognizer off again
+            #endif
         }
+        overKnown = true
         if let reason { told?(reason) }
     }
 
@@ -112,9 +116,18 @@ enum HeldState {
     /// A pointer came over `node` or left it (iOS, its look recognizer): a
     /// hover held there lets go, as on the Mac.
     static func lookHovered(_ node: NodeView, _ over: Bool) {
-        guard !swapping, state == "hover", let held = view, held === node, over != self.over else { return }
-        letGo("input")
+        guard !swapping, state == "hover", let held = view, held === node else { return }
+        // Not known (a recognizer just put on, or cancelled): this tells it.
+        if !overKnown { self.over = over; overKnown = true; return }
+        if over != self.over { letGo("input") }
     }
+    /// Its recognizer was cancelled: whether the pointer is over is not known
+    /// until its next begin.
+    static func lookUnknown(_ node: NodeView) {
+        if state == "hover", view === node { overKnown = false }
+    }
+    /// Whether `over` is known (iOS: its look recognizer has said).
+    static var overKnown = true
 
     /// The focus moved to `focus` (nil: none): a focus held lets go when the
     /// focus comes into its node or leaves it.
@@ -165,8 +178,14 @@ enum HeldState {
         // Over it now: a live hit test of the resting pointer (a new generation's tree included), else the path last seen.
         #if os(macOS)
         over = presenter.pointerOver(node) ?? pointerPath.contains { $0.view === node }
+        #elseif os(iOS)
+        // Its look recognizer's, where it has one; else one is put on for the
+        // hold, and its first begin says whether the pointer is over.
+        overKnown = node.lookHoverInstalled
+        over = node.pressPaint.hovered
+        if state == "hover" { node.lookHover(true) }
         #else
-        over = node.pressPaint.hovered // its look recognizer's (LookHoverIOS.swift)
+        over = false
         #endif
         focused = presenter.focusedNode.map { within($0, node) } ?? false
         if state == "active" { node.showPress(true); node.heldHighlight() } else { node.relook() }

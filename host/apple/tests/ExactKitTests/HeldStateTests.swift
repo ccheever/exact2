@@ -1,6 +1,7 @@
 #if os(iOS) || os(macOS)
 #if os(iOS)
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 #else
 import AppKit
 #endif
@@ -729,31 +730,53 @@ final class HeldStateTests: XCTestCase {
     #endif
     #else
     #if os(iOS)
+    /// A hover recognizer's state as a test says it (its callback reads only that).
+    private final class SaidHover: UIHoverGestureRecognizer {
+        var said: UIGestureRecognizer.State = .possible
+        override var state: UIGestureRecognizer.State { get { said } set { said = newValue } }
+    }
+    @MainActor private func hover(_ v: NodeView, _ state: UIGestureRecognizer.State) {
+        let g = SaidHover(target: nil, action: nil)
+        g.said = state
+        v.lookHovering(g)
+    }
+
     // A pointer's hover on iOS (stage 9 G3): a node with a `:hover` look has
     // its look recognizer; the look shows while it has the pointer, and a
-    // hover holds, let go by the pointer coming over the node or leaving it.
+    // hover holds, let go by the pointer coming over the node or leaving it,
+    // not by a cancel (inspect mode turns every recognizer off and on).
     @MainActor func testIOSHoverLookAndHold() throws {
         let (p, card, _) = try fixture()
         defer { withExtendedLifetime(p) {} }
+        let plain = try XCTUnwrap(p.views[9])
         XCTAssertNotNil(card.lookHoverRecognizer, "a node with a hover look listens for the pointer")
-        XCTAssertNil(p.views[9]?.lookHoverRecognizer, "one with none does not")
-        HeldState.lookHovered(card, true); card.lookState(hovered: true)
+        XCTAssertNil(plain.lookHoverRecognizer, "one with none does not")
+        hover(card, .began)
         XCTAssertEqual(card.style["background_color"], ink(green), "the pointer over it: its look, at once")
-        HeldState.lookHovered(card, false); card.lookState(hovered: false)
+        hover(card, .ended)
         XCTAssertEqual(card.style["background_color"], ink(blue))
+
         var reasons: [String] = []
         XCTAssertEqual(card.hold("hover", dropped: { reasons.append($0) }).held, "hover")
         XCTAssertEqual(card.style["background_color"], ink(green), "held")
-        HeldState.lookHovered(card, true)
-        XCTAssertNil(HeldState.view, "the pointer coming over it lets it go")
+        hover(card, .cancelled)
+        XCTAssertTrue(card.holds("hover"), "a cancel is no crossing")
+        hover(card, .began)
+        XCTAssertTrue(card.holds("hover"), "after a cancel, the next begin only says where the pointer is")
+        hover(card, .ended)
+        XCTAssertNil(HeldState.view, "the pointer leaving lets it go")
         XCTAssertEqual(reasons, ["input"])
-    }
-    #else
-    @MainActor func testTVOSHoldsNoHover() throws {
-        let (p, card, _) = try fixture()
-        defer { withExtendedLifetime(p) {} }
-        XCTAssertTrue(card.hold("hover", dropped: nil).unsupported)
-        XCTAssertNil(HeldState.view)
+        XCTAssertEqual(card.style["background_color"], ink(blue))
+
+        // A node with no look: the hold puts a recognizer on, and takes it off after.
+        reasons = []
+        XCTAssertEqual(plain.hold("hover", dropped: { reasons.append($0) }).held, "hover")
+        XCTAssertNotNil(plain.lookHoverRecognizer)
+        hover(plain, .began)
+        XCTAssertTrue(plain.holds("hover"), "its first begin says the pointer is over")
+        hover(plain, .ended)
+        XCTAssertEqual(reasons, ["input"])
+        XCTAssertNil(plain.lookHoverRecognizer, "off again")
     }
     #endif
     #endif
