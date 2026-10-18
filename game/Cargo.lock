@@ -516,6 +516,7 @@ dependencies = [
 name = "exact-game"
 version = "0.1.0"
 dependencies = [
+ "exact-color",
  "exact-game-derive",
  "exact-motion",
  "exact-plan",

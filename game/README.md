@@ -174,7 +174,7 @@ impl Game for Example {
     const ID: &'static str = "example";
     type Args = ();
     fn setup(w: &mut World, _: &()) {
-        w.spawn_named("player", (Transform::default(), Mesh::cube(1.0)));
+        w.prop("player", Mesh::cube(1.0)).at(0., 0., 0.).color("#fff");
     }
     fn tick(w: &mut World, _: &Input, _: &()) {
         w.require_mut::<Transform>("player").position.x += w.dt();
@@ -190,6 +190,9 @@ assert!(sim.local_position("player").unwrap().x > 0.0);
   called `emitter::step(w)` to choose their order; they never step twice a tick.
 - `#[derive(Component)]` declares per-entity data; `#[derive(Resource)]` declares
   singleton data. Their `Data` representation supplies saves, hashes and agent JSON.
+- Spawn literals with `w.prop(name, mesh).at(x, y, z).color("#4d6669")` or
+  `w.sprite(name, texture, [width, height]).at(x, y)`; `.entity()` returns the
+  entity for adding components. Tuples remain available. [Literal builders](recipes/literal-builders.md) shows both.
 - Names and entity handles address the same world: `w.require_mut::<Transform>("fox")`
   names missing targets or components. `w.get::<Transform>("fox")` returns an option.
 - `query().iter()` yields `(Entity, item)` with borrowed references. Consuming
@@ -226,6 +229,9 @@ assert!(w.query::<&Transform>().with::<Enemy>().one().unwrap().position.x < 10.0
 For a complete small game, start with [the template](new/logic/src/lib.rs) or
 [Beacons](games/beacons/logic/src/lib.rs). The [engine reference](engine/README.md)
 covers borrowing, registration, observation, saving and loading.
+[Game recipes](recipes/README.md) answer one task each with a runnable `Sim` fragment.
+`bun exact.mjs game vocab <Component|verb>` in a generated game shows rustdoc,
+fields and evaluated defaults. [Familiar names](names.md) maps three.js, Unity and Godot.
 
 ### Arguments, pause and restart
 
@@ -266,10 +272,11 @@ The dev compiler retains its last good plan on an error.
 | Change speed while playing | `w.require_mut::<character::Character>("player").speed = 8.0` preserves velocity and the rest of the character. |
 | Move against colliders | [Physics controller example](physics/tests/living.rs), with explicit `Move`, `Jump` and `Gravity` |
 | Follow the player | Attach `Follow`; the scene steps it after the tick. Call `scene::follow(w)` explicitly to choose an earlier order. |
-| Find a nearby unlit beacon | `w.nearest_xz_mut::<Beacon>("player", 1.5, \|b\| !b.lit)` returns its entity and mutable component together. |
+| Find a nearby unlit beacon | `w.nearest_xz_mut::<Beacon>("player", 1.5, \|b\| !b.lit)` returns its entity and mutable row handle together; `beacon.name()` reads its name. |
 | Count for the HUD | `w.count::<Beacon>(\|b\| b.lit)` |
+| Ring, torus, cone and halo | `Mesh::ring(inner, outer)`, `Mesh::torus(radius, tube)`, `Mesh::cone(radius, height)`, `Material::alpha(a)`; [halo recipe](recipes/halo.md). |
 | Grid and fog | `Material::grid(color, spacing)` and the saved `Environment`/`Fog` resource |
-| Fade a glowing mesh | Attach `Glow(Tween)` to `Material::glow`; retarget once and let the renderer sample at frame time. |
+| Fade a glowing mesh | Attach `Glow` to `Material::glow`; call `beacon.glow_to(1.0, 0.5)` once. The renderer samples at frame time. |
 | Fade a point light | Attach `Lit(Spring)` and call `lit.to(w.tick_end(), intensity)`. |
 | A flashlight | `SpotLight { inner, outer, range, intensity, .. }` along the entity's −Z; intensity in candela, as `PointLight`'s |
 | Shadows from a lamp | Add `LightShadows` to a `SpotLight` or `PointLight`; the renderer shadows the nearest few |

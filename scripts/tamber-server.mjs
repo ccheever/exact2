@@ -717,7 +717,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       // A state part's write without a `file` is the file that declares its
       // style, which the server finds: every Contract source is held.
       const contracts = [...known.keys()].filter(path => path.endsWith('.contract'));
-      const opFiles = o => (typeof o?.file === 'string' ? [o.file] : /^(un)?set-state$/.test(o?.op) ? contracts : [designFile]);
+      const opFiles = o => (typeof o?.file === 'string' ? [o.file] : contractOp(o) ? contracts : [designFile]);
       holds = session.prepare(request.method === 'undo' ? [...known.keys()] : (Array.isArray(request.ops) ? request.ops : []).flatMap(opFiles));
     } catch (e) {
       return { status: 500, error: { message: `reading git before the write: ${e.message}` } };
@@ -779,7 +779,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // A state part's write without a `file` is any Contract source's (as a write's `prepare`).
     const contracts = [...known.keys()].filter(path => path.endsWith('.contract'));
     const designFile = relative(appDir, designPath(appDir) ?? resolve(appDir, design));
-    const touched = new Set((Array.isArray(ops) ? ops : []).flatMap(o => (typeof o?.file === 'string' ? [o.file] : /^(un)?set-state$/.test(o?.op) ? contracts : [designFile])));
+    const touched = new Set((Array.isArray(ops) ? ops : []).flatMap(o => (typeof o?.file === 'string' ? [o.file] : contractOp(o) ? contracts : [designFile])));
     // The digests of files it was planned on but does not edit (a revert's
     // file already as before), and those the client requires, are its
     // preconditions too.
@@ -788,6 +788,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const clash = Object.keys(required).find(path => path in untouched && untouched[path] !== required[path]);
     if (clash) return { status: 400, error: { message: `\`requires\` and \`files\` give \`${clash}\` two digests` } };
     let guards = { ...untouched, ...required };
+    // Guards it found itself (a source it left as it was, by the plan's own
+    // digest): planned again on a fresh read, never carried as the caller's.
+    let inferred = [];
     const propose = guards => ask({ method: 'propose', ops, ...(files === undefined ? {} : { files }), ...(Object.keys(guards).length ? { requires: guards } : {}), texts: true });
     let planned = await propose(guards);
     if (!planned.ok) return planned;
@@ -797,10 +800,13 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // source stays its target, as `prepare` takes them.
     const named = new Set((Array.isArray(ops) ? ops : []).flatMap(o => (typeof o?.file === 'string' ? [o.file] : [])));
     const wrote = new Set(Object.keys(planned.ok.texts ?? {}).filter(path => path.endsWith('.contract') && !named.has(path)));
-    if (wrote.size && (Array.isArray(ops) ? ops : []).some(o => typeof o?.file !== 'string' && /^(un)?set-state$/.test(o?.op))) {
+    if (wrote.size && (Array.isArray(ops) ? ops : []).some(o => typeof o?.file !== 'string' && contractOp(o))) {
       for (const path of contracts) if (!wrote.has(path) && !named.has(path)) touched.delete(path);
-      const more = Object.fromEntries(Object.entries(files ?? {}).filter(([path]) => !touched.has(path) && !(path in guards)));
+      // Each source it was planned on and left as it was guards it, the
+      // caller's digest or the plan's own when the caller gave none.
+      const more = Object.fromEntries(Object.entries({ ...(planned.ok.files ?? {}), ...(files ?? {}) }).filter(([path]) => path.endsWith('.contract') && !touched.has(path) && !(path in guards)));
       if (Object.keys(more).length) {
+        inferred = Object.keys(more).filter(path => !(path in (files ?? {})));
         guards = { ...guards, ...more };
         planned = await propose(guards);
         if (!planned.ok) return planned;
@@ -812,7 +818,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const expires = Date.now() + HOLD_MS;
     // The operations by index, as `accept`'s items name them.
     const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), ops: ops.map((op, index) => ({ index, op })), ...(replaces ? { replaces } : {}), ...(review ? { review } : {}) };
-    proposals.set(id, { client, ops, base, guards, expires, shown }); heldRevision++;
+    proposals.set(id, { client, ops, base, guards, inferred, expires, shown }); heldRevision++;
     // At most 64 held: the oldest goes.
     while (proposals.size > HELD) forget(proposals.keys().next().value, { client: null, reason: 'too many held' });
     send({ event: 'proposal', seq: ++seq, epoch, ...shown });
@@ -862,7 +868,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (reverted) review.revert = { ...review.revert, only: ops.map(revertKey) };
       // Its guards stay its guards: a part, or one planned again on files
       // moved since, checks what the whole was planned on.
-      try { fresh = await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review, reverted ? undefined : p.guards); } catch (e) { restore(id, p); throw e; }
+      const own = Object.fromEntries(Object.entries(p.guards).filter(([path]) => !(p.inferred ?? []).includes(path)));
+      try { fresh = await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review, reverted ? undefined : own); } catch (e) { restore(id, p); throw e; }
       if (reverted && fresh.error?.conflict) return replan(review.revert.only);
       return replaced(fresh);
     };
@@ -949,7 +956,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     }
     const short = c.ok.commit.slice(0, 12);
     if (conflicts.length) {
-      const named = conflicts.map(x => `${x.file}${x.edit ? ` ${x.edit.name}${x.edit.what === 'state' ? ` :${x.edit.state} ${x.edit.row}` : ''}${x.edit.when.length ? ` when ${x.edit.when.map(w => `${w.axis}=${w.value}`).join(' ')}` : ''}` : ''}: ${x.why}`);
+      const named = conflicts.map(x => `${x.file}${x.edit ? ` ${x.edit.name}${x.edit.what === 'state' ? ` :${x.edit.state} ${x.edit.row}` : x.edit.what === 'row' ? ` ${x.edit.row}` : ''}${x.edit.when.length ? ` when ${x.edit.when.map(w => `${w.axis}=${w.value}`).join(' ')}` : ''}` : ''}: ${x.why}`);
       return { status: 409, error: { message: `revert of ${short} refused: ${named.join('; ')}`, refused: conflicts } };
     }
     // Only Contract code (no state row) is no design change.
@@ -1268,13 +1275,20 @@ export async function op(argv) {
   return res.ok ? 0 : 1;
 }
 
+/** Whether an operation writes the app's own Contract, with no `file`
+ * when one file declares its style or component (stage 8 D's state ops,
+ * stage 9 D's `set-row`, `add-param` and `remove-param`). */
+const contractOp = o => /^((un)?set-state|set-row|add-param|remove-param)$/.test(o?.op ?? '');
+
 /** What a revert's operation or edit is to: its file, the token, dial or
  * axis, and the `when` (conditions in any order), so a selection of a
  * revert's items is the same edits when it is planned again. */
 const whenKey = when => JSON.stringify([...(when ?? [])].map(c => `${c.axis}=${c.value}`).sort());
-// A state part's row is its style's, by state and row (stage 8 D).
-const editKey = (file, e) => `${file}\0${e.what}\0${e.name}${e.what === 'state' ? `\0${e.state}\0${e.row}` : ''}\0${whenKey(e.when)}`;
-const revertKey = o => /^(un)?set-state$/.test(o.op) ? editKey(o.file, { what: 'state', name: o.style, state: o.state, row: o.row, when: [] }) : editKey(o.file, {
+// A state part's row is its style's, by state and row (stage 8 D); a
+// style's own row by row (stage 9 D2).
+const editKey = (file, e) => `${file}\0${e.what}\0${e.name}${e.what === 'state' ? `\0${e.state}\0${e.row}` : e.what === 'row' ? `\0${e.row}` : ''}\0${whenKey(e.when)}`;
+const revertKey = o => /^(un)?set-state$/.test(o.op) ? editKey(o.file, { what: 'state', name: o.style, state: o.state, row: o.row, when: [] })
+  : o.op === 'set-row' ? editKey(o.file, { what: 'row', name: o.style, row: o.row, when: [] }) : editKey(o.file, {
   what: o.op === 'set-dial' ? 'dial' : /axis/.test(o.op) ? 'axis' : 'token',
   name: o.op === 'add-axis' ? o.name : o.axis ?? o.name,
   // An axis's values each their own item, as a token's `when`s are.

@@ -402,7 +402,9 @@ test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on
     assert.equal(clean.status, 0, clean.stdout + clean.stderr);
     assert.equal(clean.lines[0], `server: bun server.ts at http://127.0.0.1:${port}, on an empty database (.exact/verify/db.sqlite, removed after)`, clean.stdout);
     assert.ok(clean.lines.includes('tests: 1 passed, 0 failed'), clean.stdout);
-    assert.match(clean.stdout, /^relaunch on .*: the first screen shows what it stored: /m);
+    // The rest pattern's test ends on an empty list as Grace: the relaunch holds its persona, not new rows.
+    assert.match(clean.stdout, /^relaunch on .*: its state holds what the test left/m);
+    assert.doesNotMatch(clean.stdout, /^ +lost /m);
     assert.ok(readFileSync(resolve(dir, 'data.db')).equals(before), 'the builder\'s data.db is as it was');
     assert.deepEqual(['data.db-wal', '.exact/verify/db.sqlite'].filter((f) => existsSync(resolve(dir, f))), []);
     // LLP 1116.007 D2: `test` runs the same server on the same terms (it was the builder's to start, and `api-test`'s to know),

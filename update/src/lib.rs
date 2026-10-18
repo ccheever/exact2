@@ -54,7 +54,7 @@
 pub mod binary;
 pub mod client;
 pub mod envelope;
-mod gpu;
+pub mod gpu;
 pub mod store;
 pub use gpu::code_digest as gpu_code_digest;
 

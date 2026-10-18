@@ -52,6 +52,22 @@ pub(crate) fn drawn(w: &World, e: Entity) -> Option<glam::Affine3A> {
 pub(crate) fn pose(w: &World, e: Entity) -> Option<Transform> {
     drawn(w, e).map(decompose)
 }
+// Roots use their authored quaternion and signed scale in the opaque buffers.
+// Decomposing even an unparented affine can move a reflection into the rotation.
+pub(crate) fn primitive_endpoint(
+    w: &World,
+    e: Entity,
+    global: impl FnOnce() -> Option<glam::Affine3A>,
+) -> Option<Transform> {
+    if !w.has::<Parent>(e) && !w.has::<exact_game::Offset>(e) {
+        w.get::<Transform>(e).map(|t| *t)
+    } else {
+        global().map(decompose)
+    }
+}
+pub(crate) fn primitive_pose(w: &World, e: Entity) -> Option<Transform> {
+    primitive_endpoint(w, e, || drawn(w, e))
+}
 // Shared by direct reads and feed rows that already know no offsets exist.
 pub(super) fn decompose(global: glam::Affine3A) -> Transform {
     let (scale, rotation, position) = global.to_scale_rotation_translation();
