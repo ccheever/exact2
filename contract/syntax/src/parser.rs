@@ -14,6 +14,8 @@ mod expr;
 mod keyframes;
 mod media_session;
 mod midi;
+mod migration;
+pub(crate) use migration::parsed_with_edits;
 mod names;
 mod params;
 mod parts;
@@ -68,59 +70,18 @@ pub fn parse_source(src: &str, source_id: u32) -> Result<File, SyntaxError> {
     parse_source_all(src, source_id).map_err(|mut all| all.swap_remove(0))
 }
 
-/// Parse a file and report every refusal (at most [`MAX_REFUSALS`]): each
+/// Parse a file and report every refusal (at most [`MAX_REFUSALS`], except
+/// retired spellings, which are all reported): each
 /// line that does not lex, else each top-level declaration that does not
 /// parse — a refused declaration is skipped to the next line that starts in
 /// the first column, and parsing goes on from there.
 pub fn parse_source_all(src: &str, source_id: u32) -> Result<File, Vec<SyntaxError>> {
-    let (tokens, lexed) = Lexer::tokenize_recovering(
-        src,
-        Span {
-            source_id,
-            ..Span::point(1, 1)
-        },
-    );
-    let mut p = Parser {
-        tokens,
-        pos: 0,
-        names: NameSpans::default(),
-        depth: 0,
-        view_depth: 0,
-        last: 0,
-        free: Vec::new(),
-        methods: Vec::new(),
-    };
-    let parsed = p.file_all();
-    if lexed.is_empty() {
-        return parsed;
-    }
-    // A line the lexer refused parses as whatever it managed: not news.
-    let bad: Vec<u32> = lexed.iter().map(|e| e.span.line).collect();
-    let mut all: Vec<SyntaxError> = lexed.into_iter().map(SyntaxError::from).collect();
-    all.extend(
-        parsed
-            .err()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|e| !bad.contains(&e.span.line)),
-    );
-    all.sort_by_key(|e| (e.span.line, e.span.col));
-    all.truncate(MAX_REFUSALS);
-    Err(all)
+    parsed_with_edits(src, source_id).0
 }
 
 /// Parse lexer output and return its unchanged tokens for source-preserving tools.
 pub(crate) fn parse_tokens(tokens: Vec<Token>) -> Result<(File, Vec<Token>), SyntaxError> {
-    let mut p = Parser {
-        tokens,
-        pos: 0,
-        names: NameSpans::default(),
-        depth: 0,
-        view_depth: 0,
-        last: 0,
-        free: Vec::new(),
-        methods: Vec::new(),
-    };
+    let mut p = Parser::new(tokens);
     let file = p.file()?;
     Ok((file, p.tokens))
 }
@@ -137,7 +98,9 @@ struct Parser {
     /// Free calls of a method's name (`trim(s)`), each with its refusal: refused
     /// at the end of the file unless the file declares a `fn`, shape or action
     /// of that name (LLP 1116.015 D2).
-    free: Vec<(String, SyntaxError)>,
+    free: Vec<(String, SyntaxError, Vec<crate::migrate::Edit>)>,
+    retired: Vec<SyntaxError>,
+    edits: Vec<crate::migrate::Edit>,
     /// Method calls (`s.trim()`, `xs.length`): refused at the end of the file
     /// when it declares a `fn`, shape or action of that name, which the
     /// rewritten call would reach where TypeScript's method never would
@@ -337,11 +300,13 @@ impl Parser {
                                 .any(|c| c.actions.iter().any(|a| a.name == name))
                     };
                     let free = std::mem::take(&mut self.free);
-                    errors.extend(
-                        free.into_iter()
-                            .filter(|(n, _)| !declared(n))
-                            .map(|(_, e)| e),
-                    );
+                    for (name, error, edits) in free {
+                        if !declared(&name) {
+                            errors.push(error);
+                            self.edits.extend(edits);
+                        }
+                    }
+                    errors.append(&mut self.retired);
                     let methods = std::mem::take(&mut self.methods);
                     errors.extend(methods.into_iter().filter(|(n, _)| declared(n)).map(|(n, span)| {
                         let call = if n == "length" { ".length".to_string() } else { format!(".{n}(…)") };
@@ -358,7 +323,9 @@ impl Parser {
                         return Ok(file);
                     }
                     errors.sort_by_key(|e| (e.span.line, e.span.col));
-                    errors.truncate(MAX_REFUSALS);
+                    if !errors.iter().any(|e| crate::migrate::is_retired(e.id)) {
+                        errors.truncate(MAX_REFUSALS);
+                    }
                     return Err(errors);
                 }
                 Err(e) => {
@@ -750,13 +717,19 @@ impl Parser {
             }
             // @ref LLP 1116.015 D2 — a list type is `T[]`.
             "list" if self.at_punct("<") => {
-                self.next();
+                let open = self.next().span;
                 let inner = self.type_expr()?;
-                return Err(SyntaxError {
+                let close = self.expect_punct(">")?;
+                self.edits.push(crate::migrate::Edit::new(span, span, ""));
+                self.edits.push(crate::migrate::Edit::new(open, open, ""));
+                self.edits
+                    .push(crate::migrate::Edit::new(close, close, "[]"));
+                self.retired.push(SyntaxError {
                     id: "syntax-list-type",
                     message: format!("write `{inner}[]`: a list type is `T[]`, as in TypeScript"),
                     span,
                 });
+                TypeExpr::List(Box::new(inner), span)
             }
             _ => TypeExpr::Named(name, span),
         };
@@ -1274,8 +1247,14 @@ impl Parser {
             "if" => self.node_if(span),
             "for" => self.node_for(span),
             // @ref LLP 1116.015 D1 — the view's former words, refused with the edit.
-            "when" => self.err("syntax-view-keyword", "a view chooses with `if`: write `if <condition>`, and `else if` for `else when`"),
-            "each" => self.err("syntax-view-keyword", "a view repeats with `for`: write `for x in xs key=x.id`"),
+            "when" => {
+                self.retired_view(span, "if");
+                self.node_if(span)
+            }
+            "each" => {
+                self.retired_view(span, "for");
+                self.node_for(span)
+            }
             "match" => self.node_match(span),
             "else" | "case" => self.err(
                 "syntax-stray-keyword",

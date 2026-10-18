@@ -567,7 +567,8 @@ Mutation sources throw `refused(why)`. The compiler emits mutation source names
 from the plan; the Snapback bake constrains their bool `ok` result fields to
 `true` through TypeScript, so returned failures are refused with that rewrite. The refusal’s
 code and message remain separate, including in the web agent’s mutation failures.
-Roster scaffolds write explicit-id seed rows for `insert <- deny` tables and use
+Roster scaffolds write explicit-id seed rows for `insert <- deny` tables (including
+the default deny when no `insert` rule is present) and use
 `fresh "seed.json"`; unsupported field types require an authored backend seed.
 A failed unseeded test with authorization refusals names that repair. The driver
 warns when its epoch and a development backend’s clock differ by more than a day.
@@ -575,6 +576,18 @@ Healthy rebuilds name resolved virtual mounts on one line. The README retest
 command runs every complete documented app twice against a selected registry;
 only a successful run publishes the pin, dated claims and input-hashed receipt.
 The checker refuses a version edit or changed tested source without that rerun.
+
+**EX10 amendment (Charlie’s wave-15 W1–W12/H6 task, 2026-10-18; implementer Codex):**
+The author explicitly requests the dialect migrator and upgrade note as an exception
+to the pre-1.0 rule against migration paths. `contract migrate` applies parser-backed
+edits for retired syntax; builds report those spellings together, and
+`--json --errors-only` filters advisory warnings. Apps expose `lock`, while `update`
+reports stale locks. Backend diagnostics name the selected origin and its source;
+a bake warns when a saved origin shadows an edited literal. Tests assert expected
+mutation refusals explicitly; other refusals remain wiring problems. Roster seed
+inference runs within scaffold rollback. Guest sessions require logout before account
+sign-in, and secret keys use the grant grammar. No runtime compatibility dialect or
+new blocking check is introduced.
 
 ### D13. `fresh`: a test file empties the backend before each test
 

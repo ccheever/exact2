@@ -342,14 +342,15 @@ pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError>
         .map(|(plan, _)| plan)
         .map_err(first)
 }
-/// At most this many diagnostics from one compile.
+/// At most this many diagnostics from one compile, except retired spellings.
 pub const MAX_DIAGNOSTICS: usize = 20;
 /// Compile a file by path, as [`compile_path`] does, and report every
 /// independent refusal rather than the first: within a pass each
 /// declaration, statement, element and attribute is checked whatever its
 /// neighbours' fate, a misspelled or mistyped call site comes before what
 /// it broke, and a pass runs only when the ones before it succeeded. At
-/// most [`MAX_DIAGNOSTICS`]. `mapped` also returns the development map.
+/// most [`MAX_DIAGNOSTICS`], except retired spellings, which are all reported.
+/// `mapped` also returns the development map.
 pub fn compile_path_all(
     path: &Path,
     mapped: bool,

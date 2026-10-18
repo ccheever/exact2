@@ -1114,7 +1114,7 @@ fn bake_in(
     let (compiled, warned) =
         contract::compile_path_all_with_warnings(&app.join("app.contract"), development);
     // Each from the app's directory, as `contract build app.contract` there names it.
-    let warnings = warned
+    let mut warnings: Vec<String> = warned
         .into_iter()
         .map(|mut warning| {
             if let Some(file) = warning
@@ -1199,6 +1199,13 @@ fn bake_in(
     } else {
         compile_once(stage, tools)?;
         compile_bytecode(stage, &tools.hermesc)?;
+    }
+    if let Ok(bytes) = std::fs::read(stage.join("__exact_backend_warning.json")) {
+        if let Some(warning) =
+            serde_json::from_slice::<Option<String>>(&bytes).map_err(|e| e.to_string())?
+        {
+            warnings.push(warning);
+        }
     }
     let script = std::fs::read(stage.join("app.js")).map_err(|e| e.to_string())?;
     let bytecode = std::fs::read(stage.join("app.hbc")).map_err(|e| e.to_string())?;

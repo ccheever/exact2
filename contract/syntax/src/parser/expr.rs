@@ -332,10 +332,12 @@ impl Parser {
                 }),
                 _ => {
                     if self.eat_punct("(") {
+                        let start = self.pos - 2;
                         let args = self.call_args()?;
                         if (crate::idioms::is_method(&w) || w == "length") && !args.is_empty() {
                             let message = crate::idioms::method_form(&w, &args);
-                            self.free.push((w.clone(), SyntaxError { id: "syntax-method-form", message, span }));
+                            let edits = self.method_edits(start, &w, args.len());
+                            self.free.push((w.clone(), SyntaxError { id: "syntax-method-form", message, span }, edits));
                         }
                         self.built(self.last, span)?;
                         Ok(Expr::Call(w, args, span))
@@ -474,9 +476,13 @@ impl Parser {
                 last: 0,
                 free: Vec::new(),
                 methods: Vec::new(),
+                retired: Vec::new(),
+                edits: Vec::new(),
             };
             let e = sub.expr()?;
             self.free.append(&mut sub.free);
+            self.retired.append(&mut sub.retired);
+            self.edits.append(&mut sub.edits);
             self.methods.append(&mut sub.methods);
             deepest = deepest.max(sub.last);
             if !matches!(sub.peek_kind(), TokenKind::Newline | TokenKind::Eof) {

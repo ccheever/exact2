@@ -548,6 +548,7 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
               | "screenshot" STRING NL
               | "expect" "tree" ( "has" | "missing" ) STRING NL
               | "expect" ( "disabled" | "enabled" ) STRING NL  (* a control's `disabled` (LLP 1116.010 D3) *)
+              | "expect" "refusal" STRING NL          (* one observed refusal of the named mutation slot *)
               | "expect" "text" STRING "==" STRING NL
               | "expect" "state" IDENT { "." ( IDENT | NUMBER ) } "==" test-value NL
               | "expect" "sound" ( "has" | "missing" ) STRING
@@ -560,6 +561,12 @@ json          = "{" [ STRING ":" json { "," STRING ":" json } ] "}"   (* strict 
               | "[" [ json { "," json } ] "]"                         (* trailing comma; brackets may *)
               | STRING | [ "-" ] NUMBER | "true" | "false" | "null" ; (* span lines *)
 ```
+
+`expect refusal "saved"` names a mutation slot, after `clock data` or `clock settle`
+lands its send. It asserts one observed refusal since the previous such assertion for
+that slot. Verify accepts that observed failure; other refusals remain findings. A refused
+send keeps the slot's prior value and skips its `then`; assert the rendered failure code
+or message as well.
 
 Targets are driver test ids. `expect disabled "send"` (`enabled`) reads the control's
 `disabled`, which every host's tree carries (LLP 1116.010 D3). A `tap` on a disabled control

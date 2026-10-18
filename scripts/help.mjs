@@ -42,7 +42,7 @@ const DRIVE = [
   ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
   ['--world <file> · --open <file>', 'a game: a saved world to load · macOS: a document on its command line'],
-  ['--family <name> · --mode fullColor|accented|vibrant · --scheme light|dark · --size large|xxxl · --props <json>', 'widget only: variant and props'],
+  ['--family <name> · --mode fullColor|accented|vibrant · --scheme light|dark · --props <json>', 'widget only: variant and props; --size large|xxxl is its text size'],
   ['--json', 'one compact JSON object per op reply, one per line (default: short text)'],
 ];
 const TEST_IGNORES = ['--timing <v>', '--world <file>', '--open <file>', '--json', '--family <name>', '--mode <name>', '--scheme <name>', '--props <json>'];
@@ -127,8 +127,9 @@ store, after its first data has landed; its leading lines (size, epoch, fail fet
 override flags.
 Server   runs server.ts on DB=.exact/test/db.sqlite; refuses a live server or an entry ignoring DB.
 Runs     to completion, exit 1 when a test fails; nothing is left running.
-Backend  start snapback4 dev on app.ts’s origin’s port; checked before launch. EXACT_PORT is the page’s.
-Lines    tap, type, expect text|tree|state|disabled, clock data|settle|+<ms>, reload, back, fail|pass
+Backend  test web never starts a Snapback backend: start snapback4 dev on app.ts’s selected origin’s port
+         first; checked before launch. The app's own server.ts is managed as above. EXACT_PORT is the page’s.
+Lines    tap, type, expect text|tree|state|disabled|refusal, clock data|settle|+<ms>, reload, back, fail|pass
          fetch, request <METHOD> "/path" [json] [as <persona>] [expect <status>]: docs/recipes/tests.md;
          all: docs/contract-grammar.md "Authored tests".`,
     bodyAll: `A phone's build is ios --device's.
@@ -381,11 +382,11 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
     example: 'bun exact.mjs shells',
   },
   lock: {
-    line: 'fetch (the network), resolve Cargo.lock again and print what changed',
+    line: 'refresh the app or game Cargo.lock against this Exact checkout',
     usage: 'bun exact.mjs lock',
     flags: [],
     internal: ['--lock'],
-    body: 'When a build says exact2 moved since the lock was captured, or after adding a dependency;\nbuilds never change the lock.\nPorts    none. Runs to completion.',
+    body: 'Use after exact update reports app lock drift, after this checkout moves or after adding a dependency.\nApps preserve locked versions where possible, resolve offline first and fetch missing dependencies when needed; games fetch and recapture their lock. Builds never change the lock.\nPorts    none. Runs to completion.',
     example: 'bun exact.mjs lock',
   },
   windows: {

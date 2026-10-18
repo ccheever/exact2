@@ -431,17 +431,28 @@ const NOTE_ADVICE = '  a saved value must survive a reload; a game or a draft in
 /** A line of the journal or the host's output that says the host refused what the app asked (LLP 1116.010 D5), with the
  * journal's `t=N` and the host's `app: exact: ` taken off. A refusal the app's own rule makes when a person tries (a
  * dismissal its `closedby` refuses, a Back its control disables) and a connection a `fail fetch` refused are the app's design. */
-export function refusalsOf({ lines = [], host = [] } = {}) {
-  const found = [];
-  for (const raw of [...lines, ...host]) {
-    const line = String(raw).replace(/^t=\d+(?:\.\d+)?\s+/, '').replace(/^(?:app|console\.\w+|chrome|warning|error): /, '').replace(/^exact: /, '').trim();
+export function refusalsOf({ lines = [], host = [] } = {}, expected = []) {
+  const found = [], journal = new Map(), accepted = new Map();
+  for (const line of expected) accepted.set(line,(accepted.get(line) ?? 0)+1);
+  const normalized = raw => String(raw).replace(/^t=\d+(?:\.\d+)?\s+/, '').replace(/^(?:app|console\.\w+|chrome|warning|error): /, '').replace(/^exact: /, '').trim();
+  const collect = line => {
     if (/\brefus(?:ed|es|al)\b/i.test(line) && !/\b(?:dismissal|back|back gesture|drag) refused\b|connection[ _]refused/i.test(line) && !found.includes(line)) found.push(line);
+  };
+  for (const raw of lines) {
+    const line=normalized(raw), count=accepted.get(String(raw)) ?? 0;
+    journal.set(line,(journal.get(line) ?? 0)+1);
+    if (count) accepted.set(String(raw),count-1); else collect(line);
+  }
+  // A native host can also print its journal; that mirror is one event.
+  for (const raw of host) {
+    const line=normalized(raw), mirrors=journal.get(line) ?? 0;
+    if (mirrors) journal.set(line,mirrors-1); else collect(line);
   }
   return found;
 }
 
 /** A session's refusals so far (`refusalsOf` its `logs`). */
-const refusalsIn = async (s) => refusalsOf(await s.logs().catch(() => ({})));
+const refusalsIn = async (s, expected = []) => refusalsOf(await s.logs().catch(() => ({})), expected);
 
 /** The end screen reloaded where it stands (the test's `reload` step, run on the session; the web only), and what it
  * showed before and after compared (`judgeReload`): `finding` when a saved value came back different (`savedChanges`),
@@ -605,7 +616,7 @@ const testEnd = (host, shots, persisted) => async (s, t) => {
   const facts = await seen(s, state);
   const runs = await checkHere(s, { screen: t.name, sizes: host === 'web' ? WEB_SIZES : [null], shot, state });
   if (host === 'ios') scaledEnd(runs, t.size);
-  const refusals = await refusalsIn(s);
+  const refusals = await refusalsIn(s, t.expectedRefusals);
   const reloaded = await reloadEnd(s, t, persisted);
   const large = await largestText(s, t.name);
   // A web test runs on a page origin of its own (agent-test.mjs `launch`), and what it stored is that origin's: the relaunch opens it.

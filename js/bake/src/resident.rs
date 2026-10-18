@@ -275,12 +275,22 @@ mod tests {
         std::fs::create_dir(stage.0.join(".exact")).unwrap();
         write(".exact/backend-origin", "http://127.0.0.1:4412");
         assert!(resident().unwrap().contains("4412"));
+        let warning = || {
+            serde_json::from_str::<Option<String>>(
+                &std::fs::read_to_string(stage.0.join("__exact_backend_warning.json")).unwrap(),
+            )
+            .unwrap()
+        };
+        assert!(warning()
+            .unwrap()
+            .contains("overriding the app.ts origin literal"));
         compile_once(&stage.0, &tools).unwrap();
         assert!(std::fs::read_to_string(stage.0.join("app.js"))
             .unwrap()
             .contains("4412"));
         std::fs::remove_file(stage.0.join(".exact/backend-origin")).unwrap();
         assert!(resident().unwrap().contains("4400"));
+        assert_eq!(warning(), None);
         compile_once(&stage.0, &tools).unwrap();
         assert!(std::fs::read_to_string(stage.0.join("app.js"))
             .unwrap()

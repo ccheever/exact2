@@ -164,9 +164,9 @@ test('a web test run asks the backend its app fetches first', async () => {
     mkdirSync(resolve(dist, 'assets'));
     writeFileSync(resolve(dist, 'assets/snapback4.wasm'), wasm);
     writeFileSync(resolve(dist, 'assets/snapback4.wasm.json'), JSON.stringify({engineVersion: engineVersion(), sha256: deviceHash(wasm)}));
-    await expect(backendPreflight(snapback, dist)).rejects.toThrow(`no backend at ${down}: nothing listens there`);
+    await expect(backendPreflight(snapback, dist)).rejects.toThrow(`no backend at ${down} (source: built net.fetch grant (rebuild after changing the backend selection)): nothing listens there`);
     await backendPreflight({ manifest: {} }, dist, (line) => said.push(line));
-    expect(said).toEqual([`note: no backend at ${down}: nothing listens there, and app.ts fetches it (a net.fetch grant); a test that loads from it fails`]);
+    expect(said).toEqual([`note: no backend at ${down} (source: built net.fetch grant): nothing listens there, and app.ts fetches it (a net.fetch grant); a test that loads from it fails`]);
     grants(`net.fetch ${up}`);
     await backendPreflight(snapback, dist);
     expect(loopbackOrigins(resolve(dist, 'none'))).toEqual([]);
@@ -547,4 +547,30 @@ test('widget addresses occupy the command word and accept only strict reads or a
   await widgetStep(session, {entry:'next-trains'}, 'clock +60000');
   expect(calls).toEqual([{op:'state', widget:{entry:'next-trains'}, availability:true}, '+60000', '+60000']);
   expect((await widgetStep(session, {entry:'next-trains'}, 'screenshot a.png'))[1].path).toBe(resolve('a.png'));
+});
+
+test('backend diagnostics name the selected source and warn when a saved selection shadows the literal', async () => {
+  const {backendOriginSelection, backendOriginWarning} = await import('../js/bake/src/typescript.mjs');
+  const {backendOriginSource, resetBackends} = await import('./agent-test.mjs');
+  const {parseSync} = await import('rolldown/utils');
+  const dir=mkdtempSync(resolve(tmpdir(),'exact-origin-source-'));
+  const literal='http://127.0.0.1:1', saved='http://127.0.0.1:2', explicit='http://127.0.0.1:3';
+  const code=`const origin = '${literal}';`;
+  try {
+    writeFileSync(resolve(dir,'app.ts'),code);
+    expect(backendOriginSelection(dir,{})).toBe(null);
+    expect(backendOriginSource(dir,literal,{})).toBe('app.ts origin literal');
+    mkdirSync(resolve(dir,'.exact'));
+    writeFileSync(resolve(dir,'.exact/backend-origin'),saved);
+    const selection=backendOriginSelection(dir,{});
+    expect(selection).toEqual({origin:saved,source:'.exact/backend-origin'});
+    expect(backendOriginSource(dir,saved,{})).toBe('.exact/backend-origin');
+    expect(backendOriginSource(dir,explicit,{EXACT_BACKEND_ORIGIN:explicit})).toBe('EXACT_BACKEND_ORIGIN');
+    expect(backendOriginSource(dir,'http://127.0.0.1:4',{})).toContain('rebuild');
+    expect(backendOriginWarning(code,selection,parseSync)).toContain(`overriding the app.ts origin literal "${literal}"`);
+    expect(backendOriginWarning(`const origin = '${saved}/';`,selection,parseSync)).toBe(null);
+    expect(backendOriginWarning(code,backendOriginSelection(dir,{EXACT_BACKEND_ORIGIN:explicit}),parseSync)).toBe(null);
+    rmSync(resolve(dir,'.exact/backend-origin'));
+    await expect(resetBackends([literal],null,1000,{dir})).rejects.toThrow('(source: app.ts origin literal)');
+  } finally { rmSync(dir,{recursive:true,force:true}); }
 });

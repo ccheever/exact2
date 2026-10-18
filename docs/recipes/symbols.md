@@ -32,9 +32,8 @@ The roles: `add`, `close`, `back`, `forward-chevron`, `chooser`, `compose`, `pen
 `hashtag`, `notifications`, `calendar`, `chart`, `activity`, `book`, `document`,
 `layers`, `photo`, `camera`, `microphone`, `waveform`, `speaker`, `speaker-mute`,
 `play`, `pause`, `stop`, `skip-back-15`, `skip-forward-15`, `repeat`, `reorder` (a drag handle),
-`sparkles`, `moon`, and more `-fill`s (`home-fill`, `person-fill`, `play-fill`…). An
-unknown role is refused with the full list. A role also answers to its SF Symbols name and
-common aliases (`gearshape`, `gear`, `trash`, `chevron-right`, `checkmark.circle.fill`): it builds as
+`sparkles`, `moon`, and more `-fill`s (`home-fill`, `person-fill`, `play-fill`…). Unknown literals fail the build; computed sources are checked at runtime.
+`contract vocab symbol` lists roles. A role also takes SF Symbols names and aliases (`gearshape`, `gear`, `trash`, `chevron-right`, `checkmark.circle.fill`): it builds as
 the role, with a warning that names it (`lower-symbol-alias`).
 
 - A role draws everywhere; `sf/<name>` on Apple only. Else add an icon token to
@@ -47,5 +46,5 @@ the role, with a warning that names it (`lower-symbol-alias`).
   A `color` written on the symbol is its colour, as `currentcolor` paints an icon on the
   web; a row's trailing `forward-chevron` is already the platform's grey.
   Emoji aren't icons: they ignore the tint, the weight and the theme.
-- A symbol takes its text's size. To size one, give it a text style (`-exact-title1`), as
-  UIKit configures a symbol: it grows with the reader's text size; a `width` does not.
+- A symbol takes its text's size. Use `font="-exact-title1"` to follow the reader's
+  text size; `width` does not size its glyph.
