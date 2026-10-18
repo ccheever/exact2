@@ -241,7 +241,9 @@ public final class HeadlessSession {
         // The callback refuses before shaping raw Markdown. Inspect unmeasured
         // nodes too (for example display:none) so boot never returns a partial tree.
         for id in changed {
-            guard let node = nodes[id], node.kind == "text" else { continue }
+            // A `time` is a paragraph the platform may draw live (LLP 1126 D6):
+            // its runs carry the font the kernel measured it in.
+            guard let node = nodes[id], node.kind == "text" || node.kind == "time" else { continue }
             var markdown: [ExactCore.Run]?
             if node.props["markup"] == "markdown" {
                 let source = TextStyle.run(node.props["text"] ?? node.inline.map(\.text).joined(),

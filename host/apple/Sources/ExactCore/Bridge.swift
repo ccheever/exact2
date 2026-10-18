@@ -235,9 +235,12 @@ package final class Runtime {
     /// Boot a snapshot entry's plan by its kind (LLP 1126 D2): the headless
     /// session's boot, which a running host's `bootPlan` refuses.
     package func bootEntry(_ bytes: Data, kind: String, width: CGFloat, height: CGFloat) -> Batch {
-        // WP4 supplies the entry admission and Rust ABI on its rebase.
-        Batch(ops: [], timers: false, motion: false, clock: nil,
-              error: "snapshot entry \(kind) requires WP4's exact_boot_entry ABI")
+        let batch = on { () -> Batch in
+            let kindBytes = Data(kind.utf8)
+            _ = write(bytes + kindBytes)
+            return read(exact_boot_entry(rt, bytes.count, kindBytes.count, Float(width), Float(height)))
+        }
+        return islands(batch)
     }
     package func preparePlan(_ bytes: Data, width: CGFloat, height: CGFloat, token: UInt64 = 0) -> Batch {
         return on {

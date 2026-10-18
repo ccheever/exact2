@@ -16,10 +16,6 @@ import WidgetKit
 #endif
 
 #if canImport(WidgetKit)
-enum SnapshotStyleRows {
-    static func lineClamp(_ node: HeadlessSession.Node) -> Int { (node.style["line_clamp"] as? NSNumber)?.intValue ?? 0 }
-}
-
 @MainActor
 @available(iOS 17.0, macOS 14.0, visionOS 26.0, *)
 final class SnapshotDriverTests: XCTestCase {
@@ -243,13 +239,11 @@ final class SnapshotDriverTests: XCTestCase {
                 var lines = 0
                 for node in snapshot.nodes.values where node.kind == "text" {
                     let origin = try absoluteFrame(of: node, in: snapshot).origin
-                    let clamped = SnapshotStyleRows.lineClamp(node) > 0
-                    for (index, line) in node.lines.enumerated() where line.width > 8 {
+                    for line in node.lines where line.width > 8 {
                         let box = CGRect(x: origin.x + node.contentBox.minX + line.origin.x + family.content.minX, y: origin.y + node.contentBox.minY + line.origin.y - line.ascent + family.content.minY,
                                          width: line.width, height: line.ascent + line.descent)
-                        // A line outside the content region cannot be seen (XXXL overflows);
-                        // a clamp's last line is wider than its text until WP1 supplies the cut and "…".
-                        guard family.content.contains(box), !(clamped && index == node.lines.count - 1) else { continue }
+                        // A line outside the content region cannot be seen (XXXL overflows).
+                        guard family.content.contains(box) else { continue }
                         // Ink in the line's last fifth, none in the 6 pt past its end.
                         XCTAssertGreaterThan(try ink(image, in: CGRect(x: box.maxX - box.width / 5, y: box.minY, width: box.width / 5, height: box.height)), 0, "\(entry) \(type.name): \(line.text)")
                         XCTAssertEqual(try ink(image, in: CGRect(x: box.maxX + 2, y: box.minY, width: 4, height: box.height)), 0, "\(entry) \(type.name): past \(line.text)")
@@ -266,10 +260,8 @@ final class SnapshotDriverTests: XCTestCase {
     /// The bound on the mean 1x channel difference against the baseline,
     /// cropped to the content region, and the known exceptions: at XXXL
     /// SwiftUI drops lines to fit the height where CSS clamps to the
-    /// authored count (QUEUE: `line-clamp: auto`); the rectangular
-    /// placeholder's pills follow the kernel's lines; and until WP1
-    /// supplies a clamped line's cut and "…", the clamp's last line shows
-    /// as it broke (the `answered` cells).
+    /// authored count (QUEUE: `line-clamp: auto`), and the rectangular
+    /// placeholder's pills follow the kernel's lines.
     private func bound(_ name: String) -> Double {
         if name.contains("XXXL") { return 90 }
         if name.contains("rectangular-placeholder") { return 60 }
