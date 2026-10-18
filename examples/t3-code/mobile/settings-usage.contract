@@ -146,6 +146,9 @@ shape MobileUsageAccountData
   sourceTitle: string
   sourceItems: UsageAccountSource[]
   credits: string
+  hasCredits: bool
+  hasCreditBalance: bool
+  creditPermissionDenied: bool
   canRedeem: bool
   environmentId: string
   light: string
@@ -470,12 +473,16 @@ component SettingsUsageAccount
             text data.sourceTitle color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
             for item in data.sourceItems key=item.id
               text item.label color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
-          if data.credits.length > 0
-            column background-color=colors.grouped border-radius=24 padding=14 gap=7
-              text data.credits color=colors.muted font-size=roles.footnote.size
-              if data.canRedeem
-                button press=redeem(data.environmentId, data.key) min-height=44 border-radius=22 background-color=colors.subtle
-                  text "Use reset credit" color=colors.foreground font-size=roles.footnote.size font-weight=500
+          if data.hasCredits
+            column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" padding=14 gap=10.5
+              text "Reset credits" color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+              row flex-wrap="wrap" align-items="center" column-gap=10.5 row-gap=3.5
+                text data.credits flex-shrink=0 color=colors.tertiary font-size=roles.label.size line-height=`${roles.label.line}px` font-variant-numeric="tabular-nums"
+                if data.hasCreditBalance
+                  button appearance="none" press=redeem(data.environmentId, data.key) disabled=(not data.canRedeem) min-height=44 box-sizing="border-box" flex-shrink=0 display="flex" flex-direction="column" justify-content="center" padding-top=5.25 padding-bottom=5.25 padding-left=10.5 padding-right=10.5 border-radius=999 background-color=colors.subtleStrong opacity=(data.canRedeem ? 1 : 0.45) text-align="start"
+                    text "Use reset" color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+                if data.creditPermissionDenied
+                  text "This connection cannot manage provider accounts." flex-shrink=0 color=colors.tertiary font-size=roles.label.size line-height=`${roles.label.line}px`
 
 component UsageScroll
   props

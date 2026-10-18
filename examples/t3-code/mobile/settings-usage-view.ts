@@ -103,6 +103,7 @@ export function mobileUsageAccount(key:string,windowId:string,kind:string,now:nu
     windowLabel:window?.label??'',remaining:window?`${remainingPercent(window)}% left`:'',resets:window?.resetsAt?new Date(window.resetsAt).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}):'',restores:reset&&reset.restoresPercent>0?`Restores ${reset.restoresPercent}% of the pool`:'',
     sourceTitle:account?.environments.length?'Signed in':'Source',sourceItems:account?account.environments.length?account.environments.map(env=>({id:env.environmentId,label:env.label})):[{id:'source',label:account.sourceLabel??''}]:[],
     credits:credits?credits.availableCount===0?'No reset credits banked':`${credits.availableCount} ${credits.availableCount===1?'reset credit':'reset credits'} banked${credits.nextExpiresAt?` · next expires in ${formatDuration(Date.parse(credits.nextExpiresAt)-now)}`:''}`:'',
+    hasCredits:!!account?.redeem&&!!credits,hasCreditBalance:!!credits?.availableCount,creditPermissionDenied:!!account?.redeem&&!input?.sources.find(source=>source.id===account.redeem?.environmentId&&source.canManage),
     canRedeem:!!account?.redeem&&!!credits?.availableCount&&!!input?.sources.find(source=>source.id===account.redeem?.environmentId&&source.connected&&source.canManage),environmentId:account?.redeem?.environmentId??'',
     light:provider(pool?.driver??'').light,dark:provider(pool?.driver??'').dark};
 }
