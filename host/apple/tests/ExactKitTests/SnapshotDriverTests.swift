@@ -237,7 +237,8 @@ final class SnapshotDriverTests: XCTestCase {
             for type in Self.types {
                 let (image, snapshot) = try plain(session, family: family, environment: environment(family, type: type.size))
                 var lines = 0
-                for node in snapshot.nodes.values where node.kind == "text" {
+                // A live time's text is the platform's, not the kernel's lines.
+                for node in snapshot.nodes.values where node.kind == "text" && SnapshotLive.presentation(node, entryDate: .now) == nil {
                     let origin = try absoluteFrame(of: node, in: snapshot).origin
                     for line in node.lines where line.width > 8 {
                         let box = CGRect(x: origin.x + node.contentBox.minX + line.origin.x + family.content.minX, y: origin.y + node.contentBox.minY + line.origin.y - line.ascent + family.content.minY,
@@ -367,7 +368,8 @@ final class SnapshotDriverTests: XCTestCase {
         // (half the width) would still be above 230 there.
         let centre = try sample(strips[1], x: 0.5, y: 0.5), side = try sample(strips[1], x: 0.01, y: 0.5), top = try sample(strips[1], x: 0.5, y: 0.1)
         XCTAssertGreaterThan(centre[1], 200, "\(centre)"); XCTAssertLessThan(side[1], 110, "\(side)"); XCTAssertLessThan(top[1], 110, "\(top)")
-        // A length stop: the kernel places it; red up to 20 px, blue from 80%.
+        // Positioned stops: red up to 20%, blue from 80% (a length stop is the
+        // profile's to refuse: its order cannot be checked at the bake).
         let before = try sample(strips[2], x: 0.03, y: 0.5), after = try sample(strips[2], x: 0.97, y: 0.5)
         XCTAssertGreaterThan(before[0], 200, "\(before)"); XCTAssertGreaterThan(after[2], 200, "\(after)")
         // 45° on a wide box: colour is a function of the projection onto the
@@ -378,9 +380,9 @@ final class SnapshotDriverTests: XCTestCase {
         XCTAssertLessThan(abs(p1[0] - p2[0]) + abs(p1[2] - p2[2]), 24, "\(p1) \(p2)")
         let lowLeft = try sample(strips[3], x: 0.05, y: 0.9), highRight = try sample(strips[3], x: 0.95, y: 0.1)
         XCTAssertGreaterThan(lowLeft[0], highRight[0]); XCTAssertGreaterThan(highRight[2], lowLeft[2])
-        // Wide stops cross as a linear-sRGB ramp (LLP 1100 D2), read as such:
-        // the midpoint is brighter than an sRGB-space mix (128, 0, 128), and
-        // not the black a /255 reading of the floats would give.
+        // A ramp interpolated in srgb-linear crosses as linear floats (LLP
+        // 1100 D2), read as such: the midpoint is brighter than an sRGB-space
+        // mix (128, 0, 128), and not the black a /255 reading would give.
         let mid = try sample(strips[4], x: 0.5, y: 0.5)
         XCTAssertGreaterThan(mid[0], 140, "\(mid)"); XCTAssertGreaterThan(mid[2], 140, "\(mid)")
         // A dashed border: on the top edge, red in the first dash (3 widths),
