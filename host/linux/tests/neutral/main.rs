@@ -186,6 +186,7 @@ fn route_headers_keep_the_page_tree_and_take_the_neutral_defaults() {
 #[test]
 fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     exact_linux::app::show_neutral_look();
+    invalid_non_fields_keep_their_accent_ring();
     disabled_glass_and_invalid_fields_follow_the_neutral_look();
     let plan = contract::compile(APP).unwrap();
     let (mut p, error) = Presenter::boot_with(
@@ -1361,6 +1362,56 @@ fn disabled_glass_and_invalid_fields_follow_the_neutral_look() {
                 p.tap(id(&p, "change")).unwrap();
                 p.run_commands(<()>::default);
                 assert_eq!(pixel(&mut p, "field", 80.0, 1.0), valid, "valid again");
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+fn invalid_non_fields_keep_their_accent_ring() {
+    let mut failures = Vec::new();
+    for scheme in ["light", "dark"] {
+        for (tag, chrome) in [
+            ("link", ""),
+            ("link", "appearance=\"none\""),
+            ("button", "appearance=\"auto\""),
+            ("button", "appearance=\"none\""),
+        ] {
+            let source = format!(
+                r##"component App
+  state invalid = false
+  action change
+    invalid = !invalid
+  view
+    column width=300 height=240 padding=20 gap=10 align-items="flex-start" color-scheme="{scheme}"
+      button "Before" testId="before"
+      {tag} testId="control" tabindex=0 aria-invalid=(invalid ? "true" : "false") accent-color="#008800" width=160 height=40 {chrome}
+        text "Control"
+      button "Change validity" press=change testId="change"
+"##
+            );
+            let plan = contract::compile(&source).unwrap();
+            let (mut p, error) = Presenter::boot_with(
+                &plan.encode(),
+                (),
+                (300.0, 240.0),
+                1.0,
+                std::path::PathBuf::new(),
+                PainterChoice::Cpu,
+            )
+            .unwrap();
+            let _roles = p.host().runner().bind_roles();
+            assert!(error.is_none(), "{error:?}");
+            for invalid in [false, true, false] {
+                let before = id(&p, "before");
+                p.type_key(before, "Tab", "Tab", true, false).unwrap();
+                p.type_key(before, "Tab", "Tab", false, false).unwrap();
+                assert_eq!(p.focus(), Some(id(&p, "control")));
+                let ring = pixel(&mut p, "control", 80.0, 1.0);
+                if ring != [0, 136, 0] {
+                    failures.push(format!("{scheme} {tag} {chrome}, invalid={invalid}: ring {ring:?} is not the authored green accent"));
+                }
+                p.tap(id(&p, "change")).unwrap();
             }
         }
     }
