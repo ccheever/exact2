@@ -310,7 +310,8 @@ impl Pipelines {
             ],
         );
         // Group 1 of every forward pipeline: sun cascades, the comparison
-        // sampler and local light shadows (placeholders when absent).
+        // sampler, local light shadows (placeholders when absent) and the
+        // sampler that gathers cascade texels for receiver-plane filtering.
         let shadow_layout = layout(
             "game shadow sample",
             &[
@@ -325,6 +326,7 @@ impl Pipelines {
                     wgpu::TextureSampleType::Depth,
                     wgpu::TextureViewDimension::D2Array,
                 ),
+                sampler(3, wgpu::SamplerBindingType::NonFiltering),
             ],
         );
         let camera_layout = layout("game cascade camera", &[uniform]);
