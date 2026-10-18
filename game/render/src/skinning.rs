@@ -53,6 +53,10 @@ pub(crate) struct Skinning {
     pub(crate) pose_words: Vec<f32>,
     /// `pack`'s scratch: indices into a model's `nodes` that rows name.
     touched: Vec<usize>,
+    /// Per record, when its words are its rest pose in both halves except at
+    /// these nodes (the ones its rows composed at the last pack): a record
+    /// with no `Pose` then rewrites only those and the ones its rows name now.
+    rested: Vec<Option<Vec<usize>>>,
     jobs_words: Vec<u32>,
     // Each job's record, and the jobs dispatched (levels of detail not drawn
     // this frame skip theirs).
@@ -88,6 +92,7 @@ impl Skinning {
             generation: None,
             pose_words: vec![],
             touched: vec![],
+            rested: vec![],
             jobs_words: vec![],
             job_records: vec![],
             active_words: vec![],
@@ -203,10 +208,7 @@ impl Skinning {
                 model: model_id,
                 meta: self.metadata.len() as u32,
                 fresh: false,
-                words: 4
-                    + model.nodes.len() * 3
-                    + skin.joints.len()
-                    + skin.inverse_binds.len(),
+                words: 4 + model.nodes.len() * 3 + skin.joints.len() + skin.inverse_binds.len(),
                 rest: rest.clone(),
                 joints: skin.joints.len(),
                 rigid: index >= model.skins.len() && index < model.skins.len() + rigid.len(),
@@ -221,12 +223,8 @@ impl Skinning {
             self.metadata
                 .extend(skin.inverse_binds.iter().map(|v| v.to_bits()));
             // Each node's parent by node index, for the shader's walk to the root.
-            self.metadata.extend(
-                model
-                    .nodes
-                    .iter()
-                    .map(|n| n.parent.unwrap_or(u32::MAX)),
-            );
+            self.metadata
+                .extend(model.nodes.iter().map(|n| n.parent.unwrap_or(u32::MAX)));
         }
         self.reallocations += u64::from(self.meta.grow(
             device,
@@ -337,6 +335,7 @@ impl Skinning {
         records: &[DrawInstance],
     ) -> Result<(), RenderError> {
         self.records.clear();
+        self.rested.clear();
         self.spans.clear();
         self.offsets.clear();
         self.jobs_words.clear();
@@ -442,12 +441,14 @@ impl Skinning {
         let initial = initial || self.generation != Some(w.presentation_generation());
         if initial {
             self.primed.clear();
+            self.rested.clear();
         }
+        self.rested.resize(self.records.len(), None);
         self.generation = Some(w.presentation_generation());
         self.history.update(w, initial);
         self.assignments.update(w, initial);
         let mut offset = 0;
-        for &(record, template) in &self.records {
+        for (r, &(record, template)) in self.records.iter().enumerate() {
             let t = &self.templates[template];
             let len = t.rest.len();
             let e = entities[entities
@@ -479,23 +480,31 @@ impl Skinning {
                 initial || t.fresh || w.is_fresh(e),
                 self.history.pair(e, false)[1],
             );
-            for node in 0..len / 10 {
-                let at = node * 10;
-                let base = state.pair(
-                    node,
-                    [
-                        crate::node_poses::read(&prev[at..]),
-                        crate::node_poses::read(&curr[at..]),
-                    ],
-                );
-                crate::node_poses::put(
-                    &mut self.pose_words[offset + at..offset + at + 10],
-                    base[0],
-                );
-                crate::node_poses::put(
-                    &mut self.pose_words[offset + len + at..offset + len + at + 10],
-                    base[1],
-                );
+            // Without a pose, both endpoints of every node are its rest, and
+            // words already holding it stay (`rested`); a capture records the
+            // endpoints node by node.
+            let rested = !has_pose && !state.capturing() && !state.primed_now();
+            // A full rewrite (a pose, a capture) leaves no marker behind.
+            let kept = self.rested[r].take().filter(|_| rested);
+            if kept.is_none() {
+                for node in 0..len / 10 {
+                    let at = node * 10;
+                    let base = state.pair(
+                        node,
+                        [
+                            crate::node_poses::read(&prev[at..]),
+                            crate::node_poses::read(&curr[at..]),
+                        ],
+                    );
+                    crate::node_poses::put(
+                        &mut self.pose_words[offset + at..offset + at + 10],
+                        base[0],
+                    );
+                    crate::node_poses::put(
+                        &mut self.pose_words[offset + len + at..offset + len + at + 10],
+                        base[1],
+                    );
+                }
             }
             let pair = self.primed[i].2.rows(self.history.pair(e, false));
             let model = self.models[t.model].as_mut().expect("live pose model");
@@ -527,13 +536,30 @@ impl Skinning {
             }
             self.touched.sort_unstable();
             self.touched.dedup();
+            // Nodes composed at the last pack and not now go back to rest.
+            for &k in kept.iter().flatten() {
+                if self.touched.binary_search(&k).is_err() {
+                    let at = model.nodes[k].2 * 10;
+                    let rest = crate::node_poses::read(&t.rest[at..]);
+                    let at = offset + at;
+                    crate::node_poses::put(&mut self.pose_words[at..at + 10], rest);
+                    crate::node_poses::put(&mut self.pose_words[at + len..at + len + 10], rest);
+                }
+            }
             for &k in &self.touched {
                 let (hash, name, node) = &model.nodes[k];
                 let at = offset + node * 10;
-                let base = [
-                    crate::node_poses::read(&self.pose_words[at..]),
-                    crate::node_poses::read(&self.pose_words[at + len..]),
-                ];
+                let base = if kept.is_some() {
+                    let rest = crate::node_poses::read(&t.rest[node * 10..]);
+                    crate::node_poses::put(&mut self.pose_words[at..at + 10], rest);
+                    crate::node_poses::put(&mut self.pose_words[at + len..at + len + 10], rest);
+                    [rest; 2]
+                } else {
+                    [
+                        crate::node_poses::read(&self.pose_words[at..]),
+                        crate::node_poses::read(&self.pose_words[at + len..]),
+                    ]
+                };
                 if let Some(composed) = crate::node_poses::resolve_pair(base, pair, name, *hash) {
                     crate::node_poses::put(&mut self.pose_words[at..at + 10], composed[0]);
                     crate::node_poses::put(
@@ -552,6 +578,11 @@ impl Skinning {
                         "non-finite transform or nonpositive scale",
                     );
                 }
+            }
+            if rested {
+                let mut nodes = kept.unwrap_or_default();
+                nodes.clone_from(&self.touched);
+                self.rested[r] = Some(nodes);
             }
             offset += 2 * len;
         }

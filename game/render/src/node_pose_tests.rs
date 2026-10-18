@@ -667,3 +667,57 @@ fn retiring_models_reclaims_names_diagnostics_and_priming_but_keeps_hidden_live_
         .iter()
         .any(|p| (p.0, p.1) == (hidden, live_model)));
 }
+
+#[test]
+fn records_without_a_pose_rewrite_only_composed_nodes_as_a_full_pack_would() {
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    let model = crate::test_model::posable_model();
+    let mut sim = Sim::<Scene>::new(()).unwrap();
+    sim.run(50.);
+    let e = sim.world().named("actor").unwrap();
+    sim.world_mut().remove::<Animation>(e);
+    sim.world_mut().remove::<Pose>(e);
+    let (mut skin, _) = setup_skin(&gpu, &model, e);
+    let (mut full, _) = setup_skin(&gpu, &model, e);
+    for t in skin.templates.iter_mut().chain(&mut full.templates) {
+        t.fresh = false;
+    }
+    let mut kept = 0;
+    // Rows that come, change, go (step 2, 6) and fail to compose (step 5).
+    for step in 0..9 {
+        {
+            let mut gait = sim.world_mut().get_mut::<Gait>(e).unwrap();
+            gait.angle = 0.2 * step as f32;
+            gait.shown = step % 4 != 2;
+            gait.overflow = step == 5;
+        }
+        sim.run(17.);
+        kept += usize::from(skin.rested.first().is_some_and(Option::is_some));
+        skin.pack(sim.world(), &[e], false);
+        full.rested.clear();
+        full.pack(sim.world(), &[e], false);
+        assert_eq!(skin.pose_words, full.pose_words, "step {step}");
+    }
+    assert!(
+        kept >= 6,
+        "the rest of the record's words were kept {kept} times"
+    );
+    // A pose comes and goes: its nodes go back to rest with it.
+    let mut pose = Pose::default();
+    pose.previous = animation::bind_pose(&model);
+    pose.local = pose.previous.iter().map(|v| v + 0.5).collect();
+    for step in 0..4 {
+        if step == 0 {
+            sim.world_mut().insert(e, pose.clone());
+        } else if step == 2 {
+            sim.world_mut().remove::<Pose>(e);
+        }
+        sim.run(17.);
+        skin.pack(sim.world(), &[e], false);
+        full.rested.clear();
+        full.pack(sim.world(), &[e], false);
+        assert_eq!(skin.pose_words, full.pose_words, "posed step {step}");
+    }
+}

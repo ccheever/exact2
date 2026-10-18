@@ -27,19 +27,29 @@ impl Histories {
         if initial {
             self.rows.clear();
         }
+        // Rows and the query both ascend by entity index: one walk, not a
+        // component lookup per row.
+        let mut query = w.query::<&NodeOffsets>();
+        let mut offsets = query.iter().peekable();
         for row in &mut self.rows {
             if row.tick != w.tick() {
                 row.current = 1 - row.current;
             }
-            row.slots[row.current] = w
-                .get::<NodeOffsets>(row.entity)
-                .map(|o| *o)
-                .unwrap_or_default();
+            while offsets
+                .next_if(|(e, _)| e.index() < row.entity.index())
+                .is_some()
+            {}
+            row.slots[row.current] = match offsets.peek() {
+                Some((e, o)) if *e == row.entity => **o,
+                _ => NodeOffsets::default(),
+            };
             if w.is_fresh(row.entity) {
                 row.slots[1 - row.current] = row.slots[row.current];
             }
             row.tick = w.tick();
         }
+        drop(offsets);
+        drop(query);
         self.rows.retain(|r| {
             w.contains(r.entity)
                 && r.slots
@@ -269,6 +279,11 @@ impl Priming {
     }
     pub fn capturing(&self) -> bool {
         self.capture
+    }
+    /// Whether this tick's endpoints come from a capture ([`Self::pair`]
+    /// replaces the earlier one).
+    pub fn primed_now(&self) -> bool {
+        self.primed_tick == self.tick
     }
     pub fn captured(&mut self) {
         self.capture = false;
