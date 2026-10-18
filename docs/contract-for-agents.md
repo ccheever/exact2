@@ -981,7 +981,10 @@ answers `open` or a `message` (a subscribe, an Ack per frame), with no
 `fetch`. Sends run after the commit that settles the mutation or the frame
 stands, in order, and have bounded admission. The source must send and
 answer synchronously, and a mutation that sends cannot also `fetch`
-(whichever comes second refuses it). Refreshing or removing the
+(whichever comes second refuses it). A resource's answer may send its own
+request on its module's socket and await the reply, with no timer: what it
+sends goes out as it sends it, and stays sent if it is let go (on the web
+build, only from its source's synchronous call). Refreshing or removing the
 resource invalidates the old handle. **TypeScript on the web JS target,
 macOS, iOS and Linux**; the wasm target and Rust sources remain
 receive-only. See

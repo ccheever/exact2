@@ -6,10 +6,10 @@ import { webCompiler } from './module.mjs';
 
 // Uses the already-built exact-web-js compiler. The fixture and peer are
 // private to this test; all input goes through the ordinary browser driver.
-test('JS target socket mutations and mapper replies echo ordered frames and obey commits and resource lifetime', async () => {
+test('JS target socket mutations, mapper replies and answers echo ordered frames and obey commits and resource lifetime', async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/socket-test-'));
-  const received = [], connections = new Set(), acks = [], unowned = [];
+  const received = [], connections = new Set(), acks = [], unowned = [], asked = [];
   let counted = 0, ackedClosed = false;
   const peer = Bun.serve({ hostname: '127.0.0.1', port: 0,
     fetch(req, server) {
@@ -21,9 +21,11 @@ test('JS target socket mutations and mapper replies echo ordered frames and obey
       return server.upgrade(req, { data: { path: new URL(req.url).pathname } }) ? undefined : new Response('websocket only');
     },
     websocket: {
-      open(ws) { if (!['/acked', '/mutation'].includes(ws.data.path)) connections.add(ws); },
+      open(ws) { if (!['/acked', '/mutation', '/answers'].includes(ws.data.path)) connections.add(ws); },
       message(ws, data) {
         if (ws.data.path === '/mutation') { unowned.push(String(data)); return; }
+        // `/answers` replies `reply N <n>` to each `request N`.
+        if (ws.data.path === '/answers') { asked.push(String(data)); const n = /^request (\S+)$/.exec(data)?.[1]; if (n) ws.send(`reply ${n} ${n}`); return; }
         // `/acked` waits for a subscribe, then sends each frame only once the
         // last is acknowledged; its fourth frame the mapper's snapshot refuses.
         if (ws.data.path === '/acked') {
@@ -48,6 +50,10 @@ test('JS target socket mutations and mapper replies echo ordered frames and obey
   resource cancelSocket = cancellable("socket") as shape string else empty()
   resource cancelEvents = cancellable("events") as shape string else empty()
   resource acked = acked() as shape string else empty()
+  state q = ""
+  resource answers = answers() as shape string else empty()
+  resource asked = ask(q) as shape string else empty()
+  resource gate = gate(q) as shape string else empty()
   mutation sent as shape string queue
   mutation second as shape string
   mutation watched as shape string
@@ -64,6 +70,8 @@ test('JS target socket mutations and mapper replies echo ordered frames and obey
     send sent = write("second")
   action watch
     send watched = watched()
+  action askFor(what: string)
+    q = what
   view
     column
       text feed testId="feed"
@@ -105,11 +113,37 @@ test('JS target socket mutations and mapper replies echo ordered frames and obey
         text "captured"
       button press=watch testId="watch"
         text "watch"
+      button press=askFor("now 1") testId="ask"
+        text "ask"
+      button press=askFor("later 2") testId="ask-later"
+        text "ask later"
+      button press=askFor("many 3") testId="ask-many"
+        text "ask many"
+      button press=askFor("refuse 4") testId="ask-refuse"
+        text "ask refused"
 `);
   writeFileSync(resolve(dir, 'app.ts'), `export const appId = 'test.socket';
 export const grants = ${JSON.stringify(`net.websocket ${url}\nnet.fetch http://127.0.0.1:${peer.port}`)};
-const sockets = new Map(), controllers = new Map(); let previous: any;
+const sockets = new Map(), controllers = new Map(), waiters = new Map(); let previous: any, answers: any;
 export function answer(name: string, args: any): any {
+  if (name === 'answers') return fetch(${JSON.stringify(`${url}/answers`)}, { exactStream(event: any, socket?: any) {
+    if (event.type === 'open') { answers = socket; return 'open'; }
+    if (event.type === 'message') { const [, n, got] = event.data.split(' '); waiters.get(n)?.(got); }
+    return event.type;
+  }});
+  // A resource's answer sends its request from its source and awaits the
+  // reply; on this page a continuation cannot send.
+  if (name === 'ask') {
+    const [what, n] = String(args[0]).split(' ');
+    if (!answers || !what) return '';
+    if (what === 'many') { try { for (let i = 0; i < 257; i++) answers.send('many'); } catch (e: any) { return e.message; } }
+    answers.send('request ' + n);
+    return new Promise(resolve => waiters.set(n, resolve)).then(got => {
+      if (what !== 'later') return 'got ' + got;
+      try { answers.send('thanks ' + n); return 'sent later'; } catch (e: any) { return 'later: ' + e.message; }
+    });
+  }
+  if (name === 'gate') { if (args[0] === 'refuse 4') throw Object.assign(new Error('deliberate commit refusal'), { refuse: true }); return String(args[0]); }
   if (name === 'cancellable') {
     const kind = args[0], controller = new AbortController();
     controllers.set(kind, controller);
@@ -215,6 +249,23 @@ export function answer(name: string, args: any): any {
     const ackLogs = (await browser.logs()).lines.join('\n');
     expect(ackLogs).toContain('mapper acked failed: ');
     expect(ackLogs).toContain('; socket frames were refused');
+    // A resource's answer sends its request from its source and resolves
+    // with the reply; a continuation refuses; D7's bounds hold per answer;
+    // and a refused commit still sends what its answer sent.
+    await until(s => s.resources.answers === 'open');
+    await browser.tap('ask');
+    expect((await until(s => s.resources.asked === 'got 1')).resources.asked).toBe('got 1');
+    await browser.tap('ask-later');
+    const later = await until(s => s.resources.asked.startsWith('later: '));
+    expect(later.resources.asked).toBe("later: socket.send is only available in a mutation's or a resource's synchronous source, or its socket's own mapper");
+    await browser.tap('ask-many');
+    expect((await until(s => s.resources.asked !== later.resources.asked)).resources.asked).toBe('socket answer exceeds 256 operations');
+    await browser.tap('ask-refuse');
+    await until(() => asked.includes('request 4'));
+    expect(asked).toEqual(['request 1', 'request 2', ...Array(256).fill('many'), 'request 4']);
+    const answerLogs = (await browser.logs()).lines.join('\n');
+    expect(answerLogs).toContain('refused ');
+    expect(answerLogs).toContain('deliberate commit refusal');
     // A socket no resource owns (a mutation's stream) takes none of its
     // mapper's replies, as natively.
     await browser.tap('watch');
@@ -227,7 +278,7 @@ export function answer(name: string, args: any): any {
     await browser.tap('cancel');
     const cancelled = await until(s => !s.streams.some(x => ['cancelSocket', 'cancelEvents'].includes(x.name)));
     expect([cancelled.resources.cancelSocket, cancelled.resources.cancelEvents]).toEqual(['error:Aborted', 'error:Aborted']);
-    expect(cancelled.streams.filter(s => s.readyState === 1)).toHaveLength(2);
+    expect(cancelled.streams.filter(s => s.readyState === 1).map(s => s.name)).toEqual(['feed', 'other', 'answers']);
     const oracle = JSON.parse(await browser.carrier.evaluate(`new Promise((resolve, reject) => {
       const ws = new WebSocket(${JSON.stringify(url)}), messages = [];
       ws.binaryType = 'arraybuffer';
@@ -260,7 +311,7 @@ export function answer(name: string, args: any): any {
     await browser.tap('stale');
     await browser.tap('close');
     const closed = await until(s => s.resources.feed === '4001:finished:true');
-    expect(closed.streams.map(s => s.name)).toEqual(['other']);
+    expect(closed.streams.map(s => s.name)).toEqual(['other', 'answers']);
     expect(received).toEqual(oracle.messages);
     const logs = (await browser.logs()).lines.join('\n');
     expect(logs).toContain('deliberate commit refusal');

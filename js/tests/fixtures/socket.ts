@@ -1,6 +1,6 @@
 // A resource's two-way socket (LLP 1016.000 D7): the mapper keeps its
 // handle by the resource's id and replies to frames on it, and a mutation
-// sends on it.
+// and a resource's answer send on it.
 
 type Socket = {
   readonly readyState: number;
@@ -43,8 +43,6 @@ function reply(socket: Socket, type: string, data: string): string {
 }
 
 function feed(id: string): unknown {
-  // A resource's source cannot send on a handle the module kept.
-  for (const kept of sockets.values()) try { kept.send("from a resource"); } catch (x) { refused(x); }
   const controller = new AbortController();
   controllers.set(id, controller);
   return fetch("wss://echo.test/" + id, {
@@ -56,7 +54,9 @@ function feed(id: string): unknown {
       if (e.type === "close") return `close ${e.code} ${e.reason} ${e.wasClean}${late}`;
       if (e.type === "error") return `error ${e.kind}: ${e.message}${late}`;
       const data = typeof e.data === "string" ? e.data : "bytes " + Array.from(new Uint8Array(e.data)).join(",");
-      const said = socket ? reply(socket, e.type, data) : "";
+      // A server's reply to an answer's request, settled by `deliver`'s turn.
+      if (data.startsWith("reply ")) { const [, n, ...rest] = data.split(" "); queue.push(() => waiters.get(n)?.(rest.join(" "))); }
+      const said = socket && id !== "quiet" ? reply(socket, e.type, data) : "";
       if (data === "mapper misshapen") { socket?.send("never"); return 123; }
       return `${e.type} ${data} ${socket?.readyState}${said}`;
     },
@@ -98,10 +98,58 @@ function say(id: string, what: string): unknown {
   }
 }
 
+// A resource's answer (the amendment of 2026-10-18): it sends a request and
+// awaits the reply; what its code sends after an await is the turn's that
+// settled it.
+const waiters = new Map<string, (data: string) => void>();
+const queue: Array<() => void> = [];
+const waitFor = (n: string) => new Promise<string>(resolve => waiters.set(n, resolve));
+
+async function ask(id: string, q: string): Promise<string> {
+  if (!q) return "";
+  const socket = sockets.get(id)!, [what, n] = q.split(" ");
+  try {
+    switch (what) {
+      case "sync": socket.send("request " + n); return "got " + await waitFor(n);
+      case "chain": { socket.send("request " + n); const got = await waitFor(n); socket.send("thanks " + n); return "chained " + got; }
+      case "fetch": socket.send("request " + n); await fetch("https://echo.test/x"); socket.send("after fetch " + n); return "fetched";
+      case "abandon":
+        socket.send("request " + n);
+        try { await fetch("https://echo.test/slow"); } catch { try { socket.send("cancel " + n); } catch (x) { refused(x); } }
+        return "abandoned";
+      case "split":
+        for (let i = 0; i < 200; i++) socket.send("x");
+        await fetch("https://echo.test/x");
+        for (let i = 0; i < 100; i++) socket.send("y");
+        return "sent";
+      case "probe": { const before = socket.bufferedAmount; socket.send("abc"); return `${before}:${socket.bufferedAmount}`; }
+      case "big": socket.send("x".repeat(200000)); return "sent";
+      case "many": for (let i = 0; i <= 256; i++) socket.send("x"); return "sent";
+      case "huge": socket.send("x".repeat(1048577)); return "sent";
+      case "close": socket.close(4001, "done"); socket.send("after"); return "sent";
+      case "quiet": sockets.get("quiet")!.send("x"); return "sent";
+      case "throws": socket.send("request throws"); throw new Error("the answer threw");
+    }
+    return "unknown " + q;
+  } catch (x) {
+    if ((x as Error).message === "the answer threw") throw x;
+    return `${(x as Error).name}: ${(x as Error).message}`;
+  }
+}
+
+// Runs the replies the mapper queued, in this answer's turn: the code that
+// awaited them resumes here, as the T3 Code clone's transport does.
+function deliver(side: string): string {
+  for (const work of queue.splice(0)) work();
+  return side;
+}
+
 function answer(source: string, args: unknown[]): unknown {
   switch (source) {
     case "feed": return feed(String(args[0]));
     case "say": return say(String(args[0]), String(args[1]));
+    case "ask": return ask(String(args[0]), String(args[1]));
+    case "deliver": return deliver(String(args[0]));
     default: throw new Error("unknown source " + source);
   }
 }

@@ -871,7 +871,43 @@ throw, a wrong-shaped snapshot or a refused commit sends none of it, and
 call has a mutation's bounds below; overload throws `QuotaExceededError` and
 fails that frame's snapshot even if the mapper catches it. On `close` and
 `error` the handle is already closed and refuses; so do another socket's
-handle, a continuation the mapper schedules, and a `fetch` in the call.
+handle and a `fetch` in the call. A continuation the mapper schedules is not
+the call's: it runs in a later turn (below).
+
+A resource's answer may also `send` and `close` on a socket a stream
+resource of the same module owns, so it sends its own request and awaits
+the reply, with no timer (LLP 1016.000 D7, amended 2026-10-18):
+
+```ts
+const waiting = new Map<string, (reply: string) => void>();
+// In `feed`'s mapper, for a reply: waiting.get(reply.id)?.(reply.text)
+if (source === "request") {
+  const socket = feeds.get(id);
+  if (!socket) throw new Error("feed is not open");
+  socket.send(JSON.stringify({ _tag: "Request", id: n }));
+  return new Promise<string>(resolve => waiting.set(n, resolve));
+}
+```
+
+An answer is not a commit: what each turn of it sends goes out in the
+order it sent it once the commit that ran the turn ends, whether that
+commit stands or not, and nothing the answer does afterwards takes it back.
+Natively its turns are its source's call and each delivery of its own
+`fetch` or storage step; code that resumes from an `await` sends as the
+answer whose turn settled what it awaited, and code that runs in no
+answer's turn refuses. On the web build only the source's synchronous call
+may send; a continuation refuses, since the page cannot tell whose it is.
+An answer the runner lets go (new arguments, `refresh`, leaving the view)
+sends nothing more as its own; what it sent stays sent. It may also
+`fetch`. Its bounds are a mutation's, over all its turns (`socket answer
+exceeds 256 operations`, `… 1 MiB`); overload throws without failing the
+answer. A handle that is not open, or whose socket a mutation's stream
+owns, throws `InvalidStateError`, and so does an operation after the
+answer's own `close` of that socket. A batch the host refuses is said in
+`logs` as `answer <resource> failed: …; socket frames were refused`. Its
+`bufferedAmount` counts the transport's bytes as the turn began and what
+this turn has sent, and natively also what earlier turns sent that the host
+has not yet taken.
 
 A mutation or mapper call stages at most 256 operations and 1 MiB, including
 bytes already buffered by the browser. Overflow throws `QuotaExceededError`; a stale or

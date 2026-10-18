@@ -152,8 +152,9 @@ pub(crate) unsafe extern "C" fn host_door(
             state.journal.push(a.into_owned());
             Ok(Some("1".into()))
         }
-        // A socket operation a mutation's source or a mapper call staged on
-        // the stream of fetch ticket `a` (LLP 1016.000 D7; `socket.rs`).
+        // A socket operation a mutation's source, a mapper call or an
+        // answer's turn staged on the stream of fetch ticket `a` (LLP
+        // 1016.000 D7; `socket.rs`).
         14 => match (a.parse::<u64>(), super::socket::op_from_json(&b)) {
             (Ok(ticket), Ok(op)) => {
                 state.socket_ops.push((ticket, op));
@@ -163,14 +164,18 @@ pub(crate) unsafe extern "C" fn host_door(
             (_, Err(e)) => Err(e),
         },
         // The bytes the socket of stream ticket `a` buffered as this turn
-        // began (D7): the start of its handle's `bufferedAmount`.
-        15 => Ok(Some(
-            a.parse::<u64>()
-                .ok()
-                .and_then(|t| state.socket_buffered.iter().find(|(s, _)| *s == t))
-                .map_or(0, |(_, buffered)| *buffered)
-                .to_string(),
-        )),
+        // began (D7), with what an answer has handed over on it in this
+        // turn: the start of its handle's `bufferedAmount`.
+        15 => Ok(Some({
+            let ticket = a.parse::<u64>().ok();
+            let start = (state.socket_buffered.iter())
+                .find(|(s, _)| Some(*s) == ticket)
+                .map_or(0, |(_, buffered)| *buffered);
+            let handed = (state.socket_ops.iter())
+                .filter(|(t, _)| Some(*t) == ticket)
+                .map(|(_, op)| op.size() as u64);
+            (start + handed.sum::<u64>()).to_string()
+        })),
         // A fetch the answer made and the module withdrew before it was
         // handed out (D7: a mutation that also sent on a socket).
         16 => {

@@ -34,7 +34,9 @@ pub(super) struct Checkpoint {
     timers: Vec<super::Timer>,
     published: Option<Box<Published>>,
     commands: usize,
-    /// Socket batches of earlier commits, not yet taken (LLP 1016.000 D7).
+    /// Socket batches of earlier commits, not yet taken (LLP 1016.000 D7):
+    /// a refusal takes back the batches staged after them, except an
+    /// answer turn's.
     sockets: usize,
     /// The root font size, and the window's app tuple (`setMode`).
     root_font: (super::root_font::RootFont, f32, u32),
@@ -130,10 +132,10 @@ impl<D: DataSource> Runner<D> {
             }
             Err(_) if self.poisoned && !was_poisoned => {
                 self.store.restore(c.store);
-                self.sockets.truncate(c.sockets);
+                self.keep_answers(c.sockets);
             }
             Err(_) => {
-                self.sockets.truncate(c.sockets);
+                self.keep_answers(c.sockets);
                 // What the refused commit asked is let go with it.
                 self.forgot = true;
                 self.store.restore(c.store);
@@ -1081,8 +1083,11 @@ impl<D: DataSource> Runner<D> {
         let result = self.fulfill_inner(p, outcome);
         // What the mapper staged answering this frame (LLP 1016.000 D7):
         // addressed for the commit, or left staged by a frame that failed.
+        // The commit's answers may have sent too (its amendment of
+        // 2026-10-18); their batches are not the mapper's.
         let left = !self.store.take_sockets().is_empty();
-        let replied = left || self.sockets.len() > before;
+        let mapper = |b: &crate::SocketSend| matches!(b.origin, crate::SocketOrigin::Mapper(_));
+        let replied = left || self.sockets[before..].iter().any(mapper);
         self.conclude(checkpoint, &result, was_poisoned);
         self.arm_then(result.is_ok());
         self.arm_next(result.is_ok());
@@ -1120,9 +1125,13 @@ impl<D: DataSource> Runner<D> {
         let parsed = self
             .data
             .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome);
-        // Only a socket's mapper answering a frame sends (LLP 1016.000 D7).
-        if !message {
-            self.store.take_sockets();
+        // A socket's mapper answering a frame stages for this commit; a
+        // turn of a resource's answer sends whatever it answered (LLP
+        // 1016.000 D7 and its amendment of 2026-10-18).
+        match p.target {
+            Target::Resource(i) if !message => self.stage_answer(i),
+            Target::Mutation(_) => drop(self.store.take_sockets()),
+            Target::Resource(_) => {}
         }
         for line in self.data.take_logs() {
             self.log(line);

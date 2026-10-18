@@ -1,20 +1,25 @@
 //! A resource's two-way socket, the runner half (LLP 1016.000 D7): the
 //! operations a mutation, or the socket's own mapper answering a frame,
 //! stages reach the host only from a commit that stood, addressed to the
-//! stream ticket of the resource that owns the socket while it is open.
+//! stream ticket of the resource that owns the socket while it is open; a
+//! resource's answer's go out as each of its turns ends (the amendment of
+//! 2026-10-18).
 use exact_kernel::Kernel;
 use exact_plan::Value;
+use exact_runner::failure::FailureCode;
 use exact_runner::{
-    Answer, DataError, DataSource, Message, Outcome, Request, Runner, SocketOp, SocketOrigin,
-    SocketSend, Store, Target,
+    Answer, DataError, DataSource, Message, Outcome, Request, Response, Runner, SocketOp,
+    SocketOrigin, SocketSend, Store, Target,
 };
 
 const SRC: &str = r#"
 component App
   state id = "a"
+  state q = ""
   resource feed = feed(id) as shape string
   resource side = feed("side") as shape string
-  resource gate = gate(feed) as shape string
+  resource reply = ask(q) as shape string
+  resource gate = gate(feed, q) as shape string
   mutation said as shape string
   mutation other as shape string
   action say(what: string)
@@ -22,6 +27,11 @@ component App
   action both(what: string)
     send said = say(what)
     send other = misshapen()
+  action ask(what: string)
+    q = what
+  action askAndSay(what: string)
+    q = what
+    send said = say(what)
   action switch
     id = "b"
   view
@@ -29,11 +39,21 @@ component App
 "#;
 
 /// `feed(id)` opens a socket; `say(what)` stages a text frame on it and
-/// answers `what`; `misshapen()` answers outside its shape. `gate(feed)`
-/// refuses the commit whose feed reads `message refuse`. The mapper (`parse`)
-/// stages a reply to each frame: `subscribe` on `open`, `Ack N` for
-/// `frame N`, and one for each frame that then fails.
-struct Echo;
+/// answers `what`; `misshapen()` answers outside its shape. `gate(feed, q)`
+/// refuses the commit whose feed reads `message refuse` or whose `q` is
+/// `refuse`. The mapper (`parse`) stages a reply to each frame: `subscribe`
+/// on `open`, `Ack N` for `frame N`, and one for each frame that then fails.
+/// A frame whose data begins `silent` stages nothing, and `gate` sends
+/// `gate says` before it refuses `message silent refuse`.
+/// `ask(q)` is a resource's answer that sends `request <q>` and waits on its
+/// own work, whose delivery sends `more <q>`; `fail` fails it after it
+/// sends, `stray` sends on `gate`, which owns no socket, and each ask keeps
+/// the turn's socket snapshot (`seen`).
+#[derive(Default)]
+struct Echo {
+    seen: Vec<Vec<(usize, u64)>>,
+    token: u64,
+}
 
 impl DataSource for Echo {
     fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
@@ -66,7 +86,35 @@ impl DataSource for Echo {
                 Ok(Answer::Now(Value::str(&what)))
             }
             ("misshapen", Target::Mutation(_)) => Ok(Answer::Now(Value::Number(1.))),
-            ("gate", _) if args[0].as_str() == Some("message refuse") => {
+            ("ask", Target::Resource(_)) => {
+                self.seen.push(store.socket_buffered().to_vec());
+                let q = args[0].as_str().unwrap_or("").to_string();
+                match q.as_str() {
+                    "" => return Ok(Answer::Now(Value::str(""))),
+                    "stray" => store.stage_socket(3, SocketOp::Text("stray".into())),
+                    _ => store.stage_socket(0, SocketOp::Text(format!("request {q}"))),
+                }
+                match q.as_str() {
+                    "fail" => Err(DataError::Failed(
+                        FailureCode::Error,
+                        "the answer failed".into(),
+                        String::new(),
+                    )),
+                    "refuse" | "stray" => Ok(Answer::Now(Value::str(&q))),
+                    _ => {
+                        self.token += 1;
+                        Ok(Answer::Later(Request::continuation(self.token)))
+                    }
+                }
+            }
+            ("gate", _) if args[0].as_str() == Some("message silent refuse") => {
+                store.stage_socket(0, SocketOp::Text("gate says".into()));
+                Err(DataError::Unavailable("deliberate commit refusal".into()))
+            }
+            ("gate", _)
+                if args[0].as_str() == Some("message refuse")
+                    || args[1].as_str() == Some("refuse") =>
+            {
                 Err(DataError::Unavailable("deliberate commit refusal".into()))
             }
             ("gate", _) => Ok(Answer::Now(args[0].clone())),
@@ -88,15 +136,21 @@ impl DataSource for Echo {
         &mut self,
         target: Target,
         store: &mut Store,
-        _: &str,
-        _: &[Value],
+        source: &str,
+        args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
         let Target::Resource(i) = target else {
             unreachable!("only resources stream")
         };
+        if source == "ask" {
+            let q = args[0].as_str().unwrap_or("");
+            store.stage_socket(0, SocketOp::Text(format!("more {q}")));
+            return Ok(Answer::Now(Value::str(&format!("replied {q}"))));
+        }
         let text = |t: &str| SocketOp::Text(t.into());
         match &outcome {
+            Outcome::Message(m) if m.data.starts_with("silent") => {}
             Outcome::Message(m) if m.event == "open" => store.stage_socket(i, text("subscribe")),
             Outcome::Message(m) if m.data == "other" => store.stage_socket(1, text("stray")),
             Outcome::Message(m) => {
@@ -134,7 +188,7 @@ fn boot() -> (Runner<Echo>, u64) {
     let plan = contract::compile(SRC).expect("the fixture compiles");
     let mut r = Runner::boot(
         plan,
-        Echo,
+        Echo::default(),
         Kernel::with_monospace(),
         Default::default(),
         "/",
@@ -186,6 +240,25 @@ fn batches(sends: &[SocketSend]) -> Vec<(SocketOrigin, Vec<String>)> {
 fn mapper(frames: &[&str]) -> (SocketOrigin, Vec<String>) {
     let frames = frames.iter().map(|f| f.to_string()).collect();
     (SocketOrigin::Mapper("feed".into()), frames)
+}
+
+fn answer(frames: &[&str]) -> (SocketOrigin, Vec<String>) {
+    let frames = frames.iter().map(|f| f.to_string()).collect();
+    (SocketOrigin::Answer("reply".into()), frames)
+}
+
+/// Ask `reply` with `q`; the ticket of the work it waits on, if any.
+fn ask(r: &mut Runner<Echo>, q: &str) -> Option<u64> {
+    r.act("ask", vec![Value::str(q)]).unwrap();
+    r.take_requests().first().map(|out| out.ticket)
+}
+
+fn delivered() -> Outcome {
+    Outcome::Response(Response {
+        status: 200,
+        headers: Vec::new(),
+        body: Vec::new(),
+    })
 }
 
 fn said(r: &mut Runner<Echo>, what: &str) {
@@ -374,4 +447,120 @@ fn a_mapper_sends_nothing_at_the_end() {
     r.fulfill(ticket, closed).unwrap();
     assert_eq!(r.resource("feed"), Some(&Value::str("close 4001 finished")));
     assert!(r.take_socket_sends().is_empty());
+}
+
+/// A resource's answer sends as each of its turns ends: its ask, then the
+/// delivery of its own work. Its batches keep turn order with a mutation's
+/// in the same commit, and stand whatever becomes of the answer and
+/// whether or not the commit that asked it stands.
+#[test]
+fn an_answer_s_sends_go_out_as_each_of_its_turns_ends() {
+    let (mut r, ticket) = boot();
+    opened(&mut r, ticket);
+    let waiting = ask(&mut r, "1").expect("it waits on its own work");
+    let mutation = |what: &str| {
+        (
+            SocketOrigin::Mutation("said".into()),
+            vec![what.to_string()],
+        )
+    };
+    said(&mut r, "later");
+    assert_eq!(
+        batches(&r.take_socket_sends()),
+        [answer(&["request 1"]), mutation("later")]
+    );
+    r.fulfill(waiting, delivered()).unwrap();
+    assert_eq!(r.resource("reply"), Some(&Value::str("replied 1")));
+    assert_eq!(batches(&r.take_socket_sends()), [answer(&["more 1"])]);
+    // The mutation's turn comes first in the commit, then the ask's.
+    r.act("askAndSay", vec![Value::str("2")]).unwrap();
+    assert_eq!(r.take_requests().len(), 1);
+    let sends = r.take_socket_sends();
+    assert_eq!(batches(&sends), [mutation("2"), answer(&["request 2"])]);
+    assert!(sends
+        .iter()
+        .all(|s| s.ops.iter().all(|(t, ..)| *t == ticket)));
+    // What it sent stands though its answer fails...
+    assert_eq!(ask(&mut r, "fail"), None);
+    assert_eq!(batches(&r.take_socket_sends()), [answer(&["request fail"])]);
+    assert!(journal(&r).contains("the answer failed"));
+    // ...or though the commit that asked it is refused, which takes the
+    // mutation's frames back.
+    assert!(r.act("askAndSay", vec![Value::str("refuse")]).is_err());
+    let sends = r.take_socket_sends();
+    assert_eq!(batches(&sends), [answer(&["request refuse"])]);
+    // The host refused a batch at publication: the journal names the answer.
+    r.socket_published(
+        &sends[0],
+        Err("QuotaExceededError: socket buffer exceeds 1 MiB".into()),
+    );
+    assert!(journal(&r).contains(
+        "answer reply failed: QuotaExceededError: socket buffer exceeds 1 MiB; socket frames were refused"
+    ));
+}
+
+/// An answer the runner lets go has no more turns: what it sent stays sent,
+/// and the delivery of its work, no longer held, runs nothing.
+#[test]
+fn an_answer_let_go_sends_nothing_more() {
+    let (mut r, ticket) = boot();
+    opened(&mut r, ticket);
+    let first = ask(&mut r, "1").unwrap();
+    let second = ask(&mut r, "2").unwrap();
+    assert!(!r.holds(first), "new arguments let the first answer go");
+    assert_eq!(
+        batches(&r.take_socket_sends()),
+        [answer(&["request 1"]), answer(&["request 2"])]
+    );
+    r.fulfill(first, delivered()).unwrap();
+    assert!(r.take_socket_sends().is_empty());
+    r.fulfill(second, delivered()).unwrap();
+    assert_eq!(batches(&r.take_socket_sends()), [answer(&["more 2"])]);
+}
+
+/// An answer's batch on a socket that is not open, or on a resource that
+/// owns none, is refused whole, and the journal names the answer.
+#[test]
+fn an_answer_s_batch_on_a_socket_not_open_is_refused() {
+    let (mut r, ticket) = boot();
+    assert!(ask(&mut r, "early").is_some());
+    assert!(r.take_socket_sends().is_empty());
+    let not_open = "answer reply failed: InvalidStateError: the socket is not open; socket frames were refused";
+    assert!(journal(&r).contains(not_open), "{}", journal(&r));
+    opened(&mut r, ticket);
+    ask(&mut r, "stray");
+    assert!(r.take_socket_sends().is_empty());
+    assert_eq!(journal(&r).matches(not_open).count(), 2);
+}
+
+/// An ask's socket snapshot is the transport's bytes plus the batches of
+/// earlier turns the host has not taken.
+#[test]
+fn an_ask_s_snapshot_counts_the_batches_not_yet_taken() {
+    let (mut r, ticket) = boot();
+    opened(&mut r, ticket);
+    r.set_socket_reader(std::sync::Arc::new(move |t| (t == ticket).then_some(5)));
+    r.act("askAndSay", vec![Value::str("hello")]).unwrap();
+    assert_eq!(r.data().seen.last(), Some(&vec![(0, 10)]));
+    r.take_socket_sends();
+    ask(&mut r, "again");
+    assert_eq!(r.data().seen.last(), Some(&vec![(0, 5)]));
+}
+
+/// A frame's commit asks an answer that sends and is then refused: the
+/// answer's batch stays, and the mapper, which staged nothing, is not said
+/// to have failed.
+#[test]
+fn a_refused_frame_keeps_its_answer_s_batch() {
+    let (mut r, ticket) = boot();
+    opened(&mut r, ticket);
+    frame(&mut r, ticket, "silent refuse");
+    let gate = (
+        SocketOrigin::Answer("gate".into()),
+        vec!["gate says".to_string()],
+    );
+    assert_eq!(batches(&r.take_socket_sends()), [gate]);
+    let journal = journal(&r);
+    assert!(journal.contains("deliberate commit refusal"), "{journal}");
+    assert!(!journal.contains("mapper feed failed"), "{journal}");
 }

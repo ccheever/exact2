@@ -872,9 +872,16 @@ impl Module {
         if result.is_err() || took_ms > self.budget_ms {
             self.engine.as_mut().expect("checked above").clear_reply();
         }
-        // Socket operations ride only an answer given now (D7).
+        // A mutation's socket operations ride only an answer given now (D7);
+        // an answer's turn's go whatever it answers (its amendment of
+        // 2026-10-18).
         let socket_ops = std::mem::take(&mut self.host.socket_ops);
+        let answering = !matches!(target, Some(Target::Mutation(_)));
         let result = match (result, store) {
+            (result, Some(store)) if answering && !socket_ops.is_empty() => {
+                self.stage_answer(store, source, socket_ops);
+                result
+            }
             (Ok(Step::Done(Ok(v))), Some(store)) if !socket_ops.is_empty() => {
                 match self.stage_sockets(store, socket_ops) {
                     Ok(()) => Ok(Step::Done(Ok(v))),
@@ -1098,6 +1105,8 @@ impl Module {
         }
         let outcome_text = outcome_to_json(&outcome).to_string();
         self.host.store = Some(store as *mut Store);
+        self.host.socket_ops.clear();
+        self.host.socket_buffered = socket::snapshot(&self.streams, store);
         let started = Instant::now();
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
@@ -1136,6 +1145,12 @@ impl Module {
             Ok(Module::step(sig, engine, source, reply, self.host.baking))
         })();
         self.host.store = None;
+        // What this turn of a resource's answer sent (D7, the amendment of
+        // 2026-10-18); a mutation's continuation sends nothing.
+        let socket_ops = std::mem::take(&mut self.host.socket_ops);
+        if !socket_ops.is_empty() && !matches!(target, Some(Target::Mutation(_))) {
+            self.stage_answer(store, source, socket_ops);
+        }
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
         if result.is_err() || took_ms > self.budget_ms {
             self.engine.as_mut().expect("checked above").clear_reply();

@@ -1,10 +1,11 @@
-//! A mutation's or a mapper call's socket operations (LLP 1016.000 D7).
-//! The prelude's handle checks and copies each `send` and `close` while the
-//! mutation's source or the socket's own mapper runs, then hands the batch
-//! through the door (op 14): a mutation's when its answer is given now, a
-//! mapper call's as it returns. Each is addressed by the prelude's ticket
+//! A mutation's, a mapper call's or an answer's socket operations (LLP
+//! 1016.000 D7). The prelude's handle checks and copies each `send` and
+//! `close` while the mutation's source, the socket's own mapper or a turn of
+//! a resource's answer runs, and hands them through the door (op 14): a
+//! mutation's when its answer is given now, a mapper call's as it returns,
+//! an answer's as each is made. Each is addressed by the prelude's ticket
 //! for the stream's `fetch`; here it becomes the resource that owns the
-//! stream, staged on the runner's store for the commit to publish.
+//! stream, staged on the runner's store for the runner to address.
 use super::{Key, Module, Parked};
 use exact_runner::{SocketOp, Store, Target};
 use serde_json::Value as Json;
@@ -74,5 +75,22 @@ impl Module {
             store.stage_socket(resource, op);
         }
         Ok(())
+    }
+
+    /// Stage what a turn of `source`'s answer sent, whatever it answered
+    /// (the amendment of 2026-10-18). The prelude refuses a handle whose
+    /// stream it saw end, so a ticket this module no longer streams on is a
+    /// turn that outlived its socket: the whole batch is refused, and said.
+    pub(crate) fn stage_answer(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        ops: Vec<(u64, SocketOp)>,
+    ) {
+        if let Err(why) = self.stage_sockets(store, ops) {
+            (self.logs).push(format!(
+                "answer `{source}` failed: {why}; socket frames were refused"
+            ));
+        }
     }
 }

@@ -5,6 +5,8 @@
 //! stream ticket of the resource that owns the socket now, and hands them
 //! to the host only once the commit that staged them stands. A refused
 //! commit takes them back with everything else (`commit.rs`'s checkpoint).
+//! A resource's answer sends too (the amendment of 2026-10-18): each turn's
+//! operations are one batch, which no commit's refusal takes back.
 use super::*;
 use crate::request::{SocketOp, SocketOrigin, SocketSend};
 
@@ -31,11 +33,12 @@ impl<D: DataSource> Runner<D> {
         self.socket_reader = Some(reader);
     }
 
-    /// Before a mutation's or a mapper's turn: each open socket's buffered
-    /// bytes, fresh from the transport, as its handle's `bufferedAmount`
-    /// reads them for the whole turn (WHATWG's count at the task's start,
-    /// plus what the turn itself stages). Without a reader, the count the
-    /// last publication left.
+    /// Before every turn that may read a handle (a mutation's, a mapper's,
+    /// an answer's): each open socket's buffered bytes, fresh from the
+    /// transport, as its handle's `bufferedAmount` reads them for the whole
+    /// turn (WHATWG's count at the task's start, plus what the turn itself
+    /// stages), with the batches of earlier turns the host has not taken.
+    /// Without a reader, the count the last publication left.
     pub(super) fn snapshot_sockets(&mut self) {
         let mut snapshot = Vec::new();
         for p in &mut self.pending {
@@ -48,7 +51,10 @@ impl<D: DataSource> Runner<D> {
                 if let Some(buffered) = self.socket_reader.as_ref().and_then(|r| r(p.ticket)) {
                     socket.buffered = buffered;
                 }
-                snapshot.push((i, socket.buffered));
+                let held = (self.sockets.iter().flat_map(|b| &b.ops))
+                    .filter(|(t, ..)| *t == p.ticket)
+                    .map(|(.., op)| op.size() as u64);
+                snapshot.push((i, socket.buffered + held.sum::<u64>()));
             }
         }
         self.store.set_socket_buffered(snapshot);
@@ -73,6 +79,20 @@ impl<D: DataSource> Runner<D> {
         if staged.is_empty() {
             return Ok(());
         }
+        let ops = self.address(staged)?;
+        let mutation = self.plan.str(self.plan.mutations[m].name).to_string();
+        let origin = SocketOrigin::Mutation(mutation);
+        self.sockets.push(SocketSend { origin, ops });
+        Ok(())
+    }
+
+    /// Each staged operation addressed to the open socket of the resource
+    /// it names; refused whole when one of them is not open.
+    #[allow(clippy::type_complexity)]
+    fn address(
+        &self,
+        staged: Vec<(usize, SocketOp)>,
+    ) -> Result<Vec<(u64, String, SocketOp)>, String> {
         let mut ops = Vec::with_capacity(staged.len());
         for (i, op) in staged {
             let open = self.pending.iter().find(|p| {
@@ -86,10 +106,36 @@ impl<D: DataSource> Runner<D> {
             };
             ops.push((p.ticket, self.target_name(p.target), op));
         }
-        let mutation = self.plan.str(self.plan.mutations[m].name).to_string();
-        let origin = SocketOrigin::Mutation(mutation);
-        self.sockets.push(SocketSend { origin, ops });
-        Ok(())
+        Ok(ops)
+    }
+
+    /// Address what resource `i`'s answer sent in the turn just run, one
+    /// batch in the order it made them, behind the batches of earlier
+    /// turns. It goes out whatever the turn's answer was, and a refused
+    /// commit keeps it ([`Runner::keep_answers`]); a batch with an
+    /// operation on a socket that is not open is refused whole, and said.
+    pub(super) fn stage_answer(&mut self, i: usize) {
+        let staged = self.store.take_sockets();
+        if staged.is_empty() {
+            return;
+        }
+        let origin = SocketOrigin::Answer(self.target_name(Target::Resource(i)));
+        match self.address(staged) {
+            Ok(ops) => self.sockets.push(SocketSend { origin, ops }),
+            Err(why) => self.log(refused(&origin, &why)),
+        }
+    }
+
+    /// A refused commit takes back the batches its mutations and mappers
+    /// staged after `from`. Its answers' turns ran, so their batches stay,
+    /// in order.
+    pub(super) fn keep_answers(&mut self, from: usize) {
+        if from >= self.sockets.len() {
+            return;
+        }
+        let tail = self.sockets.split_off(from);
+        let answers = tail.into_iter();
+        (self.sockets).extend(answers.filter(|b| matches!(b.origin, SocketOrigin::Answer(_))));
     }
 
     /// Address the replies the mapper of `p`, a resource's open socket,
@@ -122,9 +168,11 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The socket operations of the commits that stood since the last
-    /// take, one batch per mutation or mapper call, in commit order. A host
-    /// takes them after it has let go of the tickets the runner no longer
-    /// holds, so a socket the same commit released refuses its batch.
+    /// take, one batch per mutation, mapper call or answer turn, in the
+    /// order they were made; an answer turn's whether or not its commit
+    /// stood. A host takes them after it has let go of the tickets the
+    /// runner no longer holds, so a socket the same commit released refuses
+    /// its batch.
     pub fn take_socket_sends(&mut self) -> Vec<SocketSend> {
         std::mem::take(&mut self.sockets)
     }
