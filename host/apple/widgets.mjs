@@ -32,6 +32,7 @@ export function widgetSigningTeam(identity, { distribution = false, certificates
   for (const cert of certificates) {
     const cn = /^CN=(.*)$/m.exec(cert.subject)?.[1];
     if (cert.fingerprint.replaceAll(':', '') === identity?.toUpperCase() || cn === identity) {
+      if (!distribution && cn?.startsWith('Developer ID Application: ')) return null;
       if (!cn?.startsWith(kind + ': ')) throw new Error(`host/apple: Mac widgets need an ${kind} certificate for this build; EXACT_IDENTITY names ${cn}`);
       const team = /^OU=([A-Z0-9]{10})$/m.exec(cert.subject)?.[1];
       if (team) return team;
@@ -48,7 +49,12 @@ export function macHardwareID(read = (command, args) => spawnSync(command, args,
   } catch { /* Older system_profiler versions may supply only IOPlatformUUID. */ }
   return /"IOPlatformUUID"\s*=\s*"([^"]+)"/.exec(read('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice']))?.[1] ?? null;
 }
-export function macWidgetProfiles({ app, team, distribution = false, installed = installedProfiles(), named = process.env.EXACT_PROFILE ? decodeProfile(process.env.EXACT_PROFILE) : null, udid = distribution ? null : macHardwareID() }) {
+export function macWidgetProfiles({ app, team, distribution = false, installed = installedProfiles(), named = process.env.EXACT_PROFILE ? decodeProfile(process.env.EXACT_PROFILE) : null, udid, hardwareID = macHardwareID, log = console.log }) {
+  if (named && !named.platforms?.includes('OSX')) {
+    log(`Mac widgets: ignoring EXACT_PROFILE (${named.name}) for ${named.platforms?.join(', ') || 'another platform'}; shared secrets need macOS profiles (LLP 1126.001 §5 Q5).`);
+    named = null;
+  }
+  if (udid === undefined) udid = !distribution && installed.some(p => p.platforms?.includes('OSX') && p.team === team) ? hardwareID() : null;
   const group = macWidgetGroup(app, team);
   const fits = (p, id) => p.platforms?.includes('OSX') && p.team === team && p.dev === !distribution && !profileMisfit(p, udid)
     && profilesFor(id, [p]).length && (p.groups.includes(group) || p.groups.includes(`${team}.*`))
@@ -63,12 +69,13 @@ export function macWidgetProfiles({ app, team, distribution = false, installed =
 /** Decide before compilation. A machine without a signing identity still builds the ordinary app. */
 export function macWidgetSigning(app, identity, { distribution = false, log = console.log, certificates, profiles } = {}) {
   if (!platformWidgetEntries(app, 'macos').length) return null;
-  if (!identity || identity === '-') {
-    log('Mac widgets: no signing identity; building the app ad hoc without an extension. Set EXACT_IDENTITY to an Apple Development identity to include widgets.');
+  const team = identity && identity !== '-' ? widgetSigningTeam(identity, { distribution, certificates }) : null;
+  if (!team) {
+    const reason = identity && identity !== '-' ? 'EXACT_IDENTITY names a Developer ID identity' : 'no signing identity';
+    log(`Mac widgets: ${reason}; building the app ad hoc without an extension. Set EXACT_IDENTITY to ${distribution ? 'a Developer ID Application' : 'an Apple Development'} identity to include widgets.`);
     return null;
   }
-  const team = widgetSigningTeam(identity, { distribution, certificates });
-  return { team, profiles: macWidgetProfiles({ app, team, distribution, ...profiles }) };
+  return { team, profiles: macWidgetProfiles({ app, team, distribution, log, ...profiles }) };
 }
 export function macWidgetEntitlements({ app, team, profiles = null, extension = false }) {
   const id = extension ? widgetId(app) : app.id;

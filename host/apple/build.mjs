@@ -683,7 +683,7 @@ async function main(args, lockHeld = false) {
   const gpuCrate = app.crate('gpu');
   const hasGpu = app.hasGpu;
   let ph, prof;
-  const sha1 = unsigned ? '-' : device ? (() => {
+  let sha1 = unsigned ? '-' : device ? (() => {
     ph = ipa ? null : phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined, { tv });
     // With entries, the app's profile is one that grants the group (and the extension's exists), refused here,
     // before anything is built, with the edit; the bundle takes both again with the grants' entitlements.
@@ -691,6 +691,7 @@ async function main(args, lockHeld = false) {
     return identity(prof.team);
   })() : ios ? '-' : (distribution ? process.env.EXACT_DEVELOPER_ID : null) ?? macIdentity();
   const macWidgets = !ios && widgets ? macWidgetSigning(app, sha1, { distribution }) : null;
+  if (!ios && widgets && !macWidgets) sha1 = null;
   if (!ios) widgets = !!macWidgets;
   const dylib = `lib${gpuCrate.replace(/-/g, '_')}.dylib`;
   // What the presenter dlopens is the same name whatever the app is: one

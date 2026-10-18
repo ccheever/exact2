@@ -551,7 +551,7 @@ test('a refused parent prevents use of a stale companion bundle', async () => {
 });
 
 
-test('Mac signing preflight keeps the ordinary app without an identity and refuses the wrong certificate kind', async () => {
+test('Mac signing preflight falls back without a development identity and reads hardware only for Mac profiles', async () => {
   const { macWidgetSigning, widgetSigningTeam, macHardwareID, macWidgetProfiles } = await import('../host/apple/widgets.mjs');
   const { profile } = await import('../host/apple/devices.mjs');
   const app = { id: 'com.exact.test', manifest: { widgets: [{ kind: 'public', families: ['systemSmall'] }] } };
@@ -562,7 +562,12 @@ test('Mac signing preflight keeps the ordinary app without an identity and refus
     { subject: 'CN=Developer ID Application: Fixture\nOU=0123456789', fingerprint: 'BB' }];
   assert.equal(widgetSigningTeam('AA', { certificates }), '0123456789');
   assert.equal(widgetSigningTeam('Apple Development: Fixture', { certificates }), '0123456789');
-  assert.throws(() => macWidgetSigning(app, 'BB', { certificates }), /Apple Development.*EXACT_IDENTITY names Developer ID/);
+  assert.equal(macWidgetSigning(app, 'BB', { certificates, log: text => messages.push(text) }), null);
+  assert.match(messages.at(-1), /Developer ID.*ad hoc.*EXACT_IDENTITY.*Apple Development/);
+  assert.equal(macWidgetSigning(app, null, { distribution: true, log: text => messages.push(text) }), null);
+  assert.match(messages.at(-1), /EXACT_IDENTITY.*Developer ID Application/);
+  assert.doesNotMatch(messages.at(-1), /Apple Development/);
+  assert.throws(() => macWidgetSigning(app, 'AA', { certificates, distribution: true }), /Developer ID Application.*EXACT_IDENTITY names Apple Development/);
   assert.equal(widgetSigningTeam('BB', { certificates, distribution: true }), '0123456789');
   // Captured SPHardwareDataType property list; hardware and provisioning ids redacted separately.
   const capture = readFileSync(new URL('../host/apple/tests/fixtures/mac-hardware.json', import.meta.url), 'utf8');
@@ -571,7 +576,17 @@ test('Mac signing preflight keeps the ordinary app without an identity and refus
   const base = { name: 'Mac distribution', team: '0123456789', prefix: 'PREFIX', platforms: ['OSX'], expires: new Date(Date.now() + 86400000),
     method: 'enterprise', dev: false, devices: [], groups: ['0123456789.*'], keychain: ['PREFIX.com.exact.test'], entitlements: [] };
   const installed = [app.id, app.id + '.widgets'].map(id => ({ ...base, appId: 'PREFIX.' + id }));
-  assert.ok(macWidgetProfiles({ app, team: base.team, installed, named: null, distribution: true }));
+  const noHardware = () => { throw new Error('hardware query without a relevant profile'); };
+  assert.ok(macWidgetProfiles({ app, team: base.team, installed, named: null, distribution: true, hardwareID: noHardware }));
+  const ios = { ...base, name: 'iPhone development', platforms: ['iOS'] };
+  for (const installed of [[], [ios], [{ ...base, team: 'OTHER' }]]) {
+    assert.equal(macWidgetProfiles({ app, team: base.team, installed, named: ios, hardwareID: noHardware, log: text => messages.push(text) }), null);
+    assert.match(messages.at(-1), /ignoring EXACT_PROFILE \(iPhone development\).*iOS.*§5 Q5/);
+  }
+  let reads = 0;
+  const development = installed.map(p => ({ ...p, dev: true, method: 'development', devices: ['MAC'] }));
+  assert.ok(macWidgetProfiles({ app, team: base.team, installed: development, named: ios, hardwareID: () => { ++reads; return 'MAC'; }, log: text => messages.push(text) }));
+  assert.equal(reads, 1);
   assert.equal(macWidgetProfiles({ app, team: base.team, installed, named: null, udid: 'MAC' }), null);
   assert.throws(() => profile('PHONE', app.id, [], { installed, named: installed[0] }), /EXACT_PROFILE \(Mac distribution\) is not an iOS profile/);
 });
@@ -597,5 +612,42 @@ test('Mac versioned runtime publication serves both bare products (LLP 1126.001 
     }
     run('codesign', ['--verify', '--strict', resolve(namespace, 'Frameworks/ExactCore.framework')]);
     assert.equal(realpathSync(resolve(namespace, 'Frameworks/ExactCore.framework/ExactCore')), resolve(namespace, 'Frameworks/ExactCore.framework/Versions/A/ExactCore'));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test('Mac shared-core rebuild replaces an existing versioned XCFramework slice', async () => {
+  if (process.platform !== 'darwin') return;
+  const { sharedWidgetCore } = await import('../host/apple/widgets.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-core-recopy-'));
+  const run = (command, args) => { const r = spawnSync(command, args, { encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); return r; };
+  try {
+    const bin = resolve(dir, 'bin'), base = resolve(dir, 'core'); mkdirSync(bin);
+    const prepared = { base, args: [], platform: 'macos', framework: resolve(base, 'ExactCore.framework'), xcframework: resolve(base, 'ExactCore.xcframework') };
+    const source = resolve(dir, 'core.c'), archive = resolve(dir, 'libfixture.a');
+    const runApple = (command, args) => {
+      if (command !== 'swift') return run(command, args);
+      if (args.includes('--show-bin-path')) return { stdout: bin };
+      if (args.includes('ExactCore')) run('xcrun', ['clang', '-dynamiclib', source, '-o', resolve(bin, 'libExactCore.dylib')]);
+      return { stdout: '' };
+    };
+    const slice = resolve(prepared.xcframework, `macos-${process.arch === 'arm64' ? 'arm64' : 'x86_64'}/ExactCore.framework`);
+    for (const version of [1, 2]) {
+      writeFileSync(source, `int exact_value(void) { return ${version}; }`);
+      writeFileSync(archive, `archive ${version}`);
+      for (const module of ['ExactCore', 'ExactSnapshot']) {
+        const path = resolve(bin, module + '.swiftmodule'); mkdirSync(path, { recursive: true });
+        writeFileSync(resolve(path, 'fixture'), `module ${version}`);
+      }
+      sharedWidgetCore({ app: { id: 'com.exact.test', manifest: {} }, prepared, libDir: dir, crate: 'fixture', env: process.env, runApple });
+      assert.equal(realpathSync(resolve(slice, 'ExactCore')), resolve(slice, 'Versions/A/ExactCore'));
+      assert.equal(realpathSync(resolve(slice, 'Resources')), resolve(slice, 'Versions/A/Resources'));
+      assert.equal(readFileSync(resolve(slice, 'Modules/ExactCore.swiftmodule/fixture'), 'utf8'), `module ${version}`);
+      assert.deepEqual(readFileSync(resolve(slice, 'ExactCore')), readFileSync(resolve(prepared.framework, 'ExactCore')));
+      writeFileSync(resolve(dir, 'app.c'), `extern int exact_value(void); int main(void) { return exact_value() == ${version} ? 0 : 1; }`);
+      const executable = resolve(dir, `Fixture${version}`), frameworks = resolve(slice, '..');
+      run('xcrun', ['clang', resolve(dir, 'app.c'), '-F', frameworks, '-framework', 'ExactCore', '-Wl,-rpath,' + frameworks, '-o', executable]);
+      run(executable, []);
+    }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
