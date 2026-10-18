@@ -14,8 +14,8 @@ export function formatted(datetime, now, format, locale, timeZone) {
   if (format === 'relative') return new Intl.RelativeTimeFormat(locale, { style: 'short', numeric: 'always' }).format(...relative(datetime - now));
   if (format === 'timer' || format === 'countdown') {
     const s = format === 'countdown' ? Math.ceil(Math.max(0, datetime - now) / 1000) : Math.floor(Math.abs(datetime - now) / 1000);
-    const pad = n => String(n).padStart(2, '0');
-    return s >= 3600 ? `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}` : `${Math.floor(s / 60)}:${pad(s % 60)}`;
+    if (typeof Intl.DurationFormat !== 'function') return null;
+    return new Intl.DurationFormat(locale, { style: 'digital', hoursDisplay: 'auto', minutesDisplay: 'always', secondsDisplay: 'always' }).format({ hours: Math.floor(s / 3600), minutes: Math.floor(s / 60) % 60, seconds: s % 60 });
   }
   const [kind, style] = format.split('-');
   if (!['date', 'time'].includes(kind) || !['short', 'medium', 'long', 'full'].includes(style)) return null;
@@ -58,6 +58,12 @@ export function liveTime(e, read, reserve = true) {
         for (const seconds of [59, 3599, 86399, 2591999, 31535999, 315359999999]) for (const sign of [-1, 1]) strings.push(formatted(0, sign * seconds * 1000, format, locale, timeZone));
       } else if (format === 'timer' || format === 'countdown') {
         for (let i = 0; i <= 9; i++) strings.push(`${String(i).repeat(10)}:${i}${i}:${i}${i}`);
+        const model = formatted(0, 7199999999955000, 'timer', locale, timeZone);
+        if (model) {
+          const nf = new Intl.NumberFormat(locale, { useGrouping: false }), digits = Array.from({ length: 10 }, (_, i) => nf.format(i)), chars = [...digits.join('')];
+          for (const digit of digits) strings.push([...model].map(c => chars.includes(c) ? digit : c).join(''));
+          strings.push(model);
+        }
       }
       let width = Math.max(...strings.map(s => s.length * 8));
       if (font && document.body) {

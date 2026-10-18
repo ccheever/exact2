@@ -84,7 +84,7 @@ pub fn english(r: &TimeRequest<'_>) -> Option<String> {
         return Some(if s >= 3600 {
             format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
         } else {
-            format!("{}:{:02}", s / 60, s % 60)
+            format!("{:02}:{:02}", s / 60, s % 60)
         });
     }
     if r.format == "relative" {
@@ -176,10 +176,43 @@ pub fn reservation(
         return values.join("\n");
     }
     if matches!(r.format, "timer" | "countdown") {
-        return (0..=9)
+        let mut values: Vec<_> = (0..=9)
             .map(|n| format!("{n}{n}{n}{n}{n}{n}{n}{n}{n}{n}:{n}{n}:{n}{n}"))
-            .collect::<Vec<_>>()
-            .join("\n");
+            .collect();
+        let q = TimeRequest {
+            datetime: 0.,
+            now: 7_199_999_999_955_000.,
+            format: "timer",
+            ..*r
+        };
+        if let Some(model) = format(&q) {
+            let digits: Vec<_> = (0..=9)
+                .filter_map(|d| {
+                    format(&TimeRequest {
+                        now: f64::from(d) * 1000.,
+                        ..q
+                    })
+                    .and_then(|s| s.chars().rev().find(|c| c.is_numeric()))
+                })
+                .collect();
+            if digits.len() == 10
+                && digits
+                    .iter()
+                    .enumerate()
+                    .all(|(i, d)| !digits[..i].contains(d))
+            {
+                for digit in &digits {
+                    values.push(
+                        model
+                            .chars()
+                            .map(|c| if digits.contains(&c) { *digit } else { c })
+                            .collect(),
+                    );
+                }
+            }
+            values.push(model);
+        }
+        return values.join("\n");
     }
     format(r).unwrap_or_default()
 }

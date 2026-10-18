@@ -1443,8 +1443,6 @@ pub(super) fn fit_scale(node: &NodeRef<'_>) -> Option<String> {
     (node.node_type == NodeType::Text && scale != 1.0).then(|| style::num(scale))
 }
 
-/// Props by their own names, as strings. An empty `href` is no link: not told.
-
 fn handler_name(e: EventKind) -> Option<&'static str> {
     match e {
         // The runner raises these itself, after collection feedback and

@@ -541,6 +541,7 @@ impl<D: DataSource> Host<D> {
     }
 }
 
+/// Props by their own names, including derived text advances.
 pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, String> {
     let mut out = exact_kernel::SortedMap::default();
     for (id, value) in node.props.iter() {

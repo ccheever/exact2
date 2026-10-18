@@ -44,16 +44,16 @@ fn live_time_advances_without_evaluating_the_app_and_reserves_its_width() {
     .unwrap();
     let initial_slots = r.slot("unchanged").cloned();
     assert_eq!(text(&r, "relative"), "2 min. ago");
-    assert_eq!(text(&r, "timer"), "0:00");
-    assert_eq!(text(&r, "countdown"), "2:00");
+    assert_eq!(text(&r, "timer"), "00:00");
+    assert_eq!(text(&r, "countdown"), "02:00");
     assert_eq!(r.timer_due_ms(), Some(1000.));
     assert!(r.advance(999.).unwrap().is_empty());
     r.advance(59_999.).unwrap();
     assert_eq!(text(&r, "relative"), "2 min. ago");
     r.advance(60_000.).unwrap();
     assert_eq!(text(&r, "relative"), "3 min. ago");
-    assert_eq!(text(&r, "timer"), "1:00");
-    assert_eq!(text(&r, "countdown"), "1:00");
+    assert_eq!(text(&r, "timer"), "01:00");
+    assert_eq!(text(&r, "countdown"), "01:00");
     let bar = r
         .kernel()
         .node_by_key(r.kernel().find_by_test_id("progress")[0])
@@ -62,7 +62,7 @@ fn live_time_advances_without_evaluating_the_app_and_reserves_its_width() {
     assert_eq!(r.slot("unchanged").cloned(), initial_slots);
     assert_eq!(text(&r, "app-clock"), "0");
     r.advance(120_000.).unwrap();
-    assert_eq!(text(&r, "countdown"), "0:00");
+    assert_eq!(text(&r, "countdown"), "00:00");
 }
 
 #[test]

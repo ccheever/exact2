@@ -15,7 +15,7 @@ are checked against scripts/help.mjs.
 -->
 
 ## intro
-Exact card. Look up: `contract vocab <name> …`; list: `--all`.
+Look up: `contract vocab <name> …`; list: `--all`.
 
 ## functions
 at: xs.at(i) -> option<T>  (-1 is last)
@@ -26,8 +26,8 @@ flat: xs.flat() -> T[]
 first: first(xs) -> option<T>
 formatDate: formatDate(ms, offsetMinutes, "medium"|"month-year"|"iso") -> string
 formatDay: formatDay(then, now, offsetMinutes, "day"|"day-time"|"list") -> string  (Today, Monday)
-formatDecimal: (cents to "12.34"; digits a literal)
-formatNumber: formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string  (1,234.5; 26%)
+formatDecimal: (cents to "12.34"; literal digits)
+formatNumber: formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string
 formatTime: ("2:13 PM"; minutes east of UTC)
 frame: (in an action)
 includes: s.includes(x) -> bool  (text or list)
@@ -43,7 +43,7 @@ round: (half up)
 slice: s.slice(start, end?) -> text|list
 sortBy: sortBy(xs, x => key, "desc"?) -> T[]  (stable)
 t: t("key", name=value) -> string  (localized)
-toFixed: (digits a literal)
+toFixed: (literal digits)
 toString: x.toString() -> string
 
 ## tags
@@ -57,7 +57,7 @@ textarea | value placeholder maxlength enterkeyhint | input change select select
 select | value disabled | change
 option | value
 time | datetime format
-progress | value max or start end
+progress | value max start end
 list | listStyle appearance virtualized refreshing scroll-start | reachstart reachend refresh
 scroll | scrollTop navigationScroll keyboardDismissMode | scroll scrollend
 dialog | closedby | cancel close
@@ -163,7 +163,7 @@ action add
 text items.join(", ")
 ```
 ### a dated record
-The write reads the clock itself, not a ticked `now`, and stores `at`, never `performanceNow()` alone (0 each launch). `"iso"` is the day, compared as text. Tests pin `epoch` and `time-zone`.
+The write reads the clock, not a ticked `now`, and stores `at`, never `performanceNow()` alone (0 each launch). `"iso"` is the day, compared as text. Tests pin `epoch` and `time-zone`.
 ```contract
 shape Time
   epochAtZero: number

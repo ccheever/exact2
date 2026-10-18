@@ -1,4 +1,4 @@
-Exact card. Look up: `contract vocab <name> …`; list: `--all`.
+Look up: `contract vocab <name> …`; list: `--all`.
 
 functions: call -> result
   xs.at(i) -> option<T>  (-1 is last)
@@ -19,8 +19,8 @@ functions: call -> result
   floor(n) -> number
   formatDate(ms, offsetMinutes, "medium"|"month-year"|"iso") -> string
   formatDay(then, now, offsetMinutes, "day"|"day-time"|"list") -> string  (Today, Monday)
-  formatDecimal(units, digits) -> string  (cents to "12.34"; digits a literal)
-  formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string  (1,234.5; 26%)
+  formatDecimal(units, digits) -> string  (cents to "12.34"; literal digits)
+  formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string
   formatTime(ms, offsetMinutes, "short") -> string  ("2:13 PM"; minutes east of UTC)
   frame(id) -> Geometry  (in an action)
   go(router, location) -> Router
@@ -53,7 +53,7 @@ functions: call -> result
   text.startsWith(prefix) -> bool
   sum(xs) -> number
   t("key", name=value) -> string  (localized)
-  n.toFixed(digits) -> string  (digits a literal)
+  n.toFixed(digits) -> string  (literal digits)
   text.toLowerCase() -> string
   top(router) -> Entry
   x.toString() -> string
@@ -71,7 +71,8 @@ tags: attributes; on events. Every tag takes CSS's style attributes (flex gap pa
   textarea: value placeholder maxlength enterkeyhint; on input change select selectionchange beforeinput
   select: value disabled; on change
   option "…": value
-  progress: value max
+  time: datetime format
+  progress: value max start end
   list: listStyle appearance virtualized refreshing scroll-start; on reachstart reachend refresh
   scroll: scrollTop navigationScroll keyboardDismissMode; on scroll scrollend
   dialog: closedby; on cancel close
@@ -167,7 +168,7 @@ reading and writing data: `loadItems` and `addItem` are in app.ts and answer exa
   action add
     send added = addItem("Milk")
   text items.join(", ")
-a dated record: The write reads the clock itself, not a ticked `now`, and stores `at`, never `performanceNow()` alone (0 each launch). `"iso"` is the day, compared as text. Tests pin `epoch` and `time-zone`.
+a dated record: The write reads the clock, not a ticked `now`, and stores `at`, never `performanceNow()` alone (0 each launch). `"iso"` is the day, compared as text. Tests pin `epoch` and `time-zone`.
   shape Time
     epochAtZero: number
     utcOffset: number

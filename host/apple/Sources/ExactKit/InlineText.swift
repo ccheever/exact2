@@ -46,7 +46,7 @@ struct InlineText {
     func padding(_ base: Run) -> Run? {
         guard let text = props["timePaddingText"], let spacing = props["timePaddingSpacing"].flatMap(Float.init) else { return nil }
         var value = base; value.text = text; value.letterSpacing = CGFloat(spacing)
-        value.href = ""; value.decoration = []
+        value.href = ""; value.decoration = ""
         return value
     }
     /// A run with an `href`: the web's `<a>` in its paragraph.

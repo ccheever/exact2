@@ -16,13 +16,13 @@ test('date and time presentations use the viewer locale and IANA zone', () => {
 
 test('durations tick at seconds, cross an hour and stop a countdown at zero', () => {
   const show = (date, now, style) => formatted(date, now, style, 'en-US', 'UTC');
-  expect(show(0, 999, 'timer')).toBe('0:00');
-  expect(show(0, 1000, 'timer')).toBe('0:01');
+  expect(show(0, 999, 'timer')).toBe('00:00');
+  expect(show(0, 1000, 'timer')).toBe('00:01');
   expect(show(0, 3731000, 'timer')).toBe('1:02:11');
   expect(show(3731000, 0, 'timer')).toBe('1:02:11');
-  expect(show(1000, 1, 'countdown')).toBe('0:01');
-  expect(show(1000, 1000, 'countdown')).toBe('0:00');
-  expect(show(1000, 2000, 'countdown')).toBe('0:00');
+  expect(show(1000, 1, 'countdown')).toBe('00:01');
+  expect(show(1000, 1000, 'countdown')).toBe('00:00');
+  expect(show(1000, 2000, 'countdown')).toBe('00:00');
   expect(show(NaN, 0, 'timer')).toBeNull();
 });
 

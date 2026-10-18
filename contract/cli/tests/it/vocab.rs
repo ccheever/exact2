@@ -252,6 +252,10 @@ fn json_lists_everything_and_one_entry() {
 #[test]
 fn contextual_attributes_are_refused_elsewhere() {
     let cases = [
+        ("datetime", "view", "datetime=0"),
+        ("format", "view", "format=\"relative\""),
+        ("start", "view", "start=0"),
+        ("end", "view", "end=1"),
         ("sandbox", "view", "sandbox=\"allow-scripts\""),
         ("src", "view", "src=\"https://example.com\""),
         ("load", "view", "load=done"),
