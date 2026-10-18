@@ -70,7 +70,7 @@ function stateOf(client: T3Client): CanvasState {
 
 /** ThreadDetailsCard's setMeasurements: a measured density replaces its own height and keeps the other. */
 function keepHeights(state: CanvasState, key: string, measured: Partial<ThreadDetailsCardHeights>): ThreadDetailsCardHeights {
-  const heights = { full: 0, compact: 0, ...state.heights.get(key), ...measured };
+  const heights = { full: 0, compact: 0, content: 0, ...state.heights.get(key), ...measured };
   if (state.heights.size > 64 && !state.heights.has(key)) state.heights.delete(state.heights.keys().next().value!);
   state.heights.set(key, heights);
   return heights;
@@ -155,12 +155,12 @@ export async function chatCanvasView(client: T3Client, native: Native | null | u
   // The lane's rem constants (ps-5, min-w-[40rem]) at the Interface font size, the root size.
   const lane = chatLaneMetrics(args.chatMax, clampInterfaceFontSize((client.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface));
   // ThreadDetailsCard: the preferred placement (no player), the measurements of the content shown, inline or in the
-  // popover, keyed by thread and that placement's width; once the full height is known an open inline card reports
-  // itself to the canvas, as tall as its full content (its 1 pt borders included).
+  // popover, keyed by thread and that placement's width; once the full content is measured an open inline card reports
+  // itself to the canvas, as tall as that content, Lineage included (its 1 pt borders too).
   const preferred = args.wide ? resolveThreadDetailsCardLayout({ container, lane, frame: null }) : null;
   const heightsKey = `${detailsKey(client)}:${preferred ? preferred.width : 'popup'}`;
   const heights = keepHeights(state, heightsKey, card || args.popoverOpen ? measureThreadDetailsCard(frames) : {});
-  const detailsCard = card && preferred && heights.full > 0 ? { left: preferred.x, right: preferred.x + preferred.width, bottom: preferred.y + Math.min(heights.full, preferred.height) } : null;
+  const detailsCard = card && preferred && heights.content > 0 ? { left: preferred.x, right: preferred.x + preferred.width, bottom: preferred.y + Math.min(heights.content, preferred.height) } : null;
   let preview: ChatCanvasPreview | null = null, source: PreviewMiniPlayerSize | null = null;
   if (current) {
     source = current.source.kind === 'browser' ? floatingBrowserSize(client, previewMiniPlayerSourceKey(current.source))

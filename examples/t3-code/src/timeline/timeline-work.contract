@@ -1,3 +1,4 @@
+// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
 // Work-log rows from T3's chat/WorkLog.tsx, MessagesTimeline.tsx and
 // V2LifecycleRow.tsx (MIT, see LICENSE-T3): a 24pt line with a 16pt tool icon,
 // the live shimmer that sweeps a 72pt highlight across it, and the
@@ -573,7 +574,8 @@ component SubagentRowContent
         if agent.body != "" and (agent.status == "event" or agent.status != "completed")
           text agent.result flex-shrink=0 font-size="0.625rem" line-height="0.875rem" color=(agent.failed ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)")
       text (agent.body != "" ? agent.body : agent.result) line-clamp=1 font-size="0.6875rem" line-height="1.1171875rem" text-align="left" color=(agent.failed ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)")
-    text (agent.startedMs > 0 ? elapsedLabel(max(0, floor((now - agent.startedMs) / 1000))) : agent.output) flex-shrink=0 font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" font-variant-numeric="tabular-nums" color="light-dark(#71717bcc, #818181cc)" testId=`subagent-elapsed-${agent.id}`
+    // In the chat's font (text-xs, tabular digits), as the transcript's other times.
+    text (agent.startedMs > 0 ? elapsedLabel(max(0, floor((now - agent.startedMs) / 1000))) : agent.output) flex-shrink=0 font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" testId=`subagent-elapsed-${agent.id}`
     if agent.targetId != ""
       Icon(name="right", size=14, color="light-dark(#71717b99, #81818199)")
 
