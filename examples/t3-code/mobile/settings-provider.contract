@@ -62,7 +62,7 @@ component SettingsProviderAccounts
         for section in data.sections key=section.key
           column gap=7
             SettingsSectionLabel(title=section.title, colors=colors, roles=roles)
-            column border-radius=24 overflow="hidden" background-color=colors.grouped
+            column border-radius=24 corner-shape="-exact-continuous" overflow="hidden" background-color=colors.grouped
               if section.emptyMessage.length > 0
                 text section.emptyMessage padding=14 color=colors.muted font-size=roles.body.size line-height=`${roles.body.line}px`
               for account in section.accounts key=account.key

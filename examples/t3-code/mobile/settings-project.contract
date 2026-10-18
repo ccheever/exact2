@@ -70,7 +70,7 @@ component SettingsProjectOverview
               text data.checkoutsLabel font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
           column gap=7
             SettingsSectionLabel(title="Project", colors=colors, roles=roles)
-            column gap=10.5 padding=14 background-color=colors.grouped border-radius=24
+            column gap=10.5 padding=14 background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous"
               text "Name" font-size=roles.footnote.size font-weight=500 color=colors.muted
               row gap=10.5 align-items="center"
                 input value=name input=edit submit=commit disabled=(busy or not data.writable) aria-label="Project name" min-height=38.5 min-width=0 flex=1 border-radius=10.5 background-color=colors.card padding-left=10.5 padding-right=10.5 font-family="DM Sans" font-size=roles.body.size color=colors.foreground
@@ -79,7 +79,7 @@ component SettingsProjectOverview
                     text "Save" font-size=roles.footnote.size font-weight=500 color=colors.foreground
           column gap=7
             SettingsSectionLabel(title="Checkouts", colors=colors, roles=roles)
-            column background-color=colors.grouped border-radius=24 overflow="hidden"
+            column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" overflow="hidden"
               for checkout in data.checkouts key=checkout.id
                 column gap=3.5 padding=14 border-top-width=(checkout.separated ? 1 : 0) border-top-style="solid" border-top-color=colors.borderSubtle
                   text checkout.label font-size=roles.headline.size line-height=`${roles.headline.line}px` color=colors.foreground

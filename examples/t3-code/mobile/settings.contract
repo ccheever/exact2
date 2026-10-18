@@ -82,7 +82,7 @@ component SettingsRoot
         for section in data.sections key=section.title
           column gap=7
             text section.title padding-left=7 padding-right=7 min-height=settingsRootTextBoxHeight(data.roles.footnote.line, displayScale) font-size=data.roles.footnote.size line-height=`${data.roles.footnote.line}px` font-weight=500 color=data.colors.muted
-            column border-radius=24 overflow="hidden" background-color=data.colors.grouped
+            column border-radius=24 corner-shape="-exact-continuous" overflow="hidden" background-color=data.colors.grouped
               for item in section.rows key=item.target
                 button press=navigate(item.target) disabled=item.disabled padding=0 aria-label=item.label testId=`settings-route-${item.target}`
                   row gap=14 padding=14 align-items="center" opacity=(item.disabled ? 0.45 : 1)
@@ -111,7 +111,7 @@ component SettingsChoices
       column gap=10.5 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom font-family="DM Sans" testId=`settings-choice-${data.key}`
         column gap=7
           SettingsSectionLabel(title=data.title, colors=colors, roles=roles)
-          column border-radius=24 overflow="hidden" background-color=colors.grouped role="radiogroup"
+          column border-radius=24 corner-shape="-exact-continuous" overflow="hidden" background-color=colors.grouped role="radiogroup"
             for option in data.options key=option.value
               button press=change(data.key, option.value) disabled=(not data.ready) role="radio" aria-checked=option.selected padding=0 testId=`settings-${data.key}-${option.value}`
                 row gap=14 padding=14 align-items="center" border-top-width=(option.separated ? 1 : 0) border-top-style="solid" border-top-color=colors.borderSubtle opacity=(data.ready ? 1 : 0.45)

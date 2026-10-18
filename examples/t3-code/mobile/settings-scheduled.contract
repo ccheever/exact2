@@ -115,7 +115,7 @@ component SettingsScheduledTasks
               text "Loading scheduled tasks…" color=colors.muted font-size=roles.body.size
             if section.emptyMessage.length > 0
               text section.emptyMessage color=colors.muted font-size=roles.body.size padding=14
-            column background-color=colors.grouped border-radius=24 overflow="hidden"
+            column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" overflow="hidden"
               for task in section.rows key=task.id
                 row align-items="center" border-top-width=(task.first ? 0 : 1) border-top-style="solid" border-top-color=colors.borderSubtle
                   button press=open(section.id, task.id) flex=1 min-width=0 padding=14 aria-label=task.title
@@ -179,18 +179,18 @@ component SettingsScheduledEditor
             text data.error color=danger role="alert" font-size=roles.footnote.size
           if data.missing
             text "This task no longer exists." color=danger font-size=roles.body.size
-          column border-radius=24 background-color=colors.grouped overflow="hidden"
+          column border-radius=24 corner-shape="-exact-continuous" background-color=colors.grouped overflow="hidden"
             ScheduledSelectRow(label="Runs on", value=data.environmentLabel, disabled=(data.editing or data.busy), select=menu("environment"), colors=colors, roles=roles)
           column gap=7
             SettingsSectionLabel(title="Task", colors=colors, roles=roles)
-            column border-radius=24 background-color=colors.grouped overflow="hidden"
+            column border-radius=24 corner-shape="-exact-continuous" background-color=colors.grouped overflow="hidden"
               ScheduledField(label="Name", value=data.name, placeholder="Check for issues", disabled=data.busy, field=field("title"), colors=colors, roles=roles)
               column gap=7 padding=14 border-top-width=1 border-top-style="solid" border-top-color=colors.borderSubtle
                 text "Prompt" color=colors.muted font-size=roles.footnote.size
                 textarea value=data.prompt input=field("prompt") disabled=data.busy placeholder="What should this task do?" aria-label="Prompt" min-height=126 color=colors.foreground font-family="DM Sans" font-size=roles.body.size background-color="transparent" border-width=0 padding=0
           column gap=7
             SettingsSectionLabel(title="Context", colors=colors, roles=roles)
-            column border-radius=24 background-color=colors.grouped overflow="hidden"
+            column border-radius=24 corner-shape="-exact-continuous" background-color=colors.grouped overflow="hidden"
               for project in data.projects key=project.id
                 if project.selected
                   ScheduledSelectRow(label="Project", value=project.label, disabled=data.busy, select=menu("project"), colors=colors, roles=roles)
@@ -211,7 +211,7 @@ component SettingsScheduledEditor
                 text "Interval" font-size=roles.footnote.size color=colors.foreground
               button flex=1 min-height=32 press=field("mode", "webhook") disabled=data.busy background-color=(data.mode == "webhook" ? colors.grouped : "transparent") border-radius=6
                 text "On webhook" font-size=roles.footnote.size color=colors.foreground
-            column border-radius=24 background-color=colors.grouped overflow="hidden"
+            column border-radius=24 corner-shape="-exact-continuous" background-color=colors.grouped overflow="hidden"
               if data.mode == "fixed_time"
                 ScheduledSelectRow(label="Time", value=data.time, disabled=data.busy, select=menu("time"), colors=colors, roles=roles)
                 ScheduledSelectRow(label="Repeat", value=data.repeatLabel, disabled=data.busy, select=menu("repeat"), colors=colors, roles=roles)

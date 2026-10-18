@@ -22,7 +22,7 @@ final class T3MobileInformationNotice: ExactNativeInstance {
                   !text.isHidden, text.bounds.width > 0, text.bounds.height > 0 else { return false }
             return UIApplication.shared.applicationState == .active
         }
-        text.translatesAutoresizingMaskIntoConstraints = false; card.addSubview(text); card.layer.cornerRadius = 24
+        text.translatesAutoresizingMaskIntoConstraints = false; card.addSubview(text); card.layer.cornerRadius = 24; card.layer.cornerCurve = .continuous
         header.axis = .vertical; header.spacing = 7; header.isLayoutMarginsRelativeArrangement = true; header.layoutMargins = UIEdgeInsets(top: 0, left: 3.5, bottom: 0, right: 3.5)
         [title, metadata, source].forEach { header.addArrangedSubview($0) }; stack.addArrangedSubview(header); stack.addArrangedSubview(card)
         NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 17.5), stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -17.5),

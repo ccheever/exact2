@@ -79,7 +79,7 @@ component SettingsInformation
             if route == "settingsAbout"
               column gap=7
                 SettingsSectionLabel(title="App", colors=colors, roles=roles)
-                column border-radius=24 overflow="hidden" background-color=colors.grouped
+                column border-radius=24 corner-shape="-exact-continuous" overflow="hidden" background-color=colors.grouped
                   InformationAboutRow(icon="internaldrive", label="Client Storage", target="settingsClientStorage", colors=colors, roles=roles, navigate=navigate)
                   InformationAboutRow(icon="stethoscope", label="Diagnostics", target="settingsDiagnostics", colors=colors, roles=roles, navigate=navigate)
                   InformationAboutRow(icon="doc.on.doc", label="Open source licenses", target="settingsOpenSourceLicenses", colors=colors, roles=roles, navigate=navigate)
@@ -134,13 +134,13 @@ component InformationUnavailableState
     column gap=21
       column gap=7
         SettingsSectionLabel(title=title, colors=colors, roles=roles)
-        column padding-left=21 padding-right=21 padding-top=28 padding-bottom=28 gap=7 align-items="center" border-radius=24 background-color=colors.grouped
+        column padding-left=21 padding-right=21 padding-top=28 padding-bottom=28 gap=7 align-items="center" border-radius=24 corner-shape="-exact-continuous" background-color=colors.grouped
           t3-symbol symbol-name="exclamationmark.triangle" symbol-tint=colors.icon width=28 height=28
           text data.title font-size=roles.body.size color=colors.foreground text-align="center"
           text data.detail font-size=roles.footnote.size color=colors.muted text-align="center"
       column gap=10.5
         SettingsSectionLabel(title="Actions", colors=colors, roles=roles)
-        button disabled=true padding=14 border-radius=24 background-color=colors.grouped aria-label=data.action
+        button disabled=true padding=14 border-radius=24 corner-shape="-exact-continuous" background-color=colors.grouped aria-label=data.action
           text data.action font-size=roles.body.size color=colors.muted opacity=0.45 text-align="left"
         text data.footer padding-left=7 padding-right=7 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
 component SettingsClientStorage
@@ -153,7 +153,7 @@ component SettingsClientStorage
     column gap=21 testId="client-storage"
       column gap=7
         SettingsSectionLabel(title="Environment caches", colors=colors, roles=roles)
-        column border-radius=24 overflow="hidden" background-color=colors.grouped
+        column border-radius=24 corner-shape="-exact-continuous" overflow="hidden" background-color=colors.grouped
           if data.loading
             column gap=10.5 padding-left=21 padding-right=21 padding-top=28 padding-bottom=28 align-items="center" testId="client-storage-loading"
               t3-archive-spinner spinner-tint=colors.icon width=20 height=20
@@ -173,7 +173,7 @@ component SettingsClientStorage
       column gap=10.5
         column gap=7
           SettingsSectionLabel(title="Actions", colors=colors, roles=roles)
-          column border-radius=24 overflow="hidden" background-color=colors.grouped
+          column border-radius=24 corner-shape="-exact-continuous" overflow="hidden" background-color=colors.grouped
             button press=command("clear-cache-all", "") disabled=data.disabled padding=0 aria-label=data.action testId="client-storage-clear-all"
               row gap=14 padding=14 align-items="center" opacity=(data.disabled ? 0.4 : 1)
                 t3-symbol symbol-name="trash" symbol-tint=data.danger width=22 height=22 flex-shrink=0

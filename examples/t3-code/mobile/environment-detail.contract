@@ -93,7 +93,7 @@ component EnvironmentDetail
       else
         column gap=7
           DetailSectionTitle(label="Connection", colors=colors)
-          column border-radius=24 background-color=colors.groupedCard overflow="hidden"
+          column border-radius=24 corner-shape="-exact-continuous" background-color=colors.groupedCard overflow="hidden"
             EnvironmentItem(
               environment=connection,
               expanded=connectionExpanded,
@@ -119,7 +119,7 @@ component EnvironmentDetail
                   line-height="19px"
                   font-weight=500
                   color=colors.foreground
-          column border-radius=24 background-color=colors.groupedCard overflow="hidden"
+          column border-radius=24 corner-shape="-exact-continuous" background-color=colors.groupedCard overflow="hidden"
             list id="mobile-environment-routes"
               reorderdrop=reorderRoute
               virtualized=true
@@ -214,7 +214,7 @@ component EnvironmentDetail
         if data.configPresent
           column gap=7
             DetailSectionTitle(label="T3 Code", colors=colors)
-            column border-radius=24 background-color=colors.groupedCard overflow="hidden"
+            column border-radius=24 corner-shape="-exact-continuous" background-color=colors.groupedCard overflow="hidden"
               column padding=14 gap=3.5
                 text `Version ${data.version}` font-size=16
                   line-height="23px"
@@ -246,7 +246,7 @@ component EnvironmentDetail
                 )
           column gap=7
             DetailSectionTitle(label="Providers", colors=colors)
-            column border-radius=24 background-color=colors.groupedCard overflow="hidden"
+            column border-radius=24 corner-shape="-exact-continuous" background-color=colors.groupedCard overflow="hidden"
               DetailActionRow(
                 label="Refresh providers",
                 icon="arrow.clockwise",
