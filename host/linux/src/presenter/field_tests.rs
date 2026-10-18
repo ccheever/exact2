@@ -796,6 +796,69 @@ fn the_agents_text_is_cut_to_the_room_maxlength_leaves_at_the_caret() {
 }
 
 #[test]
+fn the_agents_empty_fitted_insertion_deletes_a_range() {
+    // Chrome 151, CDP Input.insertText: a rejected insertion still deletes
+    // a range, and its caret counts the original text's UTF-16 units.
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    for (tag, body, limit, start, end, typed, value, caret, data) in [
+        ("input", "abc", 0, 0, 3, "x", "", 0, ""),
+        ("textarea", "abcdef", 5, 1, 2, "x", "acdef", 2, ""),
+        ("textarea", "abcdef", 5, 1, 2, "xy", "acdef", 3, ""),
+        ("textarea", "abcde", 5, 1, 2, "😀", "acde", 3, ""),
+        ("textarea", "abcdef", 5, 5, 6, "xy", "abcde", 5, ""),
+        ("textarea", "abcdef", 5, 1, 2, "", "acdef", 1, ""),
+        ("textarea", "abcde", 5, 1, 2, "x", "axcde", 2, "x"),
+    ] {
+        let source = format!(
+            r#"component App
+  state body = "{body}"
+  state events = ""
+  action before(e: InputEvent)
+    events = `${{events}}before:${{e.inputType}}:${{match e.data {{ case some(data) => data, case none => "null" }}}}|`
+  action edited(v: string, e: InputEvent)
+    body = v
+    events = `${{events}}input:${{e.inputType}}:${{match e.data {{ case some(data) => data, case none => "null" }}}}:${{e.selectionStart}}-${{e.selectionEnd}}|`
+  action selected(e: InputEvent)
+    setSelectionRange("editor", {start}, {end})
+  view
+    column
+      {tag} id="editor" testId="editor" maxlength={limit} value=body beforeinput=before input=edited select=selected
+      text events testId="events"
+"#
+        );
+        let (mut p, error) = Presenter::boot_with(
+            &crate::test_plan(&source),
+            (),
+            (400., 600.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        p.run_commands(<()>::default);
+        let editor = id(&p, "editor");
+        let reply = crate::agent::handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{editor},"text":"{typed}"}}"#),
+        );
+        assert!(!reply.contains("\"error\""), "{reply}");
+        actual.push((
+            p.field_text(editor),
+            p.field_selection(editor),
+            text(&p, "events"),
+        ));
+        expected.push((
+            value.to_owned(),
+            FieldSelection::caret(caret),
+            format!("before:insertText:{typed}|input:insertText:{data}:{caret}-{caret}|"),
+        ));
+    }
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn an_insertion_fits_the_room_the_replaced_selection_leaves() {
     let range = |start, end| FieldSelection {
         start,

@@ -114,8 +114,8 @@ impl<D: DataSource> Presenter<D> {
             .node(target)
             .and_then(|n| exact_kernel::control::text_maxlength(n.props));
         // `beforeinput` carries the whole text; what is inserted, and what
-        // `input` carries, is cut to the room left, and with none there is no
-        // edit and no `input` (Chrome's insertText).
+        // `input` carries, is cut to the room left. An empty insertion still
+        // deletes a selected range (Chrome's insertText).
         let bound = self.bound_text(target);
         let mut edit = InputDetails {
             input_type: "insertText".into(),
@@ -125,8 +125,18 @@ impl<D: DataSource> Presenter<D> {
         };
         if self.before_input(target, &edit, now)? {
             let fitted = field::fit(text, &value, selection, limit);
-            if !fitted.is_empty() || text.is_empty() {
-                let (next, caret) = field::replace(&value, selection, fitted);
+            if !fitted.is_empty() || text.is_empty() || selection.start != selection.end {
+                let (next, mut caret) = field::replace(&value, selection, fitted);
+                if fitted.is_empty() {
+                    // Chrome's rejected insertion advances by the original
+                    // text's UTF-16 length, clamped to the remaining value.
+                    caret = FieldSelection::caret(
+                        caret
+                            .start
+                            .saturating_add(field::utf16_len(text))
+                            .min(field::utf16_len(&next)),
+                    );
+                }
                 edit.data = Some(fitted.to_owned());
                 edit.cancelable = false;
                 if let Some(e) = self.apply_field_edit(target, next, caret, bound, now, edit) {
