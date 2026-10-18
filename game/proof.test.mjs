@@ -705,7 +705,8 @@ test('clock settle diagnostic names busy, held input, and logs on a real unsettl
   const a=source.indexOf("    async clock(spec = 'settle') {"), b=source.indexOf('\n    /** Pixels as PNG',a);
   const s={now:0,op:async req=>{expect(req).toEqual({op:'clock',settle:true});return {clock:100,settled:false,world:{changing:['player']}};}};
   // The method reads the module's step constant and growth rule; pass them in as the module would.
-  const clock=new Function('s','CLOCK_STEP_MS','clockSpan',`return ({${source.slice(a,b)}}).clock;`)(s,1000,clockSpan);
+  // A settle asks each drawing world for its tells (agent-inspect.mjs): none here.
+  const clock=new Function('s','CLOCK_STEP_MS','clockSpan','worldTells',`return ({${source.slice(a,b)}}).clock;`)(s,1000,clockSpan,async (_, r) => r);
   const reply=await clock();
   expect(reply.diagnostic).toContain('clock settle did not reach quiescence');
   expect(reply.diagnostic).toContain('state world:* busy');

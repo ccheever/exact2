@@ -3,7 +3,7 @@
 import {spawn, spawnSync} from 'node:child_process';
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
 import {basename, isAbsolute, resolve} from 'node:path';
-import {equal, agreePins, nativeProofHost, pinInputs, pinSourceInputs, pinRevision, webUnavailable, paranoidRuns, proofCommand} from './proof.mjs';
+import {equal, agreePins, nativeProofHost, pinInputs, pinSourceInputs, pinRevision, webUnavailable, paranoidRuns, proofCommand, lookAcrossRuns, lookOnlyFailure} from './proof.mjs';
 import {gameDefaults, lintGame, prepareGame} from './app/shells.mjs';
 
 const [destination, ...args] = process.argv.slice(2);
@@ -81,6 +81,8 @@ if (repin) {
       if (unavailable) return 0;
       try { rows.push(await run(host, 1, false, mode)); return 0; }
       catch (error) {
+        // A look that failed is the look's: the pins record the simulation, which passed.
+        if (lookOnlyFailure(error.summary)) { rows.push(error.summary); return 0; }
         if (mode === '0' && error.webUnavailable) { unavailable = true; console.log('WEB unavailable: repin refuses the missing requested host; set CHROME and rerun.'); }
         else errors.push(error);
         return 1;
@@ -122,7 +124,8 @@ const failures = groups.filter(r => r.status === 'rejected');
 const rows = groups.flatMap(r => r.status === 'fulfilled' ? r.value : r.reason.rows ?? (r.reason.summary ? [r.reason.summary] : []));
 const hashes = row => row.worlds.map(({session, tick, hash}) => ({session, tick, hash}));
 const baseline = rows[0];
-let failed = failures.length > 0;
+// A run that failed by its look alone is the look's failure, below, not the simulation's.
+let failed = failures.some(failure => !lookOnlyFailure(failure.reason.summary));
 console.log('| Host | Run | Seconds | World hashes | Save bytes | Simulation | Look |');
 console.log('|---|---:|---:|---|---|---|---|');
 for (const row of rows) {
@@ -131,10 +134,11 @@ for (const row of rows) {
   failed ||= !hashOK || (args.includes('--compare-saves') && !saveOK);
   console.log(`| ${row.device ? 'ios-device' : row.host} | ${row.repeat} | ${row.seconds.toFixed(3)} | ${hashOK ? 'equal' : 'FAIL'} | ${args.includes('--compare-saves') ? (saveOK ? 'identical' : 'FAIL') : 'not requested'} | ${row.simulation ?? row.status ?? 'UNVERIFIED'} | ${row.look ? `${row.look.status}, ${row.look.detail}` : 'not taken'} |`);
 }
-// The look result (LLP 1127.000 D5): a tell no game.look.silence names fails the proof.
-const looks = rows.map(row => row.look).filter(Boolean);
-for (const look of looks) for (const picture of [...look.pages ?? [], ...look.pictures ?? []]) console.log(`LOOK ${picture}`);
-const lookStatus = looks.some(l => l.status === 'FAIL') ? 'FAIL' : looks.some(l => l.status === 'PASS') ? 'PASS' : 'UNVERIFIED';
+// The look result (LLP 1127.000 D5): a tell no game.look.silence names fails the proof; it passes only when every
+// host's every run saw every world it showed, whole.
+const looks = rows.map(row => row.look);
+for (const look of looks.filter(Boolean)) for (const picture of [...look.pages ?? [], ...look.pictures ?? []]) console.log(`LOOK ${picture}`);
+const lookStatus = lookAcrossRuns(looks);
 for (const failure of failures) console.error(failure.reason);
 if (hosts.length > 1) {
   const entry = await import(script);
@@ -142,7 +146,7 @@ if (hosts.length > 1) {
   catch (error) { console.error(error.message); failed = true; }
 }
 const status = failed || lookStatus === 'FAIL' ? 'FAIL' : rows.length && rows.every(row => row.status === 'PASS') ? 'PASS' : 'UNVERIFIED';
-console.log(`simulation: ${failed ? 'FAIL' : rows.length && rows.every(row => (row.simulation ?? row.status) === 'PASS') ? 'PASS' : 'UNVERIFIED'} · look: ${lookStatus}${looks.length ? '' : ', no look taken'}`);
+console.log(`simulation: ${failed ? 'FAIL' : rows.length && rows.every(row => (row.simulation ?? row.status) === 'PASS') ? 'PASS' : 'UNVERIFIED'} · look: ${lookStatus}${looks.some(Boolean) ? '' : ', no look taken'}`);
 console.log(`PROOF ${status} ${name}`);
 if (status === 'UNVERIFIED') console.log(`No complete tick/save baseline was checked. Generate it with ${proofCommand(import.meta.path, local ? app : name, '--repin')}`);
 writeFileSync(resolve(root, 'summary.json'), JSON.stringify({status, look:lookStatus, rows}, null, 2)+'\n');
