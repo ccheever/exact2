@@ -13,6 +13,9 @@ pub struct Options {
 pub struct Beacon {
     pub lit: bool,
 }
+/// Walking and running speeds, metres a second.
+const WALK: f32 = 4.;
+const RUN: f32 = 7.;
 pub struct Beacons;
 impl Game for Beacons {
     const ID: &'static str = "beacons";
@@ -21,8 +24,11 @@ impl Game for Beacons {
     fn actions() -> Actions {
         Actions::new()
             .stick("move", Stick::wasd().or_arrows().or_pad(Pad::Left))
-            .button("light", &["KeyE", "GamepadWest"])
             .button("jump", &["Space", "GamepadSouth"])
+            // Held 200 ms, Shift runs; a tap of it does nothing.
+            .hold("sprint", &["ShiftLeft", "GamepadL1"], 0.2)
+            // E lights a beacon only within reach of one.
+            .context("beacon", |a| a.button("light", &["KeyE", "GamepadWest"]))
     }
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
@@ -104,8 +110,14 @@ impl Game for Beacons {
     fn tick(w: &mut World, input: &Input, _: &Options) {
         w.character("player")
             .step(input.stick_xz("move"), input.pressed("jump"));
+        if input.pressed("sprint") || input.released("sprint") {
+            let speed = if input.held("sprint") { RUN } else { WALK };
+            w.require_mut::<Character>("player").speed = speed;
+        }
         let mut near = "";
+        let mut reach = false;
         if let Some((entity, mut beacon)) = w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit) {
+            reach = true;
             if input.pressed("light") {
                 beacon.lit = true;
                 w.require_mut::<Glow>(entity).0.to(w.tick_end(), 1.0, 0.5);
@@ -115,5 +127,6 @@ impl Game for Beacons {
         }
         w.publish("lit", w.count::<Beacon>(|b| b.lit));
         w.publish("near", near);
+        w.input_context("beacon", reach);
     }
 }

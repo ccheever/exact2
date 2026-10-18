@@ -86,9 +86,13 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
     await world(s).tap('KeyE'); await world(s).run(100);
     check('E outside range lights nothing', !(await world(s).get('beacon-1','Beacon')).lit);
     await walkTo(world(s),check,8,0);
+    // Light is an action of the `beacon` input context, on only within reach of one.
+    const contexts = async () => (await world(s).resources()).InputContexts?.active ?? [];
+    check('within reach of a beacon its input context is on', equal(await contexts(), ['beacon']), await contexts());
     const glowFrames = host === 'web' ? {unlit:await captureGlow(s,'unlit')} : null;
     await world(s).tap('KeyE');
     await world(s).run(100);
+    check('a lit beacon is out of reach: the context is off', equal(await contexts(), []), await contexts());
     const [glow] = await world(s).get('beacon-1','Glow');
     check('saved Glow declares a half-second transition from 0 to 1', glow.start_value === 0 && glow.target === 1 && glow.duration === 0.5, glow);
     const observed = await snapshot(s);
@@ -198,14 +202,34 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
     await world(restored).run(1000);
   }
   writeFileSync(resolve(out, 'tap-timing.json'), JSON.stringify(taps));
-  // LLP 1127.003 §4: the agent's full pad stick and a held key move the player alike.
+  // Sprint is a 200 ms hold: Shift held 100 ms walks, held 250 ms runs, released walks.
   await world(restored).settle();
-  const from = await position(restored);
-  await restored.type('world', {key:'KeyD', for:1500}); await world(restored).settle();
-  const keyed = await position(restored);
-  const stick = await restored.tap('world', {stick:'left', value:[1, 0], for:1500}); await world(restored).settle();
-  const sticked = await position(restored);
-  check('a full pad stick moves the player as far as a held key', stick.delivery === 'synthesized'
-    && keyed[0] - from[0] > 5 && Math.abs((keyed[0] - from[0]) - (sticked[0] - keyed[0])) < 1e-4, {from, keyed, sticked, delivery:stick.delivery});
+  const speed = async () => (await world(restored).get('player', 'Character')).speed;
+  await world(restored).key_down('ShiftLeft'); await world(restored).run(100);
+  const early = await speed();
+  await world(restored).run(150);
+  const held = await speed();
+  await world(restored).key_up('ShiftLeft'); await world(restored).run(50);
+  check('a 200 ms Shift hold runs and its release walks', equal([early, held, await speed()], [4, 7, 4]), [early, held]);
+  // LLP 1127.003 §4: from one checkpoint, a held key and the agent's full pad
+  // stick reach the same world; a partial stick (the negative control) another.
+  await world(restored).settle();
+  const base = resolve(out, 'pad-base.world');
+  await world(restored).save(base);
   await restored.close();
+  const drive = async (input) => {
+    const t = await open({fresh:true, world:base});
+    await t.tap('play');
+    const reply = await input(t);
+    await world(t).run(500);
+    const {hash, tick} = await snapshot(t);
+    await t.close();
+    return {hash, tick, delivery:reply?.delivery};
+  };
+  const keyed = await drive(t => t.type('world', {key:'KeyD', for:1500}));
+  const stick = await drive(t => t.tap('world', {stick:'left', value:[1, 0], for:1500}));
+  const partial = await drive(t => t.tap('world', {stick:'left', value:[0.7, 0], for:1500}));
+  check('from one checkpoint a full pad stick and a held key reach the same world hash',
+    stick.delivery === 'synthesized' && stick.tick === keyed.tick && stick.hash === keyed.hash, {keyed, stick});
+  check('and a partial stick reaches another (the negative control)', partial.tick === keyed.tick && partial.hash !== keyed.hash, {keyed, partial});
 });
