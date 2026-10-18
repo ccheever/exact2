@@ -194,6 +194,7 @@ export function gameShells(dir, game, workspace) {
     const declared = Bun.TOML.parse(readFileSync(manifest, 'utf8')).package;
     if (declared?.name !== crate) throw new Error(`game.crate ${crate} must name the package in ${appDir}/logic`);
     if (declared.workspace !== '../.shells') throw new Error(`${manifest}: set package.workspace = "../.shells" so the app owns its logic`);
+    rmSync(resolve(root, 'logic'), {recursive:true, force:true});
   } else {
     mkdirSync(logicDir, {recursive:true});
     writeChanged(manifest, logicManifest(appDir, crate), false);
@@ -279,6 +280,7 @@ fn main() {
         fs::rename(temporary, &path).expect("publish complete game surface declaration");
     }
 ${bakeArt ? `    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appDir))}).expect("bake art");\n` : ''}    bake_files::bake_game_level::<Logic>(${JSON.stringify(relative(shell, appDir))}).expect("bake level");
+    bake_files::bake_game_tables::<Logic>(${JSON.stringify(relative(shell, appDir))}).expect("bake tuning tables");
     println!("cargo:rerun-if-changed={}", level_bake_path());
     println!("cargo:rerun-if-changed=build.rs");
 }

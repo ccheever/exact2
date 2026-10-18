@@ -314,6 +314,7 @@ export function pinRecorder(previous, app, check, collecting = false) {
   };
   return {pins,
     pin(tick, state) {
+      if (state?.tableEdits) check(`pin ${tick} refused: development table edits are in the journal`, false);
       check(`pin ${tick} sampled at expected tick (got ${state?.tick})`, state?.tick === tick && /^0x[0-9a-f]{16}$/.test(state?.hash));
       record('ticks', String(tick), state?.hash);
     },
@@ -402,8 +403,8 @@ export function proofInputs(root, app, cachePath) {
   let cache={}; try {cache=JSON.parse(readFileSync(cachePath,'utf8'));} catch { /* First proof. */ }
   const next={}, rows=[], prefix=relative(root,app).replaceAll('\\','/')+'/', groups={all:[],gpu:[],host:[],authored:[]}, authoredState=[], assetState=[]; let reads=0;
   const manifest = resolve(app, '.baked-assets.json');
-  const generated = new Set(existsSync(manifest)
-    ? Object.keys(JSON.parse(readFileSync(manifest, 'utf8'))).map(name => prefix + 'assets/' + name) : []);
+  const generated = new Set([prefix + 'assets/exact-tables.json', ...(existsSync(manifest)
+    ? Object.keys(JSON.parse(readFileSync(manifest, 'utf8'))).map(name => prefix + 'assets/' + name) : [])]);
   const files=proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined);
   // File stats miss sources created, consumed and removed between scans. Walk
   // shared and app source directories, including empty ones, to retain edits.

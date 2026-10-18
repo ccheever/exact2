@@ -139,7 +139,7 @@ async function fetchGeneration(message, signal, first = false) {
     plan: { bytes: plan.bytes.length, sha256: plan.sha256 },
     ...(rust ? { rust: Object.fromEntries(Object.keys(rust).sort().map(k => [k, { module: {bytes:rust[k].module.bytes,sha256:rust[k].module.sha256}, receipt:{bytes:rust[k].receipt.bytes,sha256:rust[k].receipt.sha256}, ...(k !== "wasm" ? {target:rust[k].target} : {}) }])) } : {}) };
   if (await digest(encoder.encode(JSON.stringify(canonical))) !== identity.generation) throw new Error("the generation digest does not bind its complete manifest");
-  return { ...identity, plan: plan.bytes, planSha256: plan.sha256, assets, module, rust: rustPayload, fetchMs: performance.now() - started };
+  return { ...identity, surfaceAssets:message.surfaceAssets, plan: plan.bytes, planSha256: plan.sha256, assets, module, rust: rustPayload, fetchMs: performance.now() - started };
 }
 
 // Fetches may finish in any order. Only the latest request can enter the
@@ -214,14 +214,21 @@ if (es) {
   }
   // The module loader uses this implementation on trusted LAN HTTP too.
   globalThis.exact.moduleDigest = digest;
-  let retry = null;
+  let retry = null, activeGeneration = null;
   // Inspect mode's outline, hidden on a new generation (set below).
   let outlineNone = () => {};
   const client = generationClient({ fetchGeneration, programChanged: () => { clearTimeout(retry); location.reload(); },
     apply: async (candidate, current) => {
       if (!current()) return false;
       const t = performance.now();
-      const accepted = await globalThis.exact.reloadGeneration(candidate.plan, candidate.assets, current, candidate.module, candidate.rust, true);
+      const names = candidate.surfaceAssets;
+      const liveAssets = Array.isArray(names) && names.length && activeGeneration && !candidate.module && !candidate.rust
+        && candidate.planSha256 === activeGeneration.planSha256 && candidate.assets.size === activeGeneration.assets.size
+        && [...candidate.assets].every(([name, card]) => names.includes(name) || card.sha256 === activeGeneration.assets.get(name)?.sha256);
+      const accepted = liveAssets && globalThis.exact.gpu?.reloadAssets
+        ? await globalThis.exact.gpu.reloadAssets(candidate.assets, names, current)
+        : await globalThis.exact.reloadGeneration(candidate.plan, candidate.assets, current, candidate.module, candidate.rust, true);
+      if (accepted) activeGeneration = candidate;
       if (accepted) {
         navigator.sendBeacon(`/__dev/reloaded?epoch=${candidate.epoch}&seq=${candidate.seq}&dom=${Date.now()}&fetch=${candidate.fetchMs.toFixed(1)}&boot=${(performance.now() - t).toFixed(1)}`);
         requestAnimationFrame(() => navigator.sendBeacon(`/__dev/painted?epoch=${candidate.epoch}&seq=${candidate.seq}&paint=${Date.now()}`));
@@ -244,7 +251,7 @@ if (es) {
         if (!current()) return;
         try {
           const { envelope, url } = await readEnvelope("/exact.json", AbortSignal.timeout(15000));
-          if (current() && validIdentity(envelope.dev)) client.receive({ ...envelope.dev, envelope: new URL("exact.json", new URL(envelope.plan.url, url)).href });
+          if (current() && validIdentity(envelope.dev)) client.receive({ ...envelope.dev, surfaceAssets:activeGeneration?.surfaceAssets, envelope: new URL("exact.json", new URL(envelope.plan.url, url)).href });
         } catch { if (current()) retry = setTimeout(discover, 1000); }
       };
       retry = setTimeout(discover, 250);
@@ -258,7 +265,7 @@ if (es) {
     slot.provide = async () => {
       try {
         const candidate = await fetchGeneration(JSON.parse(firstMeta.content), AbortSignal.timeout(15000), true);
-        if (!candidate.rust) client.adopt(candidate.generation);
+        if (!candidate.rust) { client.adopt(candidate.generation); activeGeneration = candidate; }
         return candidate;
       } catch (error) { show(String(error)); console.error("exact dev:", String(error)); return null; }
     };
@@ -707,7 +714,12 @@ if (es) {
   es.onmessage = (event) => {
     let message;
     try { message = JSON.parse(event.data); } catch { show("the dev stream sent invalid JSON"); return; }
-    if (message.error) { show(message.error, message.source); console.error("exact dev:", message.error); return; }
+    if (message.error) {
+      if (message.surfaceAttempt && globalThis.exact.gpu?.reloadAssets) {
+        const {name,text} = message.surfaceAttempt;
+        globalThis.exact.gpu.reloadAssets(new Map([[name,{bytes:new TextEncoder().encode(text)}]]),[name]).catch(error=>console.error(String(error)));
+      }
+      show(message.error, message.source); console.error("exact dev:", message.error); return; }
     if (message.fresh) { if (new URLSearchParams(location.search).get('agent') !== '1') location.reload(); return; }
     if (message.gpu !== undefined) {
       // A drive owns its clock and code. Do not change either behind the driver.

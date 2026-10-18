@@ -897,6 +897,23 @@ const api = {
     for (const view of [...surfaces.keys()]) this.destroy(view);
   },
   finishRestart() { planCarries.clear(); },
+  // A validated asset generation can reach existing surfaces without replacing their worlds.
+  async reloadAssets(cards, names, current = () => true) {
+    await ready;
+    return exact.mutate(() => {
+      if (!current()) return false;
+      for (const name of names) if (!name.startsWith('assets/') || (!cards.get(name)?.bytes || cards.get(name).bytes.length > 64 * 1024 * 1024)) throw new Error(`missing surface asset ${name}`);
+      for (const entry of surfaces.values()) if (entry.id && !entry.terminal) {
+        for (const name of names) {
+          cancelAssets(entry, new Set([name.slice(7)]));
+          if (!gpu.gpu_asset(entry.id, name.slice(7), cards.get(name).bytes)) throw new Error(gpu.gpu_error());
+        }
+        messages(entry);
+      }
+      for (const name of names) exact.devAssets?.set(name, cards.get(name));
+      schedule(); return true;
+    });
+  },
   // Dev only; callers serialize versions. Agent pages never receive automatic swaps.
   swap(version) { return exact.mutate(() => swap(version)); },
   /// A shader's text (LLP 1030 D8) — the dev loop's edit, or the first

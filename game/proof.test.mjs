@@ -304,12 +304,12 @@ test('a complete world snapshot reads every page at one tick and hash', async ()
     async state(target, under, pose, busy, page = {}) {
       pages.push(page);
       const from = page.from ?? 0, to = Math.min(all.length, from + 5);
-      return {tick:7, hash, entities:all.slice(from, to), truncated:to < all.length, total:all.length, ...(to < all.length ? {next:to} : {})};
+      return {tick:7, hash, tableEdits:2, entities:all.slice(from, to), truncated:to < all.length, total:all.length, ...(to < all.length ? {next:to} : {})};
     },
   };
   const w = worldView(session, 'world');
   // The 5-entity pages stand in for the driver's limit of 5,000.
-  const {entities, truncated} = await w.snapshot({all:true});
+  const {entities, truncated, tableEdits} = await w.snapshot({all:true}); expect(tableEdits).toBe(2);
   expect(entities.map(e => e.id)).toEqual(all.map(e => e.id));
   expect(truncated).toBe(false);
   expect(pages.map(p => p.from ?? 0)).toEqual([0, 5, 10]);

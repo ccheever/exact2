@@ -317,7 +317,7 @@ test('dev startup rebuilds changed Rust even when the app identity still matches
     const end=source.indexOf('\nif (!await currentWebBuild())',start);
     const current=new Function('builtAppMatches','dist','app','graphPath','readFileSync','pendingBuildInputs',
       'const producersOnly=false;'+source.slice(start,end)+';return currentWebBuild;')
-      (async()=>identity,dir,{},graphPath,readFileSync,pendingBuildInputs);
+      (async()=>identity,dir,{manifest:{}},graphPath,readFileSync,pendingBuildInputs);
     assert.equal(await current(),true);
     writeFileSync(join(dir,'notes.txt'),'unrelated edit');
     assert.equal(await current(),true);
@@ -353,7 +353,7 @@ test('generated game arguments use the resident plan compiler without a host reb
       const builtReceipts=[{binary:{inputs:paths.map(path=>({path})),directories:[{path:resolve(app.dir,'.shells')}],missing:[resolve(app.dir,'missing/config.json')]}}];
       const contractGraph=()=>({files:new Set()});
       const rustInputFiles=new Set(),gpuInputs=new Set(),appInputs=new Set(),failedInputs=new Set(),assetTrees=[];
-      const typescript=false,portableRust=false,rebuildOn={rust:'save'},changed=new Set();
+      const typescript=false,portableRust=false,rebuildOn={rust:'save'},changed=new Set(),tuning={paths:new Set()};
       const console={log(){},error(error){throw new Error(error);}},gpuOnly=()=>false;
       const clearTimeout=()=>{},setTimeout=()=>0,rebuild=()=>{};let timer;
       ${source.slice(start,end)}
@@ -422,6 +422,7 @@ function scheduler() {
   return new Function(`
     let building=false, rustActive=false, buildPending=false, rustPending=false, rustDirty=false, again=false, changed=new Set(), calls=[];
     let lastFailed=new Set(), failedInputs=new Set(), failing=false;
+    const app={manifest:{}};
     const gpuOnly = files => files.length && files.every(f=>f==='gpu.rs');
     const produceGpu = files => { building=true; calls.push(['gpu',files]); };
     const rebuildNow = files => { building=true; calls.push(['full',files]); if (failing) lastFailed=new Set(files); };
@@ -532,12 +533,12 @@ test('declared source files report in-place edits after inclusion and replacemen
       const builtReceipts=[{binary:{inputs:[{path:main}],directories:[],missing:[]}}];
       const contractGraph=()=>({files:new Set()});
       const rustInputFiles=new Set(),gpuInputs=new Set(),appInputs=new Set(),failedInputs=new Set(),assetTrees=[];
-      const typescript=false,portableRust=false,rebuildOn={rust:'save'},changed=new Set();
+      const typescript=false,portableRust=false,rebuildOn={rust:'save'},changed=new Set(),tuning={paths:new Set()};
       const console={log(){},error(message){throw Error(message);}},gpuOnly=()=>true;
       const builds=[],rebuild=()=>{builds.push([...changed]);changed.clear();};let timer;
       ${source.slice(start,end)}
       watchCompilerInputs();
-      return {changed,builds,add(path){gpuInputs.add(path);watchCompilerInputs();},remove(path){gpuInputs.delete(path);watchCompilerInputs();},
+      return {changed,builds,table(path){tuning.paths.add(path);},asset(path){assetTrees.push([path,'assets']);},add(path){gpuInputs.add(path);watchCompilerInputs();},remove(path){gpuInputs.delete(path);watchCompilerInputs();},
         has:path=>watched.has(path),close(){for(const record of watched.values())record.close();}};
     `)({dir,manifest:{game:{}}},main,watch,resolve,existsSync,fakeWatchFile,fakeUnwatchFile,fakeSetTimeout,fakeClearTimeout);
     const edit=(path,text,atomic=false)=>{
@@ -555,6 +556,11 @@ test('declared source files report in-place edits after inclusion and replacemen
     edit(extra,null);
     edit(extra,'recreated',true);
     edit(extra,'edited after recreation');
+    api.table(extra); const built = api.builds.length; writeFileSync(extra,'tuning edit'); settle();
+    assert.equal(api.builds.length,built,'the in-process table validator owns tuning saves');
+    const assets=join(dir,'assets');mkdirSync(assets);api.asset(assets);api.add(assets);
+    writeFileSync(join(assets,'exact-tables.json'),'{}');settle();
+    assert.equal(api.builds.length,built,'asset directory metadata belongs to the asset watcher');
     api.remove(extra);assert.equal(api.has(extra),false,'obsolete file watches close');
     const count=api.builds.length;writeFileSync(extra,'no longer included');
     writeFileSync(join(dir,'target/output.rs'),'output');

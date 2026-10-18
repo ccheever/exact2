@@ -30,7 +30,9 @@
 // shows its errors in the page's overlay, as a contract that fails does,
 // and the page keeps the last good wasm. TypeScript apps use a checked
 // resident producer below the data seam; file watching remains Node's own.
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn as childSpawn, spawnSync as childSpawnSync } from 'node:child_process';
+let processStarts = 0, tuning = null;
+const spawn = (...args) => { processStarts++; return childSpawn(...args); }, spawnSync = (...args) => { processStarts++; return childSpawnSync(...args); };
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
@@ -416,7 +418,7 @@ const programIdentity = () => {
 };
 let program = programIdentity();
 const announcement = () => current ? {
-  epoch, program, seq: current.seq, generation: current.generation,
+  epoch, program, seq: current.seq, generation: current.generation, ...(tuning?.paths.size ? {surfaceAssets:['assets/exact-tables.json']} : {}),
   digest: current.envelope.plan.sha256, envelope: current.url,
 } : { epoch, ready: false };
 const hello = (nonce) => JSON.stringify({ hello: true, ...announcement(), ...(nonce ? { nonce } : {}) });
@@ -876,7 +878,11 @@ function drainBuilds() {
       check.on('exit', code => {
         building = false; hostBuildChild = null;
         if (code === 0) { if (gpuOnly(files)) void produceGpu(files); else rebuildNow(files); }
-        else { lastFailed = new Set(files); push({error:output}); if (changed.size) drainBuilds(); }
+        else {
+          lastFailed = new Set(files); push({error:output});
+          for (const [, name] of output.matchAll(/^\s*--> (.+?):\d+:\d+\s*$/gm)) { const path = [root, app.workspace].map(base => resolve(base,name)).find(existsSync); if (path) failedInputs.add(path); }
+          watchCompilerInputs(); if (changed.size) drainBuilds();
+        }
       });
     } else if (gpuOnly(files)) void produceGpu(files); else rebuildNow(files);
   } else if (rustPending) { rustPending = false; produceRustNow(); }
@@ -963,7 +969,7 @@ startCompiler();
 const stop = async () => {
   const children = [dev, rustChild, gpuBuildChild, installer.child, hostBuildChild].filter(Boolean);
   const exits = children.map(child => new Promise(ok => child.exitCode !== null || child.signalCode !== null ? ok() : child.once('exit', ok)));
-  killCompiler();
+  tuning?.close(); killCompiler();
   // The design server lets go of its lock before this exits.
   exits.push(tamber?.close());
   installer.child?.kill('SIGTERM');
@@ -984,6 +990,7 @@ let assetChanges = new Map(); // dist-relative name -> { root, relative }
 let assetTimer = null;
 try {
   watchStaticTrees(app.dir, assetTrees, (change) => {
+    if (tuning && change.name === 'assets/exact-tables.json') return;
     if (change.targetRoot === 'shaders') change = {...change,tree:true,relative:'',name:'shaders'};
     if (skipped.test(change.relative) || /(^|\/)\./.test(change.relative)) return;
     if (change.tree) {
@@ -1152,12 +1159,13 @@ function watchCompilerInputs() {
     const file=files.has(target),dir=file?resolve(target,'..'):target;
     const changedPath=name=>{
       if(file)name=target.slice(target.lastIndexOf('/')+1);
-      if(!name||skipped.test(name)||/(^|\/)\./.test(name)||name.endsWith('dev.js')||assetTrees.some(([tree])=>resolve(dir,name).startsWith(tree+'/'))||resolve(dir,name)===source)return;
+      if(!name||skipped.test(name)||/(^|\/)\./.test(name)||name.endsWith('dev.js')||assetTrees.some(([tree])=>resolve(dir,name)===tree||resolve(dir,name).startsWith(tree+'/'))||resolve(dir,name)===source)return;
       // Parent-directory notifications include unrelated documents and output.
       // Only receipt inputs, declared trees/missing paths, and Swift's implicit
       // source discovery can invalidate the host. Rust additions are reached
       // when their declaring module or build input changes.
       const path = resolve(dir, name);
+      if (tuning?.paths.has(path)) return;
       if(!file&&compilerInputFiles.has(path))return;
       // The resident Contract compiler already watches generated game arguments.
       // Rebuilding the host afterward would discard the carried world.
@@ -1195,6 +1203,11 @@ function watchCompilerInputs() {
   }
 }
 watchCompilerInputs();
+if (app.manifest.game) {
+  const {watchTables} = await import('../../game/app/tables.mjs');
+  tuning = await watchTables({app:app.dir, dist, processCount:()=>processStarts, refused:(error,text)=>{ console.error(error); push({error, ...(text ? {surfaceAttempt:{name:'assets/exact-tables.json',text}} : {})}); },
+    publish:(name, timing)=>{ seq++; captureGeneration(); console.log(`table: validated and published in ${timing.milliseconds.toFixed(1)} ms; subprocesses ${timing.processes}`); push({...announcement(), surfaceAssets:[name]}); }});
+}
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', input => {
   for (const command of input.trim().split(/\s+/)) {
@@ -1215,21 +1228,23 @@ function rebuildNow(files) {
   let out = '';
   b.stdout.on('data', (d) => { out += d; });
   b.stderr.on('data', (d) => { out += d; });
-  b.on('exit', (code) => {
+  b.on('exit', async (code) => {
     building = false; hostBuildChild = null;
     const ms = Date.now() - t;
     if (code === 0) {
       builds += 1;
       // The compiler's plans must match the wasm's format: it is built again
       // too (cargo, warm), and its first plan reaches the reloaded page.
-      killCompiler();
+      tuning?.close(); killCompiler();
       app = resolveApp(arg('--app', undefined));
       typescript = existsSync(resolve(app.dir, 'app.ts'));
       portableRust = Boolean(rustPackage(app)) && rustPolicy(app.manifest, 'web') !== 'off';
       rebuildOn = rebuildPolicy(app.manifest);
       current = null; currentModule = null; currentRust = null; currentRustId = null; assetsNeedRebuild = false;
       for (const directory of gpuVersions.values()) rmSync(directory, {recursive:true,force:true});
-      gpuVersions.clear(); gpuSides.clear(); failedInputs.clear(); readGpuInputs(); watchCompilerInputs();
+      gpuVersions.clear(); gpuSides.clear(); failedInputs.clear(); readGpuInputs();
+      if (tuning) await tuning.reload();
+      watchCompilerInputs();
       program = programIdentity();
       // The restarted producer consumes module edits; queued core edits start
       // their rebuild there. Do not re-arm a third build below on that success.
@@ -1288,6 +1303,7 @@ async function produceGpuArtifact(files, { stem, kind, module }) {
     const compiled = Date.now();
     // The side directory mirrors dist: `gpu.js`, or a module's `gpu/<name>.js`.
     await run('wasm-bindgen', ['--target','no-modules','--no-typescript','--out-dir',module ? resolve(stage, 'gpu') : stage,'--out-name',module ?? 'gpu',resolve(app.target,'wasm32-unknown-unknown',profile,app.crate(kind).replaceAll('-','_')+'.wasm')]);
+    if (tuning && stem === 'gpu') await tuning.reload(stage, true);
     gpuVersion++; gpuVersions.set(gpuVersion, { stem, directory: stage }); gpuSides.set(stem, gpuVersion);
     // Query versions pin JS and wasm together. A lagging fetch gets 404 rather
     // than silently pairing exports from one build with another build's wasm.

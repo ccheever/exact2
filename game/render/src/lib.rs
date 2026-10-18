@@ -548,6 +548,15 @@ macro_rules! module {
             shaders: $shaders,
         };
         $crate::exact_gpu::module!(REGISTRY);
+        #[cfg(target_arch = "wasm32")]
+        #[wasm_bindgen::prelude::wasm_bindgen]
+        pub fn exact_game_tables(text: &str) -> Result<String, wasm_bindgen::JsValue> {
+            if text.is_empty() {
+                return $crate::exact_game::json::to_string(&<$game as $crate::exact_game::Game>::TABLES.iter().map(|t| t.name.to_owned()).collect::<Vec<_>>()).map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()));
+            }
+            $crate::exact_game::asset::validate_tables::<$game>(text).map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))?;
+            Ok(text.into())
+        }
     };
 }
 

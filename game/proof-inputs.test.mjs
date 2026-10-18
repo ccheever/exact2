@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {cpSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, realpathSync, renameSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
-import {agreePins, buildInputHash, ensureBuildReceipt, ensureLinuxReceipts, pinInputs, proofInputFiles, proofInputReader, proofInputs} from './proof.mjs';
+import {agreePins, buildInputHash, ensureBuildReceipt, ensureLinuxReceipts, pinInputs, pinRecorder, proofInputFiles, proofInputReader, proofInputs} from './proof.mjs';
 import {writeFixtureFile} from './tests/proof-helpers.mjs';
 
 test('receipts issued before directory checks rebuild once even when source and artifact digests still match', async () => {
@@ -426,12 +426,33 @@ test('proof summaries record both identities from the completed bake', async () 
 
 
 test('web repin requires shipping observations and receipts distinguish profiles', () => {
-  const pins = {ticks:{60:'0x123456789abcdef0'}, saves:{continuation:'a'.repeat(64)}};
+  const pins = {ticks:{60:'0x'+'12345678'.repeat(2)}, saves:{continuation:'a'.repeat(64)}};
   const rows = ['linux', 'web'].flatMap(host => ['0', '1', 'fresh-game', 'release'].map(mode => ({host, mode:mode === 'release' ? '0' : mode, profile:mode === 'release' ? mode : 'gpu-dev', pins:structuredClone(pins)})));
   const old = pins;
   expect(() => agreePins(rows.filter(row => !(row.host === 'web' && row.profile === 'release')), old, ['linux', 'web'], '.')).toThrow('web release');
-  rows.find(row => row.host === 'web' && row.profile === 'release').pins.ticks[60] = '0xdddddddddddddddd';
+  rows.find(row => row.host === 'web' && row.profile === 'release').pins.ticks[60] = '0x'+'d'.repeat(16);
   expect(() => agreePins(rows, old, ['linux', 'web'], '.')).toThrow('disagrees with gpu-dev');
   expect(buildInputHash('web', 'target', '0', 'release').digest('hex'))
     .not.toBe(buildInputHash('web', 'target', '0', 'gpu-dev').digest('hex'));
+});
+
+test('a development table edit refuses a pin even when its hash matches', () => {
+  const failures = [], pins = {ticks:{0:'0x'+(1n).toString(16).padStart(16,'0')},saves:{}};
+  const recorder = pinRecorder(pins, '.', (label,ok)=>{if(!ok) failures.push(label);});
+  recorder.pin(0,{tick:0,hash:pins.ticks[0],tableEdits:1});
+  expect(failures).toEqual(['pin 0 refused: development table edits are in the journal']);
+});
+
+test('a baked table transaction is an asset product; its authored JSON owns provenance', () => {
+  const root=mkdtempSync(resolve(tmpdir(),'proof-tables-')),app=resolve(root,'game/games/sample');
+  try {
+    writeFixtureFile(app,'movement.json','{"speed":4}');
+    const read=proofInputReader(root,app),before=read();
+    writeFixtureFile(app,'assets/exact-tables.json','{"movement.json":"{\\"speed\\":4}"}');
+    expect(()=>read()).toThrow('asset directories changed during build');
+    const after=proofInputs(root,app);
+    expect(after.authored).toBe(before.authored); expect(after.all).not.toBe(before.all);
+    writeFileSync(resolve(app,'movement.json'),'{"speed":8}');
+    expect(proofInputs(root,app).authored).not.toBe(after.authored);
+  } finally {rmSync(root,{recursive:true,force:true});}
 });

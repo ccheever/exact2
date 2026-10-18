@@ -351,6 +351,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
             requests: self.payloads.request(requests),
         }
     }
+    fn accepts_asset_update(&self, name: &str) -> bool {
+        !G::TABLES.is_empty() && name == exact_game::asset::TABLE_ASSET
+    }
     fn asset(&mut self, file: &str, bytes: Result<&[u8], AssetError>) {
         if ASSETS || exact_game::asset::delivers_without_models::<G>() {
             let name = if ASSETS {
@@ -362,12 +365,16 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
             if let Some(sim) = &mut self.sim {
                 match bytes {
                     Ok(bytes) => {
-                        let accepted = sim
-                            .deliver_asset(
-                                name,
-                                exact_game::asset::Content::decode::<ASSETS>(name, bytes),
-                            )
-                            .is_ok();
+                        let result = sim.deliver_asset(
+                            name,
+                            exact_game::asset::Content::decode::<ASSETS>(name, bytes),
+                        );
+                        let accepted = result.is_ok();
+                        if name == exact_game::asset::TABLE_ASSET {
+                            if let Err(error) = result {
+                                self.refusal = Some(SurfaceError(error));
+                            }
+                        }
                         if ASSETS && accepted && name.ends_with(".model") {
                             if let Some((_, model)) =
                                 sim.presentation_models().find(|(n, _)| *n == name)

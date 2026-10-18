@@ -225,6 +225,11 @@ pub trait Surface {
     }
     /// Deliver encoded content, a missing name, or a terminal transport failure.
     fn asset(&mut self, _name: &str, _bytes: Result<&[u8], AssetError>) {}
+    /// Allow replacement of a previously requested asset. The surface validates
+    /// the complete replacement before changing its active state.
+    fn accepts_asset_update(&self, _name: &str) -> bool {
+        false
+    }
     /// Complete device preparation inside asset delivery, before reporting readiness.
     fn prepare_assets(
         &mut self,
@@ -1103,7 +1108,9 @@ impl Module {
             self.error = "no such canvas".into();
             return false;
         };
-        if !inst.outstanding.remove(name) {
+        if !inst.outstanding.remove(name)
+            && !(inst.answered.contains(name) && inst.surface.accepts_asset_update(name))
+        {
             self.error = format!("asset `{name}`: not requested by this surface");
             return false;
         }

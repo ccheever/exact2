@@ -2,12 +2,19 @@ use beacons_logic::{Beacons, Options};
 use exact_game::{character::Character, Sim, Transform};
 
 fn sim(seed: u64) -> Sim<Beacons> {
-    Sim::new(Options {
+    let mut sim = Sim::new(Options {
         seed,
         paused: false,
         restart: false,
     })
-    .unwrap()
+    .unwrap();
+    tables(&mut sim);
+    sim
+}
+fn tables(sim: &mut Sim<Beacons>) {
+    let rows = std::collections::BTreeMap::from([("movement.json".to_owned(), include_str!("../../movement.json").to_owned())]);
+    let bytes = exact_game::json::to_string(&rows).unwrap();
+    sim.asset(exact_game::asset::TABLE_ASSET, Some(bytes.as_bytes())).unwrap();
 }
 #[test]
 fn movement_seed_jump_and_save() {
@@ -52,14 +59,16 @@ fn movement_seed_jump_and_save() {
 #[test]
 fn rust_defaults_and_positional_binding_have_identical_bytes() {
     use exact_game::Value;
-    let omitted = Sim::<Beacons>::new(Options {
+    let mut omitted = Sim::<Beacons>::new(Options {
         seed: 7,
         ..Options::default()
     })
     .unwrap();
-    let positional =
+    let mut positional =
         Sim::<Beacons>::from_values(&[Value::Number(7.), Value::Bool(false), Value::Bool(false)])
             .unwrap();
+    tables(&mut omitted);
+    tables(&mut positional);
     assert_eq!(omitted.save().unwrap(), positional.save().unwrap());
     omitted.assert_pin(include_str!("../../pins.json"));
 }

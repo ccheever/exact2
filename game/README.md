@@ -640,6 +640,29 @@ asset barrier. `w.generated(name, mesh_data)` registers immutable generated geom
 saves check its reconstructed identity rather than storing render vertices. See
 [the level example](games/asset-fixture/logic/src/lib.rs) and [engine reference](engine/README.md).
 
+Tuning records use `Game::TABLES`, for example
+`const TABLES: &'static [asset::Table] = &[asset::Table::of::<Movement>("movement.json")];`.
+A record derives `Data` and is `Send + Sync`. The bake validates every named field;
+a wrong type or missing field names its path. `w.table::<Movement>("movement.json")?`
+borrows an immutable decoded version. `asset::Curve(Vec<(f32, f32)>)` samples with
+`at(x)`, interpolating between ordered finite points and clamping at the endpoints.
+[Beacons' movement table](games/beacons/movement.json) controls its speed and jump.
+
+The web dev loop validates table saves in-process using that bake's compiled decoder,
+then delivers all tables together through `assets/exact-tables.json`. It prints validation
+time and subprocess count. No Cargo or rustc runs for a tuning save. A complete valid
+transaction activates at the next simulation tick; a rejected transaction keeps the old
+values. A setup-only read takes effect at the next setup; levels always require a new
+session. Tables never spawn entities.
+
+Active table bytes appear in world resources and contribute to the hash. Every admitted
+version remains in saved inputs for the session. `sim.table_inputs()` exports these
+clock-stamped bytes; `sim.replay_tables(&inputs)` queues them on a tick-zero simulation
+loaded with their original setup version. A restore requires the same active table bytes
+and refuses changed tables by name. Development swaps are reported as `tableEdits` in
+world state and refuse a proof pin. The replay admission uses the next tick until the
+shared LLP 1127.004 D6 contract lands.
+
 Animation order is explicit: `animation::step` → apply root motion → query sockets.
 `SocketFollow` attaches to a joint without changing the saved local transform.
 See [the skinned example](games/skinned-fixture/logic/src/lib.rs).

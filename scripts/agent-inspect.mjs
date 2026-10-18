@@ -650,10 +650,10 @@ export function worldView(session, name) {
       const {tick, hash} = first, entities = [...first.entities];
       for (let r = first; all && r.truncated;) {
         r = await session.state(`${name}:*`, undefined, false, false, {...page, from:r.next});
-        if (r.tick !== tick || r.hash !== hash) throw new Error('world changed while paging; capture on the agent clock with no concurrent drive');
+        if (r.tick !== tick || r.hash !== hash || r.tableEdits !== first.tableEdits) throw new Error('world changed while paging; capture on the agent clock with no concurrent drive');
         entities.push(...r.entities);
       }
-      return {tick, hash, entities, truncated: all ? false : first.truncated};
+      return {tick, hash, ...(first.tableEdits === undefined ? {} : {tableEdits:first.tableEdits}), entities, truncated: all ? false : first.truncated};
     },
     /** Every resource's value, as `state world:* resources` reads them. */
     async resources() { return (await session.state(`${name}:*`, undefined, false, false, {limit:1, resources:true})).resources; },

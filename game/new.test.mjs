@@ -30,9 +30,9 @@ test('a newly generated game builds, refuses empty pins and captures without edi
   assert.ok(!existsSync(app));
   try {
     await run('bun', ['game/new.mjs', app]);
-    // A game is the files its author writes; no manifest, lock or app.json. Outside
-    // this checkout it gets an app's runner and notes too (LLP 1086).
-    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','.vscode','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs']);
+    // Generated adapters and the resolved lock stay under .shells; the authored
+    // surface needs no manifest or app.json.
+    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','.shells','.vscode','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs']);
     assert.deepEqual(readdirSync(resolve(app, 'logic')).sort(), ['src','tests']);
     env.EXACT_APP_DIR = app;
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
@@ -497,11 +497,13 @@ test('an empty Cargo cache permits adapter generation and refuses offline resolu
   const root=realpathSync(mkdtempSync(resolve(tmpdir(),'r13-empty-cache-'))),dir=resolve(root,'cache-game');
   const previous=process.env.CARGO_HOME;
   try {
-    createGame(dir);mkdirSync(resolve(root,'cargo-home'));process.env.CARGO_HOME=resolve(root,'cargo-home');
+    createGame(dir);
+    const resolvedLock=readFileSync(resolve(dir,'.shells/Cargo.lock'),'utf8');
+    mkdirSync(resolve(root,'cargo-home'));process.env.CARGO_HOME=resolve(root,'cargo-home');
     const generated=spawnSync(process.execPath,[resolve(import.meta.dir,'app/shells.mjs'),dir],{env:{...process.env},encoding:'utf8'});
     assert.equal(generated.status,0,generated.stderr);
-    // The shell starts from the SDK lock, so `cargo fetch` downloads the SDK's versions.
-    assert.equal(readFileSync(resolve(dir,'.shells/Cargo.lock'),'utf8'),readFileSync(resolve(import.meta.dir,'app/shells.lock'),'utf8'));
+    // Adapter generation preserves the lock resolved when the game was created.
+    assert.equal(readFileSync(resolve(dir,'.shells/Cargo.lock'),'utf8'),resolvedLock);
     for (const host of ['gpu','web','apple','linux','logic']) assert.ok(existsSync(resolve(dir,`.shells/${host}/Cargo.toml`)));
     assert.throws(()=>prepareGame(dir,gameDefaults(dir).game),error=>/offline/.test(error.message)&&/cargo fetch --manifest-path/.test(error.message));
     assert.ok(!existsSync(resolve(dir,'Cargo.lock')));
@@ -682,7 +684,7 @@ test('Beacons is the files its author writes and survives two shell bakes', asyn
   const {gameDefaults,gameShells}=await import('./app/shells.mjs');
   const app=resolve(import.meta.dir,'games/beacons');
   const tracked=spawnSync('git',['ls-files'],{cwd:app,encoding:'utf8'}).stdout.trim().split('\n').sort();
-  assert.deepEqual(tracked,['README.md','app.contract','logic/src/lib.rs','logic/tests/sim.rs','pins.json','proof.mjs']);
+  assert.deepEqual(tracked,['.gitignore','README.md','app.contract','logic/src/lib.rs','logic/tests/sim.rs','movement.json','pins.json','proof.mjs']);
   for(let i=0;i<2;i++) {
     const manifest=gameDefaults(app);gameShells(app,manifest.game,import.meta.dir);
     assert.equal(JSON.parse(readFileSync(resolve(app,'.shells/app.json'),'utf8')).app.id,'com.exact.beacons');

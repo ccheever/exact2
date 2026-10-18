@@ -1505,3 +1505,12 @@ its valid bindings disappear and return. Read it with
 - The root file's first component is the app root. A fixture component placed
   above it changes which component receives routes and may declare resources.
   Keep resources on the root and pass their values to child components.
+
+- **A game proof needs a stable source tree through its last assertion.** Do not
+  create scratch directories or run fixture-generating tests alongside it, even
+  under an ignored directory: the input reader observes directory metadata.
+  Prepare evidence paths first and run proofs serially.
+
+- **A game agent page freezes its primary GPU module.** A successful dev side-module
+  rebuild does not replace that artifact for a new agent drive. Build the primary
+  module and restart the dev server before using a drive to verify Rust changes.

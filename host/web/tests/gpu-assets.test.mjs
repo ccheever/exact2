@@ -119,3 +119,23 @@ test('retirement makes room for a full replacement batch before aborts settle', 
   await new Promise(r=>setTimeout(r,0));
   expect(failures).toEqual([]);
 });
+
+test('surface asset delivery keeps the live instance and commits only accepted bytes', async () => {
+  const start = source.indexOf('  async reloadAssets('), end = source.indexOf('\n  // Dev only;', start);
+  const entry = {id:7,view:3}, old = {bytes:new Uint8Array([1])}, next = {bytes:new Uint8Array([2])};
+  const exact = {mutate:fn=>fn(),devAssets:new Map([['assets/tuning.json',old]])}, calls = [];
+  let accepted = true;
+  const gpu = {gpu_asset:(id,name,bytes)=>{calls.push({id,name,bytes});return accepted;},gpu_error:()=> 'invalid tuning field'};
+  const api = new Function('ready','exact','surfaces','gpu','cancelAssets','messages','schedule',`return {${source.slice(start,end)}}`)(
+    Promise.resolve(),exact,new Map([[3,entry]]),gpu,()=>{},()=>{},()=>{});
+  const cards = new Map([['assets/tuning.json',next]]);
+  expect(await api.reloadAssets(cards,['assets/tuning.json'],()=>false)).toBe(false);
+  expect(calls).toHaveLength(0);
+  expect(await api.reloadAssets(cards,['assets/tuning.json'])).toBe(true);
+  expect(calls).toEqual([{id:7,name:'tuning.json',bytes:next.bytes}]);
+  expect(entry.id).toBe(7);
+  expect(exact.devAssets.get('assets/tuning.json')).toBe(next);
+  accepted = false;
+  await expect(api.reloadAssets(new Map([['assets/tuning.json',old]]),['assets/tuning.json'])).rejects.toThrow('invalid tuning field');
+  expect(exact.devAssets.get('assets/tuning.json')).toBe(next);
+});
