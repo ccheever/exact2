@@ -17,7 +17,7 @@ import { htmlRenderFromToolItem, mcpAppFromToolItem } from './inline-tool-output
 
 export type InlineReference = { kind: 'html'; reference: HtmlRenderReference } | { kind: 'mcp'; reference: McpAppReference };
 export type InlineDocumentView = { key: string; kind: string; title: string; src: string; ready: boolean; error: string; height: number; posts: { key: string; text: string }[]; permission: string; permissionSerial: number; fullscreen: boolean; closed: boolean; shortcut: string; shortcutSerial: number; outline: { key: string; kind: string; x: number; y: number; width: number; height: number; lines: number }[] };
-type Frame = { token: string; url: string; expiresAt: number; src: string; ready: boolean; error: string; height?: number; reading: boolean; lastTheme?: string; lastShortcuts?: string; shortcut?: string; shortcutSerial?: number; posts: { key: string; text: string }[]; serial: number; runtime?: DocumentRuntime; fullscreen?: boolean; width?: number; viewportHeight?: number };
+type Frame = { token: string; url: string; expiresAt: number; src: string; ready: boolean; error: string; height?: number; reading: boolean; lastTheme?: string; lastShortcuts?: string; shortcut?: string; shortcutSerial?: number; posts: { key: string; text: string }[]; serial: number; runtime?: DocumentRuntime; fullscreen?: boolean; width?: number; inlineWidth?: number; viewportHeight?: number };
 type State = { generation: number; environment: string; frames: Map<string, Frame> };
 const states = new WeakMap<T3Client, State>();
 const MIN_URL_LIFE = 5 * 60_000;
@@ -120,10 +120,11 @@ export async function syncInlineDocuments(client: T3Client, native: Native, now:
 
 export function inlineDocumentView(client: T3Client, key: string, ref: InlineReference, width = 728): InlineDocumentView {
   const frame = state(client).frames.get(key);
+  const inlineWidth = frame?.inlineWidth ?? width;
   return { key, kind: ref.kind, title: ref.kind === 'html' ? ref.reference.title : ref.reference.tool, src: frame?.src ?? '', ready: frame?.ready ?? false, error: frame?.error ?? '',
-    height: ref.kind === 'html' ? htmlRenderFrameHeight(ref.reference, width, frame?.height) : clampMcpAppHeight(frame?.height ?? 320),
+    height: ref.kind === 'html' ? htmlRenderFrameHeight(ref.reference, inlineWidth, frame?.height) : clampMcpAppHeight(frame?.height ?? 320),
     posts: frame?.posts ?? [], permission: frame?.runtime?.permission?.text ?? '', permissionSerial: frame?.runtime?.permission?.serial ?? 0, fullscreen: frame?.runtime?.fullscreen ?? frame?.fullscreen ?? false, closed: frame?.runtime?.closed ?? false, shortcut: frame?.shortcut ?? '', shortcutSerial: frame?.shortcutSerial ?? 0,
-    outline: ref.kind === 'html' ? htmlRenderOutlineBoxes(ref.reference, width).map((box, index) => ({ ...box, key: String(index) })) : [] };
+    outline: ref.kind === 'html' ? htmlRenderOutlineBoxes(ref.reference, inlineWidth).map((box, index) => ({ ...box, key: String(index) })) : [] };
 }
 export async function inlineDocumentEvent(client: T3Client, key: string, op: string, payload: string, native?: Native, storage?: Files, openImage?: (image: { src: string; name: string }) => void): Promise<void> {
   const frame = state(client).frames.get(key);
@@ -132,7 +133,7 @@ export async function inlineDocumentEvent(client: T3Client, key: string, op: str
   if (op === 'ack') frame.posts = frame.posts.filter(post => post.key !== payload);
   if (op === 'permission' && frame.runtime?.permission && payload.split(':')[0] === String(frame.runtime.permission.serial)) { const permission = frame.runtime.permission; frame.runtime.permission = null; permission.settle(payload.endsWith(':allow')); }
   if (op === 'fullscreen') { const full = payload === 'open'; if (!full || ![...state(client).frames.values()].some(other => other.runtime?.permission || other !== frame && (other.fullscreen || other.runtime?.fullscreen))) { if (frame.runtime) frame.runtime.fullscreen = full; else frame.fullscreen = full; } frame.runtime?.host.updateHostContext(); }
-  if (op === 'measure') { const [width, height] = payload.split('|').map(Number); if (width && height) { frame.width = width; if (frame.runtime?.fullscreen || frame.fullscreen) frame.viewportHeight = height; frame.runtime?.host.updateHostContext(); } }
+  if (op === 'measure') { const [width, height] = payload.split('|').map(Number); if (width && height) { frame.width = width; if (frame.runtime?.fullscreen || frame.fullscreen) frame.viewportHeight = height; else frame.inlineWidth = width; frame.runtime?.host.updateHostContext(); } }
   // The adapter's own load does not mean its nested server document is ready.
   if (op === 'retry') { if (frame.runtime) disposeDocumentRuntime(frame.runtime); frame.runtime = undefined; frame.posts = []; frame.error = ''; frame.src = ''; frame.ready = false; frame.token = `${client.generation}:${++nextDocument}`; }
   if (op === 'message') {
