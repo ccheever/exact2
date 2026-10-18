@@ -25,7 +25,8 @@ const layout = { value: source, spans: [{ name: 'accent', start: 19, end: 24 }],
   atoms: [{ name: 'pill', start: 27, end: 33, label: 'Alice' }] };
 const table = { heading: 'font-size:20px;font-weight:600;margin-bottom:8px;', accent: 'color:rgb(32,86,200);', task: 'padding-left:24px;', pill: 'background-color:rgb(210,230,250);' };
 
-async function field(engine, record, drive) {
+async function field(engine, record, drive, production = false) {
+  const css = production ? readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>([\s\S]*?)<\/style>/)[1] + readFileSync(resolve(WEB, 'neutral.css'), 'utf8') : '';
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === '/favicon.ico') return new Response(null, { status: 204 });
@@ -35,7 +36,7 @@ async function field(engine, record, drive) {
       const file = resolve(WEB, path.slice(1)), fallback = resolve(WEB, '../web-js', path.slice(1));
       return new Response(Bun.file(existsSync(file) ? file : fallback), { headers: { 'content-type': 'text/javascript' } });
     }
-    return new Response(`<!doctype html><meta charset="utf-8"><textarea id="editor" aria-label="Editor" style="width:500px;height:240px;font:16px/1.5 sans-serif"></textarea><button id="outside">Outside</button>
+    return new Response(`<!doctype html><meta charset="utf-8"><style>${css}</style><div ${production ? 'id="exact-root"' : ''}><textarea id="editor" ${production ? 'data-native' : ''} aria-label="Editor" style="width:500px;height:240px;font:16px/1.5 sans-serif"></textarea><button id="outside">Outside</button></div>
       <script type="module">
         globalThis.exact = {}; window.events = []; window.toggles = [];
         let field = document.getElementById('editor'); field.value = ${JSON.stringify(record.value)};
@@ -63,6 +64,23 @@ async function field(engine, record, drive) {
 
 for (const engine of engines) {
   const check = need(engine === 'chromium' ? 'chrome' : engine, missing[engine]);
+  check(`${engine}: layout editors retain native field chrome and authored styles`, async () => {
+    await field(engine, layout, async (page, editor) => {
+      const facts = await editor.evaluate(el => {
+        const plain = document.createElement('textarea'); plain.setAttribute('data-native', ''); plain.style.cssText = el.style.cssText; el.after(plain);
+        const keys = ['paddingTop','paddingLeft','borderTopWidth','borderTopColor','borderRadius','backgroundColor','color','fontFamily','fontSize'];
+        const read = node => Object.fromEntries(keys.map(key => [key,getComputedStyle(node)[key]]));
+        const normal = [read(el),read(plain)], wraps = getComputedStyle(el).whiteSpace;
+        el.setAttribute('disabled',''); el.exactDecorations.sync(); plain.disabled = true;
+        const disabled = [read(el),read(plain)];
+        const style = document.createElement('style'); style.textContent = '#exact-root#exact-root #editor{padding:19px;border-radius:3px;color:rgb(1,2,3)}'; document.head.append(style);
+        return {normal,disabled,wraps,authored:read(el)};
+      });
+      expect(facts.normal[0]).toEqual(facts.normal[1]); expect(facts.disabled[0]).toEqual(facts.disabled[1]);
+      expect(facts.wraps).toBe('pre-wrap'); expect(facts.authored).toMatchObject({paddingTop:'19px',borderRadius:'3px',color:'rgb(1, 2, 3)'});
+    }, true);
+  }, 30000);
+
   check(`${engine}: layout decorations preserve the source, apply styles and report range/toggle geometry`, async () => {
     await field(engine, layout, async (page, editor) => {
       expect(await editor.evaluate(el => el.value)).toBe(source);

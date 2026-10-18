@@ -3,7 +3,7 @@
 import { reconcileDecorations } from './markup-editor.js';
 import { inertAncestor } from './navigation.js';
 
-const EDITOR_CSS = `.exact-decoration-editor{white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto;outline:none;cursor:text}
+const EDITOR_CSS = `#exact-root .exact-decoration-editor,.exact-decoration-editor{white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto;cursor:text}
 .exact-decoration-editor:empty::before{content:attr(placeholder);color:var(--exact-placeholder-color,GrayText);pointer-events:none}
 .exact-decoration-line{position:relative;min-height:1lh}
 .exact-decoration-hidden{display:none}

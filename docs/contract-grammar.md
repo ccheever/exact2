@@ -1040,7 +1040,10 @@ arguments are named. Its other record types and freshness rules are in
 `textarea markup="markdown"` refuse this binding.
 
 An action may call `rangeFrame(id, start, end)` for viewport `Geometry` of a source range;
-a host without a range reader returns unavailable. `setRangeText(id, text, "undo")`, or
+a host without a range reader returns unavailable. Both web targets measure decorated
+source editors; plain fields and paint-only textareas require the browser's native
+value-range API. Browsers without that API return unavailable for plain fields.
+`setRangeText(id, text, "undo")`, or
 `setRangeText(id, text, start, end, selectionMode, "undo")`, requests one undo step once
 its host adopts that mode. The web supports it on plain fields and decorated
 textareas; each replacement emits one input event and can be undone independently

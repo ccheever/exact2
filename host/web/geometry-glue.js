@@ -123,7 +123,7 @@ function createGeometry(root) {
       if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start > end || end > (el.value?.length ?? 0)) return 0;
       let box = el.exactDecorations?.rangeFrame(start, end);
       if (!el.exactDecorations && typeof el.createValueRange === 'function') {
-        const range = el.createValueRange(start, end); box = range.getBoundingClientRect(); range.disconnect();
+        try { const range = el.createValueRange(start, end); box = range.getBoundingClientRect(); range.disconnect(); } catch { return 0; }
       }
       if (!box) return 0;
       out.set([box.x, box.y, box.width, box.height]);
