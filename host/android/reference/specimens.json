@@ -1,0 +1,26 @@
+{
+  "about": "LLP 1115.001.001 D3: each specimen is drawn by Compose Material 3 (Specimens.kt) and by Exact (apps/material-specimens/specimens/<id>.contract). A probe is a point in a flat interior, in dp from the component's visual box: a negative number counts from the far edge, \"mid\" is the middle. A defect is a Compose variant of a specimen with one planted error, which the oracle must catch (O1's detection test).",
+  "window": [411, 891],
+  "density": 2.4375,
+  "schemes": ["light", "dark"],
+  "specimens": [
+    { "id": "text-field-empty", "component": "TextField", "probes": [{ "name": "container", "x": 8, "y": 8 }, { "name": "indicator", "x": "mid", "y": -0.5 }] },
+    { "id": "text-field-filled", "component": "TextField", "probes": [{ "name": "container", "x": 8, "y": 8 }, { "name": "indicator", "x": "mid", "y": -0.5 }] },
+    { "id": "text-field-disabled", "component": "TextField", "probes": [{ "name": "container", "x": 8, "y": 8 }, { "name": "indicator", "x": "mid", "y": -0.5 }] },
+    { "id": "text-field-focused", "component": "TextField", "probes": [{ "name": "container", "x": 8, "y": 8 }, { "name": "indicator", "x": "mid", "y": -1 }] },
+    { "id": "top-app-bar", "component": "TopAppBar", "probes": [{ "name": "container", "x": -8, "y": 8 }] },
+    { "id": "navigation-bar", "component": "NavigationBar", "probes": [{ "name": "container", "x": 8, "y": 8 }, { "name": "container-end", "x": -8, "y": -8 }] },
+    { "id": "filled-button", "component": "Button", "probes": [{ "name": "container", "x": 6, "y": "mid" }] },
+    { "id": "checkbox-checked", "component": "Checkbox", "probes": [{ "name": "box", "x": 3, "y": "mid" }] },
+    { "id": "checkbox-unchecked", "component": "Checkbox", "probes": [{ "name": "outline", "x": 1, "y": "mid" }] }
+  ],
+  "defects": [
+    { "id": "defect-missing-control", "of": "checkbox-checked", "planted": "the control left out" },
+    { "id": "defect-neighbour-role", "of": "filled-button", "planted": "the container in secondary, not primary" },
+    { "id": "defect-corner", "of": "text-field-filled", "planted": "top corners 6 dp, not 4" },
+    { "id": "defect-thin-indicator", "of": "text-field-focused", "planted": "the focused indicator 1 dp, not 2" },
+    { "id": "defect-label-low", "of": "navigation-bar", "planted": "the first label 4 dp low" },
+    { "id": "defect-label-colour", "of": "text-field-filled", "planted": "the label in tertiary, not onSurfaceVariant" },
+    { "id": "defect-label-missing", "of": "text-field-filled", "planted": "the label left out" }
+  ]
+}
