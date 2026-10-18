@@ -386,7 +386,7 @@ final class FieldSelectionIOSTests: XCTestCase {
             XCTAssertEqual(native["no"],removed)
             control.removeFromSuperview()
             p.apply(wireBatch([["op":"props","id":2,"set":["value":source],"clear":["decorations","decorationStyles"]]]))
-            field.text = source
+            node.replaceFieldValue(source)
             XCTAssertTrue(field.becomeFirstResponder())
             field.smartInsertDeleteType = .default
             field.selectedRange = range
@@ -398,7 +398,7 @@ final class FieldSelectionIOSTests: XCTestCase {
                 "atoms":[["name":"pill","start":range.location,"end":NSMaxRange(range),"label":"Alice"]]]
             let record = String(decoding:try JSONSerialization.data(withJSONObject:metadata),as:UTF8.self)
             for caret in [false,true] {
-                field.text = source
+                node.replaceFieldValue(source)
                 p.apply(wireBatch([["op":"props","id":2,"set":["value":source,"decorations":record,"decorationStyles":"{\"pill\":[]}"]]]))
                 manager.removeAllActions();inputs.removeAll();beforeInput.removeAll()
                 let smart: UITextSmartInsertDeleteType = caret ? .yes : .default
