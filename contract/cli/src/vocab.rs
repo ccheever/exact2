@@ -759,6 +759,9 @@ const AUTOCAPITALIZE: &str = "`words` for a person's name, `none` for a username
 /// `anywhere` broke their words.
 const OVERFLOW_WRAP: &str = "text wraps between words by default; at a large text size give the row room (flex-wrap=\"wrap\" with a flex-basis in rem) rather than breaking words. `break-word` breaks only a word wider than its line (a pasted link); `anywhere` breaks inside any word (\"Octo/ber\"), which verify names on prose: it is for a URL or a token on a `link` or in a monospace face. `word-break` is not admitted";
 
+/// Round 23's chat drew its transcript as a grouped list, open at the oldest message.
+const TRANSCRIPT_END: &str = "on a `list virtualized=true` (a grouped list never is): `scroll-start=\"end\"` opens it at its last row, `scrollFollowEnd=true` keeps it at the end as rows arrive and the port resizes, while the reader is there. A chat's transcript: `contract vocab chat-thread`";
+
 /// What `metadata=` takes (LLP 1098 D1): the Media Session's record.
 const METADATA: &str = "MediaMetadata(title=, artist=, album=, artwork=), each a string";
 
@@ -860,6 +863,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if name == "autocapitalize" {
         doc["note"] = AUTOCAPITALIZE.into();
+    }
+    if matches!(name, "scroll-start" | "scrollFollowEnd") {
+        doc["note"] = TRANSCRIPT_END.into();
     }
     if name == "accept" {
         doc["note"] = "On input type=file, omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into();
@@ -1011,6 +1017,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             if name == "autocapitalize" {
                 return vec![line, AUTOCAPITALIZE.into()];
+            }
+            if matches!(name, "scroll-start" | "scrollFollowEnd") {
+                return vec![line, TRANSCRIPT_END.into()];
             }
             if name == "accept" {
                 return vec![line, "on input type=file: omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into()];

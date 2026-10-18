@@ -28,6 +28,8 @@ The only required reading; the rest is lookup.
    list whose rows push (beside its detail) need no code. The rows of a list the person deletes from swipe to
    delete and open a menu on a long press (`list-detail`, `contract vocab swipe`).
    `haptic("selection")` marks a choice in your own control, `haptic("success")` a task done.
+   A chat's messages are bubbles in a transcript that opens at the newest and follows each
+   new one, not a grouped list's rows (`chat-thread`).
 
 ## The workflow
 
@@ -238,7 +240,9 @@ snapshot. The backend’s clock stays its own.
    on a `button`, field or bar makes it your box. Emphasis is a part (above) or
    `buttonStyle="filled"` on the screen's main action. A `button` with no
    `buttonStyle` is the platform's: tinted text on iOS, so one that must read as a
-   button there says `"bordered"`, and Cancel or Edit says nothing.
+   button there says `"bordered"`, and Cancel or Edit says nothing. A field on its own is
+   the platform's bordered one; a document's own text (a note's title and body, as Notes
+   draws them) says `border="none"`, and a chat's composer is `chat-thread`'s.
 2. **A `header` holds a heading (`h1 "Title"`), one text after it (the subtitle) and
    buttons** (or a search field, a `tablist`); anything else isn't in the iOS bar. A
    control fixed under the bar goes with an inline title (`h2`); one that may scroll

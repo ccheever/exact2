@@ -8,7 +8,7 @@ compiles (`contract/cli/tests/it/vocab.rs`).
 -->
 
 ## scroll: scrolling to the top, or to an item
-names: scrollTo, scrollToTop, scroll-to-top, scrollToIndex, scrollIntoView, scrollTop
+names: scrollTo, scrollToTop, scroll-to-top, scrollToIndex, scrollIntoView, scrollTop, scrollToEnd, scrollToBottom, scroll-to-bottom
 
 From an action, `scrollIntoView(id)` scrolls every scroller above the element with that `id`
 until it shows, as the web's `Element.scrollIntoView()` does: `block="start"` by default
@@ -37,7 +37,9 @@ component App
 
 - A virtualized `list` (rows not built yet) scrolls to a row by its key:
   `scrollIntoView("list-id", key, block="center")`. A chat opens at its newest row with
-  `scroll-start="end"` on the `list`, and `scrollFollowEnd=true` keeps it there.
+  `scroll-start="end"` on a `list virtualized=true`, and `scrollFollowEnd=true` keeps it
+  there as messages arrive, while the reader is at the end (`chat-thread`; a grouped list
+  is never virtualized).
   To restore after remount, save `ScrollEvent.firstVisibleKey` and
   `firstVisibleOffset` in the app, then call `scrollIntoView("list-id", key, offset=within)`.
   The optional key is text; the offset is signed CSS pixels into the row on the list's axis.
