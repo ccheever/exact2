@@ -19,6 +19,10 @@ import { settingsCore } from './src/settings/settings-core-view';
 import { archivedSettings, licenseSettings, storageSettings } from './src/settings/settings-data';
 import { T3Client } from './src/client/client';
 import { composerEditorView, composerWorkspaceView, refreshComposerWorkspace } from './src/composer/composer-editor';
+import { composerRichSource } from './src/composer/composer-rich-source';
+import { composerFieldOwner } from './src/composer/auto-balance-owner';
+import { composerFieldAcknowledged, composerFieldNative, composerFieldObserved, composerFieldResource } from './src/composer/composer-field-bridge';
+import { composerIntentAnswer } from './src/composer/composer-intent-source';
 import { chipPopoverView } from './src/composer/composer-chip-popover'; // a skill chip's details popover
 import { composerBranches } from './src/composer/composer-controls-branch';
 import { providerFieldValues } from './src/providers/providers';
@@ -102,7 +106,7 @@ export function answer(source: string, args: unknown[], store: unknown, storage:
 // hands its own scripted server. The disconnected answer is baked. Native work starts only when Exact reports
 // that the module is available, after its ordinary first-frame adoption.
 export async function answerClient(source: string, args: unknown[], _store: unknown, _storage: Files, native: Native | null | undefined) {
-  if (native?.available) native = letGoAware(native);
+  if (native?.available) native = composerFieldNative(client, letGoAware(native), () => composerFieldOwner(client));
   adoptAppFiles(_storage); // the app's own files: Save's bytes, a draft's staged copy (save-file.ts)
   const storage = native?.available ? nativeFiles(native) : _storage;
   if (source === 'highlightSlice') return highlightSlice(); // a background highlight turn
@@ -133,6 +137,11 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'composerWorkspace') return composerWorkspaceView(client, args[1] !== false, typeof args[2] === 'number' ? args[2] : undefined); // args[1]: the chat view is on screen (ChatComposer mounted)
   if (source === 'refreshComposerWorkspace') return refreshComposerWorkspace(client, native, String(args[0] || ''));
   if (source === 'composerEditor') return composerEditorView(client, native, Number(args[1]) || 0);
+  if (source === 'composerRich') return composerRichSource(client, { snapshotOwner: String(args[0] ?? ''), owner: String(args[1] ?? ''), value: String(args[2] ?? ''), inputType: String(args[4] ?? ''), surface: args[5] === 'preview' ? 'preview' : 'composer' });
+  if (source === 'composerField') return composerFieldResource(client, args, composerFieldOwner(client));
+  if (source === 'composerFieldObserved') return composerFieldObserved(client, args, composerFieldOwner(client));
+  if (source === 'composerFieldAcknowledged') return composerFieldAcknowledged(client, args, composerFieldOwner(client));
+  if (source === 'composerIntent') return composerIntentAnswer(client, args);
   if (source === 'composerChip') return chipPopoverView(client, native); // composer-chip-popover.ts: args[0] re-asks on each revision
   if (source === 'snapshotSettings') return snapshotSettings(client, native, args[0] === true);
   const scoped = PROJECT_SCOPED_PAGES.has(source) ? settingsPageClient(client, native, args) : { client, args }; // a background environment's project (projects-fleet.ts)

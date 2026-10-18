@@ -1,9 +1,7 @@
+import { composerInput } from './requests';
 import { composerFileIcons, noteComposerFilePaths, refreshFileMetadata, textFilePaths as textPaths } from '../shared/file-metadata';
-// The prompt editor's projection and commands. The native editor
-// (T3ComposerEditor.swift) reports the trigger at the caret; this builds the
-// command menu's rows (composer-editor-menu.ts), applies a picked row back
-// into the text view, keeps the editor's history and chip records in sync,
-// and builds the send's context records. Contract draws composer-editor.contract.
+// The shared field's source/selection feeds command menus and guarded edits.
+// Native sync supplies file-paste and notice channels; Contract draws the menus.
 import { preserveCitationDraft } from '../timeline/citation-draft';
 import type { T3Client } from '../client/client';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
@@ -14,7 +12,7 @@ import { commandChords } from './composer-presentation';
 import { openUsageLimits } from './composer-controls-usage';
 import { MAX_STASH_ENTRIES, deleteStashEntry, stashPrompt, stashView, takeStashEntry, type StashView } from './composer-editor-stash';
 import {
-  LIST_LABEL, contextId, contextLabel, contextLink, contextReferences, emptyText, fileLink, historyEntries, pathRows, promptLengthMessage,
+  LIST_LABEL, contextId, contextLabel, contextLink, contextReferences, emptyText, fileLink, pathRows, promptLengthMessage,
   pullRequestRecord, pullRequestRows, pullRequestState, repositorySelector,
   skillChipLabels, skillRows, slashRows, threadRows, type EditorTrigger, type MenuRow,
 } from './composer-editor-menu';
@@ -28,7 +26,11 @@ import { terminalOpen } from '../terminal/terminal-drawer-view'; // the real ter
 import { videoOp } from './composer-attachments';
 import { folderDropTarget, primary } from '../connections/local-primary'; // the folder drop's target (folderDrop.ts)
 import { annotationChipContexts, annotationMessageRecords } from '../browser/browser-annotation'; // Annotate's chips
-import { composerInput } from './requests';
+import { composerFieldOwner } from './auto-balance-owner';
+import { composerFieldCurrent } from './composer-field-bridge';
+import { composerChips, composerTrigger } from './composer-source-chips';
+import { composerSourceSession } from './composer-rich-state';
+import { composerHistoryComplete, composerHistoryRecall } from './composer-prompt-history';
 import { importDroppedThread } from './composer-thread-import';
 import { parseFleetThreadId } from '../connections/settings-b-fleet';
 
@@ -40,7 +42,7 @@ export type ComposerEditorView = { owner: string; menu: ComposerMenu; promptLimi
 type Search = { entries: Obj[]; failed: boolean; providers?: Obj[] };
 type EditorCache = {
   discovery: WorkspaceDiscovery;
-  trigger: EditorTrigger | null; rows: MenuRow[]; owner: string;
+  trigger: EditorTrigger | null; dismissed: EditorTrigger | null; rows: MenuRow[]; owner: string;
   searches: Map<string, Search>; pending: Map<string, number>; usageLimits: number;
   /** A send was refused for length: the line shows until the prompt fits. */
   limitArmed: boolean;
@@ -49,7 +51,7 @@ type EditorCache = {
 const caches = new WeakMap<T3Client, EditorCache>();
 function cache(client: T3Client): EditorCache {
   let entry = caches.get(client);
-  if (!entry) { entry = { discovery: new WorkspaceDiscovery(), trigger: null, rows: [], owner: '', searches: new Map(), pending: new Map(), usageLimits: 0, limitArmed: false, stashOpen: false }; caches.set(client, entry); }
+  if (!entry) { entry = { discovery: new WorkspaceDiscovery(), trigger: null, dismissed: null, rows: [], owner: '', searches: new Map(), pending: new Map(), usageLimits: 0, limitArmed: false, stashOpen: false }; caches.set(client, entry); }
   return entry;
 }
 
@@ -244,36 +246,40 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   if (!limit) entry.limitArmed = false;
   const promptLimit = entry.limitArmed ? limit : '';
   const overLimit = limit !== '';
-  if (!native?.available) return { ...EDITOR_BAKED, promptLimit, overLimit, stash };
-  native.watch('t3.editor');
   const literal = composerInput(client)?.active?.initialAnswer !== undefined;
   const draft = composerInput(client)?.custom ?? client.draft, key = client.draftKey, files = draftFiles(client.local);
   const fileIcons = composerFileIcons(client, textPaths(draft));
-  let state: Obj;
-  try {
-    state = await editorCall(native, { op: 'editorSync', owner: client.draftKey, literal, richText: prefs(client).composerRichTextEnabled !== false, localEnvironment: folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'local', // local-primary.ts: Finder folders reach only the primary
-      history: client.thread ? historyEntries(messages(client.thread)) : [], contexts: chipContexts(client, draft), fileIcons, foldLimit: client.ready ? foldLimit(client) : 0,
-      skills: skillChipLabels(workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills')) });
-  } catch { return { owner: client.snapshotOwner, menu: CLOSED, promptLimit, overLimit, usageLimits: entry.usageLimits, stash }; }
-  const mentionPaths = Array.isArray(state.mentions) ? state.mentions.filter((path): path is string => typeof path === 'string') : textPaths(draft);
-  noteComposerFilePaths(client, mentionPaths);
-  await refreshFileMetadata(client, native);
-  const resolvedIcons = composerFileIcons(client, mentionPaths);
-  if (JSON.stringify(resolvedIcons) !== JSON.stringify(fileIcons)) await editorCall(native, { op: 'editorSync', fileIcons: resolvedIcons });
-  for (const notice of arr(state.notices)) pushToast(client, { kind: str(notice.kind) === 'error' ? 'error' : 'info', title: str(notice.title), description: str(notice.description), hideCopy: true });
-  // Large pastes the editor held back become pasted-text.txt chips (composer-editor-files.ts).
-  for (const fold of arr(state.folds)) await takeFold(client, native, fold, localId()).catch(() => undefined);
-  // Files a paste took from the pasteboard (onComposerPaste) are attached as Attach files' are.
-  if (Number(state.pastes) > 0) await takePastedFiles(client, native, key).catch(() => undefined);
-  // A dropped attached file's staged copy goes with it (composer-editor-attach.ts).
-  for (const dropped of pruneFiles(client.local, client.local.drafts, state.empty === true ? '' : client.draftKey, files)) {
-    if (dropped.source === 'attached' && dropped.status === 'staged') await bridgeReply(native, { op: 'composerAttachRemove', id: dropped.id }).catch(() => undefined);
+  let state: Obj = {};
+  if (native?.available) {
+    native.watch('t3.editor');
+    try {
+      state = await editorCall(native, { op: 'editorSync', owner: client.draftKey, literal, richText: prefs(client).composerRichTextEnabled !== false, localEnvironment: folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'local', // local-primary.ts: Finder folders reach only the primary
+        contexts: chipContexts(client, draft), fileIcons, foldLimit: client.ready ? foldLimit(client) : 0,
+        skills: skillChipLabels(workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills')) });
+    } catch { state = {}; }
+    const mentionPaths = Array.isArray(state.mentions) ? state.mentions.filter((path): path is string => typeof path === 'string') : textPaths(draft);
+    noteComposerFilePaths(client, mentionPaths);
+    await refreshFileMetadata(client, native);
+    const resolvedIcons = composerFileIcons(client, mentionPaths);
+    if (JSON.stringify(resolvedIcons) !== JSON.stringify(fileIcons)) await editorCall(native, { op: 'editorSync', fileIcons: resolvedIcons });
+    for (const notice of arr(state.notices)) pushToast(client, { kind: str(notice.kind) === 'error' ? 'error' : 'info', title: str(notice.title), description: str(notice.description), hideCopy: true });
+    // Large pastes the editor held back become pasted-text.txt chips (composer-editor-files.ts).
+    for (const fold of arr(state.folds)) await takeFold(client, native, fold, localId()).catch(() => undefined);
+    // Files a paste took from the pasteboard (onComposerPaste) are attached as Attach files' are.
+    if (Number(state.pastes) > 0) await takePastedFiles(client, native, key).catch(() => undefined);
+    // A dropped attached file's staged copy goes with it (composer-editor-attach.ts).
+    for (const dropped of pruneFiles(client.local, client.local.drafts, state.empty === true ? '' : client.draftKey, files)) {
+      if (dropped.source === 'attached' && dropped.status === 'staged') await bridgeReply(native, { op: 'composerAttachRemove', id: dropped.id }).catch(() => undefined);
+    }
   }
-  const raw = obj(state.trigger);
-  const trigger: EditorTrigger | null = str(raw.kind) && str(state.owner) === client.snapshotOwner
-    ? { kind: str(raw.kind), query: str(raw.query), start: Number(raw.start) || 0, end: Number(raw.end) || 0 } : null;
+  const owner = composerFieldOwner(client), field = composerFieldCurrent(client, owner), session = composerSourceSession(client);
+  const candidate = field && !field.composing && field.start === field.end && !literal
+    ? composerTrigger(field.value, field.start, session.matches(owner, field.value) ? [...session.chips] : composerChips(field.value), prefs(client).composerRichTextEnabled !== false) : null;
+  if (entry.owner !== owner) entry.dismissed = null;
+  const trigger = candidate && entry.dismissed?.kind === candidate.kind && entry.dismissed.start === candidate.start ? null : candidate;
+  if (!candidate || trigger) entry.dismissed = null;
   entry.trigger = trigger;
-  entry.owner = client.snapshotOwner;
+  entry.owner = owner;
   if (literal || !trigger || !client.ready) { entry.rows = []; return { owner: client.snapshotOwner, menu: CLOSED, promptLimit, overLimit, usageLimits: entry.usageLimits, stash }; }
   const current = selectedProvider(client);
   const cwd = workspaceCwd(client);
@@ -285,13 +291,13 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   const capabilities = obj(obj(client.config.environment).capabilities);
   const prAvailable = capabilities.pullRequests === true && !!client.projectId && !!repositorySelector(obj(project(client).repositoryIdentity));
   if (trigger.kind === 'slash-command') {
-    rows = slashRows({ query: trigger.query, atPromptStart: state.atStart === true, planModeUiEnabled: planModeUiEnabled(client),
-      compactAvailable: compactAvailable(client, state.blankAround === true), driver,
+    rows = slashRows({ query: trigger.query, atPromptStart: trigger.start === 0, planModeUiEnabled: planModeUiEnabled(client),
+      compactAvailable: compactAvailable(client, !!field && !`${field.value.slice(0, trigger.start)}${field.value.slice(trigger.end)}`.trim()), driver,
       slashCommands: workspaceValues(current, cwd, 'slashCommands'),
       skills, showSkillsInSlashMenu: prefs(client).showSkillsInSlashMenu !== false });
   } else if (trigger.kind === 'skill') {
     rows = skillRows(skills, trigger.query, driver);
-  } else if (trigger.kind === 'pull-request' && prAvailable) {
+  } else if (trigger.kind === 'pull-request' && prAvailable && native?.available) {
     const repository = repositorySelector(obj(project(client).repositoryIdentity));
     const search = await prSearch(client, native, entry, trigger.query, repository);
     if (search === 'loading') loading = true;
@@ -300,7 +306,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
     const threads = threadRows(client.shell.threads, client.threadId, trigger.query);
     const query = trigger.query.trim();
     let entries: Obj[] = [];
-    if (query && cwd) {
+    if (query && cwd && native?.available) {
       const search = await pathSearch(client, native, entry, cwd, query);
       if (search === 'loading') loading = true; else entries = search.entries;
     }
@@ -321,6 +327,17 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
 export async function editorLocal(client: T3Client, native: Native, op: string, id: string, value: string, n = 0): Promise<string> {
   if (op.startsWith('shelf-video-')) return videoOp(client, native, op, id); // the shelf's videos (composer-attachments.ts)
   const entry = cache(client);
+  if (op === 'dismiss') { entry.dismissed = entry.trigger; entry.trigger = null; entry.rows = []; return ''; }
+  if (op === 'history') {
+    const owner = composerFieldOwner(client), field = composerFieldCurrent(client, owner);
+    if (!field || field.composing || composerInput(client) || field.start !== field.end || id !== 'previous' && id !== 'next') return '';
+    const step = composerHistoryRecall(client, owner, field.value, id === 'previous');
+    if (step) {
+      try { await editorCall(native, { op: 'editorEdit', all: true, expect: field.value, text: step.prompt, history: step.receipt.history }); }
+      finally { composerHistoryComplete(client, step.receipt, false); }
+    }
+    return '';
+  }
   if (op === 'pick') {
     const trigger = entry.trigger;
     const row = entry.rows.find(candidate => candidate.id === id);
@@ -374,7 +391,6 @@ export async function editorLocal(client: T3Client, native: Native, op: string, 
 
 /** Replace the whole prompt as one undoable edit, caret at the end (stash, restore). */
 async function replaceAll(client: T3Client, native: Native, text: string): Promise<void> {
-  client.local.drafts[client.draftKey] = text; // first: the edit's own input supersedes this command
   const result = await editorCall(native, { op: 'editorEdit', all: true, text });
   if (result.applied !== true) throw new ClientError('The prompt could not be updated.');
 }

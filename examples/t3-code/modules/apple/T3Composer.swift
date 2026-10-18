@@ -1,12 +1,9 @@
 #if os(macOS)
 import AppKit
 
-/// Adds chat Return semantics to Exact's ordinary textarea and reports where
-/// the composer's menu triggers sit. Exact keeps its text view, delegate,
-/// editing state and authored Send action; Contract owns the menus, the
-/// model picker's keyboard highlight and their dismissal.
+/// Retains OS focus/paste routing and toolbar geometry around the shared field.
+/// Contract owns Return, formatting and the command menus.
 final class T3Composer {
-    var sendShortcut = "enter"
     /// The surface launcher (hatch `t3-launcher`): its letters are its rows' `aria-keyshortcuts`, which Exact's key
     /// route presses (shell-panels.contract SurfaceRow), so type-to-focus leaves them alone (`launcherLetter`).
     private weak var launcher: ExactElement?
@@ -119,42 +116,7 @@ final class T3Composer {
     func handle(_ event: NSEvent) -> NSEvent? {
         if queuedEditKey(event) { return nil } // ⌥↑ with the caret at the start (T3ComposerQueueKey.swift)
         if let routed = editorKey(event) { return routed.event }
-        switch action(for: event) {
-        case .passThrough: return event
-        case .send:
-            // click() queues the Contract action after any pending input batch;
-            // its existing disabled state and canSend validation remain in charge.
-            send?.click()
-            return nil
-        case .consumeRepeat: return nil
-        }
-    }
-
-    private func action(for event: NSEvent) -> ReturnAction {
-        // An open command menu takes Return (its Enter key button) through
-        // the text view's own command path.
-        if self.editor.trigger != nil, self.editor.key("Enter") != nil { return .passThrough }
-        if self.editor.key("stash-Enter") != nil { return .passThrough }
-        guard let composer, composer.isLive, let editor = composer.textView,
-              let window = editor.window, event.window === window,
-              window.firstResponder === editor, window.attachedSheet == nil,
-              editor.isEditable, let send, send.isLive, send.view?.window === window else { return .passThrough }
-        return Self.returnAction(event, hasMarkedText: editor.hasMarkedText(), shortcut: sendShortcut, prompt: editor.string)
-    }
-
-    enum ReturnAction { case passThrough, send, consumeRepeat }
-
-    static func returnAction(_ event: NSEvent, hasMarkedText: Bool, shortcut: String = "enter", prompt: String = "") -> ReturnAction {
-        guard event.type == .keyDown, event.keyCode == 36 || event.keyCode == 76,
-              !hasMarkedText else {
-            return .passThrough
-        }
-        let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
-        let requiresCommand = shortcut == "mod-enter" || (shortcut == "mod-enter-multiline" && prompt.contains(where: { $0 == "\n" || $0 == "\r" }))
-        guard flags == (requiresCommand ? .command : []) else { return .passThrough }
-        // Holding Return must neither dispatch twice nor insert a newline after
-        // the first send. Return used to commit IME text always reaches AppKit.
-        return event.isARepeat ? .consumeRepeat : .send
+        return event
     }
 
     // MARK: Keys the text view never sees (ChatView.tsx type-to-focus)
@@ -170,13 +132,6 @@ final class T3Composer {
               view.isHiddenOrHasHiddenAncestor == false else { return nil }
         let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        // ⌘B / ⌘I toggle bold and italic when the rich text composer is on (by key code
-        // under a non-Latin source, ending composition first, T3ComposerInput.swift).
-        let chord = T3ComposerInput.chordKey(event)
-        if flags == .command, chord == "b" || chord == "i", window.firstResponder === view, editor.styler.richText, T3ComposerInput.commitMarkedText(view) {
-            editor.toggleMark(chord == "b" ? "**" : "*", in: view)
-            return Routed(event: nil)
-        }
         if flags == [.command, .shift], key == "v", window.firstResponder === view {
             view.pasteAsPlainText(nil)
             return Routed(event: nil)
@@ -241,12 +196,6 @@ final class T3Composer {
         switch request["op"] as? String {
         case "editorState": value = editor.state; value["text"] = editor.textView?.string ?? ""
         case "editorSync":
-            if let entries = request["history"] as? [[String: Any]] {
-                editor.history = entries.compactMap { entry in
-                    guard let id = entry["id"] as? String, let prompt = entry["prompt"] as? String else { return nil }
-                    return T3ComposerText.HistoryEntry(id: id, prompt: prompt)
-                }
-            }
             if let literal = request["literal"] as? Bool { editor.styler.literal = literal }
             if let rich = request["richText"] as? Bool { editor.styler.richText = rich }
             if let local = request["localEnvironment"] as? Bool { editor.localEnvironment = local }
@@ -254,7 +203,6 @@ final class T3Composer {
             if let icons = request["fileIcons"] as? [String: String] { editor.styler.fileIcons = icons }
             if let skills = request["skills"] as? [String: String] { editor.styler.skills = skills }
             if let limit = request["foldLimit"] as? Int { editor.foldLimit = limit }
-            if let owner = request["owner"] as? String, owner != editor.historyOwner { editor.historyOwner = owner; editor.resetHistory() }
             value = editor.state
             value["notices"] = editor.takeNotices()
             value["folds"] = editor.folds
@@ -262,6 +210,7 @@ final class T3Composer {
             value["mentions"] = editor.styler.chips.filter { $0.kind == "mention" }.map(\.detail)
         case "editorEdit": value = editor.edit(request)
         case "editorInsert": value = editor.insert(request)
+        case "editorForgetFold": editor.forgetFold(request["id"] as? Int ?? -1)
         case "editorPoke":
             let delay = max(0, min(2000, request["afterMs"] as? Int ?? 0))
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay)) { [weak self] in self?.changed("t3.editor") }

@@ -244,13 +244,14 @@ final class ComposerEditorTests: XCTestCase {
         XCTAssertTrue(fixture.editor.delegate === fixture.inner, "removal restores Exact's delegate")
     }
 
-    func testMenuKeysPressTheContractsButtonsAndEscapeDismisses() {
+    func testMenuKeysFollowLiveContractButtonsWithoutANativeTrigger() {
         let fixture = EditorFixture()
-        fixture.key("ArrowDown", node: 11); fixture.key("ArrowUp", node: 12); fixture.key("Enter", node: 13)
-        fixture.type("/m")
+        fixture.key("ArrowDown", node: 11); fixture.key("ArrowUp", node: 12); fixture.key("Enter", node: 13); fixture.key("Escape", node: 14)
+        fixture.type("ordinary source")
+        XCTAssertNil(fixture.composer.editor.trigger)
         fixture.down(); fixture.up(); fixture.returnKey(); fixture.tab()
         XCTAssertEqual(pressedNodes, [11, 12, 13, 13])
-        XCTAssertEqual(fixture.editor.string, "/m", "the menu keys never edit the prompt")
+        XCTAssertEqual(fixture.editor.string, "ordinary source", "the menu keys never edit the prompt")
         let send = ExactElement(hatch: .t3Send, id: "send-message", node: 2, hatches: fixture.hooks)
         let sendView = NSView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
         fixture.window.contentView?.addSubview(sendView)
@@ -258,17 +259,12 @@ final class ComposerEditorTests: XCTestCase {
         fixture.composer.install(send)
         let ret = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: fixture.window.windowNumber,
             context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
-        XCTAssertTrue(fixture.composer.handle(ret) === ret, "Return passes the send monitor while the menu owns it")
+        XCTAssertTrue(fixture.composer.handle(ret) === ret)
         XCTAssertFalse(pressedNodes.contains(2))
         fixture.escape()
-        XCTAssertNil(fixture.composer.editor.trigger)
-        fixture.type("o")
-        XCTAssertNil(fixture.composer.editor.trigger, "dismissed until the caret leaves the token")
-        fixture.editor.setSelectedRange(NSRange(location: 0, length: 0))
-        fixture.editor.setSelectedRange(NSRange(location: 3, length: 0))
-        XCTAssertEqual(fixture.composer.editor.trigger?.query, "mo", "leaving the token ends the dismissal")
-        fixture.editor.selectAll(nil); fixture.type("x @a")
-        XCTAssertEqual(fixture.composer.editor.trigger?.kind, "path")
+        XCTAssertEqual(pressedNodes, [11, 12, 13, 13, 14])
+        fixture.composer.remove(fixture.composer.editor.key("Escape")!)
+        XCTAssertFalse(fixture.composer.editor.command(#selector(NSResponder.cancelOperation(_:)), in: fixture.editor))
     }
 
     func testPickedRowsReplaceOnlyTheTriggerTheyWereBuiltFor() {
@@ -287,18 +283,13 @@ final class ComposerEditorTests: XCTestCase {
         XCTAssertEqual(fixture.editor.string, "hi @fix more", "a pick is one undo step")
     }
 
-    func testListContinuationTabIndentAndPlanToggleOnRealKeys() {
+    func testListGrammarBelongsToTheSharedFieldAndPlanKeyStillRoutes() {
         let fixture = EditorFixture()
         fixture.key("plan", node: 21)
         fixture.type("- one")
-        fixture.returnKey(.shift)
-        XCTAssertEqual(fixture.editor.string, "- one\n- ")
-        fixture.type("two")
-        fixture.returnKey(.shift)
-        fixture.tab()
-        XCTAssertEqual(fixture.editor.string, "- one\n- two\n  - ")
-        fixture.returnKey(.shift)
-        XCTAssertEqual(fixture.editor.string, "- one\n- two\n", "an empty item exits the list")
+        XCTAssertFalse(fixture.composer.editor.command(#selector(NSResponder.insertNewline(_:)), in: fixture.editor))
+        XCTAssertFalse(fixture.composer.editor.command(#selector(NSResponder.insertTab(_:)), in: fixture.editor))
+        XCTAssertEqual(fixture.editor.string, "- one")
         fixture.backtab()
         XCTAssertEqual(pressedNodes, [21])
         fixture.editor.selectAll(nil); fixture.type("plain")
@@ -306,25 +297,15 @@ final class ComposerEditorTests: XCTestCase {
         XCTAssertEqual(fixture.editor.string, "plain\n", "other lines take a plain newline")
     }
 
-    func testArrowUpRecallsSentPromptsAndDownRestoresTheDraft() {
+    func testArrowKeysDoNotRecallSourceThroughTheNativeAdapter() {
         let fixture = EditorFixture()
-        _ = fixture.composer.perform(["op": "editorSync", "owner": "draft-a", "history": [["id": "m1", "prompt": "fixture complete"], ["id": "m2", "prompt": "two\nlines"]]])
-        fixture.up()
-        XCTAssertEqual(fixture.editor.string, "two\nlines")
-        fixture.up()
-        XCTAssertEqual(fixture.editor.string, "two\nlines", "↑ off the first visual line moves the caret")
-        fixture.up()
-        XCTAssertEqual(fixture.editor.string, "fixture complete")
-        fixture.down()
-        XCTAssertEqual(fixture.editor.string, "two\nlines")
+        fixture.type("two\nlines")
         fixture.editor.setSelectedRange(NSRange(location: 0, length: 0))
-        fixture.down()
-        XCTAssertEqual(fixture.editor.string, "two\nlines", "↓ on the first line only moves the caret")
+        fixture.up()
+        XCTAssertEqual(fixture.editor.string, "two\nlines", "Contract owns recall at the first visual line")
         fixture.editor.setSelectedRange(NSRange(location: (fixture.editor.string as NSString).length, length: 0))
         fixture.down()
-        XCTAssertEqual(fixture.editor.string, "", "past the newest entry the empty draft returns")
-        fixture.type("draft"); fixture.up()
-        XCTAssertEqual(fixture.editor.string, "draft", "a typed draft never recalls")
+        XCTAssertEqual(fixture.editor.string, "two\nlines", "Contract owns recall at the last visual line")
     }
 
     func testChipsAreAtomicForTheCaretAndDeletion() {
