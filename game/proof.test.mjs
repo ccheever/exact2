@@ -12,7 +12,6 @@ import {agreePins, nativeProofHost, webUnavailable, pinRecorder, proofStatus, fa
 import {assertNoLiveEdits, proofCommand, worldObservations, pinRevision} from './proof.mjs';
 import {comparePlacement} from './games/placement-fixture/proof.mjs';
 import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp, clockSpan, main} from '../scripts/agent.mjs';
-
 test('external app sources and assets include every extension while outputs stay excluded', () => {
   const directory = mkdtempSync(resolve(tmpdir(), 'external-proof-inputs-'));
   const root = resolve(directory, 'engine'), app = resolve(directory, 'my-game');
@@ -1308,6 +1307,7 @@ test('phone carrier copies before launch, saves over the socket and owns its pro
       spawnSync(command, args, options) {
         // useXcode (6c03c1dec) asks which developer directory is selected before any xcrun.
         if (command === 'xcode-select') return cp.spawnSync(command, args, options);
+        if (command === 'otool') { assert.deepEqual(args, ['-L', resolve(bundle, 'Phone')]); return {status:0, stdout:''}; }
         assert.equal(command, 'xcrun'); calls.push(args);
         if (args.includes('copy')) {
           assert.equal(args[args.indexOf('--source') + 1], input);

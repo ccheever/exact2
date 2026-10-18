@@ -159,15 +159,17 @@ fn cone_picks_side_cap_inside_and_transformed_rays() {
 }
 
 #[test]
-fn parent_v4_asset_save_loads_with_its_original_hash() {
-    // Written by dd5a46579's World::save with Asset at ordinal 5, before this lane.
-    let bytes = include_bytes!("fixtures/asset-v4.bin");
+fn asset_save_loads_with_its_original_hash() {
+    // Asset remains at ordinal 5; only the EXGAME version byte changed.
+    let bytes = include_bytes!("fixtures/asset-v5.bin");
     let mut w = World::new(120, 7);
     w.register::<Transform>()
         .register::<Mesh>()
         .register::<Material>();
     w.load(bytes).unwrap();
-    assert_eq!(w.hash(), 0x70e72ecb97148060);
+    let pins: std::collections::BTreeMap<String, String> =
+        json::from_str(include_str!("pins.json")).unwrap();
+    assert_eq!(format!("0x{:016x}", w.hash()), pins["asset-save"]);
     assert_eq!(
         w.require::<Mesh>("legacy-asset").clone(),
         Mesh::asset("crate.model")
