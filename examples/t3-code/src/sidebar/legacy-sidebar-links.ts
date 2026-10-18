@@ -1,4 +1,4 @@
-// The legacy sidebar row's links (T3 Code 1e2ecbd975; MIT, see LICENSE-T3): the pull request glyph
+// The legacy sidebar row's links (T3 Code 9c161462c9; MIT, see LICENSE-T3): the pull request glyph
 // (LegacySidebar.tsx handlePrClick over lib/openPullRequestLink.ts useOpenPrLink and
 // useOpenChangeRequestLink) and "New thread on <branch>" (handleThreadContextMenu over
 // hooks/useHandleNewThread.ts with the thread's branch, worktree and mode); the discovered-port
@@ -11,7 +11,7 @@ import { pushToast } from '../shell/toast';
 import { scopedThreadKey, selectThreadTerminalUiState, terminalUiStore, type ScopedThreadRef } from '../terminal/terminal-ui-state';
 import { surfaceStore, type PanelState } from '../panel/panel-surfaces';
 import { openPullRequestIn } from '../panel/pr-attachment-surfaces';
-import { prTarget } from '../panel/pr-surface';
+import { prLinksOpenInApp, prTarget } from '../panel/pr-surface';
 import { currentPullRequestLink } from '../panel/shell-pr';
 import { branchPullRequest } from './sidebar-branch-pr';
 import { findProjectForChangeRequest, parseChangeRequestUrl } from '../palette/palette-linkpr';
@@ -90,14 +90,14 @@ export async function openRowPullRequest(client: T3Client, native: Native, id: s
   // routeThreadRef (resolveActiveThreadRouteRef): a server thread's route, or a draft once it was sent; an unsent draft is none.
   const besideThread = page === '' && client.threadId !== '';
   if (besideThread) {
-    const target = prTarget(row.reads as unknown as T3Client, url);
+    const target = prLinksOpenInApp(client) ? prTarget(row.reads as unknown as T3Client, url) : null;
     if (target) {
       if (row.focused && client.threadId === row.ref.threadId) client.diffOpen = false;
       openPullRequestIn(panelOf(client, row.ref), target);
       return goTo(client, native, id, row.ref);
     }
   } else {
-    const selection = pageSelection(client, url);
+    const selection = prLinksOpenInApp(client) ? pageSelection(client, url) : '';
     if (selection) return `sidebar:pr-page:${selection}`;
   }
   try { await openLink(client, native, url, { threadRef: besideThread ? row.ref : null }); } catch (error) { linkFailed(error); }

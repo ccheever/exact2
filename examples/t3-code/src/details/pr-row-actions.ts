@@ -1,5 +1,5 @@
 // What the details card's pull request row does against the host
-// (MIT reference, see LICENSE-T3, upstream f90b77d809):
+// (MIT reference, see LICENSE-T3, upstream 9c161462c9):
 // - ThreadDetailsPrRow's detail and checks reads (useEnvironmentQuery, one read
 //   in flight per reference, a 10-minute refresh while the pull request is open);
 // - usePullRequestActionRunner: Ready and Merge through `pullRequests.runAction`,
@@ -10,6 +10,7 @@
 //   composer for the reader to send;
 // - the Merge AlertDialog ("Merge pull request?") and the checks popover's
 //   "Show all".
+import { sharedPullRequestSummary } from '../pull-requests/pages-pr-shared';
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
@@ -65,6 +66,8 @@ export async function readDetail(client: T3Client, native: Native, reference: Ob
   if (!reference || num(reference.number) <= 0 || !str(reference.repository)) return null;
   const state = prState(client), key = refKey(client, reference), cached = state.details.get(key);
   if (cached && !cached.reading) {
+    const known = sharedPullRequestSummary(client, reference, cached.detail);
+    if (known && cached.detail) cached.detail = { ...cached.detail, ...known };
     const open = cached.detail?.state === 'open';
     const fresh = cached.error ? !now || now - cached.at < RETRY_MS : !open || !now || now - cached.at < REFRESH_MS;
     // usePullRequestChecksRefresh: the checks alone, every 45 s while runs are pending (or none reported), else 60 s.
@@ -104,7 +107,7 @@ export async function readDetail(client: T3Client, native: Native, reference: Ob
   return entry.detail;
 }
 /** The detail already read for a reference, without asking (a tab icon is drawn synchronously). */
-export function peekDetail(client: T3Client, reference: Obj): Obj | null { return prState(client).details.get(refKey(client, reference))?.detail ?? null; }
+export function peekDetail(client: T3Client, reference: Obj): Obj | null { return sharedPullRequestSummary(client, reference, prState(client).details.get(refKey(client, reference))?.detail ?? null); }
 export function forgetDetails(client: T3Client, reference?: Obj): void {
   const state = prState(client);
   if (reference) state.details.delete(refKey(client, reference)); else state.details.clear();

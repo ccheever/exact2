@@ -1,3 +1,4 @@
+import { sharedPullRequestLinks } from '../pull-requests/pages-pr-shared';
 // The sidebar's projection into the snapshot (Sidebar.tsx render): the rows in
 // paint order (collapsed shelves contribute only the open thread, as the
 // reference renders them, so thread.jump and prev/next follow the same list)
@@ -172,7 +173,8 @@ function titleInk(card: boolean, section: SidebarSection, recede: boolean, unrea
 /** Sidebar.tsx prBadge: the thread's links (resolveThreadPullRequestBadge), else, with no current link, the pull request
  * useLinkedThreadPullRequest reads for it (its branch's; sidebar-branch-pr.ts). */
 function rowPrBadge(client: T3Client, thread: Obj): ReturnType<typeof sidebarPrBadge> {
-  const linked = sidebarPrBadge(thread);
+  const links = sharedPullRequestLinks(client, arr(thread.pullRequests), str(thread.projectId), parseFleetThreadId(str(thread.id))?.environmentId ?? client.environmentId);
+  const linked = sidebarPrBadge({ ...thread, pullRequests: links });
   if (linked.badge) return linked;
   const pr = branchPullRequest(client, thread);
   return pr ? branchPrBadge(pr) : linked;

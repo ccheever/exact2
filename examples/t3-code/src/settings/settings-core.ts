@@ -71,6 +71,9 @@ export const CLIENT_DEFAULTS = {
   // BROWSER_RECORDING_FRAME_RATES 30 | 60, default 30; key and mouse presses off; auto-show on). Settings › Integrations ›
   // Browser draws their rows and writes them.
   browserRecordingFrameRate: 30, browserRecordingShowKeyPresses: false, browserRecordingShowMousePresses: false, browserAutoShowFloatingPreview: true,
+  // Whether a pull request link opens T3 Code's pull request view (pullRequestLinksOpenInApp, default on); off, it opens as
+  // any other link does.
+  pullRequestLinksOpenInApp: true,
 } as const;
 export type ClientPrefs = { -readonly [K in keyof typeof CLIENT_DEFAULTS]: (typeof CLIENT_DEFAULTS)[K] extends number ? number : (typeof CLIENT_DEFAULTS)[K] extends boolean ? boolean : string };
 const CHOICES: Record<string, readonly string[]> = {

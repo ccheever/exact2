@@ -33,6 +33,7 @@ function fixture(interactedAt = NOW, more: Record<string, (payload: Obj) => unkn
     },
     restAccess: () => ({ call: async () => ({ id: '1-1' }) }),
   } as unknown as T3Client;
+  client.projectGroups = () => client.shell.projects.map(project => ({ key: String(project.id), name: String(project.title ?? ''), members: [project] }));
   const native = { available: true, watch: () => {}, later: async (request: Obj) => request.op === 'activityLastInteraction' ? { ok: true, generation: 1, value: { at: interactedAt } } : { ok: true, generation: 1, value: {} } } as unknown as Native;
   const page = (input: Partial<PrInput> & { visible?: boolean; returns?: number } = {}) =>
     pullRequestsPage(client, native, { open: true, refresh: 0, now: NOW, selected: '', query: '', typed: false, ...input });

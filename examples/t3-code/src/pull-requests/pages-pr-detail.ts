@@ -1,3 +1,4 @@
+import { sharedPullRequestSummary } from './pages-pr-shared';
 // The pull request detail panel: pullRequests.detail and
 // .activity read for the selected row, presented as PullRequestDetailPanel's
 // header and Summary/Timeline tabs, and its writes (runAction, update,
@@ -37,7 +38,7 @@ import { composerNow } from '../composer/composer-controls';
 import { emptyActions, isActionOp, notedListEntry, prActionCommand, prActionUi, presentActions, type PanelContext } from './pages-pr-actions';
 import { markStackDue, readPanelStack } from './pages-pr-stack';
 import { emptyHandoffs, presentHandoffs, prHandoffCommand } from './pages-pr-handoffs';
-import { runQuickAction } from './pages-pr-quick';
+import { runQuickAction, queueQuickAction, queueCloseBatch } from './pages-pr-quick';
 import { finishCheckoutHandoff } from '../details/pr-row-actions';
 import { emptyLinks, emptyPreview, hoveredLink, linkChips, linksCommand, linkPanelOnPage, openLink, presentLinks, readLinkedThreads, readPreview, type LinkContext } from './pages-pr-links';
 import { surfaceLocal } from '../panel/panel-surfaces';
@@ -187,6 +188,9 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   const ref = { ...selectionRef(selection) };
   if (panel.detailDue) await readDetail(client, native!, panel, ref, storage);
   if (due(panel) && phaseOf(panel) !== shown.get(client)) return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
+  const loaded = panel.detail ?? panel.cached;
+  const known = sharedPullRequestSummary(client, ref, loaded, selection.environmentId || client.environmentId);
+  if (loaded && known && panel.detail) panel.detail = { ...loaded, ...known };
   const display = panel.detail ?? panel.cached;
   if (panel.activityDue && display) await readActivity(client, native!, panel, ref);
   // Then, once the detail says the host keeps stacks, the stack (one native request at a time: an answer burst can
@@ -421,6 +425,10 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
   // A checkout hand-off's second half, once the window shows its thread.
   if (op === 'handoff-run') return finishCheckoutHandoff(client, native);
   // A list row's Shift quick action (it names its own row, whatever is selected).
+  if (op === 'queue' || op === 'close-batch') {
+    const lookup = (ref: string) => { const row = parseSelection(ref); return row ? listEntryFor(client, row) : null; };
+    return op === 'close-batch' ? queueCloseBatch(client, native, value.split('\n').filter(Boolean), lookup, () => stale(client)) : queueQuickAction(client, native, value, lookup, () => stale(client));
+  }
   if (op === 'quick') return runQuickAction(client, native, value, ref => { const row = parseSelection(ref); return row ? listEntryFor(client, row) : null; }, () => stale(client));
   const selection = parseSelection(selected);
   if (!selection) throw new ClientError('Choose a pull request first.');

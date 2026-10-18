@@ -48,6 +48,7 @@ function lane(replies: Record<string, Reply>) {
     shell: { projects: [{ id: 'p1', title: 'sandbox', workspaceRoot: '/repos/sandbox', repositoryIdentity: { provider: 'github', canonicalKey: 'github.com/lane/sandbox' } }], threads: [] },
     rpc: async (_native: unknown, method: string, payload: Obj) => { calls.push({ method, payload }); const reply = replies[method]; if (!reply) throw new Error(`no reply for ${method}`); return reply(payload); },
   } as unknown as T3Client;
+  client.projectGroups = () => client.shell.projects.map(project => ({ key: String(project.id), name: String(project.title ?? ''), members: [project] }));
   const native = { available: true, watch: () => {}, later: async () => { wakes++; return { ok: true }; } } as unknown as Native;
   const view = async () => {
     // Ask again while the panel asked to be woken (a refresh of a shown detail is drawn first, then read).
