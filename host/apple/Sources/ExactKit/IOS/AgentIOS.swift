@@ -496,10 +496,14 @@ extension Agent {
     }
 
     /// `tap {back:true}` (LLP 1116.006 D4): the platform's Back as a person
-    /// takes it — an open confirmation's cancel (a keyboard's Escape, a tap
+    /// takes it — a real share sheet's close (`--touch platform`, Share.swift),
+    /// an open confirmation's cancel (a keyboard's Escape, a tap
     /// outside), else a pushed route's Back button, else the top sheet's
     /// swipe down. The system's button is no node, so no tap reaches it.
     func back() -> [String: Any] {
+        #if os(iOS)
+        if ShareSheet.agentBack() || session.picker.agentBackDocument() { return backReply(("sheet", "")) }
+        #endif
         if let cancelled = presenter.menus.agentCancel() { return backReply(("dialog", cancelled ? "" : "the alert is still moving: `clock settle` first")) }
         if let refused = presenter.navigation.agentBack() { return backReply(("route", refused)) }
         return backReply(presenter.modals.agentDismiss().map { ("sheet", $0) })
@@ -1261,10 +1265,11 @@ extension Agent {
         }
         // What the picture shows in the page that the app presents as UIKit's
         // own, said where the image cannot (euxy port, FRICTION §2).
+        // Under native presentation what is still painted is what a person sees painted too (a content popover).
         let painted = presenter.menus.presented.filter { $0.window != nil && !$0.isHidden }
-        if !painted.isEmpty {
+        if !painted.isEmpty, ExactEnv.agentPaints {
             r["painted"] = painted.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
-            r["paintedNote"] = "an open popover is painted in the page under the agent, as the web draws it (LLP 1021 D4): the app shows a menu as UIKit's menu at its invoker, a context menu's with its preview; under --touch platform a menu is UIKit's"
+            r["paintedNote"] = "an open popover is painted in the page under the agent, as the web draws it (LLP 1021 D4): the app shows a menu as UIKit's menu at its invoker, a context menu's with its preview; to picture UIKit's menu, drive with --touch platform, where a screenshot with a menu up is the window's, the menu in it"
         }
         let bars = presenter.navigation.paintedForBars()
         if !bars.isEmpty {
@@ -1349,6 +1354,9 @@ extension Agent {
         guard let window = presenter.viewport.window, let root = window.rootViewController else { return nil }
         visit(root)
         if let alert = found as? UIAlertController { return alert.preferredStyle == .alert ? "alert" : "action sheet" }
+        #if os(iOS)
+        if found is UIActivityViewController { return "share sheet" }
+        #endif
         // A menu one of the popovers gave UIKit (`--touch platform`), however
         // UIKit presents it; tvOS has no menus or popovers.
         #if !os(tvOS)

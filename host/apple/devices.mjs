@@ -5,7 +5,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { homedir, networkInterfaces, tmpdir } from 'node:os';
 import { createServer as createTCPServer } from 'node:net';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
 
@@ -47,7 +47,9 @@ const read = (cmd, args, opts = {}) => { useXcode(); return spawnSync(cmd, args,
  *  display (`simulatorDisplay`), so no other drive's launch comes in between. `r.pixels` says which (`display` or
  *  `app`, `r.pixelsWhy` why); what could not be done is said in `note`. Returns `r`. */
 export async function withDisplay(r, path, udid, appTop = 0, { own = false, probe = null, gap = 400 } = {}) {
-  const top = r.keyboard?.windowTop, bar = r.statusBar, scale = r.scale, keyboard = top != null;
+  const top = r.keyboard?.windowTop, bar = r.statusBar, scale = r.scale, keyboard = top != null, opaque = r.opaque;
+  delete r.opaque; // the check's input, hundreds of points: not the reply's
+
   const approximate = (why) => `the picture is the app's own drawing, not the display's (${why}): glass and other backdrop materials in it are approximate`;
   const say = (note) => { r.note = r.note ? `${r.note}; ${note}` : note; };
   // The app's picture as it was: none of the display in it.
@@ -86,7 +88,7 @@ export async function withDisplay(r, path, udid, appTop = 0, { own = false, prob
     const agree = (from, to) => [again, last].every((d) => Buffer.compare(display.data.subarray(from, to), d.data.subarray(from, to)) === 0);
     const from = row(bar > 0 ? 0 : appTop);
     if (!why && !agree(row(bar > 0 ? bar : appTop))) why = 'the display changed while it was read';
-    if (!why) why = covered(r.opaque, app, display, scale);
+    if (!why) why = covered(opaque, app, display, scale);
     if (!why) app.data.set(display.data.subarray(from), from);
     if (why && bar > 0 && agree(0, row(bar))) app.data.set(display.data.subarray(0, row(bar)), 0);
     else if (why && bar > 0) r.statusBar = false;
@@ -212,6 +214,51 @@ export function installedAlready(udid, id, bundle, executable) {
       return a.size === b.size && a.mtimeMs === b.mtimeMs;
     });
   } catch { return false; }
+}
+
+/** The build of `id` installed on a simulator: its bundle's path, its receipt's `build.trust` (`unreceipted` with
+ *  none) and what a person calls it; null with none installed. */
+export function installedBuild(udid, id) {
+  const where = read('xcrun', ['simctl', 'get_app_container', udid, id, 'app']);
+  if (where.status !== 0) return null;
+  const installed = where.stdout.trim();
+  let trust = 'unreceipted';
+  try { trust = JSON.parse(readFileSync(resolve(installed, 'receipt.json'), 'utf8')).build?.trust ?? trust; } catch {}
+  return { installed, trust, what: trust === 'production' ? 'Release (production) build' : `${trust} build` };
+}
+
+/** What `build.mjs --ios` says when its development build replaced `replaced` (an `installedBuild` of another kind):
+ *  one bundle id, so a benchmark or a person then finds the development build (euxy port); how to put it back, from
+ *  the Release bundle at `release` when it was built here. */
+export function replacedNote(udid, app, replaced, release) {
+  const back = existsSync(release) ? `xcrun simctl install ${udid} '${release}'` : `bun host/apple/build.mjs --ios ${app.crate('apple')} --release --sim ${udid}`;
+  return `host/apple: this development build replaced the simulator's ${replaced.what} of ${app.id} (one bundle id); put it back with ${back}`;
+}
+
+/** Before a drive installs its development build of `id`: the build installed now when it is not a development one
+ *  (its receipt's `build.trust`: a `--release` or production bake, or one with no receipt), kept as an APFS clone
+ *  of the installed bundle so that `restore()` puts back exactly that build when the drive ends. Both share the bundle
+ *  id, so without this a later benchmark or person finds the development build (euxy port). Null when there is none
+ *  or it is a development build. `note` says what happened; a failed restore says on stderr how to finish it. */
+export function keepInstalledRelease(udid, id) {
+  const { installed, trust, what } = installedBuild(udid, id) ?? {};
+  if (!installed || trust === 'development') return null;
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-kept-app-')), copy = resolve(dir, basename(installed));
+  if (read('cp', ['-cR', installed, copy]).status !== 0) {
+    rmSync(dir, { recursive: true, force: true });
+    return { note: `the simulator's ${what} of ${id} was replaced by this drive's development build (one bundle id) and could not be kept: reinstall it when the drive ends (bun host/apple/build.mjs --ios <app> --release, then xcrun simctl install ${udid} <its .app>)`, restore() {} };
+  }
+  let restored = false;
+  return {
+    note: `the simulator had ${id}'s ${what} installed: this drive installed its development build over it (one bundle id) and puts the ${what} back when it ends`,
+    restore() {
+      if (restored) return;
+      restored = true;
+      const r = read('xcrun', ['simctl', 'install', udid, copy]);
+      if (r.status === 0) rmSync(dir, { recursive: true, force: true });
+      else console.error(`note: the ${what} of ${id} was not put back (${(r.stderr || '').trim().split('\n').pop()}); the development build stays installed. Reinstall it: xcrun simctl install ${udid} '${copy}'`);
+    },
+  };
 }
 
 /** A simulator's software keyboard for a drive: shown for a focused field, as a person's iPhone shows it. Once a Device

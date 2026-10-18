@@ -286,12 +286,25 @@ const replyNote = (name, why) => `mutation ${name}'s reply was refused: ${why}; 
 /** The journal line every host writes at a drive's first refused read or write of app storage, when the drive names no store. */
 export const STORAGE_REFUSED = /storage refused \(agent\)/;
 export const STORAGE_NOTE = 'this drive names no --storage, so the app\'s storage was refused: a data source that reads its files finds none and keeps nothing, so a screen may show an empty store, not the app\'s data; pass --storage <name> (docs/agent-pitfalls.md)';
+/** The held device requests a person would see as a system sheet, by capability; and those iOS presents for real
+ *  beside the hold under `--touch platform` (Share.swift, DocumentPickers.swift). */
+const HELD_SHEETS = { share: 'share sheet', pick: 'photo or file picker', 'open-file': 'document picker', 'open-directory': 'document picker', 'save-file': 'document picker', export: 'export sheet', auth: 'sign-in sheet' };
+const SHOWN_SHEETS = ['share', 'open-file', 'open-directory', 'save-file'];
 export function driveNotes(s, { host, storage, origins = [] }) {
   const INPUTS = ['tap', 'type', 'clock'], READS = ['tree', 'screenshot', 'layout'];
   const said = new Set(), note = (key, text) => { if (!said.has(key)) { said.add(key); console.error(`note: ${text}`); } };
   const bounded = (p, ms) => Promise.race([p.catch(() => null), new Promise((done) => setTimeout(() => done(null), ms))]);
   let peek = 0, probes = 0, clocked = false, replies = 0, checkedClock = false;
   return async (op) => {
+    if (s.carrier?.installNote) note('install', s.carrier.installNote); // a Release build replaced for the drive (devices.mjs `keepInstalledRelease`)
+    // A system sheet held for the agent is drawn by no host: a screenshot of it shows the app alone (euxy port).
+    if (op === 'screenshot') {
+      const ios = ['ios', 'host-ios'].includes(host), real = ios && s.carrier?.touch === 'platform';
+      for (const p of (await bounded(s.state(), 3000))?.pending ?? []) {
+        const capability = p.device?.capability, kind = HELD_SHEETS[capability], shown = SHOWN_SHEETS.includes(capability);
+        if (kind && !(real && shown)) note(`sheet ${p.ticket}`, `the screenshot shows no ${kind}: under the agent it is held (@${p.ticket}), answered by tap @${p.ticket} or type @${p.ticket}${ios && shown ? '; under --touch platform the real one is presented beside the hold, and a screenshot draws it' : ''}`);
+      }
+    }
     if (!checkedClock) {
       checkedClock = true;
       const clocks = await Promise.all(origins.map(origin => backendClock(origin)));

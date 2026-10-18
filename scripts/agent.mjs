@@ -46,7 +46,7 @@ import { jsonLines, hangup } from './agent-wire.mjs';
 export { jsonLines, hangup };
 export { MalformedOperation, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
-import { crashReports, crashWatch, developmentLaunchEnvironment, installedAlready, phone, phoneBridge, showSimulator, simulator, withDisplay, withSoftwareKeyboard } from '../host/apple/devices.mjs';
+import { crashReports, crashWatch, developmentLaunchEnvironment, installedAlready, keepInstalledRelease, phone, phoneBridge, showSimulator, simulator, withDisplay, withSoftwareKeyboard } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy } from './agent-android.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -669,7 +669,8 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
   showSimulator(dev, true); // a person watching sees what is driven, and keeps the focus
   // Real touches (LLP 1080.000, `--touch platform`; `drag`, an authored test's drag alone): the runner starts first, so its own launch never backgrounds the app.
   const touches = touch !== 'agent' ? await openTouches({ udid: dev.udid, appId: id ?? bundleId(a.crate('apple')) }) : null;
-  try { if (!installedAlready(dev.udid, id, bundle, hostFixture ? 'ExactHostIOS' : executableName(a))) install(dev, bundle, a, hostFixture); } catch (e) { await touches?.close(); throw e; }
+  // A Release build installed under the bundle id is kept and put back when the drive ends (`keepInstalledRelease`).
+  let kept = null; try { if (!installedAlready(dev.udid, id, bundle, hostFixture ? 'ExactHostIOS' : executableName(a))) { kept = keepInstalledRelease(dev.udid, id); install(dev, bundle, a, hostFixture, true); } } catch (e) { kept?.restore(); await touches?.close(); throw e; }
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-'));
   const sock = resolve(dir, 'agent.sock');
   const env = { EXACT_ASSETS: appleArtifacts(a,{destination:'ios-simulator',host:hostFixture}).capture, EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...(size ? {EXACT_WINDOW_WIDTH:String(size[0]), EXACT_WINDOW_HEIGHT:String(size[1])} : {}), ...extra };
@@ -699,7 +700,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
       socket = await new Promise((ok) => { const s = connect(sock); s.once('connect', () => ok(s)); s.once('error', () => { s.destroy(); ok(null); }); });
       if (!socket) await sleep(50);
     }
-  }).catch(async (e) => { if (!console_) { rmSync(dir, { recursive: true, force: true }); await touches?.close(); } throw e; });
+  }).catch(async (e) => { kept?.restore(); if (!console_) { rmSync(dir, { recursive: true, force: true }); await touches?.close(); } throw e; });
   socket.on('error', () => {});
   const lines = jsonLines(socket, socket, hostLines);
   const exited = new Promise((r) => socket.on('close', async () => {
@@ -718,7 +719,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
       try { console_.kill('SIGKILL'); } catch {}
       await consoleExited;
     }
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true }); kept?.restore();
     if (touchFailure) throw touchFailure;
   };
   try {
@@ -734,7 +735,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
     let canvasContact = false;
     return {
       host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state, plan,
-      touches, touch, crashes, udid: dev.udid,
+      touches, touch, crashes, udid: dev.udid, installNote: kept?.note,
       ask, reveal: (id) => ask({ op: 'reveal', id }),
       async input(id, kind, opts) {
         if (kind === 'key') {
@@ -1389,8 +1390,10 @@ export async function main(argv, injected = {}) {
   const served = injected.driveServer ? await injected.driveServer() : await (await import('./verify.mjs')).driveServer(resolveApp(flags.app).dir, flags.storage); // the app's own server, if it has one (LLP 1116.008 D1)
   // A named store is kept between drives on a native host unless the drive asks it emptied (`--reset-storage`); on the
   // web, Chrome's profile for it starts empty unless the drive keeps it (`--keep-storage`, LLP 1086 EX4). A native host
-  // empties the whole scratch tree at its first boot (picker.rs `empty_fresh_tree`), refusing one under a link.
-  const fresh = flags.storage !== undefined && (host === 'web' ? !flags.keepStorage : flags.resetStorage);
+  // empties the whole scratch tree at its first boot (picker.rs `empty_fresh_tree`), refusing one under a link. A drive
+  // that compares with a reference starts empty on every host unless kept: what an earlier drive stored is no part of the screen (euxy port).
+  const fresh = flags.storage !== undefined && (host === 'web' || ops.some((l) => /^\s*screenshot\s.*\scompare\s/.test(l)) ? !flags.keepStorage : flags.resetStorage);
+  if (fresh && host !== 'web' && !flags.resetStorage) console.error(`note: --storage ${flags.storage} starts empty, as a drive that compares with a reference does (--keep-storage keeps it)`);
   const launch = () => (injected.open ?? open)({ host, browser, env: fresh ? {EXACT_AGENT_STORAGE_FRESH: '1'} : undefined, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, chrome: flags.chrome, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch, scale: flags.scale, port: flags.port });
   // A native named store is one drive's at a time, on its device: another drive's reset would empty it under this one.
   // The device is resolved first, and the drive launches that one, so a default and its name are one lock.

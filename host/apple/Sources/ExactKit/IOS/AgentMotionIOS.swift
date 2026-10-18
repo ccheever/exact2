@@ -21,8 +21,21 @@ extension Agent {
     /// repeating animation (a caret's blink, a spinner) and one on a paused
     /// layer (the agent's clock holds the app's own motion) are never waited
     /// for. Whether it came to rest within the bound.
+    /// A share sheet or document picker shown for real (`--touch platform`)
+    /// still arriving: UIKit presents it on a later turn, then animates it in.
+    var systemSheetArriving: Bool {
+        #if os(iOS)
+        ShareSheet.arriving || session.picker.documentArriving
+        #else
+        false
+        #endif
+    }
+
     @discardableResult func settleMotion(bound: TimeInterval = 1.5) -> Bool {
         guard let window = presenter.viewport.window else { return true }
+        // A document picker's first presentation starts its view service, measured past 1.5 s on the iOS 27 simulator.
+        let arrival = Date(timeIntervalSinceNow: 5)
+        while systemSheetArriving && Date() < arrival { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.016)) }
         let deadline = Date(timeIntervalSinceNow: bound)
         let controls = Agent.ownControls(in: window), quiet: TimeInterval = controls == nil ? 0.05 : 0.2
         let print = { (Agent.restingPrint(under: window.layer), controls.map { Agent.pixels(of: window, in: $0) } ?? Data()) }

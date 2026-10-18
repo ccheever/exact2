@@ -108,15 +108,28 @@ export function regions(mask, w, h, { gap = 4, least = 6 } = {}) {
 }
 
 const hex8 = (G, i) => '#' + [0, 1, 2].map((c) => Math.round(Math.round(G.rgb[i * 3 + c] / 255 * 7) * 15 / 7).toString(16)).join('');
-/** A box's fill (the commonest colour of its cells) and ink (the commonest colour of `picked` beyond INK of the fill),
- *  as hex at 8 levels a channel. */
-function inkOf(G, box, picked) {
+/** Whether cell i is an edge's anti-aliasing: in the channel where it is farthest from `f` (the fill), it lies inside
+ *  its 3×3 neighbourhood's range by INK/2 at both ends, a mix of a lighter and a darker neighbour. A stroke's own colour
+ *  is the end of that range, never inside it. */
+export function blended(G, i, f) {
+  let c = 0;
+  for (let k = 1; k < 3; k++) if (Math.abs(G.rgb[i * 3 + k] - f[k]) > Math.abs(G.rgb[i * 3 + c] - f[c])) c = k;
+  const v = G.rgb[i * 3 + c];
+  return v > G.lo[i * 3 + c] + INK / 2 && v < G.hi[i * 3 + c] - INK / 2;
+}
+
+/** A box's fill (the commonest colour of its cells) and ink (the commonest colour of `picked` beyond INK of the fill,
+ *  an edge's anti-aliasing left out), as hex at 8 levels a channel; `edges` when every such cell was anti-aliasing,
+ *  so the picture has no colour of its own there (a box edge a point or two from the other picture's). */
+export function inkOf(G, box, picked) {
   const tally = (cells) => { const m = new Map(); for (const i of cells) m.set(hex8(G, i), (m.get(hex8(G, i)) ?? 0) + 1); return m; };
   const mode = (m) => [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
   const all = [];
   for (let y = box.y; y < box.y + box.h; y++) for (let x = box.x; x < box.x + box.w; x++) all.push(y * G.w + x);
   const fill = mode(tally(all)), f = fill && [1, 2, 3].map((k) => parseInt(fill[k], 16) * 17);
-  return { fill, ink: mode(tally(picked.filter((i) => !f || [0, 1, 2].some((c) => Math.abs(G.rgb[i * 3 + c] - f[c]) > INK)))) };
+  const unlike = picked.filter((i) => !f || [0, 1, 2].some((c) => Math.abs(G.rgb[i * 3 + c] - f[c]) > INK));
+  const own = f ? unlike.filter((i) => !blended(G, i, f)) : unlike;
+  return { fill, ink: mode(tally(own)), ...(unlike.length && !own.length ? { edges: true } : {}) };
 }
 
 /** Where a region's content sits in the reference, when that is plain: the one vertical or horizontal offset (up to
@@ -282,9 +295,10 @@ export function report(result, nodes, { reference, diff, unit = 'pt', boxes = []
   const left = [result.top ? `the top ${result.top} (status bar)` : '', result.bottom ? `the bottom ${result.bottom} (home indicator)` : ''].filter(Boolean).join(' and ');
   out.push(`compare ${reference}: ${pct(result.match)} matches (${result.w}×${result.h} ${unit}${left ? `; ${left} not scored` : ''}); diff ${diff} (${PANELS.join(' | ')})`);
   result.regions.forEach((r, i) => {
-    const names = under(nodes, r.screen), { screen: sc, reference: rc } = r.colours, colour = (c) => (c.ink ? `${c.ink} on ${c.fill}` : c.fill ?? 'nothing');
+    const names = under(nodes, r.screen), { screen: sc, reference: rc } = r.colours;
+    const colour = (c) => (c.ink ? `${c.ink} on ${c.fill}` : c.edges ? `${c.fill}, only an edge's anti-aliasing beside it` : c.fill ?? 'nothing');
     // Content that moved puts unlike cells side by side: their colours say nothing, so the hint is said instead.
-    const said = r.hint ? [hintText(r.hint, unit)] : sc.fill === rc.fill && sc.ink === rc.ink ? [] : [`here ${colour(sc)}, in the reference ${colour(rc)}`];
+    const said = r.hint ? [hintText(r.hint, unit)] : sc.fill === rc.fill && sc.ink === rc.ink && !sc.edges === !rc.edges ? [] : [`here ${colour(sc)}, in the reference ${colour(rc)}`];
     out.push(`  ${i + 1} ${boxText(r.screen)} (${r.count} ${unit}²)${names.length ? ` under ${names.map(nodeName).join(', in ')}` : ''}${said.length ? `: ${said.join('; ')}` : ''}`);
   });
   for (const b of boxes) out.push(`  box    ${nodeName({ ...b.node, ...b.here })}: ${b.ref.w}×${b.ref.h} at ${b.ref.x},${b.ref.y} in the reference${b.alike ? ` (and ${b.alike} like it)` : ''}`);
