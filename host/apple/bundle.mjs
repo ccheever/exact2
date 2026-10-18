@@ -1,7 +1,7 @@
 // Apple bundle assembly. The build owns compilation and artifact publication.
 // @ref LLP 1126 D2/D8 — an extension is packaged inside its app's cohort.
 import { packageActivityArm, assertActivityRefusals } from './activities.mjs';
-import { packageWidgets, widgetId, entryProfiles, activityEntries, platformWidgetEntries, macWidgetGroup, widgetSigningTeam, macWidgetProfiles, macWidgetEntitlements } from './widgets.mjs';
+import { packageWidgets, widgetId, entryProfiles, activityEntries, platformWidgetEntries, macWidgetGroup, macWidgetEntitlements } from './widgets.mjs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { resolve, basename, dirname } from 'node:path';
@@ -16,22 +16,21 @@ const run = (cmd, args, opts = {}) => {
   if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})${r.stderr?.length ? ': ' + String(r.stderr).trim() : ''}`);
   return r;
 };
-export function assembleMac({shared, triple, hasWeb, webLoadName, args, app, paths, binDir, libDir, bin, loadName, hasGpu, dylib, moduleDylibs, looseArms, hasSvg, svgLoadName, modulesLoadName, modulesBuilt, svgBuilt, canvasGpuLoadName, canvasGpuBuilt, sha1, linkRoot, swiftc, buildReceipt, development, bakedCompat, rosterKeys, production, distribution, stampSdk, products, composition, sdk, bakedPlan, cleanup}, {runApple, appleArtifacts, macInfoPlist, copyAppleStaticTrees, writeUsageStrings, receipt, shippedReceipt, assertAppleIdentity, placeAppleArtifact, infoPlist, distributionKeys, copyAppleGpuProducts, entitlements}) {
+export function assembleMac({shared, macWidgets, triple, hasWeb, webLoadName, args, app, paths, binDir, libDir, bin, loadName, hasGpu, dylib, moduleDylibs, looseArms, hasSvg, svgLoadName, modulesLoadName, modulesBuilt, svgBuilt, canvasGpuLoadName, canvasGpuBuilt, sha1, linkRoot, swiftc, buildReceipt, development, bakedCompat, rosterKeys, production, distribution, stampSdk, products, composition, sdk, bakedPlan, cleanup}, {runApple, appleArtifacts, macInfoPlist, copyAppleStaticTrees, writeUsageStrings, receipt, shippedReceipt, assertAppleIdentity, placeAppleArtifact, infoPlist, distributionKeys, copyAppleGpuProducts, entitlements}) {
     // `--bundle`'s assembled `.app`, when one was asked for: what `--run`
     // then launches, so the running process has the app's bundle identity —
     // its Info.plist, its document types, its Dock tile (LLP 1033 D2).
     let bundlePath = null;
-    const team = shared ? widgetSigningTeam(sha1) : null;
-    const profiles = shared ? macWidgetProfiles({ app, team }) : null;
+    const { team = null, profiles = null } = macWidgets ?? {};
     const widgetKeys = shared ? {
       ExactAppGroup: macWidgetGroup(app, team), ExactAppIdentifier: app.id,
       ExactWidgetKinds: platformWidgetEntries(app, 'macos').map(entry => entry.kind),
       ExactWidgetTypeScript: existsSync(resolve(app.dir, 'app.ts')),
-      ExactWidgetRequiresSecrets: /^\s*secret\.keep\s/m.test(bakedCompat.inputs.grantCeiling ?? ''),
+      ExactWidgetRequiresSecrets: platformWidgetEntries(app, 'macos').filter(entry => entry.requiresSecrets).map(entry => entry.kind),
       ExactWidgetGeneration: createHash('sha256').update(JSON.stringify([bakedCompat.id, buildReceipt.graph.artifacts])).digest('hex'),
       ...(profiles ? { ExactKeychainAccessGroup: profiles.keychain } : {}),
     } : {};
-    if (shared && !profiles) console.log('Mac widgets: no shared Keychain profiles; entries with secret.keep show the placeholder (LLP 1126.001 §5 Q5).');
+    if (shared && !profiles) console.log('Mac widgets: no shared Keychain profiles; entries with requiresSecrets show the placeholder (LLP 1126.001 §5 Q5).');
     const ent = shared ? resolve(linkRoot, 'mac-entitlements.plist') : null;
     if (ent) writeFileSync(ent, macWidgetEntitlements({ app, team, profiles }));
     // Replace the dylib, never overwrite it in place: a running app may still
@@ -104,7 +103,7 @@ export function assembleMac({shared, triple, hasWeb, webLoadName, args, app, pat
       if (shared) {
         const frameworks = resolve(contents, 'Frameworks');
         mkdirSync(frameworks, { recursive: true });
-        cpSync(shared.framework, resolve(frameworks, 'ExactCore.framework'), { recursive: true });
+        cpSync(shared.framework, resolve(frameworks, 'ExactCore.framework'), { recursive: true, verbatimSymlinks: true });
         if (profiles) copyFileSync(profiles.app.path, resolve(contents, 'embedded.provisionprofile'));
         packageWidgets({ app, bundle, shared, directory: linkRoot, sdk, triple, platform: 'macos',
           runApple, production: production || distribution, profile: profiles?.extension,

@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { basename, dirname, relative, resolve, isAbsolute } from 'node:path';
-import { chmodSync, closeSync, lstatSync, openSync, readlinkSync, readSync, copyFileSync, realpathSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, lstatSync, openSync, readlinkSync, readSync, copyFileSync, realpathSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 // The build's stamp, which build.mjs merges into Info.plist beside the icon keys.
 export { buildInfo } from './buildinfo.mjs';
 
@@ -353,13 +353,13 @@ function machOType(path) {
  * alone is not enough; a hardened app without the entitlement is silently
  * refused). Runtime exceptions never reach the app's own executable (LLP
  * 1069.008 D9). Null when the app grants no such device. */
-export const macReleaseEntitlements = (compat) => {
+export const macReleaseEntitlements = (compat, widgets = {}) => {
   const names = compat?.reach?.entitlements ?? [];
   // An https auth callback's `webcredentials:` domain (LLP 1069.006 D2),
   // which a Developer ID build signs only with a profile that grants it.
   const domains = compat?.reach?.auth?.associatedDomains ?? [];
-  if (!names.length && !domains.length) return null;
-  return plistFile({ ...Object.fromEntries(names.map((name) => [name, true])),
+  if (!names.length && !domains.length && !Object.keys(widgets).length) return null;
+  return plistFile({ ...widgets, ...Object.fromEntries(names.map((name) => [name, true])),
     ...(domains.length ? { 'com.apple.developer.associated-domains': domains } : {}) });
 };
 
@@ -418,12 +418,26 @@ export function helperEntitlements(bundle, manifest, compat, order) {
 /** The release's signature walk: every path `signingOrder` names, innermost
  *  first, with `identity`, the hardened runtime and `timestamp`. The app
  *  carries `macReleaseEntitlements`, each helper a runtime grant names its
- *  own (`helperEntitlements`), and all other nested code none. The plists
+ *  own (`helperEntitlements`), and a widget extension keeps its signing entitlements. The plists
  *  are written into `scratch`. */
 export function signRelease(bundle, { compat, manifest, identity, id, scratch, timestamp = ['--timestamp'] }) {
   const order = signingOrder(bundle, compat, identity);
   const plists = helperEntitlements(bundle, manifest, compat, order);
-  const own = macReleaseEntitlements(compat);
+  const info = JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', resolve(bundle, 'Contents/Info.plist')], { encoding: 'utf8', stdio: 'pipe' }).stdout);
+  const widgets = info.ExactAppGroup ? { 'com.apple.security.application-groups': [info.ExactAppGroup] } : {};
+  if (info.ExactAppGroup && existsSync(resolve(bundle, 'Contents/embedded.provisionprofile'))) {
+    if (!info.ExactKeychainAccessGroup) throw new Error('Mac widget profile has no restricted Keychain group in the app plist');
+    Object.assign(widgets, { 'keychain-access-groups': [info.ExactKeychainAccessGroup],
+      'com.apple.application-identifier': info.ExactKeychainAccessGroup,
+      'com.apple.developer.team-identifier': info.ExactAppGroup.split('.')[0] });
+  }
+  const extension = resolve(bundle, 'Contents/PlugIns/ExactWidgets.appex');
+  if (info.ExactAppGroup && existsSync(extension)) {
+    const signed = run('codesign', ['-d', '--entitlements', '-', '--xml', extension], { encoding: 'utf8', stdio: 'pipe' }).stdout;
+    if (!signed?.includes('<plist')) throw new Error('Mac widget extension has no entitlements to preserve');
+    plists.set(extension, signed);
+  }
+  const own = macReleaseEntitlements(compat, widgets);
   if (own) plists.set(bundle, own);
   let n = 0;
   for (const path of order) {
@@ -523,6 +537,21 @@ const plist = (value, indent = '  ') => {
 };
 export const plistFile = (dict) => `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">${plist(dict)}</plist>\n`;
 
+/** Mac frameworks use the versioned layout; callers keep root aliases for loading and Swift modules. */
+export const frameworkInstallName = (name, platform) => `@rpath/${name}.framework/${platform === 'MacOSX' ? 'Versions/A/' : ''}${name}`;
+export function frameworkLayout(dir, name, platform) {
+  const version = platform === 'MacOSX' ? resolve(dir, 'Versions/A') : dir;
+  const resources = platform === 'MacOSX' ? resolve(version, 'Resources') : version;
+  mkdirSync(resources, { recursive: true });
+  mkdirSync(resolve(version, 'Modules'), { recursive: true });
+  if (platform === 'MacOSX') {
+    for (const [link, target] of [['Versions/Current', 'A'], [name, `Versions/Current/${name}`], ['Resources', 'Versions/Current/Resources'], ['Modules', 'Versions/Current/Modules']]) {
+      if (!lstatSync(resolve(dir, link), { throwIfNoEntry: false })) symlinkSync(target, resolve(dir, link));
+    }
+  }
+  return { binary: resolve(version, name), modules: resolve(version, 'Modules'), info: resolve(resources, 'Info.plist') };
+}
+
 /** A loose `Frameworks/lib….dylib` as `Frameworks/<name>.framework/<name>`,
  * which is the only form App Store Connect accepts for an embedded library
  * (ITMS-90171, ITMS-90432). The presenter loads either (`embeddedModule` in ExactKit). */
@@ -530,10 +559,10 @@ export function wrapFramework(frameworks, loose, name, app, platform = 'iPhoneOS
   const from = resolve(frameworks, loose);
   if (!existsSync(from)) return;
   const dir = resolve(frameworks, `${name}.framework`);
-  mkdirSync(dir, { recursive: true });
-  renameSync(from, resolve(dir, name));
-  run('install_name_tool', ['-id', `@rpath/${name}.framework/${name}`, resolve(dir, name)], { stdio: 'ignore' });
-  writeFileSync(resolve(dir, 'Info.plist'), plistFile({
+  const layout = frameworkLayout(dir, name, platform);
+  renameSync(from, layout.binary);
+  run('install_name_tool', ['-id', frameworkInstallName(name, platform), layout.binary], { stdio: 'ignore' });
+  writeFileSync(layout.info, plistFile({
     CFBundleExecutable: name, CFBundleIdentifier: `${app.id}.${name.toLowerCase().replaceAll('_', '-')}`, CFBundleName: name,
     CFBundlePackageType: 'FMWK', CFBundleVersion: process.env.EXACT_BUILD_NUMBER ?? '1', CFBundleShortVersionString: process.env.EXACT_VERSION ?? '0.1.0',
     CFBundleSupportedPlatforms: [platform], ...(platform === 'MacOSX' ? { LSMinimumSystemVersion: app.manifest.host?.macos?.minimumOS ?? '14.0' } : { MinimumOSVersion: app.manifest.host?.ios?.minimumOS ?? '17.0' }),

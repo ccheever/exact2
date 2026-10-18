@@ -101,6 +101,24 @@ mod tests {
 
     #[test]
     fn apple_entries_carry_the_exact_typescript_pair() {
+        // Keep inherited build inputs out of this fixture without mutating
+        // the environment of other tests running in this process.
+        if ["EXACT_RUST_BUNDLE", "EXACT_GPU_PRODUCT"]
+            .iter()
+            .any(|key| std::env::var_os(key).is_some())
+        {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "widgets::tests::apple_entries_carry_the_exact_typescript_pair",
+                ])
+                .env_remove("EXACT_RUST_BUNDLE")
+                .env_remove("EXACT_GPU_PRODUCT")
+                .status()
+                .unwrap();
+            assert!(status.success());
+            return;
+        }
         let dir =
             TempDir(std::env::temp_dir().join(format!("exact-widget-pair-{}", std::process::id())));
         std::fs::create_dir_all(&dir.0).unwrap();

@@ -3,9 +3,9 @@ import { resolve } from 'node:path';
 import { mkdirSync, readdirSync, existsSync, writeFileSync, readFileSync, copyFileSync, cpSync, rmSync, renameSync } from 'node:fs';
 import { createHash, X509Certificate } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { plistFile, wrapFramework } from './assets.mjs';
+import { plistFile, wrapFramework, frameworkLayout, frameworkInstallName } from './assets.mjs';
 import { assertCapabilityFrameworks } from './link.mjs';
-import { installedProfiles, decodeProfile, profilesFor, profileMisfit, byExpiry, METHODS } from './devices.mjs';
+import { installedProfiles, decodeProfile, profilesFor, profileMisfit, byExpiry, METHODS, iosProfile } from './devices.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname), pkg = resolve(root, 'host/apple');
 export const accessoryFamilies = ['accessoryCircular', 'accessoryRectangular', 'accessoryInline', 'accessoryCorner'];
 export function platformWidgetEntries(app, platform = 'ios') {
@@ -25,32 +25,50 @@ export const widgetId = app => `${app.id}.widgets`;
 // LLP 1126.001 WP16: the Mac container is authorized by the signing team,
 // independently of iOS's registered group and of restricted Keychain access.
 export const macWidgetGroup = (app, team) => `${team}.${app.id}.widgets`;
-export function widgetSigningTeam(identity) {
-  const certificates = spawnSync('security', ['find-certificate', '-a', '-p'], { encoding: 'utf8' });
-  for (const pem of certificates.stdout?.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? []) {
-    const cert = new X509Certificate(pem);
-    if (cert.fingerprint.replaceAll(':', '') === identity?.toUpperCase() || cert.subject.split('\n').includes(`CN=${identity}`)) {
+export function widgetSigningTeam(identity, { distribution = false, certificates = null } = {}) {
+  certificates ??= (spawnSync('security', ['find-certificate', '-a', '-p'], { encoding: 'utf8' }).stdout
+    ?.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? []).map(pem => new X509Certificate(pem));
+  const kind = distribution ? 'Developer ID Application' : 'Apple Development';
+  for (const cert of certificates) {
+    const cn = /^CN=(.*)$/m.exec(cert.subject)?.[1];
+    if (cert.fingerprint.replaceAll(':', '') === identity?.toUpperCase() || cn === identity) {
+      if (!cn?.startsWith(kind + ': ')) throw new Error(`host/apple: Mac widgets need an ${kind} certificate for this build; EXACT_IDENTITY names ${cn}`);
       const team = /^OU=([A-Z0-9]{10})$/m.exec(cert.subject)?.[1];
       if (team) return team;
     }
   }
-  throw new Error('host/apple: Mac widgets need a team signing identity; install an Apple Development identity or name its SHA-1 with EXACT_IDENTITY (security find-identity -v -p codesigning)');
+  throw new Error(`host/apple: Mac widgets need an ${kind} identity; name its SHA-1 or certificate name with EXACT_IDENTITY (security find-identity -v -p codesigning)`);
 }
-function macHardwareID() {
-  const result = spawnSync('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], { encoding: 'utf8' });
-  return /"IOPlatformUUID"\s*=\s*"([^"]+)"/.exec(result.stdout ?? '')?.[1] ?? null;
+/** The Provisioning UDID is distinct from the hardware UUID on Apple silicon. */
+export function macHardwareID(read = (command, args) => spawnSync(command, args, { encoding: 'utf8' }).stdout ?? '') {
+  try {
+    const hardware = JSON.parse(read('system_profiler', ['SPHardwareDataType', '-json']));
+    const id = hardware.SPHardwareDataType?.find(row => row.provisioning_UDID)?.provisioning_UDID;
+    if (id) return id;
+  } catch { /* Older system_profiler versions may supply only IOPlatformUUID. */ }
+  return /"IOPlatformUUID"\s*=\s*"([^"]+)"/.exec(read('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice']))?.[1] ?? null;
 }
-export function macWidgetProfiles({ app, team, installed = installedProfiles(), named = process.env.EXACT_PROFILE ? decodeProfile(process.env.EXACT_PROFILE) : null, udid = macHardwareID() }) {
+export function macWidgetProfiles({ app, team, distribution = false, installed = installedProfiles(), named = process.env.EXACT_PROFILE ? decodeProfile(process.env.EXACT_PROFILE) : null, udid = distribution ? null : macHardwareID() }) {
   const group = macWidgetGroup(app, team);
-  const fits = (p, id) => p.platforms?.includes('OSX') && p.team === team && !profileMisfit(p, udid)
+  const fits = (p, id) => p.platforms?.includes('OSX') && p.team === team && p.dev === !distribution && !profileMisfit(p, udid)
     && profilesFor(id, [p]).length && (p.groups.includes(group) || p.groups.includes(`${team}.*`))
     && (p.keychain.includes(`${p.prefix}.${app.id}`) || p.keychain.includes(`${p.prefix}.*`));
   for (const owner of (named ? [named] : installed).filter(p => fits(p, app.id)).sort(byExpiry)) {
     const extension = installed.filter(p => fits(p, widgetId(app)) && !profileMisfit(p, udid, owner)).sort(byExpiry)[0];
     if (extension) return { app: owner, extension, keychain: `${owner.prefix}.${app.id}` };
   }
-  if (named) throw new Error(`host/apple: EXACT_PROFILE needs a matching macOS profile for ${app.id} and ${widgetId(app)}, of team ${team}, granting ${group} (or ${team}.*) and the shared Keychain group <prefix>.${app.id}`);
+  if (named) throw new Error(`host/apple: EXACT_PROFILE (${named.name}) needs a matching macOS profile for ${app.id} and ${widgetId(app)}, of team ${team}, granting ${group} (or ${team}.*) and the shared Keychain group <prefix>.${app.id}`);
   return null;
+}
+/** Decide before compilation. A machine without a signing identity still builds the ordinary app. */
+export function macWidgetSigning(app, identity, { distribution = false, log = console.log, certificates, profiles } = {}) {
+  if (!platformWidgetEntries(app, 'macos').length) return null;
+  if (!identity || identity === '-') {
+    log('Mac widgets: no signing identity; building the app ad hoc without an extension. Set EXACT_IDENTITY to an Apple Development identity to include widgets.');
+    return null;
+  }
+  const team = widgetSigningTeam(identity, { distribution, certificates });
+  return { team, profiles: macWidgetProfiles({ app, team, distribution, ...profiles }) };
 }
 export function macWidgetEntitlements({ app, team, profiles = null, extension = false }) {
   const id = extension ? widgetId(app) : app.id;
@@ -72,8 +90,7 @@ export function macWidgetEntitlements({ app, team, profiles = null, extension = 
  * grants no App Group. `installed` and `named` are the decoded profiles, which a test replaces. */
 export function entryProfiles({ app, udid, required = [], installed = installedProfiles(), named = process.env.EXACT_PROFILE ? decodeProfile(process.env.EXACT_PROFILE) : null }) {
   // installedProfiles also finds native Mac profiles; they cannot provision iOS.
-  const ios = p => !p.platforms?.length || p.platforms.includes('iOS');
-  installed = installed.filter(ios);
+  installed = installed.filter(iosProfile);
   const group = widgetGroup(app), extension = widgetId(app), push = activityEntries(app).some(entry => entry.push === true);
   const shared = prefix => `${prefix}.${app.id}`;
   const wants = (id, prefix) => [
@@ -105,7 +122,7 @@ export function entryProfiles({ app, udid, required = [], installed = installedP
     return { lacking, why: parts.join('; ') || 'no profile covers it' };
   };
   const forApp = named
-    ? assess(app.id, [named], null, { label: p => `EXACT_PROFILE (${p.name})`, reject: p => !ios(p) ? 'is not an iOS profile' : profilesFor(app.id, [p]).length ? null : `is for ${p.appId}, not ${app.id}` })
+    ? assess(app.id, [named], null, { label: p => `EXACT_PROFILE (${p.name})`, reject: p => !iosProfile(p) ? 'is not an iOS profile' : profilesFor(app.id, [p]).length ? null : `is for ${p.appId}, not ${app.id}` })
     : assess(app.id, profilesFor(app.id, installed), null);
   const like = forApp.found ?? null;
   const forExtension = assess(extension, profilesFor(extension, installed), like);
@@ -125,7 +142,7 @@ const tree = dir => readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isD
 export function prepareWidgetCore({ app, directory, swiftBuildRoot, swiftArgs, swiftc, triple, device, platform = 'ios' }) {
   const scratch = resolve(swiftBuildRoot, 'core');
   const args = swiftArgs.map(a => a === swiftBuildRoot ? scratch : a);
-  const key = createHash('sha256').update(JSON.stringify([app.id, args, swiftc, triple]));
+  const key = createHash('sha256').update(JSON.stringify([app.id, args, swiftc, triple, 'versioned-mac-framework']));
   for (const file of [resolve(pkg, 'Package.swift'), resolve(pkg, 'include/exact.h'), ...['ExactCore', 'ExactSnapshot', 'CExact'].flatMap(name => tree(resolve(pkg, 'Sources', name)))].sort()) key.update(file).update(readFileSync(file));
   const base = resolve(directory, key.digest('hex').slice(0, 20));
   return { base, scratch, args, triple, device, platform, framework: resolve(base, 'ExactCore.framework'), xcframework: resolve(base, 'ExactCore.xcframework') };
@@ -155,19 +172,17 @@ export function sharedWidgetCore({ app, prepared, libDir, crate, env, runApple }
   runApple('swift', [...args, '--product', 'ExactSnapshot'], options);
   const changed = !existsSync(stamp) || readFileSync(stamp, 'utf8') !== digest || !existsSync(resolve(framework, 'ExactCore'));
   if (changed) {
-    mkdirSync(resolve(framework, 'Modules'), { recursive: true });
+    const layout = frameworkLayout(framework, 'ExactCore', platform === 'macos' ? 'MacOSX' : 'iPhoneOS');
     const temporary = resolve(base, 'ExactCore.tmp');
     copyFileSync(dylib, temporary);
-    runApple('xcrun', ['install_name_tool', '-id', '@rpath/ExactCore.framework/ExactCore', temporary]);
-    renameSync(temporary, resolve(framework, 'ExactCore'));
-    for (const name of ['ExactCore', 'ExactSnapshot']) cpSync(resolve(bin, `${name}.swiftmodule`), resolve(framework, 'Modules', `${name}.swiftmodule`), { recursive: true, preserveTimestamps: true });
-    writeFileSync(resolve(framework, 'Info.plist'), plistFile({ CFBundleIdentifier: `${app.id}.runtime`, CFBundleName: 'ExactCore', CFBundleExecutable: 'ExactCore', CFBundlePackageType: 'FMWK', CFBundleVersion: '1', CFBundleShortVersionString: '0.1.0', CFBundleSupportedPlatforms: [platform === 'macos' ? 'MacOSX' : platform === 'watchos' ? 'WatchSimulator' : device ? 'iPhoneOS' : 'iPhoneSimulator'], ...(platform === 'macos' ? { LSMinimumSystemVersion: app.manifest.host?.macos?.minimumOS ?? '14.0' } : { MinimumOSVersion: platform === 'watchos' ? '10.0' : app.manifest.host?.ios?.minimumOS ?? '17.0' }) }));
+    runApple('xcrun', ['install_name_tool', '-id', frameworkInstallName('ExactCore', platform === 'macos' ? 'MacOSX' : 'iPhoneOS'), temporary]);
+    renameSync(temporary, layout.binary);
+    for (const name of ['ExactCore', 'ExactSnapshot']) cpSync(resolve(bin, `${name}.swiftmodule`), resolve(layout.modules, `${name}.swiftmodule`), { recursive: true, preserveTimestamps: true });
+    writeFileSync(layout.info, plistFile({ CFBundleIdentifier: `${app.id}.runtime`, CFBundleName: 'ExactCore', CFBundleExecutable: 'ExactCore', CFBundlePackageType: 'FMWK', CFBundleVersion: '1', CFBundleShortVersionString: '0.1.0', CFBundleSupportedPlatforms: [platform === 'macos' ? 'MacOSX' : platform === 'watchos' ? 'WatchSimulator' : device ? 'iPhoneOS' : 'iPhoneSimulator'], ...(platform === 'macos' ? { LSMinimumSystemVersion: app.manifest.host?.macos?.minimumOS ?? '14.0' } : { MinimumOSVersion: platform === 'watchos' ? '10.0' : app.manifest.host?.ios?.minimumOS ?? '17.0' }) }));
     if (!existsSync(resolve(xcframework, 'Info.plist'))) runApple('xcrun', ['xcodebuild', '-create-xcframework', '-allow-internal-distribution', '-framework', framework, '-output', xcframework]);
     else {
       const slice = readdirSync(xcframework).find(name => existsSync(resolve(xcframework, name, 'ExactCore.framework')));
-      const target = resolve(xcframework, slice, 'ExactCore.framework', 'ExactCore');
-      copyFileSync(resolve(framework, 'ExactCore'), target + '.tmp');
-      renameSync(target + '.tmp', target);
+      cpSync(framework, resolve(xcframework, slice, 'ExactCore.framework'), { recursive: true, verbatimSymlinks: true });
     }
     writeFileSync(stamp, digest);
   }
@@ -206,7 +221,7 @@ export function packageWidgets({ app, bundle, shared, directory, sdk, triple, de
   }
   const appInfo = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', resolve(contents, 'Info.plist')]).stdout);
   const versions = Object.fromEntries(['CFBundleVersion', 'CFBundleShortVersionString', mac ? 'LSMinimumSystemVersion' : 'MinimumOSVersion'].map(key => [key, appInfo[key]]));
-  const runtimeInfo = resolve(contents, 'Frameworks/ExactCore.framework/Info.plist');
+  const runtimeInfo = resolve(contents, 'Frameworks/ExactCore.framework', mac ? 'Resources/Info.plist' : 'Info.plist');
   const runtime = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', runtimeInfo]).stdout);
   writeFileSync(runtimeInfo, plistFile({ ...runtime, ...versions }));
   const frameworks = resolve(contents, 'Frameworks'), reload = 'libexact_widget_reload.dylib';
@@ -220,7 +235,7 @@ export function packageWidgets({ app, bundle, shared, directory, sdk, triple, de
     let kind = ${JSON.stringify(entry.kind)}
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: ExactTimelineProvider(kind: kind)) { entry in
-            ExactWidgetView(entry: entry)${platform === 'ios' ? '.environment(\\.widgetDisplayGamut, UITraitCollection.current.displayGamut == .P3 ? \"p3\" : \"srgb\")' : ''}
+            ExactWidgetView(entry: entry)${platform === 'ios' ? '.environment(\\.widgetDisplayGamut, UITraitCollection.current.displayGamut == .P3 ? \"p3\" : \"srgb\")' : mac ? '.environment(\\.widgetDisplayGamut, NSScreen.main?.colorSpace?.cgColorSpace?.isWideGamutRGB == true ? "p3" : "srgb")' : ''}
         }
         .configurationDisplayName(${JSON.stringify(entry.title ?? human(entry.kind))}).description(${JSON.stringify(entry.description ?? human(entry.kind))})
         .supportedFamilies([${entry.families.map(f => `.${f}`).join(', ')}]).contentMarginsDisabled()
@@ -233,11 +248,11 @@ export function packageWidgets({ app, bundle, shared, directory, sdk, triple, de
   const activities = platform === 'ios' && activityEntries(app).length > 0;
   if (activities) names.push('ExactActivities');
   const source = resolve(directory, 'WidgetBundle.swift');
-  writeFileSync(source, `import SwiftUI\nimport WidgetKit\n${platform === 'ios' ? 'import UIKit\n' : ''}${generated}\n@main struct ExactWidgets: WidgetBundle { var body: some Widget { ${names.map(n => `${n}()`).join('; ')} } }\n`);
+  writeFileSync(source, `import SwiftUI\nimport WidgetKit\n${platform === 'ios' ? 'import UIKit\n' : mac ? 'import AppKit\n' : ''}${generated}\n@main struct ExactWidgets: WidgetBundle { var body: some Widget { ${names.map(n => `${n}()`).join('; ')} } }\n`);
   const entitlementPath = resolve(directory, 'widget-entitlements.plist');
   writeFileSync(entitlementPath, entitlements);
   writeFileSync(resolve(extensionContents, 'Info.plist'), plistFile({ CFBundleIdentifier: widgetId(app), CFBundleName: 'ExactWidgets', CFBundleDisplayName: app.displayName, CFBundleExecutable: 'ExactWidgets', CFBundlePackageType: 'XPC!', ...versions, ...(!mac ? { UIDeviceFamily: appInfo.UIDeviceFamily } : {}),
-    CFBundleSupportedPlatforms: mac ? ['MacOSX'] : appInfo.CFBundleSupportedPlatforms, ...(appInfo.NSAppTransportSecurity ? { NSAppTransportSecurity: appInfo.NSAppTransportSecurity } : {}), ExactAppGroup: appInfo.ExactAppGroup ?? widgetGroup(app), ExactAppIdentifier: appInfo.ExactAppIdentifier ?? app.id, ExactWidgetTypeScript: platform !== 'watchos' && existsSync(resolve(app.dir, 'app.ts')), ...(appInfo.ExactKeychainAccessGroup ? { ExactKeychainAccessGroup: appInfo.ExactKeychainAccessGroup } : {}), ...(mac ? { ExactWidgetSecretsAvailable: !!appInfo.ExactKeychainAccessGroup, ExactWidgetRequiresSecrets: !!appInfo.ExactWidgetRequiresSecrets } : {}), ExactWidgetGeneration: appInfo.ExactWidgetGeneration, ...(typeof app.origin === 'string' ? { ExactLinkBase: app.origin } : {}),
+    CFBundleSupportedPlatforms: mac ? ['MacOSX'] : appInfo.CFBundleSupportedPlatforms, ...(appInfo.NSAppTransportSecurity ? { NSAppTransportSecurity: appInfo.NSAppTransportSecurity } : {}), ExactAppGroup: appInfo.ExactAppGroup ?? widgetGroup(app), ExactAppIdentifier: appInfo.ExactAppIdentifier ?? app.id, ExactWidgetTypeScript: platform !== 'watchos' && existsSync(resolve(app.dir, 'app.ts')), ...(appInfo.ExactKeychainAccessGroup ? { ExactKeychainAccessGroup: appInfo.ExactKeychainAccessGroup } : {}), ...(mac ? { ExactWidgetSecretsAvailable: !!appInfo.ExactKeychainAccessGroup, ExactWidgetRequiresSecrets: appInfo.ExactWidgetRequiresSecrets ?? [] } : {}), ExactWidgetGeneration: appInfo.ExactWidgetGeneration, ...(typeof app.origin === 'string' ? { ExactLinkBase: app.origin } : {}),
     NSExtension: { NSExtensionPointIdentifier: 'com.apple.widgetkit-extension' } }));
   runApple('xcrun', ['--sdk', mac ? 'macosx' : platform === 'watchos' ? 'watchsimulator' : device ? 'iphoneos' : 'iphonesimulator', 'swiftc', '-parse-as-library', '-O', '-application-extension', ...(!production ? ['-D', 'EXACT_INSPECT'] : []), '-Xlinker', '-e', '-Xlinker', '_NSExtensionMain', '-Xlinker', '-u', '-Xlinker', '_main', '-target', triple, '-sdk', sdk,
     '-module-cache-path', resolve(directory, 'cache'), '-I', resolve(root, 'host/apple/Sources/CExact'), '-I', resolve(shared.framework, 'Modules'), '-F', resolve(shared.framework, '..'), '-framework', 'ExactCore',

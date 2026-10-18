@@ -63,7 +63,7 @@ private func widgetSnapshotView(_ entry: ExactWidgetEntry, displaySize: CGSize, 
         // Both sample paths contain no account data. Only placeholder(in:) is redacted.
         placeholder: entry.preview,
         linkBase: (Bundle.main.object(forInfoDictionaryKey: "ExactLinkBase") as? String).flatMap(URL.init(string:)),
-        imageRoots: [entry.root, embeddedRoot(), embeddedRoot().deletingLastPathComponent().deletingLastPathComponent()], appGroup: WidgetContainer.root, entryDate: entry.date)
+        imageRoots: [entry.root] + SnapshotBundles.imageRoots(for: .main), appGroup: WidgetContainer.root, entryDate: entry.date)
     #if EXACT_INSPECT
     widgetLog.notice("render family=\(String(describing: family), privacy: .public) width=\(contentSize.width) height=\(contentSize.height)")
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
@@ -125,7 +125,7 @@ struct ExactTimelineProvider: TimelineProvider {
         let fallback = Timeline(entries: [unavailable], policy: .after(date.addingTimeInterval(900)))
         // An unprovisioned Mac extension must not read the login Keychain or
         // reuse account props cached by an earlier provisioned build.
-        if Bundle.main.object(forInfoDictionaryKey: "ExactWidgetRequiresSecrets") as? Bool == true,
+        if (Bundle.main.object(forInfoDictionaryKey: "ExactWidgetRequiresSecrets") as? [String])?.contains(kind) == true,
            Bundle.main.object(forInfoDictionaryKey: "ExactWidgetSecretsAvailable") as? Bool != true {
             completion(fallback)
             return
@@ -202,7 +202,7 @@ func footprint() -> UInt64 {
 }
 #endif
 // SwiftUI has no public gamut environment key. The configuration seeds this
-// from the archive's traits; no app or screen lookup is involved.
+// from UIKit traits or the Mac screen; the archived view carries it.
 private struct WidgetDisplayGamut: EnvironmentKey { static let defaultValue = "srgb" }
 extension EnvironmentValues {
     var widgetDisplayGamut: String {
@@ -237,7 +237,7 @@ struct ExactWidgetView: View {
             else {
                 let size = CGSize(width: max(1, displaySize.width - margins.leading - margins.trailing), height: max(1, displaySize.height - margins.top - margins.bottom))
                 let preferences = Preferences(reducedMotion: motion, reducedTransparency: transparency,
-                    contrast: contrast == .increased ? "more" : "no-preference", dark: isDark,
+                    contrast: contrast == .increased ? "more" : "no-preference", dark: scheme == .dark,
                     gamut: gamut, highDynamicRange: false, boldText: legibility == .bold)
                 let facts = SessionFacts(displayScale: scale, preferences: preferences, rootFontSize: bodySize, date: entry.date)
                 if let view = try? widgetSnapshotView(entry, displaySize: displaySize, contentSize: size, facts: facts, family: family) {
@@ -250,13 +250,5 @@ struct ExactWidgetView: View {
         }.privacySensitive(!entry.preview)
     }
 
-    private var isDark: Bool {
-        #if os(macOS)
-        let appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-        return appearance?.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        #else
-        return scheme == .dark
-        #endif
-    }
     private var bodySize: Double { SnapshotDriver.rootFontSize(for: textSize) }
 }

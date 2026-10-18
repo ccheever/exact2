@@ -5,6 +5,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { resolve } from 'node:path';
+import { plistFile } from './assets.mjs';
+import { encodePng } from '../../scripts/png.mjs';
 
 const read = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, ...opts });
 
@@ -46,6 +48,19 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   writeFileSync(resolve(sized, 'app.contract'), 'shape SizedState\n  title: string\n  long: string\nshape SizedViewport\n  width: number\n  height: number\ncomponent App\n  view\n    text "App"\ncomponent Sized\n  props\n    title: string\n    long: string\n  inject\n    snapshot_viewport: SizedViewport\n  view\n    view slot="lockScreen" margin=12\n      text title\n      text long\n    view slot="compactLeading" width=120 min-width=0 flex-basis=0\n      text title\n    view slot="compactTrailing" min-width=200\n      text title\n    view slot="minimal" width="50%"\n      text title\n    view slot="expanded"\n      view slot="leading" display="flex" flex-direction="row" justify-content="flex-end"\n        text title\n      view slot="trailing"\n        text long\n      view slot="center" margin="auto"\n        text title\n      view slot="bottom"\n        text title\n        if snapshot_viewport.width > 160\n          text long\n');
   writeFileSync(resolve(sized, 'app.json'), JSON.stringify({ name: 'Sized activity', app: { id: appId, name: 'Sized activity' }, live_activities: [{ kind: 'sized', component: 'Sized', state: 'SizedState', preview: { title: 'Hi', long: 'A long paragraph that wraps to several lines in any Island region or Lock Screen card.' } }] }));
   contract([resolve(sized, 'app.contract'), '--entry', 'sized', '-o', env[`${prefix}_SNAPSHOT_SIZED_PLAN`] = resolve(dir, 'sized.plan')]);
+  if (prefix === 'EXACT') {
+    const app = resolve(dir, 'SnapshotAssets.app'), resources = resolve(app, 'Contents/Resources');
+    const extension = resolve(app, 'Contents/PlugIns/Card.appex');
+    const catalog = resolve(dir, 'SnapshotAssets.xcassets');
+    for (const path of [resources, resolve(resources, 'assets'), resolve(extension, 'Contents/Resources'), resolve(catalog, 'WidgetInk.colorset')]) mkdirSync(path, { recursive: true });
+    for (const [bundle, id] of [[app, 'dev.exact.snapshot-assets'], [extension, 'dev.exact.snapshot-assets.widget']])
+      writeFileSync(resolve(bundle, 'Contents/Info.plist'), plistFile({ CFBundleIdentifier: id, CFBundlePackageType: bundle === app ? 'APPL' : 'XPC!', CFBundleExecutable: 'Fixture' }));
+    writeFileSync(resolve(catalog, 'Contents.json'), JSON.stringify({ info: { version: 1, author: 'xcode' } }));
+    writeFileSync(resolve(catalog, 'WidgetInk.colorset/Contents.json'), JSON.stringify({ info: { version: 1, author: 'xcode' }, colors: [{ idiom: 'universal', color: { 'color-space': 'srgb', components: { red: '1.0', green: '0.0', blue: '0.0', alpha: '1.0' } } }] }));
+    run('xcrun', ['actool', '--compile', resources, '--platform', 'macosx', '--minimum-deployment-target', '14.0', '--target-device', 'mac', catalog]);
+    writeFileSync(resolve(resources, 'assets/widget.png'), encodePng({ width: 1, height: 1, data: Buffer.from([255, 0, 0, 255]) }));
+    env.EXACT_SNAPSHOT_ASSETS_EXTENSION = extension;
+  }
   const copies = new Map();
   for (const [app, kind, key] of [['apps/caltrain', 'next-trains', 'SNAPSHOT_TRAINS'], ['apps/caltrain', 'departure', 'SNAPSHOT_DEPARTURE'], ['apps/caltrain', 'service-alert', 'SNAPSHOT_SERVICE_ALERT'], [question, 'question-small', 'SNAPSHOT_QUESTION_SMALL'],
     [question, 'question-medium', 'SNAPSHOT_QUESTION_MEDIUM'], [question, 'question-rectangular', 'SNAPSHOT_QUESTION_RECTANGULAR'], [question, 'question-adaptive', 'SNAPSHOT_QUESTION_ADAPTIVE'], [question, 'gradient-card', 'SNAPSHOT_GRADIENT']]) {

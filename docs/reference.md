@@ -412,14 +412,21 @@ Activities do not create a Mac extension. The extension uses the same runtime
 framework and snapshot driver, in its own sandbox with outbound network access.
 The app keeps its existing sandbox policy and loads the reload arm on demand.
 
-Mac widgets need a team signing identity (`EXACT_IDENTITY` can name its SHA-1).
+Development Mac widgets need an Apple Development identity (`EXACT_IDENTITY`
+can name its SHA-1 or full certificate name). Without one, the build prints a
+notice and builds the ordinary app ad hoc, with no extension; agent drives,
+smokes and metrics remain available. An explicitly selected certificate of the
+wrong kind is refused before compilation. Distribution widgets use the
+Developer ID Application identity selected for release.
 Their container is `<TEAMID>.<app id>.widgets`, separate from iOS's group.
 Shared secrets additionally need matching macOS profiles for the app and
 `<app id>.widgets`, granting that container (or `<TEAMID>.*`) and the restricted
 Keychain group `<prefix>.<app id>` (or `<prefix>.*`). `EXACT_PROFILE` can name
-the app's profile. Both are embedded when available. Without them, widgets
-whose data module declares `secret.keep` show the “Open app” placeholder;
-they neither read the app's login Keychain nor reuse cached account content.
+the app's profile. Both are embedded when available. Without them, entries marked `"requiresSecrets": true` show the “Open app” placeholder;
+set this on each refresh that reads account data, leaving public entries false.
+Those entries neither read the app's login Keychain nor reuse cached account content.
+The first provisioned app launch moves its login-Keychain items to the shared
+data-protection Keychain, deleting each old item only after the copy succeeds.
 Caltrain and Shelf need no shared secrets. See LLP 1126.001 WP16 and §5 Q5.
 
 The render's props slot is named `snapshot_props`; find it by name, since a
