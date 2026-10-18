@@ -3,6 +3,7 @@
 import type { T3Client } from '../client/client';
 import { str, type Obj } from '../client/domain';
 import { requestPresentation } from '../composer/requests';
+import { rewritePrompt } from '../composer/composer-ultrathink';
 import { citationOfLink } from './citation-comment';
 import { resolveAssistantCitationCommentDismissal, serializeAssistantCitation, withAssistantCitationComment } from './diff-citations';
 
@@ -44,7 +45,7 @@ export function preserveCitationDraft(client: T3Client): boolean {
   if (dismissal.kind !== 'commit') return false;
   const link = serializeAssistantCitation(withAssistantCitationComment(citation, dismissal.comment));
   const value = draft.value.slice(0, draft.at) + link + draft.value.slice(draft.at + draft.link.length);
-  client.local.drafts[draft.key] = value;
+  rewritePrompt(client, value);
   drafts.set(client, { ...draft, value, link, comment: null });
   return true;
 }

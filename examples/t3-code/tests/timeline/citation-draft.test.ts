@@ -1,6 +1,9 @@
 import { expect, test } from 'bun:test';
 import { composerEditorView } from '../../src/composer/composer-editor';
 import { T3Client } from '../../src/client/client';
+import { requestPresentation } from '../../src/composer/requests';
+import { value } from '../support/contract-action-fixture';
+import { appPath } from '../support/app-files';
 import { clearCitationDraft, noteCitationDraft, preserveCitationDraft, registerCitationDraft } from '../../src/timeline/citation-draft';
 import { parseAssistantCitationHref, serializeAssistantCitation } from '../../src/timeline/diff-citations';
 
@@ -72,4 +75,22 @@ test('background authentication requests do not replace the composer or save its
   client.projection.runtimeRequests = [{ id: 'auth', status: 'pending', kind: 'auth_refresh' }];
   expect(preserveCitationDraft(client)).toBe(false);
   expect(client.draft).toBe(`Review ${link} please`);
+});
+
+for (const kind of ['approval', 'user_input']) test(`the window retires its typed copy after a citation rewrite through ${kind}`, async () => {
+  const client = fixture('Retain this unsaved review note.');
+  const draft = client.draft, composerOwner = 'current-thread';
+  const draftOwner = composerOwner + requestPresentation(client).requestKey;
+  client.projection.runtimeRequests = [{ id: 'request', status: 'pending', kind }];
+  if (kind === 'user_input') client.projection.turnItems = [{ type: 'user_input_request', requestId: 'request', questions: [{ id: 'q', question: 'Next?', options: [] }] }];
+  await composerEditorView(client, null);
+  client.projection.runtimeRequests = [];
+  const data = { requestKey: requestPresentation(client).requestKey, draft: client.draft };
+  const source = await Bun.file(appPath('app.contract')).text();
+  const expression = /^  derive composerText = (.+)$/m.exec(source)?.[1];
+  if (!expression) throw Error('composerText derive missing');
+  const shown = value(expression, { draft, draftOwner, composerOwner, data });
+  expect(shown).toBe(client.draft);
+  expect(shown).not.toBe(draft);
+  expect(parseAssistantCitationHref(/\[Assistant quote\]\(([^)]+)\)/.exec(String(shown))![1]!)?.comment).toBe('Retain this unsaved review note.');
 });
