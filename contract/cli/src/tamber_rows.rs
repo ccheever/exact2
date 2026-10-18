@@ -28,7 +28,7 @@ pub(crate) struct AtRow {
 /// The attribute at `line`, `col` in `file`: a template node's or a
 /// `style`'s, a state part's row included.
 fn attr_at(file: &contract_syntax::File, line: u32, col: u32) -> Option<&Attr> {
-    fn walk<'a>(nodes: &'a [Node], line: u32, col: u32) -> Option<&'a Attr> {
+    fn walk(nodes: &[Node], line: u32, col: u32) -> Option<&Attr> {
         nodes.iter().find_map(|n| match n {
             Node::Element {
                 attrs, children, ..
