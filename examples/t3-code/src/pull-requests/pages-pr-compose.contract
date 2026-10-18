@@ -1,5 +1,5 @@
 // The floating composer over a pull request, measured
-// against T3 Code 1e2ecbd975 (MIT, see LICENSE-T3) components/pullRequest/PullRequestComposer.tsx,
+// against T3 Code 9c161462c9 (MIT, see LICENSE-T3) components/pullRequest/PullRequestComposer.tsx,
 // PullRequestCommentForm.tsx and PullRequestReviewForm.tsx: one round button at the panel's
 // bottom right (its label carries the pending line-comment count, the badge beside the icon is
 // decorative) opening a popover above it, end-aligned, with two modes — a comment on the pull
@@ -47,6 +47,8 @@ fn prcVerdictLabel(verdict: string): string = verdict == "approve" ? "Approve" :
 // canSubmit: an approval may be empty; the rest need a summary or a pending line comment, and a
 // request for changes needs a summary where the host requires one (Forgejo).
 fn prcCanSubmit(verdict: string, summary: string, pending: number, required: bool): bool = verdict == "request-changes" and required ? summary.trim() != "" : (verdict == "approve" or summary.trim() != "" or pending > 0)
+// The summary's placeholder asks for exactly what Submit is waiting on.
+fn prcSummaryPlaceholder(verdict: string, pending: number, required: bool): string = verdict == "" or prcCanSubmit(verdict, "", pending, required) ? "Summarize your review (optional)" : (verdict == "request-changes" and required ? "Summarize your review (required to request changes)" : "Summarize your review or add line comments")
 
 component PrdComposer
   props
@@ -137,13 +139,15 @@ component PrdComposer
             // Both forms stay mounted across the toggle, so their drafts and in-flight guards survive.
             if writes.verdicts.length > 0
               column width="100%" display=(shownMode == "review" ? "flex" : "none") testId="pull-request-review-form"
-                textarea value=summary input=editSummary change=keepSummary autofocus=(shownMode == "review") rows=3 placeholder=(writes.summaryRequired and writes.verdicts.includes("request-changes") ? "Summarize your review (required to request changes)" : "Summarize your review (optional)") aria-label="Review summary" autocorrect="off" spellcheck="false" testId="pull-request-review-summary" width="100%" min-height="4.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color=prcInk()
+                textarea value=summary input=editSummary change=keepSummary autofocus=(shownMode == "review") rows=3 placeholder=prcSummaryPlaceholder(chosen, writes.pendingCount, writes.summaryRequired) aria-label="Review summary" autocorrect="off" spellcheck="false" testId="pull-request-review-summary" width="100%" min-height="4.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color=prcInk()
                   ::placeholder
                     color=prcMuted()
-                row width="100%" margin-top="0.5rem" justify-content="space-between" align-items="center" gap="0.5rem"
-                  select value=chosen change=chooseVerdict disabled=writes.reviewPending aria-label="Review verdict" testId="pull-request-review-verdict" height="1.5rem" font-size="0.75rem"
-                    for choice in writes.verdicts key=choice
-                      option prcVerdictLabel(choice) value=choice
+                // A single verdict needs no choosing: Submit stands alone at the end.
+                row width="100%" margin-top="0.5rem" justify-content="flex-end" align-items="center" gap="0.5rem"
+                  if writes.verdicts.length > 1
+                    select value=chosen change=chooseVerdict disabled=writes.reviewPending margin-right="auto" aria-label="Review verdict" testId="pull-request-review-verdict" height="1.5rem" font-size="0.75rem"
+                      for choice in writes.verdicts key=choice
+                        option prcVerdictLabel(choice) value=choice
                   PrdSmallButton(label=(writes.reviewPending ? "Submitting..." : "Submit review"), icon="", tone="primary", disabled=(writes.reviewPending or chosen == "" or not prcCanSubmit(chosen, summary, writes.pendingCount, writes.summaryRequired)), press=submitReview, testId="pull-request-review-submit")
             if writes.canComment
               column width="100%" gap="0.5rem" display=(shownMode == "comment" ? "flex" : "none") testId="pull-request-comment-form"
