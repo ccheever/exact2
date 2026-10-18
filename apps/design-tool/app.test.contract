@@ -379,10 +379,11 @@ test "a build's status and a scrub's event read no design again"
   type "name" "Ada"
   tap "save-name"
   clock data
+  clock +1
+  clock data
   expect tree has "dial-accent-color"
-  // One request (the read it brings answered), then describe refused: a
-  // read of the design again would show its error.
-  request POST "/__stub/event" {"refuseDescribe": "describe refused: read again", "pass": 1, "events": [{"event": "builds", "builds": [{"id": "web-1", "host": "web", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]}, {"event": "build-status", "build": {"id": "web-1", "host": "web", "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 1}, "pin": null, "pinRevision": 0}}, {"event": "scrub", "client": "agent:codex", "scrub": "scrub-9", "reason": "opened"}]} as ada
+  // Describe refused from here: a read of the design again would show its error.
+  request POST "/__stub/event" {"refuseDescribe": "describe refused: read again", "events": [{"event": "builds", "builds": [{"id": "web-1", "host": "web", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]}, {"event": "build-status", "build": {"id": "web-1", "host": "web", "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 1}, "pin": null, "pinRevision": 0}}, {"event": "scrub", "client": "agent:codex", "scrub": "scrub-9", "reason": "opened"}]} as ada
   clock +1
   clock data
   clock +3000
@@ -391,6 +392,28 @@ test "a build's status and a scrub's event read no design again"
   expect tree missing "design-error"
   expect tree has "dial-accent-color"
   // The stub as the next test expects it: describe answered, no events.
+  request POST "/__stub/restart" {} as ada
+
+test "a proposal follows the builds running: a token the JS loop writes inline turns Rebuilds when a web-js build arrives, no file moved"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  clock +1
+  clock data
+  tap "cell-opacity.muted-0-light"
+  clock data
+  type "part-amount-field" "0.25"
+  clock data
+  expect text "chip" == "Live"
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-js-1", "host": "web-js", "planDigest": "p1", "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "chip" == "Rebuilds"
   request POST "/__stub/restart" {} as ada
 
 test "another design file is read when chosen, and a refused one shows its error and a retry"

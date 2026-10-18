@@ -26,8 +26,9 @@ const RESTARTED = 'The design server restarted (or another took its port) since 
 // A write's wait: longer than the server's own for a write (two minutes),
 // so the tool never gives up on one that then lands.
 const WRITE_WAIT = 130_000;
-// A design read's: every token's resolve, queued at the one server.
-const READ_WAIT = 120_000;
+// A design read's requests' (its describe, resolves and hello), queued at
+// the one server behind each other: as long as a write's.
+const READ_WAIT = WRITE_WAIT;
 // The resolves a read has in flight at once (a browser opens six
 // connections to one origin).
 const RESOLVES_AT_ONCE = 4;
@@ -224,7 +225,7 @@ let liveTable = false;
 async function readDesign(file: string, wanted: () => boolean): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string>; pairs?: unknown }> {
   const which = file ? { file } : {};
   for (let attempt = 0; attempt < 3; attempt++) {
-    const described = await call('/__tamber', { method: 'describe', ...which });
+    const described = await call('/__tamber', { method: 'describe', ...which }, READ_WAIT);
     if (described.error) return { error: described.error };
     const ir = described.reply.ok?.ir, pairs = described.reply.ok?.pairs;
     if (!ir || !Array.isArray(ir.tokens) || !Array.isArray(ir.axes) || ir.axes.some((a: Axis) => !Array.isArray(a.values))) return { error: 'The design server answered describe with no design in it.' };
@@ -242,7 +243,7 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
     if (!wanted()) return { error: 'overtaken by a newer read' };
     const failed = resolved.find(r => r.error);
     if (failed) return { error: failed.error };
-    const after = await call('/__tamber', { method: 'hello' });
+    const after = await call('/__tamber', { method: 'hello' }, READ_WAIT);
     if (after.error) return { error: after.error };
     const before = described.reply.ok.files ?? {};
     const now = after.reply.ok?.files ?? {};
@@ -421,7 +422,7 @@ function wroteMine(ok: { write?: number; diff?: string }, redoneBy = '') {
 // gap, a new run), then the build events. Each with the revision of the
 // last pin frame it was sent (`pinRevision`, whoever sent it), and the last
 // command it could not apply, kept while that pin is its pin.
-type BuildState = { id: string; host: string; status: any; plan: string | null; design: string | null; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null };
+type BuildState = { id: string; host: string; status: any; plan: string | null; planDigest: string | null; design: string | null; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null };
 let buildsNow = new Map<string, BuildState>();
 // The latest selection (the server's join, LLP 1122 D5) with what it was
 // made under; a stale one stays stale until a fresh selection (a reload back
@@ -441,6 +442,9 @@ const pinText = (pin: any) => pin ? [pin.scheme, pin.contrast && `contrast ${pin
  * pin, D3), its pin, whether its status has caught up with the last pin
  * frame it was sent (a pin, or a hand-back; none before it reports), and
  * the last command it could not apply, as the server keeps it. */
+/** The builds running, by id, host and plan, not their statuses: what a
+ * proposal's class may follow (the JS loop's inline tokens are its pages'). */
+const buildsKey = () => [...buildsNow.values()].map(b => `${b.id} ${b.host} ${b.planDigest ?? ''}`).sort().join('\n');
 const buildRows = () => [...buildsNow.values()].map(b => {
   const st = b.status ?? {};
   const mode = Object.entries((st.mode ?? {}) as Record<string, string>).map(([a, v]) => `${a}=${v}`).join(' ');
@@ -451,7 +455,7 @@ const buildRows = () => [...buildsNow.values()].map(b => {
     unsupported: b.unsupported ? `${b.unsupported.what}${b.unsupported.detail ? `: ${b.unsupported.detail}` : ''}` : '',
   };
 });
-const buildOf = (b: any, was?: BuildState): BuildState => ({ id: String(b.id), host: String(b.host ?? was?.host ?? ''), status: b.status ?? null, plan: b.plan ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null });
+const buildOf = (b: any, was?: BuildState): BuildState => ({ id: String(b.id), host: String(b.host ?? was?.host ?? ''), status: b.status ?? null, plan: b.plan ?? null, planDigest: b.planDigest ?? was?.planDigest ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null });
 /** The server's list, whole: a build it no longer lists is gone. */
 const takeBuilds = (list: any[], client = '') => {
   buildsNow = new Map((list ?? []).map(b => [String(b.id), buildOf(b)]));
@@ -985,7 +989,7 @@ const sources: Sources = {
     if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
     const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client } : { after: 0, wait: false, client }, 40000);
     answers += 1;
-    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
+    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, buildsAt: buildsKey(), recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
     if (error) return { ok: false, error, missed: false, ...state() };
     if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
     const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; proposals?: any[] };
