@@ -3412,6 +3412,9 @@ verifying build (not reproduced in three replays).
   bytes back.
 - **A node's own state part** is `set-row`'s (LLP 1122 T5): a `set-state` naming a `node` is
   refused, and the "no file declares `style`" refusal says so.
+- **History and revert** (the lead's 06:04 ruling, a follow-up): a `.contract` file's commits
+  read as its state rows' edits (`what: "state"`), `code` where other lines changed, which a
+  revert leaves alone; a change with no state row is the app's code and not listed.
 - **Wire:** `tamber/1.11`, the window stage 7's close opened (theme2, 20:30).
 - **Tests:** `contract/cli/tests/it/tamber_serve_contract.rs` (set, replace, undo to the
   unformatted bytes; unset with its block; a refused compile writes nothing; an unknown style;

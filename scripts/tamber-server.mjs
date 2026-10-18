@@ -816,6 +816,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     return done;
   }
 
+  // The app's own Contract sources the server has now (stage 8 D), whose
+  // state parts history reads and revert writes.
+  const ownContracts = () => [...known.keys()].filter(path => path.endsWith('.contract'));
   // The design as app.json names it, whether or not it is there now.
   const designRel = () => {
     let named = null;
@@ -828,7 +831,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) return { status: 400, error: { message: '`limit` is a count from 1 to 100' } };
     if (!Number.isInteger(skip) || skip < 0 || skip > 10_000) return { status: 400, error: { message: '`skip` is a count up to 10,000' } };
     let log;
-    try { log = designLog(appDir, designRel(), { limit, skip }); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
+    try { log = designLog(appDir, designRel(), { limit, skip, contracts: ownContracts() }); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
     if (!log.ok) return log;
     const commits = [];
     for (const c of log.ok.commits) {
@@ -838,9 +841,13 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         const compared = await ask({ method: 'compare', pairs: [{ file: f.file, before, after }] });
         if (!compared.ok && compared.status !== 413) return compared;
         const read = compared.ok?.files[0];
-        files.push({ ...f, edits: read?.edits ?? null, ...(compared.ok ? (read?.refused ? { refused: read.refused } : {}) : { refused: 'its versions are too large to compare (over 1 MiB)' }) });
+        files.push({ ...f, edits: read?.edits ?? null, ...(read?.code ? { code: true } : {}), ...(compared.ok ? (read?.refused ? { refused: read.refused } : {}) : { refused: 'its versions are too large to compare (over 1 MiB)' }) });
       }
-      commits.push({ ...c, files });
+      // A Contract source's change outside its state parts is the app's
+      // code, not its design: a commit with nothing else is no design commit
+      // (so a page may hold fewer than `limit`).
+      const design = files.filter(f => !f.file.endsWith('.contract') || f.edits?.length || f.refused);
+      if (design.length) commits.push({ ...c, files: design });
     }
     return { ok: { commits, more: log.ok.more } };
   }
@@ -854,10 +861,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
    * edit that cannot apply. */
   async function planRevert(rev, only) {
     let c;
-    try { c = designCommit(appDir, designRel(), rev); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
+    try { c = designCommit(appDir, designRel(), rev, ownContracts()); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
     if (!c.ok) return c;
     if (!c.ok.files.length) return { status: 400, error: { message: `commit ${c.ok.commit.slice(0, 12)} changed no design file` } };
-    const ops = [], already = [], conflicts = [], moved = [], files = {};
+    const ops = [], already = [], conflicts = [], moved = [], code = [], files = {};
     // One file a request, each within the server's line.
     for (const { file, before, after } of c.ok.files) {
       const planned = await ask({ method: 'revert-plan', pairs: [{ file, before, after }] });
@@ -868,7 +875,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       ops.push(...planned.ok.ops.filter(o => kept(revertKey(o)))); already.push(...planned.ok.already);
       // An edit's conflict counts for a kept item on it (any of an axis's values).
       const on = (x, prefix) => only.some(k => k.startsWith(prefix));
-      conflicts.push(...planned.ok.conflicts.filter(x => !only || (x.edit ? (x.edit.what === 'axis' ? on(x, `${x.file}\0axis\0${x.edit.name}\0`) : kept(editKey(x.file, x.edit))) : on(x, `${x.file}\0`)))); moved.push(...planned.ok.moved);
+      code.push(...(planned.ok.code ?? [])); conflicts.push(...planned.ok.conflicts.filter(x => !only || (x.edit ? (x.edit.what === 'axis' ? on(x, `${x.file}\0axis\0${x.edit.name}\0`) : kept(editKey(x.file, x.edit))) : on(x, `${x.file}\0`)))); moved.push(...planned.ok.moved);
       if (planned.ok.files[file] !== undefined) files[file] = planned.ok.files[file];
     }
     const short = c.ok.commit.slice(0, 12);
@@ -878,7 +885,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     }
     if (!ops.length) return { status: 409, error: { message: `nothing to revert: the files have ${short}'s edits undone already`, already } };
     const subject = c.ok.message.split('\n')[0];
-    return { ok: { ops, files, review: { revert: { commit: c.ok.commit, subject, moved, already, ...(only ? { only } : {}) } } } };
+    return { ok: { ops, files, review: { revert: { commit: c.ok.commit, subject, moved, already, ...(code.length ? { code } : {}), ...(only ? { only } : {}) } } } };
   }
   /** An import the tool started: planned by the server from the source's
    * text, held with its review. */
@@ -1192,8 +1199,9 @@ export async function op(argv) {
  * axis, and the `when` (conditions in any order), so a selection of a
  * revert's items is the same edits when it is planned again. */
 const whenKey = when => JSON.stringify([...(when ?? [])].map(c => `${c.axis}=${c.value}`).sort());
-const editKey = (file, e) => `${file}\0${e.what}\0${e.name}\0${whenKey(e.when)}`;
-const revertKey = o => editKey(o.file, {
+// A state part's row is its style's, by state and row (stage 8 D).
+const editKey = (file, e) => `${file}\0${e.what}\0${e.name}${e.what === 'state' ? `\0${e.state}\0${e.row}` : ''}\0${whenKey(e.when)}`;
+const revertKey = o => /^(un)?set-state$/.test(o.op) ? editKey(o.file, { what: 'state', name: o.style, state: o.state, row: o.row, when: [] }) : editKey(o.file, {
   what: o.op === 'set-dial' ? 'dial' : /axis/.test(o.op) ? 'axis' : 'token',
   name: o.op === 'add-axis' ? o.name : o.axis ?? o.name,
   // An axis's values each their own item, as a token's `when`s are.

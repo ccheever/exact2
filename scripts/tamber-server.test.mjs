@@ -1079,6 +1079,8 @@ test('history reads three design commits as token edits; a revert applies, is re
     expect(second.files[0]).toMatchObject({ file: 'app.tamber', status: 'M', edits: [{ what: 'token', name: 'edge', when: [], before: '#101010', after: '#202020' }] });
     expect(second.files[0].diff).toContain('+  edge = #202020');
     expect(third.files[0].edits.map(e => [e.name, e.before, e.after])).toEqual([['ink', '#000000', '#111111'], ['card', null, '#303030']]);
+    // Its app.contract has no state part: not the design's (stage 8 D).
+    expect(first.files.map(f => f.file)).toEqual(['app.tamber']);
     expect(first.files[0].status).toBe('A');
     expect(first.files[0].edits.map(e => [e.what, e.name])).toEqual([['other', 'name'], ['token', 'ink'], ['token', 'edge']]);
     const page = await call({ method: 'history', limit: 1, skip: 1 });
@@ -1366,6 +1368,62 @@ test("a held set-state is guarded by the other Contract sources, and a replaced 
     writeFileSync(join(repo, 'src/ui/post.contract'), POST.replace('#0a7aff', '#0b7bff'));
     await until(e => e.at(-1)?.files?.['src/ui/post.contract'] === digest('src/ui/post.contract'));
     reader.cancel();
+  } finally {
+    await wire.close();
+    listener.close();
+    rmSync(repo, { recursive: true, force: true });
+  }
+}, 600_000);
+// The app's own .contract files are in history and revert too (stage 8 D's
+// follow-up): a commit's state rows are edits, its other lines `code`,
+// which a revert leaves alone.
+test("history reads a .contract commit's state rows, and a revert undoes them, leaving its code", async () => {
+  const V1 = 'style Post\n  background-color="#0a7aff"\n\ncomponent App\n  view\n    column class=Post\n      text "Post"\n';
+  const V2 = 'style Post\n  background-color="#0a7aff"\n  :active\n    opacity=0.5\n\ncomponent App\n  view\n    column class=Post\n      text "Posted"\n';
+  const repo = mkdtempSync(join(tmpdir(), 'exact-tamber-history-contract-'));
+  const env = { ...process.env, GIT_AUTHOR_NAME: 'Ada', GIT_AUTHOR_EMAIL: 'ada@example.test', GIT_COMMITTER_NAME: 'Ada', GIT_COMMITTER_EMAIL: 'ada@example.test' };
+  const g = (...args) => spawnSync('git', args, { cwd: repo, encoding: 'utf8', env });
+  writeFileSync(join(repo, 'app.tamber'), 'tamber t\n\ntheme\n  ink = #000000\n');
+  writeFileSync(join(repo, 'app.contract'), V1);
+  g('init', '-q'); g('add', '.'); g('commit', '-q', '-m', 'app');
+  writeFileSync(join(repo, 'app.contract'), V2); g('add', '.'); g('commit', '-q', '-m', 'a pressed post');
+  // A commit that changes only a Contract source's code is no design commit.
+  writeFileSync(join(repo, 'app.contract'), V2.replace('Posted', 'Sent')); g('add', '.'); g('commit', '-q', '-m', 'reword');
+  const listener = createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port;
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  const wire = tamberServer({ appDir: repo, log: () => {}, settle: 250 });
+  listener.on('request', async (req, res) => {
+    if (!(await wire.handle(req, res, new URL(req.url, 'http://x'), gate.check(req)))) { res.writeHead(404); res.end(); }
+  });
+  try {
+    await wire.ready;
+    const at = `http://127.0.0.1:${port}`;
+    const { token } = await (await fetch(`${at}/__tamber/token`)).json();
+    const call = async request => {
+      const res = await fetch(`${at}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(request) });
+      return { status: res.status, ...(await res.json()) };
+    };
+    await call({ method: 'hello', client: 'test' });
+    const log = await call({ method: 'history' });
+    expect(log.ok.commits.map(c => c.message.split('\n')[0])).toEqual(['a pressed post', 'app']);
+    expect(log.status, JSON.stringify(log)).toBe(200);
+    const pressed = log.ok.commits.find(c => c.message.startsWith('a pressed post'));
+    const file = pressed.files.find(f => f.file === 'app.contract');
+    expect(file.edits).toEqual([{ what: 'state', name: 'Post', state: 'active', row: 'opacity', when: [], before: null, after: '0.5' }]);
+    expect(file.code).toBe(true);
+    const held = await call({ method: 'revert', client: 'person', commit: pressed.commit });
+    expect(held.status, JSON.stringify(held)).toBe(200);
+    expect(held.ok.ops).toEqual([{ index: 0, op: { op: 'unset-state', style: 'Post', state: 'active', row: 'opacity', file: 'app.contract' } }]);
+    expect(held.ok.review.revert.code).toEqual(['app.contract']);
+    const taken = await call({ method: 'accept', client: 'person', proposal: held.ok.proposal });
+    expect(taken.status, JSON.stringify(taken)).toBe(200);
+    const now = readFileSync(join(repo, 'app.contract'), 'utf8');
+    expect(now).not.toContain(':active');
+    expect(now).toContain('text "Sent"');
+    // Again: nothing left to revert.
+    expect((await call({ method: 'revert', client: 'person', commit: pressed.commit })).status).toBe(409);
   } finally {
     await wire.close();
     listener.close();

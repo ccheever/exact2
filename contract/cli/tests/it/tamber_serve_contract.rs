@@ -5,7 +5,7 @@
 #![cfg(unix)]
 
 use super::tamber_serve::{app, digest, Serve};
-use serde_json::json;
+use serde_json::{json, Value};
 
 const DESIGN: &str = "tamber t\n\ntheme\n  accent.fill = #0a7aff\n  accent.pressed = #0050c8\n";
 
@@ -305,5 +305,55 @@ fn set_state_round_three_edges() {
         broken["ok"]["files"]["ui/post.contract"].is_string(),
         "{broken}"
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// history and revert read a `.contract` file's state rows: an edit each,
+/// `code` for its other lines; a revert sets a row back, finds one already
+/// back, refuses one moved on, and leaves the code.
+#[test]
+fn history_reads_state_rows_and_revert_plans_them() {
+    let dir = app("state-history", DESIGN);
+    let before = "style Post\n  opacity=1\n  :hover\n    opacity=0.9\n  :active\n    opacity=0.5\n\ncomponent App\n  view\n    column class=Post\n      text \"a\"\n";
+    let after = "style Post\n  opacity=1\n  :hover\n    opacity=0.8\n  :active\n    opacity=0.4\n    background-color=\"#000000\"\n\ncomponent App\n  view\n    column class=Post\n      text \"b\"\n";
+    // Now: hover moved on, active already back, the colour as the commit made it.
+    let now = "style Post\n  opacity=1\n  :hover\n    opacity=0.7\n  :active\n    opacity=0.5\n    background-color=\"#000000\"\n\ncomponent App\n  view\n    column class=Post\n      text \"b\"\n";
+    std::fs::write(dir.join("app.contract"), now).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let pair = json!([{"file": "app.contract", "before": before, "after": after}]);
+    let (compared, _) = s.ask(json!({"method": "compare", "pairs": pair}));
+    let file = &compared["ok"]["files"][0];
+    assert_eq!(file["code"], true, "{compared}");
+    let edits: Vec<(String, String, Value)> = file["edits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            (
+                e["state"].as_str().unwrap().into(),
+                e["row"].as_str().unwrap().into(),
+                e["after"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        edits,
+        [
+            ("hover".into(), "opacity".into(), json!("0.8")),
+            ("active".into(), "opacity".into(), json!("0.4")),
+            ("active".into(), "background-color".into(), json!("#000000")),
+        ]
+    );
+    let (planned, _) = s.ask(json!({"method": "revert-plan", "pairs": pair}));
+    let p = &planned["ok"];
+    assert_eq!(
+        p["ops"],
+        json!([{"op": "unset-state", "style": "Post", "state": "active", "row": "background-color", "file": "app.contract"}]),
+        "{planned}"
+    );
+    assert_eq!(p["already"][0]["edit"]["row"], "opacity", "{planned}");
+    assert_eq!(p["conflicts"][0]["edit"]["state"], "hover", "{planned}");
+    assert_eq!(p["conflicts"][0]["now"], "0.7", "{planned}");
+    assert_eq!(p["code"], json!(["app.contract"]));
     let _ = std::fs::remove_dir_all(&dir);
 }

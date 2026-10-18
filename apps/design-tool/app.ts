@@ -1176,16 +1176,19 @@ const sources: Sources = {
     if (error) return { ...none, ok: false, error };
     const ok = reply.ok as { commits: any[]; more: boolean };
     const when = (w: When[]) => (w?.length ? ` when ${whenText(w)}` : '');
-    const edit = (e: { what: string; name: string; when: When[]; before: string | null; after: string | null }) =>
-      e.before === null ? `added ${e.what} ${e.name}${when(e.when)} = ${e.after}`
-      : e.after === null ? `removed ${e.what} ${e.name}${when(e.when)} (was ${e.before})`
-      : `${e.name}${when(e.when)} ${e.before} → ${e.after}`;
+    // A state part's row (a `.contract` file's, LLP 1121 stage 8 D) is its style's: `Post :active opacity`.
+    const edit = (e: { what: string; name: string; state?: string; row?: string; when: When[]; before: string | null; after: string | null }) => {
+      const name = e.what === 'state' ? `${e.name} :${e.state} ${e.row}` : e.name, what = e.what === 'state' ? 'row' : e.what;
+      return e.before === null ? `added ${what} ${name}${when(e.when)} = ${e.after}`
+        : e.after === null ? `removed ${what} ${name}${when(e.when)} (was ${e.before})`
+        : `${name}${when(e.when)} ${e.before} → ${e.after}`;
+    };
     return {
       ok: true, error: '', more: ok.more === true,
       commits: ok.commits.map(c => ({
         commit: String(c.commit), short: String(c.commit).slice(0, 12), author: String(c.author ?? ''), date: String(c.date ?? '').slice(0, 10),
         subject: String(c.message ?? '').split('\n')[0],
-        files: (c.files ?? []).map((f: any) => ({ file: String(f.file), refused: f.refused ? String(f.refused) : '', edits: (f.edits ?? []).map(edit) })),
+        files: (c.files ?? []).map((f: any) => ({ file: String(f.file), refused: f.refused ? String(f.refused) : '', edits: [...(f.edits ?? []).map(edit), ...(f.code ? ['and lines outside its state parts (the app\'s code)'] : [])] })),
       })),
     };
   },

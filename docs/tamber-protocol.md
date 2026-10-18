@@ -64,8 +64,8 @@ on macOS and Linux.
   `ir.components` (and `contract tamber ir`'s), each component's params by full name. Stage 7's
   later wire changes add under the same version.
 - `tamber/1.11` (LLP 1121 stage 8, commit D) added the app's own Contract sources to the design's
-  files (`hello`, every reply's `files`, the journal, `commit`) and the state part operations
-  `set-state` and `unset-state`. The window's later additive changes (stage 8, real-time scrubs)
+  files (`hello`, every reply's `files`, the journal, `commit`, `history` and `revert`) and the
+  state part operations `set-state` and `unset-state`. The window's later additive changes (stage 8, real-time scrubs)
   add under the same version.
 
 ## Where it runs
@@ -563,13 +563,21 @@ with.
     would refuse still gives edits.
 - **`edits` is null, with `refused`,** when a side doesn't parse, declares a name or `when` twice,
   or the two versions together are over 1 MiB.
+- **The app's own Contract sources** (*1.11*, stage 8 D) are among the design's files: their
+  state parts are the design's. A `.contract` file's edits are its styles' state rows, each
+  `{what: "state", name: <style>, state, row, when: [], before, after}`, and the file says
+  `code: true` where the commit changed its other lines too. A `.contract` change with no
+  state row is the app's code, not the design's: it is left out, and a commit with nothing
+  else is not listed (so a page may hold fewer than `limit`).
 
 ### `revert` (*1.1*)
 
 `{commit, client}` holds, as a proposal, the inverse of a past commit's design-file changes.
 - **Planned on today's files** as operations, never a byte restore. Its `review.revert` is
-  `{commit, subject, moved, already, only?}`. `moved` lists the files whose bytes differ from
-  the commit's result.
+  `{commit, subject, moved, already, code?, only?}`. `moved` lists the files whose bytes differ
+  from the commit's result. A `.contract` file's state rows are set back with `set-state` or
+  `unset-state`; its other lines are left as they are, and `code` lists the files where the
+  commit changed some (*1.11*).
 - **Refused (409)** with `refused: [{file, edit, now, why}]` when an edit can't be inverted:
   - the file has moved on it since;
   - the commit created or removed a design file;
