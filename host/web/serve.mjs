@@ -600,11 +600,51 @@ export function replaceBuild(stage, dist) {
   }
   try {
     rmSync(`${dist}.previous`, { recursive: true, force: true });
+    // One step where the system has one: dist is the new tree from one
+    // instant to the next, never absent, and the old tree is left at the
+    // stage's path. Else two renames, between which a reader falls back to
+    // `.previous`.
+    if (!existsSync(stage)) throw new Error(`${stage}: no build to put in place`);
+    if (existsSync(dist) && exchangeDirectories(stage, dist)) { rmSync(stage, { recursive: true, force: true }); return; }
     if (existsSync(dist)) renameSync(dist, `${dist}.previous`);
     try { renameSync(stage, dist); }
     catch (error) { if (existsSync(`${dist}.previous`)) renameSync(`${dist}.previous`, dist); throw error; }
     rmSync(`${dist}.previous`, { recursive: true, force: true });
   } finally { rmSync(lock, { force: true }); }
+}
+
+let exchangeCall, exchangeSaid = false;
+/** Exchange directories `a` and `b` in one step (macOS `renamex_np`
+ * RENAME_SWAP, Linux `renameat2` RENAME_EXCHANGE): whether it was done.
+ * Not where the system has none (another OS, a filesystem without it, a
+ * runtime with no FFI), said once; the caller then renames twice. */
+function exchangeDirectories(a, b) {
+  if (exchangeCall === undefined) {
+    exchangeCall = null;
+    // EXACT_DIRECTORY_EXCHANGE=0 (a test's): the two renames.
+    if (process.env.EXACT_DIRECTORY_EXCHANGE !== '0') try {
+      const { dlopen, FFIType } = import.meta.require('bun:ffi');
+      // A NUL-ended path, passed as the buffer itself (alive through the call).
+      const path = (p) => Buffer.from(`${p}\0`);
+      if (process.platform === 'darwin') {
+        const { symbols } = dlopen('/usr/lib/libSystem.B.dylib', { renamex_np: { args: [FFIType.ptr, FFIType.ptr, FFIType.u32], returns: FFIType.i32 } });
+        exchangeCall = (x, y) => symbols.renamex_np(path(x), path(y), 2) === 0;
+      } else if (process.platform === 'linux') {
+        // glibc's wrapper (2.28 on), else the system call by its number.
+        try {
+          const { symbols } = dlopen('libc.so.6', { renameat2: { args: [FFIType.i32, FFIType.ptr, FFIType.i32, FFIType.ptr, FFIType.u32], returns: FFIType.i32 } });
+          exchangeCall = (x, y) => symbols.renameat2(-100, path(x), -100, path(y), 2) === 0;
+        } catch {
+          const number = { x64: 316, arm64: 276 }[process.arch];
+          const { symbols } = dlopen('libc.so.6', { syscall: { args: [FFIType.i64, FFIType.i64, FFIType.ptr, FFIType.i64, FFIType.ptr, FFIType.u64], returns: FFIType.i64 } });
+          if (number) exchangeCall = (x, y) => Number(symbols.syscall(number, -100, path(x), -100, path(y), 2)) === 0;
+        }
+      }
+    } catch { exchangeCall = null; }
+  }
+  const done = exchangeCall?.(a, b) ?? false;
+  if (!done && !exchangeSaid) { exchangeSaid = true; console.log(`${b}: no one-step directory exchange here; a build is put in place by two renames`); }
+  return done;
 }
 
 /** Whether the build at `dist` is the JS target's. */
@@ -621,12 +661,19 @@ export function buildTreeFile(dist, pathname, accept = '') {
   // No dot path, but the auth callback page's (LLP 1069.006 D4: `/.exact/auth/…`)
   // and the install pages and their data (LLP 1030.003 D6a).
   if (!path.startsWith('/') || path.includes('\\') || path.includes('\0') || (!INSTALL_PUBLIC.includes(path) && path.replace(/^\/\.exact\/auth\//, '/').split('/').some((part) => part.startsWith('.')))) return null;
-  let root;
-  try { root = realpathSync(dist); } catch { try { root = realpathSync(`${dist}.previous`); } catch { return null; } }
-  const prefix = root.endsWith(sep) ? root : root + sep;
-  for (const route of [path, path.replace(/\/?$/, '/index.html'), ...(appDocumentPath(pathname, acceptsHTML(accept)) ? ['/index.html'] : [])]) {
-    const file = resolve(root, '.' + route);
-    try { if (file.startsWith(prefix) && realpathSync(file) === file && statSync(file).isFile()) return { path: file, route }; } catch { /* next */ }
+  // Asked again, three times at most: a build put in place as it was looked up
+  // moves the tree it resolved away under it (its files then resolve to
+  // where the old tree went).
+  for (let attempt = 0; attempt < 4; attempt++) {
+    let root, at;
+    try { root = realpathSync(dist); at = resolve(realpathSync(dirname(dist)), basename(dist)); } catch { try { root = realpathSync(`${dist}.previous`); } catch { return null; } }
+    // dist itself, not where its old tree has just gone (a link to it is its own).
+    try { if (at && root !== at && lstatSync(dist).isDirectory()) continue; } catch { continue; }
+    const prefix = root.endsWith(sep) ? root : root + sep;
+    for (const route of [path, path.replace(/\/?$/, '/index.html'), ...(appDocumentPath(pathname, acceptsHTML(accept)) ? ['/index.html'] : [])]) {
+      const file = resolve(root, '.' + route);
+      try { if (file.startsWith(prefix) && realpathSync(file) === file && statSync(file).isFile()) return { path: file, route }; } catch { /* next */ }
+    }
   }
   return null;
 }
