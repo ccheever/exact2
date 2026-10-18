@@ -718,14 +718,15 @@ if (es) {
   // it under the same plan. A revision the page ended itself (input, disabled, gone, a refusal) is not taken again
   // when its frame comes again (a poll's resent answer); a lower revision is a new server's, and forgets them.
   const holdAt = new WeakMap(), ended = new Set();
-  let lastRevision = 0;
-  const end = (revision) => { ended.add(revision); if (ended.size > 64) ended.delete(ended.values().next().value); };
+  // (`epoch`: the server's run the revisions are of; a let-go of an earlier run's hold ends nothing now.)
+  let lastRevision = 0, epoch = 0;
+  const end = (revision, of) => { if (of !== epoch) return; ended.add(revision); if (ended.size > 64) ended.delete(ended.values().next().value); };
   const digestNow = () => {
     const x = globalThis.exact;
     if (planDigestOf === (x.generation ?? null)) return planDigestNow;
     try { const sites = typeof x.wasm?.exact_agent === "function" ? ask({ op: "sites" }) : null; return typeof sites?.planDigest === "string" ? sites.planDigest : null; } catch { return null; }
   };
-  const bindHold = (frame) => { holdAt.set(frame, { gen: globalThis.exact.generation ?? null, digest: digestNow() }); };
+  const bindHold = (frame) => { const was = holdAt.get(frame); holdAt.set(frame, { gen: globalThis.exact.generation ?? null, digest: digestNow(), epoch: was?.epoch ?? epoch, stream: was ? was.stream : channel.nonce }); };
   const rehold = async () => {
     const kept = channel.hold;
     if (!kept || swaps || (await planDigest()) !== kept.digest || channel.hold !== kept || channel.holdLatest !== kept.frame) return;
@@ -733,13 +734,15 @@ if (es) {
     command(kept.frame);
   };
   const hold = async (frame) => {
-    const at = holdAt.get(frame) ?? { gen: globalThis.exact.generation ?? null, digest: null };
+    const at = holdAt.get(frame) ?? { gen: globalThis.exact.generation ?? null, digest: null, epoch, stream: channel.nonce };
     for (let i = 0; i < 40 && !globalThis.exact.hold; i++) await new Promise((ok) => setTimeout(ok, 50)); // the input glue loads after paint
-    // Only the latest frame applies (a replay queued before a newer clear does not).
+    // Only the latest frame applies (a replay queued before a newer clear does not), and only on the stream it came
+    // on (a new one's server knows nothing of it).
     const holds = globalThis.exact.hold, h = frame.hold, revision = frame.revision;
-    if (channel.holdLatest !== frame || (h && ended.has(revision))) return;
+    const current = () => channel.holdLatest === frame && at.stream === channel.nonce && at.epoch === epoch;
+    if (!current() || (h && ended.has(revision))) return;
     const digest = swaps ? null : await planDigest();
-    if (channel.holdLatest !== frame) return;
+    if (!current()) return;
     const addressed = typeof frame.plan === "string" ? frame.plan : at.digest;
     const moved = addressed ? digest !== addressed : at.gen !== null && (globalThis.exact.generation ?? null) !== at.gen;
     if (h && (swaps || moved)) { channel.hold = addressed ? { frame, digest: addressed } : null; return; }
@@ -758,13 +761,14 @@ if (es) {
     const r = el ? holds(el, h.state, (reason) => {
       // (The same frame taken again, a resent one or `rehold`'s, replaces nothing.)
       if (reason === "replaced" && applying === revision) return;
+      if (at.epoch !== epoch || at.stream !== channel.nonce) return; // a hold of an earlier stream's: no news to this one
       if (channel.hold?.frame === frame) channel.hold = null;
-      if (reason !== "replaced") end(revision);
+      if (reason !== "replaced") end(revision, at.epoch);
       report({ kind: "held", state: null, reason, revision });
     }) : (holds(null), { reason: "gone" });
     applying = null;
     if (r.reason && channel.hold?.frame === frame) channel.hold = null;
-    if (r.reason) end(revision);
+    if (r.reason) end(revision, at.epoch);
     report(r.reason ? { kind: "held", state: null, reason: r.reason, revision } : { kind: "held", state: h.state, revision });
   };
   const inspect = async (frame) => {
@@ -825,7 +829,7 @@ if (es) {
     }
     if (message.kind === "tamber-batch" || message.kind === "tamber-snapshot") { design(message); return; }
     if (message.kind === "hold") {
-      if (message.revision < lastRevision) ended.clear();
+      if (message.revision < lastRevision) { ended.clear(); epoch += 1; }
       lastRevision = message.revision;
       channel.holdLatest = message;
       bindHold(message);
@@ -833,6 +837,8 @@ if (es) {
     if (message.kind === "pin" || message.kind === "inspect" || message.kind === "outline" || message.kind === "hold") { command(message); return; }
     if (message.hello && message.nonce && message.nonce !== channel.nonce) {
       const nonce = channel.nonce = message.nonce;
+      // A new stream may be a new server's: a hold of the one before ends nothing, and says nothing, now.
+      epoch += 1; ended.clear(); lastRevision = 0;
       channel.plan ??= message.generation ?? null;
       // Reports wait for this; a refused registration sends none.
       channel.registered = (async () => {

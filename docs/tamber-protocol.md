@@ -948,7 +948,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
     answering a selection names its `click` (*1.7*) when the report carried one: the host that
     made that click does not scroll to the first copy for it (the copy clicked is under the
     pointer); every other outline scrolls its first copy into view.
-  - `hold` (*1.11*, LLP 1122 D8, LLP 1121 stage 8 E) `{revision, hold}`: `hold` is `{site,
+  - `hold` (*1.11*, LLP 1122 D8, LLP 1121 stage 8 E) `{revision, hold, plan?}`: `hold` is `{site,
     instance, state}`, a state (`active`, `hover` or `focus-visible`) held on the one view of the
     build's own plan at that site and instance path, or null to let it go. One a build: each
     replaces the one before. The host shows it as the real state, on its own tracking, handlers
@@ -962,8 +962,12 @@ The tool drives no input into an app; a command changes only what `prefer` would
     `active`, or the view went; a hold it held before is let go too), `replaced`. Every report
     names the `revision` of the hold frame it answers. A host that can't hold that state answers
     `unsupported` with `what: "hold"` and that `revision` (iOS for `hover`). A build that can says
-    `hold` among its `capabilities`. A web dev loop's new generation takes the hold again itself
-    under the same plan, unsaid; under another plan the server's replay does.
+    `hold` among its `capabilities`. `plan` is the plan digest the site addresses, when the server
+    knows it: a build running another plan (one installed since) takes the frame as nothing, unsaid,
+    and the server's replay after the status that names the new plan corresponds it. A host's new
+    generation takes the hold again itself under the same plan, unsaid; a frame that comes while it
+    swaps waits for it, and a clear always applies. A revision a host ended itself is not taken again
+    when its frame is resent; a lower revision is a new server's.
 - **Holds at the server** (*1.11*). `{method: "hold", client, build, site, instance, state}`
   (`state` null to let it go) needs write scope and a present client, and names a registered
   build that holds states (else 409, said so). The hold is its client's: let go on that build when

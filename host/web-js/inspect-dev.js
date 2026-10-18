@@ -446,21 +446,28 @@ function outlineSites(frame) {
 // A revision the page let go of itself (input, disabled, gone) is not taken again when its frame comes again.
 let holding = Promise.resolve(), holdLatest = null, applying = null;
 const ended = new Set();
-let lastRevision = 0;
-const end = (revision) => { ended.add(revision); if (ended.size > 64) ended.delete(ended.values().next().value); };
+// (`epoch`: the server's run the revisions are of; a let-go of an earlier run's hold ends nothing now.)
+let lastRevision = 0, epoch = 0, holdStream = null;
+const end = (revision, of) => { if (of !== epoch) return; ended.add(revision); if (ended.size > 64) ended.delete(ended.values().next().value); };
 const canonical = (v) => JSON.stringify(v ?? [], (_, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
 // The runtime the app runs (this module is served at /__dev/inspect.js): the one beside its app.js.
 const runtime = () => new URL("rt.js", document.querySelector('script[type="module"][src$="app.js"]')?.src ?? document.baseURI).href;
 function hold(m) {
   // (A lower revision is a new server's: the revisions ended before are forgotten.)
-  if (m.revision < lastRevision) ended.clear();
+  // (A new stream, which may be a new server's, likewise.)
+  // (`stream`: the one it came on, as dev.mjs stamps it on arrival.)
+  const stream = m.stream !== undefined ? m.stream : env.nonce?.() ?? null;
+  if (m.revision < lastRevision || stream !== holdStream) { ended.clear(); epoch += 1; holdStream = stream; }
+  m.stream = stream;
+  m.epoch = epoch;
   lastRevision = m.revision;
   holdLatest = m;
   holding = holding.then(() => holdNow(m)).catch((error) => console.error("exact dev:", String(error)));
   return holding;
 }
 async function holdNow(m) {
-  const current = () => holdLatest === m;
+  // (The latest frame, on the stream it came on: a new one's server knows nothing of it.)
+  const current = () => holdLatest === m && m.epoch === epoch && m.stream === (env.nonce?.() ?? null);
   // The input glue, which a page with no press may not have loaded yet, loads after paint.
   if (!globalThis.exact?.hold) await import(runtime()).then((rt) => rt.pressFeedback?.()).catch(() => {});
   for (let i = 0; i < 40 && !globalThis.exact?.hold; i++) await new Promise((ok) => setTimeout(ok, 50));
@@ -495,11 +502,12 @@ async function holdNow(m) {
   applying = revision;
   const r = found && !two ? holds(found, h.state, (reason) => {
     if (reason === "replaced" && applying === revision) return;
-    if (reason !== "replaced") end(revision);
+    if (m.epoch !== epoch || m.stream !== (env.nonce?.() ?? null)) return; // a hold of an earlier stream's: no news to this one
+    if (reason !== "replaced") end(revision, m.epoch);
     env.report({ kind: "held", state: null, reason, revision });
   }) : (holds(null), { reason: "gone" });
   applying = null;
-  if (r.reason) end(revision);
+  if (r.reason) end(revision, m.epoch);
   env.report(r.reason ? { kind: "held", state: null, reason: r.reason, revision } : { kind: "held", state: h.state, revision });
 }
 
