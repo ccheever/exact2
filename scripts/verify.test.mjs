@@ -765,6 +765,21 @@ test('the largest text size: a text past its column, and two texts that run into
   assert.match(lines[1], /^ {2}overlap {2}Text "Going"#13 \[22,314 110×52\]: overlaps Text "Maybe"#16 by 1\.7×52; wrap the row/);
 });
 
+// Round 22's expense-tracker at the largest text size: a month's name, clamped to two lines and centred between two
+// buttons, ran 57 pt past its box and under the next-month button while verify said nothing spills. A clamp answers the
+// lines past it, not a line wider than the box, and a control is judged against where a text is drawn.
+test('the largest text size: a clamped word wider than its box, drawn under the button beside it', async () => {
+  const { judge } = await import('./agent-check.mjs');
+  const obs = { viewport: { w: 402, h: 874 }, target: 44, items: [
+    { id: 13, x: 32, y: 233, w: 93, h: 77, control: 'NativeButtonIOS', sized: 'platform' },
+    { id: 15, x: 133, y: 208, w: 136, h: 127, text: 'January 2026', clamp: true, over: [56.62, 0], ink: { x: 133, y: 208, w: 192.62, h: 127 } },
+    { id: 16, x: 277, y: 233, w: 93, h: 77, control: 'NativeButtonIOS', sized: 'platform' },
+    { id: 20, x: 32, y: 400, w: 200, h: 40, text: 'Two lines and more', clamp: true, over: [0, 40] },
+    { id: 21, x: 32, y: 500, w: 200, h: 20, text: 'One line, cut with an ellipsis', clamp: true, ellipsis: true, over: [90, 0] },
+  ] };
+  assert.deepEqual(judge(obs, null, { host: 'ios' }).map((f) => [f.kind, f.id, f.detail.need ?? f.detail.by]), [['clipped', 15, [57, 0]], ['overlap', 16, [49, 77]]]);
+});
+
 // LLP 1116.021 follow-up (water-tracker, contacts, round 20): a label a list's row cuts is given an ellipsis or a taller row,
 // never the flex-wrap the row does not take; an iOS test end at a window the phone shows scaled measures no contrast or target.
 test('the largest text size in a list row; a scaled iOS test end', async () => {
