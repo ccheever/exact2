@@ -10,10 +10,10 @@
     "linux",
     "web"
   ],
-  "inputs": "138f4c1500c30b7d112ff0f56b65d1e0540a987c9c688e45cc861fefa84eca98",
-  "sourceInputs": "42057843960e51dad3a74e4e32d5abd41b9a73ee7b8f6c739f2de1d23640ced5",
+  "inputs": "5cd3ebd64bb886d54e53bcc17c42fe5d58df6569af84205440184f8a579fa63e",
+  "sourceInputs": "784c10bc0132ec21f53d045edba3afb14a03bf9489024ac17b1d33ddb57cfb92",
   "game": "skinned-fixture",
   "generated": "bun game/prove.mjs skinned-fixture --repin --hosts 'linux,web'",
-  "at": "ee02ae22c0cf9b50a704708309d6b07018c10340",
-  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream; 2e49129cb: EXSIM v7 header; 07170a2db: model fields extend saved asset identities"
+  "at": "e2208e86c4569591ba21984d531a776a2b0dac1a",
+  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream; MeshData.outline, MaterialData.rim and Node.posable extend saved model identities"
 }
