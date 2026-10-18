@@ -1,7 +1,7 @@
 // T3 Code 1e2ecbd975 packages/shared/src/hostClassification.test.ts, ported to bun:test with its
 // original case names; the route classifier's cases follow.
 import { describe, expect, it } from 'bun:test';
-import { isLocalLoopbackHost, isPrivateNetworkHost, isPublicFaviconHost, isTailnetHost } from '../../src/connections/host-classification';
+import { isLocalLoopbackHost, isPrivateNetworkHost, isPublicFaviconHost, isSharedAddressSpaceHost, isTailnetHost } from '../../src/connections/host-classification';
 
 describe("isPublicFaviconHost", () => {
   it("treats public hosts as public", () => {
@@ -116,8 +116,11 @@ describe("route host classes", () => {
   it("classifies loopback, tailnet and private hosts", () => {
     for (const host of ["localhost", "127.0.0.1", "127.8.9.1", "::1", "[::1]"]) expect(isLocalLoopbackHost(host)).toBe(true);
     expect(isLocalLoopbackHost("192.168.1.10")).toBe(false);
-    for (const host of ["desk.tail1234.ts.net", "100.101.102.103", "fd7a:115c:a1e0::1", "[fd7a:115c:a1e0::1]"]) expect(isTailnetHost(host)).toBe(true);
-    for (const host of ["100.128.0.1", "192.168.1.10", "fd7a:115d::1"]) expect(isTailnetHost(host)).toBe(false);
+    for (const host of ["desk.tail1234.ts.net", "fd7a:115c:a1e0::1", "[fd7a:115c:a1e0::1]"]) expect(isTailnetHost(host)).toBe(true);
+    // Tailscale, Cloudflare WARP and other VPNs share 100.64.0.0/10: the IPv4 address alone is not Tailscale.
+    for (const host of ["100.101.102.103", "100.128.0.1", "192.168.1.10", "fd7a:115d::1"]) expect(isTailnetHost(host)).toBe(false);
+    for (const host of ["100.64.0.1", "100.101.102.103", "100.127.255.255"]) expect(isSharedAddressSpaceHost(host)).toBe(true);
+    for (const host of ["100.63.255.255", "100.128.0.1", "desk.tail1234.ts.net", "fd7a:115c:a1e0::1"]) expect(isSharedAddressSpaceHost(host)).toBe(false);
     for (const host of ["192.168.1.10", "10.0.0.42", "desk.local", "desk", "fe80::1"]) expect(isPrivateNetworkHost(host)).toBe(true);
     for (const host of ["desk.example.com", "8.8.8.8"]) expect(isPrivateNetworkHost(host)).toBe(false);
   });
