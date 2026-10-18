@@ -55,17 +55,27 @@ fn decode(plan: &Plan, ty: TypesId, json: &serde_json::Value) -> Option<Value> {
 }
 
 impl<D: exact_runner::DataSource> crate::Host<D> {
-    pub(crate) fn entry_timeline(&mut self, now: f64) -> Result<String, String> {
+    pub(crate) fn entry_timeline(
+        &mut self,
+        now: f64,
+        io: Option<crate::link::IoLinks>,
+    ) -> Result<String, String> {
         if self.runner.plan().snapshot_entry.is_empty() {
             return Err("not a snapshot entry".into());
         }
         let data = self.runner.data_ref();
-        let (bindings, error) = crate::store::endow_bound(data.grants(), data.app_id(), false);
-        if let Some(error) = error {
-            return Err(error);
-        }
-        let snapshot =
-            crate::store::snapshot_in(bindings.as_ref(), &crate::store::Prefs::of(data.app_id()));
+        let snapshot = if let Some(io) = io {
+            let endowed = (io.endow)(data.grants(), data.app_id(), false);
+            if let Some(error) = endowed.unbound {
+                return Err(format!("{error}; every request is refused"));
+            }
+            (io.snapshot)(endowed.bindings.as_ref(), data.app_id())
+        } else {
+            // A pure query can still return props. No I/O request can run, and
+            // the runner's linked grant validator refuses store access.
+            self.log("this build links no I/O; every request is refused");
+            Vec::new()
+        };
         self.runner.snapshot_timeline(now, snapshot)
     }
 }

@@ -452,6 +452,11 @@ fn wait_until_written(
 
 /// What the store holds under the granted names — the runner's snapshot.
 /// A name the store cannot read is absent, as an ungranted one is.
+pub fn snapshot_for(bindings: Option<&Bindings>, app_id: &str) -> Vec<(String, Vec<u8>)> {
+    snapshot_in(bindings, &Prefs::of(app_id))
+}
+
+/// The snapshot with the default preference store.
 pub fn snapshot_of(bindings: Option<&Bindings>) -> Vec<(String, Vec<u8>)> {
     snapshot_in(bindings, &Prefs::Kv)
 }

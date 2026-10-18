@@ -23,6 +23,8 @@ impl<D: DataSource> Bridge<D> {
         let Ok(kind_name) = std::str::from_utf8(&bytes[plan..plan + kind]) else {
             return self.refuse("entry kind is not UTF-8");
         };
+        // Snapshot admission has no controls. Stage 2 must install field/button
+        // chrome, measurement revisions and control_text::prepare with intents.
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(
                 CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
@@ -81,7 +83,7 @@ impl<D: DataSource> Bridge<D> {
             .host
             .as_mut()
             .ok_or_else(|| "not booted".to_owned())
-            .and_then(|host| host.entry_timeline(now));
+            .and_then(|host| host.entry_timeline(now, self.links.io));
         self.emit(match result {
             Ok(json) => json,
             Err(e) => serde_json::json!({"error":e}).to_string(),
@@ -100,6 +102,7 @@ mod tests {
     struct Data {
         asks: Arc<AtomicUsize>,
         writes: bool,
+        unlinked: bool,
     }
     impl DataSource for Data {
         fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
@@ -116,6 +119,10 @@ mod tests {
         ) -> Result<Answer, DataError> {
             assert_eq!(name, "refresh");
             self.asks.fetch_add(1, Ordering::Relaxed);
+            if self.unlinked {
+                assert!(store.get("test").is_none());
+                assert!(store.set("test", "refused").is_err());
+            }
             if self.writes {
                 store.set("test", "never persisted").unwrap();
             }
@@ -125,11 +132,42 @@ mod tests {
             ])])))
         }
     }
+    fn entry() -> Vec<u8> {
+        contract::snapshot::compile("shape Props\n  title: string\ncomponent Card\n  props\n    title: string\n  view\n    text title\n", &contract::Widget {
+            kind: "card".into(), families: vec!["systemSmall".into()], component: "Card".into(), props: "Props".into(), refresh: "refresh".into(), preview: serde_json::json!({"title":"preview"})
+        }).unwrap().encode()
+    }
+    #[test]
+    fn refresh_without_io_links_cannot_endow_or_validate_store_grants() {
+        let entry = entry();
+        let asks = Arc::new(AtomicUsize::new(0));
+        let mut bridge = Bridge::with_links(crate::link::Links::of(crate::link::Uses::NONE));
+        let mut bytes = entry.clone();
+        bytes.extend_from_slice(b"card");
+        bridge.input_write(&bytes);
+        bridge.boot_entry(
+            entry.len(),
+            4,
+            0,
+            Data {
+                asks: asks.clone(),
+                writes: false,
+                unlinked: true,
+            },
+            Hooks::none(),
+            160.0,
+            160.0,
+        );
+        bridge.entry_timeline(1234.0);
+        assert_eq!(asks.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bridge.output).unwrap(),
+            serde_json::json!([{"date":1234,"props":{"title":"fresh"}}])
+        );
+    }
     #[test]
     fn entry_boot_is_pure_and_typed_refresh_never_writes() {
-        let entry = contract::snapshot::compile("shape Props\n  title: string\ncomponent Card\n  props\n    title: string\n  view\n    text title\n", &contract::Widget {
-            kind: "card".into(), families: vec!["systemSmall".into()], component: "Card".into(), props: "Props".into(), refresh: "refresh".into(), preview: serde_json::json!({"title":"preview"})
-        }).unwrap().encode();
+        let entry = entry();
         let asks = Arc::new(AtomicUsize::new(0));
         let mut bridge = Bridge::new();
         for (props, expected) in [("", "preview"), ("{\"title\":\"supplied\"}", "supplied")] {
@@ -144,6 +182,7 @@ mod tests {
                 Data {
                     asks: asks.clone(),
                     writes: false,
+                    unlinked: false,
                 },
                 Hooks::none(),
                 160.0,
@@ -172,6 +211,7 @@ mod tests {
             Data {
                 asks: asks.clone(),
                 writes: false,
+                unlinked: false,
             },
             Hooks::none(),
             160.0,
@@ -183,6 +223,7 @@ mod tests {
             Data {
                 asks,
                 writes: false,
+                unlinked: false,
             },
             Hooks::none(),
             160.0,

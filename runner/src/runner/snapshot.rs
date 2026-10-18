@@ -21,7 +21,7 @@ impl<D: DataSource> Runner<D> {
         self.data
             .activate()
             .map_err(|e| format!("refresh activation: {e:?}"))?;
-        let mut store = Store::new(self.data.grants(), snapshot);
+        let mut store = Store::new_linked(self.data.grants(), snapshot, self.links.grants);
         let answer = self
             .data
             .answer(&mut store, &name, &[Value::Number(now)])
