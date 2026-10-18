@@ -355,7 +355,10 @@ final class T3LocalBackendManager {
             spec.onStateDirOwned()
             return
         }
-        if desiredRunning { scheduleRestart(reason) }
+        if desiredRunning {
+            if run.stopRequested { start() }
+            else { scheduleRestart(reason) }
+        }
         changed()
     }
 

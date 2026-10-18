@@ -132,9 +132,18 @@ final class LocalBackendManagerTests: XCTestCase {
         XCTAssertEqual(t.spawner.starts, 1)
         XCTAssertEqual(t.snapshot.desiredRunning, true)
         XCTAssertEqual(t.snapshot.activePid, 123)
+        // The backend's pending start settles on readiness or an unexpected-exit restart. The old
+        // requested exit must not publish that failure between the bounded stop and the next run.
+        var readyWaiter: String?
+        t.manager.changed = {
+            guard readyWaiter == nil else { return }
+            if t.snapshot.restartScheduled { readyWaiter = "failed" }
+            else if t.snapshot.ready { readyWaiter = "ready" }
+        }
+        t.prober.fallback = 200
         t.run { t.spawner.children[0].finish(T3LocalExit(code: 0)) }
-        t.clock.adjust(500)
         XCTAssertEqual(t.spawner.starts, 2)
+        XCTAssertEqual(readyWaiter, "ready")
     }
 
     func test_does_not_restart_after_stop_cancels_a_scheduled_restart() {

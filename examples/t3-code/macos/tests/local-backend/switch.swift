@@ -81,13 +81,14 @@ final class LocalSwitchTests: XCTestCase {
         XCTAssertNil(failure)
         XCTAssertGreaterThanOrEqual(elapsed, 4.9, "SIGTERM is ignored for 5 s")
         XCTAssertLessThan(elapsed, 5.5, "the stop is bounded")
-        XCTAssertTrue(until(2) { !self.alive(pid) }, "the process is gone")
-        XCTAssertEqual(backend.statusValue()["lastExit"] as? String, "signal=9", "SIGKILL ended it")
         XCTAssertEqual(backend.statusValue()["state"] as? String, "stopped")
         XCTAssertEqual(backend.statusValue()["enabled"] as? Bool, false)
-        // Turning it on again starts a new process and answers once it is ready.
+        // The bounded stop can answer before the old process's exit callback. Turning it back on
+        // immediately waits for that teardown and the new process's readiness, without failing the start.
         let (again, _) = setEnabled(backend, true)
         XCTAssertNil(again)
+        XCTAssertTrue(until(2) { !self.alive(pid) }, "the old process is gone")
+        XCTAssertEqual(backend.statusValue()["lastExit"] as? String, "signal=9", "SIGKILL ended it")
         let next = backend.statusValue()["pid"] as? Int ?? 0
         XCTAssertTrue(next > 1 && next != pid && alive(next), "a new pid")
         XCTAssertEqual(backend.statusValue()["state"] as? String, "ready")
