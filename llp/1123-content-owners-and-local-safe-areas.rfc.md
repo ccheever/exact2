@@ -1,10 +1,10 @@
 # LLP 1123: Content owners — one viewport per session, local geometry and safe areas per native container
 
 **Type:** RFC
-**Status:** Review (revised on LLP 1115.002 D8.2's host blocks)
+**Status:** Review (revised on LLP 1115.002 D8.2's host blocks); stage 2 (D3, D4, D9) accepted (Charlie, 2026-10-18)
 **Systems:** Kernel (what a host block gains for an owner: local insets, the primary scroller; clearance inside the block; rendering ancestry for public geometry; `var(--exact-safe-area-inset-*)` as a term of a calculation tree); Runner (`client_rect`, `elementFromPoint`, `exactSurface` `container:` records); Apple host (iOS, iPadOS, tvOS: `ExactViewIOS.fit`, `ModalHost`, `NavigationHost`, `NavigationBarIOS.reportCovers`, keyboard ownership; macOS windows and dialogs); Web host and JS target (owners for emulated chrome, `nav-chrome.js`; registered custom properties in `index.html`); Linux, Windows (flat hosts); Contract (`-exact-safe-area`, `navigationSizing`, `keyboardAvoidance`, `--exact-safe-area-inset-*`, the layout regions' `env(-exact-<region>-inset-*)`); Agent (coordinates, hit testing, screenshots of presented content)
 **Author:** Claude (Opus 5.5) for ide
-**Implementer:** to be assigned on acceptance
+**Implementer:** stage 2: Krzysztof Magiera, from 2026-10-18, reworking #618 into D4's `-exact-safe-area` with the top and bottom executors first; the rest to be assigned on acceptance
 **Date:** 2026-10-08
 **Revised:** 2026-10-13
 **Related:**
