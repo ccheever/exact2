@@ -9,10 +9,10 @@
     "linux",
     "web"
   ],
-  "inputs": "f410a9bfeb32538909212ab0c15fc46c8faa9454fc551a5aabdcbdacbb3e005c",
-  "sourceInputs": "db7886301230a62348036ffe5dbabf96273e73e823a6d2272d7990137b25d1d8",
+  "inputs": "3d71c35307fe5fd950301e0745788322ee62f54fb4d5dbcfe40bc869d2a9b879",
+  "sourceInputs": "d470a6cced44f601dd68ef925a0b93d46c8253da3e398aa8a030b4844c576635",
   "game": "placement-fixture",
   "generated": "bun game/prove.mjs placement-fixture --repin --hosts 'linux,web'",
-  "at": "9a0232b0edfc35246dea0760bce29d429915d6dc",
-  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream"
+  "at": "266f99168c4b047d8e65c157e461983d408ad105",
+  "reason": "07170a2db: saved Environment.tone_mapping (Aces) extends the world hash stream and simulation save; fog is None"
 }
