@@ -17,6 +17,7 @@ import WidgetKit
 
 #if canImport(WidgetKit)
 @MainActor
+@available(iOS 17.0, macOS 14.0, visionOS 26.0, *)
 final class SnapshotDriverTests: XCTestCase {
     enum Mode: String, CaseIterable { case fullColor, accented, vibrant }
     enum Content: String { case answered, placeholder, locked }

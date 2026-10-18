@@ -14,6 +14,7 @@ import AppKit
 /// A colour row: four channels (0–255), a `[light, dark]` pair, a platform
 /// colour by name with its fallback pair (`{"sys": …, "c": …}`), or a
 /// colour in its own space (`{"cs": …, "c": …}`), whose sRGB fallback shows.
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 indirect enum ColorRow: Equatable {
     case channels([Double])
     case pair(light: [Double], dark: [Double])
@@ -52,6 +53,7 @@ indirect enum ColorRow: Equatable {
 /// colours pair, and the shape: an angle, a corner, a radial, a conic. A
 /// length-bearing one arrives as its CSS and is left unpainted: the kernel
 /// resolves it against the box in a running host.
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct GradientRow {
     enum Shape { case angle(CGFloat), corner(right: Bool, bottom: Bool), radial(at: [CGFloat]), conic(from: CGFloat, at: [CGFloat]) }
     let light: [CGFloat]
@@ -73,6 +75,7 @@ struct GradientRow {
 }
 
 /// A node's style rows, read here alone.
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct SnapshotStyle {
     private let rows: [String: Any]
     init(_ node: HeadlessSession.Node) { rows = node.style }
@@ -94,6 +97,7 @@ struct SnapshotStyle {
     }
 }
 
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 enum SnapshotColor {
     enum Context { case ink, fill }
 
@@ -170,6 +174,7 @@ enum SnapshotColor {
 
 /// A box's paint: its corners, fill (colour and gradients) and border, from
 /// its style rows, as the web paints them.
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct SnapshotPaint {
     let style: SnapshotStyle
     let dark: Bool
@@ -242,6 +247,7 @@ struct SnapshotPaint {
     }
 }
 
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 enum SnapshotGradient {
     private static func point(_ at: [CGFloat], in rect: CGRect) -> UnitPoint {
         guard at.count == 4, rect.width > 0, rect.height > 0 else { return .center }

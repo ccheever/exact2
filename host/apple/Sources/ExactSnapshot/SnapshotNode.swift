@@ -5,6 +5,7 @@ import SwiftUI
 import WidgetKit
 import ExactCore
 
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct SnapshotNodeView: View {
     let node: HeadlessSession.Node
     let tree: HeadlessSession.Snapshot
@@ -77,6 +78,7 @@ struct SnapshotNodeView: View {
     }
 }
 
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 private struct Clip: ViewModifier {
     let shape: AnyShape?
     func body(content: Content) -> some View {
@@ -84,6 +86,7 @@ private struct Clip: ViewModifier {
     }
 }
 
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 private struct Hidden: ViewModifier {
     let hidden: Bool
     func body(content: Content) -> some View {
@@ -91,6 +94,7 @@ private struct Hidden: ViewModifier {
     }
 }
 
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 private struct Accented: ViewModifier {
     let on: Bool
     func body(content: Content) -> some View {
@@ -98,6 +102,7 @@ private struct Accented: ViewModifier {
     }
 }
 
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 private struct Privacy: ViewModifier {
     let `public`: Bool
     func body(content: Content) -> some View {
@@ -106,6 +111,7 @@ private struct Privacy: ViewModifier {
 }
 
 /// A nested link's content opens its URL.
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 private struct Linked: ViewModifier {
     let url: URL?
     func body(content: Content) -> some View {
@@ -115,6 +121,7 @@ private struct Linked: ViewModifier {
 
 /// Accessibility carries over from the node (D5): its label, a heading's
 /// trait, a paragraph as one element, a decorative image hidden.
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 private struct Semantics: ViewModifier {
     let node: HeadlessSession.Node
 
@@ -130,6 +137,7 @@ private struct Semantics: ViewModifier {
     }
 }
 
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 private struct Combined: ViewModifier {
     let on: Bool
     func body(content: Content) -> some View {
@@ -137,6 +145,7 @@ private struct Combined: ViewModifier {
     }
 }
 
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 private struct Labelled: ViewModifier {
     let label: String?
     let value: String?
@@ -155,6 +164,7 @@ private struct Labelled: ViewModifier {
     }
 }
 
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 private struct Traits: ViewModifier {
     let heading: Bool
     let button: Bool
@@ -165,6 +175,7 @@ private struct Traits: ViewModifier {
     }
 }
 
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 enum SnapshotLinks {
     /// A route's path under the app's origin or scheme; any other `href` as
     /// it is. Empty is no link (the grammar's rule).

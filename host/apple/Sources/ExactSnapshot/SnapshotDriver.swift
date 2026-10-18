@@ -13,6 +13,7 @@ import ExactCore
 /// content, and it opens nothing), where a route's path resolves, and where
 /// the entry's images live (the bundle or the app group's generation; never
 /// fetched in the render).
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 public struct SnapshotEnvironment {
     public enum Family: String, Sendable {
         case systemSmall, systemMedium, systemLarge, systemExtraLarge
@@ -32,6 +33,7 @@ public struct SnapshotEnvironment {
     }
 }
 
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 public enum SnapshotDriver {
     /// Apple's body size at a text size (`kernel/tables/schema.json`'s
     /// `textStyleBodies`, iOS's Dynamic Type ramp).
@@ -100,6 +102,7 @@ public enum SnapshotDriver {
 
 /// The entry's view: its roots at their frames, the root's background as
 /// the container's, account content private, the first link as the URL.
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 public struct SnapshotView: View {
     let snapshot: HeadlessSession.Snapshot
     let environment: SnapshotEnvironment
@@ -122,6 +125,7 @@ public struct SnapshotView: View {
 /// D5: the root's background is the widget's, which the system draws and
 /// removes where widgets have none (StandBy, the Lock Screen, the accented
 /// mode). Unsaid, it is the system's background.
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct ContainerBackground: View {
     let root: HeadlessSession.Node?
     @Environment(\.colorScheme) private var scheme
@@ -138,6 +142,7 @@ struct ContainerBackground: View {
 
 /// Places each subview at the kernel's frame for it, in the parent's
 /// coordinate space (stage 0: a custom `Layout` survives the archive).
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct FrameLayout: Layout {
     let frames: [CGRect]
     let size: CGSize

@@ -14,6 +14,7 @@ import AppKit
 /// A text node: each kernel line is a `Text` that SwiftUI draws and never
 /// re-breaks (`.lineLimit(1).fixedSize()`), placed at the line's origin;
 /// a `time` is the platform's live text in the box the kernel reserved.
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct SnapshotTextView: View {
     let node: HeadlessSession.Node
     let environment: SnapshotEnvironment
@@ -62,6 +63,7 @@ struct SnapshotTextView: View {
 /// `time` has `datetime` (an instant: epoch milliseconds, or ISO 8601) and
 /// `format`, one of `relative`, `timer`, `countdown`, `offset`, `date`,
 /// `time`; a `progress` over an interval has `start` and `end` instants.
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 package enum SnapshotLive {
     package enum Presentation: Equatable {
         case relative(Date), timer(Date), offset(Date), date(Date), time(Date)
@@ -91,6 +93,7 @@ package enum SnapshotLive {
     }
 }
 
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct SnapshotLiveText: View {
     let node: HeadlessSession.Node
     let presentation: SnapshotLive.Presentation
@@ -130,6 +133,7 @@ struct SnapshotLiveText: View {
 
 /// `progress`: over an interval the platform's timer bar; with a value the
 /// determinate bar; else the activity indicator.
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct SnapshotProgressView: View {
     let node: HeadlessSession.Node
 
@@ -153,6 +157,7 @@ struct SnapshotProgressView: View {
 /// An image: a system symbol at its text's size and colour (the tint when
 /// unsaid, as the kernel's `symbol` role says), or a raster from the entry's
 /// assets, fitted as `object-fit` says. Never fetched in the render.
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct SnapshotImageView: View {
     let node: HeadlessSession.Node
     let environment: SnapshotEnvironment
