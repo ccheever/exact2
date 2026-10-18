@@ -24,10 +24,10 @@ enum TimeFormatting {
         let value = DateComponentsFormatter()
         value.calendar = Calendar(identifier: .gregorian)
         value.calendar?.locale = locale
-        value.unitsStyle = kind == "sample" ? .abbreviated : kind == "unit" ? .full : .positional
+        value.unitsStyle = kind == "sample" ? .abbreviated : kind == "sample-short" ? .short : kind == "unit" ? .full : .positional
         // Keep minute/second zeros; .default drops the entire zero minute.
         value.zeroFormattingBehavior = kind == "countdown" ? .pad : kind == "timer" ? [] : .default
-        value.maximumUnitCount = kind == "sample" ? 2 : 0
+        value.maximumUnitCount = kind.hasPrefix("sample") ? 2 : 0
         durations[key] = value
         return value
     }
@@ -52,7 +52,12 @@ enum TimeFormatting {
             let wrapper = relativeFormatter(locale, named: false, wide: true)
                 .localizedString(from: DateComponents(minute: q.now > q.datetime ? -59 : 59))
             guard let range = wrapper.range(of: minute) else { return 0 }
-            result = wrapper.replacingCharacters(in: range, with: phrase)
+            // Abbreviated English uses m/s; stage 0's archived .relative uses
+            // min/sec. Both candidates come from the viewer's locale.
+            let archived = componentsFormatter(locale, kind: "sample-short")
+            archived.allowedUnits = [.minute, .second]
+            result = [phrase, archived.string(from: 3599)].compactMap { $0 }
+                .map { wrapper.replacingCharacters(in: range, with: $0) }.joined(separator: "\n")
         case "relative":
             let n = Int(q.relative_value)
             let formatter = relativeFormatter(locale, named: n == 0)
