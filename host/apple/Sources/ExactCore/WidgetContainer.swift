@@ -52,7 +52,15 @@ public enum WidgetContainer {
     }
     package static func pinCurrent(_ assets: AssetResolver, root: URL? = WidgetContainer.root, compatibility: String? = nil) throws -> URL {
         let cohort = compatibility ?? self.compatibility
-        guard let root, let directory = try? pin(root: root, compatibility: cohort), directory.lastPathComponent == generationName(assets, compatibility: cohort) else {
+        guard let root else { throw HeadlessSession.Failure(description: "widget App Group is unavailable") }
+        // Only a missing or older pointer is the publisher's to fix; a corrupt
+        // one or another cohort is reported as pin finds it.
+        let current = root.appendingPathComponent("widget-generations/current")
+        guard FileManager.default.fileExists(atPath: current.path) else {
+            throw HeadlessSession.Failure(description: "widget generation not yet published")
+        }
+        let directory = try pin(root: root, compatibility: cohort)
+        guard directory.lastPathComponent == generationName(assets, compatibility: cohort) else {
             throw HeadlessSession.Failure(description: "widget generation not yet published")
         }
         return directory

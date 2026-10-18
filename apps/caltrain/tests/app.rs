@@ -53,8 +53,9 @@ fn the_app_compiles_deterministically_and_bakes_its_first_frame() {
     // change, LLP 1005 §3); deckLoaded, deckLoads, and deckMessage (the
     // iframe fixture, @ref LLP 1020 M1); and `nav`, the routes table's
     // location (LLP 1038 D2), there for `render=build` (LLP 1048.003 D5);
-    // and the activity's delay and mutation reply (LLP 1126.001 WP9).
-    assert_eq!(a.slots.len(), 19);
+    // and the activity's delay, whether one is followed, and the mutation
+    // reply (LLP 1126.001 WP9).
+    assert_eq!(a.slots.len(), 20);
     // Seven data-crate resources, `delivery` — the runner's own
     // `exactDelivery` (LLP 1030 D7), read by the update banner — and
     // `viewport`, whose `pointer` says a TV, and `exactActivities`.
@@ -270,7 +271,7 @@ fn a_reload_keeps_its_place_and_re_requests_only_what_changed() {
         Some("San Francisco")
     );
     let carried = r.carry();
-    assert_eq!(carried.slots.len(), 19);
+    assert_eq!(carried.slots.len(), 20);
     assert_eq!(carried.now_ms, 30_000.0);
 
     // The edited plan: unbaked (no compiled data) and with a visible change.

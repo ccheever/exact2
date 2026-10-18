@@ -84,7 +84,7 @@ impl<D: DataSource> Runner<D> {
                 "exactActivities takes no arguments".into(),
             ));
         }
-        let value = decode(&self.plan, row.ty, &self.activities.snapshot).ok_or_else(|| DataError::BadArguments("exactActivities answers {activities: Activity[], frequentPushesEnabled: bool}; Activity has id, kind, state (JSON string), activityState, token (option<string>)".into()))?;
+        let value = decode(&self.plan, row.ty, &self.activities.snapshot).ok_or_else(|| DataError::BadArguments("exactActivities answers {linked: bool, activities: Activity[], frequentPushesEnabled: bool}; Activity has id, kind, state (JSON string), activityState, token (option<string>)".into()))?;
         if self.activities.linked && !self.activities.started && !self.activities.loading {
             self.activities.demanded = true;
             self.activities.loading = true;

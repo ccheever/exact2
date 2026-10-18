@@ -92,19 +92,24 @@ component Caltrain
   state deckMessage = ""
 
   state trainDelay = 0
+  // The start's reply names the activity until the source lists it; after an
+  // end it names nothing, so a later tap sends no id it no longer owns.
+  state following = false
   mutation activitySend as shape ActivityHandle
   resource activities = exactActivities() as shape Activities
   derive tracked = first(activities.activities.filter(a => a.kind == "departure" and (a.activityState == "active" or a.activityState == "stale")))
-  derive trackedId = match tracked { case some(a) => a.id, case none => match activitySend { case some(a) => a.id, case none => "" } }
+  derive trackedId = match tracked { case some(a) => a.id, case none => following ? match activitySend { case some(a) => a.id, case none => "" } : "" }
   derive departureState = DepartureState(station=station.name, headsign="San Francisco", train=101, at=seededEpoch + 600000 + trainDelay, status=(trainDelay > 0 ? "Delayed by 10 minutes" : "On time"))
   action startTracking
     send activitySend = startActivity("departure", departureState)
+    following = true
   action delayTrain
     send activitySend = updateActivity(trackedId, DepartureState(departureState, at=departureState.at + 600000, status="Delayed by 10 minutes"))
     trainDelay = trainDelay + 600000
   action endTracking
     send activitySend = endActivity(trackedId, DepartureState(departureState, status="Arrived"), "immediate")
     trainDelay = 0
+    following = false
 
   resource location = defaultLocation() as shape Location
   derive selectedId = match stationId { case some(id) => id, case none => "mv" }
