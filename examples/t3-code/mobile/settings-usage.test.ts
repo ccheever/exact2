@@ -28,6 +28,49 @@ test('invalid quota is not fabricated as zero and Cursor combined quota is hidde
   const cursor=mobileUsageConfig({providers:[{...nativeAccount({...limits,windows:['totalPercentUsed','autoPercentUsed','apiPercentUsed'].map(id=>({...window(),id}))}),driver:'cursor'}]});
   const pool=collectLimitPools(collectLimitAccounts(new Map([['a',{entry:{target:{label:'A'}},serverConfig:cursor}]])),0)[0]!;expect(displayLimitWindows(pool).map(window=>window.id)).toEqual(['autoPercentUsed','apiPercentUsed']);
 });
+function presentedLimits(providers:Obj[],at=now){
+  const config=mobileUsageConfig({providers}),presentations:LimitPresentations=new Map([['a',{entry:{target:{label:'A'}},serverConfig:config}]]);
+  return mobileUsagePresentation({tab:'limits',window:mobileUsageWindow(30,at),metric:'cost',now:at,presentations,external:false,
+    sources:[{id:'a',label:'A',connected:true,summary:null,error:'',canRead:true,canWrite:false,canManage:false,config}]},false);
+}
+test('pooled Limits headers retain window and account order while selecting the first positive refill',()=>{
+  const at=Date.parse('2026-10-07T12:00:00Z'),reset=(minutes:number)=>new Date(at+minutes*60_000).toISOString();
+  const a={...nativeAccount({...limits,windows:[{...window('weekly',80),id:'weekly',label:'Weekly',resetsAt:reset(300)},
+    {...window('session',0),label:'Session',resetsAt:reset(1)}]},'a@test'),displayName:'Alpha'};
+  const b={...nativeAccount({...limits,windows:[{...window('session',50),label:'Session',resetsAt:reset(120)}]},'b@test'),instanceId:'two',displayName:'Beta'};
+  const data=presentedLimits([a,b],at),pool=data.pools[0]!;
+  expect([pool.id,pool.label]).toEqual(['codex','Codex']);
+  expect(pool.windows.map(item=>[item.id,item.label,item.remaining,item.nextRefill])).toEqual([
+    ['session:primary','Session',75,'↻ +25% in 2h 0m'],['weekly:weekly','Weekly',20,'↻ +80% in 5h 0m'],
+  ]);
+  expect(pool.windows.map(item=>item.columns.map(column=>[column.key,column.label,column.present,column.remaining]))).toEqual([
+    [['a:one','Alpha',true,100],['a:two','Beta',true,50]],
+    [['a:one','Alpha',true,20],['a:two','Beta',false,0]],
+  ]);
+  expect(pool.windows.map(item=>item.description)).toEqual(['','']);expect(data.cursorPoolInsertAt).toBe(1);
+});
+test('Limits refill and pace copy use the captured clock and preserve zero or absent resets',()=>{
+  const at=Date.parse('2026-10-07T12:00:00Z');
+  for(const [usedPercent,pace] of [[20,'Under pace'],[50,'On pace'],[80,'Ahead of pace']] as const){
+    const data=presentedLimits([nativeAccount({...limits,windows:[{...window('session',usedPercent),windowDurationMins:60,resetsAt:new Date(at+30*60_000).toISOString()}]})],at);
+    expect(data.pools[0]!.windows[0]!.pace).toBe(pace);
+  }
+  for(const [usedPercent,resetsAt,refill] of [[40,new Date(at).toISOString(),'↻ +40% now'],[0,new Date(at).toISOString(),''],[40,undefined,'']] as const){
+    const providers=[nativeAccount({...limits,windows:[{...window('session',usedPercent),resetsAt}]})],before=JSON.stringify(providers),data=presentedLimits(providers,at);
+    expect(data.pools[0]!.windows[0]!.nextRefill).toBe(refill);expect(JSON.stringify(providers)).toBe(before);
+  }
+});
+test('Limits headings and Cursor window descriptions follow pooled reference labels',()=>{
+  const cursor={...nativeAccount({...limits,windows:['totalPercentUsed','apiPercentUsed','autoPercentUsed'].map(id=>({...window(),id}))},'cursor@test'),driver:'cursor'};
+  const claude={...nativeAccount(limits,'claude@test'),driver:'claudeAgent'},grok={...nativeAccount(limits,'grok@test'),driver:'grok'};
+  const data=presentedLimits([claude,cursor,grok]);expect(data.pools.map(pool=>[pool.id,pool.label])).toEqual([['claudeAgent','Claude'],['cursor','cursor'],['grok','grok']]);
+  expect(data.pools[1]!.windows.map(item=>[item.windowId,item.label,item.description])).toEqual([
+    ['autoPercentUsed','Cursor Models','Grok and Composer use this first. Auto can use either pool.'],
+    ['apiPercentUsed','Other Models','Claude, GPT, and Gemini use this pool. Grok and Composer fall back here.'],
+  ]);
+  expect(data.pools[0]!.windows[0]!.label).toBe('Allowance');expect(data.pools[0]!.windows[0]!.description).toBe('');
+  expect(data.cursorPoolInsertAt).toBe(1);
+});
 test('explicit empty selection stays empty; diagnostic permissions distinguish old session scopes',()=>{
   expect(mobileUsageSelection('null')).toBeNull();expect(mobileUsageSelection('[]')).toEqual([]);expect(()=>mobileUsageSelection('{}')).toThrow();
   expect(usageGrant({authenticated:true,scopes:['orchestration:read']})).toBe(true);expect(usageGrant({authenticated:true,scopes:['orchestration:read'],auth:{serverUpdateScope:'environment:maintain'}})).toBe(false);expect(usageGrant({authenticated:true,scopes:['diagnostics:read'],permissions:[]})).toBe(false);

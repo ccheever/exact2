@@ -2,7 +2,7 @@
 // Pinned UsageRouteScreen/UsageLimitsPooled projection. Clock supplied by route owner.
 import { arr, obj, str, type Obj } from './shared/domain';
 import { formatCount, formatTokens, formatUsd, formatPercent, formatDayShort, formatHourShort, mergeUsage, windowPeriods, isModelCostUnknown, type UsageWindow } from './shared/pages-usage';
-import { collectLimitAccounts, collectLimitPools, collectLimitNotices, collectExternalUsageLinks, displayLimitWindows, remainingPercent, formatResetsIn, formatDuration, type LimitPresentations } from './settings-usage-limits';
+import { collectLimitAccounts, collectLimitPools, collectLimitNotices, collectExternalUsageLinks, cursorUsageWindowDetails, displayLimitWindows, remainingPercent, formatDuration, type LimitPresentations } from './settings-usage-limits';
 export interface UsageSourceView {id:string;label:string;connected:boolean;summary:Obj|null;error:string;canRead:boolean;canWrite:boolean;canManage:boolean;config:Obj}
 interface Prepared {tab:string;window:UsageWindow;metric:string;now:number;sources:UsageSourceView[];presentations:LimitPresentations;external:boolean}
 export const MOBILE_USAGE_PROVIDERS=[
@@ -24,6 +24,7 @@ const reveals=new Set<string>();let detailPrepared:Prepared|null=null;
 export function mobileUsageReveal(key:string){if(reveals.has(key))reveals.delete(key);else reveals.add(key);}
 const masked=(value:string|undefined,key:string)=>!value?'':reveals.has(key)?value:'••••••••';
 const paceLabel=(pace:string|null)=>pace==='ahead'?'Ahead of pace':pace==='under'?'Under pace':pace==='on'?'On pace':'';
+const LIMIT_DRIVER_LABEL:Readonly<Record<string,string>>={codex:'Codex',claudeAgent:'Claude'};
 export function mobileUsagePresentation(input:Prepared|null,publish=true,pendingCursor:(id:string)=>boolean=()=>false){
   if(publish){detailPrepared=input;if(!input)reveals.clear();}
   const sources=input?.sources??[],summaries=sources.flatMap(source=>source.summary?[{id:source.id,label:source.label,summary:source.summary}]:[]),merged=mergeUsage(summaries),tokens=input?.metric==='tokens',compatible=summaries.filter(item=>Number(item.summary.contractVersion)>=4&&Number(item.summary.contractVersion)<=6),actual=compatible.length>0;
@@ -43,9 +44,14 @@ export function mobileUsagePresentation(input:Prepared|null,publish=true,pending
     duplicateMessage:merged.duplicates.length?`Counted once across environments sharing a transcript directory: ${merged.duplicates.join(', ')}`:'',
     links:collectExternalUsageLinks(input?.presentations??new Map()).map(link=>({...link,accounts:link.accounts.join(', '),message:link.message??'',disabled:!input?.external})),
     cursor,cursorInsertAt:afterCore(providers.map(item=>item.id),'claude'),cursorPoolInsertAt:afterCore(pools.map(pool=>pool.driver),'claudeAgent'),
-    pools:pools.map(pool=>({id:pool.driver,label:provider(pool.driver).label,light:provider(pool.driver).light,dark:provider(pool.driver).dark,windows:displayLimitWindows(pool).map(window=>({id:`${window.kind}:${window.id}`,windowId:window.id,kind:window.kind,label:window.label,remaining:window.remainingPercent,pace:paceLabel(window.pace),
-      columns:window.columns.map(({account,window:own})=>({key:account.key,label:account.displayName||provider(account.driver).label,present:!!own,remaining:own?remainingPercent(own):0,email:masked(account.email,account.key)})),
-      resets:window.resets.map(reset=>({key:reset.member.account.key,text:`${reset.member.account.displayName||provider(reset.member.account.driver).label} · ${formatResetsIn(reset.member.window,input?.now??0)} · restores ${reset.restoresPercent}%`}))}))})),
+    pools:pools.map(pool=>({id:pool.driver,label:LIMIT_DRIVER_LABEL[pool.driver]??pool.driver,light:provider(pool.driver).light,dark:provider(pool.driver).dark,
+      windows:displayLimitWindows(pool).map(window=>{
+        const details=pool.driver==='cursor'?cursorUsageWindowDetails(window.id):undefined;
+        const refill=window.resets.find(reset=>reset.restoresPercent>0),now=input?.now??0;
+        return {id:`${window.kind}:${window.id}`,windowId:window.id,kind:window.kind,label:details?.label??window.label,description:details?.description??'',
+          remaining:window.remainingPercent,pace:paceLabel(window.pace),nextRefill:refill?`↻ +${refill.restoresPercent}% ${refill.at<=now?'now':`in ${formatDuration(refill.at-now)}`}`:'',
+          columns:window.columns.map(({account,window:own})=>({key:account.key,label:account.displayName||provider(account.driver).label,present:!!own,remaining:own?remainingPercent(own):0,email:masked(account.email,account.key)}))};
+      })})),
     limitsEmpty:input?.tab==='limits'&&pools.length===0&&cursor.length===0?'No subscription limits reported.':'',
     total:actual?(tokens?formatTokens(merged.totalTokens):formatUsd(merged.costUsd)):'',chartTitle:`${input?.window.resolution==='hour'?'Hourly':'Daily'} ${tokens?'processed tokens':'cost'}`,
     chartHasActivity:(input?.window.resolution==='hour'?merged.hourly:merged.daily).some(period=>period.totalTokens>0),
