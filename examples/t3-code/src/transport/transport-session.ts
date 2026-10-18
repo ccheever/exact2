@@ -1,4 +1,4 @@
-// One authenticated connection to a T3 server (T3 Code 1e2ecbd975, MIT, see LICENSE-T3:
+// One authenticated connection to a T3 server (T3 Code 9c161462c9, MIT, see LICENSE-T3:
 // packages/client-runtime/src/rpc/client.ts same-session resubscribe, connection/supervisor.ts,
 // driver.ts, resolver.ts, authorization/remote.ts). The connect flow is `/.well-known/t3/environment`,
 // `/oauth/token` for a pairing, `/api/auth/session`, `/api/auth/websocket-ticket`, then `wsTicket` on
@@ -23,7 +23,7 @@ import { RouteState, blocks, json, type Http, type HttpReply } from './transport
 import { credentialOrigins, type Catalog, type Route } from './transport-catalog';
 import {
   TransportFailure, MAXIMUM_BYTES, PING_INTERVAL_MS, PONG_TIMEOUT_MS, QUICK_PROBE_MS, FOREGROUND_PROBE_MS, SOCKET_OPEN_TIMEOUT_MS,
-  BACKOFF_RESET_AFTER_MS, compatibility, credential as parseCredential, decode, encode, exchangeForm, failure as wireFailure, failureMessage,
+  BACKOFF_RESET_AFTER_MS, compatibility, credential as parseCredential, decode, encode, exchangeForm, exchangeScopes, failure as wireFailure, failureMessage, failureReason,
   identifier, letGoAbort, origin as parseOrigin, path as onOrigin, request as wireRequest, retriesStream, retryDelayMs, streamRetryMs, trimmed, utf8Length,
   type Frame,
 } from './transport-wire';
@@ -70,6 +70,7 @@ export class Session {
   private restoredFocus = '';
   private privateValues: string[] = [];
   private exchangeScope = '';
+  private legacyExchangeScope = '';
   descriptor: Obj = {};
   state = 'disconnected';
   message = 'Connect to your T3 server.';
@@ -262,7 +263,7 @@ export class Session {
     this.retire(new TransportFailure('Replaced', 'The connection was replaced.', true));
     this.origin = next; this.descriptor = {}; this.token = ''; this.primary = toPrimary;
     this.failureKind = ''; this.failureTrace = ''; this.lastHTTPTrace = '';
-    this.privateValues = credential ? [credential] : []; this.exchangeScope = str(request.scope);
+    this.privateValues = credential ? [credential] : []; this.exchangeScope = str(request.scope); this.legacyExchangeScope = str(request.legacyScope);
     // The primary walks no saved routes: one loopback address, its bearer from the embedded server.
     if (this.primary) this.routes.stop(); else this.routes.load(next, this.hooks.catalog);
     this.wantsConnection = true; this.failures = 0; this.everConnected = false;
@@ -399,7 +400,8 @@ export class Session {
       }
       if (!this.token) throw new TransportFailure('Credential', 'Paste a pairing link or token from this T3 server.');
     } else {
-      const grant = obj(await this.http('/oauth/token', { epoch, method: 'POST', body: exchangeForm(credential, this.exchangeScope), contentType: 'application/x-www-form-urlencoded', authorized: false }));
+      const grant = obj(await exchangeScopes(this.exchangeScope, this.legacyExchangeScope, scope =>
+        this.http('/oauth/token', { epoch, method: 'POST', body: exchangeForm(credential, scope), contentType: 'application/x-www-form-urlencoded', authorized: false })));
       if (grant.token_type !== 'Bearer' || !str(grant.access_token)) throw new TransportFailure('Protocol', 'The server did not issue a bearer access token.');
       this.token = str(grant.access_token); this.routes.tokenOwner = trimmed(this.origin);
       this.hooks.catalog.saveToken(this.token, this.origin, environment);
@@ -436,7 +438,7 @@ export class Session {
       const trace = str(obj(decoded).traceId);
       if (trace) this.lastHTTPTrace = trace.slice(0, 200);
       const kind = reply.status === 401 || reply.status === 403 ? 'Authentication' : reply.status === 426 ? 'Protocol' : 'HTTP';
-      throw new TransportFailure(kind, this.clean(failureMessage(decoded, reply.status)));
+      throw new TransportFailure(kind, this.clean(failureMessage(decoded, reply.status)), false, failureReason(decoded));
     }
     if (decoded === undefined) throw new TransportFailure('Protocol', 'The server returned invalid JSON.');
     return decoded;
@@ -955,7 +957,7 @@ export class Session {
       catch (error) { throw new TransportFailure('Network', scrub(error instanceof Error ? error.message : String(error))); }
       const decoded = json(reply);
       if (reply.status < 200 || reply.status >= 300 || typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
-        throw new TransportFailure(reply.status === 401 || reply.status === 403 ? 'Authentication' : 'HTTP', scrub(failureMessage(decoded, reply.status)));
+        throw new TransportFailure(reply.status === 401 || reply.status === 403 ? 'Authentication' : 'HTTP', scrub(failureMessage(decoded, reply.status)), false, failureReason(decoded));
       }
       return decoded as Obj;
     };
@@ -969,7 +971,7 @@ export class Session {
     }
     const problem = compatibility(descriptor);
     if (problem) throw new TransportFailure('Protocol', problem.message);
-    const grant = await send('/oauth/token', exchangeForm(code, str(request.scope)));
+    const grant = await exchangeScopes(str(request.scope), str(request.legacyScope), scope => send('/oauth/token', exchangeForm(code, scope)));
     if (grant.token_type !== 'Bearer' || !str(grant.access_token)) throw new TransportFailure('Protocol', 'The server did not issue a bearer access token.');
     // This machine's own server (the primary's environment id): the code is spent, nothing is saved (registry.ts register).
     const primaryId = str(request.primaryEnvironmentId);

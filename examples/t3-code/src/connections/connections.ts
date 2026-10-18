@@ -181,7 +181,7 @@ export function savedRow(source: Source, index: number, ssh: Record<string, SshT
   const selfUpdate = str(capabilities.serverSelfUpdate);
   const lock = !Object.keys(source.config).length || !connected ? 'Connect to this environment to change its icon.'
     : capabilities.environmentIcon !== true ? "This environment's server is too old to keep an icon. Update it to choose one."
-      : source.scopes.length && !source.scopes.includes('orchestration:operate') ? 'Your session on this environment cannot change its settings.' : '';
+      : source.scopes.length && !source.scopes.includes('settings:write') ? 'Your session on this environment cannot change its settings.' : '';
   const showUpdate = enabled && connected && mismatch !== null;
   // server-update.ts: a running update (the banner's or this row's) shows its progress here instead of the button.
   const updateLabel = showUpdate && !desktopManagedOnly(capabilities) && !outdated.running

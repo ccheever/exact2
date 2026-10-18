@@ -2,14 +2,19 @@
 // BitbucketCredentialsSettings.tsx: an access token, or an Atlassian account
 // email + API token, never both. Tokens are write-only: the server keeps them
 // in its secret store and reports a redacted value; resending that value keeps
-// the saved token. A save (or Remove) writes `bitbucket` and rescans.
+// the saved token. A save (or Remove) writes the three fields and rescans: to
+// `sourceControlHosts.bitbucket` on a server that has it (reference 9c161462c9,
+// 4f63275ac7: each host's settings live under its kind, and a secret left out is
+// removed), else to the older `bitbucket` key.
 import type { T3Client } from '../client/client';
 import { obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 
 export type BitbucketView = { key: string; saved: string; savedLabel: string; email: string; apiTokenSaved: boolean; environmentId: string };
 type Saved = { accessToken: string; email: string; apiToken: string };
-const savedOf = (settings: Obj): Saved => { const b = obj(settings.bitbucket); return { accessToken: str(b.accessToken).trim(), email: str(b.email).trim(), apiToken: str(b.apiToken).trim() }; };
+/** The server keeps source control hosts' settings under `sourceControlHosts` (always present on one that does). */
+const hostsKeyed = (settings: Obj) => settings.sourceControlHosts !== null && typeof settings.sourceControlHosts === 'object';
+const savedOf = (settings: Obj): Saved => { const b = hostsKeyed(settings) ? obj(obj(settings.sourceControlHosts).bitbucket) : obj(settings.bitbucket); return { accessToken: str(b.accessToken).trim(), email: str(b.email).trim(), apiToken: str(b.apiToken).trim() }; };
 /** savedMethod: the access token wins; an email + API token pair is the other method. */
 export function savedMethod(saved: Saved): '' | 'access-token' | 'api-token' {
   if (saved.accessToken.length > 0) return 'access-token';
@@ -47,7 +52,7 @@ export async function bitbucketCommand(client: T3Client, native: Native, environ
     next = bitbucketPatch(saved, input.method, str(input.accessToken), input.emailEdited === 'true' ? str(input.email) : null, str(input.apiToken));
     if (!next) throw new ClientError(input.method === 'access-token' ? 'Enter an access token.' : 'Enter your Atlassian account email and an API token.');
   } else throw new ClientError('Unsupported Bitbucket action.');
-  const updated = await access.request('server.updateSettings', { patch: { bitbucket: next } }, true);
+  const updated = await access.request('server.updateSettings', { patch: hostsKeyed(settings) ? { sourceControlHosts: { ...obj(settings.sourceControlHosts), bitbucket: next } } : { bitbucket: next } }, true);
   client.config = { ...client.config, settings: updated };
   rescan();
   return '';
