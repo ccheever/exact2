@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // The composer's offline and server-version notices, the version card and their ops.
 // "environment reconnect warning grace" ports the cases of
 // T3 Code's apps/web/src/components/ChatView.logic.test.ts (1e2ecbd975, MIT, see
@@ -33,7 +34,7 @@ function harness(capabilities: Obj = { serverSelfUpdate: 'boot-service', serverS
     async atomicWriteFile(_path, bytes) { saved = new TextDecoder().decode(bytes); } } };
   const client = new T3Client();
   Object.assign(client, { available: true, generation: 1, connection: 'connected', origin, environmentId, projectId: 'p1', threadId: 't1',
-    configLive: true, shellLive: true, threadLive: true, scopes: ['orchestration:read', 'orchestration:operate'],
+    configLive: true, shellLive: true, threadLive: true, scopes: [...AUTH_STANDARD_CLIENT_SCOPES],
     config: { environment: { environmentId, label: 'Studio', serverVersion, capabilities: { serverResolvedCommandContext: true, ...capabilities } }, settings: {} } });
   client.thread = { projection: { thread: { id: 't1' } }, sequence: 0, historyCursor: null, hasMore: false, latestLocalTurnOrdinal: null };
   const command = (op: string, id = '', value = '') => client.command(op, id, value, 0, native, storage);

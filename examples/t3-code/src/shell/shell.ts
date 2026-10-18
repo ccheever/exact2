@@ -1,3 +1,4 @@
+import { can as hasPermission } from '../connections/command-permissions';
 import { updateEverythingPass, updateEverythingState } from '../sidebar/update-everything';
 // The window shell's projection (MIT reference: apps/web/src/components/ui/
 // toast.tsx, chat/ChatHeader.tsx, chat/PanelLayoutControls.tsx,
@@ -177,10 +178,10 @@ export function surfaces(client: T3Client): ShellSurface[] {
   const row = (id: string, label: string, icon: string, shortcut: string, available: boolean, reason: string): ShellSurface =>
     ({ id, label, icon, shortcut, letter: shortcut.toLowerCase(), available, reason: available ? '' : reason });
   return [
-    row('browser', 'Browser', 'earth', 'B', client.available === true, 'Only available in the desktop app.'), // the module's WKWebView (isPreviewSupportedInRuntime)
-    row('terminal', 'Terminal', 'square-terminal', 'T', terminalAvailable(client), 'Available when a project is open.'),
+    row('browser', 'Browser', 'earth', 'B', client.available === true && hasPermission(client, 'preview:operate'), client.available === true ? 'This connection requires preview:operate.' : 'Only available in the desktop app.'), // the module's WKWebView (isPreviewSupportedInRuntime)
+    row('terminal', 'Terminal', 'square-terminal', 'T', terminalAvailable(client) && hasPermission(client, 'terminal:operate'), hasPermission(client, 'terminal:operate') ? 'Available when a project is open.' : 'This connection requires terminal:operate.'),
     row('files', 'Files', 'files', 'F', can.files, 'Available when a project is open.'),
-    row('diff', 'Diff', 'file-diff', 'D', !!client.threadId && client.ready && !diffNotGit(client), 'Available for Git repositories.'),
+    row('diff', 'Diff', 'file-diff', 'D', can.diff, 'Available for Git repositories.'),
     // ChatView pullRequestSurfaceAvailable (supportsPullRequests and a panel target); the detail panel opens beside the thread.
     row('pull-request', 'Pull request', 'git-pull-request-arrow', 'P', can.pullRequest && !!target, 'No pull request on this branch yet.'),
     row('pull-requests', 'Linked pull requests', 'link-2', 'L', can.pullRequests, 'No linked pull requests available.'),

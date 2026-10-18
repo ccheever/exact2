@@ -174,11 +174,13 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
   return chips;
 }
 
-/** AssistantCitationChip: the quote (or its comment) cut at 64 characters; "View source" opens the cited thread at the answer.
- * Each `[Assistant quote](t3-citation://…)` is read with the reference's parseAssistantCitationHref (diff-citations.ts). */
+/** AssistantCitationChip (T3 Code 9c161462c9): the label is the quote (or its comment) cut at 64 characters; its popover
+ * shows the quote (`tip`) and the comment (`size`), and "Go to source" opens the cited thread (`target`) at the answer
+ * (`detail`). Each `[Assistant quote](t3-citation://…)` is read with the reference's parseAssistantCitationHref (diff-citations.ts). */
 function citationChip(href: string): Omit<ChipView, 'id' | 'owner'> {
   const citation = parseAssistantCitationHref(href);
-  return { href, kind: 'citation', label: citation ? assistantCitationLabel(citation) : '', size: '', tip: 'View source', detail: citation?.messageId ?? '', icon: '', target: citation?.threadId ?? '' };
+  return { href, kind: 'citation', label: citation ? assistantCitationLabel(citation) : '', size: citation?.comment ?? '', tip: citation?.text ?? '',
+    detail: citation?.messageId ?? '', icon: '', target: citation?.threadId ?? '' };
 }
 const UNAVAILABLE = 'This context is no longer available.';
 function contextChip(href: string, kind: string, label: string, record: Obj | undefined, attachments: Map<string, Obj>, threads: Obj[]): Omit<ChipView, 'id' | 'owner'> {

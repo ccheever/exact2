@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // Settings across environments (D15): the scope menu lists every environment, a write
 // reaches each selected connected environment through its own transport, a failure names
 // the environments that did not save, and disagreeing targets draw the mixed switch.
@@ -21,7 +22,7 @@ function focused(settings: Obj = {}) {
   const client = {
     local: { deviceSettings: { composerCollapseOnScroll: true, planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' },
       clientSettings: decodeClientPrefs({}), groupingMode: 'repository', groupingOverrides: {} },
-    ready: true, environmentId: 'env-a', origin: 'http://127.0.0.1:16100', writes: [] as Obj[],
+    scopes: AUTH_STANDARD_CLIENT_SCOPES, ready: true, environmentId: 'env-a', origin: 'http://127.0.0.1:16100', writes: [] as Obj[],
     config: { environment: { environmentId: 'env-a', label: 'Studio', capabilities, platform: { machine: 'laptop' } }, providers: [], settings: { projectSettingsOverrides: {}, ...settings } } as Obj,
     projectGroups: () => [{ key: 'github.com/acme/app', name: 'App', members: [{ id: 'pa', title: 'App', workspaceRoot: '/a/app' }] }],
     async settingsCoreRequest(_native: Native, method: string, payload: Obj) {
@@ -40,7 +41,7 @@ function entry(key: string, environmentId: string, label: string, settings: Obj,
   const shell = applyShell(initialShell(), { snapshotSequence: 1, projects: [{ id: `p-${environmentId}`, title: 'App', workspaceRoot: `/b/${environmentId}`,
     repositoryIdentity: { canonicalKey: 'github.com/acme/app' } }], threads: [] });
   return { key, origin: key.split('\n')[0]!, environmentId, phase, message: '', traceId: '', generation: 3, synchronized: 3, lastEvent: 0, subscriptions: {},
-    config: { environment: { environmentId, label, capabilities, platform: { machine: 'server' } }, settings: { projectSettingsOverrides: {}, ...settings } }, shell, scopes: [], error: '', requested: true };
+    config: { environment: { environmentId, label, capabilities, platform: { machine: 'server' } }, settings: { projectSettingsOverrides: {}, ...settings } }, shell, scopes: [...AUTH_STANDARD_CLIENT_SCOPES], error: '', requested: true };
 }
 /** The fleet's transports: each request names its environment with `fleet`; `fail` holds the keys whose write is refused. */
 function nativeFor(fail = new Set<string>(), calls: Obj[] = []): Native {

@@ -1,3 +1,4 @@
+import { providerWritable } from './provider-permissions';
 // Provider settings upkeep, T3 Code 1e2ecbd975 (ProviderUpdatesAction 9c161462c9; MIT, see LICENSE-T3): the version advisory
 // popover of apps/web/src/components/settings/ProviderInstanceCard.tsx:772-870 (one node for the
 // list row and the editor), providerStatus.ts getProviderVersionAdvisoryPresentation,
@@ -61,7 +62,7 @@ const pendingOf = (host: object) => { let set = pendingUpdates.get(host); if (!s
 export function advisoryView(host: UpkeepHost, instanceId: string, provider: Obj | undefined, enabled: boolean, mode: 'list' | 'editor') {
   const compatibility = enabled ? obj(provider?.compatibilityAdvisory) : undefined;
   const presentation = provider ? versionAdvisoryPresentation(provider.versionAdvisory ? obj(provider.versionAdvisory) : undefined, provider.compatibilityAdvisory ? obj(provider.compatibilityAdvisory) : undefined, enabled) : null;
-  const readOnly = !host.writable;
+  const readOnly = !providerWritable(host);
   const hasCompatibilityWarning = compatibility !== undefined && !!str(compatibility.status) && compatibility.status !== 'supported' && compatibility.status !== 'unknown';
   const canInstallRecommended = !readOnly && !!provider && !!str(obj(provider.compatibilityAdvisory).message) && !!str(obj(provider.compatibilityAdvisory).recommendedVersion)
     && obj(provider.versionAdvisory).canInstallVersion === true;
@@ -135,7 +136,7 @@ export async function runUpdateAll(host: UpkeepHost, targets: readonly UpdateTar
 /** runProviderUpdate: one instance on this environment, "Update now" or "Install <recommended>". */
 export async function runProviderUpdate(host: UpkeepHost, target: UpdateTarget, instanceId: string, targetVersion: string): Promise<void> {
   const provider = arr(host.config.providers).find(candidate => candidate.instanceId === instanceId);
-  if (!provider || !host.writable) return;
+  if (!provider || !providerWritable(host)) return;
   const pending = pendingOf(host);
   if (pending.has(instanceId)) return;
   const view = advisoryView(host, instanceId, provider, provider.enabled !== false, 'editor');
@@ -196,7 +197,7 @@ async function copyCommand(host: UpkeepHost, native: Native, instanceId: string)
 
 /** The custom model editor's Save (handleSaveEdit): the edited entry replaces its slug in `config.customModels`, and the editor closes. */
 async function saveCustomModel(host: UpkeepHost, native: Native, instanceId: string, next: ReturnType<typeof customModelEditorOp>): Promise<void> {
-  if (!next || !host.writable) return;
+  if (!next || !providerWritable(host)) return;
   customModelEditorOp(host, host, 'saved', instanceId, '', '');
   try {
     await upsertInstance(host, native, instanceId, (instance, driver) => {

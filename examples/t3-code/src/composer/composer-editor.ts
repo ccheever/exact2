@@ -3,6 +3,7 @@
 // command menu's rows (composer-editor-menu.ts), applies a picked row back
 // into the text view, keeps the editor's history and chip records in sync,
 // and builds the send's context records. Contract draws composer-editor.contract.
+import { preserveCitationDraft } from '../timeline/citation-draft';
 import type { T3Client } from '../client/client';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
 import { arr, messages, num, obj, str, type Obj } from '../client/domain';
@@ -211,6 +212,7 @@ export const localId = (): string => uuid();
 
 /** The `composerEditor` resource: the menu for the trigger at the caret, the prompt-length line, and where the drawers go. */
 export async function composerEditorView(client: T3Client, native: Native | null | undefined, now = 0): Promise<ComposerEditorView> {
+  preserveCitationDraft(client);
   const view = await editorView(client, native, now);
   return { ...view, drawer: { ...composerDrawer(client.presentation), hold: composerStackHold(holds(client), client.snapshotOwner, client.presentation) } }; // composer-editor-drawer.ts
 }
