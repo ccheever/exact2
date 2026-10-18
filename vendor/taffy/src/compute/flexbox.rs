@@ -1703,10 +1703,13 @@ fn determine_container_main_size(
 
                                 // A known cross size is transferred through the item's aspect-ratio
                                 // and floors the measured content size
-                                let transferred_main_size = item
-                                    .aspect_ratio
+                                let ratio = Ratio::of(
+                                    &tree.get_flexbox_child_style(item.node),
+                                    (item.padding + item.border).sum_axes(),
+                                );
+                                let transferred_main_size = ratio
                                     .zip(child_known_dimensions.cross(dir))
-                                    .map(|(ratio, cross)| if constants.is_row { cross * ratio } else { cross / ratio });
+                                    .map(|(ratio, cross)| if constants.is_row { ratio.width(cross) } else { ratio.height(cross) });
 
                                 // EXACT PATCH 14: the inner content size; the margin is added after
                                 // the clamp below, as for any outer size.

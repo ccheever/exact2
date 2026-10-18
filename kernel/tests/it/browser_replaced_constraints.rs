@@ -593,3 +593,113 @@ fn flex_ratio_transfers_keep_padding_and_border() {
     ];
     check(cases, &[("canvas", NodeType::Canvas, 0)]);
 }
+
+// Chrome 151.0.7922.34, 2026-10-18: the border-box padding floor can
+// exceed both a definite offer and the percentage default object width.
+#[test]
+fn unsized_ratio_padding_floors_survive_width_offers() {
+    let cases: &[(&str, &str, [Frames; 1])] = &[
+        (
+            "narrow",
+            "aspect-ratio:4/1;box-sizing:border-box;padding:10px",
+            [&[[0.0, 0.0, 50.0, 20.0], [0.0, 0.0, 80.0, 20.0]]],
+        ),
+        (
+            "abs",
+            "width:100%;aspect-ratio:100/1;padding:10px;box-sizing:border-box",
+            [&[[0.0, 0.0, 400.0, 20.0], [0.0, 0.0, 400.0, 20.0]]],
+        ),
+        (
+            "wide-abs",
+            "width:100%;aspect-ratio:100/1;padding:10px;box-sizing:border-box",
+            [&[[0.0, 0.0, 2000.0, 20.0], [0.0, 0.0, 2000.0, 20.0]]],
+        ),
+    ];
+    check(
+        cases,
+        &[
+            ("video", NodeType::Video, 0),
+            ("iframe", NodeType::WebView, 0),
+            ("svg", NodeType::Svg, 0),
+        ],
+    );
+}
+
+// Chrome 151.0.7922.34, 2026-10-18: an absolute block holds the flex
+// container; the canvases grow from their content flex bases.
+#[test]
+fn intrinsic_flex_ratio_transfers_keep_padding_and_border() {
+    let cases: &[(&str, &str, [Frames; 1])] = &[
+        (
+            "intrinsic-row",
+            "flex-grow:1;padding:10px;box-sizing:content-box",
+            [&[
+                [0.0, 0.0, 360.0, 100.0],
+                [0.0, 0.0, 360.0, 100.0],
+                [0.0, 0.0, 180.0, 100.0],
+                [180.0, 0.0, 180.0, 100.0],
+            ]],
+        ),
+        (
+            "intrinsic-row",
+            "flex-grow:1;padding:10px;box-sizing:border-box",
+            [&[
+                [0.0, 0.0, 360.0, 100.0],
+                [0.0, 0.0, 360.0, 100.0],
+                [0.0, 0.0, 180.0, 100.0],
+                [180.0, 0.0, 180.0, 100.0],
+            ]],
+        ),
+        (
+            "intrinsic-row",
+            "padding:10px;box-sizing:border-box",
+            [&[
+                [0.0, 0.0, 360.0, 100.0],
+                [0.0, 0.0, 360.0, 100.0],
+                [0.0, 0.0, 180.0, 100.0],
+                [180.0, 0.0, 180.0, 100.0],
+            ]],
+        ),
+        (
+            "intrinsic-row",
+            "flex-grow:1;padding:10px;box-sizing:border-box;aspect-ratio:2/1",
+            [&[
+                [0.0, 0.0, 400.0, 100.0],
+                [0.0, 0.0, 400.0, 100.0],
+                [0.0, 0.0, 200.0, 100.0],
+                [200.0, 0.0, 200.0, 100.0],
+            ]],
+        ),
+        (
+            "intrinsic-row",
+            "flex-grow:1;padding:10px;box-sizing:border-box;aspect-ratio:auto 3/1",
+            [&[
+                [0.0, 0.0, 360.0, 100.0],
+                [0.0, 0.0, 360.0, 100.0],
+                [0.0, 0.0, 180.0, 100.0],
+                [180.0, 0.0, 180.0, 100.0],
+            ]],
+        ),
+        (
+            "intrinsic-row",
+            "flex-grow:1;padding:10px;padding-left:5px;padding-right:5px;border-width:2px;border-style:solid;box-sizing:content-box",
+            [&[
+                [0.0, 0.0, 332.0, 100.0],
+                [0.0, 0.0, 332.0, 100.0],
+                [0.0, 0.0, 166.0, 100.0],
+                [166.0, 0.0, 166.0, 100.0],
+            ]],
+        ),
+        (
+            "intrinsic-column",
+            "flex-grow:1;padding:2px;padding-left:15px;padding-right:15px;border-width:2px;border-style:solid;box-sizing:content-box",
+            [&[
+                [0.0, 0.0, 100.0, 82.0],
+                [0.0, 0.0, 100.0, 82.0],
+                [0.0, 0.0, 100.0, 41.0],
+                [0.0, 41.0, 100.0, 41.0],
+            ]],
+        ),
+    ];
+    check(cases, &[("canvas", NodeType::Canvas, 0)]);
+}

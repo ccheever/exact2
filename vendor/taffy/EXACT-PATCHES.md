@@ -1152,9 +1152,9 @@ that caps a transferred minimum.
 
 ## Patch 39: retain the ratio's inset in flex sizing and intrinsic floors
 
-The definite-cross-size flex basis and min/max transfers into unsized axes use
-`Ratio::width` and `Ratio::height`. Both flex-basis and hypothetical-cross-size
-calculation subtract the source-axis inset and restore the destination-axis
+The definite-cross-size flex basis, intrinsic main-size contribution and min/max
+transfers into unsized axes use `Ratio::width` and `Ratio::height`.
+These conversions subtract the source-axis inset and restore the destination-axis
 inset for a content-box ratio. An authored border-box ratio uses zero inset.
 A padded canvas stretched to 100px tall therefore has a 180px flex basis:
 80px of content height at 2:1, plus 20px of horizontal padding.
@@ -1162,14 +1162,20 @@ A padded canvas stretched to 100px tall therefore has a 180px flex basis:
 The kernel's intrinsic measurement of a replaced element without natural size
 also transfers the vertical padding/border floor through an authored border-box
 ratio. Its content height cannot become negative, so its automatic width must
-fit that floor before the leaf applies constraints. An explicitly given width
-still wins; content-box ratios retain their zero content-size contribution.
+fit that floor before the leaf applies constraints. The floor can exceed an
+offered width or the percentage fallback; an explicitly given width still wins.
+Content-box ratios retain their zero content-size contribution.
 
 **Held by** `browser_replaced::constraints::intrinsic_padding_floors_preserve_the_replaced_ratio`
 and `flex_ratio_transfers_keep_padding_and_border`: literal Chrome 151.0.7922.34
 frames measured on 2026-10-18. Cases cover metadata-free videos in block flex
 items, stretched canvases, both flex axes and box-sizing modes, width and height
 maxima, asymmetric padding with borders, and authored and auto ratios.
+`intrinsic_flex_ratio_transfers_keep_padding_and_border` holds growing canvases
+inside a shrink-to-fit block, including column sizing and zero-grow controls.
+`unsized_ratio_padding_floors_survive_width_offers` holds video, iframe and SVG
+floors against narrow definite offers and cyclic percentage widths, including
+an offer wide enough to expose the full max-content contribution.
 
 ## Cargo workspace boundary
 

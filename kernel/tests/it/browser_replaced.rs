@@ -892,6 +892,17 @@ fn lay_out_held(layout: &str, item: &str, kind: NodeType, view_box: bool) -> Ker
         ),
         "row" => ("display:flex", &[(3, ""), (4, "")], &[(5, 3), (6, 4)]),
         "direct" => ("display:flex", &[], &[(3, 2), (4, 2)]),
+        "narrow" => ("width:50px", &[], &[(3, 2)]),
+        "intrinsic-row" => (
+            "position:absolute",
+            &[(3, "display:flex;height:100px")],
+            &[(4, 3), (5, 3)],
+        ),
+        "intrinsic-column" => (
+            "position:absolute",
+            &[(3, "display:flex;flex-direction:column;width:100px")],
+            &[(4, 3), (5, 3)],
+        ),
         "stretch-row" => ("display:flex;height:100px", &[], &[(3, 2), (4, 2)]),
         "stretch-column" => (
             "display:flex;flex-direction:column;height:500px",
@@ -905,7 +916,8 @@ fn lay_out_held(layout: &str, item: &str, kind: NodeType, view_box: bool) -> Ker
         ),
         _ => ("position:absolute", &[], &[(3, 2)]),
     };
-    let root = props(&[vec![(Width, n(400.0))], rows("position:relative")].concat());
+    let width = if layout == "wide-abs" { 4000.0 } else { 400.0 };
+    let root = props(&[vec![(Width, n(width))], rows("position:relative")].concat());
     let mut nodes = vec![(2, 1, rows(wrapper))];
     nodes.extend(inner.iter().map(|(id, r)| (*id, 2, rows(r))));
     let mut k = lay_out_as(root, nodes, &[], &[], NodeType::View);
