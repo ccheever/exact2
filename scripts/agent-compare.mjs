@@ -464,9 +464,11 @@ export function referenceNote(ops, appDir, say = console.error) {
   const shots = ops.map((line) => line.trim().split(/\s+/)).filter(([op, png, ...rest]) => op === 'screenshot' && png && !rest.includes('compare') && rest[0] !== 'over' && rest[1] !== 'save');
   if (!shots.length) return;
   const dirs = [appDir, process.cwd()].filter(Boolean).flatMap((base) => ['ref', 'reference', 'references'].map((name) => resolve(base, name)));
-  const dir = dirs.find((d) => existsSync(d) && readdirSync(d).some((f) => f.endsWith('.png')));
+  // A file of that name, or a folder that cannot be read, gives no note rather than ending the drive.
+  const pngsIn = (d) => { try { return readdirSync(d).filter((f) => f.endsWith('.png')); } catch { return []; } };
+  const dir = dirs.find((d) => pngsIn(d).length);
   if (!dir) return;
-  const shown = relative(process.cwd(), dir) || '.', pngs = readdirSync(dir).filter((f) => f.endsWith('.png'));
+  const shown = relative(process.cwd(), dir) || '.', pngs = pngsIn(dir);
   const [, png] = shots.find(([, png]) => pngs.includes(basename(png))) ?? shots[0], same = pngs.includes(basename(png)) ? basename(png) : '<name>.png';
   say(`note: ${shown}/ holds ${pngs.length} reference picture${pngs.length === 1 ? '' : 's'}: "screenshot ${png} compare ${shown}/${same}" says in text where the screen differs from one, with no picture to view`);
 }
