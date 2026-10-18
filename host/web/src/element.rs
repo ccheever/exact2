@@ -1181,7 +1181,9 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     // marked, as a switch and a date field are above: `appearance="none"`
     // hands the box to the author. And a row the author wrote where the
     // sheet would draw over an inherited or implied one (D2's bit) is named:
-    // a spinner's own `color`, a grouped list's own ground.
+    // a spinner's own `color`, a grouped list's own ground, and a button's
+    // fill, which hovers in its own ink (LLP 1129 D1; a fill computed at run
+    // time is not seen here).
     use exact_kernel::{ControlKind, StyleId};
     let kind = ControlKind::of(node.node_type, node.props);
     if node.style.appearance == exact_kernel::Appearance::Auto
@@ -1197,6 +1199,13 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     let said = match kind {
         Some(ControlKind::Progress) => Some((StyleId::TextColor, "color")),
         _ if node.props.get(PropId::ListStyle).is_some() => {
+            Some((StyleId::BackgroundColor, "background-color"))
+        }
+        _ if element(node) == "button"
+            && node.node_type == NodeType::Pressable
+            && (node.style.background_color)
+                .is_some_and(|c| c.resolve(false).a() != 0 || c.resolve(true).a() != 0) =>
+        {
             Some((StyleId::BackgroundColor, "background-color"))
         }
         _ => None,

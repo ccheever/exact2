@@ -3295,6 +3295,16 @@ scheme=fixed`), and `lower-colour-one-scheme` leaves it alone; an unmarked one
 is reported once, at its line in the design. `pair=surface.page` after a
 foreground's value names what it is drawn on (a token or a role);
 `contract tamber check` warns when the two fall below 4.5:1 (`tamber-contrast`).
+The brand's states come from the theme, not a hatch (LLP 1129): `AccentColor =
+accent` is the app's tint, so the keyboard's focus ring is drawn in it (on the web
+a solid 2 px line, which reads on a control filled with the accent); `Highlight`
+and `HighlightText` colour selected text on the web (iOS draws it in the tint); a
+`button` you fill (`background-color="accent"`) hovers in its own ink, as the
+filled button does; a sheet's corners are `border-radius` on its route. A button
+in the brand's shape is a face you write on a `button` with no `buttonStyle`; a
+`buttonStyle` is the platform's control, which takes the accent and no radius
+(`lower-button-style`), and `ButtonText` and `LinkText` are the tint's, not the
+theme's (`lower-theme-tint`).
 A type token is CSS `font` syntax (`type.body = -exact-body/1.35 "InterVariable"`):
 `font="type.body"` writes only the longhands it names, so the text style's own
 weight applies where it names none, and a size in px is warned of
