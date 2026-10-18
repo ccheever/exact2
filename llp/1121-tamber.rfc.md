@@ -3798,7 +3798,7 @@ author wrote says where.
 
 ### Stage 9, commit E: held rows name their tokens (draft for theme2)
 
-Built to the approved plan (`~/x2theme/x2p4-s9e-plan.md`; theme2's 16:13 ruling and its conditions), the first item under `tamber/1.12`.
+Built to the approved plan (`~/x2theme/x2p4-s9e-plan.md`; theme2's 16:13 ruling and its conditions), under `tamber/1.12`.
 
 - **The runner** (`runner/src/agent.rs` `node`): the answer gains `looks {hover?, focus_visible?}`, each look row as a style row is, its value and the token it read (`Runner::look_token`, from the theme index's look rows under the node's tuple). So every host reads a look's rows, and their tokens, from one place.
 - **The held answer, every host**: `held {state, node, site, instance, rows: [{name, value, token?}]}`, the node being the one the state is held on (the press it resolved to, named on a node inside it). Rows: `active` the node's own D7 rows from the runner's answer; a look's from its `looks`.
@@ -3815,7 +3815,7 @@ Built to the approved plan (`~/x2theme/x2p4-s9e-plan.md`; theme2's 16:13 ruling 
   - The join checks the held node's own files (its file, chain and parts) for freshness, as the selected node's.
   - Tests: the clear said; a JS link's held node; the held node's moved file read-only; Linux's held answer names the card from the child's layout too.
 - **After review round 2 (Astra, Grok):**
-  - `hello` reports `tamber/1.12` (the server's `PROTOCOL`, its tests and the guide's version lines).
+  - (At landing: `tamber/1.12` was opened on main by D1 and rt1's held revision; E's items joined that one bullet, theme2's 18:44.)
   - The JS target names a role's override too (`var(--exact-canvas-text)` is `CanvasText`, modes.js's table), a host's own property still none.
   - A site the inspect table lacks gives the held answer no instance path (not the root's `[]`).
   - Tests: the runtime's id names a JS link; a role override named; `cargo fmt` over the new tests.
