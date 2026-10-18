@@ -21,7 +21,9 @@ test('the first provisioned app launch migrates login secrets, retaining origina
       cpSync(binary, resolve(bundle, 'Contents/MacOS/Fixture'));
       writeFileSync(resolve(bundle, 'Contents/Info.plist'), plistFile({ CFBundleIdentifier: 'dev.exact.migration', CFBundleExecutable: 'Fixture',
         CFBundlePackageType: suffix === 'app' ? 'APPL' : 'XPC!', ExactAppIdentifier: 'dev.exact.migration', ExactKeychainAccessGroup: 'TEAM.dev.exact.migration' }));
-      run(resolve(bundle, 'Contents/MacOS/Fixture'), [mode]);
+      for (const scenario of mode === 'app' ? ['app', 'denied', 'canceled', 'locked', 'decode', 'missing-account', 'missing-data', 'locked-list'] : [mode]) {
+        run(resolve(bundle, 'Contents/MacOS/Fixture'), [scenario]);
+      }
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

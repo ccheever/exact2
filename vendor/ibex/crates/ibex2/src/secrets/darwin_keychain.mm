@@ -11,7 +11,8 @@
 // widget cohort uses its explicit restricted data-protection access group
 // instead (LLP 1126.001 WP16). At provisioned app startup it migrates the
 // service's login items, deleting each only after a successful copy. The
-// extension never reads or migrates the login keychain.
+// move is one-way: an unprovisioned build cannot read the moved items.
+// The extension never reads or migrates the login keychain.
 //
 // @ref LLP 0069#3-the-backends — the Keychain, and why the login keychain on macOS
 
@@ -72,17 +73,40 @@ NSMutableDictionary *query_for(const char *service, const char *name) {
 OSStatus migrate_login_items(NSString *service, NSString *group) {
   NSMutableDictionary *query = [@{(__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
       (__bridge id)kSecAttrService : service, (__bridge id)kSecUseDataProtectionKeychain : @NO,
-      (__bridge id)kSecReturnAttributes : @YES, (__bridge id)kSecReturnData : @YES,
+      (__bridge id)kSecReturnAttributes : @YES, (__bridge id)kSecReturnPersistentRef : @YES,
       (__bridge id)kSecMatchLimit : (__bridge id)kSecMatchLimitAll} mutableCopy];
   CFTypeRef result = nullptr;
   OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &result);
   if (status == errSecItemNotFound) return errSecSuccess;
   if (status != errSecSuccess) return status;
   NSArray *items = (__bridge_transfer NSArray *)result;
+  if (![items isKindOfClass:NSArray.class]) return errSecDecode;
+  OSStatus first_error = errSecSuccess;
   for (NSDictionary *item in items) {
+    if (![item isKindOfClass:NSDictionary.class]) {
+      if (first_error == errSecSuccess) first_error = errSecDecode;
+      continue;
+    }
     NSString *account = item[(__bridge id)kSecAttrAccount];
-    NSData *value = item[(__bridge id)kSecValueData];
-    if (account == nil || value == nil) return errSecDecode;
+    NSData *reference = item[(__bridge id)kSecValuePersistentRef];
+    if (![account isKindOfClass:NSString.class] || ![reference isKindOfClass:NSData.class]) {
+      if (first_error == errSecSuccess) first_error = errSecDecode;
+      continue;
+    }
+    // Ask for data separately: denying one legacy ACL must not withhold the
+    // other items. Keep the persistent ref so deletion names the item copied.
+    NSDictionary *old = @{(__bridge id)kSecValuePersistentRef : reference,
+        (__bridge id)kSecUseDataProtectionKeychain : @NO};
+    NSMutableDictionary *read = [old mutableCopy];
+    read[(__bridge id)kSecReturnData] = @YES;
+    CFTypeRef data = nullptr;
+    status = SecItemCopyMatching((__bridge CFDictionaryRef)read, &data);
+    NSData *value = (__bridge_transfer NSData *)data;
+    if (status == errSecSuccess && ![value isKindOfClass:NSData.class]) status = errSecDecode;
+    if (status != errSecSuccess) {
+      if (first_error == errSecSuccess) first_error = status;
+      continue;
+    }
     NSDictionary *destination = @{(__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
         (__bridge id)kSecAttrService : service, (__bridge id)kSecAttrAccount : account,
         (__bridge id)kSecAttrAccessGroup : group, (__bridge id)kSecUseDataProtectionKeychain : @YES,
@@ -91,14 +115,14 @@ OSStatus migrate_login_items(NSString *service, NSString *group) {
     status = SecItemAdd((__bridge CFDictionaryRef)destination, nullptr);
     // A newer shared item wins over an old login item, including after a
     // crash between the prior copy and delete. Never overwrite it.
-    if (status != errSecSuccess && status != errSecDuplicateItem) return status;
-    NSDictionary *old = @{(__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
-        (__bridge id)kSecAttrService : service, (__bridge id)kSecAttrAccount : account,
-        (__bridge id)kSecUseDataProtectionKeychain : @NO};
+    if (status != errSecSuccess && status != errSecDuplicateItem) {
+      if (first_error == errSecSuccess) first_error = status;
+      continue;
+    }
     status = SecItemDelete((__bridge CFDictionaryRef)old);
-    if (status != errSecSuccess && status != errSecItemNotFound) return status;
+    if (status != errSecSuccess && status != errSecItemNotFound && first_error == errSecSuccess) first_error = status;
   }
-  return errSecSuccess;
+  return first_error;
 }
 
 OSStatus prepare_service(const char *service) {
@@ -107,15 +131,15 @@ OSStatus prepare_service(const char *service) {
   NSString *group = [bundle objectForInfoDictionaryKey:@"ExactKeychainAccessGroup"];
   if (!group.length || ![owner isEqualToString:[NSString stringWithUTF8String:service]] ||
       ![bundle.bundlePath.pathExtension isEqualToString:@"app"]) return errSecSuccess;
-  static NSMutableSet<NSString *> *completed;
+  static NSMutableSet<NSString *> *attempted;
   static dispatch_once_t once;
-  dispatch_once(&once, ^{ completed = [NSMutableSet new]; });
-  @synchronized(completed) {
+  dispatch_once(&once, ^{ attempted = [NSMutableSet new]; });
+  @synchronized(attempted) {
     NSString *key = [NSString stringWithFormat:@"%@/%@", group, owner];
-    if ([completed containsObject:key]) return errSecSuccess;
-    OSStatus status = migrate_login_items(owner, group);
-    if (status == errSecSuccess) [completed addObject:key];
-    return status;
+    if ([attempted containsObject:key]) return errSecSuccess;
+    // A denied or locked item waits for another launch, never another I/O call.
+    [attempted addObject:key];
+    return migrate_login_items(owner, group);
   }
 }
 #else
@@ -142,11 +166,6 @@ int ibex2_darwin_keychain_get(const char *service, const char *name, unsigned ch
     *out_value = nullptr;
     *out_len = 0;
     *out_error = nullptr;
-    OSStatus prepared = prepare_service(service);
-    if (prepared != errSecSuccess) {
-      *out_error = status_message(prepared);
-      return -1;
-    }
     NSMutableDictionary *query = query_for(service, name);
     query[(__bridge id)kSecReturnData] = @YES;
     query[(__bridge id)kSecMatchLimit] = (__bridge id)kSecMatchLimitOne;
@@ -176,11 +195,6 @@ int ibex2_darwin_keychain_set(const char *service, const char *name, const unsig
                               size_t len, char **out_error) {
   @autoreleasepool {
     *out_error = nullptr;
-    OSStatus prepared = prepare_service(service);
-    if (prepared != errSecSuccess) {
-      *out_error = status_message(prepared);
-      return -1;
-    }
     NSData *data = [NSData dataWithBytes:value length:len];
     NSMutableDictionary *query = query_for(service, name);
     NSDictionary *update = @{(__bridge id)kSecValueData : data};
@@ -206,11 +220,6 @@ int ibex2_darwin_keychain_set(const char *service, const char *name, const unsig
 int ibex2_darwin_keychain_forget(const char *service, const char *name, char **out_error) {
   @autoreleasepool {
     *out_error = nullptr;
-    OSStatus prepared = prepare_service(service);
-    if (prepared != errSecSuccess) {
-      *out_error = status_message(prepared);
-      return -1;
-    }
     OSStatus status = SecItemDelete((__bridge CFDictionaryRef)query_for(service, name));
     if (status != errSecSuccess && status != errSecItemNotFound) {
       *out_error = status_message(status);

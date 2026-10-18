@@ -6,8 +6,11 @@
 `ExactKeychainAccessGroup` in the data-protection Keychain for a provisioned
 Apple widget cohort. Ordinary Mac apps keep the login Keychain. The containing
 app migrates its service's login items on its first provisioned launch;
-copy failure keeps the old item, and an existing shared item wins. Extensions
-never attempt the migration. The Objective-C fixture in
+copy failure keeps the old item, and an existing shared item wins. Migration
+runs once per process, from `prepare` only. An unreadable item is skipped;
+errors are logged without withholding the app's I/O. Retained items can be
+retried on the next launch. The move is one-way. Extensions never migrate.
+The Objective-C fixture in
 `host/apple/tests/fixtures/keychain-migration.mm` exercises retries and failures
 with substituted Security calls; signed Keychain access still needs profiles.
 
