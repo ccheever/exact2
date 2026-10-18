@@ -10,6 +10,8 @@ import type { T3Client } from '../client/client';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
+import { applyShell, initialShell } from '../client/domain';
+import { environmentClient } from './projects-fleet';
 
 type Pending = { scope: string; title: string };
 const pending = new WeakMap<T3Client, Pending>();
@@ -46,7 +48,7 @@ export async function archiveCommand(client: T3Client, native: Native, storage: 
   if (!scope) throw new ClientError('That archived thread is no longer available.');
   const clicked = value;
   if (clicked === 'unarchive') {
-    try { await archive(client).manageArchivedThread(native, storage, 'unarchive-thread', scope); }
+    try { await manage(client, native, storage, 'unarchive-thread', scope); }
     catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to unarchive thread', description: failure(error) }); }
     return '';
   }
@@ -58,7 +60,23 @@ export async function archiveCommand(client: T3Client, native: Native, storage: 
   return '';
 }
 async function remove(client: T3Client, native: Native, storage: Files, scope: string): Promise<string> {
-  try { await archive(client).manageArchivedThread(native, storage, 'delete-archived-thread', scope); }
+  try { await manage(client, native, storage, 'delete-archived-thread', scope); }
   catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to delete thread', description: failure(error) }); }
   return '';
+}
+
+/** Archive rows retain their owner's environment even when the project spans several machines. */
+async function manage(client: T3Client, native: Native, storage: Files, op: string, scope: string): Promise<void> {
+  const [environmentId, projectId, id, extra] = scope.split(':');
+  if (!environmentId || !projectId || !id || extra !== undefined) throw new ClientError('That archived thread is no longer available.');
+  if (environmentId === client.environmentId) return archive(client).manageArchivedThread(native, storage, op, scope);
+  const remote = environmentClient(client, environmentId, native), access = remote.restAccess(native);
+  if (!remote.writable) throw new ClientError('That environment is read-only.');
+  const archived = applyShell(initialShell(), await access.read('orchestration.getArchivedShellSnapshot'));
+  if (!archived.projects.some(project => project.id === projectId) || !archived.threads.some(thread => thread.id === id && thread.projectId === projectId)) {
+    throw new ClientError('That archived thread is no longer available.');
+  }
+  await access.dispatch(storage, { type: op === 'unarchive-thread' ? 'thread.unarchive' : 'thread.delete', threadId: id }, op === 'unarchive-thread' ? 'Unarchive thread' : 'Delete archived thread');
+  remote.shell = applyShell(initialShell(), await access.http('/api/orchestration/shell'));
+  if (op === 'delete-archived-thread') delete client.local.drafts[`${environmentId}:${id}`];
 }

@@ -11,9 +11,12 @@ import { projectActions, resolveScripts, overridesScripts } from './settings-b-a
 import { iconFields, blankIconFields } from './settings-b-icons';
 import type { Native } from '../client/protocol';
 import { environmentClient, environmentLabel, memberRef, memberThreads, settingsGroups } from './projects-fleet';
+import { settingsScopeEnvironmentLabels } from './settings-scope';
+import { scopeNoticeGroups, type ScopeNoticeGroup } from './settings-scope-notice';
+import { scopeEnvironments, scopeProjectGroups } from './settings-scope-sources';
 
 type Choice = { value: string; label: string; selected: boolean };
-const blank: ScopedRow = { key: '', kind: 'select', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', traitsLabel: '', traits: [] };
+const blank: ScopedRow = { key: '', kind: 'select', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], layerGroups: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', traitsLabel: '', traits: [] };
 
 function iconDescription(project: Obj): string {
   const icon = obj(project.projectIcon);
@@ -24,13 +27,14 @@ function iconDescription(project: Obj): string {
 }
 
 export function projectsPage(client: T3Client, projectKey: string, checkout: string, active: boolean) {
-  const empty = { ready: false, selected: false, message: '', choices: [] as { key: string; label: string; member: string }[], confirmTitle: '', confirmDescription: '', key: '', name: '', mark: '', ink: '', surface: '', icon: 'Automatic', iconCustom: false,
-    members: [] as { id: string; title: string; path: string; environment: string; first: boolean }[], hasOther: false, threads: 0,
+  const empty = { ready: false, selected: false, message: '', noticeGroups: [] as ScopeNoticeGroup[], confirmTitle: '', confirmDescription: '', key: '', name: '', mark: '', ink: '', surface: '', icon: 'Automatic', iconCustom: false,
+    members: [] as { id: string; title: string; path: string; environment: string; first: boolean }[], checkoutGroups: [] as { id: string; label: string; secondary: string; members: { id: string; title: string; path: string }[]; first: boolean }[], hasOther: false, threads: 0,
     workspace: blank, removeTitle: '', removeDescription: '', removeLabel: '', confirm: '', removeTarget: '', names: [] as string[] };
   if (!active) return empty;
   const groups = settingsGroups(client);
   if (!client.ready) return { ...empty, ready: true, message: 'Connect an environment to manage its projects.' };
-  if (!projectKey) return { ...empty, ready: true, choices: groups.map(group => ({ key: group.key, label: group.name, member: str(group.members[0]?.id) })),
+  // ProjectsSettings: SettingsScopeNotice target="project".
+  if (!projectKey) return { ...empty, ready: true, noticeGroups: groups.length ? scopeNoticeGroups('project', scopeProjectGroups(client), scopeEnvironments(client)) : [],
     message: 'Choose a project to manage its name, icon, checkouts and actions.' };
   const group = groups.find(candidate => candidate.key === projectKey);
   // A stale project or checkout is explained once, by the scope sentence's notice (settings-core).
@@ -49,11 +53,21 @@ export function projectsPage(client: T3Client, projectKey: string, checkout: str
   const identity = projectIdentity(group.name);
   const whole = members.length === group.members.length && !hasOther;
   const kind = hasOther || !whole ? 'checkout' : 'project';
+  const machines = scopeEnvironments(client), checkouts = new Map<string, { id: string; title: string; path: string }[]>();
+  for (const member of members) {
+    const environmentId = memberRef(client, str(member.id)).environmentId;
+    checkouts.set(environmentId, [...(checkouts.get(environmentId) ?? []), { id: str(member.id), title: str(member.title), path: str(member.workspaceRoot) }]);
+  }
+  const checkoutGroups = checkouts.size > 1 ? [...checkouts].map(([id, entries], index) => {
+    const environment = machines.find(machine => machine.environmentId === id);
+    const labels = environment ? settingsScopeEnvironmentLabels(environment, machines) : { primary: environmentLabel(client, id), secondary: id };
+    return { id, label: labels.primary, secondary: labels.secondary, members: entries.map((member, index) => ({ ...member, environment: labels.primary, first: index === 0 })), first: index === 0 };
+  }) : [];
   const single = members.length === 1 ? representative : undefined;
   return { ...empty, ready: true, selected: true, key: group.key, name: group.name, mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface,
     icon: iconDescription(representative), iconCustom: group.members.some(member => member.faviconPath != null || member.projectIcon != null),
     members: group.members.length > 1 ? members.map((member, index) => ({ id: str(member.id), title: str(member.title), path: str(member.workspaceRoot), environment: environmentLabel(client, memberRef(client, str(member.id)).environmentId), first: index === 0 })) : [],
-    hasOther, threads,
+    hasOther, threads, checkoutGroups,
     workspace: { ...blank, ...inheritance(settings, projectId, 'defaultThreadEnvMode', environment), key: 'defaultThreadEnvMode', kind: 'select', title: 'Workspace', description: 'Where new threads in this project start.', disabled: !home.writable,
       value: envMode, valueLabel: envMode === 'worktree' ? 'New worktree' : 'Current checkout', options: [{ value: 'local', label: 'Current checkout', selected: envMode === 'local' }, { value: 'worktree', label: 'New worktree', selected: envMode === 'worktree' }],
       reset: Object.prototype.hasOwnProperty.call(override, 'defaultThreadEnvMode') ? 'key=defaultThreadEnvMode&value=__inherit__' : '' },

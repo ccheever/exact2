@@ -157,6 +157,7 @@ export class Session {
         case 'retry': return await this.retryNow(request);
         case 'disconnect': return this.disconnect(request);
         case 'http': return await this.readHTTP(request);
+        case 'previewStreamAccess': return await this.previewStreamAccess();
         case 'uploadAttachment': return await this.uploadAttachment(request);
         case 'request': return await new Promise<Reply>(done => this.rpc(request, done));
         case 'subscribe': return this.subscribe(request);
@@ -249,7 +250,7 @@ export class Session {
     return result.slice(0, 700);
   }
   failure(error: unknown): TransportFailure {
-    if (error instanceof TransportFailure) return new TransportFailure(error.kind, this.clean(error.message), error.uncertain, error.reason, this.clean(error.detail));
+    if (error instanceof TransportFailure) return new TransportFailure(error.kind, this.clean(error.message), error.uncertain, error.reason, this.clean(error.detail), error.context);
     return new TransportFailure('Network', this.clean(error instanceof Error ? error.message : String(error)));
   }
 
@@ -880,6 +881,17 @@ export class Session {
   }
 
   // MARK: HTTP ops
+
+  private async previewStreamAccess(): Promise<Reply> {
+    if (this.state !== 'connected') throw new TransportFailure('Disconnected', 'The server is not connected.');
+    const epoch = this.generation, origin = this.origin;
+    const ticket = str(obj(await this.http('/api/auth/websocket-ticket', { epoch, method: 'POST' })).ticket);
+    if (!ticket) throw new TransportFailure('Protocol', 'The server did not issue a WebSocket ticket.');
+    if (epoch !== this.generation || origin !== this.origin) throw new TransportFailure('stale', 'The connection changed while preparing the browser stream.');
+    this.privateValues.push(ticket);
+    this.privateValues = this.privateValues.slice(-32);
+    return this.ok({ httpBase: `${origin}/api/preview-stream`, wsBase: `${origin.replace(/^http/, 'ws')}/api/preview-stream`, ticket });
+  }
 
   private async readHTTP(request: Obj): Promise<Reply> {
     if (this.state !== 'connected') throw new TransportFailure('Disconnected', 'The server is not connected.');

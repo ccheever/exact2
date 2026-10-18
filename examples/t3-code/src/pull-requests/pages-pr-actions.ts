@@ -48,16 +48,16 @@ export function pullRequestOverrideAfterAction(entry: { state?: unknown; isDraft
   }
 }
 /** applyPullRequestOverrides: the rows with their pending answers written over them, and the ones the list's state filter no longer holds dropped. */
+// A row the host already answers in another state goes too, so a close confirmed after its override settled stays hidden.
 export function applyPullRequestOverrides<Entry extends Obj>(entries: readonly Entry[], overrides: ReadonlyMap<string, ListOverride>, keyOf: (entry: Entry) => string, state: string): readonly Entry[] {
-  if (overrides.size === 0) return entries;
+  if (overrides.size === 0 && state === 'all') return entries;
   const out: Entry[] = [];
   for (const entry of entries) {
     const override = overrides.get(keyOf(entry));
-    if (override === undefined) { out.push(entry); continue; }
-    if (state !== 'all' && override.state !== state) continue;
-    out.push({ ...entry, ...override });
+    if (state !== 'all' && (override?.state ?? entry.state) !== state) continue;
+    out.push(override === undefined ? entry : { ...entry, ...override });
   }
-  return out;
+  return overrides.size === 0 && out.length === entries.length ? entries : out;
 }
 /** How long a read that disagrees is taken for a stale one rather than for news. */
 export const PULL_REQUEST_OVERRIDE_TRUST_MS = 60_000;
@@ -270,7 +270,6 @@ export function notedListEntry(client: object, selection: { projectId: string; h
 /** The list's rows with the panel's overrides over them (applyPullRequestOverrides), for pages-prs.ts. */
 export function overrideListEntries(client: object, entries: Obj[], listState: string): Obj[] {
   const overrides = actionState(client).overrides;
-  if (!overrides.size) return entries;
   const strip = new Map([...overrides].map(([key, { state, isDraft, updatedAt }]) => [key, { state, ...(isDraft === undefined ? {} : { isDraft }), updatedAt } as unknown as ListOverride]));
   return [...applyPullRequestOverrides(entries, strip, entryKeyOf, listState)];
 }

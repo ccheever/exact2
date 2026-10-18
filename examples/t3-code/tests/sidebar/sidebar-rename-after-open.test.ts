@@ -66,11 +66,11 @@ describe('the window holds a double-click\'s rename until its first click\'s ope
   test('the open\'s result starts the held rename and leaves the composer unfocused', () => {
     const { calls, scope } = recorder();
     const state: Env = { renameAfterOp: 'rename-start', renameAfterId: 'fleet:env-b:t1', noticeExit: 'x', routeKeyboard: '', modalError: '', pendingModal: '', commandPending: true,
-      draftOwner: '', jumpRequest: 0, utilityPage: '' };
+      draftOwner: '', jumpRequest: 0, utilityPage: '', lineageStopping: 'kid' };
     const result = { message: 'focus:composer', relaunch: false, routeReorder: 0 };
     root.call('commandCompleted', state, { ...scope, changed: result, data: { sidebar: { renameId: '' } } }, []);
     expect(calls).toEqual(['command:sidebarlocal:rename-start,fleet:env-b:t1,,0']);
-    expect(state).toMatchObject({ renameAfterOp: '', commandPending: false });
+    expect(state).toMatchObject({ renameAfterOp: '', commandPending: false, lineageStopping: '' });
     // With no rename held, the open focuses the composer as ChatView does.
     const plain = recorder();
     root.call('commandCompleted', { ...state, renameAfterOp: '', renameAfterId: '' }, { ...plain.scope, changed: result, data: { sidebar: { renameId: '' } } }, []);
@@ -161,7 +161,7 @@ describe('no composer focus the open causes lands while its double-click\'s rena
       openSettings: record('openSettings'), routeKeyboardComplete: () => '', routeKeyboardOwned: false } as Env;
   };
   const fresh = (): Env => ({ renameAfterOp: '', renameAfterId: '', noticeExit: '', routeKeyboard: '', modalError: '', pendingModal: '', commandPending: true,
-    draftOwner: '', jumpRequest: 0, utilityPage: '' });
+    draftOwner: '', jumpRequest: 0, utilityPage: '', lineageStopping: '' });
   const focusResult = { message: 'focus:composer', relaunch: false, routeReorder: 0 };
 
   test('the slow order: the open lands, the rename waits for the shell, a later open result asks for the composer', () => {

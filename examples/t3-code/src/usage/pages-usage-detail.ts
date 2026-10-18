@@ -4,7 +4,7 @@
 // UsageModelDialog,usageBreakdown}.ts(x) and UsagePage.tsx.
 import { arr, type Obj } from '../client/domain';
 import {
-  buildChart, formatPercent, formatTokens, formatUsd, isModelCostUnknown, mergeUsage, PROVIDERS,
+  buildChart, emptyChart, formatPercent, formatTokens, formatUsd, isModelCostUnknown, mergeUsage, PROVIDERS,
   type CategoryCost, type Chart, type Merged, type ModelTotals, type ProviderKind, type SpeedCost, type TokenTotals,
 } from './pages-usage';
 
@@ -104,7 +104,7 @@ export type ModelDetailView = {
   chartTitle: string; chart: Chart; plotWidth: number; shares: ShareBarView[]; unpricedNote: string;
 };
 export function emptyDetail(): ModelDetailView {
-  return { open: false, key: '', model: '', driver: '', description: '', stats: [], chartTitle: '', chart: { ticks: [], series: [], start: '', middle: '', end: '' }, plotWidth: 0, shares: [], unpricedNote: '' };
+  return { open: false, key: '', model: '', driver: '', description: '', stats: [], chartTitle: '', chart: emptyChart(), plotWidth: 0, shares: [], unpricedNote: '' };
 }
 /** DialogPopup max-w-3xl inside the 16pt viewport inset, less its border, DialogPanel p-6 and the 64pt axis. */
 export function dialogPlotWidth(viewportWidth: number): number {

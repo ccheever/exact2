@@ -1,12 +1,12 @@
 // Pierre file-icon resolution (@pierre/trees createFileTreeIconResolver, Apache-2.0, with T3's
 // T3_PIERRE_ICONS overrides, MIT; see LICENSE-T3): a path or fence language to the icon token that
-// timeline-files.contract draws. Pierre's own tables are generated (timeline-files-tables.ts,
+// timeline-files.contract draws (T3 Code 9c161462c9). Pierre's own tables are generated (timeline-files-tables.ts,
 // tools/generate/gen-icons.mjs); T3's are below.
 
 import { BY_EXTENSION, BY_NAME, COMPLETE } from './timeline-files-tables';
 
 // LANGUAGE_EXTENSION_ALIASES (apps/web/src/pierre-icons.ts): a fence language's file extension.
-const LANGUAGE_EXTENSION: Record<string, string> = {"bash":"sh","csharp":"cs","javascript":"js","jsx":"jsx","markdown":"md","mdx":"mdx","plaintext":"txt","python":"py","ruby":"rb","rust":"rs","shell":"sh","shellscript":"sh","swift":"swift","typescript":"ts","tsx":"tsx","yaml":"yml"};
+const LANGUAGE_EXTENSION: Record<string, string> = {"bash":"sh","csharp":"cs","elixir":"ex","haskell":"hs","javascript":"js","jsx":"jsx","kotlin":"kt","markdown":"md","mdx":"mdx","plaintext":"txt","powershell":"ps1","python":"py","ruby":"rb","rust":"rs","shell":"sh","shellscript":"sh","swift":"swift","typescript":"ts","tsx":"tsx","yaml":"yml"};
 // T3_PIERRE_ICONS remaps: the icon's shape without a colour token, so they draw in the default grey.
 const T3_NAMES: Record<string, string> = {"package.json":"npm-plain","tsconfig.json":"typescript-plain","agents.md":"agents","pnpm-lock.yaml":"pnpm","pnpm-workspace.yaml":"pnpm"};
 
