@@ -10,9 +10,11 @@ and randomness; `Sim` owns input. The renderer interpolates completed ticks.
 - `#[derive(Component)]` declares per-entity data; `#[derive(Resource)]` declares
   singleton data. Both use `Data` for saves, hashes and agent JSON.
 - Use `spawn_named`, `require::<T>("player")` and `require_mut::<T>("player")` for
-  named entities. `get::<T>` returns `Option<Ref<T>>`; dereference the borrow guard
-  for value comparisons: `*w.get::<Mesh>("player").unwrap()`. Entity handles work too. Duplicate
-  names resolve to the lowest living slot, including after recycling or loading.
+  named entities. `get::<T>` returns `Option<Ref<T>>`, a borrow guard that compares
+  and prints as its value (`assert_eq!(w.get::<Transform>("a"), w.get::<Transform>("b"))`);
+  dereference it to copy the value out: `*w.get::<Mesh>("player").unwrap()`. Entity
+  handles work too. Duplicate names resolve to the lowest living slot, including
+  after recycling or loading.
 - `query::<Q>().one()` returns an optional row, refuses a second match and keeps
   its lease for the returned row. [Borrowing](#borrowing) is per row.
 - Use `insert_resource`, `resource`, `resource_mut` and `try_resource` for singleton

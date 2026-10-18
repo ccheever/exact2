@@ -53,6 +53,22 @@ impl Drop for Lease<'_> {
 
 /// A shared component/resource borrow. Keeping it alive keeps its row leased:
 /// other rows of the component stay free, and this one refuses exclusive borrows.
+/// It prints and compares as the value it borrows, so guards go straight into
+/// `assert_eq!`:
+///
+/// ```
+/// use exact_game::*;
+/// let mut w = World::new(120, 7);
+/// w.spawn_named("a", Transform::at(1., 0., 0.));
+/// w.spawn_named("b", Transform::at(1., 0., 0.));
+/// w.spawn_named("c", Transform::at(2., 0., 0.));
+/// assert_eq!(w.get::<Transform>("a"), w.get::<Transform>("b"));
+/// assert_ne!(w.require::<Transform>("a"), w.require::<Transform>("c"));
+/// assert_eq!(format!("{:?}", w.require::<Transform>("a")),
+///     format!("{:?}", Transform::at(1., 0., 0.)));
+/// // `RefMut` does the same; two rows of one column may be held at once.
+/// assert_eq!(w.get_mut::<Transform>("a"), w.get_mut::<Transform>("b"));
+/// ```
 pub struct Ref<'a, C> {
     ptr: *const C,
     _lease: Lease<'a>,
@@ -63,6 +79,16 @@ impl<C> Deref for Ref<'_, C> {
     fn deref(&self) -> &C {
         // SAFETY: the row lease excludes writers and the world borrow keeps the slot alive.
         unsafe { &*self.ptr }
+    }
+}
+impl<C: std::fmt::Debug> std::fmt::Debug for Ref<'_, C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        C::fmt(self, f)
+    }
+}
+impl<C: PartialEq> PartialEq<Ref<'_, C>> for Ref<'_, C> {
+    fn eq(&self, other: &Ref<'_, C>) -> bool {
+        C::eq(self, other)
     }
 }
 /// An exclusive component/resource borrow of one row. Other rows of the component
@@ -85,6 +111,16 @@ impl<C> DerefMut for RefMut<'_, C> {
         // SAFETY: this noncloneable guard owns the row's exclusive lease, so it is
         // the only reference to this slot.
         unsafe { &mut *self.ptr }
+    }
+}
+impl<C: std::fmt::Debug> std::fmt::Debug for RefMut<'_, C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        C::fmt(self, f)
+    }
+}
+impl<C: PartialEq> PartialEq<RefMut<'_, C>> for RefMut<'_, C> {
+    fn eq(&self, other: &RefMut<'_, C>) -> bool {
+        C::eq(self, other)
     }
 }
 
