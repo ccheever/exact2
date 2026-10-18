@@ -241,6 +241,7 @@ dependencies = [
  "exact-motion",
  "exact-num",
  "exact-plan",
+ "exact-route",
  "exact-tamber",
  "icu_locale",
  "serde_json",
