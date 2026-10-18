@@ -54,6 +54,21 @@ impl Engine {
         self.running.iter().copied()
     }
 
+    /// The transition running or played on `property` of `node`, as a host
+    /// plays it, and whether it waits for the frame that starts it (LLP
+    /// 1003.001 D1; its `start` then assumes the frame comes now). Asking
+    /// hands nothing over.
+    pub fn transition(&self, node: u64, property: Property) -> Option<(PlayedTransition, bool)> {
+        let running = self.slots.get(&(node, property))?.running()?;
+        let played = PlayedTransition {
+            from: running.from,
+            to: running.to,
+            start: running.start_at(self.sample_time()),
+            curve: played_curve(running)?,
+        };
+        Some((played, running.pending.is_some()))
+    }
+
     /// Hand the transition running on `property` of `node` to the host: it
     /// is presented at its target from now on and no longer sampled. `None`
     /// when nothing runs there or a hold owns it.

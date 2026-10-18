@@ -104,6 +104,56 @@ fn a_transition_shows_its_start_at_the_first_frame_then_one_interval() {
     assert!((opacity(&host) - 0.984).abs() < 1e-9, "then one interval");
 }
 
+/// LLP 1055.001 §3: iOS hands a box's opacity transition to Core Animation
+/// at the frame that starts it, and takes it back when it is retargeted.
+#[test]
+fn core_animation_plays_a_started_transition_until_it_is_retargeted() {
+    let mut host = boot();
+    host.svg.play_transitions = true;
+    let (go, fade) = (id(&host, "go"), id(&host, "fade"));
+    let key = exact_kernel::motion::motion_node(host.runner.kernel().node(fade).unwrap().key);
+    let pressed = host.dispatch_at(go, Event::Press, 100.0);
+    assert!(
+        !host.engine.is_played(key, Property::Opacity),
+        "it waits for its frame"
+    );
+    assert!(motion(&pressed), "the display link runs to start it");
+    let started = host.tick_at(112.0, 116.0);
+    assert!(host.engine.is_played(key, Property::Opacity));
+    assert_eq!(opacity(&host), 0.0, "the engine presents the target");
+    let played = spec(&started, fade);
+    assert_eq!(played["k"], "opacity");
+    assert_eq!(played["s"], 0.116);
+    assert_eq!(played["d"], 1.0);
+    assert_eq!(played["v"], serde_json::json!([1, 0]));
+    assert_eq!(played["fill"], 2, "a delay shows its start");
+    assert!(!motion(&started), "nothing is sampled: {started}");
+    // Turned back 184 ms in: the engine samples the new curve until its
+    // frame, and Core Animation lets the old one go in the same batch.
+    let back = host.dispatch_at(go, Event::Press, 300.0);
+    assert!(!host.engine.is_played(key, Property::Opacity));
+    let v: serde_json::Value = serde_json::from_str(&back).unwrap();
+    let dropped = v["ops"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|op| op["op"] == "animations" && op["id"] == fade);
+    assert_eq!(
+        dropped.map(|op| op["specs"].clone()),
+        Some(serde_json::json!([])),
+        "{back}"
+    );
+    let again = host.tick_at(312.0, 316.0);
+    let replayed = spec(&again, fade);
+    assert_eq!(replayed["s"], 0.316);
+    assert_eq!(replayed["v"][1], 1);
+    assert!(
+        (replayed["v"][0].as_f64().unwrap() - 0.816).abs() < 1e-3,
+        "{replayed}"
+    );
+}
+
 #[test]
 fn a_display_frame_leaves_the_input_clock_at_the_wall() {
     let mut host = boot();

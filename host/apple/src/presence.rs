@@ -333,6 +333,18 @@ impl<D: DataSource> Host<D> {
         }
         self.holds.retain(|_, token| self.engine.has_hold(*token));
         let mut colored: Vec<(ViewId, bool)> = Vec::new();
+        // Before sampling: a transition handed over presents its target.
+        // Under the agent's clock (no first-frame rule) motion is sampled.
+        if self.svg.play_transitions && self.engine.starts_on_frame() && !self.native_mode() {
+            let runs = &self.inline_runs;
+            for view in super::svg_lower::hand_over_transitions(
+                self.runner.kernel(),
+                &mut self.engine,
+                &|v| runs.contains_key(&v),
+            ) {
+                self.svg.played(view);
+            }
+        }
         let frame = self.engine.frame();
 
         for p in frame {
