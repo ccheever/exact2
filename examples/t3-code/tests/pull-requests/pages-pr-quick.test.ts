@@ -39,6 +39,7 @@ function fakeClient(replies: Record<string, Reply>, speed = false) {
     },
     restAccess: () => ({ call: async (request: Obj) => (request.op === 'sidebarSpeedMode' ? { speedMode: speed } : {}) }),
   } as unknown as T3Client;
+  client.projectGroups = () => client.shell.projects.map(project => ({ key: String(project.id), name: String(project.title ?? ''), members: [project] }));
   return { client, calls };
 }
 const listOf = (...entries: Obj[]): Record<string, Reply> => ({

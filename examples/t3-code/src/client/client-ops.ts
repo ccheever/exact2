@@ -1,3 +1,4 @@
+import { updateEverythingOp } from '../sidebar/update-everything';
 // The client.command() ops by area. Each client-ops-<area>.ts holds one area's
 // branches as they stood in client.ts: a read group runs before the write
 // check and a write group after `requireWrite()`. A group answers false for an
@@ -27,7 +28,9 @@ export type ProvidersRoute = { host: ProviderHost; native(native: Native): Nativ
 export type OpOut = { message: string; id: string; value: string; relaunch?: true; providers?: ProvidersRoute | undefined };
 export type OpGroup = (this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut) => Promise<boolean>;
 
-export const READ_OPS: OpGroup[] = [connectionOps, snapshotOps, settingsOps, composerOps, threadOps, sidebarOps, diffOps, laneOps, serverUpdateOps, terminalOps, terminalPanelOps, autoBalanceOps, activationOps];
+const updateEverythingOps: OpGroup = async function(op, _id, _value, n, native) { return updateEverythingOp(this, op, native, n); };
+
+export const READ_OPS: OpGroup[] = [updateEverythingOps, connectionOps, snapshotOps, settingsOps, composerOps, threadOps, sidebarOps, diffOps, laneOps, serverUpdateOps, terminalOps, terminalPanelOps, autoBalanceOps, activationOps];
 export const WRITE_OPS: OpGroup[] = [settingsWrites, composerWrites, threadWrites, sidebarWrites, laneWrites];
 
 /** Runs `op` in the first group that owns it; false when none does. */

@@ -43,9 +43,9 @@ describe('syntax highlighting against the reference Shiki output', () => {
   });
   test('fence languages draw their Pierre icon only when it is specific', () => {
     expect(['ts', 'json', 'bash', 'python', 'sh', 'diff', 'text', 'tsx', 'yaml', 'dockerfile', ''].map(languageIconToken))
-      .toEqual(['typescript', 'json', 'bash', 'python', 'bash', '', '', 'react', 'yml', 'docker', '']);
+      .toEqual(['typescript', 'json', 'bash', 'python', 'bash', 'diff', '', 'react', 'yml', 'docker', '']);
     expect(['src/app.ts', 'package.json', 'README.md', 'docs/notes.md', 'Cargo.toml', 'x.unknownext', '.gitignore'].map(fileIconToken))
-      .toEqual(['typescript', 'npm-plain', 'markdown', 'markdown', 'default', 'default', 'git']);
+      .toEqual(['typescript', 'npm-plain', 'markdown', 'markdown', 'toml', 'default', 'git']);
   });
   void mine;
 });

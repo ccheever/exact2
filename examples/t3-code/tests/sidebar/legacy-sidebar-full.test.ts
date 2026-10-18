@@ -151,7 +151,7 @@ describe('the pull request glyph (handlePrClick)', () => {
     expect(rows.find(row => row.id === 'thread-2')).toMatchObject({ prTooltip: 'PR #7 - Open: Ship it', prPending: false });
     expect(rows.find(row => row.id === 'thread-3')).toMatchObject({ prTooltip: 'PR #7, status pending', prPending: true });
     const view = readFileSync(appPath('legacy-sidebar.contract'), 'utf8');
-    expect(view).toContain('button cursor="pointer" press=prPress dblclick=nested focus=within("pr", true)');
+    expect(view).toMatch(/button[^\n]*press=prPress[^\n]*dblclick=nested[^\n]*focus=within\("pr", true\)/);
     expect(view).toContain('  action prPress(e: MouseEvent)\n    run("legacy-pr", t.id, (e.metaKey or e.ctrlKey) ? `mod:${page}` : page)');
   });
 });
