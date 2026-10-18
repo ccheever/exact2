@@ -75,6 +75,15 @@ pub(crate) struct Link {
     pub before: Option<Pinned>,
     /// The pin held, by revision: set again on a new generation's runner.
     pub held: Option<(u64, Pin)>,
+    /// The hold frame held (*1.11*), by revision, and the plan digest it was
+    /// held under: taken again on a new generation's runner of that plan.
+    pub hold: Option<(u64, HoldTarget, String)>,
+    /// The hold revisions this host ended itself (input, disabled, gone, a
+    /// refusal): not taken again when their frame comes again (a resent
+    /// answer). A lower revision is a new server's, and forgets them.
+    pub ended: Vec<u64>,
+    /// The plan digest a registration names (the last status's).
+    pub plan_digest: Option<String>,
     /// The scheme (dark), contrast and root font size the last status named.
     pub facts: Option<(bool, exact_runner::Contrast, f64)>,
     /// The window's modes the last status named, and the kernel epoch they
@@ -100,9 +109,20 @@ impl Link {
             revision: None,
             before: None,
             held: None,
+            hold: None,
+            ended: Vec::new(),
+            plan_digest: None,
             facts: None,
             modes: None,
             snapshot: false,
+        }
+    }
+
+    /// Hold revision `revision` ended here (`ended`).
+    pub(crate) fn end(&mut self, revision: u64) {
+        self.ended.push(revision);
+        if self.ended.len() > 64 {
+            self.ended.remove(0);
         }
     }
 
@@ -158,6 +178,7 @@ impl Link {
             ack: self.ack,
             reports: std::mem::take(&mut self.outbox),
             plan: self.plan.clone(),
+            plan_digest: self.plan_digest.clone(),
             design: self.design.clone(),
         })
     }
@@ -191,6 +212,7 @@ pub(crate) struct Exchange {
     ack: u64,
     reports: Vec<Value>,
     plan: Option<String>,
+    plan_digest: Option<String>,
     design: Option<String>,
 }
 
@@ -291,8 +313,8 @@ impl Exchange {
                         return;
                     };
                     let register = json!({"nonce": nonce, "kind": "register", "id": self.id,
-                        "host": HOST, "capabilities": ["pin"],
-                        "plan": self.plan, "design": self.design});
+                        "host": HOST, "capabilities": ["pin", "hold"],
+                        "plan": self.plan, "planDigest": self.plan_digest, "design": self.design});
                     if send(&report, Some(&register)).map(|r| r.0) != Some(200) {
                         return;
                     }
@@ -385,13 +407,28 @@ pub(crate) struct Pin {
     pub root_font_size: Option<f64>,
 }
 
+/// A `hold` frame's `{site, instance, state}` (*1.11*): a state on the one
+/// view of this build's plan at that site and instance path.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct HoldTarget {
+    pub site: Option<u64>,
+    pub instance: Value,
+    pub state: String,
+    /// The plan digest the site addresses, when the server knows it.
+    pub plan: Option<String>,
+}
+
 /// A command frame, as the presenter dispatches it.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Frame {
     /// `pin` `{revision, pin}`: `None` hands every fact back.
     Pin { revision: u64, pin: Option<Pin> },
-    /// `inspect`, `outline`, `hold`: reserved (T2b, stage 8), answered
-    /// `unsupported`.
+    /// `hold` `{revision, hold}` (LLP 1122 D8): `None` lets it go.
+    Hold {
+        revision: u64,
+        hold: Option<HoldTarget>,
+    },
+    /// `inspect`, `outline`: reserved (T2b), answered `unsupported`.
     Reserved(String),
 }
 
@@ -438,7 +475,16 @@ impl Frame {
                     pin: Some(pin),
                 })
             }
-            kind @ ("inspect" | "outline" | "hold") => Some(Frame::Reserved(kind.to_string())),
+            "hold" => Some(Frame::Hold {
+                revision: frame["revision"].as_u64().unwrap_or(0),
+                hold: frame["hold"].as_object().map(|h| HoldTarget {
+                    site: h.get("site").and_then(Value::as_u64),
+                    instance: h.get("instance").cloned().unwrap_or(Value::Null),
+                    state: h.get("state").and_then(Value::as_str).unwrap_or("").into(),
+                    plan: frame["plan"].as_str().map(str::to_string),
+                }),
+            }),
+            kind @ ("inspect" | "outline") => Some(Frame::Reserved(kind.to_string())),
             _ => None,
         }
     }
@@ -452,7 +498,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     #[test]
-    fn frames_parse_to_pins_and_reserved_commands() {
+    fn frames_parse_to_pins_holds_and_reserved_commands() {
         let pin = Frame::parse(&json!({"kind": "pin", "revision": 3, "pin": {
             "scheme": "dark", "contrast": "more", "mode": {"density": "compact"}, "rootFontSize": 20}}));
         assert_eq!(
@@ -475,8 +521,28 @@ mod tests {
             })
         );
         assert_eq!(
-            Frame::parse(&json!({"kind": "hold"})),
-            Some(Frame::Reserved("hold".into()))
+            Frame::parse(&json!({"kind": "hold", "revision": 5, "hold": {"site": 7,
+                "instance": [{"region": 2, "key": "b"}], "state": "hover"}, "plan": "p1"})),
+            Some(Frame::Hold {
+                revision: 5,
+                hold: Some(HoldTarget {
+                    site: Some(7),
+                    instance: json!([{"region": 2, "key": "b"}]),
+                    state: "hover".into(),
+                    plan: Some("p1".into()),
+                })
+            })
+        );
+        assert_eq!(
+            Frame::parse(&json!({"kind": "hold", "revision": 6, "hold": null})),
+            Some(Frame::Hold {
+                revision: 6,
+                hold: None
+            })
+        );
+        assert_eq!(
+            Frame::parse(&json!({"kind": "outline"})),
+            Some(Frame::Reserved("outline".into()))
         );
         assert_eq!(Frame::parse(&json!({"kind": "future"})), None);
         assert!(build_id().starts_with("linux-") && build_id().len() <= 64);
@@ -592,7 +658,7 @@ mod tests {
         );
         assert_eq!(posts[0]["id"], posts[2]["id"]);
         assert_eq!(posts[0]["host"], "linux");
-        assert_eq!(posts[0]["capabilities"], json!(["pin"]));
+        assert_eq!(posts[0]["capabilities"], json!(["pin", "hold"]));
         assert_eq!(posts[0]["plan"], "plan-a");
         assert_eq!(posts[0]["design"], "design-a");
     }
