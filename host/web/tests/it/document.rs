@@ -674,7 +674,7 @@ component App
     let mut host = host(source, Says(""), "/");
     for role in ["list", "presentation", "list"] {
         let doc = host.document().unwrap();
-        let tree = host.runner().document_tree().unwrap();
+        let tree = host.runner_mut().document_tree().unwrap();
         let (detached, _) =
             exact_web::document::project_tree(&tree, host.runner(), Default::default()).unwrap();
         assert_eq!(detached.root, doc.root);
