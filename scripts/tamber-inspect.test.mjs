@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join as joinPath } from 'node:path';
 import { buildChannel } from './tamber-builds.mjs';
-import { current, editable, join, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, staleMap } from './tamber-inspect.mjs';
+import { correspondingSite, current, editable, join, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, staleMap } from './tamber-inspect.mjs';
 
 const sha = text => createHash('sha256').update(text).digest('hex');
 
@@ -178,6 +178,37 @@ test('a row that reads a component param joins on the param rung, by its full na
   writeFileSync(post, 'post, edited');
   expect(join({ id: 'web-1' }, selected, map, { params }).rows[0].editable).toMatchObject({ rung: null, link: 'post.contract#PostButton.fill' });
   rmSync(dir, { recursive: true, force: true });
+});
+
+// LLP 1122 D8 (the lead's 18:30, amending theme2's 07:48 (a)): a held site
+// corresponds in a new plan by its place and its call-site chain.
+test('a held site corresponds in a new plan by its place and call-site chain: each copy of a component called twice its own, a moved call still, an ambiguous one none', () => {
+  const def = { file: '/a/screens.contract', line: 20, col: 5, end_col: 9, component: 'PostButton' };
+  const call = (line, col = 7) => ({ file: '/a/home.contract', line, col, end_col: col + 10, component: 'Home' });
+  const plan = (...lines) => ({ nodes: [{ file: '/a/home.contract', line: 1, col: 1, end_col: 2, component: 'Home', chain: [] }, ...lines.map(l => ({ ...def, chain: [call(l)] }))] });
+  const was = plan(4, 9);
+  // A rebuild that moved nothing (a style's value edited): each copy is its own.
+  expect(correspondingSite(was, plan(4, 9), 1)).toBe(1);
+  expect(correspondingSite(was, plan(4, 9), 2)).toBe(2);
+  // In another order in the new plan's sites: found by its chain, not its index.
+  expect(correspondingSite(was, { nodes: [plan(4, 9).nodes[0], plan(4, 9).nodes[2], plan(4, 9).nodes[1]] }, 2)).toBe(1);
+  // A line written above the second call: the first by its chain, the second as the other one left.
+  expect(correspondingSite(was, plan(4, 10), 2)).toBe(2);
+  expect(correspondingSite(was, plan(4, 10), 1)).toBe(1);
+  // A line above both: by rank in source order.
+  expect(correspondingSite(was, plan(5, 10), 1)).toBe(1);
+  expect(correspondingSite(was, plan(5, 10), 2)).toBe(2);
+  // A third copy, the calls moved: ambiguous, none.
+  expect(correspondingSite(was, plan(5, 10, 14), 2)).toBe(null);
+  // The node gone: none. One copy left of two, its call moved: not the other's.
+  expect(correspondingSite(was, { nodes: [plan().nodes[0]] }, 1)).toBe(null);
+  expect(correspondingSite(was, plan(30), 1)).toBe(null);
+  expect(correspondingSite(was, plan(4), 1)).toBe(1);
+  expect(correspondingSite(was, plan(4), 2)).toBe(null);
+  // A lone copy whose call moved: still it.
+  expect(correspondingSite(plan(4), plan(30), 1)).toBe(1);
+  // A copy called from another file is not one called here.
+  expect(correspondingSite(was, { nodes: [...plan(5).nodes, { ...def, chain: [{ ...call(10), file: '/a/other.contract' }] }] }, 2)).toBe(null);
 });
 
 test('editability fails closed: only a row the node itself sets to one token, its whole value, offers the token rung', () => {

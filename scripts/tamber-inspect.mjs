@@ -270,6 +270,32 @@ export function sitesAt(map, source) {
   return map.nodes.flatMap((n, site) => here(n) || (n.bindings ?? []).some(b => b.state && here(b.at)) ? [site] : []);
 }
 
+/** The one site of plan map `to` that is site `site` of plan map `from`
+ * (a held node across a rebuild, LLP 1122 D8): a copy at the node's source
+ * location whose call-site chain is the same (each call's place), else,
+ * where the chain's calls moved (a line written above them), the copy of
+ * the same rank in source order among those with that chain's files and
+ * components, when both plans have as many of them (so a lone copy
+ * whose call moved is still it, and one left of two is not the other).
+ * Null when none, or no single one, corresponds. */
+export function correspondingSite(from, to, site) {
+  const node = from?.nodes?.[site];
+  if (!node || !to?.nodes) return null;
+  const sites = sitesAt(to, node).filter(i => same(to.nodes[i], node));
+  const at = x => [x.file, x.line, x.col].join(':');
+  const exact = sites.filter(i => (to.nodes[i].chain ?? []).map(at).join('>') === (node.chain ?? []).map(at).join('>'));
+  if (exact.length === 1) return exact[0];
+  // By rank: each plan's copies with this chain's shape, in source order.
+  const shape = n => (n.chain ?? []).map(c => `${c.file}#${c.component ?? ''}`).join('>');
+  const order = (map, list) => list.filter(i => shape(map.nodes[i]) === shape(node)).sort((i, j) => cmp(map.nodes[i].chain ?? [], map.nodes[j].chain ?? []));
+  const was = order(from, sitesAt(from, node).filter(i => same(from.nodes[i], node))), now = order(to, sites);
+  return was.length === now.length && was.includes(site) ? now[was.indexOf(site)] : null;
+}
+// The same node, by its place (a lowered state row's binding is not it).
+const same = (a, b) => a && a.file === b.file && a.line === b.line && a.col === b.col;
+// Two call-site chains in source order: by each call's line, then column.
+const cmp = (a, b) => { for (let k = 0; k < Math.min(a.length, b.length); k++) { const d = (a[k].line - b[k].line) || (a[k].col - b[k].col); if (d) return d; } return a.length - b.length; };
+
 /** Whether a report is the build's latest: its plan, design and pin
  * revision those of its latest status. */
 export function current(build, report) {

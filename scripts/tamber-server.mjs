@@ -84,7 +84,7 @@ import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
 import { buildChannel } from './tamber-builds.mjs';
 import { scrubSessions } from './tamber-scrub.mjs';
-import { current, join, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
+import { correspondingSite, current, join, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
 
@@ -210,12 +210,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   const channel = buildChannel({
     send: e => send({ ...e, seq: ++seq, epoch }), log,
     // A held site in a build's new plan (LLP 1122 D8): the one site at the
-    // old site's source location, by the two plans' maps; none otherwise.
+    // old site's source location and call-site chain, by the two plans'
+    // maps (a component called twice is two sites there); none otherwise.
     correspond: (from, to, site) => {
-      const a = mapOf(from), b = mapOf(to), node = a?.nodes[site];
-      if (!node || !b || staleMap(b)) return null;
-      const sites = sitesAt(b, node);
-      return sites.length === 1 ? sites[0] : null;
+      const b = mapOf(to);
+      return b && !staleMap(b) ? correspondingSite(mapOf(from), b, site) : null;
     },
     selected: (build, report, ask) => {
       if (!current(build, report)) {

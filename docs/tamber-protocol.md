@@ -1012,9 +1012,12 @@ The tool drives no input into an app; a command changes only what `prefer` would
   the client goes. A build that registers again is sent it again under the same plan (or `hold:
   null` when the server holds none for it); one that runs another plan (a `status` whose
   `planDigest` moved, or its registration's) is sent it at the one site of the new plan's map at
-  the old site's source location, and when there is not exactly one, the build is sent `hold:
-  null` and every client told (`hold-cleared {build, client, reason}`). Each frame, a replay
-  included, has a new revision. Only a report naming the last hold frame's revision counts (an
+  the old site's source location and call-site chain (a component called at two places is two
+  sites there; where the calls moved, the copy of the same rank in source order among those with
+  that chain's files and components, when both plans have as many), and when there is not
+  exactly one, the build is sent `hold: null` and every client told (`hold-cleared {build,
+  client, reason}`). Each frame, a replay included, has a new revision, and the build's `held`
+  in a listing is null until it reports on that frame. Only a report naming the last hold frame's revision counts (an
   older one is dropped, 204): a `held` report is then every client's event (`held {build, state,
   reason}`), and one that lets the hold go ends it at the server too; a hold `unsupported` ends it
   and is its owner's `unsupported` event alone (theme2's 07:48 (c): `only` names the client, and no
