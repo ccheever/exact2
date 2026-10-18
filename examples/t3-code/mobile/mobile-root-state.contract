@@ -4,8 +4,9 @@ use NewTaskFlowResult from "./new-task-flow.contract"
 // Pure presentation transitions. App retains requests, guards and route commits.
 use ArchiveChromeEvent from "./archive-chrome.contract"
 use AttachmentDocumentAction from "./attachment-document.contract"
-use HomeActionResult, MediaCompletion, PairingFields, AppLink, Camera, SettingsScopeEvent, SettingsSelection, Change from "./app-shapes.contract"
+use HomeActionResult, MediaCompletion, PairingFields, AppLink, Camera, SettingsScopeEvent, SettingsSelection, Change, AutomationChange, AutomationCreditConfirmation from "./app-shapes.contract"
 use WorkspaceEntry from "./mobile-workspace.contract"
+use homeAutomationPath from "./home-routes.contract"
 
 shape HomeReplyPlan
   archiveRefresh: number
@@ -239,4 +240,25 @@ fn taskReplyPlan(reply: option<NewTaskFlowResult>, operation: string): TaskReply
     navigation=(result.message != "" ? "" : result.submitted ? "thread" : result.nextLocation == "@close" ? "close" : result.nextLocation == "/" ? "home" : result.nextLocation != "" ? "push" : operation == "environment" or operation == "branch" ? "back" : "")
   ),
   case none => TaskReplyPlan(hasReply=false, requestRoute="", contextDelta=0, alertTitle="", message="", navigation="", environmentId="", threadId="", nextLocation="")
+}
+
+shape AutomationReplyPlan
+  message: string
+  refresh: bool
+  debounce: bool
+  closed: bool
+  location: string
+fn automationReplyPlan(reply: option<AutomationChange>, route: string): AutomationReplyPlan = match reply {
+  case some(result) => AutomationReplyPlan(
+    message=(result.requestRoute == route ? result.message : ""),
+    refresh=(result.requestRoute == route and result.refresh),
+    debounce=(result.requestRoute == route and result.debounce),
+    closed=(result.requestRoute == route and result.closed),
+    location=(result.requestRoute == route and not result.closed ? homeAutomationPath(result.route, result.accountKey, result.windowId, result.windowKind) : "")
+  ),
+  case none => AutomationReplyPlan(message="", refresh=false, debounce=false, closed=false, location="")
+}
+fn automationCreditHandoff(reply: option<AutomationCreditConfirmation>, route: string): AutomationCreditConfirmation = match reply {
+  case some(result) => result.confirmed and result.requestRoute == route ? result : AutomationCreditConfirmation(token="", environmentId="", accountKey="", requestRoute="", confirmed=false),
+  case none => AutomationCreditConfirmation(token="", environmentId="", accountKey="", requestRoute="", confirmed=false)
 }

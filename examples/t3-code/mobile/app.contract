@@ -1,4 +1,4 @@
-use HtmlRenderContext, HtmlRenderResult, htmlRenderReply, ThreadSubmissionInput, ThreadSubmissionResult, ThreadSubmission, ThreadLocalColors, threadSubmissionNoticeMessage, changeNoticeMessage, fileNoticeMessage, voiceNoticeMessage, filesNoticeMessage, informationNoticeMessage, settingNoticeMessage, automationNoticeMessage, TerminalAttachChange, SnapshotRead, HomeReplyPlan, homeReplyPlan, pairingReplyPlan, modelReplyPlan, taskReplyPlan, PairingUi, pairingUiScan, followedLocation, SettingsVisit, settingsVisitOwner, settingsVisitSelection, settingsEventPlan, pairingCameraPlan, mediaUiInitial, mediaUiOpen, mediaUiRetry, documentReplyPlan, mediaReplyPlan, TerminalCaptureSelection, terminalCaptureStart, terminalCaptureSelect, terminalCaptureAttached, ArchiveVisit, archiveDefaultFilters, archiveVisitFilters, archiveLiveRecords, archiveEventRecords, ArchiveDeleteTarget, GitForm, gitFormField, gitFormBranches, IncomingShareInbox, IncomingSharePresentation, MobileKeyboard, MobileKeyboardSnapshot, MobileKeyboardResult, MobileGitFeedback, MobileGitFeedbackSnapshot, MobileGitFeedbackResult, ArchiveChromeSnapshot, ArchiveChromeEvent, ProjectFaviconImages, ProjectFaviconPrepared, ProjectFaviconAdmission, MobileOutboxDrive, MobileOutboxEdit, ComposerRootInput, ComposerRootView, ComposerRootResult, homeChromeChange, homeAutomationPath, NewTaskCloneSnapshot, NewTaskCloneColors, AddProjectSnapshot, AddProjectColors, addProjectLocation, addProjectNextAlert, mobileInformationPath, mobileSettingPath, ThreadHeaderOptions, ThreadHeaderSnapshot, ThreadHeaderRead, ThreadHeaderResult, WorkingControlData, MobileSidebarPanel, MobileInspectorPanel, MobileWorkspaceMarkers, MobileQueueSnapshot, GitColors, MobileGitSnapshot, MobileGitResult, MobileGitBranchesSnapshot, MobileGitBranchResult, InspectorState, InspectorContext, InspectorChange, InspectorPresentation, WorkspaceEvent, MobileRouteContent, MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation, ThreadPreferencesData, SettingsProjectOverview, SettingsProjectData, AccountEntry, SettingsWrite, StreamingAssistant, StreamingHapticState, AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, SettingsSelection, MobileLayout, HomeChromeView, ChromeEvent, HomeActionResult, ThreadSelection, HomeView, HomePreferences, Time, Viewport, PairingFields, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewPreparation, previewMayRetry, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change, NotificationsData, MobileBrowserSnapshot, MobilePreviewColors, MobileDevicesSnapshot, InformationData, AttachmentAudioStatus, ScheduledClockTime, AutomationPrepared, AutomationData, VoiceGlobalPill, VoiceSnapshot, VoiceStatus, VoiceResult, VoiceColors, AttachmentDocumentSnapshot, AttachmentDocumentMenu, AttachmentDocumentAction, MobileTerminalSnapshot, MobileTerminalResult, MobileTerminalEvent, MobileTerminalCapture, ReviewSnapshot, ReviewResult, ReviewColors, FileTreeSnapshot, FileTreeResult, FileSnapshot, FileActionResult, FileUi, ServerSettingsData, SettingsProviderAccounts, ProviderSettingsData, MediaPreviewSnapshot, ComposerAttachmentsSnapshot, SettingsChoicesData, MobilePreferencesResource, SettingsAppearance, SettingsAppearanceData, ArchiveData, ArchiveColors, ArchiveScope, ArchiveRead, AgentActivityData, AgentActivityColors, EnvironmentDetailData, NewTaskFlowSnapshot, NewTaskFlowResult, ComposerSettingsSnapshot, ComposerActionResult, ComposerColors, NewTaskSnapshot, NewTaskPreparation, ThreadSnapshot, ThreadColors, ComposerFocusReturn, composerReturnPhase, HomeColors from "./root-imports.contract"
+use AutomationCreditConfirmation, automationReplyPlan, automationCreditHandoff, HtmlRenderContext, HtmlRenderResult, htmlRenderReply, ThreadSubmissionInput, ThreadSubmissionResult, ThreadSubmission, ThreadLocalColors, threadSubmissionNoticeMessage, changeNoticeMessage, fileNoticeMessage, voiceNoticeMessage, filesNoticeMessage, informationNoticeMessage, settingNoticeMessage, automationNoticeMessage, TerminalAttachChange, SnapshotRead, HomeReplyPlan, homeReplyPlan, pairingReplyPlan, modelReplyPlan, taskReplyPlan, PairingUi, pairingUiScan, followedLocation, SettingsVisit, settingsVisitOwner, settingsVisitSelection, settingsEventPlan, pairingCameraPlan, mediaUiInitial, mediaUiOpen, mediaUiRetry, documentReplyPlan, mediaReplyPlan, TerminalCaptureSelection, terminalCaptureStart, terminalCaptureSelect, terminalCaptureAttached, ArchiveVisit, archiveDefaultFilters, archiveVisitFilters, archiveLiveRecords, archiveEventRecords, ArchiveDeleteTarget, GitForm, gitFormField, gitFormBranches, IncomingShareInbox, IncomingSharePresentation, MobileKeyboard, MobileKeyboardSnapshot, MobileKeyboardResult, MobileGitFeedback, MobileGitFeedbackSnapshot, MobileGitFeedbackResult, ArchiveChromeSnapshot, ArchiveChromeEvent, ProjectFaviconImages, ProjectFaviconPrepared, ProjectFaviconAdmission, MobileOutboxDrive, MobileOutboxEdit, ComposerRootInput, ComposerRootView, ComposerRootResult, homeChromeChange, homeAutomationPath, NewTaskCloneSnapshot, NewTaskCloneColors, AddProjectSnapshot, AddProjectColors, addProjectLocation, addProjectNextAlert, mobileInformationPath, mobileSettingPath, ThreadHeaderOptions, ThreadHeaderSnapshot, ThreadHeaderRead, ThreadHeaderResult, WorkingControlData, MobileSidebarPanel, MobileInspectorPanel, MobileWorkspaceMarkers, MobileQueueSnapshot, GitColors, MobileGitSnapshot, MobileGitResult, MobileGitBranchesSnapshot, MobileGitBranchResult, InspectorState, InspectorContext, InspectorChange, InspectorPresentation, WorkspaceEvent, MobileRouteContent, MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation, ThreadPreferencesData, SettingsProjectOverview, SettingsProjectData, AccountEntry, SettingsWrite, StreamingAssistant, StreamingHapticState, AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, SettingsSelection, MobileLayout, HomeChromeView, ChromeEvent, HomeActionResult, ThreadSelection, HomeView, HomePreferences, Time, Viewport, PairingFields, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewPreparation, previewMayRetry, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change, NotificationsData, MobileBrowserSnapshot, MobilePreviewColors, MobileDevicesSnapshot, InformationData, AttachmentAudioStatus, ScheduledClockTime, AutomationPrepared, AutomationData, VoiceGlobalPill, VoiceSnapshot, VoiceStatus, VoiceResult, VoiceColors, AttachmentDocumentSnapshot, AttachmentDocumentMenu, AttachmentDocumentAction, MobileTerminalSnapshot, MobileTerminalResult, MobileTerminalEvent, MobileTerminalCapture, ReviewSnapshot, ReviewResult, ReviewColors, FileTreeSnapshot, FileTreeResult, FileSnapshot, FileActionResult, FileUi, ServerSettingsData, SettingsProviderAccounts, ProviderSettingsData, MediaPreviewSnapshot, ComposerAttachmentsSnapshot, SettingsChoicesData, MobilePreferencesResource, SettingsAppearance, SettingsAppearanceData, ArchiveData, ArchiveColors, ArchiveScope, ArchiveRead, AgentActivityData, AgentActivityColors, EnvironmentDetailData, NewTaskFlowSnapshot, NewTaskFlowResult, ComposerSettingsSnapshot, ComposerActionResult, ComposerColors, NewTaskSnapshot, NewTaskPreparation, ThreadSnapshot, ThreadColors, ComposerFocusReturn, composerReturnPhase, HomeColors from "./root-imports.contract"
 font "DM Sans" // @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
   400 = "assets/fonts/DMSans_400Regular.ttf"
   500 = "assets/fonts/DMSans_500Medium.ttf"
@@ -316,10 +316,12 @@ component App
   mutation providerFieldChanged as shape Change refreshes providerAccounts
   state automationRefresh = 0
   state automationElapsed = 0
+  state automationCreditToken = ""
   resource scheduledClockTime = scheduledClockTime(top(nav).name == "settingsScheduledTasks", `${top(nav).id}`, automationElapsed, top(nav).name == "settingsScheduledTasks" ? wallTime.epochAtZero + performanceNow() : 0) as shape ScheduledClockTime
   resource automationPrepared = automationPrepare(top(nav).name, settingsData.serverScope, top(nav).params.usageAccount, top(nav).params.usageWindow, top(nav).params.usageKind, top(nav).name == "settingsScheduledTasks" ? scheduledClockTime.now : wallTime.epochAtZero + max(elapsed, automationElapsed), data.revision, automationRefresh, top(nav).name == "settingsUsageAccount" ? `${top(nav).id}` : "", stack(nav).filter(entry => entry.name == "settingsUsageAccount").map(entry => `${entry.id}`).join("|")) as shape AutomationPrepared
-  resource automationData = automationSnapshot(automationPrepared, pending(automationChanged)) as shape AutomationData
+  resource automationData = automationSnapshot(automationPrepared, pending(automationChanged), automationCreditToken, pending(automationCreditConfirmed), pending(automationPrepared), failed(automationPrepared)) as shape AutomationData
   resource scheduledHeader = scheduledHeader(preferences.serialized, data.environments, `${top(nav).id}`, settingsVisitSelection(settingsVisits, settingsVisit.visitToken), automationData.scheduled.canCreate, settingsVisit.visitToken) as shape ScheduledHeader
+  mutation automationCreditConfirmed as shape AutomationCreditConfirmation refreshes automationData then didConfirmAutomationCredit
   mutation automationChanged as shape AutomationChange refreshes automationData then didAutomationChange
   mutation automationEdited as shape AutomationChange refreshes automationData then didAutomationEdit
   mutation automationBranchRead as shape AutomationChange refreshes automationData then didAutomationBranchRead
@@ -333,7 +335,10 @@ component App
     else if op == "branch-fetch" or op == "branch-more"
       if top(nav).name == "settingsScheduledBranch"
         send automationBranchRead = automationCommand(op, id, value, extra, wallTime.epochAtZero + performanceNow(), `${top(nav).id}`)
-    else if not pending(automationChanged)
+    else if op == "usage-redeem"
+      if not pending(automationChanged) and not pending(automationCreditConfirmed)
+        send automationCreditConfirmed = automationConfirmCredit(id, value, `${top(nav).id}`)
+    else if not pending(automationChanged) and not pending(automationCreditConfirmed)
       send automationChanged = automationCommand(op, id, value, extra, wallTime.epochAtZero + performanceNow(), `${top(nav).id}`)
   state automationBranchVersion = 0
   task automationBranchDebounce when top(nav).name == "settingsScheduledBranch" and automationBranchVersion > 0 key=automationBranchVersion
@@ -343,33 +348,26 @@ component App
   action didAutomationBranchRead
     showMobileNotice("Branches", automationNoticeMessage(automationBranchRead, `${top(nav).id}`))
   action didAutomationEdit
-    match automationEdited
-      case some(result)
-        if result.requestRoute == `${top(nav).id}`
-          if result.message != ""
-            send notice = alert("info", "T3 Code", result.message)
-          if result.refresh
-            automationRefresh = automationRefresh + 1
-          if result.debounce
-            automationBranchVersion = automationBranchVersion + 1
-      case none
-        automationRefresh = automationRefresh
+    let decision = automationReplyPlan(automationEdited, `${top(nav).id}`)
+    showMobileNotice("T3 Code", decision.message)
+    if decision.refresh
+      automationRefresh = automationRefresh + 1
+    if decision.debounce
+      automationBranchVersion = automationBranchVersion + 1
   action didAutomationChange
-    match automationChanged
-      case some(result)
-        if result.requestRoute == `${top(nav).id}`
-          if result.message != ""
-            send notice = alert("info", "T3 Code", result.message)
-          if result.refresh
-            automationRefresh = automationRefresh + 1
-          if result.closed
-            nav = back(nav)
-          else
-            let location = homeAutomationPath(result.route, result.accountKey, result.windowId, result.windowKind)
-            if location != ""
-              nav = push(nav, location)
-      case none
-        automationRefresh = automationRefresh
+    let decision = automationReplyPlan(automationChanged, `${top(nav).id}`)
+    showMobileNotice("T3 Code", decision.message)
+    if decision.refresh
+      automationRefresh = automationRefresh + 1
+    if decision.closed
+      nav = back(nav)
+    else if decision.location != ""
+      nav = push(nav, decision.location)
+  action didConfirmAutomationCredit
+    let confirmed = automationCreditHandoff(automationCreditConfirmed, `${top(nav).id}`)
+    if confirmed.token != "" and not pending(automationChanged)
+      automationCreditToken = confirmed.token
+      send automationChanged = automationCommand("usage-redeem-confirmed", confirmed.environmentId, confirmed.accountKey, confirmed.token, wallTime.epochAtZero + performanceNow(), confirmed.requestRoute)
   state providerLogoutKey = ""
   mutation providerLogoutConfirmation as shape Notice then didConfirmProviderLogout
   action serverSettingChange(key: string, value: string)

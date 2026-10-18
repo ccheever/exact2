@@ -47,7 +47,7 @@ import { mobilePreviewOwner, mobilePreviewPrepare, mobileBrowserPreviewStatus, m
 import { mobilePreviewColors } from './browser-mobile-colors';
 import { MOBILE_INFORMATION_ROUTES, mobileInformationPrepare, mobileInformationSnapshot, mobileInformationCommand, mobileInformationLegalConfiguration } from './settings-information';
 import { mobileAudioStatus, mobileAudioAction } from './attachment-audio';
-import { mobileScheduledClockTime, mobileAutomationPrepare, mobileAutomationSnapshot, mobileAutomationCommand } from './settings-scheduled-flow';
+import { mobileScheduledClockTime, mobileAutomationPrepare, mobileAutomationConfirmCredit, mobileAutomationSnapshot, mobileAutomationCommand } from './settings-scheduled-flow';
 import { mobileVoiceAction, mobileVoiceSnapshot, mobileVoiceStatus } from './voice-data';
 import { mobileVoiceColors } from './voice-colors';
 import { mobileAttachmentDocument, EMPTY_ATTACHMENT_DOCUMENT, type AttachmentDocumentSnapshot } from './attachment-document';
@@ -362,8 +362,12 @@ const sources: Sources = {
   },
   automationSnapshot: (args, _store, storage, nativeInput) => {
     const native = sourceNative('automationSnapshot', args, nativeInput);
-    const snapshot = mobileAutomationSnapshot(args[1] === true);
+    const snapshot = mobileAutomationSnapshot(args[1] === true, String(args[2] ?? ''), args[3] === true, args[0], args[4] === true, args[5] === true);
     return args[1] === true ? { ...snapshot, editor: { ...snapshot.editor, busy: true, canSave: false, webhookCopyable: false } } : snapshot;
+  },
+  automationConfirmCredit: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('automationConfirmCredit', args, nativeInput);
+    return mobileAutomationConfirmCredit(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), native);
   },
   automationCommand: (args, _store, storage, nativeInput) => {
     const native = sourceNative('automationCommand', args, nativeInput);

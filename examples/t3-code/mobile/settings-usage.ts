@@ -25,7 +25,7 @@ export function usageGrant(session:Obj):boolean {
 export const mobileUsageWindow=(days:number,now:number)=>makeWindow([1,7,30,90].includes(days)?days:30,now);
 interface CachedSummary { generation:number; origin:string|null; windowKey:string; summary:Obj|null; error:string; pending:Promise<Obj>|null }
 const summaries=new Map<string,CachedSummary>(),refreshAfter=new Map<string,number>(),refreshes=new Map<string,Promise<void>>(),commands=new Set<string>();
-let prepared:{selection:string;tab:string;window:UsageWindow;metric:string;now:number;sources:UsageSourceView[];presentations:LimitPresentations;external:boolean;choices:{id:string;label:string;selected:boolean}[]}|null=null;
+let prepared:{selection:string;tab:string;window:UsageWindow;metric:string;now:number;sources:UsageSourceView[];presentations:LimitPresentations;external:boolean;choices:{id:string;label:string;selected:boolean}[];endpoints:Map<string,MobileSettingsEndpoint>}|null=null;
 let epoch=0;
 const failure=(error:unknown,fallback:string)=>error instanceof Error?error.message:fallback;
 const result=(message='')=>({revision:++mobileClient.revision,message});
@@ -78,8 +78,9 @@ export async function mobileUsage(selectionJSON:string,tab:string,windowJSON:str
     const selection=mobileUsageSelection(selectionJSON),window=parseWindow(windowJSON),native=settingsNative(nativeInput),all=await settingsSources(native);
     if(!isCurrent())return mobileUsagePresentation(null,false);
     const selected=all.filter(source=>source.enabled&&(selection===null||selection.includes(source.environmentId))),presentations=new Map() as Map<string,LimitPresentations extends ReadonlyMap<string,infer V>?V:never>;
+    const endpoints=new Map(selected.map(source=>[source.environmentId,settingsEndpoint(source,native)]));
     const sources=await Promise.all(selected.map(async source=>{
-      const endpoint=settingsEndpoint(source,native);let error='',summary:Obj|null=null,canRead=false,canWrite=false,canManage=false;
+      const endpoint=endpoints.get(source.environmentId)!;let error='',summary:Obj|null=null,canRead=false,canWrite=false,canManage=false;
       if(source.phase==='connected'){
         try{const session=await settingsCall(endpoint,{op:'http',path:'/api/auth/session'});if(!isCurrent())throw new ClientError('The Usage selection changed.','stale');canRead=usageGrant(session);canWrite=settingsGrants(session,'settings:write');canManage=settingsGrants(session,'providers:manage');
           if(tab==='limits')try{await probe(endpoint,now,true);}catch(cause){if(letGo(cause))throw cause;error=failure(cause,'Could not refresh limits.');}
@@ -91,7 +92,7 @@ export async function mobileUsage(selectionJSON:string,tab:string,windowJSON:str
       return {id:source.environmentId,label:source.label,connected:source.phase==='connected',summary,error,canRead,canWrite,canManage,config:source.config};
     }));
     if(run!==epoch||!isCurrent())return mobileUsagePresentation(null,false);
-    prepared={selection:selectionJSON,tab:tab==='usage'?'usage':'limits',window,metric:metric==='tokens'?'tokens':'cost',now,sources,presentations,external:externalLinksAvailable,choices:all.filter(source=>source.enabled).map(source=>({id:source.environmentId,label:source.label,selected:selection===null||selection.includes(source.environmentId)}))};
+    prepared={selection:selectionJSON,tab:tab==='usage'?'usage':'limits',window,metric:metric==='tokens'?'tokens':'cost',now,sources,presentations,external:externalLinksAvailable,choices:all.filter(source=>source.enabled).map(source=>({id:source.environmentId,label:source.label,selected:selection===null||selection.includes(source.environmentId)})),endpoints};
     return mobileUsageSnapshot(selectionJSON,tab,metric);
   }catch(error){if(letGo(error))throw error;if(run!==epoch||!isCurrent())return mobileUsagePresentation(null,false);return {...mobileUsagePresentation(null),error:failure(error,'Could not load usage.')};}
 }
@@ -108,7 +109,7 @@ async function current(environmentId:string,native:Native,permission:'diagnostic
   return endpoint;
 }
 /** Root confirms redeem before sending redeem-confirmed; accountKey binds displayed credit identity. */
-export async function mobileUsageCommand(op:string,environmentId:string,accountKey:string,now:number,nativeInput:Native|null|undefined,confirmedRedemption:string|null=null,refresh?:{selection:string;window:UsageWindow;current:()=>boolean}){
+export async function mobileUsageCommand(op:string,environmentId:string,accountKey:string,now:number,nativeInput:Native|null|undefined,confirmedRedemption:string|null=null,refresh?:{selection:string;window:UsageWindow;current:()=>boolean},redemptionCurrent=()=>true){
   const key=JSON.stringify([op,environmentId,accountKey]);if(commands.has(key))return result('This usage action is already running.');commands.add(key);
   try{
     if(!prepared||!nativeInput?.available)throw new ClientError('Open Usage in the native app first.');const native=settingsNative(nativeInput);
@@ -134,18 +135,19 @@ export async function mobileUsageCommand(op:string,environmentId:string,accountK
       await Promise.all([probe(endpoint,now,false,true),readSummary(endpoint,prepared.window,true)]);return result();
     }
     if(op==='redeem-confirmed'){
+      const check=()=>{if(!redemptionCurrent())throw new ClientError('This Account reset changed.','superseded');};check();
       const shown=collectLimitAccounts(prepared.presentations).find(account=>account.key===accountKey);if(!shown?.redeem||!shown.limits.resetCredits?.availableCount)throw new ClientError('No reset credit is available for this account.');
       if(confirmedRedemption!==null&&JSON.stringify(shown.redeem)!==confirmedRedemption)throw new ClientError('This reset credit changed. Reopen the account before using it.');
       if(environmentId!==shown.redeem.environmentId)throw new ClientError('The reset-credit environment changed.');const endpoint=await current(environmentId,native,'providers:manage');
-      const latest=new Map(prepared.presentations);latest.set(environmentId,{entry:{target:{label:endpoint.source.label}},serverConfig:mobileUsageConfig(endpoint.source.config)});
+      check();const latest=new Map(prepared.presentations);latest.set(environmentId,{entry:{target:{label:endpoint.source.label}},serverConfig:mobileUsageConfig(endpoint.source.config)});
       const account=collectLimitAccounts(latest).find(account=>account.key===accountKey);
       if(!account?.redeem||!account.limits.resetCredits?.availableCount||JSON.stringify(account.redeem)!==JSON.stringify(shown.redeem))throw new ClientError('This reset credit changed. Reopen the account before using it.');
-      const reply=await settingsCall(endpoint,{op:'request',method:'provider.consumeResetCredit',payload:account.redeem.input});
+      check();const reply=await settingsCall(endpoint,{op:'request',method:'provider.consumeResetCredit',payload:account.redeem.input});check();
       const outcomes:Record<string,string>={reset:'Reset applied. Your windows have cleared.',nothingToReset:'Nothing to reset right now.',noCredit:'No reset credit left.',alreadyRedeemed:'That credit was already redeemed.'};
       return result(str(reply.warning)||outcomes[str(reply.outcome)]||'The server returned an unknown reset-credit outcome.');
     }
     throw new ClientError('That usage action is unavailable or requires confirmation.');
-  }catch(error){if(letGo(error))throw error;return result(failure(error,'Could not update usage.'));}finally{commands.delete(key);}
+  }catch(error){if(letGo(error))throw error;return result(failure(error,op==='redeem-confirmed'?'Could not use the reset credit.':'Could not update usage.'));}finally{commands.delete(key);}
 }
 
 /** The independent Usage selection has no project scope. Null tracks newly connected environments. */
@@ -157,3 +159,12 @@ export function mobileUsageToggleEnvironment(selectionJSON:string,environmentId:
 
 /** Immutable identity of the credit displayed before a native confirmation opens. */
 export function mobileUsageRedemption(accountKey:string):string|null {const account=collectLimitAccounts(prepared?.presentations??new Map()).find(account=>account.key===accountKey);return account?.redeem&&account.limits.resetCredits?.availableCount?JSON.stringify(account.redeem):null;}
+
+/** Capture the endpoint generation already admitted by the displayed read. */
+export function mobileUsageCreditConnection(environmentId:string):()=>boolean {
+  const endpoint=prepared?.endpoints.get(environmentId);return ()=>!!endpoint&&settingsEndpointCurrent(endpoint);
+}
+/** A fulfilled projection can still contain failed nested reads. Such a read cannot retire a card. */
+export function mobileUsageCreditReadKnown(selection:string,loaded:ReturnType<typeof mobileUsageSnapshot>):boolean {
+  return loaded.ready&&!loaded.error&&prepared?.selection===selection&&prepared.sources.every(source=>source.connected&&!source.error);
+}
