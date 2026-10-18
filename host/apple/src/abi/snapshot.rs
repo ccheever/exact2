@@ -77,9 +77,14 @@ impl<D: DataSource> Bridge<D> {
             Err(e) => self.refuse(&format!("{e:?}")),
         }
     }
-    /// Query the declared refresh source in the already booted entry.
+    /// Query the declared refresh source in the already booted entry. A test's
+    /// fake source answers at once, but a test binary under a full parallel run
+    /// can be starved past the extension's 900 ms; the deadline is not what
+    /// these tests check.
+    #[cfg(test)]
     pub fn entry_timeline(&mut self, now: f64) -> u32 {
-        self.entry_timeline_module(now, 900.0, &[], &[])
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        self.entry_timeline_until(now, deadline, "", &[])
     }
     /// Borrow the pinned pair for admission; no bridge input or concatenation.
     pub fn entry_timeline_module(
@@ -107,6 +112,15 @@ impl<D: DataSource> Bridge<D> {
         };
         let deadline =
             std::time::Instant::now() + std::time::Duration::from_secs_f64(remaining_ms / 1000.0);
+        self.entry_timeline_until(now, deadline, text, module)
+    }
+    fn entry_timeline_until(
+        &mut self,
+        now: f64,
+        deadline: std::time::Instant,
+        receipt: &str,
+        module: &[u8],
+    ) -> u32 {
         let result = self
             .host
             .as_mut()
@@ -115,7 +129,7 @@ impl<D: DataSource> Bridge<D> {
                 host.entry_timeline(
                     now,
                     self.links.io,
-                    (!receipt.is_empty()).then_some((text, module)),
+                    (!receipt.is_empty()).then_some((receipt, module)),
                     deadline,
                 )
             });
