@@ -486,6 +486,9 @@ component NativeFixture
                         text "Two minutes ago"
                       time datetime=surfaceClock.epochAtZero format="timer" testId="live-timer" font-size=14
                       progress start=surfaceClock.epochAtZero end=(surfaceClock.epochAtZero + 120000) aria-label="Timed progress" testId="live-progress" width=24
+                    row gap=4
+                      time datetime=surfaceClock.epochAtZero format="relative" testId="live-zero" font-size=14
+                      time datetime=(surfaceClock.epochAtZero + 9000000) format="relative" testId="live-hours" font-size=14
                     row role="toolbar" toolbarPlacement="window" aria-label="Window" testId="window-toolbar" gap=6
                       button press=compose aria-label="Compose" testId="toolbar-compose" padding=6 background-color="#e5e7eb"
                         image "symbol:compose" width=20 height=20

@@ -205,7 +205,7 @@ pub struct Host<D: DataSource> {
 }
 
 impl<D: DataSource> Host<D> {
-    /// Boot a plan in a `cols` × `rows` terminal.
+    /// Boot a headless plan on the agent clock in a `cols` × `rows` terminal.
     pub fn boot(
         plan: Plan,
         data: D,

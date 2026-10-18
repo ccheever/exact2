@@ -20,7 +20,7 @@ functions: call -> result
   formatDate(ms, offsetMinutes, "medium"|"month-year"|"iso") -> string
   formatDay(then, now, offsetMinutes, "day"|"day-time"|"list") -> string  (Today, Monday)
   formatDecimal(units, digits) -> string  (cents to "12.34"; literal digits)
-  formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string
+  formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string  (1,234.5; 26%)
   formatTime(ms, offsetMinutes, "short") -> string  ("2:13 PM"; minutes east of UTC)
   frame(id) -> Geometry  (in an action)
   go(router, location) -> Router
@@ -135,7 +135,7 @@ a second screen, a sheet: A screen is a route, not an `if`; a sheet's root adds 
             text "New" role="heading"
             button press=save buttonStyle="bordered-prominent" aria-label="Save"
               image "symbol:checkmark"
-a confirmation: `aria-label` is the question; each action `button` acts and closes (`command="close"`); the Cancel has no `press`. Open it with `command="show-modal"`, or `showModal(id)` in an action.
+a confirmation: `aria-label` is the question; action buttons close (`command="close"`); Cancel has no `press`. Open it with `command="show-modal"`, or `showModal(id)` in an action.
   state n = 1
   action remove
     n = 0
@@ -146,7 +146,7 @@ a confirmation: `aria-label` is the question; each action `button` acts and clos
       text "Delete"
     button commandfor="remove" command="close"
       text "Cancel"
-a timer: `every(ms, action)` repeats, `after(ms, action)` fires once, `when cond` arms the task. A `derive` never rereads the clock: an action writes `performanceNow()` to state.
+a timer: `every(ms, action)` repeats, `after(ms, action)` fires once, `when cond` arms the task. An action writes `performanceNow()` to state; a `derive` never rereads it.
   state now = 0
   task tick mount
     every(1000, step)
