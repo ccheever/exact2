@@ -425,6 +425,18 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const crosses = (e) => held.el.contains(e.target) !== held.el.contains(e.relatedTarget);
   for (const type of ["pointerover", "pointerout"]) root.addEventListener(type, e => { if (held?.state === "hover" && crosses(e)) letGo("input"); }, true);
   for (const type of ["focusin", "focusout"]) root.addEventListener(type, e => { if (held?.state === "focus-visible" && crosses(e)) letGo("input"); }, true);
+  // @ref LLP 1121 D8 — a look snaps, an authored transition or not: the browser has already moved `:hover` and
+  // `:focus-visible` when these come, so each node with a look whose edge this one crosses (entering or leaving it,
+  // not moving within it) takes that style change with its transitions off. A base change still eases as authored.
+  // (A look: the JS target's `data-exact-looks`, or a view the wasm host's looks sheet has rules for.)
+  const looked = (el) => el.hasAttribute("data-exact-looks") || (el.dataset.view != null && !!document.getElementById("exact-looks")?.exactRules?.has(Number(el.dataset.view)));
+  const lookEdges = (e) => {
+    for (let el = e.target; el instanceof Element && root.contains(el); el = el.parentElement) {
+      if (el.contains(e.relatedTarget)) break;
+      if (looked(el)) snap(el, () => {});
+    }
+  };
+  for (const type of ["pointerover", "pointerout", "focusin", "focusout"]) root.addEventListener(type, lookEdges, true);
   const release = (now = false) => { if (press) showPress(press.el, false, now); press = null; };
   root.addEventListener("pointerdown", e => {
     if (e.button !== 0 || !e.isPrimary) return;

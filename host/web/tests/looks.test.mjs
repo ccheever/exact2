@@ -25,7 +25,10 @@ const sheet = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/
 // host writes it (LLP 1061 D7: a blue face, an absolute opacity of 0.6).
 const on = ':not(:disabled,[disabled]:not([disabled="false"]))';
 const hover = at => `${at}:hover${on}{background-color:rgba(255,255,0,1)!important;opacity:0.8!important;--exact-hover-wash:none!important;}`;
-const rules = `@media (hover:hover){${['3', '6', '7', '9'].map(id => hover(`[data-view="${id}"]`)).join('')}}`;
+const rules = `@media (hover:hover){${['3', '6', '7', '9', '11'].map(id => hover(`[data-view="${id}"]`)).join('')}${hover('[data-exact-looks="1"]')}}`;
+// A node with its own transition on what its look sets: the wasm host's (a view the looks sheet has rules for) and
+// the JS target's (`data-exact-looks`).
+const eased = 'width:100px;height:40px;background-color:#ffffff;opacity:1;transition:background-color 400ms linear,opacity 400ms linear';
 const press = 'scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.95;--exact-press-background-color:rgba(0,0,255,1);--exact-press-opacity-to:0.6;';
 const page = sheet + `<style id="exact-looks">${rules}</style>
 <div id="exact-root" style="padding:20px">
@@ -36,10 +39,14 @@ const page = sheet + `<style id="exact-looks">${rules}</style>
   <div id="image" class="drawn" data-view="6" data-exact-on="press" style="width:100px;height:40px">i</div>
   <div id="outer" data-view="7" data-exact-on="press" style="padding:10px"><div id="inner" data-view="8" data-exact-on="press" style="width:100px;height:40px">n</div></div>
   <div data-listrows><div><div id="in-row" data-view="9" data-exact-on="press" style="width:100px;height:40px">r</div></div></div>
+  <div id="eased" data-view="11" style="${eased}">e</div>
+  <div id="eased-js" data-exact-looks="1" style="${eased}"><span id="eased-js-in">j</span></div>
 </div>
 <script type="module">
   import { createInputHandlers } from './input-glue.js';
   createInputHandlers({ root: document.getElementById('exact-root'), views: new Map(), retiredViews: new Set(), ready: () => true, inertAncestor: () => false, dispatch() {} });
+  // As the wasm glue keeps the looks sheet's rules, by view.
+  document.getElementById('exact-looks').exactRules = new Map([[11, '']]);
   window.ready = true;
 </script>`;
 
@@ -60,6 +67,44 @@ afterAll(() => {
   child?.kill();
   server?.close();
   if (profile) rmSync(profile, { recursive: true, force: true });
+});
+
+check('a look snaps through an authored transition, entering and leaving; a base change still eases', async () => {
+  const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
+  const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+  const call = (method, params) => cdp.send(method, params, sessionId);
+  const evaluate = async (expression) => {
+    const reply = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+    if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
+    return reply.result.value;
+  };
+  try {
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
+    const at = (id) => evaluate(`(() => { const r = document.getElementById('${id}').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+    const mouse = (type, [x, y]) => call('Input.dispatchMouseEvent', { type, x, y, button: 'none', buttons: 0, clickCount: 1 });
+    // What shows a frame later: a transition would be at its start.
+    const shows = (id) => evaluate(`new Promise(r => requestAnimationFrame(() => { const s = getComputedStyle(document.getElementById('${id}')); r([s.backgroundColor, Number(s.opacity).toFixed(2)]); }))`);
+    const away = await at('away');
+    for (const id of ['eased', 'eased-js']) {
+      await mouse('mouseMoved', await at(id));
+      expect(await shows(id)).toEqual(['rgb(255, 255, 0)', '0.80']); // into the look, at once
+      await mouse('mouseMoved', away);
+      expect(await shows(id)).toEqual(['rgb(255, 255, 255)', '1.00']); // and out of it, at once
+    }
+    // Moving within the node (onto a child) is no edge: nothing is touched.
+    await mouse('mouseMoved', await at('eased-js'));
+    await mouse('mouseMoved', await at('eased-js-in'));
+    expect(await shows('eased-js')).toEqual(['rgb(255, 255, 0)', '0.80']);
+    await mouse('mouseMoved', away);
+    // A base change still eases as authored.
+    await evaluate(`(e => { getComputedStyle(e).backgroundColor; e.style.backgroundColor = '#000000'; getComputedStyle(e).backgroundColor; })(document.getElementById('eased'))`);
+    await evaluate('new Promise(ok => setTimeout(ok, 100))');
+    const [mid] = await shows('eased');
+    expect(mid).not.toBe('rgb(0, 0, 0)');
+    expect(mid).not.toBe('rgb(255, 255, 255)');
+  } finally {
+    await cdp.send('Target.closeTarget', { targetId });
+  }
 });
 
 check('a hover look composes over the base, under the press paint', async () => {
