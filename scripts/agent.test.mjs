@@ -408,6 +408,63 @@ test('storage advice preserves canvas journal entries through the host seam', as
   assert.deepEqual((await s.logs()).world[0].lines, [], 'the caller consumes each entry once');
 });
 
+test('canvas journal errors survive before and after buffered entries', async () => {
+  const { peekLogs } = await import('./agent-test.mjs');
+  const entry = { canvas: 7, from: 100, next: 101, lines: ['saved entry'] };
+  const error = { canvas: 7, error: 'journal unavailable' };
+  for (const rows of [[entry, error], [error, entry]]) {
+    const pending = [...rows];
+    const carrier = { host: 'web', browser: 'chrome', hostLines: [], launchFacts: launchFacts({}), reset() {},
+      async ask(req) { return req.op === 'logs' ? { from: 0, next: 0, lines: [], world: pending.length ? [pending.shift()] : [] } : {}; } };
+    const s = await open({ reuse: carrier });
+    await peekLogs(s, 0);
+    assert.deepEqual((await s.logs()).world, rows);
+    assert.deepEqual((await s.logs()).world, [], 'entries and errors are consumed once');
+  }
+});
+
+test('a failed journal merge retains the buffered entries for retry', async () => {
+  const { peekLogs, takeWorldLogs } = await import('./agent-test.mjs');
+  const entry = { canvas: 7, from: 0, next: 1, lines: ['saved entry'] };
+  const s = { op: async () => ({ world: [entry] }) };
+  await peekLogs(s, 0);
+  const broken = { [Symbol.iterator]() { throw new Error('cannot read batch'); } };
+  assert.throws(() => takeWorldLogs(s, broken), /cannot read batch/);
+  assert.deepEqual(takeWorldLogs(s, []), [entry]);
+  assert.deepEqual(takeWorldLogs(s, []), []);
+});
+
+test('canvas journals separate restarted cursors and reset with a web reload', async () => {
+  const { peekLogs, reloadWeb } = await import('./agent-test.mjs');
+  const old = { canvas: 7, from: 100, next: 110, lines: ['old canvas'] };
+  const fresh = { canvas: 7, from: 0, next: 1, lines: ['new canvas'] };
+  let pending = [old, fresh];
+  const carrier = { host: 'web', browser: 'chrome', hostLines: [], launchFacts: launchFacts({}),
+    reset() { pending = [fresh]; },
+    async ask(req) { return req.op === 'logs' ? { from: req.since, next: req.since, lines: [], world: pending.length ? [pending.shift()] : [] } : {}; } };
+  const s = await open({ reuse: carrier });
+  pending = [old, fresh];
+  await peekLogs(s, 0);
+  assert.deepEqual((await s.logs()).world, [old, fresh], 'replacement without reload keeps lifetimes separate');
+  pending = [old];
+  s.logCursor = 99;
+  await peekLogs(s, 99);
+  await reloadWeb(s);
+  assert.equal(s.logCursor, 0);
+  assert.deepEqual((await s.logs()).world, [fresh], 'reload discards the old page journal');
+  assert.deepEqual((await s.logs()).world, []);
+
+  let finish;
+  carrier.ask = () => new Promise(resolve => { finish = resolve; });
+  const inFlight = peekLogs(s, 0);
+  carrier.ask = async () => ({});
+  await reloadWeb(s);
+  finish({ world: [old] });
+  await inFlight;
+  carrier.ask = async () => ({ from: 0, next: 0, lines: [], world: [fresh] });
+  assert.deepEqual((await s.logs()).world, [fresh], 'a late probe cannot refill the old page buffer');
+});
+
 test('a drive with no store says its storage was refused after the first op that met it, a screenshot too, once', async () => {
   const { driveNotes, STORAGE_NOTE } = await import('./agent-test.mjs');
   const said = [], quiet = console.error;

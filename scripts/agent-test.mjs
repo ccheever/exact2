@@ -293,25 +293,39 @@ const SHOWN_SHEETS = ['share', 'open-file', 'open-directory', 'save-file'];
 // Native and web canvas journals advance their own cursors on every wire read.
 // Advice owns no journal entries: keep its batches until the caller asks for logs.
 const peekedWorldLogs = new WeakMap();
+export function resetLogs(s) {
+  peekedWorldLogs.delete(s);
+  s.logCursor = 0;
+}
 export async function peekLogs(s, since) {
+  let sessions = peekedWorldLogs.get(s);
+  if (!sessions) peekedWorldLogs.set(s, sessions = new Map());
   const session = s.session, reply = await s.op({ op: 'logs', since });
-  if (reply.world?.length) {
-    let sessions = peekedWorldLogs.get(s);
-    if (!sessions) peekedWorldLogs.set(s, sessions = new Map());
+  // A probe started before a reload belongs to the old page, even if it replies later.
+  if (reply.world?.length && peekedWorldLogs.get(s) === sessions)
     sessions.set(session, [...(sessions.get(session) ?? []), ...reply.world]);
-  }
   return reply;
 }
 export function takeWorldLogs(s, world) {
   const sessions = peekedWorldLogs.get(s), previous = sessions?.get(s.session) ?? [];
-  sessions?.delete(s.session);
   if (!previous.length) return world;
-  const merged = new Map();
+  const merged = [], latest = new Map();
+  const batch = row => row && !('error' in row) && Array.isArray(row.lines)
+    && Number.isSafeInteger(row.from) && Number.isSafeInteger(row.next) && row.next >= row.from;
   for (const row of [...previous, ...(world ?? [])]) {
-    const before = merged.get(row.canvas);
-    merged.set(row.canvas, before ? { ...before, ...row, from: before.from ?? row.from, lines: [...before.lines, ...row.lines], ...(before.dropped != null || row.dropped != null ? { dropped: (before.dropped ?? 0) + (row.dropped ?? 0) } : {}) } : row);
+    const index = latest.get(row?.canvas), before = merged[index];
+    // Errors stay visible. A cursor that restarts belongs to a new canvas lifetime.
+    if (batch(row) && batch(before) && row.from >= before.next) {
+      merged[index] = { ...before, ...row, from: before.from, lines: [...before.lines, ...row.lines],
+        ...(before.dropped != null || row.dropped != null ? { dropped: (before.dropped ?? 0) + (row.dropped ?? 0) } : {}) };
+    } else {
+      latest.set(row?.canvas, merged.length);
+      merged.push(row);
+    }
   }
-  return [...merged.values()];
+  // Consume only after the complete merge succeeds, so a failed read can be retried.
+  sessions?.delete(s.session);
+  return merged;
 }
 export function driveNotes(s, { host, storage, origins = [] }) {
   const INPUTS = ['tap', 'type', 'clock'], READS = ['tree', 'screenshot', 'layout'];
@@ -511,7 +525,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       const now = await s.state().catch((e) => { throw new Error(`reload: could not read the fault table to carry: ${e.message}`); });
       const failFetch = now.faults ? faultSpecOf(now.faults) : undefined;
       facts.epoch = await reached();
-      if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch, epoch: facts.epoch }); s.now = 0; s.logCursor = 0; s.notes = notes; return; }
+      if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch, epoch: facts.epoch }); s.now = 0; resetLogs(s); s.notes = notes; return; }
       await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port }); s.notes = notes;
     };
     // The clock stands still between steps: what an input started (a reply,
@@ -775,7 +789,7 @@ export async function reloadWeb(s) {
   }
   const now=await s.state();
   await s.carrier.reset({keep:true, failFetch: now.faults ? faultSpecOf(now.faults) : undefined});
-  s.now=0; s.logCursor=0;
+  s.now=0; resetLogs(s);
   return {reloaded:true};
 }
 
