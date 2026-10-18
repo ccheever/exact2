@@ -18,6 +18,8 @@ import { arr, obj, str, type Obj } from '../client/domain';
 import { driverMeta, legacyProviders, unconfiguredDefaultEnabled } from '../providers/providers-meta';
 import { resolveSelectableModel } from './composer-controls-model';
 import { providerLock } from './composer-controls-commands';
+import { projectProviderEnabled } from '../providers/project-provider-overrides';
+import { modelPreferenceSource } from '../providers/model-preferences';
 import { applyPickerPrefs } from '../providers/settings-b-models';
 
 export const NO_PROVIDER_INSTANCE_ID = 't3code_no_provider';
@@ -149,7 +151,7 @@ export function instanceModelOptions(local: Prefs, settings: Obj, entry: Provide
     if (str(custom.slug).length > 256 || seen.has(str(custom.slug))) continue;
     seen.add(str(custom.slug)); options.push(custom);
   }
-  const kept = applyPickerPrefs(local, entry.instanceId, options);
+  const kept = applyPickerPrefs(modelPreferenceSource({ config: { settings }, local }), entry.instanceId, options);
   // appendUnavailableDynamicModelSelection: an OpenCode or Antigravity model the catalog dropped stays as an unavailable row.
   const slug = str(selectedModel).trim();
   if ((entry.driverKind !== 'opencode' && entry.driverKind !== 'antigravity') || !slug) return kept;
@@ -216,7 +218,7 @@ function projectDefaultSelection(client: SelectionSource): Obj {
 export function composerSelection(client: SelectionSource, fanout = false) {
   const providers = arr(client.config.providers), settings = obj(client.config.settings), local = client.local ?? {};
   // ChatView's providerInstanceEntries: sorted entries with the settings' enabled flags.
-  const entries = applyProviderInstanceSettings(providerEntries(providers), settings);
+  const entries = applyProviderInstanceSettings(providerEntries(providers), settings).map(entry => ({ ...entry, enabled: projectProviderEnabled(settings, client.projectId ?? '', entry.instanceId, entry.enabled) }));
   const projection = client.threadId ? obj(client.projection) : {};
   const thread = obj(projection.thread), threadSelection = obj(thread.modelSelection);
   // deriveThreadRuntime is null until the thread has a run or a provider thread.

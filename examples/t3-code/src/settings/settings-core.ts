@@ -225,7 +225,7 @@ export const PROJECT_SCOPED = new Set(['worktreeCleanup', 'defaultModelSelection
 export const SERVER_DEFAULTS: Record<string, Json> = {
   defaultModelSelection: null, defaultRuntimeMode: 'full-access', defaultThreadEnvMode: null, worktreeSubmodules: null, autoResumeLimitedThreads: false,
   snoozeLimitedThreads: false, sidebarAutoSettleOnMerge: true, sidebarAutoSettleAfterDays: 3, responseStreamingMode: 'paragraph', enableProviderUpdateChecks: true,
-  continueThreadsAfterServerUpdate: false, backgroundActivity: { schemaVersion: 1, profile: 'balanced', overrides: {} }, newWorktreesStartFromOrigin: true,
+  continueThreadsAfterServerUpdate: true, backgroundActivity: { schemaVersion: 1, profile: 'balanced', overrides: {} }, newWorktreesStartFromOrigin: true,
   addProjectBaseDirectory: '', textGenerationModelSelection: { instanceId: 'codex', model: 'gpt-6-luna', options: [{ id: 'reasoningEffort', value: 'low' }] },
   enableAgentBrowserAccess: true,
 };
@@ -587,7 +587,9 @@ export function settingsModelTarget(client: T3Client, id: string) {
   const [instanceId = '', model = ''] = str(control.value).split('|');
   // Text generation offers only the providers that support it (textGenerationProviders).
   const providers = context.providers.filter(provider => !textGeneration || provider.supportsTextGeneration !== false);
-  return { context, providers, instanceId, model };
+  const { environment: representative } = selectScopedSettingsEnvironments(scope.resolved, scope.environments, client.environmentId || null);
+  const config = !representative || representative.environmentId === client.environmentId ? client.config : obj(representative.serverConfig);
+  return { context, config, providers, instanceId, model };
 }
 const fleetConfig = (key: string) => fleet.entries.get(key)?.config ?? {};
 

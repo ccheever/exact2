@@ -105,8 +105,8 @@ export function makeWindow(days: number, now: number, zone = timeZone()): UsageW
 
 // ── Merge (usageMerge.ts) ───────────────────────────────────────────────────
 
-export type ProviderKind = 'codex' | 'claude' | 'grok' | 'cursor' | 'opencode' | 'antigravity';
-export const PROVIDER_ORDER: ProviderKind[] = ['codex', 'claude', 'grok', 'cursor', 'opencode', 'antigravity'];
+export type ProviderKind = 'codex' | 'claude' | 'grok' | 'cursor' | 'opencode' | 'antigravity' | 'pi';
+export const PROVIDER_ORDER: ProviderKind[] = ['codex', 'claude', 'grok', 'cursor', 'opencode', 'antigravity', 'pi'];
 // usageProviders.ts: label, series colour (light, dark) and the driver whose mark it shows.
 export const PROVIDERS: Record<ProviderKind, { label: string; color: [string, string]; driver: string }> = {
   codex: { label: 'Codex', color: ['#27272a', '#f5f5f5'], driver: 'codex' },
@@ -114,6 +114,7 @@ export const PROVIDERS: Record<ProviderKind, { label: string; color: [string, st
   grok: { label: 'Grok Build', color: ['#636365', '#b3b3b3'], driver: 'grok' },
   cursor: { label: 'Cursor', color: ['#8b8b8b', '#8b8b8b'], driver: 'cursor' },
   opencode: { label: 'OpenCode', color: ['#5b9bbd', '#5b9bbd'], driver: 'opencode' },
+  pi: { label: 'Pi', color: ['#4d9f8a', '#4d9f8a'], driver: 'pi' },
   antigravity: { label: 'Antigravity', color: ['#8c7bd1', '#8c7bd1'], driver: 'antigravity' },
 };
 type Band = { costUsd: number; totalTokens: number };
