@@ -23,40 +23,8 @@ use exact_runner::{
 use std::cell::RefCell;
 use std::ffi::c_void;
 use std::rc::Rc;
-/// What the presenter hands the library at boot: the text measurer (LLP
-/// 1008 §3) and the wake for a request's reply (LLP 1016 D2), each with an
-/// opaque context the library passes back untouched.
-#[derive(Clone, Copy)]
-pub struct Hooks {
-    /// Measures a paragraph; `None` for the monospace reference measurer.
-    pub measure: Option<MeasureFn>,
-    /// Passed back to `measure` and `lines`.
-    pub ctx: *mut c_void,
-    /// A paragraph's line boxes (LLP 1093 D6); `None` keeps paragraphs whole.
-    pub lines: Option<crate::measure::LinesFn>,
-    /// Called on the executor's thread when a reply is queued; `None`: replies wait for `exact_pump`.
-    pub wake: Option<crate::executor::WakeFn>,
-    /// Passed back to `wake`.
-    pub wake_ctx: *mut c_void,
-    /// Measures a Canvas 2D run with Core Text (LLP 1056 D8), with `ctx`.
-    pub canvas_text: Option<crate::canvas_text::CanvasTextFn>,
-    /// Measures a system symbol (`TextMeasurer::symbol_size`), with `ctx`.
-    pub symbol: Option<crate::measure::SymbolFn>,
-}
-impl Hooks {
-    /// No callbacks: the reference measurer, and replies on `pump` only.
-    pub const fn none() -> Hooks {
-        Hooks {
-            measure: None,
-            ctx: std::ptr::null_mut(),
-            lines: None,
-            wake: None,
-            wake_ctx: std::ptr::null_mut(),
-            canvas_text: None,
-            symbol: None,
-        }
-    }
-}
+mod hooks;
+pub use hooks::Hooks;
 /// The buffers and the host behind the exports.
 pub struct Bridge<D: DataSource> {
     document_owner: u64,
@@ -515,6 +483,7 @@ impl<D: DataSource> Bridge<D> {
             Some(f) => Box::new(
                 CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
                     .with_symbol(hooks.symbol)
+                    .with_time_format(hooks.time_format)
                     .with_field_chrome(self.field_chrome)
                     .with_button_measure(self.button_measure)
                     .with_measure_revision(
@@ -818,6 +787,7 @@ impl<D: DataSource> Bridge<D> {
             Some(f) => Box::new(
                 CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
                     .with_symbol(hooks.symbol)
+                    .with_time_format(hooks.time_format)
                     .with_field_chrome(self.field_chrome)
                     .with_button_measure(self.button_measure)
                     .with_measure_revision(

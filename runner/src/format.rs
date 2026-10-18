@@ -52,20 +52,7 @@ pub fn formatting(f: Stdlib, args: &[Value]) -> Option<Value> {
     })
 }
 
-const MONTHS: [&str; 12] = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-];
+use exact_kernel::time::{civil, MONTHS, WEEKDAYS};
 
 /// A `formatDate` style.
 #[derive(Clone, Copy, PartialEq)]
@@ -111,20 +98,6 @@ fn date(wall: f64, style: Style) -> String {
     out
 }
 
-/// The proleptic Gregorian (year, month, day) of `days` since 1970-01-01:
-/// Hinnant's `civil_from_days`, integers only.
-fn civil(days: i64) -> (i64, u32, u32) {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (yoe + era * 400 + i64::from(month <= 2), month, day)
-}
-
 /// A `formatDay` mode.
 #[derive(Clone, Copy, PartialEq)]
 enum DayMode {
@@ -132,16 +105,6 @@ enum DayMode {
     DayTime,
     List,
 }
-
-const WEEKDAYS: [&str; 7] = [
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-];
 
 /// `formatDay(thenMs, nowMs, utcOffset, mode)` (LLP 1116.020 D8): `then`'s
 /// day counted from `now`'s in the offset's calendar days, as Foundation's

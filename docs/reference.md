@@ -322,6 +322,50 @@ refused (studio diary R14; notes diary). When nothing takes the path, the
 host says why — no `open-file` field, or the `change` the app refused, and the
 refusal — on stderr and in the journal. `exact uninstall <app>` takes both halves away.
 
+Widget entries are top-level `app.json` `widgets` rows. For example:
+
+```json
+{"kind":"next-trains","families":["systemSmall","systemMedium","accessoryRectangular"],
+ "component":"NextTrains","props":"NextTrainsProps","refresh":"nextTrains",
+ "preview":{"station":"Mountain View","departures":[]}}
+```
+
+`component` and the `props` shape are declared or imported by `app.contract`;
+every component prop must match a field of that shape. `preview` supplies all
+fields, with their declared types. `refresh` names a data-source function taking
+an epoch-millisecond number and returning a timeline: records with `date` (epoch
+milliseconds) and `props` (the declared shape), in that field order. The plan's
+`snapshot_refresh` header selects its typed source row; the render has no resource
+for it. A data bake checks an immediate refresh answer against that signature at epoch
+zero; pending answers are checked by the source declarations. TypeScript checks
+the generated `Sources` type, including async refreshes. Compile entries once
+with `contract::snapshot::entries(app)`, then pass that map to `source_plan`,
+`check_refreshes` and receipt generation. `snapshot::bake_app` takes separate
+data instances for the app and refresh, so refresh state cannot affect the app
+first frame. The TypeScript and replaceable Rust producers use the same check.
+
+The render's props slot is named `snapshot_props`; find it by name, since a
+`path(...)` link also needs a router slot. Its initial value is the preview; reached bindings cannot use that reserved name.
+The bake writes `plans/<kind>.plan` beside `app.plan`. The envelope's `plans`
+map indexes these authenticated assets in the app's compatibility cohort.
+Kinds and families are binary compatibility inputs; views and preview props
+are plan contents. A running host refuses a snapshot plan at decode, and a
+snapshot reader requires its exact kind and refresh signature.
+
+The `snapshot` columns on the style and prop rows declare admission. Unsupported
+rows, scrolling, sticky positioning, timers, requests, native modules and handlers
+fail with an edit. A `performanceNow()` call is refused everywhere, including
+inside `time` and `progress`; pass instants from refresh for platform time
+presentation. A variable's name imposes no restriction. A class is a style name
+or `class=(condition ? A : B)`. Only literal font families reached through the
+entry are bundled; a dynamic font string selects installed or generic families.
+Images use a bundle-relative path, an `app:/` path written by refresh, or a
+`symbol:` source. Computed paths need a fixed local prefix; refresh downloads
+remote images. A live `time` (`relative`, `timer`, `countdown`) must own its
+text paragraph, so the widget can reserve its width; calendar formats may be
+inline. Links must be their own elements, not runs among other paragraph text.
+Snapshot handlers are refused; use a link to open the app.
+
 App icons come from `app.json`'s Web App Manifest `icons` array: Apple uses
 the first square raster of at least 512 px. To select an
 [Icon Composer project](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer),
@@ -1782,3 +1826,35 @@ the shared native sampler after resize settlement and presented scrolling.
 Native inline runs, moving presentation geometry, rotated roots and SVG clip references remain unqualified;
 percentage margins follow Chrome (LLP 1001). See LLP 1005's intersection
 visibility deviation; other native hosts remain unqualified.
+
+## Live time and progress
+
+`time` is HTML's instant, in epoch milliseconds. `format` names the platform
+presentation: `relative`, `timer`, `countdown`, `date-short`, `date-medium`
+(the default), `date-long`, `date-full`, or `time-short` and `time-medium` (with seconds). Date and time styles use the viewer's locale and
+time zone. Children are fallback text if the host cannot format the instant.
+
+```contract
+component Clock
+  view
+    column
+      time datetime=1792209600000 format="relative"
+        text "Departure"
+      time datetime=1792209600000 format="countdown"
+      progress start=1792209000000 end=1792209600000 aria-label="Trip"
+```
+
+Relative time changes at minute boundaries, timers and countdowns each second.
+A timer counts elapsed or remaining time on either side of its instant; a
+countdown stops at zero. The runner drives them without an app task, including
+under the agent's `clock +60000`. A standalone live `time` reserves its box
+for the widest presentation at its font, including two units for relative
+time. A live `time` inside a `text` with other runs reflows as on the web;
+make it its own text node when its width must stay fixed. Changing numeric
+text uses tabular digits by default.
+
+`progress start=… end=…` advances from zero to one over the interval and
+clamps outside it. Supply both instants with `end` after `start`, without
+`value` or `max`. The existing forms remain: `progress value=0.4 max=1` is
+a determinate bar, and `progress` is the platform activity indicator. A
+progress control takes no children; `aria-label` names it.

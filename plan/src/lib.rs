@@ -27,6 +27,8 @@
 pub mod asm;
 pub mod builder;
 pub mod bytes;
+mod entry;
+pub use entry::entry_identifier;
 pub mod shared;
 pub mod strings;
 pub mod value;
@@ -72,6 +74,8 @@ pub enum PlanError {
         available: usize,
     },
     BadMagic,
+    /// A running host received a snapshot, or the snapshot reader received another entry.
+    WrongEntry,
     UnsupportedVersion(u32),
     FormatDigestMismatch {
         expected: u64,

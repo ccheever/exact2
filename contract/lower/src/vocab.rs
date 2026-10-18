@@ -66,6 +66,10 @@ include!(concat!(env!("OUT_DIR"), "/vocab.rs"));
 /// Attributes restricted by tag or collection shape; the `head` fields
 /// are [`tags::HEAD_FIELDS`].
 pub const CONTEXTUAL: &[(&str, &str)] = &[
+    ("datetime", "`time`"),
+    ("format", "`time`"),
+    ("start", "`progress` with `end`"),
+    ("end", "`progress` with `start`"),
     ("sandbox", "`iframe`"),
     ("src", "`iframe` or `video`"),
     ("load", "`iframe`, `image` or a native module"),
@@ -127,6 +131,8 @@ pub const BUTTON_DEFAULT_NOTE: &str = button_default!();
 /// What a tag means beyond its node, where the hosts make more of it than
 /// the web: `contract vocab <tag>` prints it under the tag.
 pub const TAG_NOTES: &[(&str, &str)] = &[
+    ("time", "HTML time: `datetime` is an instant in epoch milliseconds, as `date(...)` returns. `format` is a literal named presentation: relative, timer, countdown, date-short, date-medium (default), date-long, date-full, time-short or time-medium. The platform formats it in the viewer locale and time zone. Relative time advances on minute boundaries; timer and countdown advance each second on the runner clock, with no app task. A timer counts away from either side of its instant; countdown stops at zero. Children are fallback content when the host cannot format the instant. A standalone live time reserves its box for the widest text at its font (two units for relative time). An inline time among other runs in a text reflows as on the web. Ticking formats use tabular digits by default."),
+    ("progress", "HTML progress: `value` and optional `max` (1 by default) make a determinate bar; with neither it is the platform activity indicator. `start` and `end` instead name epoch millisecond instants: the runner advances the bar from 0 to 1 over that interval, clamps before and after it, and executes no app task. Write both, with end after start; do not combine them with value or max. It remains a native control with no children; name it with aria-label."),
     (
         "header",
         // @ref LLP 1116.003 D2.2, LLP 1115.000 D5.2, D5.3 —

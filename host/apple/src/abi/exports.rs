@@ -105,6 +105,12 @@ macro_rules! host {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.symbol = measure; });
         }
 
+        /// Format live time with the platform, on the runner clock.
+        #[no_mangle]
+        pub extern "C" fn exact_set_time_format(rt: u32, f: Option<$crate::time::TimeFormatFn>) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.time_format = f; });
+        }
+
         /// The Canvas 2D text measurer (LLP 1056 D8): called on the runtime's
         /// thread with the context `exact_set_measure` was given.
         #[no_mangle]

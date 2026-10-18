@@ -221,7 +221,7 @@ export function commit(f, what = "commit") {
 export function recommit(f, what) { const done = commit(f, what), owed = done === false ? Resources.filter(r => r.reconciling) : [], why = Refused?.message; if (owed.length) { for (const r of owed) r.giveUp(`the commit that asked it again was refused: ${why}`); commit(() => {}, "the reads a refused commit owed"); } return done; }
 /** What runs after each commit's tree update (a loaded piece's publication), before it (the text flow piece puts
  * flowed paragraphs back), and as the clock moves: before each timer or `then` fires, and where an advance lands. */
-export const After = [], Before = [], Clocked = [];
+export const After = [], Before = [], Clocked = []; export { liveTime } from "./live-time.js";
 /** `-exact-fit` (LLP 1116.001 D1.4): fitted texts are scaled after each tree update (navigation.js `fitText`). */ export const fitTexts = () => installFits(After);
 /** Authored scroll offsets (`scrollTop`, `scrollLeft`), set once the commit's tree is in place, as the web host's `pendingScrolls`
  * (a virtualized list builds the rows there first: `$jump`, list.js); and a select's committed

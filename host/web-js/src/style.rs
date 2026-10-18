@@ -76,15 +76,17 @@ pub fn can_be(plan: &Plan, code: &[u8], used: &dyn Fn(&str) -> bool) -> bool {
 /// `value` is one: with it HTML's `<progress>` bar, without it the drawn
 /// ring (LLP 1116 D8).
 fn decides_tag(plan: &Plan, node: &exact_plan::NodesRow, p: PropId) -> bool {
-    matches!(p, PropId::Href | PropId::SemanticTag)
-        || p == PropId::Value
-            && node.bindings.iter().any(|b| {
-                let row = plan.binding(b);
-                row.kind == BindingKind::Prop
-                    && row.id == PropId::Type as u16
-                    && literal(plan, plan.code(row.expr))
-                        .is_some_and(|v| v.as_str() == Some("progress"))
-            })
+    matches!(
+        p,
+        PropId::Href | PropId::SemanticTag | PropId::Start | PropId::End
+    ) || p == PropId::Value
+        && node.bindings.iter().any(|b| {
+            let row = plan.binding(b);
+            row.kind == BindingKind::Prop
+                && row.id == PropId::Type as u16
+                && literal(plan, plan.code(row.expr))
+                    .is_some_and(|v| v.as_str() == Some("progress"))
+        })
 }
 
 fn sample(kind: PropKind) -> PropValue {

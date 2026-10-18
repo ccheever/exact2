@@ -104,6 +104,7 @@ impl<D: DataSource> Runner<D> {
             .chain(self.then_due.iter().copied())
             // A drop's hold waits a second for its move (LLP 1094 D8).
             .chain(self.reorder_deadline())
+            .chain(self.live_times.due())
             .chain(self.queues.next_due.iter().copied())
             // A sequence's fill, count-in's end, end and answer (LLP 1125 D3).
             .chain([

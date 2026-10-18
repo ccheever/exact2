@@ -28,6 +28,7 @@ mod surface;
 mod symbols;
 mod tests_json;
 pub use tests_json::tests_json;
+pub mod snapshot;
 /// `uses` (LLP 1121 stage 4, commit 6): where the app reads a token.
 pub mod tamber_params;
 pub mod tamber_uses;
@@ -39,7 +40,7 @@ pub use contract_types::strings::Strings;
 /// crate its grants for the compatibility id (`Caltrain.grants()`).
 pub use exact_runner::DataSource;
 pub use logic::{apple_linked, rust_entry, web_linked, web_rust_mode};
-pub use manifest::Manifest;
+pub use manifest::{Manifest, Widget};
 pub use map::{plan_digest, SourceMap};
 pub use resolve::Origin;
 pub use rust::rust;

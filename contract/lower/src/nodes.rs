@@ -106,7 +106,7 @@ impl Lowerer<'_> {
         shorthands::check_text_box(tag, parent_tag, expanded)?;
         // @ref LLP 1034 §8 — an inline run paints in its paragraph's
         // scheme: no host gives a run an appearance of its own.
-        if tag == "text" && parent_tag == Some("text") {
+        if matches!(tag.as_str(), "text" | "time") && matches!(parent_tag, Some("text" | "time")) {
             if let Some(a) = expanded.iter().find(|a| a.name == "color-scheme") {
                 return Err(LowerError {
                             id: "lower-attr-tag",
@@ -142,6 +142,7 @@ impl Lowerer<'_> {
         let children: &[Node] = face.as_deref().unwrap_or(authored_children.as_slice());
         controls::check_nesting(tag, parent_tag, *span)?;
         controls::check_progress(tag, expanded, children)?;
+        crate::live_time::check(tag, expanded, *span)?;
         let alert = self.check_menu_shapes(tag, expanded, children, *span)?;
         let closedby = menus::implied_closedby(tag, expanded, *span, alert);
         let expanded = closedby.as_deref().unwrap_or(expanded);
@@ -284,13 +285,20 @@ impl Lowerer<'_> {
             &mut bindings,
         );
         self.heading_style(tag, expanded, scope, locals, &mut bindings)?;
+        if tag == "time" && expanded.iter().any(|a| a.name == "format" && matches!(&a.value, Expr::Str(v, _) if matches!(v.as_str(), "relative" | "timer" | "countdown"))) {
+            bindings.push(style_row(exact_kernel::StyleId::FontVariantNumeric, self.fixed(true, "tabular-nums"), IMPLIED));
+        }
+
         // @ref LLP 1069.001 (amended 2026-10-07) — an indeterminate
         // `progress` (no `value`, LLP 1116 D8) is busy, as ARIA's
         // `aria-busy`: a bool, which a fixed prop (text) cannot be.
         // @ref LLP 1115.000 D10.2 — a determinate one is full width, as a
         // range is; the indicator keeps its 20 by 20.
         if tag == "progress" {
-            if expanded.iter().any(|a| a.name == "value") {
+            if expanded
+                .iter()
+                .any(|a| matches!(a.name.as_str(), "value" | "start"))
+            {
                 for (style, value) in controls::FULL_WIDTH {
                     bindings.push(style_row(*style, self.fixed(true, value), IMPLIED));
                 }
@@ -534,7 +542,7 @@ impl Lowerer<'_> {
             // paragraph's each/when still produces only text runs.
             fn run(c: &Node) -> bool {
                 match c {
-                    Node::Element { tag, .. } => tag == "text",
+                    Node::Element { tag, .. } => matches!(tag.as_str(), "text" | "time"),
                     Node::Each { body, .. } => body.iter().all(run),
                     Node::When {
                         then, otherwise, ..
@@ -545,7 +553,7 @@ impl Lowerer<'_> {
             if let Some(bad) = children.iter().find(|c| !run(c)) {
                 return err(
                     "lower-leaf-children",
-                    "`text` may hold only `text` runs",
+                    "a text paragraph holds `text` or `time` runs",
                     bad.span(),
                 );
             }

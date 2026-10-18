@@ -1375,6 +1375,7 @@ impl Em<'_> {
         } else {
             self.children(self.sites.of_node(i), &e, scope)?;
         }
+        self.live_time(i, element, &e, scope)?;
         if panel {
             self.out.push_str("});");
         }

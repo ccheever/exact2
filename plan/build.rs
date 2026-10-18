@@ -827,19 +827,21 @@ fn main() {
     let _ = writeln!(w, "    }}");
 
     // decode
+    let _ = writeln!(w, "    /// Decode only the named snapshot entry (LLP 1126 D2); running app plans are refused.");
+    let _ = writeln!(w, "    pub fn decode_snapshot(bytes: &[u8], kind: &str) -> Result<Plan, PlanError> {{ if kind.is_empty() {{ return Err(PlanError::WrongEntry); }} Self::decode_from(bytes, None, Some(kind)) }}");
     let _ = writeln!(w, "    /// Decode and validate whole. Every index, range, code, and data reference is checked before the plan is returned; a failure names the row.");
     let _ = writeln!(
         w,
-        "    pub fn decode(bytes: &[u8]) -> Result<Plan, PlanError> {{ Self::decode_from(bytes, None) }}"
+        "    pub fn decode(bytes: &[u8]) -> Result<Plan, PlanError> {{ Self::decode_from(bytes, None, None) }}"
     );
     let _ = writeln!(w, "    /// [`Plan::decode`] of bytes that live as long as the program (a plan linked into it): the data pool, a baked app's largest part, stays in those bytes instead of a copy.");
     let _ = writeln!(
         w,
-        "    pub fn decode_static(bytes: &'static [u8]) -> Result<Plan, PlanError> {{ Self::decode_from(bytes, Some(bytes)) }}"
+        "    pub fn decode_static(bytes: &'static [u8]) -> Result<Plan, PlanError> {{ Self::decode_from(bytes, Some(bytes), None) }}"
     );
     let _ = writeln!(
         w,
-        "    fn decode_from(bytes: &[u8], lent: Option<&'static [u8]>) -> Result<Plan, PlanError> {{"
+        "    fn decode_from(bytes: &[u8], lent: Option<&'static [u8]>, snapshot: Option<&str>) -> Result<Plan, PlanError> {{"
     );
     let _ = writeln!(w, "        let mut r = Reader::new(bytes);");
     let _ = writeln!(
@@ -866,6 +868,7 @@ fn main() {
         };
         let _ = writeln!(w, "        let {} = {expr};", f.name);
     }
+    let _ = writeln!(w, "        if snapshot_entry != snapshot.unwrap_or(\"\") || snapshot_entry.is_empty() != snapshot_refresh.is_none() {{ return Err(PlanError::WrongEntry); }}");
     let _ = writeln!(w, "        let n = r.count()?; let mut strings = Vec::with_capacity(n.min(crate::bytes::RESERVE)); for _ in 0..n {{ strings.push(r.string()?); }}");
     let _ = writeln!(
         w,

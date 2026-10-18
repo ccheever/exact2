@@ -64,7 +64,7 @@ pub fn build_mixed_with(
     platform: &str,
     rust: &dyn DataSource,
     rust_sources: &[&str],
-    compose: impl FnOnce(Module) -> Box<dyn DataSource>,
+    compose: impl Fn(Module) -> Box<dyn DataSource>,
 ) -> Result<(), BakeError> {
     let composer = Composer {
         rust_sources: rust_sources.iter().map(|s| s.to_string()).collect(),
@@ -76,7 +76,7 @@ pub fn build_mixed_with(
 /// How a Cargo bake composes the TypeScript module with the app's Rust.
 struct Composer<'a> {
     rust_sources: Vec<String>,
-    compose: Box<dyn FnOnce(Module) -> Box<dyn DataSource> + 'a>,
+    compose: Box<dyn Fn(Module) -> Box<dyn DataSource> + 'a>,
 }
 
 /// A composed source, as `contract::bake` takes it.
@@ -172,6 +172,13 @@ impl Seed {
                     ))
                 })
                 .or_insert(value);
+        }
+        for source in rust_sources {
+            values.entry(source.clone()).or_insert_with(|| {
+                Err(format!(
+                    "`{source}` has no seeded resource; checked by its source declaration"
+                ))
+            });
         }
         Ok(Seed { values })
     }
@@ -329,13 +336,14 @@ fn build_sources(
     }
     let manifest = contract::Manifest::read(app)?;
     let target = std::env::var("TARGET").map_err(|e| e.to_string())?;
-    let compat = exact_bake::compatibility_id_sources(
+    let compat = exact_bake::compatibility_id_sources_with_entries(
         app,
         platform,
         &target,
         &manifest,
         meta["grants"].as_str(),
         mixed_grants(&meta, rust)?,
+        Some(&baked.entries),
     )?;
     // A TypeScript app's update carries its module pair (`typescript/`); a
     // mixed app's two modules travel as one generation, which no host takes yet.
@@ -574,6 +582,8 @@ pub struct Baked {
     /// The compiler's warnings, each as `contract build` prints it, its file
     /// from the app's directory: the bake's caller says them (LLP 1116.004 D7).
     pub warnings: Vec<String>,
+    /// Snapshot plans compiled alongside the app, reused by bundle generation.
+    pub entries: BTreeMap<String, contract::snapshot::Entry>,
 }
 
 /// A temporary directory we created, cleaned on every success/refusal path.
@@ -1020,7 +1030,9 @@ fn bake_in(
             .as_bytes(),
     )?;
     let exported = contract::design_exports(&app.join("app.contract"));
-    let mut declarations = contract::typescript_exporting(&plan, exported.as_deref())?;
+    let entries = contract::snapshot::entries(&app)?;
+    let source_plan = contract::snapshot::source_plan(&entries, &plan)?;
+    let mut declarations = contract::typescript_exporting(&source_plan, exported.as_deref())?;
     // Canvas 2D (LLP 1056 D1): a module that exports `draw` and `surfaces`
     // speaks ABI 2, and only it carries the recorder.
     let app_ts = String::from_utf8_lossy(&captured[Path::new("app.ts")]).into_owned();
@@ -1095,10 +1107,25 @@ fn bake_in(
     // The first frame bakes through the declared owners (LLP 1027.002 §5
     // step 0): the app's composer in a Cargo bake; the previous plan's
     // values for the Rust half a development producer cannot run.
+    let mut refresh_module = Module::inspect(bytecode.clone())?;
+    refresh_module.set_budget_ms(f64::INFINITY);
     let plan = match (composer, seed) {
-        (Some(composer), _) => contract::bake(plan, Composed((composer.compose)(module))),
-        (None, Some(seed)) => contract::bake(plan, Seeded { module, seed }),
-        (None, None) => contract::bake(plan, module),
+        (Some(composer), _) => contract::snapshot::bake_app(
+            &entries,
+            plan,
+            Composed((composer.compose)(module)),
+            Composed((composer.compose)(refresh_module)),
+        ),
+        (None, Some(seed)) => contract::snapshot::bake_app(
+            &entries,
+            plan,
+            Seeded { module, seed },
+            Seeded {
+                module: refresh_module,
+                seed,
+            },
+        ),
+        (None, None) => contract::snapshot::bake_app(&entries, plan, module, refresh_module),
     }
     .map_err(|e| {
         source_map
@@ -1130,6 +1157,7 @@ fn bake_in(
         receipt,
         source_map,
         warnings,
+        entries,
     })
 }
 
@@ -1285,6 +1313,7 @@ impl Baked {
         // directory is not a candidate until that complete receipt exists.
         std::fs::create_dir(&output).map_err(|e| e.to_string())?;
         let result = (|| {
+            contract::snapshot::write_entries(&self.entries, &output)?;
             if let Some(map) = &self.source_map {
                 std::fs::write(output.join("app.plan.map.json"), map).map_err(|e| e.to_string())?;
             }
