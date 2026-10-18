@@ -67,3 +67,11 @@ test('Markdown links and stored mention records share the same metadata and rend
   expect(calls).toEqual([['/repo/release.v1']]);
   expect(messageChips(message, '/repo', [], '', {}, app).map(chip => chip.icon)).toEqual(['folder', 'folder']);
 });
+test('failed batches remain bounded without retrying a mounted chip repeatedly before its backoff expires', async () => {
+  const { app, calls } = fixture(Array.from({ length: 1100 }, (_, id) => `@p${id}`).join(' '), () => { throw new Error('Fixture metadata failure'); });
+  for (let batch = 0; batch < 18; batch++) await refreshFileMetadata(app, native, 0);
+  expect(calls).toHaveLength(18); expect(fileMetadataNeeded(app, 1)).toBe(false);
+  expect(fileMetadataNeeded(app, 60_001)).toBe(true);
+  Object.assign(app, { draftKey: 'env:t2', draft: '@p0' });
+  expect(fileMetadataNeeded(app, 1)).toBe(true);
+});

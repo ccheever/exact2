@@ -59,7 +59,7 @@ export function visibleFilePaths(client: T3Client): string[] {
 }
 function known(client: T3Client, path: string, now: number): Entry | undefined {
   const value = store(client), entry = value.retained.get(path) ?? value.cache.get(path);
-  if (entry && (value.retained.has(path) || entry.expires > now)) { if (!entry.failed) value.retained.set(path, entry); return entry; }
+  if (entry && (value.retained.has(path) && !entry.failed || entry.expires > now)) { if (!entry.failed) value.retained.set(path, entry); return entry; }
   return undefined;
 }
 export function fileMetadataNeeded(client: T3Client, now = composerNow(client)): boolean {
@@ -88,7 +88,11 @@ export async function refreshFileMetadata(client: T3Client, native: Native, now 
     });
   } catch (error) {
     if (letGo(error)) throw error;
-    if (store(client) === value && value.version === version) for (const path of paths) value.cache.set(path, { value: null, expires: now + STALE_MS, failed: true });
+    if (store(client) === value && value.version === version) for (const path of paths) {
+      const entry: Entry = { value: null, expires: now + STALE_MS, failed: true };
+      value.cache.delete(path); value.cache.set(path, entry); value.retained.set(path, entry);
+      if (value.cache.size > MAX_CACHE) value.cache.delete(value.cache.keys().next().value!);
+    }
   } finally { paths.forEach(path => value.inFlight.delete(path)); }
   return true;
 }
