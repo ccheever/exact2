@@ -233,7 +233,7 @@ if (es) {
     // and the design its runner runs (read from it: /__dev/design is 204 when the
     // plan's own is the one to run, so no live answer would say it).
     // An inspect outline drawn on the old generation's boxes goes.
-    applied: (candidate) => { clearTimeout(retry); show(null); generations += 1; outlineNone(); delete globalThis.exact.designDigest; syncDesign(); channel.plan = candidate?.generation ?? channel.plan; knownPlan(candidate?.planSha256); if (channel.held) command(channel.held); else if (channel.nonce) status(); },
+    applied: (candidate) => { clearTimeout(retry); if (stillUntil) stillEnds(); show(null); generations += 1; outlineNone(); delete globalThis.exact.designDigest; syncDesign(); channel.plan = candidate?.generation ?? channel.plan; knownPlan(candidate?.planSha256); if (channel.held) command(channel.held); else if (channel.nonce) status(); },
     failed: (error, current) => {
       show(String(error)); console.error("exact dev:", String(error));
       clearTimeout(retry);
@@ -281,10 +281,14 @@ if (es) {
     const n = x.wasm.exact_design_rows(x.writeIn(JSON.stringify(frame))), out = JSON.parse(x.readOut(n));
     // A scrub's frames say the design once the drag rests (a status reads the
     // root's computed style and posts, each frame otherwise), the commit's
-    // own report included (armed before the frame is sent).
-    if (frame.scrub && out.live === "applied") { clearTimeout(statusLater); statusLater = setTimeout(status, 150); }
-    if (out.live === "applied") { if (frame.scrub) unmoving(() => x.send(n)); else x.send(n); }
-    if (typeof out.design === "string" && out.design !== x.designDigest) { x.designDigest = out.design; if (!frame.scrub) status(); }
+    // own report with it; one the runner dropped (an older frame) moves
+    // nothing, and leaves the rest as it was.
+    const moves = typeof out.design === "string" && out.design !== x.designDigest;
+    if (out.live === "applied") {
+      if (frame.scrub && moves) { clearTimeout(statusLater); statusLater = setTimeout(status, 150); scrubSend = true; try { unmoving(() => x.send(n)); } finally { scrubSend = false; } }
+      else x.send(n);
+    }
+    if (moves) { x.designDigest = out.design; if (!frame.scrub) status(); }
     if (out.unsupported) { console.warn("exact dev: the wide colour table is full: a colour was refused, its rows keep their value"); report({ kind: "unsupported", what: "batch", detail: "the wide colour table is full: a colour was refused" }); }
     return out;
   };
@@ -302,12 +306,14 @@ if (es) {
     // Off through the drag (one style change of the whole page as it starts
     // and one as it rests, not two each frame), its last values styled
     // before transitions come back.
-    root.setAttribute("data-x-scrub", "");
-    apply();
-    clearTimeout(stillUntil);
-    stillUntil = setTimeout(() => { void root.offsetWidth; root.removeAttribute("data-x-scrub"); }, 150);
+    if (!root.hasAttribute("data-x-scrub")) root.setAttribute("data-x-scrub", "");
+    try { apply(); } finally {
+      clearTimeout(stillUntil);
+      stillUntil = setTimeout(stillEnds, 150);
+    }
   };
-  let stillUntil = null;
+  let stillUntil = null, scrubSend = false;
+  const stillEnds = () => { clearTimeout(stillUntil); stillUntil = null; void document.documentElement.offsetWidth; document.documentElement.removeAttribute("data-x-scrub"); };
   // One at a time, in the stream's order: a snapshot fetched is never older
   // than a batch applied before it.
   // A snapshot asked for under one generation is that generation's: one
@@ -411,8 +417,8 @@ if (es) {
   for (const query of ["(prefers-color-scheme: dark)", "(prefers-contrast: more)", "(prefers-contrast: less)"]) matchMedia(query).addEventListener?.("change", () => { if (channel.nonce) status(); });
   let due = false;
   const committed = () => {
-    // A scrub's status is said once it rests (`statusLater`), these facts with it.
-    if (due || !channel.nonce || statusLater) return;
+    // A scrub frame's own commit is said once the drag rests, with these facts.
+    if (due || !channel.nonce || scrubSend) return;
     due = true;
     setTimeout(() => {
       designing = designing.then(async () => {

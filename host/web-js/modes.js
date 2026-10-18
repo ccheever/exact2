@@ -240,11 +240,11 @@ function still(apply) {
   // Off through the drag (one style change of the whole page as it starts
   // and one as it rests, not two each frame), its last values styled before
   // transitions come back.
-  root.setAttribute("data-x-scrub", "");
-  const out = apply();
-  clearTimeout(StillUntil);
-  StillUntil = setTimeout(() => { void root.offsetWidth; root.removeAttribute("data-x-scrub"); }, 150);
-  return out;
+  if (!root.hasAttribute("data-x-scrub")) root.setAttribute("data-x-scrub", "");
+  try { return apply(); } finally {
+    clearTimeout(StillUntil);
+    StillUntil = setTimeout(() => { void root.offsetWidth; root.removeAttribute("data-x-scrub"); }, 150);
+  }
 }
 let StillUntil = null;
 /** Set a frame's tokens in every tuple's rule, in one style update. */
