@@ -198,5 +198,14 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
     await world(restored).run(1000);
   }
   writeFileSync(resolve(out, 'tap-timing.json'), JSON.stringify(taps));
+  // LLP 1127.003 §4: the agent's full pad stick and a held key move the player alike.
+  await world(restored).settle();
+  const from = await position(restored);
+  await restored.type('world', {key:'KeyD', for:1500}); await world(restored).settle();
+  const keyed = await position(restored);
+  const stick = await restored.tap('world', {stick:'left', value:[1, 0], for:1500}); await world(restored).settle();
+  const sticked = await position(restored);
+  check('a full pad stick moves the player as far as a held key', stick.delivery === 'synthesized'
+    && keyed[0] - from[0] > 5 && Math.abs((keyed[0] - from[0]) - (sticked[0] - keyed[0])) < 1e-4, {from, keyed, sticked, delivery:stick.delivery});
   await restored.close();
 });
