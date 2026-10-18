@@ -375,10 +375,10 @@ struct Walk {
 ///
 /// `lower-list-section`: a `list` that would be a list of cells but for its
 /// `section`s (no `appearance` and not `virtualized`) is neither form,
-/// grouped or cells, and draws its rows as written. Duo Notes' list was one:
-/// its rows had no separators, and its hand-written swipe stacked its Delete
-/// under each row. A windowed list's section rows, sticky headers and all,
-/// are the author's (LLP 1083 D5).
+/// grouped or cells, and draws its rows as written: no separators, and a
+/// hand-written swipe that is no row stacks its actions under the content.
+/// A windowed list's section rows, sticky headers and all, are the
+/// author's (LLP 1083 D5).
 pub(crate) fn unplaced(view: &[Node], styles: &[StyleDecl]) -> Vec<LowerError> {
     fn walk(nodes: &[Node], w: Walk, styles: &[StyleDecl], out: &mut Vec<LowerError>) {
         for node in nodes {
