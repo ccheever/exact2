@@ -54,30 +54,41 @@ final class IframePostMessageTests: XCTestCase {
             if value["text"] == "ready" { ready.fulfill() }
             else { observed.append(value); replies.fulfill() }
         }
-        for (node, name) in [(guest, "guest"), (sibling, "sibling")] {
-            node.props["sandbox"] = "allow-scripts"
-            node.props["src"] = "app:/data/\(name).html"
-            session.webviews.update(node)
-        }
+        let mount = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "mount" })
+        session.presenter.press(mount.id)
         wait(for: [ready], timeout: 30)
+        XCTAssertEqual(guest.props["src"], "app:/data/guest.html")
+        XCTAssertEqual(sibling.props["src"], "app:/data/sibling.html")
         let button = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "reply" })
         session.presenter.press(button.id)
         wait(for: [replies], timeout: 30)
         XCTAssertEqual(observed, [["frame": "guest", "text": "one"], ["frame": "guest", "text": "two"]])
+        let untouched = expectation(description: "sibling received no replies")
+        let siblingWeb = try XCTUnwrap(sibling.web as? WKWebView)
+        siblingWeb.evaluateJavaScript("JSON.stringify(window.received)", in: nil, in: .page) { result in
+            switch result {
+            case .success(let value): XCTAssertEqual(value as? String, "[]")
+            case .failure(let error): XCTFail("\(error)")
+            }
+            untouched.fulfill()
+        }
+        wait(for: [untouched], timeout: 30)
         let reset = expectation(description: "replacement document ready")
         session.presenter.onMessage = { id, text in
             original?(id, text)
-            if text.contains("ready") { reset.fulfill() }
+            guard let bytes = text.data(using: .utf8), let value = try? JSONSerialization.jsonObject(with: bytes) as? [String: String] else { return }
+            if value["frame"] == "replacement" && value["text"] == "ready" { reset.fulfill() }
         }
-        guest.props["src"] = "app:/data/replacement.html"
-        session.webviews.update(guest)
-        session.webviews.postMessage("guest", "must-drop-during-replacement")
+        let replace = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "replace" })
+        session.presenter.press(replace.id)
+        XCTAssertEqual(guest.props["src"], "app:/data/replacement.html")
         wait(for: [reset], timeout: 30)
         let checked = expectation(description: "new document has no inherited posts")
         let web = try XCTUnwrap(guest.web as? WKWebView)
-        web.evaluateJavaScript("JSON.stringify(window.received)", in: nil, in: .page) { result in
+        XCTAssertNotEqual(web.url?.absoluteString, "about:blank", "committed src: \(guest.props["src"] ?? "missing")")
+        web.evaluateJavaScript("JSON.stringify({title:document.title,received:window.received})", in: nil, in: .page) { result in
             switch result {
-            case .success(let value): XCTAssertEqual(value as? String, "[]")
+            case .success(let value): XCTAssertEqual(value as? String, "{\"title\":\"replacement\",\"received\":[]}", "WK URL: \(web.url?.absoluteString ?? "missing")")
             case .failure(let error): XCTFail("\(error)")
             }
             checked.fulfill()

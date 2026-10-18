@@ -2,6 +2,13 @@
 component App
   state seen = ""
   state target = "guest"
+  state mounted = false
+  state replaced = false
+  action mount
+    mounted = true
+  action replace
+    replaced = true
+    postMessage("must-drop-during-replacement", target)
   action heard(text: string)
     seen = text
   action reply
@@ -9,8 +16,12 @@ component App
     postMessage("two", target)
   view
     column
-      iframe id="guest" src="about:blank" message=heard width=300 height=180 testId="guest"
-      iframe id="sibling" src="about:blank" message=heard width=300 height=180 testId="sibling"
+      iframe id="guest" src=(mounted ? (replaced ? "app:/data/replacement.html" : "app:/data/guest.html") : "about:blank") sandbox="allow-scripts" message=heard width=300 height=180 testId="guest"
+      iframe id="sibling" src=(mounted ? "app:/data/sibling.html" : "about:blank") sandbox="allow-scripts" message=heard width=300 height=180 testId="sibling"
+      button press=mount testId="mount"
+        text "Mount guests"
+      button press=replace testId="replace"
+        text "Replace guest"
       button press=reply testId="reply"
         text "Reply"
       text seen testId="seen"
