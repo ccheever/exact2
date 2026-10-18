@@ -178,6 +178,9 @@ struct HostState {
     /// over (op 14), by the prelude's ticket for each socket's stream (LLP
     /// 1016.000 D7).
     socket_ops: Vec<(u64, exact_runner::SocketOp)>,
+    /// The socket operations a turn of an answer sent as it made them (op
+    /// 17; the amendment of 2026-10-18), by the same ticket.
+    answer_ops: Vec<(u64, exact_runner::SocketOp)>,
     /// Each open socket's buffered bytes at the start of this turn, by the
     /// prelude's ticket for its stream (op 15).
     socket_buffered: Vec<(u64, u64)>,
@@ -834,6 +837,7 @@ impl Module {
         let mut store = store;
         self.host.store = store.as_mut().map(|s| &mut **s as *mut Store);
         self.host.socket_ops.clear();
+        self.host.answer_ops.clear();
         if let Some(store) = store.as_deref() {
             self.host.socket_buffered = socket::snapshot(&self.streams, store);
         }
@@ -872,16 +876,15 @@ impl Module {
         if result.is_err() || took_ms > self.budget_ms {
             self.engine.as_mut().expect("checked above").clear_reply();
         }
-        // A mutation's socket operations ride only an answer given now (D7);
-        // an answer's turn's go whatever it answers (its amendment of
-        // 2026-10-18).
+        // What the turn sent as an answer goes whatever it answers (the
+        // amendment of 2026-10-18); a mutation's staged socket operations
+        // ride only an answer given now (D7).
+        let answer_ops = std::mem::take(&mut self.host.answer_ops);
+        if let (Some(store), false) = (store.as_deref_mut(), answer_ops.is_empty()) {
+            self.stage_answer(store, source, answer_ops);
+        }
         let socket_ops = std::mem::take(&mut self.host.socket_ops);
-        let answering = !matches!(target, Some(Target::Mutation(_)));
         let result = match (result, store) {
-            (result, Some(store)) if answering && !socket_ops.is_empty() => {
-                self.stage_answer(store, source, socket_ops);
-                result
-            }
             (Ok(Step::Done(Ok(v))), Some(store)) if !socket_ops.is_empty() => {
                 match self.stage_sockets(store, socket_ops) {
                     Ok(()) => Ok(Step::Done(Ok(v))),
@@ -1105,7 +1108,7 @@ impl Module {
         }
         let outcome_text = outcome_to_json(&outcome).to_string();
         self.host.store = Some(store as *mut Store);
-        self.host.socket_ops.clear();
+        self.host.answer_ops.clear();
         self.host.socket_buffered = socket::snapshot(&self.streams, store);
         let started = Instant::now();
         let result: Result<Step, DataError> = (|| {
@@ -1145,11 +1148,10 @@ impl Module {
             Ok(Module::step(sig, engine, source, reply, self.host.baking))
         })();
         self.host.store = None;
-        // What this turn of a resource's answer sent (D7, the amendment of
-        // 2026-10-18); a mutation's continuation sends nothing.
-        let socket_ops = std::mem::take(&mut self.host.socket_ops);
-        if !socket_ops.is_empty() && !matches!(target, Some(Target::Mutation(_))) {
-            self.stage_answer(store, source, socket_ops);
+        // What this turn of an answer sent (D7, the amendment of 2026-10-18).
+        let answer_ops = std::mem::take(&mut self.host.answer_ops);
+        if !answer_ops.is_empty() {
+            self.stage_answer(store, source, answer_ops);
         }
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
         if result.is_err() || took_ms > self.budget_ms {
@@ -1233,6 +1235,7 @@ impl Module {
         let outcome_text = outcome_to_json(&outcome).to_string();
         self.host.socket_buffered = socket::snapshot(&self.streams, store);
         self.host.socket_ops.clear();
+        self.host.answer_ops.clear();
         self.host.store = Some(store as *mut Store);
         let started = Instant::now();
         let result: Result<Step, DataError> = (|| {

@@ -89,7 +89,8 @@ function say(id: string, what: string): unknown {
       case "too big": socket.send("x".repeat(1048577)); return "sent";
       case "throws": socket.send("never"); throw new Error("the source threw");
       case "async": socket.send("never"); return Promise.resolve("later");
-      case "later": return Promise.resolve().then(() => { socket.send("never"); return "sent"; });
+      case "later": return Promise.resolve().then(() => { socket.send("after"); return "sent"; });
+      case "then send": Promise.resolve().then(() => socket.send("never")).catch(refused); return "now";
       default: socket.send(what); socket.send(what + " again"); return "sent";
     }
   } catch (e) {

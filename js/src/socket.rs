@@ -1,9 +1,9 @@
 //! A mutation's, a mapper call's or an answer's socket operations (LLP
 //! 1016.000 D7). The prelude's handle checks and copies each `send` and
 //! `close` while the mutation's source, the socket's own mapper or a turn of
-//! a resource's answer runs, and hands them through the door (op 14): a
-//! mutation's when its answer is given now, a mapper call's as it returns,
-//! an answer's as each is made. Each is addressed by the prelude's ticket
+//! an answer runs, and hands them through the door: a mutation's when its
+//! answer is given now and a mapper call's as it returns (op 14), an
+//! answer's as each is made (op 17). Each is addressed by the prelude's ticket
 //! for the stream's `fetch`; here it becomes the resource that owns the
 //! stream, staged on the runner's store for the runner to address.
 use super::{Key, Module, Parked};
@@ -60,21 +60,27 @@ impl Module {
         store: &mut Store,
         ops: Vec<(u64, SocketOp)>,
     ) -> Result<(), String> {
-        let mut staged = Vec::with_capacity(ops.len());
+        for (resource, op) in self.owners(ops)? {
+            store.stage_socket(resource, op);
+        }
+        Ok(())
+    }
+
+    /// Each operation by the resource that owns its socket's stream, or
+    /// refused whole.
+    fn owners(&self, ops: Vec<(u64, SocketOp)>) -> Result<Vec<(usize, SocketOp)>, String> {
+        let mut owned = Vec::with_capacity(ops.len());
         for (ticket, op) in ops {
             let owner = self.streams.iter().find_map(|(key, parked)| match key.0 {
                 Some(Target::Resource(i)) if parked.ticket == ticket => Some(i),
                 _ => None,
             });
-            staged.push((
+            owned.push((
                 owner.ok_or("InvalidStateError: the socket is not open")?,
                 op,
             ));
         }
-        for (resource, op) in staged {
-            store.stage_socket(resource, op);
-        }
-        Ok(())
+        Ok(owned)
     }
 
     /// Stage what a turn of `source`'s answer sent, whatever it answered
@@ -87,10 +93,13 @@ impl Module {
         source: &str,
         ops: Vec<(u64, SocketOp)>,
     ) {
-        if let Err(why) = self.stage_sockets(store, ops) {
-            (self.logs).push(format!(
+        match self.owners(ops) {
+            Ok(owned) => owned
+                .into_iter()
+                .for_each(|(resource, op)| store.stage_answer_socket(resource, op)),
+            Err(why) => (self.logs).push(format!(
                 "answer `{source}` failed: {why}; socket frames were refused"
-            ));
+            )),
         }
     }
 }

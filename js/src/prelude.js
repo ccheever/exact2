@@ -589,7 +589,7 @@
   // answering `open` or a `message` may send or close: each operation is
   // copied now, handed over with that turn's answer (`settle`,
   // `__exact_message`) and published once the commit that settles it stands.
-  // A resource's answer's, in any turn of it, go at once (amendment of 2026-10-18).
+  // An answer's, in any turn after a mutation's source, go at once (amendment of 2026-10-18).
   var SOCKET_OPS = 256, SOCKET_BYTES = 1048576;
   // A mutation does one kind of effect, socket operations or a fetch: whichever
   // comes second refuses, and the mutation with it, before either leaves.
@@ -604,9 +604,9 @@
     var closed = function () { return new DOMException("the socket is not open", "InvalidStateError"); }, quota = function (what) { return new DOMException(what, "QuotaExceededError"); };
     function stage(op) {
       var call = turn(), mapper = !!mapping && call === mapping;
-      // A turn of a resource's answer the runner still holds, in no mapper call.
-      var answer = !mapper && !inMapper && !!call && call !== background && !call.mutation && !call.replied && !call.letGo;
-      if (!call || !mapper && !answer && (!call.mutation || !call.sync)) throw new Error("socket." + (op.op === "close" ? "close" : "send") + " is only available in a mutation's synchronous source, its socket's own mapper or a resource's answer");
+      // A turn of an answer the runner still holds, in no mapper call: a resource's, or a mutation's after a source that answered with a promise.
+      var answer = !mapper && !inMapper && !!call && call !== background && !call.replied && !call.letGo && (!call.mutation || !call.sync && call.status === "pending");
+      if (!call || !mapper && !answer && (!call.mutation || !call.sync)) throw new Error("socket." + (op.op === "close" ? "close" : "send") + " is only available in a mutation's synchronous source, its socket's own mapper or an answer in flight");
       if (owner.state !== 1 || answer && byMutation) throw closed();
       if (answer) return sendNow(call, op);
       if (!mapper && call.tickets.length) { call.socketConflict = true; throw new Error(SOCKET_AND_FETCH); }
@@ -633,7 +633,7 @@
       if (buffered() + op.size > SOCKET_BYTES) throw quota("socket buffer exceeds 1 MiB");
       sent.ops++; sent.bytes += op.size;
       if (op.op === "close") sent.closed.push(owner);
-      op.owner = owner; handSocketOps({ socketOps: [op] });
+      host(17, String(ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason }));
     }
     owner.handle = Object.freeze({
       get readyState() { return owner.state; },

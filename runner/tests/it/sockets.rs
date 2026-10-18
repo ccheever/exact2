@@ -22,8 +22,11 @@ component App
   resource gate = gate(feed, q) as shape string
   mutation said as shape string
   mutation other as shape string
+  mutation asking as shape string
   action say(what: string)
     send said = say(what)
+  action askLater(what: string)
+    send asking = askLater(what)
   action both(what: string)
     send said = say(what)
     send other = misshapen()
@@ -48,7 +51,8 @@ component App
 /// `ask(q)` is a resource's answer that sends `request <q>` and waits on its
 /// own work, whose delivery sends `more <q>`; `fail` fails it after it
 /// sends, `stray` sends on `gate`, which owns no socket, and each ask keeps
-/// the turn's socket snapshot (`seen`).
+/// the turn's socket snapshot (`seen`). `askLater(what)` is a mutation that
+/// waits, sending `late <what>`, then `landed <what>` as its work lands.
 #[derive(Default)]
 struct Echo {
     seen: Vec<Vec<(usize, u64)>>,
@@ -86,13 +90,19 @@ impl DataSource for Echo {
                 Ok(Answer::Now(Value::str(&what)))
             }
             ("misshapen", Target::Mutation(_)) => Ok(Answer::Now(Value::Number(1.))),
+            ("askLater", Target::Mutation(_)) => {
+                let what = args[0].as_str().unwrap_or("");
+                store.stage_answer_socket(0, SocketOp::Text(format!("late {what}")));
+                self.token += 1;
+                Ok(Answer::Later(Request::continuation(self.token)))
+            }
             ("ask", Target::Resource(_)) => {
                 self.seen.push(store.socket_buffered().to_vec());
                 let q = args[0].as_str().unwrap_or("").to_string();
                 match q.as_str() {
                     "" => return Ok(Answer::Now(Value::str(""))),
-                    "stray" => store.stage_socket(3, SocketOp::Text("stray".into())),
-                    _ => store.stage_socket(0, SocketOp::Text(format!("request {q}"))),
+                    "stray" => store.stage_answer_socket(3, SocketOp::Text("stray".into())),
+                    _ => store.stage_answer_socket(0, SocketOp::Text(format!("request {q}"))),
                 }
                 match q.as_str() {
                     "fail" => Err(DataError::Failed(
@@ -108,7 +118,7 @@ impl DataSource for Echo {
                 }
             }
             ("gate", _) if args[0].as_str() == Some("message silent refuse") => {
-                store.stage_socket(0, SocketOp::Text("gate says".into()));
+                store.stage_answer_socket(0, SocketOp::Text("gate says".into()));
                 Err(DataError::Unavailable("deliberate commit refusal".into()))
             }
             ("gate", _)
@@ -140,12 +150,17 @@ impl DataSource for Echo {
         args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
+        if source == "askLater" {
+            let what = args[0].as_str().unwrap_or("");
+            store.stage_answer_socket(0, SocketOp::Text(format!("landed {what}")));
+            return Ok(Answer::Now(Value::str(what)));
+        }
         let Target::Resource(i) = target else {
             unreachable!("only resources stream")
         };
         if source == "ask" {
             let q = args[0].as_str().unwrap_or("");
-            store.stage_socket(0, SocketOp::Text(format!("more {q}")));
+            store.stage_answer_socket(0, SocketOp::Text(format!("more {q}")));
             return Ok(Answer::Now(Value::str(&format!("replied {q}"))));
         }
         let text = |t: &str| SocketOp::Text(t.into());
@@ -563,4 +578,24 @@ fn a_refused_frame_keeps_its_answer_s_batch() {
     let journal = journal(&r);
     assert!(journal.contains("deliberate commit refusal"), "{journal}");
     assert!(!journal.contains("mapper feed failed"), "{journal}");
+}
+
+/// A mutation that waits is an answer in flight: what its turns send goes
+/// out as each ends, named by the mutation.
+#[test]
+fn a_waiting_mutation_s_turns_send_as_its_answer() {
+    let (mut r, ticket) = boot();
+    opened(&mut r, ticket);
+    r.act("askLater", vec![Value::str("x")]).unwrap();
+    let waiting = r.take_requests()[0].ticket;
+    let asking = |frame: &str| {
+        (
+            SocketOrigin::Answer("asking".into()),
+            vec![frame.to_string()],
+        )
+    };
+    assert_eq!(batches(&r.take_socket_sends()), [asking("late x")]);
+    r.fulfill(waiting, delivered()).unwrap();
+    assert_eq!(batches(&r.take_socket_sends()), [asking("landed x")]);
+    assert_eq!(r.slot("asking"), Some(&Value::some(Value::str("x"))));
 }

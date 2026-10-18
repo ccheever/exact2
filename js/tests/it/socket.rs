@@ -126,7 +126,7 @@ fn journal(r: &Runner<Module>) -> String {
 }
 
 /// Where a handle refuses an operation outside a turn that may send.
-const ONLY: &str = "socket.send is only available in a mutation's synchronous source, its socket's own mapper or a resource's answer";
+const ONLY: &str = "socket.send is only available in a mutation's synchronous source, its socket's own mapper or an answer in flight";
 
 /// A batch an answer's turn sent: the answer it is named for, and its text frames.
 fn answer(name: &str, frames: &[&str]) -> (SocketOrigin, Vec<SocketOp>) {
@@ -358,17 +358,13 @@ fn what_the_handle_refuses_sends_nothing_it_refused() {
     let (said, ops) = say(&mut r, "too big");
     assert_eq!(said, "QuotaExceededError: socket mutation exceeds 1 MiB");
     assert!(ops.is_empty());
-    for what in ["throws", "async", "later"] {
+    for what in ["throws", "async"] {
         assert_eq!(say(&mut r, what).1, vec![], "{what}");
     }
     let journal = journal(&r);
     assert!(journal.contains("the source threw"), "{journal}");
     assert!(
         journal.contains("a socket mutation must answer synchronously"),
-        "{journal}"
-    );
-    assert!(
-        journal.contains("socket.send is only available in a mutation's synchronous source"),
         "{journal}"
     );
 }
@@ -617,4 +613,22 @@ fn an_answer_s_buffered_amount_counts_what_is_not_yet_sent() {
     ask(&mut r, "big 4");
     assert_eq!(reply(&r), "sent");
     assert_eq!(sends(&mut r)[0].1, [SocketOp::Text("x".repeat(200_000))]);
+}
+
+/// A mutation whose source answered with a promise is an answer in flight:
+/// what its continuation sends goes out as that answer's, named by the
+/// mutation. One whose source answered now has given its answer, so a
+/// continuation it left behind refuses.
+#[test]
+fn a_waiting_mutation_sends_as_an_answer() {
+    let (mut r, ticket) = boot();
+    open(&mut r, ticket);
+    r.act("say", vec![Value::str("later")]).unwrap();
+    assert_eq!(sends(&mut r), [answer("said", &["after"])]);
+    assert_eq!(r.slot("said"), Some(&Value::some(Value::str("sent"))));
+    assert_eq!(say(&mut r, "then send"), ("now".into(), vec![]));
+    assert_eq!(
+        frame(&mut r, ticket, "report"),
+        format!("message report 1 {ONLY}")
+    );
 }

@@ -356,7 +356,9 @@ impl<D: DataSource> Runner<D> {
             .data
             .answer_for(Target::Mutation(m), &mut self.store, source, args);
         // What its source staged on sockets goes out only with an answer
-        // now that conforms (LLP 1016.000 D7).
+        // now that conforms (LLP 1016.000 D7); what the turns after its
+        // source sent goes whatever it answers (the amendment of 2026-10-18).
+        self.stage_answer(Target::Mutation(m));
         let staged = self.store.take_sockets();
         // A mutation's console lines, including a refusal, reach the agent's
         // logs whether the answer comes now or the send waited its turn.

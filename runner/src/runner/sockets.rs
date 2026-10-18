@@ -109,17 +109,17 @@ impl<D: DataSource> Runner<D> {
         Ok(ops)
     }
 
-    /// Address what resource `i`'s answer sent in the turn just run, one
-    /// batch in the order it made them, behind the batches of earlier
-    /// turns. It goes out whatever the turn's answer was, and a refused
-    /// commit keeps it ([`Runner::keep_answers`]); a batch with an
-    /// operation on a socket that is not open is refused whole, and said.
-    pub(super) fn stage_answer(&mut self, i: usize) {
-        let staged = self.store.take_sockets();
+    /// Address what `target`'s answer sent in the turn just run, one batch
+    /// in the order it made them, behind the batches of earlier turns. It
+    /// goes out whatever the turn's answer was, and a refused commit keeps
+    /// it ([`Runner::keep_answers`]); a batch with an operation on a socket
+    /// that is not open is refused whole, and said.
+    pub(super) fn stage_answer(&mut self, target: Target) {
+        let staged = self.store.take_answer_sockets();
         if staged.is_empty() {
             return;
         }
-        let origin = SocketOrigin::Answer(self.target_name(Target::Resource(i)));
+        let origin = SocketOrigin::Answer(self.target_name(target));
         match self.address(staged) {
             Ok(ops) => self.sockets.push(SocketSend { origin, ops }),
             Err(why) => self.log(refused(&origin, &why)),

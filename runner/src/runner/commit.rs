@@ -1125,14 +1125,13 @@ impl<D: DataSource> Runner<D> {
         let parsed = self
             .data
             .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome);
-        // A socket's mapper answering a frame stages for this commit; a
-        // turn of a resource's answer sends whatever it answered (LLP
-        // 1016.000 D7 and its amendment of 2026-10-18).
-        match p.target {
-            Target::Resource(i) if !message => self.stage_answer(i),
-            Target::Mutation(_) => drop(self.store.take_sockets()),
-            Target::Resource(_) => {}
+        // Only a socket's mapper answering a frame stages for this commit
+        // (LLP 1016.000 D7); a turn of an answer sends whatever it answered
+        // (the amendment of 2026-10-18).
+        if !message {
+            self.store.take_sockets();
         }
+        self.stage_answer(p.target);
         for line in self.data.take_logs() {
             self.log(line);
         }
