@@ -36,7 +36,7 @@
 // its own (AppDrop, a store's resigner). The simulator and phone helpers live
 // in devices.mjs, shared with scripts/agent.mjs, which launches the same bundle.
 // These developer builds explicitly allow unsigned updates. --release (or EXACT_UPDATE_TRUST=production) builds a signed-update-only artifact.
-import { widgetEntries, widgetGroup, sharedWidgetCore } from './widgets.mjs';
+import { widgetEntries, widgetGroup, prepareWidgetCore, sharedWidgetCore } from './widgets.mjs';
 import { assembleMac, assembleIOS } from './bundle.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -320,10 +320,10 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
     // A distribution profile grants no debugger; its entitlements must not ask.
     'get-task-allow': debuggable,
   };
-  if (widgetEntries(app).length && !app.widgetTV) {
+  if (widgetEntries(app).length && !app.widgetTV && !app.widgetHost) {
     dict['com.apple.security.application-groups'] = [widgetGroup(app)];
     const owner = app.widgetAppId ?? app.id;
-    dict['keychain-access-groups'] = [`${prefix ?? SIMULATOR_PREFIX}.${owner}`];
+    dict['keychain-access-groups'] = [`${prefix ?? SIMULATOR_PREFIX}.${owner}`, ...(simulator && !team ? [owner] : [])];
   }
   // @ref LLP 1038 D8 — explicit applinks entries, or the declared origin.
   const domains = Array.isArray(ios.associatedDomains) ? ios.associatedDomains : ios.associatedDomains && app.origin ? [`applinks:${new URL(app.origin).host}`] : [];
@@ -397,7 +397,7 @@ export const infoPlist = (app, device = false, { executable = executableName(app
     UIApplicationSceneManifest: { UIApplicationSupportsMultipleScenes: false },
     ...(tv ? {} : { CADisableMinimumFrameDurationOnPhone: true }),
   };
-  if (!tv && widgetEntries(app).length) Object.assign(dict, { ExactAppGroup: widgetGroup(app), ExactAppIdentifier: app.id, ExactWidgetKinds: widgetEntries(app).map(e => e.kind) });
+  if (!tv && id === app.id && widgetEntries(app).length) Object.assign(dict, { ExactAppGroup: widgetGroup(app), ExactAppIdentifier: app.id, ExactWidgetKinds: widgetEntries(app).map(e => e.kind) });
   Object.assign(dict, transportSecurity(tv ? {} : ios, ios.localNetworking ? { NSAllowsLocalNetworking: true } : {}));
   if (ios.localNetworking) dict.NSLocalNetworkUsageDescription = typeof ios.localNetworking === 'string' ? ios.localNetworking : 'Connects to your dev server on the local network.';
   if (ios.backgroundModes?.length) dict.UIBackgroundModes = ios.backgroundModes;
@@ -651,8 +651,8 @@ async function main(args) {
   const app = quietFor(resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive', '--optimize', '--link'].includes(args[i - 1]))), root);
   if (args.includes('--prebuild')) { process.exitCode = await (await import('../../scripts/agent-build.mjs')).prebuild(app, args); return; } // LLP 1116.003 D1.2
   const widgets = ios && !tv && widgetEntries(app).length > 0;
-  if (widgets && device) throw new Error('Widget device builds require explicit app and extension profiles granting the shared App Group and Keychain access group; device provisioning is not implemented yet (LLP 1126 WP5).');
-  if (widgets && existsSync(resolve(app.dir, 'app.ts'))) throw new Error('TypeScript widget refresh under Hermes is not implemented yet (LLP 1126 WP5).');
+  if (widgets && device) { console.error('Widget device builds require explicit app and extension profiles granting the shared App Group and Keychain access group; device provisioning is not implemented yet (LLP 1126 WP5).'); process.exitCode = 1; return; }
+  if (widgets && existsSync(resolve(app.dir, 'app.ts'))) { console.error('TypeScript widget refresh under Hermes is not implemented yet (LLP 1126 WP5).'); process.exitCode = 1; return; }
   const release = appleBuildLock(app);
   const cleanup = [], beside = []; // what to remove, and the steps started beside the build, when it ends
   try {
@@ -806,6 +806,9 @@ async function main(args) {
   // link's claim from here; with another app linking, or anything else, the build is as it was. It links the
   // capabilities that link did (`<product>.linked`), since this build's are known only once the bake ends.
   const sole = args.includes('--host') ? null : ios ? 'ExactIOS' : 'ExactMac';
+  const widgetCore = widgets ? prepareWidgetCore({ app, directory: resolve(pkg, '.build/widget-core'), swiftBuildRoot, swiftArgs, swiftc, triple: iosTripleFor(app, device, tv), device }) : null;
+  const earlyEnv = (link = 'all') => ({ ...swiftEnv(expected.capture, expected.composition, link),
+    ...(widgetCore && existsSync(resolve(widgetCore.xcframework, 'Info.plist')) ? { EXACT_CORE_FRAMEWORK: relative(pkg, widgetCore.xcframework) } : {}) });
   const early = (() => {
     if (widgets || embedOnly || cargoProfile !== HOST_DEV || !sole || !existsSync(binAnswer)) return null;
     const bin = readFileSync(binAnswer, 'utf8');
@@ -820,8 +823,8 @@ async function main(args) {
     beside.push(step);
     return { claim, step };
   })();
-  const hostCompile = widgets || embedOnly || early ? null : startApple('swift', [...swiftArgs, '--target', 'ExactKit'], resolve(webBuildDir, 'swift-compile.log'),
-    { cwd: pkg, env: swiftEnv(expected.capture, expected.composition) });
+  const hostCompile = embedOnly || early ? null : startApple('swift', [...swiftArgs, '--target', 'ExactKit'], resolve(webBuildDir, 'swift-compile.log'),
+    { cwd: pkg, env: earlyEnv() });
   if (hostCompile) beside.push(hostCompile);
   // The host's two Rust modules (SVG islands, Canvas 2D on the GPU) are the
   // same for every app too, and start with it, in the app's profile: at
@@ -978,7 +981,7 @@ async function main(args) {
   // `linkRoot` is this app's own, for what names it.
   const linkRoot = paths.scratch;
   mkdirSync(linkRoot, { recursive: true });
-  const shared = widgets ? sharedWidgetCore({ app, directory: resolve(pkg, '.build/widget-core'), libDir, crate, sdk, triple: iosTripleFor(app, device, tv), device }) : null;
+  const shared = widgets ? sharedWidgetCore({ app, prepared: widgetCore, libDir, crate, env, runApple }) : null;
   if (shared) env.EXACT_CORE_FRAMEWORK = relative(pkg, shared.xcframework);
   rmSync(resolve(paths.namespace, 'swift'), { recursive: true, force: true }); // the per-app scratch this replaced
   const binDir = mkdtempSync(resolve(paths.namespace, '.products-'));
@@ -1139,7 +1142,7 @@ async function main(args) {
       if (ios && !device) {
         // Simulator Security reads entitlements from the Mach-O text section.
         // Device-style entitlements in its ad-hoc signature can prevent launch.
-        entitled = entitlements({...app, widgetTV: tv, id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id}, null, true, appleReach, { simulator: true });
+        entitled = entitlements({...app, widgetTV: tv, widgetHost: p === 'ExactHostIOS', id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id}, null, true, appleReach, { simulator: true });
         const ent = resolve(linkRoot, `${p}-entitlements.plist`);
         // Written only when it differs: the early build may be reading it.
         if (!existsSync(ent) || readFileSync(ent, 'utf8') !== entitled) writeFileSync(ent, entitled);
@@ -1218,7 +1221,7 @@ async function main(args) {
     placeAppleArtifact(binDir, paths.products);
   };
 
-  const bundleTools = {appleArtifacts, macInfoPlist, copyAppleStaticTrees, writeUsageStrings, receipt, shippedReceipt, assertAppleIdentity, placeAppleArtifact, infoPlist, distributionKeys, copyAppleGpuProducts, entitlements};
+  const bundleTools = {runApple,appleArtifacts, macInfoPlist, copyAppleStaticTrees, writeUsageStrings, receipt, shippedReceipt, assertAppleIdentity, placeAppleArtifact, infoPlist, distributionKeys, copyAppleGpuProducts, entitlements};
   if (!ios) {
     const bundlePath = assembleMac({hasWeb, webLoadName, args, app, paths, binDir, libDir, bin, loadName, hasGpu, dylib, moduleDylibs, looseArms, hasSvg, svgLoadName, modulesLoadName, modulesBuilt, svgBuilt, canvasGpuLoadName, canvasGpuBuilt, sha1, linkRoot, swiftc, buildReceipt, development, bakedCompat, rosterKeys, production, distribution, stampSdk, products, composition, sdk, bakedPlan, cleanup}, bundleTools);
     publishProducts();

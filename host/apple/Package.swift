@@ -40,6 +40,7 @@ let testing = ProcessInfo.processInfo.environment["EXACT_TESTS"] == "1"
 // production one (`EXACT_UPDATE_TRUST=production`) compiles none of it.
 let devTools: [SwiftSetting] = ProcessInfo.processInfo.environment["EXACT_UPDATE_TRUST"] == "production" ? [] : [.define("EXACT_INSPECT")]
 
+let widgetCore = ProcessInfo.processInfo.environment["EXACT_WIDGET_CORE"] == "1"
 let sharedCore = ProcessInfo.processInfo.environment["EXACT_CORE_FRAMEWORK"]
 let core: [Target] = [
     .systemLibrary(name: "CExact", path: "Sources/CExact"),
@@ -47,8 +48,8 @@ let core: [Target] = [
         name: "ExactCore",
         dependencies: ["CExact"],
         path: "Sources/ExactCore",
-        swiftSettings: [.unsafeFlags(["-application-extension"])],
-        linkerSettings: [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName), .linkedLibrary("c++"), .linkedFramework("ImageIO")]
+        swiftSettings: [.unsafeFlags(["-application-extension"])] + (widgetCore ? [.define("EXACT_WIDGETS")] : []),
+        linkerSettings: (widgetCore ? [.unsafeFlags(["-Xlinker", "-force_load", "-Xlinker", libDir + "/lib" + libName + ".a"])] : [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName)]) + [.linkedLibrary("c++"), .linkedFramework("ImageIO")]
     ),
     .target(name: "ExactKit", dependencies: ["ExactCore", "CExact"], path: "Sources/ExactKit", swiftSettings: devTools),
     .target(name: "ExactUpdates", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactUpdates"),
@@ -64,6 +65,11 @@ let core: [Target] = [
             path: composition == "updating" ? "Sources/ExactUpdating" : "Sources/ExactEmbedded",
             swiftSettings: capabilities.map { .define($0.define) }),
 ]
+
+let widgetRenderer: [Target] = widgetCore ? [
+    .target(name: "ExactWidgetRenderer", dependencies: ["ExactCore"], path: "Sources/ExactWidgetRenderer",
+            swiftSettings: [.unsafeFlags(["-application-extension"])])
+] : []
 
 let executables: [Target] = [
     .executableTarget(name: "ExactMac", dependencies: ["ExactKit", "ExactComposition"], path: "Sources/ExactMac"),
@@ -90,7 +96,7 @@ let tests: [Target] = [
 let package = Package(
     name: "Exact",
     platforms: [.macOS(.v14), .iOS(.v17), .tvOS(.v17), .watchOS(.v10), .visionOS(.v1)],
-    products: [.library(name: "ExactCore", targets: ["ExactCore"])] + (testing ? [.library(name: "ExactKit", targets: ["ExactKit"])] : [
+    products: [.library(name: "ExactCore", type: widgetCore ? .dynamic : nil, targets: widgetCore ? ["ExactCore", "ExactWidgetRenderer"] : ["ExactCore"])] + (testing ? [.library(name: "ExactKit", targets: ["ExactKit"])] : [
         .library(name: "ExactKit", targets: ["ExactKit"]),
         .library(name: "ExactUpdates", targets: ["ExactUpdates"]),
         .library(name: "ExactGroupedLists", targets: ["ExactGroupedLists"]),
@@ -105,5 +111,5 @@ let package = Package(
         .executable(name: "ExactHostMac", targets: ["ExactHostMac"]),
         .executable(name: "ExactHostIOS", targets: ["ExactHostIOS"]),
     ]),
-    targets: core + (testing ? tests : executables)
+    targets: core + widgetRenderer + (testing ? tests : executables)
 )

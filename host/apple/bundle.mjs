@@ -1,6 +1,7 @@
 // Apple bundle assembly. The build owns compilation and artifact publication.
 // @ref LLP 1126 D2/D8 — an extension is packaged inside its app's cohort.
 import { packageWidgets, widgetId } from './widgets.mjs';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { resolve, basename, dirname } from 'node:path';
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -14,7 +15,7 @@ const run = (cmd, args, opts = {}) => {
   if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})${r.stderr?.length ? ': ' + String(r.stderr).trim() : ''}`);
   return r;
 };
-export function assembleMac({hasWeb, webLoadName, args, app, paths, binDir, libDir, bin, loadName, hasGpu, dylib, moduleDylibs, looseArms, hasSvg, svgLoadName, modulesLoadName, modulesBuilt, svgBuilt, canvasGpuLoadName, canvasGpuBuilt, sha1, linkRoot, swiftc, buildReceipt, development, bakedCompat, rosterKeys, production, distribution, stampSdk, products, composition, sdk, bakedPlan, cleanup}, {appleArtifacts, macInfoPlist, copyAppleStaticTrees, writeUsageStrings, receipt, shippedReceipt, assertAppleIdentity, placeAppleArtifact, infoPlist, distributionKeys, copyAppleGpuProducts, entitlements}) {
+export function assembleMac({hasWeb, webLoadName, args, app, paths, binDir, libDir, bin, loadName, hasGpu, dylib, moduleDylibs, looseArms, hasSvg, svgLoadName, modulesLoadName, modulesBuilt, svgBuilt, canvasGpuLoadName, canvasGpuBuilt, sha1, linkRoot, swiftc, buildReceipt, development, bakedCompat, rosterKeys, production, distribution, stampSdk, products, composition, sdk, bakedPlan, cleanup}, {runApple, appleArtifacts, macInfoPlist, copyAppleStaticTrees, writeUsageStrings, receipt, shippedReceipt, assertAppleIdentity, placeAppleArtifact, infoPlist, distributionKeys, copyAppleGpuProducts, entitlements}) {
     // `--bundle`'s assembled `.app`, when one was asked for: what `--run`
     // then launches, so the running process has the app's bundle identity —
     // its Info.plist, its document types, its Dock tile (LLP 1033 D2).
@@ -100,7 +101,7 @@ export function assembleMac({hasWeb, webLoadName, args, app, paths, binDir, libD
     }
     return bundlePath;
 }
-export function assembleIOS({shared, triple, app, paths, binDir, bin, device, development, appleReach, tv, bakedCompat, bakedPlan, ipa, linkRoot, swiftc, buildReceipt, rosterKeys, sdkName, production, distribution, stampSdk, libDir, gpuArtifacts, looseArms, modulesBuilt, modulesLoadName, hasSvg, svgBuilt, svgLoadName, svgFilterBuilt, svgFilterLibraryName, canvasGpuBuilt, canvasGpuLoadName, args, unsigned, prof, ph, sha1, composition, destination, target, sdk, hasGpu, dylib}, {appleArtifacts, macInfoPlist, copyAppleStaticTrees, writeUsageStrings, receipt, shippedReceipt, assertAppleIdentity, placeAppleArtifact, infoPlist, distributionKeys, copyAppleGpuProducts, entitlements}) {
+export function assembleIOS({shared, triple, app, paths, binDir, bin, device, development, appleReach, tv, bakedCompat, bakedPlan, ipa, linkRoot, swiftc, buildReceipt, rosterKeys, sdkName, production, distribution, stampSdk, libDir, gpuArtifacts, looseArms, modulesBuilt, modulesLoadName, hasSvg, svgBuilt, svgLoadName, svgFilterBuilt, svgFilterLibraryName, canvasGpuBuilt, canvasGpuLoadName, args, unsigned, prof, ph, sha1, composition, destination, target, sdk, hasGpu, dylib}, {runApple, appleArtifacts, macInfoPlist, copyAppleStaticTrees, writeUsageStrings, receipt, shippedReceipt, assertAppleIdentity, placeAppleArtifact, infoPlist, distributionKeys, copyAppleGpuProducts, entitlements}) {
   // The bundle, assembled from scratch (new inodes, see above), with the app's assets (a phone reads no other
   // machine's paths); ad-hoc signed for a simulator, signed with the team's identity, profile, and entitlements for a phone.
   const bundle = resolve(binDir, basename(paths.bundle));
@@ -114,6 +115,7 @@ export function assembleIOS({shared, triple, app, paths, binDir, bin, device, de
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
   const assetKeys = iosAssets(app, bundle, device, { tv, catalog: !!ipa, kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc }, expected: buildReceipt.binary.metadata.appleAssetCatalogs ?? [], ...(tv ? {} : { expectedLaunchImage: buildReceipt.binary.metadata.launchImage ?? null }), launch: buildReceipt.graph.launchBackground });
   writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: appleReach, icon: assetKeys, distribution: { ...rosterKeys, ...(ipa ? distributionKeys(sdkName) : {}), ...buildInfo(app, { root, archive: !!ipa, production: production || distribution, ...stampSdk }) }, tv }));
+  if (shared) run('plutil', ['-insert', 'ExactWidgetGeneration', '-string', createHash('sha256').update(JSON.stringify([bakedCompat.id, buildReceipt.graph.artifacts])).digest('hex'), resolve(bundle, 'Info.plist')]);
   writeUsageStrings(appleReach, bundle);
   copyAppleGpuProducts(libDir, resolve(bundle, 'Frameworks'), gpuArtifacts, !!ipa);
   for (const [has, built, name] of looseArms) if (has) copyFileSync(built, resolve(bundle, 'Frameworks', name));
@@ -145,7 +147,7 @@ export function assembleIOS({shared, triple, app, paths, binDir, bin, device, de
     const ent = resolve(binDir, host ? 'host-entitlements.plist' : 'entitlements.plist');
     if (signingProfile) copyFileSync(signingProfile.path, resolve(assembled, 'embedded.mobileprovision'));
     // Unsigned, the re-signer's profile decides; ask for no debugger, as a distribution profile grants none.
-    writeFileSync(ent, entitlements({ ...app, id, widgetTV: tv }, signingProfile?.team, signingProfile?.dev ?? !unsigned, appleReach, { prefix: signingProfile?.prefix }));
+    writeFileSync(ent, entitlements({ ...app, id, widgetTV: tv, widgetHost: host }, signingProfile?.team, signingProfile?.dev ?? !unsigned, appleReach, { simulator: !device, prefix: signingProfile?.prefix }));
     verifyBakeFiles(bakedCompat, bakedPlan, listAssets(assembled, true));
     assertAppleIdentity(app, resolve(assembled, host ? 'ExactHostIOS' : paths.executable), bakedCompat.id);
     const whole = receipt(app, { compatibilityId: bakedCompat.id, build: buildReceipt, composition,
@@ -156,7 +158,7 @@ export function assembleIOS({shared, triple, app, paths, binDir, bin, device, de
     if (ipa) { mkdirSync(dirname(ipa), { recursive: true }); writeFileSync(`${ipa.replace(/\.ipa$/, '')}.receipt.json`, whole); }
     if (ipa) for (const [loose, name] of [...looseArms.map(([, , load, framework]) => [load, framework]), [modulesLoadName, 'ExactModules'], [svgLoadName, 'ExactSvg'], [canvasGpuLoadName, 'ExactCanvasGpu']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app, tv ? 'AppleTVOS' : 'iPhoneOS');
     if (shared && !host) packageWidgets({ app, bundle: assembled, shared, directory: linkRoot, sdk, triple, device,
-      minimumOS: app.manifest.host?.ios?.minimumOS ?? '17.0',
+      runApple, production: production || distribution,
       entitlements: entitlements({ ...app, id: widgetId(app), widgetAppId: app.id }, signingProfile?.team, signingProfile?.dev ?? !unsigned, null, { simulator: !device, prefix: signingProfile?.prefix }),
       sign: (extension, ent) => run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), extension], { stdio: 'ignore' }) });
     for (const f of readdirSync(resolve(assembled, 'Frameworks')).filter(f => !gpuArtifacts.some(m => f === (ipa ? `${m.framework}.framework` : m.load)))) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });

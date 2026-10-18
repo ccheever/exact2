@@ -291,6 +291,21 @@ test('simulator signing gives each app and embedded host a distinct Keychain ide
   assert.match(device, /<key>get-task-allow<\/key><false\/>/);
 });
 
+test('widgets share the owner Keychain groups and leave the host sample outside the group', async () => {
+  const {entitlements, infoPlist} = await import('../host/apple/build.mjs');
+  const app = {id:'com.exact.test',displayName:'Test',manifest:{widgets:[{kind:'next-trains'}],host:{ios:{}}}};
+  for (const target of [app, {...app,id:app.id+'.widgets',widgetAppId:app.id}]) {
+    const ent = entitlements(target,null,true,null,{simulator:true});
+    assert.match(ent, /<key>keychain-access-groups<\/key><array><string>SIMULATORX.com.exact.test<\/string><string>com.exact.test<\/string><\/array>/);
+    assert.match(ent, /group.com.exact.test/);
+  }
+  const host = entitlements({...app,id:app.id+'.host',widgetHost:true},null,true,null,{simulator:true});
+  assert.doesNotMatch(host, /application-groups/);
+  assert.match(host, /SIMULATORX.com.exact.test.host/);
+  assert.doesNotMatch(infoPlist(app,false,{id:app.id+'.host',executable:'ExactHostIOS'}), /ExactAppGroup|ExactAppIdentifier|ExactWidgetKinds/);
+  assert.match(infoPlist(app,false,{executable:'Test'}), /ExactAppGroup/);
+});
+
 test('a HealthKit grant signs with its entitlement, tvOS drops it, and a device build takes only a profile that allows it', async () => {
   // LLP 1069.008.000 D2, D4, D5.
   const {entitlements, tvReach} = await import('../host/apple/build.mjs');

@@ -1,3 +1,4 @@
+import ExactCore
 import Foundation
 import SwiftUI
 import WidgetKit
@@ -16,7 +17,7 @@ public struct WidgetSnapshotEnvironment {
     }
 }
 public func widgetSnapshotView(snapshot: HeadlessSession.Snapshot, family: WidgetFamily, environment: WidgetSnapshotEnvironment) -> some View {
-    SnapshotStandIn(snapshot: snapshot).privacySensitive(!environment.placeholder)
+    SnapshotStandIn(snapshot: snapshot)
 }
 private struct SnapshotStandIn: View {
     let snapshot: HeadlessSession.Snapshot
