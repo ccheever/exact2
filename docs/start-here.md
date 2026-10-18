@@ -252,7 +252,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 
 |Pattern|Already has|
 |---|---|
-|`one-screen`|a tracker: a total, buttons, a centred column over a grouped log in a file|
+|`one-screen`|a tracker: a total, quick-add buttons, a dated log in a file|
 |`dashboard`|a summary, bars, dated rows, an add sheet that validates, two columns|
 |`list-detail`|search, a detail, an add sheet, a delete alert, empty states, a file; split when wide|
 |`tabs`|two tabs, a stack in each, a saved set kept with `persist`|
