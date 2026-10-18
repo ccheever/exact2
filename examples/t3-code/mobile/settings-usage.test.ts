@@ -200,6 +200,48 @@ test('Account detail masks email as the primary does while preserving the existi
   presentedLimits([{...nativeAccount(limits),auth:{status:'authenticated'}}],at,true);
   const absent=mobileUsageAccount('a:one','primary','session',at);expect([absent.hasEmail,absent.email]).toEqual([false,'']);
 });
+function creditDetail(config:Obj,key='a:one',connected=true,canManage=true,sourceId='a'){
+  const at=Date.parse('2026-10-07T12:00:00Z'),parsed=mobileUsageConfig(config),presentations:LimitPresentations=new Map([['a',{entry:{target:{label:'A'}},serverConfig:parsed}]]);
+  mobileUsagePresentation({tab:'limits',window:mobileUsageWindow(30,at),metric:'cost',now:at,presentations,external:false,
+    sources:[{id:sourceId,label:'A',connected,summary:null,error:'',canRead:true,canWrite:false,canManage,config:parsed}]},true);
+  return mobileUsageAccount(key,'primary','session',at);
+}
+test.each([
+  ['native without credits',false,undefined,true,false,false],
+  ['native zero balance',false,{availableCount:0},true,true,false],
+  ['native positive balance',false,{availableCount:1},true,true,true],
+  ['hub without a redeemable credit',true,{availableCount:2},false,false,true],
+  ['hub with a redeemable credit',true,{availableCount:2,nextCreditId:'credit'},true,true,true],
+  ['hub zero balance with a target',true,{availableCount:0,nextCreditId:'credit'},true,true,false],
+] as const)('Account reset credits card requires target and credit object: %s',(label,hub,resetCredits,hasTarget,visible,balance)=>{
+  const usageLimits={...limits,resetCredits},config=hub?{providers:[],usageLimitSources:[{id:'hub',label:'Hub',accounts:[{id:'account.json',driver:'codex',usageLimits}]}]}:{providers:[nativeAccount(usageLimits)]};
+  const before=JSON.stringify(config),detail=creditDetail(config,hub?'hub:account.json':'a:one');
+  expect(detail.present).toBe(true);expect(detail.environmentId).toBe(hasTarget?'a':'');expect(detail.hasCredits).toBe(visible);expect(detail.hasCreditBalance).toBe(balance);
+  expect(detail.canRedeem).toBe(hasTarget&&balance);expect(JSON.stringify(config)).toBe(before);
+});
+test.each([
+  ['authorized',2,true,true,'a',false,true],
+  ['denied with positive balance',2,true,false,'a',true,false],
+  ['denied with zero balance',0,true,false,'a',true,false],
+  ['disconnected with a grant',2,false,true,'a',false,false],
+  ['another environment cannot grant access',2,true,true,'other',true,false],
+] as const)('Account reset credits preserve balance visibility and current permission: %s',(label,count,connected,canManage,sourceId,denied,canRedeem)=>{
+  const config={providers:[nativeAccount({...limits,resetCredits:{availableCount:count}})]},before=JSON.stringify(config);
+  const detail=creditDetail(config,'a:one',connected,canManage,sourceId);
+  expect([detail.hasCredits,detail.hasCreditBalance,detail.creditPermissionDenied,detail.canRedeem]).toEqual([true,count>0,denied,canRedeem]);
+  expect(JSON.stringify(config)).toBe(before);
+});
+test('Account reset credits retain singular, plural, zero and captured-clock expiry copy',()=>{
+  for(const [resetCredits,summary] of [
+    [{availableCount:0},'No reset credits banked'],
+    [{availableCount:1},'1 reset credit banked'],
+    [{availableCount:2,nextExpiresAt:'2026-10-07T14:15:00Z'},'2 reset credits banked · next expires in 2h 15m'],
+    [{availableCount:1,nextExpiresAt:'2026-10-07T11:00:00Z'},'1 reset credit banked · next expires in 0m'],
+  ] as const){
+    const config={providers:[nativeAccount({...limits,resetCredits})]},before=JSON.stringify(config);
+    expect(creditDetail(config).credits).toBe(summary);expect(JSON.stringify(config)).toBe(before);
+  }
+});
 test('explicit empty selection stays empty; diagnostic permissions distinguish old session scopes',()=>{
   expect(mobileUsageSelection('null')).toBeNull();expect(mobileUsageSelection('[]')).toEqual([]);expect(()=>mobileUsageSelection('{}')).toThrow();
   expect(usageGrant({authenticated:true,scopes:['orchestration:read']})).toBe(true);expect(usageGrant({authenticated:true,scopes:['orchestration:read'],auth:{serverUpdateScope:'environment:maintain'}})).toBe(false);expect(usageGrant({authenticated:true,scopes:['diagnostics:read'],permissions:[]})).toBe(false);
