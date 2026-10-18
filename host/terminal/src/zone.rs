@@ -39,19 +39,19 @@ pub(crate) fn launch(
             seed: 1.,
         }
     };
-    let zone = place.time_zone.parse::<chrono_tz::Tz>();
-    let zone = if place.validate().is_err() || zone.is_err() {
-        notes.push(format!(
-            "terminal place refused: {}/{}; using en-US/UTC",
-            place.locale, place.time_zone
-        ));
-        place = Place {
-            seed: place.seed,
-            ..Place::default()
-        };
-        chrono_tz::UTC
-    } else {
-        zone.unwrap()
+    let zone = match (place.validate(), place.time_zone.parse::<chrono_tz::Tz>()) {
+        (Ok(()), Ok(zone)) => zone,
+        _ => {
+            notes.push(format!(
+                "terminal place refused: {}/{}; using en-US/UTC",
+                place.locale, place.time_zone
+            ));
+            place = Place {
+                seed: place.seed,
+                ..Place::default()
+            };
+            chrono_tz::UTC
+        }
     };
     let epoch = if interactive {
         SystemTime::now()
