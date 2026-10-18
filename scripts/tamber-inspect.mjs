@@ -132,7 +132,7 @@ export function editable(row, origin) {
 /** A build's selection joined to source, for the `selection` event, from
  * `map` (null when the build's map is not here). */
 export function join(build, selected, map, { read = readFileSync, served = null, design = null } = {}) {
-  const base = { build: build.id, node: selected.node, site: selected.site, instance: selected.instance, tuple: selected.tuple, trimmed: !!selected.trimmed };
+  const base = { build: build.id, node: selected.node, site: selected.site, instance: selected.instance, tuple: selected.tuple, trimmed: !!selected.trimmed, ...(selected.held ? { held: selected.held } : {}) };
   const rows = (selected.rows ?? []).map(r => ({ ...r }));
   if (!map) return { ...base, source: null, rows: rows.map(r => ({ ...r, editable: { rung: null, reason: 'no source map for this build\'s plan' } })), readOnly: 'no source map for this build\'s plan' };
   const node = map.nodes[selected.site];
@@ -142,6 +142,12 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   const files = [...new Set([node.file, ...(node.chain ?? []).map(c => c.file), ...(node.bindings ?? []).flatMap(b => b.at ? [b.at.file] : [])])];
   const readOnly = files.map(f => moved(map, f, read)).find(Boolean) || designMoved(map, build, served, design, read) || null;
   const source = { file: node.file, line: node.line, col: node.col, end_col: node.end_col, component: node.component, chain: node.chain ?? [] };
+  // What is held (LLP 1122 D8): each row where it is written: an `:active` row lowered to the press paint at its
+  // part's place (the map's `at`), a state look's at its node, with the state.
+  if (base.held) base.held = { ...base.held, rows: (base.held.rows ?? []).map(r => {
+    const b = bound.get(r.name);
+    return { ...r, state: base.held.state, source: b?.state ? b.at ?? null : source };
+  }) };
   return {
     ...base, source, readOnly,
     rows: rows.map(r => {

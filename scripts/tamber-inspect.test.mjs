@@ -91,6 +91,9 @@ test('an `:active` row lowered to the press paint is joined at its part, read-on
     expect(s.rows[1].editable.reason).toContain('set-state');
     // `uses` names the part's own place; outlining it finds the node.
     expect(sitesAt(map, part)).toEqual([0]);
+    // What is held (LLP 1122 D8): an `:active` row at its part, named by its state.
+    const held = join({ id: 'web-1' }, { ...selected, held: { state: 'active', rows: [{ name: 'press_background_color', value: '#00f' }, { name: 'press_scale', value: '0.95' }] } }, map);
+    expect(held.held.rows.map(r => [r.name, r.state, r.source?.line])).toEqual([['press_background_color', 'active', 9], ['press_scale', 'active', 7]]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -90,7 +90,7 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64;
 const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
-const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'scrub', 'scrub-release', 'scrub-cancel']);
+const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'hold', 'scrub', 'scrub-release', 'scrub-cancel']);
 /** Where `bun exact.mjs tamber tool` builds the design tool, and the wire
  * serves it from. */
 export const TOOL_DIST = resolve(ROOT, 'target/design-tool-web');
@@ -179,7 +179,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     events.push(event);
     if (events.length > KEPT) events.shift();
     const line = `data: ${JSON.stringify(event)}\n\n`;
-    for (const res of subscribers) res.write(line);
+    // One `only` a client (a hold's refusal, its owner's: theme2's 07:48 (c)) is that client's alone.
+    for (const res of subscribers) if (!event.only || res.client === event.only) res.write(line);
     for (const poll of polls) poll();
   };
   // The dev loop's running builds (LLP 1122 D4): registered on its streams,
@@ -205,6 +206,14 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   };
   const channel = buildChannel({
     send: e => send({ ...e, seq: ++seq, epoch }), log,
+    // A held site in a build's new plan (LLP 1122 D8): the one site at the
+    // old site's source location, by the two plans' maps; none otherwise.
+    correspond: (from, to, site) => {
+      const a = mapOf(from), b = mapOf(to), node = a?.nodes[site];
+      if (!node || !b || staleMap(b)) return null;
+      const sites = sitesAt(b, node);
+      return sites.length === 1 ? sites[0] : null;
+    },
     selected: (build, report, ask) => {
       if (!current(build, report)) {
         // Asked again once per status: its status first (one lost on the way
@@ -445,9 +454,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (down) { json(res, 503, { error: { message: down } }); return true; }
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
       res.write(`data: ${JSON.stringify({ event: 'subscribed', seq, epoch, files: Object.fromEntries(known), proposals: held(), builds: channel.list() })}\n\n`);
-      subscribers.add(res);
       // `{client}`: its commands live while it is present (LLP 1122 D4).
       const client = typeof request?.client === 'string' && request.client ? request.client : null;
+      res.client = client;
+      subscribers.add(res);
       attend(client, 1);
       res.on('close', () => {
         subscribers.delete(res);
@@ -468,7 +478,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     async function longPoll() {
       const after = request?.after ?? seq;
       const answer = () => {
-        const since = events.filter(e => e.seq > after);
+        const since = events.filter(e => e.seq > after && (!e.only || e.only === request?.client));
         // Fewer kept than asked for, or a number from before this server
         // started: the client missed some, and reads again.
         const missed = (request?.epoch !== undefined && request.epoch !== epoch) || after > seq || after < seq && (events[0]?.seq ?? seq + 1) > after + 1;
@@ -548,6 +558,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (request.method === 'pin' || request.method === 'preview') return needsClient(request) ?? pin(request);
     if (request.method === 'inspect') return needsClient(request) ?? inspect(request, scope);
     if (request.method === 'outline') return needsClient(request) ?? outline(request, scope);
+    if (request.method === 'hold') return needsClient(request) ?? holdState(request, scope);
     if (request.method.startsWith('scrub')) return needsClient(request) ?? scrubbing(request, scope);
     if (request.method === 'revert') return needsClient(request) ?? revert(request);
     if (request.method === 'import') return needsClient(request) ?? importHeld(request);
@@ -611,6 +622,20 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const sites = (map && sitesOf(map)) ?? [];
     log(`tamber: ${request.client} outlined ${request.at.length} location(s) on ${builds.length} build(s)`);
     return { ok: { sites, builds } };
+  }
+
+  /** A state held on one node of one build (LLP 1122 D4, D8; *1.11*):
+   * `{build, site, instance, state}`, `state` null to let it go; its
+   * client's while present, one a build. */
+  function holdState(request, scope) {
+    if (scope !== 'write') return { status: 403, error: { message: 'hold needs write scope: it drives a running build' } };
+    if (!present(request.client)) return { status: 409, error: { message: `hold: \`${request.client}\` is not present` } };
+    if (typeof request.build !== 'string') return { status: 400, error: { message: 'hold names its `build`, a registered build\'s id' } };
+    const held = request.state == null ? null : { site: request.site, instance: request.instance ?? [], state: request.state };
+    const done = channel.hold(request.client, request.build, held, typeof request.plan === 'string' ? request.plan : null);
+    if (done.error) return { status: 400, error: { message: done.error } };
+    if (done.unsupported) return { status: 409, error: { message: done.unsupported, unsupported: 'hold' } };
+    return { ok: { held: true, ...done } };
   }
 
   /** A pin on one build or every build (LLP 1122 D4), its client's while
