@@ -121,7 +121,7 @@ describe('scoped settings writes', () => {
     const plan = planScopedSettingsPatch(project, [laptop, server], { enableAgentDeviceAccess: true });
     expect(plan.serverWrites.map(write => write.patch)).toEqual([
       { projectSettingsOverrides: { [projectId]: { enableAgentDeviceAccess: true } } }, { projectSettingsOverrides: { [laptopProjectId]: { enableAgentDeviceAccess: true } } }]);
-    for (const patch of [{ enableDeviceSupport: true }, { deviceHosts: [] }]) expect(planScopedSettingsPatch(project, environments, patch).serverWrites).toEqual([]);
+    for (const patch of [{ enableDeviceSupport: true }, { deviceHosts: [] }, { reviewGuidesEnabled: true }]) expect(planScopedSettingsPatch(project, environments, patch).serverWrites).toEqual([]);
   });
   it('refuses environment-wide keys and older servers at project scope', () => {
     expect(planScopedSettingsPatch(project, environments, { enableProviderUpdateChecks: false }))
