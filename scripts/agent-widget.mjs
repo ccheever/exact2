@@ -57,10 +57,12 @@ function ordered(value) {
   return value;
 }
 
+const availability = new WeakMap();
 export async function widgetStep(session, widget, line) {
   const { op, path, value } = widgetOperation(line);
   if (op === 'clock') {
-    const available = await session.op({ op: 'state', widget });
+    if (!availability.has(session)) availability.set(session, session.op({ op: 'state', widget, availability: true }));
+    const available = await availability.get(session);
     if (available.error) throw new MalformedOperation(available.error);
   }
   return [op, op === 'clock' ? await session.clock(value) : ordered(await session.op({ op, widget, ...(path ? { path } : {}) }))];
