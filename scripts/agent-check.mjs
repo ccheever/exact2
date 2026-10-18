@@ -154,6 +154,18 @@ export function judge(obs, png, { host = 'web' } = {}) {
     const i = inter(shown(a, obs.keyboard), shown(b, obs.keyboard));
     if (i.w >= 2 && i.h >= 2 && !holds(a, b) && !holds(b, a)) add('overlap', a, { with: b.id, by: [r0(i.w), r0(i.h)] }, 'give them room (a gap, or let the row wrap)');
   }
+  // Two texts running into each other: where their lines are drawn (`ink`, where the host says it is not the box) share
+  // any width at all. Glyphs a pixel or two into a neighbour's read as one word ("GoingMaybe", event-rsvp at the largest
+  // text size, round 21), and two texts set flush on purpose ("$" then "12") only touch.
+  const drawn = (it) => { const v = shown(it, obs.keyboard), k = it.ink ?? it, x = Math.max(v.x, k.x), y = Math.max(v.y, k.y); return { x, y, w: Math.min(v.x + v.w, k.x + k.w) - x, h: Math.min(v.y + v.h, k.y + k.h) - y }; };
+  const texts = items.filter((it) => it.text && !it.control && !it.squeezed);
+  for (const [k, a] of texts.entries()) for (const b of texts.slice(k + 1)) {
+    if (holds(a, b) || holds(b, a)) continue;
+    const da = drawn(a), db = drawn(b);
+    if (da.w <= 0 || da.h <= 0 || db.w <= 0 || db.h <= 0) continue;
+    const i = inter(da, db);
+    if (i.w > 0.5 && i.h >= 2) add('overlap', a, { with: b.id, by: [Math.round(i.w * 10) / 10, r0(i.h)] }, 'give them room (a gap, or let the row wrap)');
+  }
   // A control's own text covered with it is one finding: the control's.
   const coveredControls = found.filter((f) => f.kind === 'covered' && items.find((it) => it.id === f.id)?.control);
   const kept = found.filter((f) => !(f.kind === 'covered' && f.text != null && coveredControls.some((c) => c !== f && holds({ x: c.box[0], y: c.box[1], w: c.box[2], h: c.box[3] }, { x: f.box[0], y: f.box[1], w: f.box[2], h: f.box[3] }))));

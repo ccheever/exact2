@@ -232,19 +232,39 @@ extension Agent {
             return ["by": Int(p.id), "dx": Double(r2(past)), "pad": Double(r2(pad))]
         }
 
-        // Preorder over what is shown, so a view past the viewport's side is named and not each of its children.
+        /// A flex or grid item past its container's sides within the viewport (a centred word wider than its column runs
+        /// out both sides), where neither the container nor an ancestor it lies beyond clips it or scrolls it sideways, and
+        /// it is in flow and untransformed. The web's `spill` (host/web-js/check.js) is the same rule.
+        func spill(_ n: NodeView, _ b: CGRect, in p: NodeView) -> [String: Any]? {
+            guard ["flex", "inline-flex", "grid", "inline-grid"].contains(p.style["display"]?.string ?? ""),
+                  !p.clipsToBounds, p.clipBox == nil, !(p.scroll?.scrollsX == true && p.style["written"]?.array?.contains(.string("overflow_x")) == true),
+                  !["absolute", "fixed"].contains(n.style["position_type"]?.string ?? ""),
+                  n.transform.isIdentity, CATransform3DIsIdentity(n.layer.transform), !pinned(n, upTo: scope) else { return nil }
+            let pb = p.convert(p.bounds, to: nil), uniform = p.number("border_width")
+            let left = pb.minX + p.number("border_width_left", uniform), right = pb.maxX - p.number("border_width_right", uniform)
+            let dx = max(b.maxX - right, left - b.minX)
+            guard dx > 1.5 else { return nil }
+            // Cut where it runs past a clipping ancestor: the text's own finding (`cut`) says so.
+            let vis = visible(n, b)
+            guard !vis.isNull, vis.minX <= b.minX + 0.5, vis.maxX >= b.maxX - 0.5 else { return nil }
+            return ["by": Int(p.id), "dx": Double(r2(dx))]
+        }
+
+        // Preorder over what is shown, so a view past the viewport's side (`held`) or its container's (`out`) is named
+        // and not each of its children.
         var visited = Set<ObjectIdentifier>()
-        func walk(_ v: UIView, alpha: CGFloat, held: Bool, parent: NodeView? = nil) {
+        func walk(_ v: UIView, alpha: CGFloat, held: Bool, out: Bool = false, parent: NodeView? = nil) {
             guard visited.insert(ObjectIdentifier(v)).inserted, !v.isHidden, v.alpha > 0.01, v.layer.opacity > 0.01 else { return }
             let a = alpha * v.alpha * CGFloat(v.layer.opacity)
-            var heldBelow = held
+            var heldBelow = held, outBelow = out
             if let n = v as? NodeView {
                 guard !n.inert, !n.cssVisibilityHidden, !presenter.navigation.isInactiveRoute(containing: n) else { return }
                 let b = n.convert(n.bounds, to: nil)
                 if b.width > 0, b.height > 0, b.intersects(port) || b.intersects(win.bounds) {
                     var item: [String: Any] = rect(b).merging(["id": Int(n.id)]) { x, _ in x }
                     let past = max(b.maxX - port.maxX, port.minX - b.minX)
-                    if !held, past > 1, !pinned(n, upTo: scope) { item["outX"] = r2(past); heldBelow = true }
+                    if !held, past > 1, !pinned(n, upTo: scope) { item["outX"] = r2(past); heldBelow = true; outBelow = true }
+                    else if !out, b.minX >= port.minX - 1, b.maxX <= port.maxX + 1, let parent, let s = spill(n, b, in: parent) { item["spill"] = s; outBelow = true }
                     if let parent, let padded = paddedWidth(n, in: parent) { item["padded"] = padded }
                     if n.isParagraph { paragraph(n, b, alpha: a, into: &item) }
                     control(n, into: &item)
@@ -253,7 +273,7 @@ extension Agent {
                     // A fill's presented part too: a card below the viewport, or past its scroller's edge, is not drawn, and the
                     // pixels there are the page's (LLP 1116.010 D2: trivia's Badge below the viewport was "a card that does not show").
                     if item["text"] != nil || item["control"] != nil || item["fill"] != nil { presented(n, b, into: &item) }
-                    if item.keys.contains(where: { ["text", "control", "fill", "outX", "padded"].contains($0) }) { items.append(item) }
+                    if item.keys.contains(where: { ["text", "control", "fill", "outX", "spill", "padded"].contains($0) }) { items.append(item) }
                 } else if n.isParagraph, b.width < 1, b.height > 0, b.minX >= port.minX - 1, b.minX <= port.maxX + 1, b.maxY > port.minY, b.minY < port.maxY {
                     // Text squeezed to no width (a flex item that may shrink to nothing beside siblings that will not): none of it shows.
                     var item: [String: Any] = rect(b).merging(["id": Int(n.id)]) { x, _ in x }
@@ -275,7 +295,7 @@ extension Agent {
                 nativeLabel(label, alpha: a, into: &items)
                 return
             } else if v is UITextField || v is UITextView { return }
-            for s in v.subviews { walk(s, alpha: a, held: heldBelow, parent: (v as? NodeView) ?? parent) }
+            for s in v.subviews { walk(s, alpha: a, held: heldBelow, out: outBelow, parent: (v as? NodeView) ?? parent) }
         }
 
         func paragraph(_ n: NodeView, _ b: CGRect, alpha: CGFloat, into item: inout [String: Any]) {
@@ -313,10 +333,21 @@ extension Agent {
             }
             // Its text against its own box, and the first ancestor that clips part of it away (never one that scrolls).
             if let p = n.paragraphLayout() {
-                let content = n.contentBox()
-                let wide = p.lines.map { CGFloat(CTLineGetTypographicBounds($0, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth($0)) }.max() ?? 0
-                let dx = wide - content.width, dy = p.height - content.height
+                let content = n.contentBox(), box = n.paragraphBox()
+                let widths = p.lines.map { CGFloat(CTLineGetTypographicBounds($0, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth($0)) }
+                let dx = (widths.max() ?? 0) - content.width, dy = p.height - content.height
                 if dx > 1 || dy > 1 { item["over"] = [Double(r2(max(0, dx))), Double(r2(max(0, dy)))]; if n.clipsToBounds || n.clipBox != nil { item["clips"] = true } }
+                // Where its lines are drawn, as `TextEngine.draw` places them, where that is not its box: the driver
+                // judges two texts running into each other on it (a centred word wider than its column).
+                var ink = CGRect.null
+                for (i, w) in widths.enumerated() where w > 0 {
+                    ink = ink.union(CGRect(x: box.minX + p.origin(i, align: spec.align, width: box.width), y: content.minY, width: w, height: p.height))
+                }
+                if !ink.isNull {
+                    var drawn = n.convert(ink, to: nil)
+                    if n.clipsToBounds || n.clipBox != nil { drawn = drawn.intersection(b) }
+                    if !drawn.isNull, abs(drawn.minX - b.minX) > 0.5 || abs(drawn.maxX - b.maxX) > 0.5 || abs(drawn.minY - b.minY) > 0.5 || abs(drawn.maxY - b.maxY) > 0.5 { item["ink"] = rect(drawn) }
+                }
             }
             var above = n.superview
             while let cur = above {
