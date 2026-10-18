@@ -26,11 +26,11 @@ component ScopeNotice
           if group.title != ""
             SettingsSection(title=group.title, sectionId=`${noticeId}-${group.key}`)
               for item in group.choices key=item.key
-                ScopeNoticeRow(item=item, first=(group.choices.indexOf(item) == 0), noticeId=noticeId, choose=choose)
+                ScopeNoticeRow(item=item, first=(group.choices.map((choice) => choice.key).indexOf(item.key) == 0), noticeId=noticeId, choose=choose)
           else
             column width="100%" box-sizing="border-box" border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff09)" background-color="light-dark(#ffffff66, #11111166)" box-shadow="0 1px 2px #0000000d" testId=`${noticeId}-${group.key}`
               for item in group.choices key=item.key
-                ScopeNoticeRow(item=item, first=(group.choices.indexOf(item) == 0), noticeId=noticeId, choose=choose)
+                ScopeNoticeRow(item=item, first=(group.choices.map((choice) => choice.key).indexOf(item.key) == 0), noticeId=noticeId, choose=choose)
 
 // ITEM_ROW_CLASSNAME (px-4 py-3) as a full-width button: hover:bg-accent/50; rows after the first draw the group's divider.
 component ScopeNoticeRow

@@ -173,7 +173,7 @@ component ProjectsPanel
                         LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
                 text data.workspace.description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
               SettingsSelect(selectId="project-workspace", label="Default workspace", valueLabel=data.workspace.valueLabel, empty=false, value="", width=160, disabled=(busy or data.workspace.disabled), options=data.workspace.options, choose=restInput("scoped", "key=defaultThreadEnvMode&value="))
-        ProjectActionsSection(data=data, busy=busy, raw=raw, open=open)
+        ProjectActionsSection(data=data, busy=busy, raw=raw, open=open, rest=rest)
         if data.members.length > 0
           column width="100%" gap="0.625rem" testId="project-checkouts"
             row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
@@ -264,6 +264,7 @@ component ProjectActionsSection
     busy: bool
     raw: action
     open: action
+    rest: action
   derive menuItems = (busy ? [] : data.importable.map((script) => KmItem(id=`import-script-${script.name}`, label=script.name)))
   action triggerKey(k: string, e: KeyboardEvent)
     if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
