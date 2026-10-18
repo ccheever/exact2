@@ -1,8 +1,8 @@
 import Foundation
 import XCTest
 
-// Ported from T3 Code (MIT, see LICENSE-T3), reference 1e2ecbd975:
-// apps/desktop/src/shell/DesktopShellEnvironment.test.ts (its seven darwin cases and the probe-failure case) and
+// Ported from T3 Code (MIT, see LICENSE-T3), reference 9c161462c9:
+// apps/desktop/src/shell/DesktopShellEnvironment.test.ts (its darwin cases, the mise and probe-failure cases) and
 // apps/desktop/src/app/DesktopObservability.test.ts (the backend child output cases).
 // Change from the reference: bun/vitest over Effect there; XCTest over the native ports
 // (T3LocalShellEnvironment.swift, T3LocalLog.swift) here, with the original names.
@@ -58,6 +58,26 @@ final class LocalShellEnvironmentTests: XCTestCase {
         XCTAssertNil(env["LANG"])
         XCTAssertNil(env["LC_ALL"])
         XCTAssertEqual(env["LC_CTYPE"], "en_US.UTF-8")
+    }
+
+    func test_hydrates_missing_CA_trust_variables_from_the_login_shell() {
+        var env = ["SHELL": "/bin/zsh", "PATH": "/usr/bin", "SSL_CERT_DIR": "/etc/ssl/certs"]
+        T3LocalShellEnvironment.install(into: &env) { _, _, _ in
+            envOutput(["PATH": "/opt/zerobrew/bin:/usr/bin", "SSL_CERT_FILE": "/opt/zerobrew/etc/ca-certificates/cacert.pem",
+                       "SSL_CERT_DIR": "/opt/zerobrew/etc/ca-certificates", "NODE_EXTRA_CA_CERTS": "/Users/me/corp-root.pem"])
+        }
+        XCTAssertEqual(env["SSL_CERT_FILE"], "/opt/zerobrew/etc/ca-certificates/cacert.pem")
+        XCTAssertEqual(env["SSL_CERT_DIR"], "/etc/ssl/certs")
+        XCTAssertEqual(env["NODE_EXTRA_CA_CERTS"], "/Users/me/corp-root.pem")
+    }
+
+    /// The reference runs this case on linux; the darwin branch keeps the record the same way.
+    func test_keeps_mises_PATH_record_with_the_login_shell_PATH() {
+        var env = ["SHELL": "/bin/bash", "PATH": "/usr/bin"]
+        T3LocalShellEnvironment.install(into: &env) { _, _, _ in
+            envOutput(["PATH": "/home/me/.local/bin:/mise/installs/claude/latest:/mise/shims", "__MISE_DIFF": "mise-diff"])
+        }
+        XCTAssertEqual(env["__MISE_DIFF"], "mise-diff")
     }
 
     func test_falls_back_to_launchctl_PATH_on_macOS_when_shell_probing_does_not_return_one() {

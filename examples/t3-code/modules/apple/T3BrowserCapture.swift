@@ -440,7 +440,8 @@ extension T3BrowserSessions {
         answer(["id": id, "tabId": session.id, "path": target.path, "mimeType": mimeType, "sizeBytes": size, "createdAt": T3BrowserArtifacts.iso(now)])
     }
 
-    /// Manager.ts captureScreenshot: `browser-screenshot-<site>-<millis36>.png`, the snapshot's own pixels (capturePage's size).
+    /// Manager.ts captureScreenshot: `browser-screenshot-<site>-<millis36>-<8 hex>.png` (the first eight characters of a v4 UUID,
+    /// so two captures in one millisecond never share a file), the snapshot's own pixels (capturePage's size).
     private func screenshot(_ session: T3BrowserSession, answer: @escaping ([String: Any]) -> Void, refuse: @escaping (String, String) -> Void) {
         let url = session.web.url?.absoluteString
         var attempts = 0
@@ -453,7 +454,7 @@ extension T3BrowserSessions {
                     if attempts < 3 { return DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120)) { attempt() } }
                     return refuse("Screenshot", error?.localizedDescription ?? "The page could not be captured.")
                 }
-                let now = Date(), id = "browser-screenshot-\(T3BrowserArtifacts.slug(url))-\(T3BrowserArtifacts.millis36(now))"
+                let now = Date(), id = "browser-screenshot-\(T3BrowserArtifacts.slug(url))-\(T3BrowserArtifacts.millis36(now))-\(UUID().uuidString.lowercased().prefix(8))"
                 let folder = self.artifactDirectory, target = folder.appendingPathComponent("\(id).png")
                 do {
                     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

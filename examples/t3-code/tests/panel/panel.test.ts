@@ -285,6 +285,18 @@ describe('Linked pull requests', () => {
     const lines = listLines(resolveChains([lone, top, base]));
     expect(lines.map(line => [line.link.number, line.depth, line.stack?.size ?? 0])).toEqual([[1, 0, 2], [2, 1, 0], [3, 0, 0]]);
   });
+  test('siblings stay under their parent, and deeper layers precede a later shallow sibling for the current PR', async () => {
+    const make = (number: number, headBranch: string, baseBranch: string) => link(number, { state: 'open', headBranch, baseBranch });
+    const links = [make(1, 'base', 'main'), make(2, 'first', 'base'), make(3, 'deep', 'first'), make(4, 'sibling', 'base')];
+    const chains = resolveChains(links);
+    expect(chains).toHaveLength(1);
+    expect(listLines(chains).map(row => [row.link.number, row.depth, row.stack?.size ?? 0])).toEqual([[1, 0, 4], [2, 1, 0], [3, 2, 0], [4, 1, 0]]);
+    const { resolveThreadCurrentPullRequestLink } = await import('../../src/sidebar/thread-reference');
+    expect(resolveThreadCurrentPullRequestLink(links)?.number).toBe(3);
+    expect(resolveThreadCurrentPullRequestLink(links.map(entry => ({ ...entry, snapshot: { ...entry.snapshot, state: 'merged' } })))?.number).toBe(3);
+    const cyclic = [make(5, 'a', 'b'), make(6, 'b', 'a')];
+    expect(listLines(resolveChains(cyclic)).map(row => row.depth)).toEqual([0, 0]);
+  });
   test('rows carry watch state, waiting links and the footer; watch and unlink are orchestration commands', async () => {
     const watched = link(4, { title: 'Watched', state: 'open', isDraft: false, headBranch: 'h', baseBranch: 'main', updatedAt: '2026-10-04T00:00:00.000Z', syncedAt: '2026-10-04T00:00:00.000Z', additions: 3, deletions: 1, author: { login: 'octo' } }, { watch: { since: 'x' } });
     const { client, calls } = fakeClient();

@@ -48,7 +48,7 @@ import {
   terminalIdListsEqual,
 } from './terminal-drawer';
 import { getTerminalLabel, nextTerminalId, resolveTerminalSessionLabel } from './terminal-labels';
-import { applyTerminalMetadataStreamEvent, type TerminalMetadataStreamEvent, type TerminalSummary } from './terminal-session';
+import { applyTerminalMetadataStreamEvent, selectRunningSubprocessTerminalIds, type TerminalMetadataStreamEvent, type TerminalSummary } from './terminal-session';
 import { selectKnownTerminalSessions } from './terminal-sessions';
 import { parseScopedThreadKey, scopedThreadKey, selectThreadTerminalUiState, terminalUiStore, type ScopedThreadRef } from './terminal-ui-state';
 import { letGo } from '../client/let-go';
@@ -419,6 +419,16 @@ export async function terminalOps(this: T3Client, op: string, id: string, value:
     const ui = selectThreadTerminalUiState(store.getState().terminalUiStateByThreadKey, ref);
     const nextOpen = !ui.terminalOpen;
     if (nextOpen && ui.terminalIds.length === 0) {
+      // Server-created setup terminals exist before this client's drawer has any: reuse one (a running one first)
+      // that no panel holds before allocating a shell.
+      const panel = new Set(terminalPanelIds(this, ref)), known = knownSessions(this, ref);
+      const existing = selectRunningSubprocessTerminalIds(known).find(id => !panel.has(id))
+        ?? known.map(session => session.target.terminalId).find(id => !panel.has(id));
+      if (existing !== undefined) {
+        store.getState().ensureTerminal(ref, existing, { open: true, active: true });
+        drawer.focusRequest++;
+        return true;
+      }
       if (!launchFor(this, ref.threadId)) return true;
       const terminalId = nextTerminalId(allocatableIds(this, ref));
       store.getState().ensureTerminal(ref, terminalId, { open: true });

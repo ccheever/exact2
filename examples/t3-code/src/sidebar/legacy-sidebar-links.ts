@@ -19,6 +19,8 @@ import { openInSystemBrowser, openLink } from '../browser/browser-links';
 import { patchDraftContext } from '../composer/composer-controls-branch';
 import { fleet, focusFleetThread, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { sidebarSession } from './sidebar-state';
+import { runningTerminalIds } from './sidebar-view';
+import { revealThreadTerminal } from '../terminal/terminal-panel';
 
 interface Navigator { openSelected?(native: Native, id: string): Promise<void>; openDraft?(native: Native, projectId: string): Promise<void> }
 const failure = (error: unknown, fallback: string) => error instanceof Error && error.message ? error.message : fallback;
@@ -122,6 +124,18 @@ function pageSelection(client: T3Client, url: string, source: EnvironmentFleet =
       ...(environment.focused ? {} : { environmentId: environment.environmentId }) });
   }
   return '';
+}
+
+/**
+ * ThreadTerminalStatusButton (ThreadStatusIndicators.tsx), both sidebars: the row's first running terminal shows
+ * where it lives (revealThreadTerminal), then the thread opens (onThreadActivate).
+ */
+export async function revealRowTerminal(client: T3Client, native: Native, id: string): Promise<string> {
+  const row = rowThread(client, id), terminalId = runningTerminalIds(client, id)[0];
+  if (!row || terminalId === undefined) return '';
+  if (row.focused && client.threadId === row.ref.threadId) client.diffOpen = false;
+  revealThreadTerminal(client, row.ref, terminalId);
+  return goTo(client, native, id, row.ref);
 }
 
 // ── "New thread on <branch>" (explicit branch carry-over) ─────────────────────────────────────

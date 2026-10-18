@@ -4,8 +4,8 @@
 // "or import a file" divider, the dashed Theme file zone with Choose files, the
 // Theme JSON editor and Cancel / + Add theme.
 use CoreIcon, CorePaintIcon from "../settings/settings-core.contract"
-use CorePalette from "../settings/settings-core.contract"
-use SettingsGhost from "../settings/settings-core.contract"
+use CorePalette from "../settings/settings-core-shared.contract"
+use SettingsGhost from "../settings/settings-core-shared.contract"
 use ImportView from "./settings-appearance-editor-shapes.contract"
 use ThemeExtension from "./settings-appearance-editor-shapes.contract"
 use BrandGitHub from "../settings/settings-brands.contract"

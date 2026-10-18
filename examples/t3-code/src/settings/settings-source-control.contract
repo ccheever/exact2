@@ -1,7 +1,9 @@
+// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
 // Settings → Source control and Integrations (reference SourceControlSettings.tsx,
 // ProjectDefaultsSettings.tsx, BranchNamingSettings.tsx,
 // SourceControlWritingSettings.tsx, IntegrationsSettings.tsx). Scoped rows show
 // where their value comes from (SettingInheritance) and a reset arrow.
+use InheritanceGroup, InheritanceGroupView from "./settings-inheritance.contract"
 use RedactedText from "../shared/redacted-text.contract"
 use FieldPlaceholder from "../shared/field-placeholder.contract"
 use SelectOption from "./settings-kit.contract"
@@ -38,6 +40,14 @@ use BrowserTabDefaultRows from "../browser/browser-defaults.contract"
 use BrowserAutoShowRow from "../browser/browser-defaults.contract"
 use PullRequestLinksRow from "../browser/browser-defaults.contract"
 use SettingsPickerTrigger from "../composer/model-picker.contract"
+use CoreOption from "./settings-core-shared.contract"
+use CorePalette from "./settings-core-shared.contract"
+use SettingsGhost from "./settings-core-shared.contract"
+use TraitsMenu from "./settings-traits.contract"
+use CcIcon from "../composer/composer-controls.contract"
+use KmItem from "../shared/menu-keys.contract"
+use kmTriggerKey from "../shared/menu-keys.contract"
+use kmTriggerTarget from "../shared/menu-keys.contract"
 
 shape InheritLayer
   key: string
@@ -60,6 +70,7 @@ shape ScopedRow
   summary: string
   state: string
   layers: InheritLayer[]
+  layerGroups: InheritanceGroup[]
   reset: string
   status: string
   child: string
@@ -71,6 +82,9 @@ shape ScopedRow
   driver: string
   badge: string
   accent: string
+  // The writer model's TraitsPicker: its trigger label ("" draws none) and menu rows.
+  traitsLabel: string
+  traits: CoreOption[]
 shape DiscoveryRow
   kind: string
   label: string
@@ -155,18 +169,23 @@ component Card
 component Inheritance
   props
     row: ScopedRow
+    rest: action
   view
     button popovertarget=`inherit-${row.key}` aria-label=`${row.summary}. Show where this value comes from` testId=`inherit-${row.key}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
       LucideLayers(size=12, color=(row.state == "overridden" ? "light-dark(#1b4ed8, #346bf1)" : (row.state == "mixed" ? "#fe9a00" : "light-dark(#71717b, #818181)")))
     column id=`inherit-${row.key}` popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width="20rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-radius="0.75rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 8px 24px #00000026" aria-label=row.summary testId=`inherit-popup-${row.key}`
-      text "This environment" font-size="0.75rem" font-weight=500 line-height="1rem" padding-bottom="0.375rem" color="light-dark(#71717b, #818181)"
-      for layer in row.layers key=layer.key
-        row align-items="center" gap="0.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" background-color=(layer.effective ? "light-dark(#27272a0f, #f5f5f50f)" : "#00000000")
-          text layer.label font-size="0.875rem" line-height="1.25rem" font-weight=(layer.effective ? 500 : 400) color=(layer.effective ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)") flex=1 min-width=0 line-clamp=1
-          text layer.value font-size="0.875rem" line-height="1.25rem" max-width="8rem" line-clamp=1 color=(layer.effective ? "light-dark(#27272a, #f5f5f5)" : (layer.set ? "light-dark(#71717b, #818181)" : "light-dark(#71717b99, #81818199)"))
-          box width="0.875rem" height="0.875rem"
-            if layer.effective
-              LucideCheck(size=14, color="light-dark(#1b4ed8, #346bf1)")
+      if row.layerGroups.length > 0
+        for group in row.layerGroups key=group.id
+          InheritanceGroupView(group=group, textColor="light-dark(#27272a, #f5f5f5)", muted="light-dark(#71717b, #818181)", highlight="light-dark(#27272a0f, #f5f5f50f)", accent="light-dark(#1b4ed8, #346bf1)", rowId=row.key, clear=rest("scoped-overrides", `key=${encodeURIComponent(row.key)}&entries=${encodeURIComponent(group.overrideTargets)}`))
+      else
+        text "This environment" font-size="0.75rem" font-weight=500 line-height="1rem" padding-bottom="0.375rem" color="light-dark(#71717b, #818181)"
+        for layer in row.layers key=layer.key
+          row align-items="center" gap="0.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" background-color=(layer.effective ? "light-dark(#27272a0f, #f5f5f50f)" : "#00000000")
+            text layer.label font-size="0.875rem" line-height="1.25rem" font-weight=(layer.effective ? 500 : 400) color=(layer.effective ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)") flex=1 min-width=0 line-clamp=1
+            text layer.value font-size="0.875rem" line-height="1.25rem" max-width="8rem" line-clamp=1 color=(layer.effective ? "light-dark(#27272a, #f5f5f5)" : (layer.set ? "light-dark(#71717b, #818181)" : "light-dark(#71717b99, #81818199)"))
+            box width="0.875rem" height="0.875rem"
+              if layer.effective
+                LucideCheck(size=14, color="light-dark(#1b4ed8, #346bf1)")
 
 // SettingsRow over a scoped server setting.
 component ScopedSettingRow
@@ -190,7 +209,7 @@ component ScopedSettingRow
             row min-height="1.25rem" align-items="center" gap="0.375rem"
               text row.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
               if row.summary != ""
-                Inheritance(row=row)
+                Inheritance(row=row, rest=rest)
               box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center"
                 if row.reset != ""
                   button press=rest("scoped", row.reset) disabled=busy aria-label=`Reset ${row.resetLabel != "" ? row.resetLabel : row.title} to default` testId=`reset-${row.key}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
@@ -209,12 +228,41 @@ component ScopedSettingRow
             if row.kind == "model"
               // ProviderModelPicker: the window's picker under this trigger, while a provider can write.
               if row.checked and row.status == ""
-                SettingsPickerTrigger(rowId="source-control-writer-model", label=row.valueLabel, name="Source control writer model", driver=row.driver, badge=row.badge, accent=row.accent, disabled=(busy or row.disabled), press=pickModel("source-control-writer-model", scope))
-              SettingsSwitch(checked=row.checked, label="Use a separate source control writer model", disabled=(busy or row.disabled), switchId="scoped-writer-model-enabled", toggle=rest("scoped", `key=sourceControlWriterModelSelection&value=${row.checked ? "off" : "default"}`))
+                SettingsPickerTrigger(rowId=(row.key == "reviewGuideModelSelection" ? "review-guide-model" : "source-control-writer-model"), label=row.valueLabel, name=row.title, driver=row.driver, badge=row.badge, accent=row.accent, disabled=(busy or row.disabled), press=pickModel((row.key == "reviewGuideModelSelection" ? "review-guide-model" : "source-control-writer-model"), scope))
+                if row.traitsLabel != ""
+                  WriterTraitsPicker(row=row, disabled=(busy or row.disabled), restInput=restInput)
+              SettingsSwitch(checked=row.checked, label=(row.key == "reviewGuideModelSelection" ? "Use a separate review guide model" : "Use a separate source control writer model"), disabled=(busy or row.disabled or (not row.checked and row.status != "")), switchId=`scoped-${row.key}-enabled`, toggle=rest("scoped", `key=${row.key}&value=${row.checked ? "off" : "default"}`))
       if row.kind == "textarea"
         ScopedTextArea(value=row.value, placeholder=row.placeholder, label=row.title, fieldKey=row.key, busy=(busy or row.disabled), restInput=restInput)
       if row.child != "" or (row.key == "sourceControlWritingStyle" and row.value == "custom")
         ScopedTextArea(value=row.child, placeholder=row.placeholder, label="Custom source control writing instructions", fieldKey="sourceControlWritingStyle.customInstructions", busy=(busy or row.disabled), restInput=restInput)
+
+// TraitsPicker beside the writer model (SourceControlWritingSettings): a pick saves that one trait
+// on the resolved writer selection ("instance:model#optionId=value", source-control-view.ts).
+component WriterTraitsPicker
+  inject
+    corePal: CorePalette
+  props
+    row: ScopedRow
+    disabled: bool
+    restInput: action
+  derive items = row.traits.filter((option) => option.icon != "section" and option.icon != "section-rule").map((option) => KmItem(id=`scoped-${row.key}-effort-menu-${option.id}`, label=option.label))
+  action triggerKey(k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        showPopover(`effort-scoped-${row.key}`, source=`scoped-${row.key}-effort`)
+        let target = kmTriggerTarget(items, k)
+        if target != ""
+          focus(target)
+  view
+    box position="relative"
+      button id=`scoped-${row.key}-effort` popovertarget=`effort-scoped-${row.key}` key=triggerKey class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" disabled=disabled aria-label=row.traitsLabel testId=`scoped-${row.key}-effort`
+        CcIcon(name="brain", size=16, color=corePal.muted, weight=2)
+        text row.traitsLabel font-size="0.875rem" font-weight=500 line-height="1.25rem" color=corePal.muted
+        CcIcon(name="chevron-down", size=14, color=corePal.muted, weight=2)
+      TraitsMenu(options=row.traits, pal=corePal, menuId=`effort-scoped-${row.key}`, items=items, keyed=0, choose=restInput("scoped", `key=${row.key}&value=${encodeURIComponent(row.value)}#`), testId=`scoped-${row.key}-effort-menu`)
 
 // Inputs commit on blur, as the reference's onBlur writes do.
 component ScopedTextField
@@ -447,7 +495,7 @@ component IntegrationsPanel
             DeviceRow(row=data.agentDevice, tool=data.agentTool, scope=data.deviceScope, busy=busy, rest=rest)
             DeviceHostsRow(view=data.deviceHosts, busy=busy, rest=rest)
               if data.hostsRow.summary != ""
-                Inheritance(row=data.hostsRow)
+                Inheritance(row=data.hostsRow, rest=rest)
 
 component DeviceRow
   props
@@ -462,7 +510,7 @@ component DeviceRow
         row min-height="1.25rem" align-items="center" gap="0.375rem"
           text row.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
           if row.summary != ""
-            Inheritance(row=row)
+            Inheritance(row=row, rest=rest)
           box width="1.25rem" height="1.25rem"
         text row.description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
       row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem"
