@@ -352,7 +352,6 @@ export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`
   const gamePrefix = file.startsWith(appPrefix) ? appPrefix : file.startsWith('game/') ? 'game/' : null;
   const gameParts = gamePrefix === null ? [] : file.slice(gamePrefix.length).split('/').slice(0, -1);
   return /^(issues|\.claude)\//.test(file)
-    || (file.startsWith('.lane/') && !file.startsWith(appPrefix))
     || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs|.*\.md)$/.test(file)
     || (file.startsWith(appPrefix) && gameNonInput(file.slice(appPrefix.length)))
     || (!/\.(rs|toml|lock|contract|ts|js|mjs|wgsl|json|swift|h|c|html|css|modulemap)$/.test(file)
@@ -376,11 +375,13 @@ export function proofInputFiles(root, app, inventory) {
     return entry.isDirectory() ? walk(resolve(dir,entry.name), path + '/') : entry.isFile() ? [path] : [];
   });
   // Fleet exports have no Git index; external games are outside exact2's index.
-  // Always include the app's own inputs, even when its defaults are gitignored.
+  // Git-ignored files are outputs or private apparatus, never authored inputs.
   const sources = files.status === 0 ? files.stdout.split('\0').filter(Boolean) : walk(repository);
   sources.push(...walk(app).map(file => relative(repository, resolve(app, file)).replaceAll('\\', '/')));
+  const ignored = spawnSync('git', ['ls-files', '-z', '--others', '--ignored', '--exclude-standard'], {cwd:repository, encoding:'utf8'});
+  const excluded = new Set(ignored.status === 0 ? ignored.stdout.split('\0').filter(Boolean) : []);
   const prefix = relative(repository, app).replaceAll('\\', '/') + '/';
-  return [...new Set(sources)].sort().filter(file =>
+  return [...new Set(sources)].sort().filter(file => !excluded.has(file) &&
     !proofInputExcluded(file, basename(app), prefix, repository) && existsSync(resolve(repository, file))).map(file => relative(root, resolve(repository, file)).replaceAll('\\', '/')).sort();
 }
 // Clean tracked bytes are identified by Git blobs. Dirty/ignored app inputs and

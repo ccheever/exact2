@@ -1,4 +1,5 @@
 import {test, expect} from 'bun:test';
+import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {cpSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, realpathSync, renameSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
@@ -425,24 +426,28 @@ test('proof summaries record both identities from the completed bake', async () 
 }, 15000);
 
 
-test('lane apparatus is outside shared proof inputs, while a game inside the lane keeps its own sources', () => {
-  const dir = mkdtempSync(resolve(tmpdir(), 'proof-lane-')), app = resolve(dir, 'game/games/sample');
+test('ignored Rust directories are skipped while tracked files override ignore rules', () => {
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'proof-ignored-'))), app = resolve(dir, 'game/games/sample');
+  const git = (...args) => { const r = spawnSync('git', args, {cwd:dir}); expect(r.status).toBe(0); };
   try {
+    git('init', '-q');
     writeFixtureFile(app, 'app.contract', 'plan');
-    writeFixtureFile(dir, 'game/engine/src/lib.rs', 'engine');
-    mkdirSync(resolve(dir, '.lane'), {recursive:true});
-    const read = proofInputReader(dir, app), before = read();
-    writeFixtureFile(dir, '.lane/drive/target/debug/generated.rs', 'not SDK source');
-    expect(proofInputFiles(dir, app)).not.toContain('.lane/drive/target/debug/generated.rs');
-    expect(read()).toMatchObject({all:before.all, authoredState:before.authoredState});
-    writeFixtureFile(dir, 'game/engine/src/lib.rs', 'changed engine');
+    writeFixtureFile(dir, 'private/generated.rs', 'ignored');
+    writeFixtureFile(app, 'private/generated.rs', 'ignored app output');
+    writeFixtureFile(dir, 'private/tracked.rs', 'tracked source');
+    writeFixtureFile(dir, 'excluded/generated.rs', 'info exclude');
+    git('add', 'private/tracked.rs');
+    writeFixtureFile(dir, '.gitignore', 'private/\n');
+    writeFixtureFile(dir, '.git/info/exclude', 'excluded/\n');
+    const files = proofInputFiles(dir, app);
+    expect(files).not.toContain('private/generated.rs');
+    expect(files).not.toContain('game/games/sample/private/generated.rs');
+    expect(files).not.toContain('excluded/generated.rs');
+    expect(files).toContain('private/tracked.rs');
+    const read = proofInputReader(dir, app); read();
+    writeFixtureFile(dir, 'private/generated.rs', 'changed output');
+    read();
+    writeFixtureFile(dir, 'private/tracked.rs', 'changed source');
     expect(read).toThrow('authored proof inputs changed during build');
-    const own = resolve(dir, '.lane/game');
-    writeFixtureFile(own, 'app.contract', 'plan');
-    writeFixtureFile(own, 'logic/src/lib.rs', 'own game');
-    const ownRead = proofInputReader(dir, own); ownRead();
-    expect(proofInputFiles(dir, own)).toContain('.lane/game/logic/src/lib.rs');
-    writeFixtureFile(own, 'logic/src/lib.rs', 'changed game');
-    expect(ownRead).toThrow('authored proof inputs changed during build');
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
