@@ -248,6 +248,9 @@ final class DecorationEditor: FieldDecorating {
         for atom in atoms where NSIntersectionRange(result, atom.range).length > 0 { result = NSUnionRange(result, atom.range) }
         return result
     }
+    func containsAtom(_ range: NSRange) -> Bool {
+        node?.fieldText == styled && atoms.contains { NSIntersectionRange(range, $0.range).length > 0 }
+    }
 
     private func makeProjection(_ source: String) -> FieldTextProjection {
         let units = Array(source.utf16)

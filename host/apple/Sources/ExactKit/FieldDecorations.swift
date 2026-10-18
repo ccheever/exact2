@@ -34,6 +34,7 @@ package protocol FieldDecorating: AnyObject {
     func detach(_ node: NodeView)
     func selection(_ range: NSRange, previous: NSRange) -> NSRange
     func replacement(_ range: NSRange) -> NSRange
+    func containsAtom(_ range: NSRange) -> Bool
     func draw(background: Bool)
     func hitTest(_ point: CGPoint) -> Bool
     func click(_ point: CGPoint) -> Bool

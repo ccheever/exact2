@@ -388,8 +388,11 @@ final class FieldSelectionIOSTests: XCTestCase {
             p.apply(wireBatch([["op":"props","id":2,"set":["value":source],"clear":["decorations","decorationStyles"]]]))
             field.text = source
             XCTAssertTrue(field.becomeFirstResponder())
+            field.smartInsertDeleteType = .default
             field.selectedRange = range
+            manager.beginUndoGrouping()
             field.deleteBackward()
+            manager.endUndoGrouping()
             XCTAssertEqual(field.text,native["default"],"ordinary fields retain the platform's smart deletion")
             let metadata: [String:Any] = ["value":source,"spans":[],"blocks":[],"hidden":[],
                 "atoms":[["name":"pill","start":range.location,"end":NSMaxRange(range),"label":"Alice"]]]
@@ -398,13 +401,18 @@ final class FieldSelectionIOSTests: XCTestCase {
                 field.text = source
                 p.apply(wireBatch([["op":"props","id":2,"set":["value":source,"decorations":record,"decorationStyles":"{\"pill\":[]}"]]]))
                 manager.removeAllActions();inputs.removeAll();beforeInput.removeAll()
+                let smart: UITextSmartInsertDeleteType = caret ? .yes : .default
+                field.smartInsertDeleteType = smart
                 field.selectedRange = caret ? NSRange(location:NSMaxRange(range),length:0) : range
                 let before = field.selectedRange
+                manager.beginUndoGrouping()
                 field.deleteBackward()
+                manager.endUndoGrouping()
                 print("atomic caret=\(caret) selected=\(before) beforeinput=\(beforeInput) source=\(field.text ?? "")")
                 XCTAssertEqual(beforeInput,["\(range.location):\(NSMaxRange(range)) deleteContentBackward"])
                 XCTAssertEqual(field.text,removed,"atomic deletion must preserve every source unit outside its range")
                 XCTAssertEqual(inputs,[removed])
+                XCTAssertEqual(field.smartInsertDeleteType,smart)
                 XCTAssertTrue(manager.canUndo)
                 manager.undo()
                 XCTAssertEqual(field.text,source)
