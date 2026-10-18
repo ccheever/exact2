@@ -4,16 +4,16 @@
     "90": "0xf3f4dced8f1d65f5"
   },
   "saves": {
-    "continuation": "38d9da0149150d8ee70238515aadae2ddb1dd5cb80b8bc2082680b0d319a9a4d"
+    "continuation": "d5e52eceec3e30112e57f39edfc4f7cb2383087313556be91e679ba3bdabf3c0"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "d46942e84f52806bbe7660f205955cf7ef4f8282f0d25549d0221c220e20d966",
-  "sourceInputs": "35bf773d7a1f57ebe6c8f72f3cf825bfb32eb47e3a68cd6d39746b0e44131c11",
+  "inputs": "d1638e289e6a9eb00a84f8325f5d8cd1bdab6d548f12a907596975bc3fbc06cf",
+  "sourceInputs": "72bc40aed02c4ce4aa22a401b70dd35a2a55af04de74729021e89cc8b7abf33f",
   "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
-  "at": "e1573f760367cb6cd2f3583d31ee97a327051fcc",
-  "reason": "Beacons reads validated movement tables; active table bytes and retained tick inputs are saved and hashed"
+  "at": "5baea6f45a3cb8ef0a531788a6d7582a1dfcb577",
+  "reason": "8b6010398 and e1e96d477: active movement tables add the TableValues resource and retained typed inputs; f5ad281e8: EXGAME v5 world save magic"
 }
