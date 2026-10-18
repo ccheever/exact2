@@ -377,6 +377,22 @@ nested boundaries take the normal root path. A virtualized list (`flex: 1`,
 `min-height: 0`, `width: 100%` under a column) is such a boundary for its
 window changes, row measurement, inserts and removes.
 
+A change confined to absolutely positioned boxes (2026-10-18,
+`kernel/src/layout/absolute.rs`) replays at their containing block when it is
+a positioned flex or grid container: one only gaining or losing absolutely
+positioned children, or anything inside such a child. Positioned boxes keep a
+record too, and `saved_layout` answers it whatever the ancestors asked, since
+none of their answers (intrinsic sizes, baselines) reads an absolutely
+positioned child; the block's overflow reaches them, so the replay compares
+how far it reaches past the border box. A block container is never such a
+boundary: margins collapse through it. A source under another root laid out
+before waits for that root's pass instead of dirtying its whole path in the
+first root's (unless the hoists moved), so a host that lays out several roots
+keeps either kind of boundary. `layout::absolute_tests` holds a step
+strip's playhead dot local and its coupled cases at the root, and 3,000 seeds
+of each `layout_equality` differential (about 99,000 replays) showed no
+divergence.
+
 Kernel publication follows sparse ancestor paths in document order and descends
 where absolute origins move. Per-root publication generations expire old geometry
 flags without a sweep. Apple accumulates the resulting publication candidates
