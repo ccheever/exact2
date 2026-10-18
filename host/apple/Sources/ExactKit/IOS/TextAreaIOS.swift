@@ -199,9 +199,17 @@ package final class TextArea: UITextView {
             if let range = decorations?.replacement(unit), range != unit { selectedRange = range }
         }
         owner?.presenter?.supersedePress()
+        func deleteSource() {
+            let smart = smartInsertDeleteType
+            // Atomic deletion owns exactly its source interval. UIKit's smart
+            // deletion can also consume an adjacent space for a selected word.
+            if markedTextRange == nil, decorations?.containsAtom(selectedRange) == true { smartInsertDeleteType = .no }
+            defer { smartInsertDeleteType = smart }
+            super.deleteBackward()
+        }
         if let selections = owner?.presenter?.fieldSelections {
-            selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
-        } else { super.deleteBackward() }
+            selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil, deleteSource)
+        } else { deleteSource() }
     }
 
     package override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {

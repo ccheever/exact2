@@ -355,6 +355,75 @@ final class FieldSelectionIOSTests: XCTestCase {
         XCTAssertNil(node.fieldDecorations)
     }
 
+    func testAtomicDeletionKeepsAdjacentSourceAndNativeUndo() throws {
+        ExactMarkdown.install()
+        let session = ExactApp.shared.makeSession(label:"decoration-delete-ios")
+        defer { window.isHidden = true; session.destroy() }
+        let p = presenter(session:session)
+        let node = try XCTUnwrap(p.views[2]), field = try XCTUnwrap(node.textArea)
+        XCTAssertTrue(field.becomeFirstResponder())
+        let manager = try XCTUnwrap(field.undoManager)
+        manager.groupsByEvent = false
+        var inputs: [String] = [], beforeInput: [String] = []
+        p.onInput = { _,value in inputs.append(value) }
+        node.handlers.insert("beforeinput")
+        p.fieldSelections.onBeforeInput = { _,_,selection,edit in beforeInput.append("\(selection.start):\(selection.end) \(edit.inputType)") }
+        for source in ["hello @alice there", "hello **world** @alice", "## Heading\nhello **world** @alice\n- [ ] task"] {
+            let range = (source as NSString).range(of:"@alice")
+            let removed = (source as NSString).replacingCharacters(in:range,with:"")
+            let control = UITextView(frame:CGRect(x:0,y:150,width:300,height:80))
+            window.addSubview(control)
+            var native: [String:String] = [:]
+            for (name,smart) in [("default",UITextSmartInsertDeleteType.default),("no",.no)] {
+                control.text = source
+                control.smartInsertDeleteType = smart
+                XCTAssertTrue(control.becomeFirstResponder())
+                control.selectedRange = range
+                control.deleteBackward()
+                native[name] = control.text
+            }
+            print("UITextView atomic-range delete source=\(source) controls=\(native)")
+            XCTAssertEqual(native["no"],removed)
+            control.removeFromSuperview()
+            p.apply(wireBatch([["op":"props","id":2,"set":["value":source],"clear":["decorations","decorationStyles"]]]))
+            node.replaceFieldValue(source)
+            XCTAssertTrue(field.becomeFirstResponder())
+            field.smartInsertDeleteType = .default
+            field.selectedRange = range
+            manager.beginUndoGrouping()
+            field.deleteBackward()
+            manager.endUndoGrouping()
+            XCTAssertEqual(field.text,native["default"],"ordinary fields retain the platform's smart deletion")
+            let metadata: [String:Any] = ["value":source,"spans":[],"blocks":[],"hidden":[],
+                "atoms":[["name":"pill","start":range.location,"end":NSMaxRange(range),"label":"Alice"]]]
+            let record = String(decoding:try JSONSerialization.data(withJSONObject:metadata),as:UTF8.self)
+            for caret in [false,true] {
+                node.replaceFieldValue(source)
+                p.apply(wireBatch([["op":"props","id":2,"set":["value":source,"decorations":record,"decorationStyles":"{\"pill\":[]}"]]]))
+                manager.removeAllActions();inputs.removeAll();beforeInput.removeAll()
+                let smart: UITextSmartInsertDeleteType = caret ? .yes : .default
+                field.smartInsertDeleteType = smart
+                field.selectedRange = caret ? NSRange(location:NSMaxRange(range),length:0) : range
+                let before = field.selectedRange
+                manager.beginUndoGrouping()
+                field.deleteBackward()
+                manager.endUndoGrouping()
+                print("atomic caret=\(caret) selected=\(before) beforeinput=\(beforeInput) source=\(field.text ?? "")")
+                XCTAssertEqual(beforeInput,["\(range.location):\(NSMaxRange(range)) deleteContentBackward"])
+                XCTAssertEqual(field.text,removed,"atomic deletion must preserve every source unit outside its range")
+                XCTAssertEqual(inputs,[removed])
+                XCTAssertEqual(field.smartInsertDeleteType,smart)
+                XCTAssertTrue(manager.canUndo)
+                manager.undo()
+                XCTAssertEqual(field.text,source)
+                XCTAssertEqual(inputs,[removed,source])
+                manager.redo()
+                XCTAssertEqual(field.text,removed)
+                XCTAssertEqual(inputs,[removed,source,removed])
+            }
+        }
+    }
+
     func testRangeTextPreservesSelectionWithoutFocusOrUndo() throws {
         let p = presenter()
         let node = try XCTUnwrap(p.views[2])
