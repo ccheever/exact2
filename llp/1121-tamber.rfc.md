@@ -3946,3 +3946,22 @@ Built to the approved plan's point 5 (`~/x2theme/x2p4-s9a-plan.md`; theme2's 17:
   - Tab bars draw a path again when the size class changes: the in-page bar's items are keyed on the glyph's size and the bar watches the size class; the root tab bar watches it too and reads its own traits once in its window. Tested compact, regular, compact with the faces unchanged, in both.
   - A symbol segment's path is drawn at the control's body size and again as the text size changes (keyed on that size; the control watches the content size).
   - The agent's icon name: the source form carries none (the compiler and the runner's bridge expand the name away), so two tokens on one SVG (`icon.reply`, `icon.respond`) give one form and one plan string, and the host reports the first declared, the best it knows. theme2 ruled (21:49) to keep that and QUEUE it, with a build lint for two icon tokens with identical sources as the cheaper real fix.
+
+### Stage 9, commit C1: `explain` answers an icon and a param (draft for theme2)
+
+QUEUE (stage 7 B, round 2): an icon and a param were read through `describe` and `resolve` only.
+Under `tamber/1.12`, optional fields (theme2's 19:25 ruling (a): one computation, two readers).
+- **`describe`'s icon entry** gains `draws`, `{target: source}` for each target the app ships: the
+  source that target draws, by D10's rule (`contract_lower::icons::draws`, the same function
+  `tamber-icon-missing` now checks with), or null. It reads stage 9 A's rule: Apple draws an
+  icon's SF Symbol, else a template SVG's path (not yet on a watch).
+- **`explain` of an icon** answers `kind: "icon"`, its value as its design writes it, its chain
+  (the icon an alias, `icon.alias = icon.home`, names; empty for an `icon(…)`), and its `describe`
+  entry. The server folds a design as the build does with or without params, so an alias reads in
+  an app that has none. An icon param (it was
+  refused, "an icon") answers the same by its full name, its chain the icon or param its default
+  names, with its `param`.
+- **`explain` of a param** adds `param`: its component and identity, kind, the place of its line,
+  its default as written, and `set`, the design's line that sets the app's value, or null.
+- **Tests** (`tamber_serve_explain.rs`): an sf-only, an svg-only and a three-source icon's `draws`
+  in `explain` and `describe`; a param before and after the app sets its value.

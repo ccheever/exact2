@@ -723,12 +723,8 @@ impl Server {
         request: &Value,
         app: &contract::tamber_params::AppParams,
     ) -> Result<(Snapshot, exact_tamber::Folding, exact_tamber::Design), Value> {
-        let params = app.tokens.as_slice();
-        if params.is_empty() {
-            let (snap, folding) = self.design(request)?;
-            let design = folding.design.clone();
-            return Ok((snap, folding, design));
-        }
+        // Folded as the build folds it (an icon naming another included),
+        // with or without params.
         let snap = self.snapshot()?;
         let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
         let text = &snap
@@ -837,6 +833,15 @@ impl Server {
             .iter()
             .map(|d| located(&file, d, &app))
             .collect();
+        // Each icon's entry says which source each shipped target draws
+        // (LLP 1121 stage 9 C, *1.12*).
+        if let Some(icons) = ir["icons"].as_array_mut() {
+            for entry in icons {
+                if let Some(icon) = folding.icons.iter().find(|i| entry["name"] == i.name) {
+                    entry["draws"] = crate::tamber_explain::draws(&self.dir, icon);
+                }
+            }
+        }
         Ok(
             json!({"ir": ir, "files": files_json(&snap), "meta": {"dials": dials, "tokens": tokens}, "pairs": pairs, "warnings": warnings}),
         )
@@ -934,6 +939,15 @@ impl Server {
     /// on, and the tokens those values name, as the checker resolved them.
     fn explain(&self, request: &Value) -> Result<Value, Value> {
         let (snap, folding, name) = self.lookup(request)?;
+        // An icon, an icon param's too (D10, *1.12*).
+        let app = self.app_params();
+        // The design asked about (`file`), whose lines set the app's values.
+        let design = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
+        if let Some(icon) =
+            crate::tamber_explain::icon(&self.dir, &design, &app, &snap, &folding, &name)
+        {
+            return Ok(icon);
+        }
         let (token, declared) = folding
             .tokens
             .iter()
@@ -947,9 +961,13 @@ impl Server {
                 json!({"when": w.conds.iter().map(|(a, v)| json!({"axis": a, "value": v})).collect::<Vec<_>>(), "value": w.value.value})
             })
             .collect();
-        Ok(
-            json!({"token": name, "value": declared.value.value, "whens": whens, "dials": token.dials, "names": token.names, "files": files_json(&snap)}),
-        )
+        let mut out = json!({"token": name, "value": declared.value.value, "whens": whens, "dials": token.dials, "names": token.names, "files": files_json(&snap)});
+        // A param (D15): where it is declared, its default as written, and
+        // the design's line that sets the app's value, *1.12*.
+        if let Some(p) = app.tokens.iter().find(|p| p.token == name) {
+            out["param"] = crate::tamber_explain::param(&self.dir, &design, p, &app, &snap);
+        }
+        Ok(out)
     }
 
     /// Where the app reads a token (`crate::tamber_uses`): each plan site
@@ -1406,12 +1424,12 @@ fn temp_name(name: &str) -> bool {
         .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
 }
 
-/// Why `explain` or `uses` has no token `name`: an icon (a param's too) is
-/// read through `describe` and `resolve` (D10).
+/// Why `uses` has no token `name`: an icon (a param's too) is read through
+/// `describe`, `resolve` and `explain` (D10).
 fn no_token(folding: &exact_tamber::Folding, name: &str) -> Value {
     match folding.icons.iter().any(|i| i.name == name) {
         true => {
-            json!({"message": format!("`{name}` is an icon: `describe` and `resolve` read an icon's sources; `explain` and `uses` take a token")})
+            json!({"message": format!("`{name}` is an icon: `describe`, `resolve` and `explain` read an icon; `uses` takes a token")})
         }
         false => json!({"message": format!("no token `{name}`")}),
     }
