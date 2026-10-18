@@ -195,7 +195,6 @@ final class T3TerminalView: ExactNativeInstance {
         T3Terminals.shared.add(self)
         web.load(URLRequest(url: T3TerminalAssets.pageURL))
         bindSession()
-        if previous["read-only"] != next["read-only"], sessionMode, session != nil { bindSession() }
         synchronizeAuthOutput()
         configureAuthInput()
     }
@@ -525,6 +524,7 @@ final class T3TerminalView: ExactNativeInstance {
             send(["type": "keyPolicy", "keybindings": Self.initial(next)["keybindings"] ?? [],
                   "readOnly": next["read-only"] == "true", "closePending": next["close-pending"] == "true"])
         }
+        if previous["read-only"] != next["read-only"], sessionMode, session != nil { bindSession() }
         synchronizeAuthOutput()
         configureAuthInput()
         if previous["scheme"] != next["scheme"] || previous["terminal-theme"] != next["terminal-theme"] { send(["type": "theme", "theme": Self.theme(next)]) }
