@@ -66,8 +66,11 @@ function settings(client:MobileDraftClient,key:string) {
   if(raw!==undefined&&(!plain(raw)||!json(raw)||raw.staged!==undefined&&!plain(raw.staged)))return null;
   const staged=plain(raw)&&plain(raw.staged)?raw.staged[key]:undefined;
   if(staged!==undefined&&(!plain(staged)||Object.keys(staged).some(k=>!['providerId','modelId','options','runtimeMode','interactionMode'].includes(k))))return null;
-  const value=staged===undefined?{providerId:client.providerId,modelId:client.modelId,options:client.modelOptions,
-    runtimeMode:client.runtimeMode,interactionMode:client.interactionMode}:staged as Record<string,unknown>;
+  // Sparse thread choices over the current selection; half a model group never borrows current fields.
+  const chosen=(staged??{}) as Record<string,unknown>,group=['providerId','modelId','options'].filter(k=>Object.hasOwn(chosen,k)).length;
+  if(group!==0&&group!==3)return null;
+  const value:Record<string,unknown>={providerId:client.providerId,modelId:client.modelId,options:client.modelOptions,
+    runtimeMode:client.runtimeMode,interactionMode:client.interactionMode,...chosen};
   if(!json(value)||!['providerId','modelId','runtimeMode','interactionMode'].every(k=>typeof value[k]==='string')||!Array.isArray(value.options))return null;
   return {modelSelection:{instanceId:value.providerId as string,model:value.modelId as string,options:copy(value.options) as ThreadSendSnapshot['modelSelection']['options']},
     runtimeMode:value.runtimeMode as ThreadSendSnapshot['runtimeMode'],interactionMode:value.interactionMode as ThreadSendSnapshot['interactionMode']};

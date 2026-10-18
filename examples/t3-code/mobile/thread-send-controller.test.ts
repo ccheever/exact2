@@ -13,6 +13,9 @@ import type {ThreadSendRecord} from './thread-send-admission';
 import {mobileOutboxTransferCanonical as canonical} from './mobile-outbox-transfer-model';
 import {fleet} from './shared/settings-b-fleet';
 import {obj,type Obj} from './shared/domain';
+import {stage} from './shared/composer-controls';
+import {mobileOutboxSettingsRequests} from './mobile-outbox-wire';
+import type {MobileOutboxRecord} from './mobile-outbox-model';
 import type {Native,Files} from './shared/protocol';
 const now=Date.parse('2026-10-09T12:00:00Z'),copy=<T>(v:T):T=>JSON.parse(JSON.stringify(v));
 const fingerprint=(v:unknown)=>createHash('sha256').update(canonical(v)).digest('hex');
@@ -108,6 +111,38 @@ test('staged model/options/modes win at tap and remain immutable through later n
  const result=await pending;expect(result.kind).toBe('transfer');if(result.kind==='transfer')expect(result.result.status).toBe('completed');
  const record=obj(f.requests.find(r=>r.action==='enqueueTransfer')!.record);expect(record.modelSelection).toEqual({instanceId:'other',model:'new-model',options:[{id:'reasoning',value:'high'}]});
  expect(record.runtimeMode).toBe('auto');expect(record.interactionMode).toBe('default');
+});
+test('sparse thread settings capture the explicit model group and fall back to current modes and model',async()=>{
+ const f=await fixture(),key=f.target.key,high=[{id:'reasoning',value:'high'}];
+ Object.assign(f.client.local,{composerControls:{staged:{[key]:{providerId:'provider',modelId:'b',options:high}}}});
+ expect(ready(f).snapshot).toMatchObject({modelSelection:{instanceId:'provider',model:'b',options:high},runtimeMode:'full-access',interactionMode:'plan'});
+ Object.assign(f.client.local,{composerControls:{staged:{[key]:{runtimeMode:'approval-required'}}}});
+ expect(ready(f).snapshot).toMatchObject({modelSelection:{instanceId:'provider',model:'model',options:[]},runtimeMode:'approval-required',interactionMode:'plan'});
+ for(const half of [{providerId:'provider'},{providerId:'provider',modelId:'b'},{modelId:'b',options:[]},{providerId:'provider',modelId:7,options:[]},{runtimeMode:7}]){
+  Object.assign(f.client.local,{composerControls:{staged:{[key]:half}}});expect(read(f.client,f.input).kind).toBe('blocked');
+ }
+});
+test('a pick after the tap leaves the queued record on the captured model and the thread setting on the new one',async()=>{
+ const f=await fixture(),key=f.target.key;Object.assign(f.client.local,{composerControls:{staged:{[key]:{providerId:'provider',modelId:'b',options:[]}}}});
+ const wait=gate();f.intercept(async r=>{if(r.action==='read')await wait.promise});const pending=submit(f.client,f.native,f.storage,f.input,commands);
+ stage(f.client,{providerId:'provider',modelId:'c',options:[]});wait.resolve();
+ const result=await pending;expect(result.kind).toBe('transfer');if(result.kind==='transfer')expect(result.result.status).toBe('completed');
+ expect(obj(f.requests.find(r=>r.action==='enqueueTransfer')!.record).modelSelection).toEqual({instanceId:'provider',model:'b',options:[]});
+ expect(f.client.local.composerControls.staged[key]).toEqual({providerId:'provider',modelId:'c',options:[]});expect(f.client.modelId).toBe('c');
+});
+test('a runtime-only thread setting is synchronized before the queued turn and survives Send',async()=>{
+ const f=await fixture(),key=f.target.key;Object.assign(f.client,{runtimeMode:'full-access',interactionMode:'default'});
+ stage(f.client,{runtimeMode:'approval-required'});
+ const result=await submit(f.client,f.native,f.storage,f.input,commands);expect(result.kind).toBe('transfer');if(result.kind==='transfer')expect(result.result.status).toBe('completed');
+ const record=f.requests.find(r=>r.action==='enqueueTransfer')!.record as MobileOutboxRecord;
+ expect(record).toMatchObject({modelSelection:{instanceId:'provider',model:'model'},runtimeMode:'approval-required'});
+ expect(f.client.local.composerControls.staged[key]).toEqual({runtimeMode:'approval-required'});
+ expect(obj(obj(f.disk().composerControls).staged)[key]).toEqual({runtimeMode:'approval-required'});
+ const wire={origin:record.origin,environmentId:record.environmentId,attachments:[],
+  config:{environment:{environmentId:record.environmentId,capabilities:{serverResolvedCommandContext:true}},providers:f.client.config.providers}};
+ const thread={origin:record.origin,environmentId:record.environmentId,threadId:'thread',modelSelection:{instanceId:'provider',model:'model'},runtimeMode:'full-access' as const,interactionMode:'default' as const};
+ const sync=mobileOutboxSettingsRequests(record,wire,thread);expect(sync.status).toBe('ready');
+ if(sync.status==='ready')expect(sync.value.map(r=>[r.stage,r.payload])).toEqual([['settings-sync',{type:'thread.runtime-mode.set',commandId:`${record.commandId}:runtime-mode`,threadId:'thread',runtimeMode:'approval-required'}]]);
 });
 test('cached model choices survive missing provider rows without inventing a local-command driver',async()=>{
  const f=await fixture();f.client.config={settings:{providerInstances:{provider:{driver:'claudeAgent'}}}};expect(ready(f).snapshot.providerDriver).toBe('unknown');

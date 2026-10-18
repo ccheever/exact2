@@ -26,7 +26,14 @@ test('saved Plan Mode patches a boolean through the unified native preference ow
 test('disabled Plan Mode stages Build at actual started-thread send admission',async()=>{
  const f=fixture(false);expect((await mobileSend(f.client,false,f.native,f.storage)).message).toBe('');
  const commands=f.calls.filter(c=>c.method==='orchestration.dispatchCommand').map(c=>obj(c.payload));
- expect(commands.find(c=>c.type==='thread.interaction-mode.set')?.interactionMode).toBe('default');expect(commands.some(c=>c.type==='message.dispatch')).toBe(true);expect(f.client.local.deviceSettings.planModeEnabled).toBe(false);
+ expect(commands.map(c=>[c.type,c.interactionMode])).toEqual([['thread.interaction-mode.set','default'],['message.dispatch',undefined]]);expect(f.client.local.deviceSettings.planModeEnabled).toBe(false);
+ expect(f.client.local.composerControls.staged['env:thread']).toEqual({interactionMode:'default'});
+});
+test('disabled Plan Mode on a thread already in Build stores no synthetic setting',async()=>{
+ const f=fixture(false);f.client.interactionMode='default';obj(f.client.projection.thread).interactionMode='default';
+ expect((await mobileSend(f.client,false,f.native,f.storage)).message).toBe('');
+ expect(f.calls.filter(c=>c.method==='orchestration.dispatchCommand').map(c=>obj(c.payload).type)).toEqual(['message.dispatch']);
+ expect(f.client.local.composerControls.staged).toEqual({});
 });
 test('disabled Plan Mode sends a fresh draft as Build while enabled mode remains Plan',async()=>{
  for(const enabled of [false,true]){const f=fixture(enabled,false);await mobileSend(f.client,false,f.native,f.storage);const launch=f.calls.find(c=>c.method==='orchestration.launchThread');expect(launch).toBeDefined();expect(obj(launch!.payload).interactionMode).toBe(enabled?'plan':'default');}

@@ -155,16 +155,15 @@ export function mobileOutboxRecoveryDraftRollback(client: T3Client, change: Mobi
   }
   apply(client, change.key, change.before); adoptTerminalContexts(client.local, { terminalContexts: terminals }); return true;
 }
-/** Run after real thread selection is read. Missing queued picks preserve actual
- * current/staged values; consuming this plain marker prevents later user picks being reset. */
+/** Run after real thread selection is read. Recovered fields join the thread's own choices and absent
+ * fields keep following the thread; consuming this plain marker prevents later user picks being reset. */
 export function mobileOutboxRecoveryDraftApplyChoices(client: T3Client): void {
   if (!client.threadId || !client.providerId || !client.modelId) return;
   const key = client.draftKey, markers = obj(obj(client.local).mobileRecoveredDrafts);
   for (const raw of Object.values(markers)) {
     const marker = obj(raw), selected = obj(marker.choices);
     if (marker.key !== key || marker.origin !== mobileQueuedEditOrigin(client) || marker.environmentId !== client.environmentId || !Object.keys(selected).length) continue;
-    const prior = client.local.composerControls.staged[key] ?? { providerId: client.providerId, modelId: client.modelId,
-      options: client.modelOptions, runtimeMode: client.runtimeMode, interactionMode: client.interactionMode };
+    const prior = client.local.composerControls.staged[key] ?? {};
     client.local.composerControls.staged[key] = { ...prior,
       ...(typeof selected.providerId === 'string' && typeof selected.modelId === 'string'
         ? { providerId: selected.providerId, modelId: selected.modelId, options: arr(selected.modelOptions) } : {}),

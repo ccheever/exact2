@@ -58,7 +58,7 @@ export async function mobileSend(client: T3Client, alternate: boolean, native: N
     const preferences = normalizeMobilePreferences(reply.value);
     const provider = arr(client.config.providers).find(value => value.instanceId === client.providerId);
     if (!preferences.planModeEnabled || provider?.showInteractionModeToggle === false) {
-      if (client.threadId) stage(client, { interactionMode: 'default' });
+      if (client.threadId) { if (client.interactionMode !== 'default') stage(client, { interactionMode: 'default' }); }
       else { projectedBuild = client.interactionMode !== 'default'; client.interactionMode = 'default'; }
     }
     const admittedOwner = identity();
