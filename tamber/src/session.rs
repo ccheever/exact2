@@ -482,10 +482,9 @@ fn shape(f: &Folding, retention: Option<&Retention>, vocab: &Vocab) -> String {
             w.strip_prefix("-exact-").map_or(w.clone(), str::to_string)
         };
         if retention.is_some_and(|r| {
-            r.folded.iter().any(|w| {
-                w == name
-                    || t.role.as_ref().is_some_and(|role| bare(w) == bare(role))
-            })
+            r.folded
+                .iter()
+                .any(|w| w == name || t.role.as_ref().is_some_and(|role| bare(w) == bare(role)))
         }) {
             let values: Vec<String> = t.values.iter().map(crate::Value::css).collect();
             s.push_str(&format!("folded {name} {values:?}\n"));

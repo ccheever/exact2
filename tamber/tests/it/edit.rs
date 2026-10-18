@@ -1034,7 +1034,11 @@ fn the_class_asks_the_plans_retention() {
         folded: ["ink".to_string()].into(),
         ..Default::default()
     };
-    assert_eq!(class(&value("ink"), &keyframed), Rebuild, "a keyframe's token");
+    assert_eq!(
+        class(&value("ink"), &keyframed),
+        Rebuild,
+        "a keyframe's token"
+    );
     assert_eq!(class(&value("spare"), &keyframed), Live, "a row's token");
     assert_eq!(class(&value("ink"), &plain), Live, "no keyframe names it");
     let bound = exact_tamber::Retention {
@@ -1176,8 +1180,16 @@ fn the_class_asks_the_plans_retention() {
 #[test]
 fn a_keyframes_role_spelling_folds_its_override() {
     for (design, name, word) in [
-        ("tamber t\n\ntheme\n  label = #101010\n", "label", "-exact-label"),
-        ("tamber t\n\ntheme\n  CanvasText = #101010\n", "CanvasText", "canvastext"),
+        (
+            "tamber t\n\ntheme\n  label = #101010\n",
+            "label",
+            "-exact-label",
+        ),
+        (
+            "tamber t\n\ntheme\n  CanvasText = #101010\n",
+            "CanvasText",
+            "canvastext",
+        ),
     ] {
         let files = vec![("app.tamber".to_string(), design.to_string())];
         let ops = vec![(
@@ -1205,7 +1217,11 @@ fn a_keyframes_role_spelling_folds_its_override() {
                 .unwrap()
                 .class
         };
-        assert_eq!(class(&[word]), exact_tamber::Class::Rebuild, "{name} by {word}");
+        assert_eq!(
+            class(&[word]),
+            exact_tamber::Class::Rebuild,
+            "{name} by {word}"
+        );
         assert_eq!(class(&[]), exact_tamber::Class::Live, "{name}, no keyframe");
     }
 }
