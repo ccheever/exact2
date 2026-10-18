@@ -984,8 +984,7 @@ the only required reading (LLP 1115 D7). When a name is in question, \`bun exact
 vocab <name>\` answers it (no name: the card, which ${doc('card.md')} holds too). Run
 \`bun exact.mjs verify\` when the features work, and \`verify ios\` once at the end for an iPhone
 app. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"commands"\`.
-\`bun exact.mjs update\` refreshes generated files and reports Cargo lock drift; \`bun exact.mjs lock\`
-resolves the app lock after a dependency or checkout change. Builds never change an existing lock.
+\`bun exact.mjs update\` refreshes files; \`bun exact.mjs lock\` repairs Cargo lock drift.
 \`bun exact.mjs update --without linux\` stops shipping Linux.
 \`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.
 ${DIARY_LINE}
