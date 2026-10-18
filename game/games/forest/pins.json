@@ -10,10 +10,10 @@
     "linux",
     "web"
   ],
-  "inputs": "fb08ede084378a8e25087951d4bda6628684f3c88bc25e7c4e4748a70321c6e1",
-  "sourceInputs": "482a9393d910e22f2f7c4dbaf54f938706ce31324bf349c3e9f253258d8df286",
+  "inputs": "ff5dd26942caeb61a87d3ae8f1e6b3630d2f031bb45f2e03b3d82bb9ad93bb60",
+  "sourceInputs": "c38bac7834faef02608daf63753288b020a70bc08a848de9bad39d27b16b65a2",
   "game": "forest",
   "generated": "bun game/prove.mjs forest --repin --hosts 'linux,web'",
-  "at": "94ad5b67f4302695e99b3e51fa30488cd6adfa86",
-  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream; 2e49129cb: EXSIM v7 header; 07170a2db: model fields extend saved asset identities"
+  "at": "54f5ffb45da59380d0dc2c2fd1b5336bf9bb0d4e",
+  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream; MeshData.outline, MaterialData.rim and Node.posable extend saved model identities"
 }
