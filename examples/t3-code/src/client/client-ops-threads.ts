@@ -43,6 +43,7 @@ export async function threadOps(this: T3Client, op: string, id: string, value: s
       if (named) id = named.threadId;
       const carry = op.startsWith('pages:hero-') ? await heroCarry(this, op.slice(11), id, () => ensureScratchProject(this, native!)) : null;
       if (carry) id = carry.projectId;
+      if (id && !this.shell.projects.some(project => project.id === id)) return true;
       if (id && this.shell.projects.some(project => project.id === id)) this.projectId = id;
       this.threadId = ''; this.thread = null; this.threadSubscription = ''; this.threadEpoch++;
       delete this.subscriptions.thread;

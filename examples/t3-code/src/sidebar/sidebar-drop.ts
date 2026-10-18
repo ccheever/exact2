@@ -1,3 +1,4 @@
+// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
 // Sidebar drag and drop (Sidebar.tsx handleThreadDragEnd, Sidebar.logic.ts
 // resolveSidebarDropTarget/planSidebarThreadDrop, chat/threadContextDrag.ts;
 // MIT, see LICENSE-T3). The window resolves the destination shelf from the
@@ -42,7 +43,8 @@ export interface DropPlan { verb: string; steps: { type: string; threadId: strin
 /**
  * planSidebarThreadDrop: what a drop writes, in order, with each step's failure toast. `pinReorder` and `activeReorder`
  * are the lifted thread's environment's; `pinReorderable` and `activeReorderable` name the rows whose environments
- * take order keys, and a drop that would write a key on any other row writes nothing (reorderableKeys).
+ * take order keys (reorderableKeys). Rows outside them are never written: keyless ones sort outside the keyed run, so
+ * they leave the arrangement, and keyed ones stay as bounds; a drop that would still write one writes nothing.
  */
 export function planDrop(input: { id: string; from: string; target: string; pinnedIds: string[]; activeIds: string[]; pinnedKeys: Map<string, string | null>;
   activeKeys: Map<string, string | null>; geometry: DropGeometry; supportsSettlement: boolean; pinReorder: boolean; activeReorder: boolean;
@@ -51,12 +53,18 @@ export function planDrop(input: { id: string; from: string; target: string; pinn
   const none: DropPlan = { verb: '', steps: [], failure: [] };
   if (target === 'working' || target === 'snoozed' || target === '' || target === 'context') return none;
   if (!input.supportsSettlement && (target === 'settled' || from === 'settled')) return none;
+  const arrange = (order: string[], keys: Map<string, string | null>, writable: Set<string> | undefined) => {
+    if (!writable) return planReorder(order, keys, id);
+    if (!writable.has(id)) return null;
+    const assignments = planReorder(order.filter(key => writable.has(key) || keys.get(key) != null), keys, id);
+    return assignments.every(assignment => writable.has(assignment.id)) ? assignments : null;
+  };
   if (target === 'settled') return from === 'settled' ? none : { verb: 'settle', steps: [{ type: 'thread.settle', threadId: id }], failure: ['Failed to settle thread'] };
   if (target === 'pinned') {
     const order = dropIndex(input.pinnedIds, id, geometry.centerY, geometry.topY + LABEL + CARD / 2);
     if (from === 'pinned' && order.join('\n') === input.pinnedIds.join('\n')) return none;
-    const assignments = input.pinReorder ? planReorder(order, input.pinnedKeys, id) : [];
-    if (input.pinReorderable && assignments.some(assignment => !input.pinReorderable!.has(assignment.id))) return none;
+    const assignments = input.pinReorder ? arrange(order, input.pinnedKeys, input.pinReorderable) : [];
+    if (assignments === null) return none;
     const steps: DropPlan['steps'] = [], failure: string[] = [];
     if (from !== 'pinned') {
       const key = assignments.find(assignment => assignment.id === id)?.orderKey;
@@ -77,8 +85,8 @@ export function planDrop(input: { id: string; from: string; target: string; pinn
   if (from === 'settled') { steps.push({ type: 'thread.unsettle', threadId: id, reason: 'user' }); failure.push('Failed to un-settle thread'); }
   if (from === 'snoozed') { steps.push({ type: 'thread.unsnooze', threadId: id, reason: 'user' }); failure.push('Failed to wake thread'); }
   if (input.activeReorder) {
-    const assignments = planReorder(order, input.activeKeys, id);
-    if (input.activeReorderable && assignments.some(assignment => !input.activeReorderable!.has(assignment.id))) return none;
+    const assignments = arrange(order, input.activeKeys, input.activeReorderable);
+    if (assignments === null) return none;
     for (const assignment of assignments) {
       steps.push({ type: 'thread.active.reorder', threadId: assignment.id, orderKey: assignment.orderKey }); failure.push('Failed to reorder active threads');
     }

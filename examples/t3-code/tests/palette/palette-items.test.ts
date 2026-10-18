@@ -36,13 +36,13 @@ describe('New thread in...', () => {
     expect(rows[0]!.header).toBe('Projects');
     expect(rows.map(entry => entry.index)).toEqual([0, 1, 2]);
   });
-  test('the Scratch project is the trailing "No project" when the server offers one', () => {
+  test('"No project" follows the active project and keeps its own shortcut', () => {
     const items = newThreadInItems(client('/scratch'));
-    expect(items.map(item => item.row.title)).toEqual(['Parity fixture', 'Single checkout two', 'No project']);
+    expect(items.map(item => item.row.title)).toEqual(['Parity fixture', 'No project', 'Single checkout two']);
     // The fixture binds thread.jump.1 and .2 only, so the third row has no number.
-    expect(items[2]!.row).toMatchObject({ op: 'flow', arg: 'scratch', icon: 'message-square-dashed', shortcut: '', jump: '' });
+    expect(items[1]!.row).toMatchObject({ op: 'flow', arg: 'scratch', icon: 'message-square-dashed', shortcut: '⌥⌘N', jump: '' });
     const c = client('/scratch'); c.projectId = 'p2';
-    expect(newThreadInItems(c).map(item => item.row.arg)).toEqual(['p2', 'p1', 'scratch']);
+    expect(newThreadInItems(c).map(item => item.row.arg)).toEqual(['p2', 'scratch', 'p1']);
   });
 });
 
