@@ -1342,7 +1342,10 @@ requires; the existing size clamp then applies the maximum. `compute_preliminary
 recollects lines against the clamped inner width before resolving flexible lengths,
 measuring height and placing items. This also covers a root laid out directly
 under `MaxContent` and a both-axis size measurement, which need not receive a
-later definite-width pass. Columns retain maximum-based wrapping:
+later definite-width pass. Line fitting sums item lengths and gaps separately,
+matching intrinsic width accumulation. Interleaving fractional gaps can round a
+line above its own max-content width or a maximum that should fit it exactly.
+Columns retain maximum-based wrapping:
 ordinary block layout also uses `MaxContent` for indefinite vertical space.
 Balanced wrapping is unchanged and remains disabled in the kernel.
 
@@ -1364,6 +1367,16 @@ date. Before recollecting lines, ten cases had 34 frame mismatches, including
 100×30 roots that should be 100×90. Taffy's
 `capped_max_content_rows_measure_their_wrapped_height` holds the eight basic
 cases in both sizing modes; all 16 measurements previously returned 30px height.
+
+Ten further root-frame cases and 40 measurements cover fractional widths and
+gaps in both row directions, with maxima above and below the unwrapped width.
+The root frames use the same Chrome version, date and `width:max-content`
+analog. Three 60.1px items with 0.1px gaps fit on one line below a 300px maximum;
+60.2px items with 0.2px gaps fit two per line under a 120.6px maximum. Before
+matching the accumulation order, these cases had ten frame mismatches and 16
+incorrect measured heights. The 73.33px controls cover two-decimal item widths. Chrome's 1/64px length quantization accounts for less than 0.05px frame
+drift in these fixtures; the size measurements check widths within 0.001px
+and heights exactly.
 
 ## Cargo workspace boundary
 

@@ -1414,11 +1414,11 @@ fn collect_flex_lines<'a>(
                         .iter()
                         .enumerate()
                         .find(|&(idx, child)| {
-                            // Gaps only occur between items (not before the first one or after the last one)
-                            // So first item in the line does not contribute a gap to the line length
-                            let gap_contribution = if idx == 0 { 0.0 } else { main_axis_gap };
-                            line_length += child.hypothetical_outer_size.main(constants.dir) + gap_contribution;
-                            line_length > main_axis_available_space && idx != 0
+                            // EXACT PATCH 47: sum items and gaps separately, as intrinsic sizing does.
+                            // Interleaving fractional gaps can round a fitting line above its limit.
+                            line_length += child.hypothetical_outer_size.main(constants.dir);
+                            let gap_sum = sum_axis_gaps(main_axis_gap, idx + 1);
+                            line_length + gap_sum > main_axis_available_space && idx != 0
                         })
                         .map(|(idx, _)| idx)
                         .unwrap_or(flex_items.len());
@@ -3620,7 +3620,15 @@ mod intrinsic_tests {
     #[test]
     fn capped_max_content_rows_measure_their_wrapped_height() {
         let mut failures = Vec::new();
-        for width in [60.0, 100.0] {
+        for (width, gap, maximum, expected) in [
+            (60.0, 0.0, 100.0, Size { width: 100.0, height: 90.0 }),
+            (100.0, 0.0, 100.0, Size { width: 100.0, height: 90.0 }),
+            (60.1, 0.1, 300.0, Size { width: 180.5, height: 30.0 }),
+            (60.1, 0.1, 150.0, Size { width: 150.0, height: 60.0 }),
+            (73.33, 0.1, 300.0, Size { width: 220.19, height: 30.0 }),
+            (73.33, 0.1, 150.0, Size { width: 150.0, height: 60.0 }),
+            (60.2, 0.2, 120.6, Size { width: 120.6, height: 60.0 }),
+        ] {
             for direction in [FlexDirection::Row, FlexDirection::RowReverse] {
                 for wrap in [FlexWrap::Wrap, FlexWrap::WrapReverse] {
                     let mut tree = TaffyTree::<()>::new();
@@ -3633,7 +3641,8 @@ mod intrinsic_tests {
                         flex_direction: direction,
                         flex_wrap: wrap,
                         align_content: Some(AlignContent::FLEX_START),
-                        max_size: Size { width: length(100.0), height: auto() },
+                        max_size: Size { width: length(maximum), height: auto() },
+                        gap: Size { width: length(gap), height: length(0.0) },
                         ..Default::default()
                     }, &items).unwrap();
                     for mode in [SizingMode::ContentSize, SizingMode::InherentSize] {
@@ -3641,8 +3650,8 @@ mod intrinsic_tests {
                         let size = tree.as_layout_tree().measure_child_size_both(
                             row, Size::NONE, Size::NONE, Size::MAX_CONTENT, mode, Line::FALSE,
                         );
-                        if size != (Size { width: 100.0, height: 90.0 }) {
-                            failures.push(format!("{width}; {direction:?}; {wrap:?}; {mode:?}: {size:?}"));
+                        if (size.width - expected.width).abs() > 0.001 || size.height != expected.height {
+                            failures.push(format!("{width}; gap {gap}; max {maximum}; {direction:?}; {wrap:?}; {mode:?}: {size:?}"));
                         }
                     }
                 }

@@ -174,7 +174,27 @@ fn max_content_roots_wrap_at_their_resolved_width() {
         let mut k = crate::support::reader::kernel();
         k.apply(0, 1, &ops).unwrap();
         k.compute_layout(1, Offer::MAX_CONTENT).unwrap();
-        wrong.extend(mismatches(case.name, &k, &case.want));
+        // Chrome quantizes each length to 1/64px. These fractional cases
+        // accumulate up to five such lengths; their measured drift is <0.05px.
+        let tolerance = if case.name.starts_with("fractional ") {
+            0.05
+        } else {
+            0.01
+        };
+        for (id, want) in &case.want {
+            let f = k.node(*id).unwrap().frame;
+            let got = [f.x, f.y, f.width, f.height];
+            if got
+                .iter()
+                .zip(want)
+                .any(|(g, w)| !g.is_finite() || !w.is_finite() || (g - w).abs() > tolerance)
+            {
+                wrong.push(format!(
+                    "{} #{id}: kernel {got:?}, Chrome {want:?}",
+                    case.name
+                ));
+            }
+        }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
