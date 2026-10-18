@@ -915,7 +915,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     world(name) { return worldView(this, name); },
     /** Every slot, derive, and resource by name, as typed JSON. */
-    state: async (target, under, pose = false, busy = false, page = {}) => s.op({ op: 'state', ...page, ...(busy ? { busy:true } : {}), ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
+    state: async (target, under, pose = false, busy = false, page = {}) => s.op({ op: 'state', ...page, ...(busy ? { busy:true } : {}), ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target, false, true) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
     /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */
     async logs() {
       const r = await s.op({ op: 'logs', since: s.logCursor });
@@ -962,12 +962,12 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       identifyLayoutNodes(l, t, mapped ? sourceMaps : null); withRegions(l.env);
       return l;
     },
-    async target(target, withHandlers = false) {
+    async target(target, withHandlers = false, canvas = false) { // canvas: a world's view is its engine's to answer (`world: true`), as `tree` asks it
       const text = String(target), colon = text.indexOf(':'), nodes = (await s.op({ op: 'tree' })).nodes; // one tree for every try
       const node = await s.find(target, false, false, nodes);
-      if (node) return { id: node.id, ...(withHandlers ? { handlers: node.handlers } : {}) };
+      if (node) return { id: node.id, ...(withHandlers ? { handlers: node.handlers } : {}), ...(canvas && node.world ? { world: true } : {}) };
       const owner = colon < 0 ? null : await s.find(text.slice(0, colon), false, false, nodes); // an entity before a label holding a colon
-      return owner ? { id: owner.id, entity: text.slice(colon + 1) } : { id: (await s.find(target, true, true, nodes)).id };
+      return owner ? { id: owner.id, entity: text.slice(colon + 1) } : (({ id, world }) => ({ id, ...(canvas && world ? { world: true } : {}) }))(await s.find(target, true, true, nodes));
     },
     /** The node for a target: a testId (first in preorder on a selected route; a covered screen's copy only when no active one carries it), a view id, else the one view whose label or text it is (`nodeNamed`). */
     async find(target, required = true, named = true, tree = null) {
