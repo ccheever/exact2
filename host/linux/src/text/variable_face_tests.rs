@@ -174,3 +174,88 @@ fn system_variable_and_declared_static_weights_keep_their_behavior() {
         assert_eq!(advances(&p), advances(&reference));
     }
 }
+
+#[test]
+fn reversed_weight_bounds_register_and_shape_without_a_pin() {
+    let mut bytes = VARIABLE.to_vec();
+    let table = (0..u16::from_be_bytes(bytes[4..6].try_into().unwrap()) as usize)
+        .map(|i| 12 + 16 * i)
+        .find(|&i| &bytes[i..i + 4] == b"fvar")
+        .unwrap();
+    let fvar = u32::from_be_bytes(bytes[table + 8..table + 12].try_into().unwrap()) as usize;
+    let start = fvar + u16::from_be_bytes(bytes[fvar + 4..fvar + 6].try_into().unwrap()) as usize;
+    let count = u16::from_be_bytes(bytes[fvar + 8..fvar + 10].try_into().unwrap()) as usize;
+    let size = u16::from_be_bytes(bytes[fvar + 10..fvar + 12].try_into().unwrap()) as usize;
+    let axis = (0..count)
+        .map(|i| start + i * size)
+        .find(|&i| &bytes[i..i + 4] == b"wght")
+        .unwrap();
+    bytes[axis + 4..axis + 8].copy_from_slice(&(900i32 << 16).to_be_bytes());
+    bytes[axis + 12..axis + 16].copy_from_slice(&(100i32 << 16).to_be_bytes());
+    let bytes: Arc<[u8]> = bytes.into();
+    let mut installed = system(&bytes, "Inter Variable");
+    let asset = bytes.clone();
+    let (mut engine, family) = declared_assets(
+        &[400],
+        Assets::selected(
+            Path::new("").into(),
+            Arc::new(move |name| Ok((name == "fonts/InterVariable.ttf").then(|| asset.clone()))),
+        ),
+    );
+    for weight in [400, 600] {
+        let reference = shape(&mut installed, 0, weight);
+        let p = shape(&mut engine, family, weight);
+        assert_eq!(p.lines().faces.len(), 1);
+        let face = &p.lines().faces[0];
+        assert_eq!(face.font.data.data(), &*bytes);
+        assert_eq!(face.synthesis, reference.lines().faces[0].synthesis);
+        assert_eq!(face.coords, reference.lines().faces[0].coords);
+        assert_eq!(advances(&p), advances(&reference));
+        assert!(p.width.is_finite() && p.width > 0.);
+    }
+}
+
+#[test]
+fn unordered_weight_bounds_leave_synthesis_unchanged() {
+    let source = fontique::SourceInfo::new(
+        fontique::SourceId::new(),
+        fontique::SourceKind::Memory(fontique::Blob::new(Arc::new(VARIABLE))),
+    );
+    let parsed = fontique::FontInfo::from_source(source.clone(), 0).unwrap();
+    // fvar stores fixed-point values; NaN can enter through from_parts metadata.
+    let mut panicked = Vec::new();
+    for (min, max) in [(900., 100.), (f32::NAN, 900.), (100., f32::NAN)] {
+        let mut axes = parsed.axes().to_vec();
+        let axis = axes
+            .iter_mut()
+            .find(|axis| axis.tag.to_be_bytes() == *b"wght")
+            .unwrap();
+        axis.min = min;
+        axis.max = max;
+        let original = fontique::FontInfo::from_parts(
+            source.clone(),
+            0,
+            parsed.width(),
+            parsed.style(),
+            parsed.weight(),
+            &axes,
+            parsed.charmap_index(),
+        );
+        let pinned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            original.clone().with_pinned_weight()
+        }));
+        let Ok(pinned) = pinned else {
+            panicked.push((min, max));
+            continue;
+        };
+        for weight in [400., 600.] {
+            let weight = fontique::FontWeight::new(weight);
+            assert_eq!(
+                pinned.synthesis(parsed.width(), parsed.style(), weight),
+                original.synthesis(parsed.width(), parsed.style(), weight),
+                "bounds {min}..{max}"
+            );
+        }
+    }
+    assert!(panicked.is_empty(), "pinning panicked for {panicked:?}");
+}

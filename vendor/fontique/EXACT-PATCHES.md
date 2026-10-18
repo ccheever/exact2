@@ -55,7 +55,8 @@ here pass.
    even when the request equals the declaration, and never substitutes the
    requested weight or faux bold. Linux enables it for declared faces before
    Parley shapes, so advances, normalized coordinates and presenter settings
-   agree. Static faces and installed variable fonts retain their behavior.
+   agree. Reversed or NaN axis bounds leave the face unpinned. Static faces
+   and installed variable fonts retain their behavior.
    Tests: `host/linux/src/text/variable_face_tests.rs`.
 
 `Cargo.toml` also carries the empty `[workspace]` boundary described below;

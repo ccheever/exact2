@@ -126,12 +126,13 @@ impl FontInfo {
     /// Pins the `wght` axis to this face's declared weight, clamped to its
     /// range. Matching still uses the declared weight; synthesis always emits
     /// the pinned coordinate, even when the requested weight matches it.
-    /// Faces without a weight axis are unchanged.
+    /// Faces without a weight axis, or with reversed or NaN bounds, are unchanged.
     pub fn with_pinned_weight(mut self) -> Self {
         self.pinned_weight = self
             .axes
             .iter()
             .find(|axis| axis.tag == Tag::new(b"wght"))
+            .filter(|axis| axis.min <= axis.max)
             .map(|axis| self.weight.value().clamp(axis.min, axis.max));
         self
     }
