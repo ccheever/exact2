@@ -1856,7 +1856,8 @@
         "visible",
         "hidden",
         "scroll",
-        "auto"
+        "auto",
+        "clip"
       ],
       "default": "visible"
     },
@@ -2794,7 +2795,6 @@
     {
       "bit": 35,
       "field": "z_index",
-      "snapshot": "admit",
       "terminal": "admit",
       "codec": "i32",
       "default": 0,
@@ -3465,7 +3465,6 @@
     {
       "bit": 120,
       "field": "visibility",
-      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:Visibility",
       "inherited": true,
@@ -3999,7 +3998,6 @@
     {
       "bit": 192,
       "field": "color_scheme",
-      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:ColorScheme",
       "inherited": true,

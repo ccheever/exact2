@@ -248,7 +248,7 @@ fn compile_file(
         span,
     }];
     file.components.insert(0, wrapper);
-    super::paragraphs::check(&file)?;
+    super::paragraphs::check(&file, &widget.families)?;
     let strings = match app {
         Some(app) => crate::strings::load(app, &app.join("app.contract"))?,
         None => None,

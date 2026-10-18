@@ -65,6 +65,7 @@ mod theme;
 mod timers;
 mod type_tokens;
 mod values;
+pub use shorthands::style_values;
 pub mod vocab;
 mod warnings;
 

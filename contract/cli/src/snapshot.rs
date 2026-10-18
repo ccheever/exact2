@@ -4,6 +4,7 @@
 mod entry;
 mod paragraphs;
 mod refresh;
+mod values;
 pub use refresh::{bake_app, check_refreshes, entries, source_plan};
 
 /// Find the props slot by this name; a route URL may add a preceding router slot.
@@ -140,14 +141,6 @@ fn expression(e: &Expr, file: &File, depth: usize, errors: &mut Vec<CompileError
     }
 }
 
-fn literal_choices(e: &Expr, allowed: &[&str]) -> bool {
-    match e {
-        Expr::Str(s, _) => allowed.contains(&s.as_str()),
-        Expr::Ternary(_, a, b, _) => literal_choices(a, allowed) && literal_choices(b, allowed),
-        _ => false,
-    }
-}
-
 fn attrs(tag: &str, attrs: &[Attr], errors: &mut Vec<CompileError>) {
     for a in attrs {
         let fail = |id, edit: &str| refusal(id, format!("`{}` on `{tag}`: {edit}", a.name), a.span);
@@ -162,24 +155,7 @@ fn attrs(tag: &str, attrs: &[Attr], errors: &mut Vec<CompileError>) {
         };
         match target {
             Some(AttrTarget::Handler(_)) => errors.push(fail("snapshot-handler", "a snapshot handler cannot navigate or take input; make it a `link href=…` (button and toggle intents are stage 2)")),
-            Some(AttrTarget::Styles(rows)) => {
-                for row in rows {
-                    if !admits(*row) {
-                        errors.push(fail("snapshot-row", &format!("the snapshot driver cannot draw `{}`; remove this row from the entry", row.name().replace('_', "-"))));
-                        break;
-                    }
-                    let allowed = match row {
-                        StyleId::PositionType => Some(&["static", "relative", "absolute"][..]),
-                        StyleId::OverflowX | StyleId::OverflowY => Some(&["visible", "hidden", "clip"][..]),
-                        _ => None,
-                    };
-                    if let Some(allowed) = allowed {
-                        if !literal_choices(&a.value, allowed) {
-                            errors.push(fail("snapshot-value", &format!("a snapshot cannot scroll or stick; write one of {} as a literal (or literal branches)", allowed.join(", "))));
-                        }
-                    }
-                }
-            }
+            Some(AttrTarget::Styles(_) | AttrTarget::Shorthand) => values::attribute(a, errors),
             Some(AttrTarget::Surface | AttrTarget::MediaMetadata) => errors.push(fail("snapshot-request", "render only supplied props; move this work into the refresh function and use an image")),
             Some(AttrTarget::Prop(p) | AttrTarget::InvertedBoolProp(p))
                 if !admits_prop(p) => {

@@ -366,6 +366,23 @@ text paragraph, so the widget can reserve its width; calendar formats may be
 inline. Links must be their own elements, not runs among other paragraph text.
 Snapshot handlers are refused; use a link to open the app.
 
+Snapshot paint uses document order and the system colour scheme. Use a condition
+or `display: none` to hide content; `visibility` and `z-index` are refused.
+Borders have one width, colour and solid, dashed or dotted style on all sides.
+Radii are px or percentages; percentages on non-square boxes produce ellipses.
+Radius calculations are refused. Overflow is the same on both axes: visible,
+hidden or clip. Raster images author both width and height. An entry declaring
+any small or accessory family has at most one link; entries declaring only
+medium, large and extra large families may have several.
+
+Text aligns start, center or end; use `line-clamp` for truncation. Give an inline
+highlight its own box. Colours are sRGB, system roles or named assets; wide-gamut
+and profiled colours are refused. Gradients are nonrepeating linear or radial,
+interpolated in sRGB or srgb-linear, with strictly increasing stops. Stop order
+must hold at every box size; use a single unit when mixed units could cross.
+Restricted paint values are literals or choices of literals, so their admission
+is checked at bake.
+
 App icons come from `app.json`'s Web App Manifest `icons` array: Apple uses
 the first square raster of at least 512 px. To select an
 [Icon Composer project](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer),
