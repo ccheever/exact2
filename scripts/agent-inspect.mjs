@@ -247,7 +247,7 @@ export function render(op, r, how = {}) {
       return lines.join('\n');
     }
     case 'logs':
-      return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => Array.isArray(w.lines) ? w.lines.map((line) => 'world ' + line) : []), ...(r.host ?? []).map((l) => '  ' + l), ...(r.crash ?? [])].join('\n') || '(nothing new)';
+      return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => [...(w.dropped > 0 ? [`world ${w.canvas ?? w.id ?? ''} (${w.dropped} earlier lines dropped by the journal ring)`] : []), ...(w.lines ?? []).map((line) => 'world ' + line)]), ...(r.host ?? []).map((l) => '  ' + l), ...(r.crash ?? [])].join('\n') || '(nothing new)';
     case 'state': {
       if (!r || typeof r !== 'object') return q(r);
       if (Array.isArray(r)) return stateCap(q(r), r, how);
@@ -446,6 +446,11 @@ export async function perfOp(s, args, line, step) {
   if (!ops.length) throw new MalformedOperation('perf … during: quote each op, as perf feed during "tap start" "clock +1000"');
   const before = await s.perf(target);
   for (const op of ops) await step(op);
+  if (target?.startsWith('world:')) {
+    const after = await s.perf(target, {spanSince: before.spanTicks});
+    if (after.tick < before.tick || after.restarted !== before.restarted) throw Error('perf world: world restarted between reads');
+    return {...after, from:{tick:before.tick}};
+  }
   return perfDelta(before, await s.perf(target));
 }
 
@@ -502,6 +507,8 @@ export function hatchDelta(a, b) {
 }
 
 function renderPerf(r) {
+  if (r.spans) return [`${r.target} · tick ${r.from ? r.from.tick + '..' : ''}${r.tick} · exclusive ms${r.tickMs ? ` · tick p50 ${r.tickMs.p50} p95 ${r.tickMs.p95} mean ${r.tickMs.mean}` : ''}`,
+    ...r.spans.map(s => `  ${s.name} at ${s.at}: p50 ${s.p50} p95 ${s.p95} max ${s.max} perTick ${s.perTick} (${s.count} ticks)`)].join('\n');
   if (r.calls && r.hatches) return renderHatchPerf(r);
   if (r.virtual) return 'virtual clock: no frame was presented (LLP 1079 D4); `perf frames live <ms>` measures a live window';
   if (r.unavailable) return 'this host observes no presented frames';
@@ -593,6 +600,11 @@ export function renderTrace(t) {
       for (const l of near) out.push(`    ${l}`);
     }
   } else if (t.frames) out.push('', renderPerf(t.frames));
+  if (Array.isArray(t.traceEvents)) {
+    const cpu = t.traceEvents.filter(e => e.cat === 'world.cpu'), gpu = t.traceEvents.filter(e => e.cat === 'world.gpu');
+    const frames = new Set(cpu.filter(e => e.name === 'frame').map(e => `${e.pid}:${e.args?.frame}`));
+    out.push(`world trace: ${cpu.filter(e=>e.name==='tick').length} ticks, ${cpu.length} CPU intervals under ${frames.size} submitted frames, ${gpu.length} GPU passes (independent GPU clock; joined by frame)`);
+  }
   if (t.perf) out.push('', renderPerf(t.perf));
   if (t.hatches?.perf?.calls) out.push('', renderHatchPerf(t.hatches.perf));
   return out.join('\n');
@@ -661,7 +673,7 @@ function renderAgreement(a) {
  * view answers with the whole record, so a name the record holds reads that even when a view carries it as its testId
  * or text (a sequencer's `transport` bar and the record's `transport`). */
 export async function stateOp(s, args) {
-  const page = { ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}), ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}), ...(args.includes('resources') ? { resources: true } : {}) };
+  const page = { ...(args[1] === 'events' ? {world:true, events:true, ...(args[2] ? {event_type:args[2]} : {})} : {}), ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}), ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}), ...(args.includes('resources') ? { resources: true } : {}) };
   const read = (target) => s.state(target, args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy', page);
   if (args[0] == null) return read();
   const has = (o, k) => o !== null && typeof o === 'object' && Object.hasOwn(o, k);
@@ -720,7 +732,7 @@ export function worldView(session, name) {
         if (r.tick !== tick || r.hash !== hash) throw new Error('world changed while paging; capture on the agent clock with no concurrent drive');
         entities.push(...r.entities);
       }
-      return {tick, hash, entities, truncated: all ? false : first.truncated};
+      return {tick, hash, entities, truncated: all ? false : first.truncated, ...Object.fromEntries(["developmentEdits", "sessionDevelopmentEdits", "queuedSets"].filter(k => first[k] !== undefined).map(k => [k, first[k]]))};
     },
     /** Every resource's value, as `state world:* resources` reads them. */
     async resources() { return (await session.state(`${name}:*`, undefined, false, false, {limit:1, resources:true})).resources; },

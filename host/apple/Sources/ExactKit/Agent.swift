@@ -315,6 +315,10 @@ public final class Agent {
             var reply = session.agent(json)
             var nativeSections = stateSections()
             for (key, value) in Agent.hostState?() ?? [:] { nativeSections[key] = value }
+            nativeSections["decorations"] = presenter.views.values.sorted { $0.id < $1.id }.compactMap { node -> [String: Any]? in
+                guard let editor = node.fieldDecorations else { return nil }
+                return ["id": Int(node.id), "applied": editor.state]
+            }
             nativeSections["presence"] = presenter.presenceObservation()
             nativeSections["media"] = presenter.views.compactMap { id, view in view.video.map { ["id": id, "state": $0.state()] as [String: Any] } }
             nativeSections["mediaSession"] = mediaSessionState() // LLP 1098 D10
@@ -330,9 +334,7 @@ public final class Agent {
             nativeSections["contentRegion"] = session.regions.diagnostics
             nativeSections["readerParagraphs"] = session.text.readerParagraphs.values.map(\.diagnostics)
             #endif
-            let world = session.canvases.worlds(["op": "state"])
-            nativeSections = session.canvases.restoreReply(nativeSections)
-            if !world.isEmpty { nativeSections["world"] = world }
+            nativeSections = session.canvases.decorate(req, nativeSections)
             // A session that plays fills in its output (LLP 1096 D10); under the agent none plays.
             if !ExactEnv.agentMode, let output = try? JSONSerialization.data(withJSONObject: session.sound.state) { reply = reply.replacingOccurrences(of: "\"output\":\"agent\"", with: "\"output\":" + String(decoding: output, as: UTF8.self)) }
             if reply.hasSuffix("}"), !reply.hasPrefix("{\"error\""),

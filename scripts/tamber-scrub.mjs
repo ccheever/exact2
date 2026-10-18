@@ -222,13 +222,18 @@ export function scrubSessions({ ask, write, patch = null, verify = null, preview
       ends++;
       releasing = true;
       // The builds keep the preview until the build of what it writes.
-      await released(mark(id));
       let result;
-      try { result = await write({ method: 'transaction', client: request.client, files, ops }); } finally { releasing = false; }
-      // Refused (a file moved since it opened; `by` names who moved it):
-      // nothing written, the builds back on the committed design.
-      if (!result.ok) void restore(mark(id));
-      ended({ scrub: id, client: request.client, reason: result.ok ? 'released' : 'refused' });
+      try {
+        await released(mark(id));
+        result = await write({ method: 'transaction', client: request.client, files, ops });
+      } finally {
+        releasing = false;
+        // Refused (a file moved since it opened; `by` names who moved it), or
+        // the write failed outright: nothing written, the builds back on the
+        // committed design. Its end is told either way.
+        if (!result?.ok) void restore(mark(id));
+        ended({ scrub: id, client: request.client, reason: result?.ok ? 'released' : 'refused' });
+      }
       return result.ok ? { ok: { ...result.ok, scrub: id } } : result;
     },
     /** `scrub-cancel` `{client, scrub}`. */

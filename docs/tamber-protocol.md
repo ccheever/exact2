@@ -76,7 +76,13 @@ on macOS and Linux.
   a row its author wrote carries `at`, the attribute's place, with the file's `sha256` as
   compiled, and `attr`, its name as written (a shorthand's for an expansion); real-time scrubs
   added the long poll's held revision (`held` on each answer, and `held` on the request to leave
-  out an unchanged `proposals`). Stage 9's later wire changes add under the same version.
+  out an unchanged `proposals`); stage 9 E added the held state's names: a selection's `held` and
+  `layout`'s held answer name the node the state is held on (`node`, `site`, `instance`: the press
+  a hold named on a node inside it resolved to), each row its `token` (the runner's, as a style
+  row's), and the join names an `:active` row as its author wrote it (`background-color`, with the
+  press row it lowered to as `row`); LLP 1122 T4 added the selection's state rung (a style's
+  `:active` part row is edited by `set-state`). Stage 9's later wire changes add under the same
+  version: D2's `set-row`, D3's `add-param` and `remove-param`.
 
 ## Where it runs
 
@@ -176,8 +182,9 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 - `builds` (*1.2*): the registered development builds with an open stream, each `{id, host,
   capabilities, inspector, plan, planDigest, design, status, pin, pinRevision, hold, held,
   unsupported}` (`pinRevision` and `unsupported` *1.3*; `inspector`, the client whose inspect mode
-  it is in or null, *1.6*; `hold`, the hold the server keeps for it, and `held`, its last `held`
-  report's `{state, reason}`, *1.11*; see [The build channel](#the-build-channel-llp-1122-d4-12));
+  it is in or null, *1.6*; `hold`, the hold the server keeps for it, and `held`, its `held`
+  report's `{state, reason}` on the last hold frame sent it (null until it reports on that frame),
+  *1.11*; see [The build channel](#the-build-channel-llp-1122-d4-12));
 - `files`;
 - `app`: the app's directory, absolute (*1.1*);
 - `epoch`: this run of the server, the same value its events carry (*1.1*);
@@ -331,12 +338,16 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
 | `set-param` (*1.10*) | `name`, `when?: [{axis, value}]`, `value` | the app's value of a component's param (LLP 1121 D15): its line in the design's `params` block, or one `when` line of it |
 | `unset-param` (*1.10*) | `name`, `when?` | removes the param's line (the component's default applies again), or one `when` line |
 | `set-state` | `style`, `state` (`active`, `hover`, `focus-visible`, `disabled`, `checked`, a `:` allowed), `row`, `value` (a string, written as a Contract string, or a number), `file?` | a row of a `style`'s state part in a `.contract` file (*1.11*, stage 8 D): the block and the row made if not there; `rebuild`, no scrub |
+| `set-row` | at a place: `file`, `at` `{line, col}` (1-based; `col` a UTF-8 byte column, as the map gives it), `sha256`, `row`, `state?`; or on a style: `style`, `row`, `state?`, `file?`; and `value` (a string, written as a Contract string: a token's or param's name too, `"param.fill"`; or a number) | one row of the app's own Contract, its value replaced where its author wrote it (*1.12*, stage 9 D2; LLP 1122 D6): at a place, the attribute the selection's row names (its `at`, `attr` and the file's `sha256` from the join), refused when the file moved, the attribute there is another, it is a layout row (D14), a prop, or written as an expression, or the row is a longhand of a shorthand written there (the shorthand and its text named: `set-row` edits the shorthand whole); on a style, a row it writes (a state part's is `set-state`'s); `rebuild`, no scrub |
+| `add-param` | `component`, `name`, `kind`, `default` (a token value, written as a Contract string), `attrs?` (`range`, `step`, `control`, `options`, `label`, `help`, `group`, `priority`: strings or numbers), `file?` | a line of the component's `params` (*1.12*, stage 9 D3; LLP 1121 D15), the section made before its `view` where it has none; D15 refuses a param no row reads, so it goes in one transaction with the `set-row` that reads it (promote to param); refused alone, with a `hint`; `rebuild`, no scrub |
+| `remove-param` | `component`, `name`, `file?` | the param's line, and the section with its last (*1.12*, stage 9 D3); refused while a row reads it, so it goes with the `set-row` that stops reading it (detach), with a `hint`; refused while the app sets a value for it in its design (unset it first, or in the same transaction: LLP 1122 D6); `rebuild`, no scrub |
 | `unset-state` | `style`, `state`, `row`, `file?` | that row removed, and its block when it empties |
 
 - **Values are source text**, as the file writes them: `"light-dark(#fff, #000)"`, `"accent"`,
   `"oklch(from accent calc(l + 0.1) c h)"`.
-- **A `.contract` write** (`set-state`, `unset-state`) finds its `style` in the app's own Contract
-  sources when it names no `file` (refused where none or two declare it, naming them), goes
+- **A `.contract` write** (`set-state`, `unset-state`, `set-row`, `add-param`, `remove-param`)
+  finds its `style` (or, for a param, its component) in the app's own Contract sources when it
+  names no `file` (refused where none or two declare it, naming them), goes
   through `contract fmt`, and is refused, writing nothing, unless the whole app then builds (the
   build's diagnostics answer it). Its inverse restores the file's bytes as they were, an
   unformatted file's included.
@@ -344,8 +355,8 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   every other byte alone. So a value edit is a one-line diff, even in a file that wasn't formatted.
   A `.contract` write is laid out whole by `contract fmt` (above): one line only in a file
   already formatted, and in one that isn't, its other lines laid out too.
-- **A state part written under a node** is `set-row`'s (LLP 1122 T5): a `set-state` naming a
-  `node` is refused, pointing there. A row written over more than one line is the author's to
+- **A state part written under a node** is `set-row`'s (*1.12*, LLP 1122 T5): a `set-state`
+  naming a `node` is refused, pointing there; `set-row` at the row's place, with `state`, edits it. A row written over more than one line is the author's to
   edit, and refused.
 - **The limits are the checker's:**
   - a token's `kind` is one stage 6 built (`color`, `length`, `number`, `box-shadow`,
@@ -366,9 +377,16 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   token's is, `rebuild` for a duration or easing param (a motion param is written into its rows at
   build, wherever its component is used), and a live one can be scrubbed. A token's rename renames
   the `params` values naming it.
-- **Not yet built:**
-  - `set-row` (LLP 1122 T5);
-  - `preview` as an operation (it is a request instead: see the build channel).
+- **`set-row`'s places** (*1.12*): several in one file are spliced together into the file as the
+  tool saw it, from the last up, before the transaction's other writes to it, then laid out once.
+  Every refusal says why and where to edit instead (the source, the node, a param's or token's
+  rung).
+- **Promote and detach** (*1.12*, LLP 1122 D6): promote to param is an `add-param` with the
+  `set-row` naming `param.<name>`; promote to token an `add-token` (or `set-token`) with the
+  `set-row` naming the token, the design and the `.contract` file in one transaction with one
+  inverse; detaching a param's last reader sends its `remove-param` with the `set-row`. A param
+  added or removed alone is refused by the compile with a `hint` saying so.
+- **Not yet built:** `preview` as an operation (it is a request instead: see the build channel).
 
 ### `propose`
 
@@ -596,7 +614,7 @@ list is unchanged: it keeps its own.
   - each file is `{file, status, diff, edits, refused?}`, and a rename shows as a deletion plus an
     addition.
 - **Each edit** is `{what, name, when: [{axis, value}], before, after}`:
-  - `what` is `token`, `dial`, `axis`, `other`, or `state` (a `.contract` file's, below);
+  - `what` is `token`, `dial`, `axis`, `other`, `state` or `row` (a `.contract` file's, below);
   - `before` and `after` are source text, or null;
   - they come from comparing the two versions' parsed declarations, so a version the checker
     would refuse still gives edits.
@@ -606,8 +624,13 @@ list is unchanged: it keeps its own.
   state parts are the design's. A `.contract` file's edits are its styles' state rows, each
   `{what: "state", name: <style>, state, row, when: [], before, after}`, the values as Contract
   writes them (`"#000000"` quoted, `0.5`); a block whose border colours change order is one
-  edit with `row` `border-*-color order`. The file says `code: true` where the commit changed
-  its other lines too. A `.contract` change with no state row is the app's code, not the
+  edit with `row` `border-*-color order`. A style's own row (*1.12*, stage 9 D2's `set-row` on a
+  style) is `{what: "row", name: <style>, row, when: [], before, after}`: a paint row alone on its
+  line, its value on that line; a layout row, a part's, one sharing its line, and the order of a
+  style's own rows are code. A node's own attribute (`set-row` at a place) has no key a node keeps
+  across versions and stays code, as does a component's `params` line (*1.12*, its revert needs
+  the row that reads it). The file says `code: true` where the commit changed its other
+  lines too. A `.contract` change with no state row or style row is the app's code, not the
   design's: it is left out, and a commit with nothing else is not listed (so a page may hold
   fewer than `limit`). History reads the Contract sources the server has now; a revert reads
   every one in the app outside `node_modules`, and refuses by name one the app no longer reads.
@@ -618,7 +641,8 @@ list is unchanged: it keeps its own.
 - **Planned on today's files** as operations, never a byte restore. Its `review.revert` is
   `{commit, subject, moved, already, code?, only?}`. `moved` lists the files whose bytes differ
   from the commit's result. A `.contract` file's state rows are set back with `set-state` or
-  `unset-state`; its other lines are left as they are, and `code` lists the files where the
+  `unset-state`, and a style's own row's value with `set-row` (*1.12*: one the commit added or
+  removed is refused, `set-row` adding or taking away none); its other lines are left as they are, and `code` lists the files where the
   commit changed some (*1.11*).
 - **Refused (409)** with `refused: [{file, edit, now, why}]` when an edit can't be inverted:
   - the file has moved on it since;
@@ -990,9 +1014,24 @@ The tool drives no input into an app; a command changes only what `prefer` would
   the client goes. A build that registers again is sent it again under the same plan (or `hold:
   null` when the server holds none for it); one that runs another plan (a `status` whose
   `planDigest` moved, or its registration's) is sent it at the one site of the new plan's map at
-  the old site's source location, and when there is not exactly one, the build is sent `hold:
-  null` and every client told (`hold-cleared {build, client, reason}`). Each frame, a replay
-  included, has a new revision. Only a report naming the last hold frame's revision counts (an
+  the old site's source location and call-site chain: a component called at two places is two
+  copies there, one copy a chain (its sites, such as a `button "…"` and its label, told apart by
+  their order). With the same calls in both plans, the copy with that chain; with as many copies,
+  the copy of the same rank in source order where each pair has the same calls' files and
+  components, the copies share calls alike, and each file's calls moved as one edit there moves
+  them (those above it by none, those below by one count of lines), else the unmoved copies kept and the rest so among
+  themselves (one call moved: the one left over); with copies added or removed, the copy whose
+  calls did not move. The correspondence is by places alone (the map
+  carries no other identity of a call or an element), so it is a guess wherever places are
+  reused: calls reordered with their spacing kept, a call or element moved onto another's old
+  place (a line or a column), or a copy added or removed while one keeps its line, can carry
+  the hold to the other copy (where the copies' instance paths differ, the host finds no view
+  for it and lets it go, `gone`); and a slot filled at two outlets is one copy, its outlets told
+  apart by their order. A call moved past another with the lines between them changed clears
+  the hold. When there is not exactly one, the build is sent `hold: null` and every client
+  told (`hold-cleared {build, client, reason}`). Each frame, a replay included, has a new
+  revision, and the build's `held` in a listing is null until it reports on that frame. Only a
+  report naming the last hold frame's revision counts (an
   older one is dropped, 204): a `held` report is then every client's event (`held {build, state,
   reason}`), and one that lets the hold go ends it at the server too; a hold `unsupported` ends it
   and is its owner's `unsupported` event alone (theme2's 07:48 (c): `only` names the client, and no
@@ -1021,18 +1060,35 @@ The tool drives no input into an app; a command changes only what `prefer` would
   app's files change, for a new plan, and after a failed read) is left out, and the row is
   read-only, said so; while a new plan's read is out the names stand and no `token` is offered. A
   row whose one name is a param (an inherited or dynamic one) links it by its full name. A client
-  that knows no `param` rung offers no edit for it. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
+  that knows no `param` rung offers no edit for it. A row a style's state part writes (its map `state` and
+  `at`, the origin `class:<Name>`) answers `{rung: "state", style, state, row, file, text?, token?}`
+  (*1.12*, LLP 1122 T4), the default: the style by the name its file declares it with, the state,
+  the row as its author wrote it under the state (`background-color`, not the press paint's
+  `press_background_color`), the style's file relative to the app (what `set-state` takes), the
+  row's value as written there, and the token its whole value is, offered beside it, never the
+  default (D6). A style outside the app's own Contract sources as the server counts them (a
+  package's, a vendored or linked one included) answers a reason. A held state's rows carry the
+  same where the build names the held node (its `held.site`), whose parts' files count toward
+  `readOnly` too; with none named they are shown, not offered. A state row a node writes itself (no style) is read-only, pointing at
+  `set-row`, unless its whole value is a token, which the token rung offers. Only an `:active`
+  part's rows (lowered to the press paint) carry their part's place in the map: a `:hover`,
+  `:focus-visible`, `:disabled` or `:checked` part's are offered no state rung yet. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
   expression, a boundary, or an expression over tokens links its token, never this node's edit;
   a style's or the tag's row comes with template editing, T5). A row an `:active` part lowered to
-  the press paint (*1.11*) carries `state` and `at`, its part's place, and its edit is `set-state`'s
-  unless it is one token. A row its author wrote on the node or in its class's `style` (*1.12*)
+  the press paint (*1.11*) carries `state` and `at`, its part's place (its edit, the state rung
+  above). A row its author wrote on the node or in its class's `style` (*1.12*)
   carries `at` `{file, line, col, end_col, sha256}`, the attribute's place and that file's digest
   as compiled (`set-row`'s address, LLP 1122 D6), and `attr`, the attribute's name as written:
   `padding` for `padding_top`. A tag's row, one the compiler derived, a conditional class's, a
   folded `:disabled` or `:checked` row, and one the compiler composed or renamed (an animation's
-  longhands, a symbol's tint, a grouped field's `flex` made `flex-grow`) carry neither. A selection made while a state is held carries `held` `{state, rows}`
-  (*1.11*): the rows that state shows (`active`: the press paint's; a look's otherwise), each with
-  `state` and `source` (an `:active` row's part's place, a look's row its node's). Each file the join reads is
+  longhands, a symbol's tint, a grouped field's `flex` made `flex-grow`) carry neither. A selection made while a state is held carries `held` `{state, node?, site?, instance?, rows}`
+  (*1.11*; `node`, `site`, `instance` and a row's `token` *1.12*): the node the state is held on
+  (the press it resolved to, named on a node inside it) and the rows that state shows (`active`:
+  the press paint's; a look's otherwise), each with its value, the token it read, `state` and
+  `source` (an `:active` row's part's place, a look's row its node's), joined at the held node's
+  site. An `:active` row is named as its author wrote it under the part (`background-color`), the
+  press row it lowered to beside it (`row`, *1.12*). A host that cannot name a row's token says
+  `provenance: "incomplete"`. Each file the join reads is
   checked against the digest the map says it was compiled from (`sources`): one that moved since
   makes the selection `readOnly`, with its reason, and every row read-only. The app's design file
   likewise (the one the server serves, which the map must name), unless the build runs the
@@ -1106,6 +1162,4 @@ The tool drives no input into an app; a command changes only what `prefer` would
 - **LLP 1121 stage 4's gate also names `resolve-on`.** LLP 1122 defers it to T2b, where a build's
   `selected` report carries the value it resolved.
 - **Later stages:**
-  - component params (stage 7) and state parts (stage 8);
-  - `set-row` (LLP 1122 T5);
   - pairing and remote clients (stage 10).

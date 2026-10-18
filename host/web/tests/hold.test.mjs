@@ -32,6 +32,7 @@ const page = sheet + `<style id="exact-looks">${rules}</style>
     <span id="label">c</span>
   </div>
   <div id="plain" style="width:50px;height:50px">p</div>
+  <a id="lnk" data-view="" data-exact-on="press" href="#x" style="--exact-press-background-color:rgba(0,0,255,1);display:block;width:40px;height:20px">l</a>
 </div>
 <script type="module">
   import { createInputHandlers } from './input-glue.js';
@@ -78,9 +79,33 @@ check('a held state is the real one, until real input, its disabling or its goin
     expect(await hold('label', 'active')).toEqual({ held: 'active', reason: null, el: 'card' });
     expect(await evaluate(`['data-pressed', 'data-exact-painting'].map(a => document.getElementById('card').hasAttribute(a))`)).toEqual([true, true]);
     expect(await face()).toBe('color(srgb 0 0 1)');
-    expect((await evaluate('exact.heldOf(document.getElementById("card"))')).held).toEqual({ state: 'active', rows: [{ name: 'press_background_color', value: 'rgba(0,0,255,1)' }] });
+    expect((await evaluate('exact.heldOf(document.getElementById("card"))')).held).toEqual({ state: 'active', node: 3, site: null, rows: [{ name: 'press_background_color', value: 'rgba(0,0,255,1)' }] });
+    // With the runner's agent (the wasm page), its rows are the press's own as `layout` says them, with their
+    // tokens, and the node is the press's.
+    const asked = await evaluate(`exact.heldOf(document.getElementById('label'), (r) => r.op === 'node' && r.id === 3 ? { site: 4, instance: [], style: { press_background_color: { value: '#0000ff', token: { names: ['ink'], text: 'ink', modes: '', implied: false } }, background_color: { value: '#ffffff' } } } : { error: 'no' })`);
+    expect(asked.held).toEqual({ state: 'active', node: 3, site: 4, instance: [], rows: [{ name: 'press_background_color', value: '#0000ff', token: { names: ['ink'], text: 'ink', modes: '', implied: false } }] });
     // The element it was named on answers too, with the press's rows.
     expect((await evaluate('exact.heldOf(document.getElementById("label"))')).held.rows).toEqual([{ name: 'press_background_color', value: 'rgba(0,0,255,1)' }]);
+    // A JS link's `data-view` is an empty marker: no node 0 (the runtime names it, as the agent does).
+    expect((await hold('lnk', 'active')).held).toBe('active');
+    expect((await evaluate('exact.heldOf(document.getElementById("lnk"))')).held.node).toBe(null);
+    // Where the runtime numbers its views (the JS target's `$exactViewId`), the link is named by it.
+    expect(await evaluate('(globalThis.$exactViewId = (el) => el.id === "lnk" ? 41 : null, exact.heldOf(document.getElementById("lnk")).held.node)')).toBe(41);
+    await evaluate('delete globalThis.$exactViewId');
+    // A token reference modes.js can't name leaves the answer incomplete, even beside one it names (a role).
+    const mixed = await evaluate(`(() => {
+      const el = document.getElementById('lnk');
+      el.style.setProperty('--exact-press-background-color', 'color-mix(in srgb, var(--exact-canvas-text), var(--x-missing))');
+      globalThis.exact.modes = { token: (e, p, text) => /--exact-canvas-text/.test(text) ? { names: ['CanvasText'], text, modes: '', implied: false } : undefined };
+      exact.hold(el, 'active');
+      const h = exact.heldOf(el).held;
+      delete globalThis.exact.modes; exact.hold(null, null);
+      return { provenance: h.provenance ?? null, names: h.rows[0].token?.names ?? null };
+    })()`);
+    expect(mixed).toEqual({ provenance: 'incomplete', names: ['CanvasText'] });
+    await evaluate('dropped.splice(0)');
+    await hold('label', 'active');
+    await evaluate('dropped.splice(0)');
     // A node no press reaches holds none, said why.
     expect((await hold('plain', 'active')).reason).toBe('gone');
     expect(await dropped()).toEqual(['replaced']);
@@ -88,6 +113,8 @@ check('a held state is the real one, until real input, its disabling or its goin
     expect(await hold('card', 'hover')).toEqual({ held: 'hover', reason: null, el: 'card' });
     expect(await face()).toBe('rgb(255, 255, 0)');
     expect((await evaluate('exact.heldOf(document.getElementById("card"))')).held.rows).toEqual([{ name: 'background_color', value: 'rgb(255, 255, 0)' }]);
+    const looked = await evaluate(`exact.heldOf(document.getElementById('card'), (r) => ({ site: 4, instance: [], style: {}, looks: { hover: { background_color: { value: '#ffff00', token: { names: ['glow'], text: 'glow', modes: '', implied: false } } } } }))`);
+    expect(looked.held.rows).toEqual([{ name: 'background_color', value: '#ffff00', token: { names: ['glow'], text: 'glow', modes: '', implied: false } }]);
     // Real input on the node lets it go.
     await evaluate(`document.getElementById('card').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, isPrimary: true }))`);
     expect(await dropped()).toEqual(['input']);

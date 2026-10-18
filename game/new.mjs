@@ -980,9 +980,9 @@ checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
 
 This file is already in your instructions. Start from the nearest pattern: \`bun exact.mjs
 pattern\` lists them and \`pattern <name>\` writes one, tested. ${doc('start-here.md')} is the guide,
-the only required reading (LLP 1115 D7). When a name is in question, \`bun exact.mjs contract
-vocab <name>\` answers it (no name: the card, which ${doc('card.md')} holds too). Run
-\`bun exact.mjs verify\` when the features work, and \`verify ios\` once at the end for an iPhone
+the only required reading (LLP 1115 D7). \`bun exact.mjs contract vocab <name>\` answers a
+name (none: the card, ${doc('card.md')}); \`bun exact.mjs docs <heading words>\` a guide's
+section. Run \`bun exact.mjs verify\` when the features work, and \`verify ios\` once at the end for an iPhone
 app. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"commands"\`.
 \`bun exact.mjs update\` refreshes files; \`bun exact.mjs lock\` repairs Cargo lock drift.
 \`bun exact.mjs update --without linux\` stops shipping Linux.

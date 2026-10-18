@@ -15,7 +15,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// The world's depth range, or the viewmodel layer's: while any viewmodel
     /// draws, it takes the nearest `VIEWMODEL_DEPTH` and the world the rest.
     /// Where the viewmodel layer's depth ends this frame: zero without one.
-    pub(super) fn depth_split(&self) -> f32 {
+    pub(crate) fn depth_split(&self) -> f32 {
         if self.viewmodels {
             crate::VIEWMODEL_DEPTH
         } else {
@@ -714,7 +714,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         for draw in self.quads.draws.iter().filter(|d| !self.quads.opaque(d)) {
             // Blended viewmodel parts keep the viewmodel layer's depth range.
             let viewmodel = matches!(draw.kind, crate::quads::Kind::Model(index, _)
-                if self.batches[index].viewmodel);
+                if self.batches[index].viewmodel)
+                || matches!(draw.kind, crate::quads::Kind::Particle(_, _, _, true));
             if viewmodel != layer {
                 self.scene_viewport(pass, size, viewmodel);
                 layer = viewmodel;

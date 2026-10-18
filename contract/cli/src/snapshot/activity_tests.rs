@@ -158,7 +158,12 @@ fn a_single_session_relayouts_slots_at_their_own_proposed_width() {
         );
         let children = session.kernel().node(root).unwrap().children();
         assert_eq!(children.len(), 8);
-        for child in children {
+        // Each placement root is an absolutely positioned box at the region's
+        // top left (LLP 1126.001 WP10): the Lock Screen and the expanded
+        // bottom (the first and the last) take the region through `right:
+        // 0`, the others CSS 2.1 §10.3.7's shrink-to-fit width.
+        for (i, child) in children.into_iter().enumerate() {
+            let fills = i == 0 || i == 7;
             session.set_viewport(width, 200.).unwrap();
             session
                 .kernel_mut()
@@ -173,7 +178,19 @@ fn a_single_session_relayouts_slots_at_their_own_proposed_width() {
                 .compute_layout(root, Offer::definite(width as f32, fit))
                 .unwrap();
             let frame = session.kernel().laid_out_frame(key).unwrap().0;
-            assert_eq!(frame.width, width as f32);
+            assert_eq!((frame.x, frame.y), (0., 0.), "at the region's top left");
+            if fills {
+                assert_eq!(frame.width, width as f32);
+            } else {
+                // A region narrower than the content's minimum (the number
+                // in the monospace measurer, 48 pt) cannot hold it: the
+                // shrink-to-fit width keeps the minimum (CSS 2.1 §10.3.7).
+                assert!(
+                    frame.width > 0. && (frame.width <= width as f32 || width < 48.),
+                    "placement {i} shrinks to its content at width {width}: {}",
+                    frame.width
+                );
+            }
             assert_eq!(
                 frame.height, fit,
                 "each slot uses its own fit height at width {width}"

@@ -370,6 +370,14 @@ test('E11 partial bakes select only their graph and production retains GPU bindi
   assert.equal(bindGpuProduct('release','development'),true);
 });
 
+test('production native bakes for Apple and Android link with fat LTO; developer builds and other hosts keep the profile', async () => {
+  const {wholeProgram} = await import('./app.mjs');
+  const fat = ['--config', 'profile.release.lto="fat"'];
+  for (const kind of ['apple', 'ios', 'macos', 'tvos', 'android']) assert.deepEqual(wholeProgram(kind, 'release'), fat, kind);
+  for (const [kind, profile] of [['android', 'host-dev'], ['ios', 'host-dev'], ['android', 'size'], ['linux', 'release'], ['windows', 'release'], ['web', 'web']])
+    assert.deepEqual(wholeProgram(kind, profile), [], `${kind} at ${profile}`);
+});
+
 test('D6 GPU modules bake beside the primary and each surface has one owner', async () => {
   const {bakeSelection, gpuModules, readManifest} = await import('./app.mjs');
   const {mkdtempSync, writeFileSync, rmSync} = await import('node:fs');

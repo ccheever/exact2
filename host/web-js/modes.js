@@ -298,7 +298,8 @@ export function modes(axes, classes, texts, vars, accent, names, devDesign, devS
     // tokens `text` names, the tuple the element is in, and whether the
     // boundary wrote the row again. A token folded inline is not one.
     token: (e, prop, text) => {
-      const names = [...new Set([...String(text).matchAll(/var\((--x-[\w-]+)\)/g)].map(m => Names[m[1]]).filter(Boolean))];
+      // (Any property this table names: a token's `--x-…`, and a role's override, `--exact-canvas-text`.)
+      const names = [...new Set([...String(text).matchAll(/var\((--[\w-]+)\)/g)].map(m => Names[m[1]]).filter(Boolean))];
       if (!names.length) return undefined;
       const j = CH.indexOf(prop === "--exact-accent" ? "accent-color" : prop);
       let at = e;

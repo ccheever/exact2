@@ -1,3 +1,5 @@
+//! GPU product identity shared with the bake.
+
 /// A GPU product's digest: its exact bytes, except that a signed 64-bit
 /// Mach-O's code signature is left out, with the three sizes that follow it
 /// (the signature command's `datasize`, `__LINKEDIT`'s `vmsize` and

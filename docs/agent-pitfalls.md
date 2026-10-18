@@ -658,6 +658,17 @@ screen, 2026-10-16.)
   `time.epochAtZero + performanceNow()`), or set it in the mount action, and let
   the task only refresh it. (Authoring bench, LLP 1087, t5-pomodoro, 2026-10-08.)
 
+- **A marker that moves by `if` costs a view each move.** Symptom: an animation
+  that moves a dot, a playhead or a selection ring from cell to cell several
+  times a second keeps a phone busier than a hand-built UIKit screen. Cause:
+  `if head == 0` around the marker destroys a node in one cell and creates one in
+  the next at every move: a view made and dropped, its style applied, and a
+  layout. Fix: keep the marker in every cell and move it by `opacity=(head == 0 ?
+  1 : 0)` (with `transition="none"` where it must not fade), as a hand-built app
+  toggles `alpha` or `isHidden`. Measured on euxy playing (sixty-eight step
+  cells, eight moves a second, iPhone 17 simulator): 7.1 → 5.5 % CPU, median of
+  four. (euxy CPU work, 2026-10-18.)
+
 - **A token kept in an app data file.** Exact has a secret store, and it holds
   strings, not only keys: grant `secret.keep <name>` and use
   `store.set`/`store.get`/`store.forget` in an answer (the Keychain on Apple,
@@ -935,6 +946,14 @@ screen, 2026-10-16.)
   tap does not wait out. Fix: `clock settle` after tapping an alert's button (and
   after the action that shows it, before tapping in it), as `apps/shelf`'s tests do.
   (Shelf recipe, 2026-10-10.)
+- **After a long press made with `axe touch --down --up --delay`, the iOS simulator
+  ignores taps.** An action sheet or alert the long press opened stays up whatever
+  is tapped, and relaunching the app does not help: Apple's Settings app on that
+  simulator ignores taps too, until the simulator reboots. Cause: AXe 1.8.0's
+  touch command, not the app. Fix: make real touches with the agent, which taps
+  an alert's buttons too: `bun exact.mjs agent ios --touch platform "tap <row> down"
+  "tap hold 900" "tap up" "clock settle" "tap <button testId>"`. (euxy port's rename
+  prompt, 2026-10-18.)
 - **`xcrun simctl ui <udid> appearance dark` does not darken an agent drive.** The
   driver sets the media preferences itself. Fix: `"prefer prefers-color-scheme dark"`
   as the drive's first operation. (Shelf recipe, 2026-10-10.)
@@ -1201,7 +1220,9 @@ screen, 2026-10-16.)
   session. (Wave 9, lanes 015/060, 2026-10-12.)
 
 - **An agent drive shows the app's defaults (a mock, an empty store) though
-  the app's files are there.** Cause: without `--storage <name>` the data
+  the app's files are there.** Cause: a web drive without `--storage <name>`
+  (a native one uses the store `default`, kept between drives), or an authored
+  test, whose store starts empty: the data
   module reads an empty store (`readFile`, `readdir`, `stat` and `realpath` reject
   with code `ENOENT`, as for a missing file) and every write throws "storage is
   unavailable in agent mode…", so a module that catches a missing file falls back
@@ -1419,6 +1440,28 @@ screen, 2026-10-16.)
   `background-attachment` alone keep the field native. (LLP 1104 r8 D2.)
 
 ## Games
+
+- **A socket follower's local pose is `SocketFollow::offset`.** Its `Transform`
+  is the fallback when the socket cannot resolve; rotating that fallback does not
+  rotate a resolved attachment. Use `SocketFollow.offset.rotation` for the local
+  rotation on a working socket.
+- **Entity verbs require an entity handle.** Use `World::get_mut`, `require_mut` or
+  `nearest_xz_mut`. Consuming query rows and resource guards have no entity identity;
+  their verbs report `entity-handle-required`. Borrowed query iteration yields plain
+  references, which do not expose these verbs.
+- **Append new `Data` enum variants when existing values must keep their hashes.**
+  Saves name variants, but the simulation hash includes their declaration ordinals.
+  Keep existing ordinals, including `Mesh::Asset` at five, to preserve model-world
+  pins when adding primitives.
+- **A handle's `tint` and `offset` change simulation state.** They write the entity's
+  `Material` and local `Transform`; they save and hash. For a cosmetic flash or bob,
+  derive `Tint` or `Offset` in `Game::present` instead. `glow_to` retargets the saved
+  `Glow`; keep authored material emission constant or the intensity is applied twice.
+  [Game pickup recipe](../game/recipes/pickup.md).
+- **Builder hex colours are sRGB; `Material::rgb` is linear.**
+  `prop(...).color("#808080")` converts the channels to about 0.216, not 0.502.
+  [Literal builders](../game/recipes/literal-builders.md) and the builder hash test
+  use the same conversion as the CSS colour library.
 
 - **Older saves refuse to restore after adding a generated model.** `restore` names it:
   ``asset `…` identity is missing``. Cause: a model registered with `w.generated_model`

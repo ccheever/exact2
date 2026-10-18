@@ -146,11 +146,21 @@ shape SelRow
   // then the token it aliases, offered, never the default (D6).
   param: string
   short: string
+  // The state rung's (T4): the edit `set-state` makes of a style's state
+  // part row (style|state|row|file), its words, or "" for none.
+  state: string
+  stateLabel: string
+  // The row's value as its state part writes it, which the editor starts from.
+  stateText: string
   reason: string
   column: string
 
 // The latest node a build's inspect mode selected, joined to source.
 shape Inspected
+  // The copy it is (build, node, site, instance): a state edit is of it.
+  key: string
+  // The files' digests when it was reported (as Changes' `files` gives them after its count).
+  files: string
   has: bool
   // Why it is no longer current (its page left inspect mode, its build
   // went or moved on, changes were missed, the axes changed, its scheme is
@@ -170,6 +180,22 @@ shape Inspected
   // Whether this tool has inspect mode on a build, as the server and the
   // pages tell it.
   inspecting: bool
+  // A state held on it (LLP 1122 D8): whether its build can hold, what is
+  // held here, and what the server and the build said; the rows the held
+  // state shows, or why they are not known.
+  hold: HoldView
+  heldState: string
+  heldRows: SelRow[]
+  heldNote: string
+
+// A hold on the selected copy's build, as the inspector says it.
+shape HoldView
+  can: bool
+  // The state held on this copy ("" for none here), and whether its build
+  // says it holds it.
+  state: string
+  held: bool
+  status: string
 
 // A token's static source sites (`uses`): the impact of editing it.
 shape UseSite
@@ -208,6 +234,11 @@ shape Changes
   // The files' digests as the poll has them: what a design read follows
   // (a build's status, a scrub's frame or a proposal moves `seq`, not them).
   files: string
+  // Each answer, but while a scrub is open (any client's) only the files'
+  // changes, the commits told and scrubs opening or ending: what hello, the
+  // commit's dry run, a token's uses and a draft's proposal are read again
+  // on, so a scrub's frames and its builds' statuses cost no reads.
+  paced: string
 
 // A control drawn from a dial's declared metadata (LLP 1122 D7, LLP 1121
 // D4): `control` is `color`, `slider`, `stepper` or `select`.
@@ -541,8 +572,9 @@ component DesignTool
   // impact the inspector shows.
   resource inspected = loadSelection(changes.answer, design.answer) as shape Inspected else empty()
   mutation inspectSent as shape Pinned refreshes inspected
+  mutation holdSent as shape Pinned refreshes inspected
   state impactToken = ""
-  resource uses = loadUses(impactToken, changes.answer) as shape Uses else empty(ok=true)
+  resource uses = loadUses(impactToken, changes.paced) as shape Uses else empty(ok=true)
   mutation outlined as shape Pinned
   state draftName = ""
   // The long poll's place: the last sequence number seen, in which run, and
@@ -552,11 +584,12 @@ component DesignTool
   // The files as of the last answer: reads of the design follow these, not
   // `since`, so a stream of build statuses never reads a big design again.
   state filesAt = ""
+  state pacedAt = ""
   // A proposal's place in the poll: it follows every answer, at least one
   // each 25 s, but while a scrub is shown (its class moves without files:
   // the JS loop's builds, its design reader getting ready, which says
   // nothing), so a stream of scrub frames proposes nothing again.
-  state proposeAt = 0
+  state proposeAt = ""
   state asks = 0
   resource hello = loadHello() as shape Hello else empty(ok=true)
   derive client = `design-tool:${person}`
@@ -624,7 +657,7 @@ component DesignTool
   // The changeset follows the long poll and each design read (which
   // measures what changed); history is read when shown.
   resource changeset = loadChangeset(file, since, design.answer) as shape Changeset else empty(ok=true)
-  resource scope = loadScope(client, changes.answer) as shape Scope else empty(open=0, refused=false, unavailable=false)
+  resource scope = loadScope(client, changes.paced) as shape Scope else empty(open=0, refused=false, unavailable=false)
   // The items of held proposals picked for "Accept picked"
   // (`<proposal>:<index>`), and the last change whose highlight has faded.
   state picked: string[] = []
@@ -650,6 +683,13 @@ component DesignTool
   // changed it): not applied, lest it make a `when` no one asked for.
   // What the branch editor writes: a token's branch, or a param's line (T3).
   derive branchOp = branch.param ? "set-param" : "set-token"
+  // A state edit is of the copy it was opened on: once that is no longer current, it is stale.
+  state stateFor = ""
+  // (Bound to the copy and the files' digests it was opened on, which its selection was reported
+  // under: a write since either, anyone's, leaves it stale until selected and opened again; a
+  // re-read that moves nothing does not.)
+  derive filesNow = changes.files.split(" ").slice(1).join(" ")
+  derive stateStale = editKind == "set-state" and (inspected.stale != "" or inspected.readOnly != "" or inspected.files != filesNow or `${inspected.key}␟${filesNow}` != stateFor)
   // (A panel edit of a param is no branch editor draft: `draftFor` is the branch editor's.)
   derive draftStale = editKind == branchOp and draftFor != "" and not scopeOwn and (branch.token != editTarget or branch.when != editWhen)
   // The branch's value as the draft has it, and its typed fields.
@@ -684,16 +724,17 @@ component DesignTool
     after(3000, advance)
 
   action advance
-    // A change (the files' digests moved), another run, more missed than
-    // the server keeps, or no answer: read the files again.
-    if changes.missed or not hello.ok or not changes.ok or changes.seq != since
+    // A change (an answer, paced while a scrub is open), another run, more
+    // missed than the server keeps, or no answer: read the files again.
+    if changes.missed or not hello.ok or not changes.ok or changes.paced != pacedAt
       refresh hello
     if not design.ok
       refresh design
     since = changes.seq
     filesAt = changes.files
+    pacedAt = changes.paced
     if not scrubShown
-      proposeAt = changes.answer
+      proposeAt = changes.paced
     epoch = changes.epoch
     asks = asks + 1
   action reconnect
@@ -704,8 +745,9 @@ component DesignTool
       if changes.ok
         since = changes.seq
         filesAt = changes.files
+        pacedAt = changes.paced
         if not scrubShown
-          proposeAt = changes.answer
+          proposeAt = changes.paced
         epoch = changes.epoch
       asks = asks + 1
   action editName(v: string)
@@ -796,6 +838,28 @@ component DesignTool
   action toggleInspect
     if not pending(inspectSent)
       send inspectSent = sendInspect(client, not inspected.inspecting)
+  action editState(target: string, value: string)
+    // A style's state part row (T4): `set-state`, which rebuilds, so no scrub.
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    // (A token cell open in the branch editor closes: one edit at a time.)
+    selToken = ""
+    editKind = "set-state"
+    editTarget = target
+    editWhen = ""
+    editValue = value
+    stateFor = `${inspected.key}␟${filesNow}`
+    draftFor = ""
+    rawFor = ""
+    partFor = ""
+    scopeOwn = false
+  action stateValue(v: string)
+    editValue = v.trim()
+  action holdState(state: string)
+    if not pending(holdSent)
+      send holdSent = sendHold(client, state)
   // A row's token, on the branch that won for the selected copy: the grid's
   // cell editor, its edits and scrubs, scoped to that branch.
   action editFromSelection(token: string, column: string, place: string)
@@ -1147,6 +1211,43 @@ component DesignTool
                     text `Read-only: ${inspected.readOnly}` color="-exact-system-orange" testId="selection-readonly"
                   if inspected.trimmed
                     text "Some rows were left out: the report was too large." color="-exact-secondary-label" font="-exact-footnote"
+                  if inspected.hold.status != "" and not inspected.hold.can
+                    text inspected.hold.status color="-exact-secondary-label" font="-exact-footnote" testId="hold-status"
+                  if inspected.hold.can
+                    column gap=4 testId="hold"
+                      row gap=8 align-items="center" flex-wrap="wrap"
+                        text "Hold" font="-exact-footnote"
+                        button press=holdState("active") disabled=pending(holdSent) buttonStyle=(inspected.hold.state == "active" ? "filled" : "bordered") testId="hold-active"
+                          text "Pressed"
+                        button press=holdState("hover") disabled=pending(holdSent) buttonStyle=(inspected.hold.state == "hover" ? "filled" : "bordered") testId="hold-hover"
+                          text "Hovered"
+                        button press=holdState("focus-visible") disabled=pending(holdSent) buttonStyle=(inspected.hold.state == "focus-visible" ? "filled" : "bordered") testId="hold-focus"
+                          text "Focused"
+                        button press=holdState("") disabled=(pending(holdSent) or inspected.hold.state == "") testId="hold-release"
+                          text "Let go"
+                      if inspected.hold.status != ""
+                        text inspected.hold.status color="-exact-secondary-label" font="-exact-footnote" testId="hold-status"
+                      match holdSent
+                        case some(h)
+                          if not h.ok
+                            text h.error color="-exact-system-red" font="-exact-footnote" testId="hold-error"
+                        case none
+                          text ""
+                      if inspected.heldNote != ""
+                        text inspected.heldNote color="-exact-system-orange" font="-exact-footnote" testId="held-note"
+                      for r in inspected.heldRows key=r.name
+                        row gap=8 align-items="center" flex-wrap="wrap" testId=`heldrow-${r.name}`
+                          text r.name font="-exact-footnote" width="9rem"
+                          text r.value font="-exact-caption1" font-family="ui-monospace, monospace" flex=1 min-width=0
+                          text r.source color="-exact-secondary-label" font="-exact-caption1"
+                          if r.token != ""
+                            button press=editFromSelection(r.token, r.column, inspected.place) testId=`heldrow-link-${r.name}`
+                              text (r.state != "" ? `Edit the token ${r.token} instead` : `Open ${r.token}`)
+                          if r.state != ""
+                            button press=editState(r.state, r.stateText) buttonStyle="bordered" testId=`heldrow-state-${r.name}`
+                              text r.stateLabel
+                          if r.reason != ""
+                            text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`heldrow-reason-${r.name}`
                   for r in inspected.rows key=r.name
                     row gap=8 align-items="center" flex-wrap="wrap" testId=`selrow-${r.name}`
                       text r.name font="-exact-footnote" width="9rem"
@@ -1161,9 +1262,15 @@ component DesignTool
                       else if r.rung == "token"
                         button press=editFromSelection(r.token, r.column, inspected.place) buttonStyle="bordered" testId=`selrow-edit-${r.name}`
                           text `Edit ${r.token}`
+                      else if r.rung == "state" and r.token != ""
+                        button press=editFromSelection(r.token, r.column, inspected.place) testId=`selrow-token-${r.name}`
+                          text `Edit the token ${r.token} instead`
                       else if r.token != ""
                         button press=editFromSelection(r.token, r.column, inspected.place) testId=`selrow-link-${r.name}`
                           text `Open ${r.token}`
+                      if r.state != ""
+                        button press=editState(r.state, r.stateText) buttonStyle="bordered" testId=`selrow-state-${r.name}`
+                          text r.stateLabel
                       if r.rung == "" and r.reason != ""
                         text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`selrow-reason-${r.name}`
               if impactToken != ""
@@ -1407,6 +1514,13 @@ component DesignTool
                   input value=newValue input=editNewValue submit=addToken placeholder="light-dark(#fff, #000)" aria-label="New token's value" flex=1 min-width=0 testId="new-value"
                   button press=addToken disabled=(newName.trim() == "" or newValue.trim() == "") testId="add-token"
                     text "Add"
+              if editKind == "set-state"
+                column gap=4 testId="state-editor"
+                  text `${editTarget.split("|").slice(0, 1).join("")} :${editTarget.split("|").slice(1, 2).join("")} ${editTarget.split("|").slice(2, 3).join("")}` role="heading" aria-level=3 testId="state-label"
+                  text "A state part's row: written by set-state, which rebuilds the app; a hold on it is held again once it has, where its node still corresponds." color="-exact-secondary-label" font="-exact-footnote"
+                  if stateStale
+                    text "The copy this edit was opened on is no longer current: select it again." color="-exact-system-orange" font="-exact-footnote" testId="state-stale"
+                  input value=editValue input=stateValue aria-label="The state part's value" testId="state-value"
               if editKind != ""
                 column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="proposal"
                   if draftStale or partsStale
@@ -1431,7 +1545,7 @@ component DesignTool
                           text "Cancel scrub"
                   else
                     row gap=8
-                      button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or partsStale or pending(written)) buttonStyle="filled" testId="apply"
+                      button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or partsStale or stateStale or pending(written)) buttonStyle="filled" testId="apply"
                         text "Apply"
                       if editKind == "set-dial" or editKind == "set-token" or editKind == "set-param"
                         button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or not proposal.scrubbable or draftStale or partsStale or pending(written)) testId="scrub-start"

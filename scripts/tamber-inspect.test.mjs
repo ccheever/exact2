@@ -3,11 +3,11 @@
 // editability, and the sites to outline.
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join as joinPath } from 'node:path';
 import { buildChannel } from './tamber-builds.mjs';
-import { current, editable, join, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, staleMap } from './tamber-inspect.mjs';
+import { correspondingSite, current, editable, join, stateRung, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, staleMap } from './tamber-inspect.mjs';
 
 const sha = text => createHash('sha256').update(text).digest('hex');
 
@@ -88,12 +88,25 @@ test('an `:active` row lowered to the press paint is joined at its part, read-on
       ['press_background_color', 'active', 9, 'token'],
       ['press_color', 'active', 10, null],
     ]);
-    expect(s.rows[1].editable.reason).toContain('set-state');
+    // Written on the node itself (no style): `set-row` edits it, with T5.
+    expect(s.rows[1].editable.reason).toContain('set-row');
     // `uses` names the part's own place; outlining it finds the node.
     expect(sitesAt(map, part)).toEqual([0]);
     // What is held (LLP 1122 D8): an `:active` row at its part, named by its state.
     const held = join({ id: 'web-1' }, { ...selected, held: { state: 'active', rows: [{ name: 'press_background_color', value: '#00f' }, { name: 'press_scale', value: '0.95' }] } }, map);
-    expect(held.held.rows.map(r => [r.name, r.state, r.source?.line])).toEqual([['press_background_color', 'active', 9], ['press_scale', 'active', 7]]);
+    // (Named as its author wrote it, under its part: theme2's 16:13 (2); the press row beside it.)
+    expect(held.held.rows.map(r => [r.name, r.row, r.state, r.source?.line])).toEqual([['background-color', 'press_background_color', 'active', 9], ['press_scale', undefined, 'active', 7]]);
+    // Named on a node inside the press (stage 9 E): joined at the press's own site, its rows' tokens kept.
+    const inner = { ...map, nodes: [...map.nodes, { file: app, line: 12, col: 7, end_col: 11, component: 'App', chain: [], bindings: [] }] };
+    const label = { node: 2, site: 1, instance: [], rows: [], held: { state: 'active', node: 1, site: 0, instance: [], rows: [{ name: 'press_background_color', value: '#00f', token: { names: ['accent.soft'], text: 'accent.soft', modes: '', implied: false } }] } };
+    const named = join({ id: 'web-1' }, label, inner);
+    expect(named.held.rows.map(r => [r.name, r.row, r.source?.line, r.token?.names])).toEqual([['background-color', 'press_background_color', 9, ['accent.soft']]]);
+    expect(named.source.line).toBe(12);
+    // The held node's own file is checked too: one moved since makes the selection read-only.
+    const style = joinPath(dir, 'style.contract');
+    writeFileSync(style, 'style now');
+    const split = { ...inner, sources: [...inner.sources, { file: style, sha256: sha('style then') }], nodes: [{ ...inner.nodes[0], file: style }, inner.nodes[1]] };
+    expect(join({ id: 'web-1' }, label, split).readOnly).toContain('style.contract');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -166,6 +179,138 @@ test('a row that reads a component param joins on the param rung, by its full na
   writeFileSync(post, 'post, edited');
   expect(join({ id: 'web-1' }, selected, map, { params }).rows[0].editable).toMatchObject({ rung: null, link: 'post.contract#PostButton.fill' });
   rmSync(dir, { recursive: true, force: true });
+});
+
+test('a style\'s state part row joins on the state rung for set-state, the default: its style as its file declares it, the row as written, its file and text; a token it reads offered beside; a held one where the build names the held node; a package\'s refused (LLP 1122 T4)', () => {
+  const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-state-'));
+  try {
+    const post = joinPath(dir, 'post.contract');
+    const text = ['component X', '  view', '    text "x"', '', 'style Card', '  color="white"', '  :active', '    background-color="primary_600"', '    opacity=0.8', '    color="red"', ''].join('\n');
+    writeFileSync(post, text);
+    // The map's span names the attribute (the compiler's), not its value.
+    const at = (line, attr) => ({ file: post, line, col: 5, end_col: 5 + attr.split('=')[0].length });
+    const pkg = joinPath(dir, 'node_modules', 'ui', 'card.contract');
+    mkdirSync(joinPath(dir, 'node_modules', 'ui'), { recursive: true });
+    writeFileSync(pkg, 'pkg');
+    // The compiler renamed this file's `style Card` (another file has one): the map says Card__post.
+    const map = { digest: 'p1', sources: [{ file: post, sha256: sha(text) }, { file: pkg, sha256: sha('pkg') }], nodes: [
+      { file: post, line: 3, col: 5, end_col: 11, component: 'X', chain: [], bindings: [
+        { row: 'press_background_color', origin: 'class:Card__post', state: 'active', at: at(8, 'background-color="primary_600"') },
+        { row: 'press_opacity_to', origin: 'class:Card__post', state: 'active', at: at(9, 'opacity=0.8') },
+        { row: 'press_color', origin: 'class:A/B', state: 'active', at: at(10, 'color="red"') },
+        { row: 'press_scale', origin: 'class:Pkg', state: 'active', at: { file: pkg, line: 3, col: 5, end_col: 9 } },
+      ] },
+      { file: post, line: 1, col: 1, end_col: 2, component: 'X', chain: [], bindings: [{ row: 'press_opacity_to', origin: 'class:Card__post', state: 'active', at: at(9, 'opacity=0.8') }] },
+    ] };
+    const selected = { node: 1, site: 0, instance: [], rows: [
+      { name: 'press_background_color', value: '#00f', source: 'authored', token: { names: ['primary_600'], text: 'primary_600', modes: '', implied: false } },
+      { name: 'press_opacity_to', value: 0.8, source: 'authored' },
+      { name: 'press_color', value: '#f00', source: 'authored' },
+      { name: 'press_scale', value: 0.95, source: 'authored' },
+    ] };
+    const s = join({ id: 'web-1' }, selected, map, { app: dir });
+    const state = { rung: 'state', style: 'Card', state: 'active', file: 'post.contract' };
+    expect(s.rows[0].editable).toEqual({ ...state, row: 'background-color', text: 'primary_600', token: 'primary_600' });
+    expect(s.rows[1].editable).toEqual({ ...state, row: 'opacity', text: '0.8' });
+    // Under a conditional class: no one style to edit.
+    expect(s.rows[2].editable.rung).toBe(null);
+    // A package's style: read-only, said so.
+    expect(s.rows[3].editable).toMatchObject({ rung: null, reason: expect.stringContaining("a package's style") });
+    // Held, where the build names the held node (stage 9 E's site): offered there; else shown only.
+    const heldAt = { state: 'active', site: 1, rows: [{ name: 'press_opacity_to', value: '0.8' }] };
+    expect(join({ id: 'web-1' }, { ...selected, held: heldAt }, map, { app: dir }).held.rows[0].editable).toEqual({ ...state, row: 'opacity', text: '0.8' });
+    expect(join({ id: 'web-1' }, { ...selected, held: { state: 'active', rows: heldAt.rows } }, map, { app: dir }).held.rows[0].editable).toBe(undefined);
+    // A file the server does not count as the app's own (a vendored package's): refused.
+    expect(join({ id: 'web-1' }, selected, map, { app: dir, own: new Set(['app.contract']) }).rows[1].editable).toMatchObject({ rung: null, reason: expect.stringContaining("a package's style") });
+    expect(join({ id: 'web-1' }, selected, map, { app: dir, own: new Set(['post.contract']) }).rows[1].editable.rung).toBe('state');
+    // The held node's part in another file, moved since: nothing offered, the selected node's files unmoved.
+    const styles = joinPath(dir, 'styles.contract'), was = 'style Press\n  :active\n    opacity=0.5\n';
+    writeFileSync(styles, was);
+    const two = { ...map, sources: [...map.sources, { file: styles, sha256: sha(was) }], nodes: [...map.nodes, { file: post, line: 2, col: 3, end_col: 7, component: 'X', chain: [], bindings: [{ row: 'press_opacity_to', origin: 'class:Press', state: 'active', at: { file: styles, line: 3, col: 5, end_col: 12 } }] }] };
+    const heldTwo = { ...selected, held: { state: 'active', site: 2, rows: heldAt.rows } };
+    expect(join({ id: 'web-1' }, heldTwo, two, { app: dir }).held.rows[0].editable).toEqual({ ...state, style: 'Press', file: 'styles.contract', row: 'opacity', text: '0.5' });
+    writeFileSync(styles, `style Other\n${was}`);
+    const moved = join({ id: 'web-1' }, heldTwo, two, { app: dir });
+    expect(moved.readOnly).toBeTruthy();
+    expect(moved.held.rows[0].editable).toBe(undefined);
+    // The value as written: a whole literal only, bare, quoted or in parentheses; else none (the editor starts empty).
+    const textOf = line => stateRung({ name: 'press_background_color' }, { state: 'active', origin: 'class:Card', at: { file: post, line: 2, col: 5, end_col: 21 } }, dir, () => `style Card\n    ${line}\n`)?.text;
+    expect(textOf('background-color=("accent.fill")')).toBe('accent.fill');
+    expect(textOf('background-color = accent.fill // a note')).toBe('accent.fill');
+    expect(textOf('background-color=""')).toBe('');
+    expect(textOf('background-color=("accent.fill"')).toBe(undefined);
+    expect(textOf('background-color="a \\"b\\""')).toBe(undefined);
+    expect(textOf('background-color=mix(accent.fill, white)')).toBe(undefined);
+    expect(textOf('opacity=0.8//note')).toBe('0.8');
+    expect(textOf('opacity=0.8 color="red"')).toBe('0.8');
+    expect(textOf('background-color="a b" color="red" // c')).toBe('a b');
+    // A file moved since: nothing offered.
+    writeFileSync(post, `${text}// edited\n`);
+    expect(join({ id: 'web-1' }, selected, map, { app: dir }).rows[1].editable.rung).toBe(null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// LLP 1122 D8 (the lead's 18:30, amending theme2's 07:48 (a)): a held site
+// corresponds in a new plan by its place and its call-site chain.
+test('a held site corresponds in a new plan by its place and call-site chain: each copy of a component called twice its own, a moved call still, an ambiguous one none', () => {
+  const def = { file: '/a/screens.contract', line: 20, col: 5, end_col: 9, component: 'PostButton' };
+  const call = (line, col = 7) => ({ file: '/a/home.contract', line, col, end_col: col + 10, component: 'Home' });
+  const plan = (...lines) => ({ nodes: [{ file: '/a/home.contract', line: 1, col: 1, end_col: 2, component: 'Home', chain: [] }, ...lines.map(l => ({ ...def, chain: [call(l)] }))] });
+  const was = plan(4, 9);
+  // A rebuild that moved nothing (a style's value edited): each copy is its own.
+  expect(correspondingSite(was, plan(4, 9), 1)).toBe(1);
+  expect(correspondingSite(was, plan(4, 9), 2)).toBe(2);
+  // In another order in the new plan's sites: found by its chain, not its index.
+  expect(correspondingSite(was, { nodes: [plan(4, 9).nodes[0], plan(4, 9).nodes[2], plan(4, 9).nodes[1]] }, 2)).toBe(1);
+  // A line written above the second call: the first by its chain, the second the one left over (and two
+  // left over, by rank among themselves).
+  expect(correspondingSite(was, plan(4, 10), 2)).toBe(2);
+  expect(correspondingSite(plan(4, 9, 14), plan(4, 10, 15), 3)).toBe(3);
+  // A line above both: by rank in source order.
+  expect(correspondingSite(was, plan(5, 10), 1)).toBe(1);
+  expect(correspondingSite(was, plan(5, 10), 2)).toBe(2);
+  // A third copy, the calls moved: ambiguous, none.
+  expect(correspondingSite(was, plan(5, 10, 14), 2)).toBe(null);
+  // The node gone: none. One copy left of two, its call moved: not the other's.
+  expect(correspondingSite(was, { nodes: [plan().nodes[0]] }, 1)).toBe(null);
+  expect(correspondingSite(was, plan(30), 1)).toBe(null);
+  expect(correspondingSite(was, plan(4), 1)).toBe(1);
+  expect(correspondingSite(was, plan(4), 2)).toBe(null);
+  // A lone copy whose call moved: still it.
+  expect(correspondingSite(plan(4), plan(30), 1)).toBe(1);
+  // Calls moved onto each other's lines (4, 9 to 9, 14): by rank, not the line one had.
+  expect(correspondingSite(was, plan(9, 14), 2)).toBe(2);
+  expect(correspondingSite(was, plan(9, 14), 1)).toBe(1);
+  // A `button "…"` and its label: two sites of one copy, each kept as itself beside a call added or removed.
+  const pairs = (...lines) => ({ nodes: lines.flatMap(l => [{ ...def, chain: [call(l)] }, { ...def, chain: [call(l)] }]) });
+  expect(correspondingSite(pairs(4, 9), pairs(4), 1)).toBe(1);
+  expect(correspondingSite(pairs(4, 9), pairs(4, 9, 14), 3)).toBe(3);
+  expect(correspondingSite(pairs(4, 9), pairs(5, 10), 3)).toBe(3);
+  // Nested: a wrapper called twice, one button in it, becomes a wrapper called once with two: the deleted
+  // wrapper's button is none (though as many copies), the kept one's itself.
+  const inner = (line, outer) => ({ ...def, chain: [{ file: '/a/wrap.contract', line, col: 5, end_col: 9, component: 'Wrapper' }, call(outer)] });
+  const wrapped = { nodes: [inner(3, 4), inner(3, 9)] };
+  expect(correspondingSite(wrapped, { nodes: [inner(3, 4), inner(6, 4)] }, 1)).toBe(null);
+  expect(correspondingSite(wrapped, { nodes: [inner(3, 4), inner(6, 4)] }, 0)).toBe(0);
+  expect(correspondingSite(wrapped, { nodes: [inner(3, 5), inner(3, 10)] }, 1)).toBe(1);
+  // A call cut and pasted above the other (4, 9 to 3, 5): not ranked (the files' calls moved unevenly), the held one cleared.
+  expect(correspondingSite(was, plan(3, 5), 2)).toBe(null);
+  expect(correspondingSite(was, plan(3, 5), 1)).toBe(null);
+  // Used at two depths (direct, and inside a card), a line above both: by rank, each file evenly; none thrown.
+  const card = l => ({ ...def, chain: [{ file: '/a/card.contract', line: 3, col: 5, end_col: 9, component: 'Card' }, call(l)] });
+  const depths = { nodes: [{ ...def, chain: [call(4)] }, card(8)] };
+  expect(correspondingSite(depths, { nodes: [{ ...def, chain: [call(5)] }, card(9)] }, 1)).toBe(1);
+  expect(correspondingSite(depths, { nodes: [{ ...def, chain: [call(5)] }, card(9)] }, 0)).toBe(0);
+  // A third call in another file, unmoved, while lines are written above Home's two: each by rank in its file.
+  const foot = { ...def, chain: [{ file: '/a/foot.contract', line: 10, col: 7, end_col: 17, component: 'Footer' }] };
+  expect(correspondingSite({ nodes: [...plan(4, 9).nodes, foot] }, { nodes: [...plan(9, 14).nodes, foot] }, 2)).toBe(2);
+  expect(correspondingSite({ nodes: [...plan(4, 9).nodes, foot] }, { nodes: [...plan(9, 14).nodes, foot] }, 3)).toBe(3);
+  // A line removed between them (4, 9 to 4, 8): the one below by the edit.
+  expect(correspondingSite(was, plan(4, 8), 2)).toBe(2);
+  // A copy called from another file is not one called here.
+  expect(correspondingSite(was, { nodes: [...plan(5).nodes, { ...def, chain: [{ ...call(10), file: '/a/other.contract' }] }] }, 2)).toBe(null);
 });
 
 test('editability fails closed: only a row the node itself sets to one token, its whole value, offers the token rung', () => {

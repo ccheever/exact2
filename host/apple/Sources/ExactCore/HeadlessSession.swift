@@ -198,6 +198,22 @@ public final class HeadlessSession {
         try turn(size: size) { core.runtime.resize(width: size.width, height: size.height) }
     }
 
+    /// The margins the last layout resolved around a node's border box, and
+    /// whether its width is the author's (`width` or `min-width`) rather than
+    /// its content's (`Kernel::placement_box`, LLP 1126.001 WP10). A read of
+    /// the layout the tree holds; nothing is laid out again.
+    public struct PlacementBox {
+        /// The resolved margins: left, top, right, bottom.
+        public let margins: (left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat)
+        public let authoredWidth: Bool
+    }
+    public func placementBox(_ node: UInt32) -> PlacementBox? {
+        Owner.shared.sync {
+            guard !core.runtime.destroyed, let v = core.runtime.placementBox(node) else { return nil }
+            return PlacementBox(margins: (v[0], v[1], v[2], v[3]), authoredWidth: v[4] > 0.5)
+        }
+    }
+
     /// Activate deferred data, drain ready replies and lay out their store changes.
     /// `now` is the runner clock in milliseconds; this session starts no timers.
     @discardableResult

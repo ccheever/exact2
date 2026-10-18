@@ -1,6 +1,7 @@
 # Popovers cannot flip near a window edge: no position-try-fallbacks, few position-area values
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** position-try-fallbacks admits flip-start, its flips applied in the order written, and a popover no option fits is shifted back inside its containing block as Chrome shifts it, on the web and Apple's painted layers; what LLP 1021 D2 leaves outside the slice is listed below.
 **Systems:** kernel placement, Contract, GUI hosts, menus
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -347,3 +348,19 @@ Selected as the next core investment by Charlie on 2026-10-08; keep open for des
 This removes repeated popup arithmetic and the current web/macOS disagreement. Prefer CSS fallback order to an unconditional macOS-only clamp.
 
 Charlie selected this priority on 2026-10-08. Amend LLP 1021's no-flip scope before implementation. Start with invoker popovers and flip-block/inline/start; test all window edges, scrolling and resize. Coordinate anchors with #127 without admitting all of anchor CSS at once.
+
+## Closed, 2026-10-18
+
+`flip-start` is admitted with `flip-block` and `flip-inline`, alone and in any combination. An attempt's flips apply in the order written, as CSS Anchor Positioning §6.1 composes them and as Chrome 155 does: `flip-start` mirrors across the diagonal from the top-left corner (the top-right in a right-to-left document), so `bottom span-right` with `flip-start flip-block` opens to the right ending at the invoker's bottom, and with `flip-block flip-start` to the left. The kernel keeps that order (`kernel/src/position_try.rs`), the JS target's dynamic check admits it, and `PositionArea.swift` applies it to the area and the margins for AppKit and UIKit.
+
+Comparing every edge with Chrome found a second difference: when no option fits, CSS shifts the box into its overflow limit rect (CSS Box Alignment §4.4.1.2), and the painted Apple layers let it run off the top or left of the window. They now shift it as Chrome does. A popover with no authored position is the UA's `position: fixed` and is held in the window. An authored position computes to absolute in the top layer and is held only at the page's start edges (top, and left or, right to left, right), which follow the page as it scrolls. The limit also holds the area an invoker past the window's edge gives. An `NSMenu`'s launch point is not shifted: AppKit fits the menu on screen.
+
+`host/web/tests/popover-flip.test.mjs` now compares 34 placements of the production Swift helper with Chrome 155. The 21 new ones cover `flip-start` in both directions, the shift for fixed and absolute boxes, a scrolled page and invokers past the window's edges. It also checks that a dynamic `flip-start` value reaches the browser and that an unpositioned popover is `fixed` and held in the window. `PositionAreaTests` covers the same rules, and that a change of `position` clears the remembered option (§6.5.1); it passes on macOS and on an iPhone simulator (iOS 27), and the tvOS build compiles.
+
+LLP 1021 D2 leaves these outside the slice, still unimplemented:
+- logical areas and other `position-area` spellings;
+- `flip-x`, `flip-y` and named `@position-try` rules;
+- area-dependent sizes, including the `width`/`height` exchange `flip-start` makes in CSS (the native layers place the laid-out size, which agrees when the two are equal);
+- nonzero insets and non-default self-alignment;
+- full scroll-offset bookkeeping;
+- general Linux popover presentation.

@@ -713,7 +713,7 @@ package final class Presenter {
             if selectText { fieldSelections.selectAll(target) }
             return
         }
-        let responder = keyView(of: target)
+        let responder = target.web ?? keyView(of: target)
         if responder.acceptsFirstResponder { window.makeFirstResponder(responder) }
         if selectText, window.firstResponder === target.textArea || target.field?.currentEditor() != nil { fieldSelections.selectAll(target) }
     }

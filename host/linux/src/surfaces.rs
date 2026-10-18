@@ -423,6 +423,7 @@ pub(crate) struct Surfaces {
     abis: BTreeMap<String, Abi>,
     attempted: BTreeSet<String>,
     canvases: BTreeMap<u32, Canvas>,
+    edits_admitted: bool,
     restore: Option<Result<Vec<u8>, String>>,
     restore_read: bool,
     pub(crate) error: Option<String>,
@@ -516,6 +517,9 @@ impl Surfaces {
             .collect();
         for view in dead {
             let c = self.canvases.remove(&view).unwrap();
+            self.edits_admitted |= self.abis[&c.artifact].agent(c.id, &json!({"op":"state"}))
+                ["world"]["developmentEdits"]
+                == true;
             self.abis[&c.artifact].destroy(c.id);
             #[cfg(target_os = "android")]
             self.windows.remove(&view);
@@ -607,6 +611,9 @@ impl Surfaces {
                 .is_some_and(|c| c.name != update.name)
             {
                 let old = self.canvases.remove(&update.view).unwrap();
+                self.edits_admitted |= self.abis[&old.artifact]
+                    .agent(old.id, &json!({"op":"state"}))["world"]["developmentEdits"]
+                    == true;
                 self.abis[&old.artifact].destroy(old.id);
                 if old.owner {
                     self.error = self.error.take().or(host.surface_record(&old.name, None));
@@ -1279,10 +1286,19 @@ impl<D: DataSource> Presenter<D> {
             };
         }
         if q["op"] == "logs" {
-            q["since"] = c.since.into();
+            q["since"] = if q["all"] == true { 0 } else { c.since }.into();
         }
         let mut r = abi.agent(c.id, &q);
+        if q["op"] == "state" && r["entities"].is_array() {
+            self.surfaces.edits_admitted |= r["developmentEdits"] == true;
+            r["sessionDevelopmentEdits"] = self.surfaces.edits_admitted.into();
+        }
         if q["op"] == "logs" {
+            r["dropped"] = r["from"]
+                .as_u64()
+                .unwrap_or(0)
+                .saturating_sub(q["since"].as_u64().unwrap_or(0))
+                .into();
             c.since = r["next"].as_u64().unwrap_or(c.since);
             if !c.restore_logged {
                 if let Some(e) = c.restore_error.as_ref() {
@@ -1294,6 +1310,12 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         if let Some(world) = r.get_mut("world").and_then(Value::as_object_mut) {
+            self.surfaces.edits_admitted |=
+                world.get("developmentEdits") == Some(&Value::Bool(true));
+            world.insert(
+                "sessionDevelopmentEdits".into(),
+                self.surfaces.edits_admitted.into(),
+            );
             world.insert("canvas".into(), view.into());
             world.insert("device".into(), false.into());
             if let Some(e) = &c.restore_error {
@@ -1332,13 +1354,15 @@ impl<D: DataSource> Presenter<D> {
                 if r["world"].is_object() {
                     r = r["world"].take();
                 }
+                self.surfaces.edits_admitted |= r["developmentEdits"] == true;
+                r["sessionDevelopmentEdits"] = self.surfaces.edits_admitted.into();
                 r["canvas"] = view.into();
                 Some(r)
             })
             .collect()
     }
     pub(crate) fn merge_surfaces(&mut self, line: &str, reply: String) -> String {
-        if self.surfaces.canvases.is_empty() {
+        if self.surfaces.canvases.is_empty() && !self.surfaces.edits_admitted {
             return reply;
         }
         let q: Value = serde_json::from_str(line).unwrap_or(Value::Null);
@@ -1375,8 +1399,13 @@ impl<D: DataSource> Presenter<D> {
                     }
                 }
             }
-            Some("state") => r["world"] = self.worlds(json!({"op":"state"})).into(),
-            Some("logs") => r["world"] = self.worlds(json!({"op":"logs"})).into(),
+            Some("state") => {
+                r["world"] = self
+                    .worlds(json!({"op":"state","trace_export":q["trace_export"]}))
+                    .into();
+                r["sessionDevelopmentEdits"] = self.surfaces.edits_admitted.into();
+            }
+            Some("logs") => r["world"] = self.worlds(json!({"op":"logs","all":q["all"]})).into(),
             Some("screenshot")
                 if self.surfaces.canvases.values().any(|canvas| {
                     self.surfaces

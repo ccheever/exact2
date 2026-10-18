@@ -22,6 +22,19 @@ pub struct PlayedTransition {
     pub curve: PlayedCurve,
 }
 
+/// A transition's ends and timing ([`Engine::transition_ends`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TransitionEnds {
+    /// Value at the start.
+    pub from: Value,
+    /// Value at the end.
+    pub to: Value,
+    /// Clock time it starts moving, seconds.
+    pub start: f64,
+    /// Whether it waits for the frame that starts it (LLP 1003.001 D1).
+    pub waits: bool,
+}
+
 /// A played transition's shape.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlayedCurve {
@@ -52,6 +65,66 @@ impl Engine {
     /// The transitions running now, which a host may play instead.
     pub fn running_transitions(&self) -> impl Iterator<Item = (u64, Property)> + '_ {
         self.running.iter().copied()
+    }
+
+    /// The transitions the host plays now.
+    pub fn played_transitions(&self) -> impl Iterator<Item = (u64, Property)> + '_ {
+        self.played.iter().copied()
+    }
+
+    /// Take back a transition the host can no longer play as CSS does: it
+    /// is sampled again from the value its curve has reached now (its end,
+    /// if it is over). `false` when the host does not play it.
+    pub fn reclaim_transition(&mut self, node: u64, property: Property) -> bool {
+        let key = (node, property);
+        if !self.played.remove(&key) {
+            return false;
+        }
+        let at = self.sample_time();
+        if let Some(slot) = self.slots.get_mut(&key) {
+            match slot.running().map(|r| r.sample(at)) {
+                Some(sample) if !sample.done => {
+                    slot.set_presented(sample.value);
+                    self.running.insert(key);
+                }
+                Some(_) => {
+                    slot.set_running(None);
+                    let target = slot.target;
+                    slot.set_presented(target);
+                }
+                None => {}
+            }
+        }
+        self.dirty.insert(key);
+        true
+    }
+
+    /// The transition running or played on `property` of `node` without its
+    /// curve (a spring's frames are not made): its ends, when it starts
+    /// moving, and whether it waits for the frame that starts it.
+    pub fn transition_ends(&self, node: u64, property: Property) -> Option<TransitionEnds> {
+        let running = self.slots.get(&(node, property))?.running()?;
+        Some(TransitionEnds {
+            from: running.from,
+            to: running.to,
+            start: running.start_at(self.sample_time()),
+            waits: running.pending.is_some(),
+        })
+    }
+
+    /// The transition running or played on `property` of `node`, as a host
+    /// plays it, and whether it waits for the frame that starts it (LLP
+    /// 1003.001 D1; its `start` then assumes the frame comes now). Asking
+    /// hands nothing over.
+    pub fn transition(&self, node: u64, property: Property) -> Option<(PlayedTransition, bool)> {
+        let running = self.slots.get(&(node, property))?.running()?;
+        let played = PlayedTransition {
+            from: running.from,
+            to: running.to,
+            start: running.start_at(self.sample_time()),
+            curve: played_curve(running)?,
+        };
+        Some((played, running.pending.is_some()))
     }
 
     /// Hand the transition running on `property` of `node` to the host: it

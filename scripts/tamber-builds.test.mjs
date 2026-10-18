@@ -557,6 +557,14 @@ test('a hold is one a build, its client\'s, replayed only through one correspond
   // Its build reports it applied, to every client.
   expect(report(channel, { nonce: a.nonce, kind: 'held', state: 'hover', revision: hover.revision }).status).toBe(204);
   expect(events.at(-1)).toEqual({ event: 'held', build: 'web-1', state: 'hover', reason: null });
+  expect(web().held).toEqual({ state: 'hover', reason: null });
+  // A report is its frame's: a listing after another hold frame says none yet, not the last one's.
+  const third = channel.hold('other', 'web-1', { site: 4, instance: [], state: 'hover' }, plan('1'));
+  expect(web().held).toBe(null);
+  report(channel, { nonce: a.nonce, kind: 'held', state: 'hover', revision: third.revision });
+  channel.hold('other', 'web-1', { site: 3, instance: [[0, 1]], state: 'hover' }, plan('1'));
+  expect(web().held).toBe(null);
+  report(channel, { nonce: a.nonce, kind: 'held', state: 'hover', revision: a.frames.at(-1).revision });
   // A reconnect under the same plan: replayed as it is.
   a.close();
   const a2 = stream(channel);

@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47 and 48 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51 and 52 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -376,6 +376,22 @@ publishes on the boundary. Exclusions, changed offers, a dirty root and
 nested boundaries take the normal root path. A virtualized list (`flex: 1`,
 `min-height: 0`, `width: 100%` under a column) is such a boundary for its
 window changes, row measurement, inserts and removes.
+
+A change confined to absolutely positioned boxes (2026-10-18,
+`kernel/src/layout/absolute.rs`) replays at their containing block when it is
+a positioned flex or grid container: one only gaining or losing absolutely
+positioned children, or anything inside such a child. Positioned boxes keep a
+record too, and `saved_layout` answers it whatever the ancestors asked, since
+none of their answers (intrinsic sizes, baselines) reads an absolutely
+positioned child; the block's overflow reaches them, so the replay compares
+how far it reaches past the border box. A block container is never such a
+boundary: margins collapse through it. A source under another root laid out
+before waits for that root's pass instead of dirtying its whole path in the
+first root's (unless the hoists moved), so a host that lays out several roots
+keeps either kind of boundary. `layout::absolute_tests` holds a step
+strip's playhead dot local and its coupled cases at the root, and 3,000 seeds
+of each `layout_equality` differential (about 99,000 replays) showed no
+divergence.
 
 Kernel publication follows sparse ancestor paths in document order and descends
 where absolute origins move. Per-root publication generations expire old geometry
@@ -1525,6 +1541,103 @@ and wrapping, plus block and grid controls. Ten frames failed before the
 correction, including an 80×80 item where Chrome stretches it to 50×80. Six
 additional frames guard intrinsic measurement: omitting the minimum during
 setup narrowed wider-content columns from Chrome's 120px to 80px.
+
+## Patch 51: use a definite flex basis in a row's intrinsic contribution
+
+A row substitutes the item's hypothetical border-box main size when its
+intrinsic contribution exceeds the flex base and it cannot grow, or falls
+below the base and it cannot shrink. The used basis must be definite. This
+matches Chrome 151's
+[`ComputeMinMaxSizeOfRowContainer`](https://chromium.googlesource.com/chromium/src/+/refs/tags/151.0.7922.34/third_party/blink/renderer/core/layout/flex/flex_layout_algorithm.cc#2871)
+and [Flexbox §9.9.1](https://www.w3.org/TR/css-flexbox-1/#intrinsic-main-sizes).
+The hypothetical size already includes the automatic minimum and min/max
+bounds. Margins are added afterward (Patch 14). Rows no longer use the
+column basis clamps or scroll-container basis shortcut. Columns retain
+Patch 33's clamp ordering; wrapping min-content retains Patch 48's separate
+contribution path.
+
+An absolute box's fit-content width probes both intrinsic sizes through
+`common/absolute.rs` and `common/mod.rs`. A block wrapper forwards the same
+intrinsic query through `block.rs`. Neither needs a separate sizing fix.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+30 literal cases prefixed `Chrome 151 intrinsic flex basis`, measured in
+Chrome 151.0.7922.34 on 2026-10-18. They cover the absolute row and block
+wrapper, siblings, growth and shrink limits, automatic minima, bounds,
+percentage and auto bases, padding, borders, margins and overflow, with
+column, definite-width and wrapping controls. Before the patch, the first
+25 cases had 13 frame mismatches: the reported row was 100px wide
+instead of 40px, and 130px instead of 70px with its sibling.
+
+Taffy's `intrinsic_row_contributions_respect_definite_flex_bases` checks
+12 layouts under both intrinsic widths and both sizing modes. Chrome's
+`width:min-content` and `width:max-content` measurements supply the expected
+sizes, including `flex-basis:content` controls that the kernel does not
+expose. Before the patch, 16 queries differed. Run with
+`cargo test --manifest-path vendor/taffy/Cargo.toml --no-fail-fast`.
+
+Wrapping max-content is floored by the widest outer min-content contribution
+before container insets and bounds. It shares Patch 48's measurement, so a
+direct MaxContent query has the floor Chrome applies even without an absolute
+fit-content caller. Seven `Chrome 151 intrinsic wrap floor` fixtures check
+direct kernel MaxContent layouts; Taffy's
+`wrapping_max_content_is_floored_by_min_content` also checks both sizing modes
+and contents with an explicit zero minimum. Measured with the same Chrome
+version and date. Before the correction, seven kernel frames and twelve
+Taffy measurements/layouts differed, including 40px instead of 100px.
+
+The contribution guard distinguishes a definite used basis from a computed
+base size made definite by an aspect ratio. Content and intrinsic-keyword
+bases remain content-based for this guard; ratio-derived definiteness still
+serves percentage layout. Taffy's
+`ratio_content_bases_do_not_clamp_intrinsic_contributions` checks seven
+Chrome-measured cases under both intrinsic widths and sizing modes. Twenty
+queries failed before the distinction: the reported content-basis row was
+20px instead of 100px, and disabling shrink kept a 10px row at 20px.
+
+Intrinsic line sizes sum the computed outer contributions directly. The
+unused flex-fraction round trip divided a negative difference by a zero
+inner flex base, then discarded it when multiplying back. This erased
+negative margins at a zero basis or padding/border floor, and contributions
+already below the base without Patch 51's substitution.
+
+Nine `Chrome 151 intrinsic flex basis zero inner` fixtures cover these cases,
+positive-margin controls and a column. Taffy's
+`zero_inner_flex_bases_preserve_negative_contributions` also checks direct
+MaxContent measurements and layouts in both directions, with growth enabled
+and disabled. All were measured in Chrome 151.0.7922.34 on 2026-10-18. Before
+the correction, nine kernel frames and twelve Taffy measurements/layouts
+differed; the reported 20px row was 30px.
+
+## Patch 52: keep flex cross-axis auto margins nonnegative
+
+`resolve_cross_axis_auto_margins` distributes only positive free space to
+automatic margins. An overflowing item stays at block/inline start: the top
+in a row, the left in an LTR column, and the right in an RTL column. RTL
+columns use the negative free space as a position offset, preserving fixed
+margins and keeping auto margins at zero. Items without cross-axis auto
+margins retain their alignment path.
+
+This follows Chrome 151's
+[`ResolvedAlignSelf` and cross-axis margin resolution](https://chromium.googlesource.com/chromium/src/+/refs/tags/151.0.7922.34/third_party/blink/renderer/core/layout/flex/flex_layout_algorithm.cc#1894):
+auto margins coerce alignment to flex-start and their share is clamped to
+zero. It gives the overflow placement required by
+[Flexbox §9.6](https://www.w3.org/TR/css-flexbox-1/#algo-cross-margins)
+without assigning a negative used auto margin.
+
+**Held by** `browser_position::cross_axis_auto_margins_match_chrome`:
+84 literal cases in `browser_flex_auto_margins.tsv`, measured in Chrome
+151.0.7922.34 on 2026-10-18. They cover individual and paired margins,
+negative, zero and positive free space, both axes and reversed directions,
+RTL columns inside LTR blocks, multiple lines, fixed positive and negative
+opposite margins, and alignment overrides. Before the patch, 18 frames
+differed; the reported item was at x=-30 instead of x=0.
+
+Taffy's `cross_axis_auto_margins_never_consume_negative_space` checks the
+used margins for 54 layouts, including RTL left-auto cases whose frames
+already matched despite negative margins. Before the patch, 18 margin pairs
+differed. Run with `cargo test --manifest-path vendor/taffy/Cargo.toml
+--no-fail-fast`.
 
 ## Cargo workspace boundary
 

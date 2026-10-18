@@ -14,8 +14,11 @@ package final class Owner: @unchecked Sendable {
         var body: (() -> Void)?
         var done = false
         /// Signalled when the job is done, or when a call waits for main.
-        let wake = DispatchSemaphore(value: 0)
-        init(_ body: @escaping () -> Void) { self.body = body }
+        let wake: DispatchSemaphore
+        init(_ body: @escaping () -> Void, wake: DispatchSemaphore = DispatchSemaphore(value: 0)) {
+            self.body = body
+            self.wake = wake
+        }
     }
     private final class MainCall {
         var body: (() -> Void)?
@@ -33,6 +36,12 @@ package final class Owner: @unchecked Sendable {
     /// Notifications (T5): run after the job that posted them.
     private var later: [Job] = []
     private var mailbox: [MainCall] = []
+    /// Wakes `sync` waited on, kept for the next: a semaphore makes its
+    /// kernel object at its first wait, a Mach call that a frame task's
+    /// sixty syncs a second each paid. A wake is signalled only under the
+    /// lock, and drained under it before it goes back, so none comes back
+    /// holding a count.
+    private var spareWakes: [DispatchSemaphore] = []
     /// The job main is waiting on: a call for main wakes it.
     private var mainWaits: Job?
     private var thread: pthread_t?
@@ -78,8 +87,8 @@ package final class Owner: @unchecked Sendable {
             lock.lock()
             job.body = nil
             job.done = true
-            lock.unlock()
             job.wake.signal()
+            lock.unlock()
         }
     }
 
@@ -95,8 +104,8 @@ package final class Owner: @unchecked Sendable {
         }
         return withoutActuallyEscaping(body) { body in
             var result: T?
-            let job = Job { result = body() }
             lock.lock()
+            let job = Job({ result = body() }, wake: spareWakes.popLast() ?? DispatchSemaphore(value: 0))
             jobs.append(job)
             if main { mainWaits = job }
             lock.unlock()
@@ -105,6 +114,8 @@ package final class Owner: @unchecked Sendable {
                 lock.lock()
                 if job.done {
                     if main { mainWaits = nil }
+                    while job.wake.wait(timeout: .now()) == .success {}
+                    spareWakes.append(job.wake)
                     lock.unlock()
                     break
                 }
@@ -168,9 +179,8 @@ package final class Owner: @unchecked Sendable {
             let call = MainCall { result = body() }
             lock.lock()
             mailbox.append(call)
-            let waiting = mainWaits
+            mainWaits?.wake.signal()
             lock.unlock()
-            waiting?.wake.signal()
             // Main may be about to wait on a job; the wait loop checks the
             // mailbox first, and this hop covers main not waiting at all.
             DispatchQueue.main.async { [self] in

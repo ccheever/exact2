@@ -24,9 +24,15 @@ macro_rules! host {
     ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr) => {
         $crate::grouped_list_exports!();
         $crate::markup_exports!();
+
         $crate::host!(@core $data, $plan, $compat, $delivery, $api, $new, $region, $crate::link::ALL);
     };
     (@core $data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr, $linked:expr) => {
+        /// Native intrinsic field layout using the optional editor's applier.
+        #[no_mangle]
+        pub extern "C" fn exact_set_decorated_measure(rt:u32,read:Option<$crate::measure::DecoratedMeasureFn>) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES,rt,|e|e.bridge.set_decorated_measure(read));
+        }
         $crate::raster_exports!();
         $crate::textflow_exports!();
         $crate::collapse_exports!();
@@ -396,8 +402,8 @@ macro_rules! host {
 
         /// The presenter's synchronous viewport union for an inline run.
         #[no_mangle]
-        pub extern "C" fn exact_set_inline_geometry(rt: u32, read: Option<$crate::geometry::InlineFrameFn>, ctx: *mut ::std::ffi::c_void) {
-            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_inline_geometry(read, ctx));
+        pub extern "C" fn exact_set_inline_geometry(rt: u32, read: Option<$crate::geometry::InlineFrameFn>, range: Option<$crate::geometry::RangeFrameFn>, ctx: *mut ::std::ffi::c_void) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_inline_geometry(read, range, ctx));
         }
 
         /// The open top-layer nodes before a native action read. No batch.
@@ -745,6 +751,14 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_resize(rt: u32, width: f32, height: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.resize(width, height), |n| n)
+        }
+
+        /// A placement root's resolved margins and its width's authorship (LLP 1126.001
+        /// WP10): the output holds JSON `[left, top, right, bottom, authored]`, no batch
+        /// around it; returns its length.
+        #[no_mangle]
+        pub extern "C" fn exact_placement_box(rt: u32, view: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.placement_box(view), |n| n)
         }
 
         /// Resolve a logical row key in the input buffer, or UINT32_MAX.

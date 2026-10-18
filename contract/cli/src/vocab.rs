@@ -409,6 +409,12 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
         if name == "navigationSplit" {
             println!("  on a stack's root route (LLP 1116.004 D1.2). A wide window (900 px and up on the web) shows a stack whose root route is a list whose rows push beside its top, as a split view does, with nothing to write: a row pushes when it draws the disclosure, an `image \"symbol:forward-chevron\"` (the chevron an iOS list draws) in a `link`, or in a `button` or pressable whose action writes the router (`push`, `open`, `go`); a chevron on a row that only selects is decoration, and its route is left unsplit, `navigationSplit=\"none\"` said for you. The list is a 320-wide column, its chevrons hidden and the row whose press pushed the detail marked; the top route is the detail beside it (a detail a row pushed has no Back), a `navigationPresentation=\"modal\"` route stays a sheet, and a phone pushes. The router is unchanged: a push from a row while a detail shows stacks it, so `replace` there to swap the detail. \"none\" keeps the stack pushed; a number is the column's width and splits a list the rule does not find. While nothing is selected the detail pane shows the platform's placeholder (\"No Selection\", centred, in the secondary label's colour); \"placeholder\" on a box in the root route (an `EmptyState`) is your own instead, shown only there and then and laid out nowhere else. A root `tablist` left as the tabs recipe places it is a sidebar on the same window. docs/recipes/navigation-stack.md");
         }
+        if matches!(
+            name,
+            "transition" | "animation" | "-exact-exit-animation" | "-exact-layout-transition"
+        ) {
+            println!("  how motion is written, and what animates: `contract vocab motion` (docs/recipes/motion.md)");
+        }
         if name == "-exact-fit" {
             println!("  on a `text`: \"shrink\" draws a line too wide for its box smaller until it fits, down to half its size, as UIKit's adjustsFontSizeToFitWidth (a timer's readout at the largest text size); with `white-space=\"nowrap\"` the whole line fits, else its longest word (LLP 1116.001 D1.4)");
         }
@@ -523,6 +529,8 @@ fn refused(name: &str) -> String {
     let near = named_like(name);
     if !near.is_empty() {
         out += &format!("; try {}", near.join(", "));
+    } else if means(name).is_none() {
+        out += "; `bun exact.mjs docs <words>` prints the guides' section on a topic";
     }
     out
 }
@@ -556,6 +564,26 @@ const MEANS: &[(&[&str], &str)] = &[
     (
         &["clipboard", "pasteboard", "UIPasteboard"],
         "copying is the host command `copyText(text)` (`contract vocab copyText`)",
+    ),
+    (
+        &[
+            "keyframes",
+            "@keyframes",
+            "Animated",
+            "Reanimated",
+            "LayoutAnimation",
+            "withSpring",
+            "withTiming",
+        ],
+        "transitions, keyframes, exit and layout animation are the recipe `motion`",
+    ),
+    (
+        &["NativeModules", "TurboModule", "requireNativeModule", "ExactModule"],
+        "a module in Swift that `app.ts` asks is the recipe `native-module`",
+    ),
+    (
+        &["useColorScheme", "Appearance", "darkMode"],
+        "colours, light and dark, are the recipe `theme`",
     ),
 ];
 

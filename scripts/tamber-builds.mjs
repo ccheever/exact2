@@ -29,8 +29,9 @@
 //   client's last subscription closes, its pins are cleared on every build.
 //   A build that registers again gets its pins replayed. So with a hold, one
 //   a build, which is replayed when the build registers again or runs
-//   another plan only where exactly one site corresponds (`correspond`),
-//   else cleared with a diagnostic (`hold-cleared`).
+//   another plan only where exactly one site corresponds (`correspond`: its
+//   place and call-site chain), else cleared with a diagnostic
+//   (`hold-cleared`).
 
 import { randomBytes } from 'node:crypto';
 
@@ -215,8 +216,9 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
     const revision = ++holding;
     holdSent.set(id, revision);
     if (hold === null) holds.delete(id);
+    // The build's report was of the frame before: a listing's `held` is its hold's.
     const b = builds.get(id);
-    if (hold === null && b) b.held = null;
+    if (b) b.held = null;
     frame(id, { kind: 'hold', revision, hold, ...(hold && plan ? { plan } : {}) });
     return revision;
   };

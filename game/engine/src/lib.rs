@@ -12,8 +12,11 @@ pub mod args;
 mod assets_load;
 pub mod character;
 pub mod data;
+pub mod diagnostics;
 pub mod emitter;
 mod environment;
+mod events;
+pub use events::TypedEvent;
 mod input;
 pub mod math;
 pub mod motion;
@@ -22,6 +25,7 @@ mod particle_look;
 mod placed;
 mod present;
 pub use node_offsets::{NodeName, NodeOffset, NodeOffsets};
+pub mod recipes;
 pub mod rig;
 mod rng;
 pub mod scene;
@@ -44,7 +48,7 @@ pub use environment::{
     AmbientOcclusion, AoQuality, Bloom, Environment, EnvironmentMap, Fog, SceneSamples, ShadowBox,
     ShadowFilter, Shadows, ToneMapping,
 };
-pub use exact_game_derive::{Args, Component, Data, Presentation, Resource};
+pub use exact_game_derive::{Args, Component, Data, Event, Presentation, Resource};
 pub use exact_motion::spring::SpringConfig;
 pub use exact_plan::Value;
 pub use glam::{Affine3A, Mat4, Quat, Vec2, Vec3, Vec3Swizzles, Vec4};
@@ -64,7 +68,9 @@ pub use storage::{
 };
 pub use tween::Tween;
 pub use values::Published;
-pub use world::{Bundle, Component, Entity, Event, Resource, Target, World, WorldId};
+pub use world::{
+    Bundle, Component, Entity, Event, PropBuilder, Resource, SpriteBuilder, Target, World, WorldId,
+};
 
 pub mod audio;
 

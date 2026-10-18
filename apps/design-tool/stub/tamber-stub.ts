@@ -17,6 +17,8 @@ let TOKEN = 'stub-token';
 let EPOCH = 'stub-epoch', restarts = 0, writes = 0;
 // The next commit's answer: refused, naming why, when a test asks.
 let refuseCommit = '';
+// A session with nothing to commit (`/__stub/refuse-commit` `{nothing: true}`).
+let nothingToCommit = false;
 // The dev loop's page hello names, as a test sets it (`/__stub/page`): none
 // by default, as `tamber tool` alone.
 let PAGE: string | null = null;
@@ -38,7 +40,8 @@ const REBUILDS = new Set(['warmth', 'duration.fast', 'easing.standard', 'app.con
 // A token the JS loop's pages write inline: rebuild-class while a web-js
 // build runs, as the serving loop says (LLP 1121 stage 6).
 const INLINE = new Set(['opacity.muted']);
-const classOf = (ops: { name?: string }[]) => ops.some(o => REBUILDS.has(o.name ?? '') || (INLINE.has(o.name ?? '') && BUILDS.some(b => b.host === 'web-js'))) ? 'rebuild' : 'live';
+// A state part's edit (`set-state`) rebuilds, as the server says.
+const classOf = (ops: { name?: string; op?: string }[]) => ops.some(o => o.op === 'set-state' || REBUILDS.has(o.name ?? '') || (INLINE.has(o.name ?? '') && BUILDS.some(b => b.host === 'web-js'))) ? 'rebuild' : 'live';
 // The design's axes in the other order, as a test reorders them
 // (`/__stub/reverse-axes`): describe says so from then on. `describe`
 // refused (an event's `refuseDescribe`), so a test sees whether the tool
@@ -69,6 +72,8 @@ const answered = (r: { status?: number; ok?: unknown; error?: unknown }) => r.ok
 let miss = false;
 // Held proposals, as a test holds them (`/__stub/hold`).
 let held: Record<string, unknown>[] = [], holds = 0;
+// What a page reports held when a refresh asks it again (`/__stub/held-answer`).
+let heldAnswer: Record<string, unknown> | null = null;
 let FILES: Record<string, string> = { 'app.tamber': 'a'.repeat(64), 'brand.tamber': 'b'.repeat(64) };
 type Event = Record<string, unknown> & { seq: number };
 const log: Event[] = existsSync(DB) ? JSON.parse(readFileSync(DB, 'utf8') || '[]') : [];
@@ -118,8 +123,25 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (['transaction', 'undo', 'accept'].includes(request.method)) scrubs.compete();
       // Inspect goes to the builds that say they can (LLP 1122 D4); `uses`
       // is canned for surface.card; `outline` answers with its sites.
+      // A hold (stage 8 E): the server's record on the build, announced in a
+      // builds event; the build's own `held` a test adds as an event.
+      if (request.method === 'hold') {
+        const b = BUILDS.find(x => x.id === request.build);
+        if (!b || !(b.capabilities ?? []).includes('hold')) return send({ error: { message: `hold: no build \`${request.build}\` that holds states` } }, 409);
+        BUILDS = BUILDS.map(x => x.id === request.build ? { ...x, hold: request.state ? { site: request.site, instance: request.instance ?? [], state: request.state } : null, held: null } : x);
+        log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
+        save();
+        return send({ ok: { build: request.build } });
+      }
       if (request.method === 'inspect') {
         if (!present.has(request.client)) return send({ error: { message: `inspect: \`${request.client}\` is not present` } }, 409);
+        // A refresh asks a build's page to report again, inspect mode as it is:
+        // its last selection again, with the held look a test set (`/__stub/held-answer`).
+        if (request.refresh && !('on' in request)) {
+          const last = log.findLast(e => e.event === 'selection' && e.build === request.build);
+          if (last && heldAnswer) { log.push({ ...last, held: heldAnswer, seq: seq() + 1 }); save(); }
+          return send({ ok: { builds: [request.build] } });
+        }
         const can = BUILDS.filter(b => (b.capabilities ?? []).includes('inspect')).map(b => b.id);
         // Its owners move, said as the server says them (tamber/1.5).
         const was = new Map(BUILDS.map(b => [b.id, b.inspector ?? null]));
@@ -176,8 +198,9 @@ Bun.serve({ hostname, port: Number(port), routes: {
         held.push({ proposal: id, client: request.client, diff: '', changed: [], ops: request.ops.map((op: unknown, index: number) => ({ index, op })), review: request.review });
         return send({ ok: { proposal: id, client: request.client } });
       }
-      if (request.method === 'propose') return send({ ok: { files: FILES, class: classOf(request.ops), changed: request.ops.map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
+      if (request.method === 'propose') return send({ ok: { files: FILES, class: classOf(request.ops), changed: request.ops.filter((o: { name?: string; from?: string }) => o.name ?? o.from).map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
+      if (request.method === 'commit' && nothingToCommit) return send({ error: { message: 'nothing to commit: the session has written nothing' } }, 409);
       if (request.method === 'commit') return refuseCommit
         ? send({ error: { message: `commit refused: app.tamber: ${refuseCommit}`, refused: [{ file: 'app.tamber', why: refuseCommit }] } }, 409)
         : send({ ok: { ...(request.dry ? { scope: 'stub-scope' } : { commit: 'c0ffee0123456789abcdef0123456789abcdef01' }), files: ['app.tamber'], edits: [{ file: 'app.tamber', client: 'agent:codex', tokens: ['surface.card'] }] } });
@@ -231,6 +254,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       log.length = 0;
       held = [];
       holds = 0;
+      heldAnswer = null;
       BUILDS = [];
       reversed = false;
       refuseDescribe = '';
@@ -247,6 +271,13 @@ Bun.serve({ hostname, port: Number(port), routes: {
     POST: async (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
       held.push(await req.json().catch(() => ({})));
+      return send({ ok: true });
+    },
+  },
+  '/__stub/held-answer': {
+    POST: async (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      heldAnswer = (await req.json().catch(() => ({}))).held ?? null;
       return send({ ok: true });
     },
   },
@@ -304,7 +335,9 @@ Bun.serve({ hostname, port: Number(port), routes: {
   '/__stub/refuse-commit': {
     POST: async (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
-      refuseCommit = String((await req.json().catch(() => ({}))).why ?? '');
+      const body = await req.json().catch(() => ({}));
+      refuseCommit = String(body.why ?? '');
+      nothingToCommit = body.nothing === true;
       return send({ ok: true });
     },
   },

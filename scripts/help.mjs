@@ -265,6 +265,15 @@ Android Hermes bundle (bun <exact2>/scripts/hermes-android.mjs build, once).
 Ports    none. Runs to completion.`,
     example: 'bun exact.mjs android && bun exact.mjs agent android tree',
   },
+  game: {
+    line: 'game vocab: fields, defaults and recipes',
+    usage: 'bun exact.mjs game vocab [<name>] [--json]',
+    flags: [['--json', 'structured declarations, fields, defaults and recipe links']],
+    body: `No name lists components, resources and World verbs. A name also accepts Type::method.
+Requires the SDK Rust toolchain; Cargo reuses its compiled inputs. Writes generated
+artifacts under game/target only. Ports none. Runs to completion.`,
+    example: 'bun exact.mjs game vocab Follow',
+  },
   contract: {
     line: 'the Contract compiler: build, types, vocab, fmt, symbols …',
     usage: 'bun exact.mjs contract <subcommand> …      (paths from where you run it)',
@@ -286,6 +295,18 @@ Ports    none. Runs to completion.`,
 The first call compiles the compiler (minutes on a cold checkout).
 Ports    none. Runs to completion: exit 0 when it compiled.`,
     example: 'bun exact.mjs contract build app.contract --json',
+  },
+  docs: {
+    line: 'a guide section by heading',
+    usage: 'bun exact.mjs docs <heading words>',
+    flags: [],
+    body: `Prints the section of start-here, contract-for-agents, contract-grammar, agent-pitfalls,
+reference or a recipe that holds every word, as a whole word, most densely (in code and in
+a recipe they weigh more), after its path and line, then the next matches. A section whose
+heading is on the words prints from its heading, any other from the paragraph that
+mentions them; up to 120 lines. A word may be a CSS name (-exact-exit-animation).
+Ports    none. Runs to completion.`,
+    example: 'bun exact.mjs docs tabular numbers',
   },
   pattern: {
     line: 'start from a working, tested app: one-screen, list-detail, tabs, dashboard, rest',
@@ -462,9 +483,7 @@ export function indexText({ verbs = Object.keys(HELP).filter((v) => v !== 'new')
     'bun exact.mjs <verb> [arguments]    from the app\'s directory (EXACT2=<path> picks another exact2)',
     ...names.map((verb) => `  ${verb.padEnd(width)}  ${line(verb)}`),
     ...(forms.length ? ['The forms a build uses:', ...forms.map((form) => `  ${form}`)] : []),
-    '',
-    'bun exact.mjs <verb> --help: flags and an example;',
-    'bun exact.mjs <verb> --help all: every other flag and the ports it opens. Read it only for a flag not above.',
+    'bun exact.mjs <verb> --help: flags and an example; bun exact.mjs <verb> --help all: every flag and port.',
   ].join('\n');
 }
 

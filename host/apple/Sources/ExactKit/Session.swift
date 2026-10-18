@@ -175,7 +175,6 @@ public final class ExactApp {
         let inputs = json["inputs"] as? [String: Any] ?? [:]
         return (inputs["rustMode"] as? String ?? "off", json["target"] as? String ?? "")
     }
-
     /// Install a composition's launch generation before creating sessions.
     public func installInitial(_ generation: ExactGeneration) {
         precondition(sessions.isEmpty, "install the initial generation before creating sessions")
@@ -204,7 +203,6 @@ public final class ExactApp {
     public func refreshDelivery() {
         for session in sessions { session.apply(session.runtime.deliverySync()) }
     }
-
     func handleCommand(_ name: String) -> Bool { lifecycle?.handleCommand(name, app: self) ?? false }
 
     /// A session of this app: one runtime, unbooted until `boot` or its view's first layout.
@@ -698,8 +696,10 @@ public final class ExactSession {
         landFill()
     }
     private func wire() {
+        runtime.on { exact_set_decorated_measure(runtime.rt, DecorationMeasurements.read) }
         runtime.topLayer = { [weak self] in self?.presenter.openTopLayer ?? ([], nil) }
-        runtime.setInlineGeometry { [weak self] id in self?.presenter.inlineFrame(id) }
+        runtime.setInlineGeometry({ [weak self] id in self?.presenter.inlineFrame(id) },
+                                  range: { [weak self] id, start, end in self?.presenter.rangeFrame(id, start: start, end: end) })
         if ExactSession.asyncFills {
             // @ref LLP 1072 §8.5 — main does not wait for a canvas's draw.
             runtime.canvasDefer(true)
@@ -1265,11 +1265,9 @@ public final class ExactSession {
 
     /// Drawn once per launch; the same across a dev reload's new runner.
     let launchPlace: LaunchPlace
-    /// The machine zone's offset now, told when it is not the one last told:
-    /// at boot and before each advance, so a DST change or a new zone reaches
-    /// the timer that fires after it (habits F6). Under the agent, the
-    /// drive's zone moves it instead (`tellAgentOffset`).
-    var toldOffset: Double?
+    /// The zone's offset last told (`followOffset`, before each advance, so a
+    /// DST change reaches the timer after it, habits F6; `tellAgentOffset`).
+    var toldOffset: Double?, offsetHeld: (zone: String, until: Date)? // `followOffset`
     /// @ref LLP 1061 D5 — told after every boot, as the date is, and on each
     /// change: in the same main-thread turn as the boot batch, so the first
     /// frame on screen already reads the user's preferences.

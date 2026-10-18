@@ -101,6 +101,7 @@ package final class Runtime {
     private(set) package var destroyed = false
     package var topLayer: (() -> (frames: [(UInt32, CGRect)], modal: Int?))?
     package var inlineFrame: ((UInt32) -> CGRect?)?
+    package var rangeFrame: ((UInt32, UInt32, UInt32) -> CGRect?)?
     #if DEBUG
     // Per-runtime observation for differential tests of actual session traffic.
     // Release builds have neither the callback nor a copy of the wire bytes.
@@ -561,6 +562,16 @@ package final class Runtime {
     package func presentFrames(_ yes: Bool) { on { () -> Void in _ = exact_present_frames(rt, yes ? 1 : 0) } }
 
     package func resize(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_resize(rt, Float(width), Float(height))) } }
+    /// A placement root's resolved margins (left, top, right, bottom) and 1 for an authored width
+    /// (LLP 1126.001 WP10); nil when the view is not laid out.
+    package func placementBox(_ view: UInt32) -> [CGFloat]? {
+        on(busy: nil as [CGFloat]?) {
+            let count = exact_placement_box(rt, view)
+            let bytes = Data(bytes: exact_out(rt), count: Int(count))
+            guard let values = try? JSONSerialization.jsonObject(with: bytes) as? [Double], values.count == 5 else { return nil }
+            return values.map { CGFloat($0) }
+        }
+    }
     package func setTime(epochAtZero: Double, utcOffset: Double) -> Batch { on { read(exact_set_time(rt, epochAtZero, utcOffset)) } }
     package func setLaunchTime(epochAtZero: Double, utcOffset: Double) { on { () -> Void in _ = exact_set_launch_time(rt, epochAtZero, utcOffset) } }
     @discardableResult

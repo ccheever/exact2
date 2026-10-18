@@ -152,11 +152,219 @@ private struct WidgetGalleryCell: View {
     }
 }
 
+/// A Live Activity entry (LLP 1126.001 WP10): its kind and preview state,
+/// from the bake's `plans/activities.json`.
+struct ActivityEntry {
+    let kind: String
+    let preview: [String: Any]
+    let assets: AssetResolver
+}
+
+/// One activity's render for the gallery: the entry's plan booted with
+/// its preview state (or a state the agent supplies), at the app's clock
+/// and place, in a scheme; the eight placements are laid out from it as
+/// the system lays them out, at the widths the gallery proposes.
+@MainActor
+final class ActivityPreview {
+    let entry: ActivityEntry
+    let render: ActivityRender
+    let state: [String: Any]
+    let scheme: String
+    let environment: (ActivityPlacement) -> SnapshotEnvironment
+    init(_ entry: ActivityEntry, appSession: ExactSession, scheme: String = "light", state supplied: [String: Any]? = nil) throws {
+        self.entry = entry; self.scheme = scheme
+        guard let plan = entry.assets.bytes("plans/\(entry.kind).plan") else {
+            throw HeadlessSession.Failure(description: "missing activity plan: \(entry.kind); rebuild the app")
+        }
+        let place = appSession.launchPlace, clock = appSession.now()
+        let date = Date(timeIntervalSince1970: (appSession.dateNow().epoch + clock) / 1000)
+        let facts = SessionFacts(displayScale: 1, preferences: scheme == "dark" ? [.dark] : [], rootFontSize: Double(SnapshotDriver.bodySize(for: .large)),
+            date: date, clock: clock, timeZone: TimeZone(identifier: place.timeZone) ?? TimeZone(secondsFromGMT: 0)!, locale: place.locale, seed: place.seed)
+        state = supplied ?? entry.preview
+        render = try ActivityRender(plan: plan, kind: entry.kind, state: try JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]), facts: facts, assets: entry.assets)
+        let linkBase = URL(string: ExactEnv.appMetadata["ExactOrigin"] as? String ?? ""), roots = [entry.assets.root]
+        let frozen: Date? = appSession.clock == nil ? nil : date
+        environment = { placement in
+            SnapshotEnvironment(family: .liveActivity, placement: placement, linkBase: linkBase, imageRoots: roots,
+                                rootFontSize: SnapshotDriver.bodySize(for: .large), entryDate: date, frozenDate: frozen)
+        }
+    }
+    func view(_ placement: ActivityPlacement) -> some View {
+        SnapshotActivity.view(render, placement: placement, environment: environment(placement))
+    }
+}
+
+/// The Dynamic Island's geometry the gallery stands in for: the camera's
+/// obstruction, the compact regions' insets and the expanded presentation's
+/// insets. No API gives them in-process and the extension never reads them,
+/// so they are one device's measurements: the iPhone 17 Pro's, from
+/// chronod's metrics (`obstructionSize (125.33, 36.67)`, compact `edgeInsets
+/// 7`) and the expanded container's accessibility frames (its content at
+/// 17.7 pt from the sides and 18 pt from the top of a 374 pt container).
+struct IslandGeometry {
+    let obstruction: CGSize
+    let compactInset: CGFloat
+    let expandedInsets: EdgeInsets
+    static let iPhone17Pro = IslandGeometry(obstruction: CGSize(width: 125.33, height: 36.67), compactInset: 7,
+                                            expandedInsets: EdgeInsets(top: 18, leading: 17.7, bottom: 18, trailing: 17.7))
+}
+
+/// The expanded presentation's regions, allocated together as ActivityKit
+/// arranges them ("the system first determines the width of the center
+/// content while taking into account the minimal width of the leading and
+/// trailing content ... By default, leading and trailing positions receive
+/// an equal amount of horizontal space"): the sides take their content's
+/// width at least, the centre what is left of the inner width at most, the
+/// sides the equal remainder, the centre below the camera, the bottom below
+/// them all. The frames never overlap.
+enum ExpandedArrangement {
+    struct Frames: Equatable {
+        var leading: CGRect, trailing: CGRect, center: CGRect, bottom: CGRect
+        var height: CGFloat
+        var all: [CGRect] { [leading, trailing, center, bottom] }
+    }
+    static func allocate(inner: CGFloat, geometry: IslandGeometry, leading: CGSize, trailing: CGSize, center: CGSize, bottom: CGSize) -> Frames {
+        let sideLimit = max(0, (inner - geometry.obstruction.width) / 2)
+        let sideMinimum = min(max(leading.width, trailing.width), sideLimit)
+        let centerWidth = max(0, min(center.width, inner - 2 * sideMinimum))
+        let side = max(sideMinimum, (inner - centerWidth) / 2)
+        let leadingFrame = CGRect(x: 0, y: 0, width: side, height: leading.height)
+        let trailingFrame = CGRect(x: inner - side, y: 0, width: side, height: trailing.height)
+        let centerFrame = CGRect(x: (inner - centerWidth) / 2, y: geometry.obstruction.height, width: centerWidth, height: center.height)
+        let below = max(leadingFrame.maxY, trailingFrame.maxY, centerFrame.maxY)
+        let bottomFrame = CGRect(x: 0, y: below, width: inner, height: bottom.height)
+        return Frames(leading: leadingFrame, trailing: trailingFrame, center: centerFrame, bottom: bottomFrame, height: bottomFrame.maxY)
+    }
+}
+
+/// The expanded regions placed by `ExpandedArrangement`: four subviews,
+/// leading, trailing, centre, bottom, each measured at its ideal size.
+struct ExpandedIslandLayout: Layout {
+    let geometry: IslandGeometry
+    private func frames(_ proposal: ProposedViewSize, _ subviews: Subviews) -> ExpandedArrangement.Frames? {
+        guard subviews.count == 4, let width = proposal.width, width.isFinite else { return nil }
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        return ExpandedArrangement.allocate(inner: width, geometry: geometry, leading: sizes[0], trailing: sizes[1], center: sizes[2], bottom: sizes[3])
+    }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let frames = frames(proposal, subviews) else { return .zero }
+        return CGSize(width: proposal.width ?? 0, height: frames.height)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let frames = frames(ProposedViewSize(bounds.size), subviews) else { return }
+        for (subview, frame) in zip(subviews, frames.all) {
+            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY), anchor: .topLeading, proposal: ProposedViewSize(frame.size))
+        }
+    }
+}
+
+/// The eight placements as the system presents them, in a given width:
+/// the Lock Screen card as wide as the gallery; the expanded Island as its
+/// regions, allocated together (`ExpandedArrangement`); the compact Island
+/// as its two regions around the camera's obstruction; the minimal view in
+/// its circle. The regions' sizes are what the driver answers to the
+/// stand-ins' proposals, as in the extension.
+@MainActor
+struct ActivityGalleryView: View {
+    let preview: ActivityPreview
+    let width: CGFloat
+    var geometry = IslandGeometry.iPhone17Pro
+
+    private var dark: Bool { preview.scheme == "dark" }
+    /// The expanded regions' inner width at this gallery width.
+    var expandedInner: CGFloat { width - geometry.expandedInsets.leading - geometry.expandedInsets.trailing }
+    /// The frames the expanded regions take at this width, from the
+    /// driver's ideal sizes: what the stand-in places, for a test to read.
+    func expandedFrames() -> ExpandedArrangement.Frames {
+        let ideal = { (placement: ActivityPlacement) in self.preview.render.size(placement, proposal: .unspecified) }
+        return ExpandedArrangement.allocate(inner: expandedInner, geometry: geometry, leading: ideal(.expandedLeading), trailing: ideal(.expandedTrailing),
+                                            center: ideal(.expandedCenter), bottom: preview.render.size(.expandedBottom, proposal: ProposedViewSize(width: expandedInner, height: nil)))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Lock Screen · \(preview.scheme) · \(Int(width)) pt").font(.caption).foregroundStyle(.secondary)
+            lockScreen
+            Text("Dynamic Island · expanded").font(.caption).foregroundStyle(.secondary)
+            expanded
+            Text("Dynamic Island · compact and minimal").font(.caption).foregroundStyle(.secondary)
+            compact
+        }
+        .frame(width: width, alignment: .leading)
+    }
+
+    /// The card: the root's colour as the tint stands in for the system's
+    /// `activityBackgroundTint` (iOS only), its gradients the view paints,
+    /// and, unsaid, the scheme's material.
+    private var lockScreen: some View {
+        let laid = try? preview.render.layout(.lockScreen, width: width - 2 * ActivityPlacementView.platformMargins.leading, height: nil)
+        let tint = laid.flatMap { SnapshotActivity.background(of: $0, dark: dark).tint }
+        return preview.view(.lockScreen)
+            .frame(width: width)
+            .background { if let tint { tint } else { Rectangle().fill(.regularMaterial) } }
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .environment(\.colorScheme, dark ? .dark : .light)
+    }
+
+    private var expanded: some View {
+        ExpandedIslandLayout(geometry: geometry) {
+            preview.view(.expandedLeading)
+            preview.view(.expandedTrailing)
+            preview.view(.expandedCenter)
+            preview.view(.expandedBottom)
+        }
+        .padding(geometry.expandedInsets)
+        .frame(width: width)
+        .background(Color.black)
+        .clipShape(RoundedRectangle(cornerRadius: 44, style: .continuous))
+        .environment(\.colorScheme, .dark)
+    }
+
+    private var compact: some View {
+        let inset = geometry.compactInset
+        return HStack(spacing: 16) {
+            HStack(spacing: 0) {
+                preview.view(.compactLeading).padding(EdgeInsets(top: inset, leading: inset, bottom: inset, trailing: 0))
+                Color.clear.frame(width: geometry.obstruction.width, height: geometry.obstruction.height)
+                preview.view(.compactTrailing).padding(EdgeInsets(top: inset, leading: 0, bottom: inset, trailing: inset))
+            }
+            .background(Color.black).clipShape(Capsule())
+            preview.view(.minimal)
+                .padding(inset).frame(minWidth: geometry.obstruction.height, minHeight: geometry.obstruction.height)
+                .background(Color.black).clipShape(Capsule())
+        }
+        .environment(\.colorScheme, .dark)
+    }
+}
+
+@MainActor
+private struct ActivityGalleryCell: View {
+    let entry: ActivityEntry
+    let scheme: String
+    let width: CGFloat
+    let appSession: ExactSession
+    @State private var preview: ActivityPreview?
+    @State private var failure: String?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let preview { ActivityGalleryView(preview: preview, width: width) }
+            else if let failure { Text(failure).foregroundStyle(.red) }
+            else { ProgressView() }
+        }
+        .task {
+            guard preview == nil, failure == nil else { return }
+            do { preview = try ActivityPreview(entry, appSession: appSession, scheme: scheme) }
+            catch { failure = String(describing: error) }
+        }
+    }
+}
+
 @MainActor
 private struct WidgetGalleryView: View {
     let appSession: ExactSession
     @State private var revision = 0
     private var entries: [WidgetEntry] { WidgetGallery.entries(in: appSession.app.resolver) }
+    private var activities: [ActivityEntry] { WidgetGallery.activities(in: appSession.app.resolver) }
     let close: () -> Void
     var body: some View {
         VStack(spacing: 0) {
@@ -165,21 +373,33 @@ private struct WidgetGalleryView: View {
                 Spacer()
                 Button("Done", action: close)
             }.padding()
-            SwiftUI.ScrollView([.vertical, .horizontal]) {
-                LazyVStack(alignment: .leading, spacing: 24) {
-                    ForEach(entries, id: \.kind) { entry in
-                        Text(entry.kind).font(.title2)
-                        ForEach(entry.families, id: \.self) { family in
-                            ForEach(["fullColor", "accented", "vibrant"], id: \.self) { mode in
-                                ForEach(["light", "dark"], id: \.self) { scheme in
-                                    ForEach(["large", "xxxl"], id: \.self) { size in
-                                        WidgetGalleryCell(variant: WidgetVariant(entry: entry.kind, family: family, mode: mode, scheme: scheme, size: size), entry: entry, appSession: appSession)
+            // The gallery's own width, finite before the scroll view, is what
+            // an activity's placements are proposed (a horizontal scroll
+            // would leave it unbounded); the widget variants keep their
+            // family frames and scroll both ways.
+            GeometryReader { proxy in
+                SwiftUI.ScrollView([.vertical, .horizontal]) {
+                    LazyVStack(alignment: .leading, spacing: 24) {
+                        ForEach(entries, id: \.kind) { entry in
+                            Text(entry.kind).font(.title2)
+                            ForEach(entry.families, id: \.self) { family in
+                                ForEach(["fullColor", "accented", "vibrant"], id: \.self) { mode in
+                                    ForEach(["light", "dark"], id: \.self) { scheme in
+                                        ForEach(["large", "xxxl"], id: \.self) { size in
+                                            WidgetGalleryCell(variant: WidgetVariant(entry: entry.kind, family: family, mode: mode, scheme: scheme, size: size), entry: entry, appSession: appSession)
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                }.padding().id(appSession.app.resolver.publicationID + String(revision))
+                        ForEach(activities, id: \.kind) { entry in
+                            Text("\(entry.kind) (Live Activity)").font(.title2)
+                            ForEach(["light", "dark"], id: \.self) { scheme in
+                                ActivityGalleryCell(entry: entry, scheme: scheme, width: max(IslandGeometry.iPhone17Pro.obstruction.width + 2 * 60, proxy.size.width - 32), appSession: appSession)
+                            }
+                        }
+                    }.padding().id(appSession.app.resolver.publicationID + String(revision))
+                }
             }
         }.onReceive(NotificationCenter.default.publisher(for: Notification.Name("ExactWidgetGeneration"))) { _ in revision += 1 }
     }
@@ -201,7 +421,15 @@ enum WidgetGallery {
             return WidgetEntry(kind: kind, families: families, preview: preview, assets: assets)
         }
     }
-    static var available: Bool { !entries.isEmpty }
+    static func activities(in assets: AssetResolver) -> [ActivityEntry] {
+        guard let data = assets.bytes("plans/activities.json"),
+              let values = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+        return values.compactMap { value in
+            guard let kind = value["kind"] as? String, let preview = value["preview"] as? [String: Any] else { return nil }
+            return ActivityEntry(kind: kind, preview: preview, assets: assets)
+        }
+    }
+    static var available: Bool { !entries.isEmpty || !activities(in: ExactApp.shared.resolver).isEmpty }
     #if os(macOS)
     @MainActor private static var window: NSWindow?
     #endif
