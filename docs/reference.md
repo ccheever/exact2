@@ -1803,9 +1803,11 @@ component Clock
 Relative time changes at minute boundaries, timers and countdowns each second.
 A timer counts elapsed or remaining time on either side of its instant; a
 countdown stops at zero. The runner drives them without an app task, including
-under the agent's `clock +60000`. The kernel reserves the widest presentation
-at the element's font, including two units for relative time, so ticking
-text keeps its space. Changing numeric text uses tabular digits by default.
+under the agent's `clock +60000`. A standalone live `time` reserves its box
+for the widest presentation at its font, including two units for relative
+time. A live `time` inside a `text` with other runs reflows as on the web;
+make it its own text node when its width must stay fixed. Changing numeric
+text uses tabular digits by default.
 
 `progress start=… end=…` advances from zero to one over the interval and
 clamps outside it. Supply both instants with `end` after `start`, without
