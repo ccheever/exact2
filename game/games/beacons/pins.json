@@ -1,17 +1,19 @@
 {
   "ticks": {
-    "0": "0x678050877109b354",
-    "90": "0x56d7b1520ecf2871"
+    "0": "0x2c1318d681c96bc2",
+    "90": "0xf3f4dced8f1d65f5"
   },
   "saves": {
-    "continuation": "b1789afc4b212d1ae0c596d8071ce9f7159efa18e2832ac79e7cf7eda096c47f"
+    "continuation": "38d9da0149150d8ee70238515aadae2ddb1dd5cb80b8bc2082680b0d319a9a4d"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "fd7f4f9da33341fc9a9806d23a4e92a5552fc06245d619f8e6597bd5583ab61c",
+  "inputs": "d46942e84f52806bbe7660f205955cf7ef4f8282f0d25549d0221c220e20d966",
+  "sourceInputs": "35bf773d7a1f57ebe6c8f72f3cf825bfb32eb47e3a68cd6d39746b0e44131c11",
   "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
-  "at": "bd6d0aee7e5d2d0c71fda875800b889543052e52"
+  "at": "e1573f760367cb6cd2f3583d31ee97a327051fcc",
+  "reason": "Beacons reads validated movement tables; active table bytes and retained tick inputs are saved and hashed"
 }
