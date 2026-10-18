@@ -30,7 +30,7 @@ export function updateEverythingMachines(client: T3Client): UpdateEverythingMach
   return environmentSources(client, fleet.saved, fleet.entries).map(source => ({
     environmentId: source.environmentId, key: source.key, label: source.label,
     serverConfig: Object.keys(source.config).length ? source.config : null, connected: source.phase === 'connected',
-    hostedByThisApp: source.primary, canMaintain: sessionScopes(source.environmentId, source.scopes).some(scope => scope === 'environment:maintain' || scope === 'orchestration:operate'),
+    hostedByThisApp: source.primary, canMaintain: sessionScopes(source.environmentId, source.scopes).includes('environment:maintain'),
     updateState: serverUpdateStateFor(source.environmentId, str(obj(source.config.environment).serverVersion) || null),
   }));
 }

@@ -13,6 +13,7 @@ import { adoptStash } from '../composer/composer-editor-stash';
 import { adoptComposerFiles } from '../composer/composer-editor-files';
 import { sidebarOpened, sidebarRefreshed } from '../sidebar/sidebar-commands';
 import { takeRowDrops } from '../sidebar/legacy-sidebar-drop';
+import { IMAGE_ATTACHMENT_MAX_EDGE } from '../composer/image-attachment-size';
 import { reconnectOnLaunch, launchFocus, primaryTakesFocus } from '../connections/relaunch-reconnect';
 import { adoptSidebarPrefs } from '../sidebar/sidebar-state';
 import { PROVIDER_OPS } from '../providers/providers';
@@ -21,7 +22,9 @@ import { READ_OPS, WRITE_OPS, runOps, type OpOut, type ProvidersRoute } from './
 import { groupingModes, message, projectPath } from './client-shared';
 import { letGo } from './let-go';
 import { fleet } from '../connections/settings-b-fleet';
+import { sessionHasLegacyPermissions, sessionPermissions } from '../connections/remote-scopes';
 import { routedPullRequestRequest } from '../pull-requests/pages-pr-environments';
+import { threadPullRequestKeysEqual } from '../pull-requests/pages-pr-links-logic';
 import { adoptLocalPrefs, refreshLocal, unknownLocalBackend, type LocalBackendStatus, adoptHandoff, keepAliveEvent, keptThread } from '../connections/local-environment';
 import { groupLabel } from '../sidebar/project-groups';
 import { adoptModelPrefs } from '../providers/settings-b-models';
@@ -101,7 +104,10 @@ export class T3Client {
   modelOptions: Obj[] = [];
   runtimeMode = 'approval-required';
   interactionMode = 'default';
+  /** What the session grants, as sessionGrantsScope reads it (remote-scopes.ts sessionPermissions). */
   scopes: string[] = [];
+  /** The server kept this session's grant from before the permission split (the re-pair notice). */
+  legacyPermissions = false;
   shellLive = false;
   threadLive = false;
   configLive = false;
@@ -384,7 +390,7 @@ export class T3Client {
     delete this.subscriptions.config; delete this.subscriptions.shell; this.streamRetryDue.clear();
     const auth = await this.http(native, '/api/auth/session', generation);
     if (auth.authenticated !== true) throw new ClientError('Pair with the T3 server again.', 'auth');
-    this.scopes = scopeStrings(auth.scopes);
+    this.scopes = sessionPermissions(auth); this.legacyPermissions = sessionHasLegacyPermissions(auth);
     const config = await this.request(native, 'server.getConfig', {}, generation);
     const environment = obj(config.environment);
     const incompatible = compatibilityProblem(environment); // protocol-outdated.ts: the message names the direction
@@ -563,7 +569,7 @@ export class T3Client {
             if (itemThread && itemThread !== this.threadId) continue;
             if (item.kind === 'synchronized') this.threadLive = true;
             else {
-              this.thread = applyThread(this.thread, item);
+              this.thread = applyThread(this.thread, item, threadPullRequestKeysEqual);
               this.updateSelectionFromThread();
             }
           }
@@ -666,7 +672,8 @@ export class T3Client {
   async command(op: string, id: string, value: string, n: number, native: Native | null | undefined, storage: Files, providers?: ProvidersRoute): Promise<{ revision: number; message: string; relaunch: boolean; routeReorder: number }> {
     const routeReorder = op === 'environment-route-move' && value.includes('\n') ? n : 0;
     if (!native?.available) return { routeReorder, relaunch: false, revision: ++this.revision, message: 'Open this app on macOS to connect to T3 Code.' };
-    const local = ['draft', 'answer', 'choice', 'previous-question', 'search', 'sidebar', 'dismiss-error', 'close-diff', 'favorite-model', 'copy-message', 'grouping-mode', 'grouping-override', 'device-setting', 'setting-snapshot', 'remove-snapshot', 'snapshot-preview-sound', 'snapshot-shortcut-record', 'snapshot-shortcut-save', 'copy-diagnostic'].includes(op) || op.startsWith('restlocal:') || op.startsWith('chatlocal:') || op.startsWith('editorlocal:') || op.startsWith('shelllocal:') || op.startsWith('cclocal:') || op.startsWith('sidebarlocal:') || op.startsWith('themelocal:') || op.startsWith('pageslocal:') || op.startsWith('terminallocal:') || op.startsWith('terminalpanellocal:') || DIFF_LOCAL_OPS.includes(op);
+    // Update-everything targets outlive the dialog and later UI commands.
+    const local = op.startsWith('ue:') || op.startsWith('sidebar:ue:') || ['draft', 'answer', 'choice', 'previous-question', 'search', 'sidebar', 'dismiss-error', 'close-diff', 'favorite-model', 'copy-message', 'grouping-mode', 'grouping-override', 'device-setting', 'setting-snapshot', 'remove-snapshot', 'snapshot-preview-sound', 'snapshot-shortcut-record', 'snapshot-shortcut-save', 'copy-diagnostic'].includes(op) || op.startsWith('restlocal:') || op.startsWith('chatlocal:') || op.startsWith('editorlocal:') || op.startsWith('shelllocal:') || op.startsWith('cclocal:') || op.startsWith('sidebarlocal:') || op.startsWith('themelocal:') || op.startsWith('pageslocal:') || op.startsWith('terminallocal:') || op.startsWith('terminalpanellocal:') || DIFF_LOCAL_OPS.includes(op);
     const epoch = local ? this.commandEpoch : ++this.commandEpoch;
     const out: OpOut = { message: '', id, value, providers }; // an area's ops hand back their message (client-ops.ts)
     if (!local) {
@@ -825,12 +832,14 @@ export class T3Client {
             if ((local.snapshotDrafts[key] || []).length >= 100) throw new ClientError('Remove an attachment, then try this capture again.');
             const capture = await this.call(native, { op: 'snapshotRead', id, owner });
             if (capture.owner !== owner || capture.id !== id || capture.mimeType !== 'image/png' || num(capture.sizeBytes) < 1 || num(capture.sizeBytes) > 10 * 1024 * 1024) throw new ClientError('The captured window is too large or invalid.');
-            try { await this.call(native, { op: 'snapshotDraftSave', id, owner }); }
+            // The saved draft is scaled to the attachment edge when the capture is over it (deliverSnapShot's compressImageToByteLimit).
+            let saved: Obj;
+            try { saved = obj(await this.call(native, { op: 'snapshotDraftSave', id, owner, imageMaxEdge: IMAGE_ATTACHMENT_MAX_EDGE })); }
             catch (error) { local.snapshotReleases.push(id); throw error; }
             const destination = await fresh();
             if (destination === null) return;
             if (!destination) { await strand(true); continue; }
-            local.snapshotDrafts[key] = [...(local.snapshotDrafts[key] || []), { id, name: str(capture.name), mimeType: 'image/png', sizeBytes: num(capture.sizeBytes), source: obj(capture.source) }];
+            local.snapshotDrafts[key] = [...(local.snapshotDrafts[key] || []), { id, name: str(capture.name), mimeType: 'image/png', sizeBytes: num(saved.sizeBytes) || num(capture.sizeBytes), source: obj(capture.source) }];
             try { await this.persist(storage); }
             catch (error) { withoutSnapshot(local.snapshotDrafts, key, id); local.snapshotReleases.push(id); throw error; }
             this.changed();
@@ -875,8 +884,10 @@ export class T3Client {
       if (!current()) throw new ClientError('The draft changed before upload.');
       let attachmentId = str(image.uploadId);
       if (!attachmentId) {
-        const bytes = await this.call(native, { op: 'snapshotDraftRead', id: image.id });
+        const bytes = await this.call(native, { op: 'snapshotDraftRead', id: image.id,
+          imageMaxEdge: image.downscalable === false ? 0 : IMAGE_ATTACHMENT_MAX_EDGE });
         if (!current()) throw new ClientError('The draft changed before upload.');
+        if (num(bytes.sizeBytes) > 0) image.sizeBytes = num(bytes.sizeBytes);
         const upload = await this.request(native, 'attachments.createUploadUrl', { type: 'image', name: image.name, mimeType: image.mimeType, sizeBytes: image.sizeBytes });
         attachmentId = str(upload.attachmentId);
         if (!attachmentId || !str(upload.relativeUrl).startsWith('/api/attachments/upload/')) throw new ClientError('The server returned an invalid attachment upload.');

@@ -21,6 +21,7 @@ import { threadNotifications, providerUpdates, nativeNotifyStatus, reportWindowF
 import { slowRequests, tracking } from './shell-slow';
 import { settleLiveTraces } from '../client/protocol-reader'; // answered requests whose answer was let go end on the next shell read
 import { nightlyMobileBetaNotice } from './shell-nightly';
+import { permissionUpdateNotices } from './permission-update-notice';
 import { pullRequestPanelTarget } from '../panel/shell-pr';
 import { composerFileView } from '../composer/composer-chip-file';
 import { availability, panelView, surfaceStore } from '../panel/panel-surfaces'; // the tabbed Files / Linked pull requests / Device surfaces
@@ -271,6 +272,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   if (applyDismissals(client, dismissed)) await client.savePreferences(storage);
   const state = shellState(client);
   nightlyMobileBetaNotice(client, client.preferencesLoaded); // shell-nightly.ts
+  permissionUpdateNotices(client, client.preferencesLoaded);
   if (native?.available) {
     native.watch('t3.notify');
     state.status = await nativeNotifyStatus(native, state.status, page.focused);

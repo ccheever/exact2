@@ -1,5 +1,5 @@
 // The composer's provider and model, decided as T3 Code decides them (MIT; see
-// LICENSE-T3). Sources: apps/web/src/providerInstances.ts
+// LICENSE-T3, reference 9c161462c9). Sources: apps/web/src/providerInstances.ts
 // (deriveProviderInstanceEntries, sortProviderInstanceEntries,
 // isProviderInstancePickerReady, resolveSelectableProviderInstanceEntry),
 // components/ChatView.logic.ts (resolveComposerProviderSelection),
@@ -15,7 +15,7 @@
 // otherwise a ready instance, then one whose probe did not fail. `enabled` comes from
 // the settings over the snapshot (applyProviderInstanceSettings), as ChatView reads it.
 import { arr, obj, str, type Obj } from '../client/domain';
-import { driverMeta } from '../providers/providers-meta';
+import { driverMeta, legacyProviders, unconfiguredDefaultEnabled } from '../providers/providers-meta';
 import { resolveSelectableModel } from './composer-controls-model';
 import { providerLock } from './composer-controls-commands';
 import { applyPickerPrefs } from '../providers/settings-b-models';
@@ -59,21 +59,23 @@ export function resolveProviderInstanceEnabled(instance: Obj): boolean {
 /**
  * applyProviderInstanceSettings: the settings, not the streamed snapshot, decide `enabled` (a probe can
  * keep its old value for a moment after a settings write). An instance in providerInstances follows its
- * envelope; a default instance without one follows its legacy providers.<driver> entry; any other instance
- * is a stale snapshot (just deleted) and counts as disabled. Settings without a providerInstances map (a
+ * envelope; a default instance without one follows its legacy providers.<driver> entry on an older server and
+ * isUnconfiguredDefaultInstanceEnabled on a newer one (Codex and Claude run with their default config); any other
+ * instance is a stale snapshot (just deleted) and counts as disabled. Settings without a providerInstances map (a
  * server that predates instances, or a test double) leave the snapshot's value: a current server always
  * sends the decoded map, so the rule then reads exactly as the reference's.
  */
 export function applyProviderInstanceSettings(entries: ProviderEntry[], settings: Obj): ProviderEntry[] {
   const raw = settings.providerInstances;
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return entries;
-  const instances = raw as Obj, legacy = obj(settings.providers);
+  const instances = raw as Obj, legacy = legacyProviders(settings);
   return entries.map(entry => {
     const explicit = Object.hasOwn(instances, entry.instanceId) ? instances[entry.instanceId] : undefined;
-    const legacyProvider = Object.hasOwn(legacy, entry.driverKind) ? legacy[entry.driverKind] : undefined;
+    const legacyProvider = legacy && Object.hasOwn(legacy, entry.driverKind) ? legacy[entry.driverKind] : undefined;
     const legacyEnabled = obj(legacyProvider).enabled;
     const enabled = explicit && typeof explicit === 'object' ? resolveProviderInstanceEnabled(explicit as Obj)
-      : entry.isDefault && legacyProvider ? (typeof legacyEnabled === 'boolean' ? legacyEnabled : entry.enabled) : false;
+      : !entry.isDefault ? false : !legacy ? unconfiguredDefaultEnabled(entry.instanceId)
+        : legacyProvider ? (typeof legacyEnabled === 'boolean' ? legacyEnabled : entry.enabled) : false;
     return enabled === entry.enabled ? entry : { ...entry, enabled };
   });
 }

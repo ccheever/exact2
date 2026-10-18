@@ -26,7 +26,7 @@ use CnMachineIcon from "../settings/settings-b-kit.contract"
 use HoverTip, hoverTipAtFrame from "../shell/hover-layer.contract"
 use SidebarTip from "./sidebar-row.contract"
 use SidebarMenuCard, SidebarMenuItem from "./sidebar-row.contract"
-use TerminalGlyph from "./sidebar-row.contract"
+use TerminalPulse, terminalButtonLabel from "./sidebar-row.contract"
 use ProviderPill from "./sidebar-control-tips.contract"
 use SettingsConfirm from "../settings/settings-rest-dialogs.contract"
 use KmItem from "../shared/menu-keys.contract"
@@ -402,7 +402,7 @@ component LegacyThread
   // Its leave then arrives with the host's hit-test after the layout, also when the row moved away in that batch
   // (a new message re-sorts it to the top). The row's own hover clears it too (the title, which a rename replaces).
   state inner = false
-  // The row's control that holds the focus ("row", "pr", "port", "archive", "confirm", "rename"; "" for none). A
+  // The row's control that holds the focus ("row", "pr", "port", "terminal", "archive", "confirm", "rename"; "" for none). A
   // control that goes away with the focus reports no blur, so only one still drawn counts (group-focus-within).
   state focused = ""
   // When the pointer left the row and its triggers, and when the focus left its controls (performanceNow(); -1
@@ -474,7 +474,7 @@ component LegacyThread
   derive highlighted = isOpen or t.selected
   derive pointed = over or inner
   derive confirmShown = confirming and pointerLeft < 0 and focusLeft < 0 and not t.running and not t.renaming
-  derive inside = t.renaming ? focused == "rename" : focused == "row" or (focused == "pr" and t.prIcon != "") or (focused == "port" and t.portLabel != "") or (focused == "archive" and not confirmShown and not t.running) or (focused == "confirm" and confirmShown)
+  derive inside = t.renaming ? focused == "rename" : focused == "row" or (focused == "pr" and t.prIcon != "") or (focused == "port" and t.portLabel != "") or (focused == "terminal" and t.terminalCount > 0) or (focused == "archive" and not confirmShown and not t.running) or (focused == "confirm" and confirmShown)
   derive revealed = (pointed or inside) and not t.running
   derive surface = isOpen ? "light-dark(#ffffff, #f1f3f71c)" : t.selected ? "light-dark(#ffffff, #f1f3f712)" : pointed ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000"
   view
@@ -510,9 +510,11 @@ component LegacyThread
               if t.worktree
                 box flex-shrink=0 display="flex" role="img" aria-label=t.worktreeLabel testId=`thread-worktree-${t.id}`
                   SidebarIcon(name="folder-git-2", size=12, color="light-dark(#71717b66, #81818166)")
-            LegacyRowTip(label="Terminal process running", side="top", align="center", tipId=`legacy-tip-terminal-${t.id}`, shown=(t.terminalCount > 0), relay=innerHover)
+            // ThreadTerminalStatusButton: shows the thread's first running terminal and opens the thread.
+            LegacyRowTip(label=(t.terminalCount > 0 ? terminalButtonLabel(t.terminalCount) : ""), side="top", align="center", tipId=`legacy-tip-terminal-${t.id}`, shown=(t.terminalCount > 0), relay=innerHover)
               if t.terminalCount > 0
-                TerminalGlyph(label="Terminal process running", size=12, reduced=reduced, id=`sidebar-terminal-status-${t.id}`)
+                button cursor="pointer" press=run("terminal-reveal", t.id, "") dblclick=nested focus=within("terminal", true) blur=within("terminal", false) aria-label=terminalButtonLabel(t.terminalCount) testId=`sidebar-terminal-status-${t.id}` padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+                  TerminalPulse(size=12, reduced=reduced)
             row min-width="3rem" justify-content="flex-end" align-items="center" gap="0.25rem" opacity=(revealed or confirmShown ? 0 : 1)
               if t.remoteMachine != ""
                 box flex-shrink=0 display="flex" role="img" aria-label=t.remoteLabel testId=`thread-remote-${t.id}`

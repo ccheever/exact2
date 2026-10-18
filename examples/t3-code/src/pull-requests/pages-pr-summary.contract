@@ -1,11 +1,11 @@
 // The pull request Summary tab, measured against
-// T3 Code 1e2ecbd975 (MIT, see LICENSE-T3) components/pullRequest/PullRequestSummaryTab.tsx,
+// T3 Code 9c161462c9 (MIT, see LICENSE-T3) components/pullRequest/PullRequestSummaryTab.tsx,
 // PullRequestActivityUnavailableState.tsx and PullRequestGhosts.tsx PullRequestConversationGhost:
 // reviewers with the verdict ring each last gave, labels, the sticky Description, Checks and
-// Comments sections, the conversation 10 at a time from the newest, the bot and the
-// resolved-or-dismissed groups, the truncated notice and the order toggle. The model is
-// pages-pr-summary.ts; the window, order and open groups are this tab's own state, made fresh
-// for each pull request (the panel keys the tab by its URL).
+// Comments sections, the conversation 10 at a time from the newest through the comment filter
+// (bot comments, resolved or dismissed ones, which are drawn collapsed), the truncated notice and the
+// order toggle. The model is pages-pr-summary.ts; the window and order are this tab's own state, made
+// fresh for each pull request (the panel keys the tab by its URL); the filter is the device's.
 use PgIcon from "../shared/pages-icons.contract"
 use PrAvatar from "./pages-prs.contract"
 use PrChip from "./pages-prs.contract"
@@ -23,6 +23,8 @@ use PrdDescription from "./pages-pr-edit.contract"
 use PrdRemarkBody from "./pages-pr-edit.contract"
 use PrHandoffsView from "./pages-pr-handoffs.contract"
 use PrdFixButton from "./pages-pr-handoffs.contract"
+use KmItem from "../shared/menu-keys.contract"
+use KeyMenu from "../shared/menu-keys.contract"
 
 shape PrFace
   key: string
@@ -57,16 +59,9 @@ shape PrCommentCard
   reactions: PrReactionPill[]
   reacted: string[]
   canReact: bool
+  finished: bool
   // The finding its Fix hands over ('' for talk and verdicts).
   fix: string
-shape PrCommentGroup
-  label: string
-  authorsText: string
-  filesText: string
-  latest: string
-  latestTip: string
-  faces: PrFace[]
-  more: number
 shape PrReviewerEntry
   key: string
   login: string
@@ -99,14 +94,10 @@ shape PrSummaryView
   activeCount: number
   newest: PrCommentCard[]
   oldest: PrCommentCard[]
-  botCount: number
-  botsNewest: PrCommentCard[]
-  botsOldest: PrCommentCard[]
-  bots: PrCommentGroup
-  finishedCount: number
-  finishedNewest: PrCommentCard[]
-  finishedOldest: PrCommentCard[]
-  finished: PrCommentGroup
+  showBots: bool
+  showResolved: bool
+  filterLabel: string
+  filteredOutText: string
 
 fn prsMuted(): string = "light-dark(#71717b, #818181)"
 fn prsInk(): string = "light-dark(#27272a, #f5f5f5)"
@@ -148,7 +139,6 @@ component PrdSummary
   state commentsOpen = true
   state order = "newest"
   state shown = 10
-  state shownBots = 10
   action toggle(section: string)
     let closing = section == "description" ? descriptionOpen : (section == "checks" ? checksOpen : commentsOpen)
     let viewportTop = frame(scrollId).y
@@ -163,12 +153,10 @@ component PrdSummary
     commentsOpen = section == "comments" ? not commentsOpen : commentsOpen
   action flipOrder
     order = order == "newest" ? "oldest" : "newest"
-  action more(bots: bool)
-    shown = bots ? shown : shown + 10
-    shownBots = bots ? shownBots + 10 : shownBots
-  action fewer(bots: bool)
-    shown = bots ? shown : 10
-    shownBots = bots ? 10 : shownBots
+  action more
+    shown = shown + 10
+  action fewer
+    shown = 10
   view
     column width="100%" testId="pull-request-summary"
       // Raised (here and the Reviewers row) so a reviewer's tooltip, which hangs below the face, paints over
@@ -221,7 +209,9 @@ component PrdSummary
                 PrdCheckRow(check=check, handoffs=handoffs, surface=surface, act=act)
       column id=`${scrollId}-comments` width="100%" role="region" aria-label="Comments"
         PrdSectionHeader(id=`${scrollId}-comments-heading`, label=summary.commentsTitle, open=commentsOpen, still=still, press=toggle("comments"), testId="pull-request-comments-toggle")
-          PrdGhostButton(label=(order == "newest" ? "Newest first" : "Oldest first"), icon="arrow-down-up", press=flipOrder, ariaLabel=(order == "newest" ? "Show oldest comments first" : "Show newest comments first"), testId="pull-request-comments-order")
+          row flex-shrink=0 align-items="center" gap="0.25rem"
+            PrdCommentFilter(summary=summary, scope=scrollId, local=local)
+            PrdGhostButton(label=(order == "newest" ? "Newest first" : "Oldest first"), icon="arrow-down-up", press=flipOrder, ariaLabel=(order == "newest" ? "Show oldest comments first" : "Show newest comments first"), testId="pull-request-comments-order")
         if commentsOpen
           column width="100%" padding-left="1rem" padding-right="1rem" padding-bottom="1rem" box-sizing="border-box" testId="pull-request-comments"
             if summary.activityPending
@@ -234,28 +224,21 @@ component PrdSummary
                   text summary.truncatedText margin-bottom="0.5rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#fe9a004d, #fe9a004d)" background-color="light-dark(#fffbeb, #fe9a0014)" font-size="0.75rem" line-height="1rem" color=prsInk() testId="pull-request-comments-truncated"
                 if summary.empty
                   text "No comments yet." padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" color=prsMuted()
+                else if summary.filteredOutText != ""
+                  text summary.filteredOutText padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" color=prsMuted() testId="pull-request-comments-filtered-out"
                 else
                   column width="100%" gap="0.75rem"
                     if order == "oldest" and summary.activeCount > shown
-                      PrdShowOlder(hidden=(summary.activeCount - shown), bots=false, press=more(false))
+                      PrdShowOlder(hidden=(summary.activeCount - shown), press=more)
                     for card in (order == "newest" ? summary.newest : summary.oldest).filter((c) => c.fromEnd < shown) key=card.key
-                      PrdCommentCard(card=card, choices=writes.reactionChoices, scope=scrollId, documents=documents, code=code, env=env, still=still, local=local, act=act, handoffs=handoffs, surface=surface)
+                      if card.finished
+                        PrdCollapsedComment(card=card, choices=writes.reactionChoices, scope=scrollId, documents=documents, code=code, env=env, local=local, act=act, still=still)
+                      else
+                        PrdCommentCard(card=card, choices=writes.reactionChoices, scope=scrollId, documents=documents, code=code, env=env, still=still, local=local, act=act, handoffs=handoffs, surface=surface)
                     if order == "newest" and summary.activeCount > shown
-                      PrdShowOlder(hidden=(summary.activeCount - shown), bots=false, press=more(false))
+                      PrdShowOlder(hidden=(summary.activeCount - shown), press=more)
                     if shown > 10
-                      PrdWideButton(label="Show only 10 recent comments", outline=false, press=fewer(false), testId="pull-request-comments-fewer")
-                    if summary.botCount > 0
-                      PrdCommentGroupBox(group=summary.bots, still=still, testId="pull-request-bot-comments")
-                        for card in (order == "newest" ? summary.botsNewest : summary.botsOldest).filter((c) => c.fromEnd < shownBots) key=card.key
-                          PrdCommentCard(card=card, choices=writes.reactionChoices, scope=scrollId, documents=documents, code=code, env=env, still=still, local=local, act=act, handoffs=handoffs, surface=surface)
-                        if summary.botCount > shownBots
-                          PrdShowOlder(hidden=(summary.botCount - shownBots), bots=true, press=more(true))
-                        if shownBots > 10
-                          PrdWideButton(label="Show only 10 recent bot comments", outline=false, press=fewer(true), testId="pull-request-bot-comments-fewer")
-                    if summary.finishedCount > 0
-                      PrdCommentGroupBox(group=summary.finished, still=still, testId="pull-request-finished-comments")
-                        for card in (order == "newest" ? summary.finishedNewest : summary.finishedOldest) key=card.key
-                          PrdCollapsedComment(card=card, choices=writes.reactionChoices, scope=scrollId, documents=documents, code=code, env=env, local=local, act=act, still=still)
+                      PrdWideButton(label="Show only 10 recent comments", outline=false, press=fewer, testId="pull-request-comments-fewer")
 
 // A reviewer's face in the stack (-space-x-1): the verdict rides it as a ring, its words for a
 // screen reader and in the tooltip ("<name> — <outcome>").
@@ -320,10 +303,59 @@ component PrdWideButton
 component PrdShowOlder
   props
     hidden: number
-    bots: bool
     press: action
   view
-    PrdWideButton(label=`Show ${min(hidden, 10)} older ${bots ? "bot " : ""}comment${hidden == 1 ? "" : "s"} (${hidden} hidden)`, outline=true, press=press, testId=(bots ? "pull-request-bot-comments-older" : "pull-request-comments-older"))
+    PrdWideButton(label=`Show ${min(hidden, 10)} older comment${hidden == 1 ? "" : "s"} (${hidden} hidden)`, outline=true, press=press, testId="pull-request-comments-older")
+
+// Which kinds of comment the conversation shows (Menu; MenuPopup align="end"): the trigger reads "Filter" or
+// "N hidden", and its "Show" group's two checkbox rows leave the menu open (closeOnClick false).
+component PrdCommentFilter
+  props
+    summary: PrSummaryView
+    scope: string
+    local: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  derive menuId = `${scope}-comment-filter`
+  derive rows = [KmItem(id=`${menuId}-bots`, label="Bot comments"), KmItem(id=`${menuId}-resolved`, label="Resolved or dismissed")]
+  view
+    column position="relative" flex-shrink=0
+      button popovertarget=menuId hover=hover aria-label="Filter comments" testId="pull-request-comments-filter" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0 title=""
+        PgIcon(name="list-filter", size=12, color=(over ? prsInk() : prsMuted()))
+        text summary.filterLabel font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=(over ? prsInk() : prsMuted())
+      // aria-modal: while it shows, its Escape closes it, not the Pull Requests page.
+      column id=menuId popover="auto" position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" aria-modal=true position="absolute" margin-top="0.25rem" testId="pull-request-comments-filter-layer"
+        column padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Filter comments" testId="pull-request-comments-filter-menu"
+          KeyMenu(menuId=`${menuId}-keys`, items=rows, keyed=0, gap="0px", modal=true)
+            column width="100%" role="group" aria-label="Show"
+              text "Show" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color=prsMuted() aria-hidden=true
+              PrdFilterRow(keysId=`${menuId}-keys`, label="Bot comments", checked=summary.showBots, press=local("pr-ui-comment-filter", "", "bots"), testId=`${menuId}-bots`)
+              PrdFilterRow(keysId=`${menuId}-keys`, label="Resolved or dismissed", checked=summary.showResolved, press=local("pr-ui-comment-filter", "", "resolved"), testId=`${menuId}-resolved`)
+
+// MenuCheckboxItem: a 16pt check column, then the label.
+component PrdFilterRow
+  props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
+    label: string
+    checked: bool
+    press: action
+    testId: string
+  state lit = false
+  action hover(value: bool)
+    if value
+      focus(testId)
+    else if lit
+      focus(keysId)
+  action focused(on: bool)
+    lit = on
+  view
+    button id=testId press=press hover=hover focus=focused(true) blur=focused(false) role="menuitemcheckbox" aria-checked=checked testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="1rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
+        if checked
+          PgIcon(name="check", size=14, color=prsInk())
+      text label font-size="0.875rem" line-height="1.25rem" color=prsInk() flex-grow=1 flex-shrink=0 white-space="nowrap" text-align="left"
 
 // A check row opens its details in the system browser where the host gave a URL; a failing one
 // offers its own Fix beside it.
@@ -435,41 +467,6 @@ component PrdCommentCard
       if card.bodyId != "" or card.canEdit
         column padding="0.75rem" box-sizing="border-box" min-width=0
           PrdRemarkBody(remarkId=card.id, bodyId=card.bodyId, raw=card.raw, kind=card.kind, canEdit=card.canEdit, saving=card.saving, serial=card.savedSerial, shown=(over or focused), scope=`${scope}-s`, documents=documents, code=code, env=env, still=still, local=local, act=act)
-
-// CommentGroup: the overlapping faces, the label, "N authors · N files · Latest …", a chevron.
-component PrdCommentGroupBox
-  props
-    group: PrCommentGroup
-    still: bool
-    testId: string
-  slot
-  state open = false
-  action toggle
-    open = not open
-  view
-    column width="100%" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fcfcfc, #0a0a0a)" overflow="hidden" testId=testId
-      row align-items="center" gap="0.75rem" padding-left="0.75rem"
-        row flex-shrink=0
-          for person in group.faces key=person.key
-            box margin-right="-0.375rem" border-radius="624.9375rem" box-shadow="0 0 0 2px light-dark(#fcfcfc, #0a0a0a)" aria-label=person.login role="img"
-              PrAvatar(avatar=person.avatar, initial=person.initial, size=16)
-          if group.more > 0
-            row width="1.5rem" height="1.5rem" border-radius="624.9375rem" background-color="light-dark(#f4f4f5, #ffffff0a)" box-shadow="0 0 0 2px light-dark(#fcfcfc, #0a0a0a)" align-items="center" justify-content="center"
-              text `+${group.more}` font-size="0.5625rem" line-height="0.75rem" color=prsMuted()
-        button press=toggle aria-label=group.label aria-expanded=open testId=`${testId}-toggle` flex=1 min-width=0 padding-top="0.75rem" padding-bottom="0.75rem" padding-right="0.75rem" padding-left="0.375rem" box-sizing="border-box" gap="0.75rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
-          column flex=1 min-width=0 gap="0.25rem" align-items="flex-start"
-            text group.label font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272ae6, #f5f5f5e6)"
-            row flex-wrap="wrap" gap="0.375rem"
-              text group.authorsText font-size="0.6875rem" line-height="1rem" color=prsMuted()
-              if group.filesText != ""
-                text `· ${group.filesText}` font-size="0.6875rem" line-height="1rem" color=prsMuted()
-              if group.latest != ""
-                Tip(label=group.latestTip, side="top", align="start", offset=20)
-                  text `· Latest ${group.latest}` font-size="0.6875rem" line-height="1rem" color=prsMuted()
-          box width="0.875rem" height="0.875rem" flex-shrink=0 rotate=(open ? 90 : 0) transition=(still ? "none" : "rotate 150ms cubic-bezier(0.4, 0, 0.2, 1)") aria-hidden=true
-            PgIcon(name="chevron-right", size=14, color=prsMuted())
-      column width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-bottom="0.75rem" padding-top="0.5rem" box-sizing="border-box" gap="0.75rem" border-top-width=1 border-top-style="solid" border-color=prsBorder() display=(open ? "flex" : "none")
-        children
 
 // CollapsedComment: finished work opens collapsed — its status ("Resolved", "Review dismissed")
 // toggles it, and a one-line preview of its words stands in until it opens.

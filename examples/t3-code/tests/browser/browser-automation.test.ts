@@ -549,3 +549,13 @@ describe('"Open and tabs": an agent-opened tab after a relaunch', () => {
   });
 });
 
+
+it('a serverBrowser host subscribes only to preview events and never calls the retired automation RPCs', async () => {
+  const { client, sent } = fakeClient();
+  client.config = { environment: { capabilities: { serverBrowser: true } } };
+  await automationPrepare(client, module);
+  await reportAutomationFocus(client, focusedLink(client, module));
+  expect(sent.filter(request => request.op === 'subscribe').map(request => request.method)).toEqual(['subscribePreviewEvents']);
+  expect(sent.some(request => String(request.method).startsWith('previewAutomation.'))).toBe(false);
+  expect(plans(sent)).toEqual([]);
+});

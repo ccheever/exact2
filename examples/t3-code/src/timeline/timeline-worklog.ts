@@ -1,4 +1,4 @@
-// Work-log presentation adapted from T3 Code (MIT, see LICENSE-T3):
+// Work-log presentation adapted from T3 Code 9c161462c9 (MIT, see LICENSE-T3):
 // apps/web/src/session-logic.ts (projectedWorkEntry, providerErrorPresentation),
 // packages/client-runtime/src/work-log/presentation.ts (summaries, failure),
 // packages/shared/src/toolActivity.ts (classification, labels) and
@@ -292,7 +292,8 @@ export function isToolLike(entry: WorkEntry): boolean {
 }
 export function displayFailed(entry: WorkEntry): boolean {
   if (entry.tone === 'error' || entry.status === 'failed' || entry.status === 'declined') return true;
-  if (!isToolLike(entry)) return false;
+  // Reasoning detail is the model's own prose, not tool output: "that exit code 2 is expected" is not a failure.
+  if (!isToolLike(entry) || entry.itemType === 'reasoning') return false;
   if (t3ToolDefinition(entryToolName(entry)) && t3ToolResultFailed(entryToolOutput(entry))) return true;
   if (entry.itemType === 'command_execution') {
     if (entry.item.outputIndicatesFailure === true || typeof entry.item.exitCode === 'number' && entry.item.exitCode !== 0) return true;
@@ -420,7 +421,7 @@ export function entryIcon(entry: WorkEntry): string {
   if (entry.itemType === 'notification') {
     if (entry.item.outcome === 'failed') return 'circle-alert';
     const kind = str(obj(entry.item.source).kind);
-    return kind === 'subagent' || kind === 'delegated_task' ? 'bot' : kind === 'command' ? 'terminal' : kind === 'monitor' ? 'eye' : 'zap';
+    return kind === 'subagent' || kind === 'delegated_task' ? 'bot' : kind === 'command' ? 'terminal' : kind === 'monitor' ? 'eye' : kind === 'system' ? 't3-code' : 'zap';
   }
   if (entry.itemType === 'user_input_request' || entry.itemType === 'approval_request') return 'message-circle';
   const surface = extractToolActivityPresentation(entry.item).toolSurface;
@@ -486,6 +487,45 @@ export function liveEntryLabel(entry: WorkEntry, root: string, active: boolean):
     return `${verb} ${commandProgramName(command) ?? 'command'}`;
   }
   return entryDisplayLabel(entry, root);
+}
+
+/**
+ * liveThoughtLine (work-log/presentation.ts): the latest thought on the live row. A bold-only
+ * opening line (Codex's summary heading) wins; otherwise the reasoning's first sentence.
+ */
+export function liveThoughtLine(markdown: string): string {
+  const heading = /^\s*\*\*([^*\r\n]+)\*\*[ \t]*\r?(?:\n|$)/.exec(markdown)?.[1];
+  const text = (heading ?? markdown)
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^[ \t]*(?:#{1,6}|[-*+]|\d+\.)[ \t]+/gm, '')
+    .replace(/`+|\*\*|~~/g, '')
+    .replace(/(^|[^\w*])[*_]([^*_\n]+)[*_](?![\w*])/g, '$1$2')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (heading !== undefined) return text;
+  // Cut after the first . ? or ! (and a closing quote or paren) that a space follows.
+  const end = /[.?!]["'”’)]?(?=\s)/.exec(text);
+  return end ? text.slice(0, end.index + end[0].length) : text;
+}
+
+// ---- thread-read targets (MessagesTimeline.logic.ts threadReadTargetId, threadReadLabelPrefix) ----
+/** The trimmed thread id a `t3_thread_read` call targets, or '' for any other entry. */
+export function threadReadTargetId(entry: WorkEntry): string {
+  if (entry.itemType !== 'dynamic_tool' || t3ToolDefinition(str(entry.item.toolName))?.summaryAction !== 'thread-read') return '';
+  return str(obj(entry.item.input).threadId).trim();
+}
+const THREAD_READ_OBJECT = ' a T3 thread';
+/** "Read a T3 thread" names the read thread instead (`Read thread “Title”`), keeping its tense; '' keeps the generic label. */
+export function threadReadLabelPrefix(label: string): string {
+  return label.endsWith(THREAD_READ_OBJECT) ? `${label.slice(0, -THREAD_READ_OBJECT.length)} thread` : '';
+}
+/** The read thread's live title and the label's prefix, or null when either is missing (threadReadLabel). */
+export function threadReadLabel(entry: WorkEntry, label: string, threads: readonly Obj[]): { threadId: string; title: string; prefix: string; text: string } | null {
+  const threadId = threadReadTargetId(entry), prefix = threadReadLabelPrefix(label);
+  if (!threadId || !prefix) return null;
+  const shell = threads.find(thread => thread.id === threadId);
+  const title = shell && !shell.archivedAt && !shell.deletedAt ? str(shell.title).trim() : '';
+  return title ? { threadId, title, prefix, text: `${prefix} “${title}”` } : null;
 }
 export function activeTurnActivity(entry: WorkEntry): boolean { return entry.status === 'inProgress'; }
 export function successKeepsLive(entry: WorkEntry): boolean { return succeeded(entry); }

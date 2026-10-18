@@ -11,8 +11,10 @@ import { arr, obj, str, num, type Message, type Obj } from './domain';
 import { activeRun, providerAvailable } from './protocol';
 import type { T3Client } from './client';
 import { timelineMessages, timelineSnapshot, transcriptRows } from '../timeline/timeline-presentation';
+import { threadFooterRows } from '../timeline/thread-status-line';
+import { noteSubagentRequests } from '../sidebar/subagent-requests';
 import { sidebarSnapshot } from '../sidebar/sidebar-view';
-import { subagentLead } from '../sidebar/sidebar-lineage';
+import { parentThreadLink, subagentLead } from '../sidebar/sidebar-lineage';
 import { requestPresentation } from '../composer/requests';
 import { threadErrorView } from '../timeline/timeline-errors';
 import { diffNotGit, diffSnapshot, NOT_GIT_REPO } from '../diff/diff';
@@ -102,6 +104,7 @@ export function transcriptPresentation(client: T3Client): Message[] { return wit
 /** `displayMode`: Contract's `exactViewport().displayMode` (app.contract passes it with the snapshot request). */
 export function snapshot(client: T3Client, now = 0, displayMode = '') {
   adoptHostLocale(client.presentation.systemLocale);
+  noteSubagentRequests(client.shell.threads); // the sidebar's parents carry their hidden subagents' requests (subagent-requests.ts)
   const fullScreen = displayMode === 'fullscreen'; // the viewport's display mode, not a native fact
   const project = client.shell.projects.find(project => project.id === client.projectId);
   const providers = arr(client.config.providers);
@@ -138,7 +141,7 @@ export function snapshot(client: T3Client, now = 0, displayMode = '') {
     projectId: client.projectId, projectName: str(project?.title, 'Choose a project'), threadId: client.threadId,
     threadTitle: str(obj(client.projection.thread).title, 'New thread'),
     // The header title keyed by its text: a reused one-line text keeps drawing the previous title clipped to the new width.
-    threadHeading: [str(obj(client.projection.thread).title, 'New thread')].map(title => ({ id: title, label: title })), draft: client.draft, snapshotDrafts: snapshotDraftTiles(client), snapshotOwner: client.snapshotOwner,
+    threadHeading: [str(obj(client.projection.thread).title, 'New thread')].map(title => ({ id: title, label: title })), parentThread: parentThreadLink(client), draft: client.draft, snapshotDrafts: snapshotDraftTiles(client), snapshotOwner: client.snapshotOwner,
     settled: section(obj(client.projection.thread)) === 'settled', ...projectIdentity(str(project?.title)),
     running: !!run, subagentsLive: transcript.some(message => (message.activities ?? []).some(activity => (activity.startedMs ?? 0) > 0)), // AgentElapsed ticks
     canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId && !projectCloneBlock(client) && !feedbackUploading(client), // a cloning project waits (project-clones-live.ts)
@@ -165,7 +168,8 @@ export function snapshot(client: T3Client, now = 0, displayMode = '') {
     legacy: legacySidebarSnapshot(client, now, { projectIdentity }),
     timelineReadsNeeded: timelineReadsNeeded(client),
     markdownSkills: markdownSkills(workspaceValues(provider ?? {}, workspaceCwd(client), 'skills').map(skill => ({ name: str(skill.name), displayName: str(skill.displayName) }))),
-    messages: timelineMessages(client, transcript, now), ...timelineSnapshot(client),
+    // The timeline's footer rows after the last message: a pending context handoff, then the status line.
+    messages: timelineMessages(client, [...transcript, ...threadFooterRows(client, now)], now), ...timelineSnapshot(client),
     providers: providers.map(provider => ({ id: str(provider.instanceId), name: str(provider.displayName, str(provider.driver)), available: providerAvailable(provider) })),
     models: providers.flatMap(provider => arr(provider.models).map(model => ({ id: str(model.slug), name: str(model.name, str(model.slug)),
       providerId: str(provider.instanceId), selected: provider.instanceId === client.providerId && model.slug === client.modelId }))),

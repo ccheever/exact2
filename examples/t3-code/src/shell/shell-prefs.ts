@@ -8,15 +8,16 @@
 // (versionSkew.ts `t3code:version-mismatch-dismissals:v1`, keyed environment:client:server),
 // and the last editor an Open In menu used (editorPreferences.ts LAST_EDITOR_KEY
 // `t3code:last-editor`), and the ChatGPT plan dialogs already shown
-// (ChatGptWelcomeCoordinator `t3:chatgpt-sharing-welcome:v1`; chatgpt-plan.ts).
+// (ChatGptWelcomeCoordinator `t3:chatgpt-sharing-welcome:v1`; chatgpt-plan.ts), and the environments
+// whose permission-change notice was closed (PermissionUpdateNotice `t3code:permission-update:v1:<id>`).
 // The client writes the file after every command.
 import { obj, type Obj } from '../client/domain';
 
-export type ShellPrefs = { nightlyNoticeDismissed: boolean; inlineClosed: string[]; providerUpdateDismissals: string[]; versionMismatchDismissals: string[]; lastEditor: string; chatgptSharingWelcome: string[] };
+export type ShellPrefs = { nightlyNoticeDismissed: boolean; inlineClosed: string[]; providerUpdateDismissals: string[]; versionMismatchDismissals: string[]; lastEditor: string; chatgptSharingWelcome: string[]; permissionUpdateDismissals: string[] };
 type Holder = { local: object };
 
 const MAX_CLOSED = 500;
-const emptyPrefs = (): ShellPrefs => ({ nightlyNoticeDismissed: false, inlineClosed: [], providerUpdateDismissals: [], versionMismatchDismissals: [], lastEditor: '', chatgptSharingWelcome: [] });
+const emptyPrefs = (): ShellPrefs => ({ nightlyNoticeDismissed: false, inlineClosed: [], providerUpdateDismissals: [], versionMismatchDismissals: [], lastEditor: '', chatgptSharingWelcome: [], permissionUpdateDismissals: [] });
 
 /** The live prefs object on the client's preference record (created on first use). */
 export function shellPrefs(owner: Holder): ShellPrefs {
@@ -24,6 +25,7 @@ export function shellPrefs(owner: Holder): ShellPrefs {
   if (!local.shell || typeof local.shell !== 'object') local.shell = emptyPrefs();
   if (!Array.isArray(local.shell.versionMismatchDismissals)) local.shell.versionMismatchDismissals = [];
   if (!Array.isArray(local.shell.chatgptSharingWelcome)) local.shell.chatgptSharingWelcome = [];
+  if (!Array.isArray(local.shell.permissionUpdateDismissals)) local.shell.permissionUpdateDismissals = [];
   return local.shell;
 }
 
@@ -35,6 +37,7 @@ export function adoptShellPrefs(next: object, saved: Obj): void {
   if (Array.isArray(value.providerUpdateDismissals)) prefs.providerUpdateDismissals = value.providerUpdateDismissals.filter((key): key is string => typeof key === 'string'); // no limit, as providerUpdateDismissal.ts
   if (Array.isArray(value.versionMismatchDismissals)) prefs.versionMismatchDismissals = value.versionMismatchDismissals.filter((key): key is string => typeof key === 'string' && key.length <= 512).slice(-200);
   if (Array.isArray(value.chatgptSharingWelcome)) prefs.chatgptSharingWelcome = value.chatgptSharingWelcome.filter((key): key is string => typeof key === 'string' && key.length <= 1024).slice(-200);
+  if (Array.isArray(value.permissionUpdateDismissals)) prefs.permissionUpdateDismissals = value.permissionUpdateDismissals.filter((key): key is string => typeof key === 'string' && key.length <= 512).slice(-200);
   if (typeof value.lastEditor === 'string' && /^[a-z0-9-]{1,64}$/.test(value.lastEditor)) prefs.lastEditor = value.lastEditor;
   (next as { shell?: ShellPrefs }).shell = prefs;
 }
