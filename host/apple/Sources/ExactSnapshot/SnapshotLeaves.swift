@@ -8,6 +8,11 @@ import SwiftUI
 import WidgetKit
 import ImageIO
 import ExactCore
+#if canImport(UIKit)
+import UIKit
+#else
+import AppKit
+#endif
 
 /// A text node: each kernel line is a `Text` that SwiftUI draws and never
 /// re-breaks (`.lineLimit(1).fixedSize()`), placed at the line's origin;
@@ -48,14 +53,28 @@ struct SnapshotTextView: View {
         return segments.reduce(Text(verbatim: "")) { whole, segment in
             guard segment.run < node.runs.count else { return whole + Text(verbatim: segment.text) }
             let run = node.runs[segment.run]
-            var part = Text(verbatim: segment.text)
+            let part = Text(verbatim: segment.text)
                 .font(Font(run.font))
                 .foregroundStyle(SnapshotColor.style(ColorRow(run.color), dark: dark, context: .ink) ?? ink)
-            if run.letterSpacing != 0 { part = part.tracking(run.letterSpacing) }
-            if run.decoration.contains("underline") { part = part.underline() }
-            if run.decoration.contains("line-through") { part = part.strikethrough() }
-            return whole + part
+            return whole + SnapshotTextPaint.styled(part, run: run, node: node)
         }
+    }
+}
+
+/// The paint a run's text takes beyond its font and colour: its tracking
+/// and its decoration (the run's own, else the node's `text-decoration`,
+/// which a plain text node's run does not carry).
+package enum SnapshotTextPaint {
+    package static func decoration(_ run: HeadlessSession.Run, node: HeadlessSession.Node) -> String {
+        run.decoration.isEmpty ? (node.style["text_decoration_line"]?.string ?? "") : run.decoration
+    }
+    static func styled(_ text: Text, run: HeadlessSession.Run, node: HeadlessSession.Node) -> Text {
+        var part = text
+        if run.letterSpacing != 0 { part = part.tracking(run.letterSpacing) }
+        let decoration = decoration(run, node: node)
+        if decoration.contains("underline") { part = part.underline() }
+        if decoration.contains("line-through") { part = part.strikethrough() }
+        return part
     }
 }
 
@@ -89,15 +108,14 @@ package enum SnapshotLive {
         case relative(Date), timer(Date), countdown(ClosedRange<Date>)
     }
 
-    private static let fractional: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f
-    }()
-    private static let whole = ISO8601DateFormatter()
-
+    /// `ISO8601DateFormatter` is not thread-safe and WidgetKit archives
+    /// entries concurrently: a formatter per call.
     package static func instant(_ text: String?) -> Date? {
         guard let text, !text.isEmpty else { return nil }
         if let ms = Double(text) { return Date(timeIntervalSince1970: ms / 1000) }
-        return fractional.date(from: text) ?? whole.date(from: text)
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: text) ?? ISO8601DateFormatter().date(from: text)
     }
 
     package static func presentation(_ node: HeadlessSession.Node, entryDate: Date) -> Presentation? {
@@ -118,7 +136,7 @@ package enum SnapshotLive {
 }
 
 /// The live text in the node's content box, in the font the kernel
-/// measured the node's text in and its colour.
+/// measured the node's text in, its colour, tracking and decoration.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct SnapshotLiveText: View {
     let node: HeadlessSession.Node
@@ -136,10 +154,8 @@ struct SnapshotLiveText: View {
             default: return .leading
             }
         }()
-        text
-            .font(run.map { Font($0.font) } ?? .body)
-            .foregroundStyle(ink)
-            .monospacedDigit()
+        let base = text.font(run.map { Font($0.font) } ?? .body).foregroundStyle(ink).monospacedDigit()
+        (run.map { SnapshotTextPaint.styled(base, run: $0, node: node) } ?? base)
             .lineLimit(1)
             .frame(width: node.contentBox.width, height: node.contentBox.height, alignment: align)
             .offset(x: node.contentBox.minX, y: node.contentBox.minY)
@@ -179,10 +195,10 @@ struct SnapshotProgressView: View {
 
 /// An image: a system symbol at its text's size and colour (the tint when
 /// unsaid, as the kernel's `symbol` role says), in the accented group; or a
-/// raster from the entry's image roots, decoded as a bounded thumbnail at
-/// the frame's pixel size, fitted as `object-fit` says and clipped to its
-/// rounded content edge, in the default group and desaturated under the
-/// accented mode unless `data-rendering="full-color"`. Never fetched in
+/// raster from the entry's image roots or the app group, decoded as a
+/// bounded thumbnail, in the default group and desaturated under the
+/// accented mode unless `data-rendering="full-color"`. Both fit the content
+/// box as `object-fit` says and clip to its rounded edge. Never fetched in
 /// the render; the profile requires both dimensions authored.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct SnapshotImageView: View {
@@ -194,62 +210,97 @@ struct SnapshotImageView: View {
     var body: some View {
         let box = node.contentBox
         let style = SnapshotStyle(node)
+        let fit = style.string("object_fit") ?? "fill"
+        let clip = RoundedOutline(radii: SnapshotPaint(style: style, dark: scheme == .dark).contentRadii(outer: CGRect(origin: .zero, size: node.frame.size), inner: box))
         Group {
             if (node.props["imageSource"] ?? "").hasPrefix("symbol:") {
-                symbol.widgetAccentable()
-            } else if let raster = SnapshotRasters.decode(node.props["imageSource"], roots: environment.imageRoots, pixels: CGSize(width: box.width * displayScale, height: box.height * displayScale)) {
-                SnapshotRaster(image: Image(decorative: raster.image, scale: 1), natural: raster.natural, fit: style.string("object_fit") ?? "fill", box: box.size,
+                symbol(fit: fit).clipShape(clip).widgetAccentable()
+            } else if let raster = environment.rasters.decode(node.props["imageSource"], roots: environment.imageRoots, appGroup: environment.appGroup,
+                                                                box: box.size, fit: fit, scale: displayScale) {
+                SnapshotRaster(image: Image(decorative: raster.image, scale: 1), natural: raster.natural, fit: fit, box: box.size,
                                fullColor: SnapshotAccent.group(node) == .fullColor)
-                    .clipShape(RoundedOutline(radii: SnapshotPaint(style: style, dark: scheme == .dark)
-                        .contentRadii(outer: CGRect(origin: .zero, size: node.frame.size), inner: box)))
+                    .clipShape(clip)
             }
         }
         .frame(width: box.width, height: box.height)
         .offset(x: box.minX, y: box.minY)
     }
 
+    /// The symbol at its natural size (the glyph's at the text's size and
+    /// weight, `SymbolMeasure.size`), fitted as a raster is: the vector
+    /// keeps its aspect under `fill` and `contain` as the running host
+    /// draws it (`xMidYMid meet`), covers under `cover`.
     @ViewBuilder
-    private var symbol: some View {
+    private func symbol(fit: String) -> some View {
         let name = node.props["symbolName"] ?? ""
         if !name.isEmpty {
             let style = SnapshotStyle(node)
             let points = style.number("font_size") ?? 17
-            let weight = Int(style.number("font_weight") ?? 400)
+            let weight = style.number("font_weight") ?? 400
             let ink = SnapshotColor.style(style.color("tint_color") ?? style.color("text_color"), dark: scheme == .dark, context: .ink) ?? AnyShapeStyle(.tint)
-            Image(systemName: name)
-                .font(.system(size: points, weight: Font.Weight(css: weight)))
-                .foregroundStyle(ink)
+            let natural = SymbolMeasure.size(name, points: points, weight: weight) ?? CGSize(width: points, height: points)
+            let image = Image(systemName: name).resizable()
+            let box = node.contentBox.size
+            Group {
+                switch fit {
+                case "cover": image.aspectRatio(natural, contentMode: .fill).frame(width: box.width, height: box.height).clipped()
+                case "none", "scale-down" where natural.width <= box.width && natural.height <= box.height:
+                    image.frame(width: natural.width, height: natural.height).frame(width: box.width, height: box.height)
+                default: image.aspectRatio(natural, contentMode: .fit).frame(width: box.width, height: box.height)
+                }
+            }
+            .font(.system(size: points, weight: Font.Weight(css: Int(weight))))
+            .foregroundStyle(ink)
         }
     }
 }
 
 /// Raster decoding, bounded (D8: an extension's memory ceiling): ImageIO's
-/// thumbnail at the frame's pixel size, never the full image, decoded
-/// once per invocation and kept with the natural dimensions.
-package enum SnapshotRasters {
-    package struct Decoded {
-        package let image: CGImage
-        package let natural: CGSize
+/// thumbnail at the pixel size of what the box shows, never the full image,
+/// kept for the invocation under a decoded-byte budget and released with
+/// it. `cover` shows a window of the image, so its thumbnail is the image
+/// at the cover scale (capped at `longestSide` pixels); `none` would need
+/// the image at its own scale, which the profile refuses (drawn as
+/// `scale-down` meanwhile).
+public final class SnapshotRasters {
+    public struct Decoded {
+        public let image: CGImage
+        public let natural: CGSize
     }
-    private static let cache = NSCache<NSString, Box>()
     private final class Box { let value: Decoded; init(_ value: Decoded) { self.value = value } }
+    private let cache = NSCache<NSString, Box>()
+    /// The longest side a decode may have, in pixels, whatever the box.
+    public let longestSide: Int
 
-    package static func decode(_ source: String?, roots: [URL], pixels: CGSize) -> Decoded? {
-        guard let source, !source.isEmpty, let url = confined(source, roots: roots) else { return nil }
-        return decode(url, pixels: pixels)
+    /// `budget` is the decoded bytes kept at once (the cache evicts past it).
+    public init(budget: Int = 16 << 20, longestSide: Int = 2048) {
+        cache.totalCostLimit = budget
+        self.longestSide = longestSide
     }
 
-    package static func decode(_ url: URL, pixels: CGSize) -> Decoded? {
-        let longest = Int(max(1, max(pixels.width, pixels.height).rounded(.up)))
+    public func decode(_ source: String?, roots: [URL], appGroup: URL?, box: CGSize, fit: String, scale: CGFloat) -> Decoded? {
+        guard let source, !source.isEmpty, let url = Self.resolve(source, roots: roots, appGroup: appGroup) else { return nil }
+        return decode(url, box: box, fit: fit, scale: scale)
+    }
+
+    /// The decode a box needs: its own pixels for `fill`, `contain` and
+    /// `scale-down`; for `cover`, the image scaled so the shorter cover
+    /// dimension fills the box, which is the window shown.
+    public func decode(_ url: URL, box: CGSize, fit: String, scale: CGFloat) -> Decoded? {
+        let pixels = CGSize(width: box.width * scale, height: box.height * scale)
+        guard let natural = Self.natural(url) else { return nil }
+        var longest = max(pixels.width, pixels.height)
+        if fit == "cover", natural.width > 0, natural.height > 0 {
+            let cover = max(pixels.width / natural.width, pixels.height / natural.height)
+            longest = max(natural.width, natural.height) * cover
+        }
+        return decode(url, longest: Int(max(1, min(CGFloat(longestSide), longest.rounded(.up)))), natural: natural)
+    }
+
+    private func decode(_ url: URL, longest: Int, natural: CGSize) -> Decoded? {
         let key = "\(url.path)|\(longest)" as NSString
         if let hit = cache.object(forKey: key) { return hit.value }
-        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
-              let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
-              let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue else { return nil }
-        // EXIF orientation 5–8 swap the sides; the thumbnail is made upright.
-        let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
-        let natural = orientation >= 5 ? CGSize(width: height, height: width) : CGSize(width: width, height: height)
+        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
@@ -258,31 +309,56 @@ package enum SnapshotRasters {
         ]
         guard let image = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else { return nil }
         let decoded = Decoded(image: image, natural: natural)
-        cache.setObject(Box(decoded), forKey: key)
+        cache.setObject(Box(decoded), forKey: key, cost: image.bytesPerRow * image.height)
         return decoded
     }
 
-    /// The file inside one of the entry's image roots (the bundle, the app
-    /// group's generation): a name may carry `..`, so the resolved path
-    /// must stay under a root.
-    package static func confined(_ source: String, roots: [URL]) -> URL? {
+    /// The image's pixel size, upright (EXIF orientations 5–8 swap the sides).
+    public static func natural(_ url: URL) -> CGSize? {
+        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
+              let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
+              let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue else { return nil }
+        let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+        return orientation >= 5 ? CGSize(width: height, height: width) : CGSize(width: width, height: height)
+    }
+
+    /// The file a source names: `app:/data/…`, `app:/cache/…` and
+    /// `app:/tmp/…` under the app group's container (its `data`, `cache`
+    /// and `tmp` directories), any other name under one of the bundle
+    /// roots; `..` and a root alone are refused, and the resolved path must
+    /// stay under its root.
+    public static func resolve(_ source: String, roots: [URL], appGroup: URL?) -> URL? {
+        if source.hasPrefix("app:/") {
+            let parts = source.dropFirst(5).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+            guard let appGroup, parts.count >= 2, ["data", "cache", "tmp"].contains(parts[0]),
+                  !parts.dropFirst().contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else { return nil }
+            let root = appGroup.appending(path: parts[0])
+            return confined(parts.dropFirst().reduce(root) { $0.appending(path: $1) }, under: root)
+        }
         for root in roots {
-            let base = root.standardizedFileURL.resolvingSymlinksInPath()
             let candidate: URL = source.hasPrefix("/") ? URL(fileURLWithPath: source)
-                : base.appending(path: source.hasPrefix("assets/") ? source : "assets/" + source)
-            let resolved = candidate.standardizedFileURL.resolvingSymlinksInPath()
-            if resolved.path.hasPrefix(base.path + "/"), FileManager.default.fileExists(atPath: resolved.path) { return resolved }
+                : root.appending(path: source.hasPrefix("assets/") ? source : "assets/" + source)
+            if let url = confined(candidate, under: root) { return url }
         }
         return nil
+    }
+
+    private static func confined(_ candidate: URL, under root: URL) -> URL? {
+        let base = root.standardizedFileURL.resolvingSymlinksInPath()
+        let resolved = candidate.standardizedFileURL.resolvingSymlinksInPath()
+        guard resolved.path.hasPrefix(base.path + "/"), FileManager.default.fileExists(atPath: resolved.path) else { return nil }
+        return resolved
     }
 }
 
 /// CSS `object-fit` over the image's natural size: `fill` stretches,
-/// `contain` and `cover` keep the aspect, `none` keeps the natural size,
-/// `scale-down` is `none` or `contain`, whichever is smaller. D5: under the
-/// accented mode the raster is desaturated (the default group keeps its
-/// detail) unless the author asked for full colour; the modifier is iOS
-/// 18's, and older systems draw the default.
+/// `contain` and `cover` keep the aspect, `scale-down` keeps the natural
+/// size when it fits, else contains; `none` is the profile's to refuse and
+/// draws as `scale-down` here. D5: under the accented mode the raster is
+/// desaturated (the default group keeps its detail) unless the author
+/// asked for full colour; the modifier is iOS 18's, and older systems draw
+/// the default.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct SnapshotRaster: View {
     let image: Image
@@ -303,8 +379,7 @@ struct SnapshotRaster: View {
         switch fit {
         case "contain": resizable.aspectRatio(natural, contentMode: .fit).frame(width: box.width, height: box.height)
         case "cover": resizable.aspectRatio(natural, contentMode: .fill).frame(width: box.width, height: box.height).clipped()
-        case "none": resizable.frame(width: natural.width, height: natural.height).frame(width: box.width, height: box.height).clipped()
-        case "scale-down":
+        case "none", "scale-down":
             if natural.width <= box.width && natural.height <= box.height {
                 resizable.frame(width: natural.width, height: natural.height).frame(width: box.width, height: box.height)
             } else {

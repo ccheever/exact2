@@ -118,11 +118,33 @@ private struct Semantics: ViewModifier {
         let hidden = node.props["accessibilityElementsHidden"] == "true" || (node.kind == "image" && label == nil)
         let combined = node.kind == "text" || node.kind == "time" || label != nil
         content
-            .modifier(Combined(on: combined && !hidden))
+            .modifier(Combined(on: (combined || SnapshotSemantics.role(node) == "img") && !hidden))
             .modifier(Labelled(label: hidden ? nil : label, hint: node.props["accessibilityHint"], value: node.props["accessibilityValueText"]))
-            .modifier(Heading(level: node.props["accessibilityRole"] == "heading" ? Int(node.props["accessibilityHeadingLevel"] ?? "") ?? 0 : nil))
-            .accessibilityAddTraits(node.kind == "button" && node.props["href"] == nil ? .isButton : [])
+            .modifier(Heading(level: SnapshotSemantics.role(node) == "heading" ? Int(node.props["accessibilityHeadingLevel"] ?? "") ?? 0 : nil))
+            .accessibilityAddTraits(SnapshotSemantics.traits(node))
             .accessibilityHidden(hidden)
+    }
+}
+
+/// The node's role (`role=`, else what its element implies) and the
+/// SwiftUI traits it carries: an image, a button, a link; a heading's
+/// trait and level are `Heading`'s.
+package enum SnapshotSemantics {
+    package static func role(_ node: HeadlessSession.Node) -> String? {
+        if let role = node.props["accessibilityRole"], !role.isEmpty { return role }
+        switch node.kind {
+        case "button": return node.props["href"].map { $0.isEmpty ? "button" : "link" } ?? "button"
+        case "image": return "img"
+        default: return nil
+        }
+    }
+    package static func traits(_ node: HeadlessSession.Node) -> AccessibilityTraits {
+        switch role(node) {
+        case "img": return .isImage
+        case "button": return .isButton
+        case "link": return .isLink
+        default: return []
+        }
     }
 }
 

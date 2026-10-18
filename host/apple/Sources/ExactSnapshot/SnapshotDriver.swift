@@ -28,8 +28,14 @@ public struct SnapshotEnvironment {
     public var placeholder: Bool
     /// The app's origin or scheme a route path (`/prompt/3`) is a URL under.
     public var linkBase: URL?
-    /// Where an `image` name resolves, in order; a path stays inside one.
+    /// Where a bundle-relative `image` name resolves, in order; a path stays
+    /// inside one.
     public var imageRoots: [URL]
+    /// The app group's container, where `app:/data/…`, `app:/cache/…` and
+    /// `app:/tmp/…` resolve (the app's dirs, shared with its extensions).
+    public var appGroup: URL?
+    /// The invocation's decoded rasters: budgeted, released with it.
+    public var rasters: SnapshotRasters
     /// The system's `widgetContentMargins` when nil.
     public var contentMargins: EdgeInsets?
     /// The kernel's root font size; the environment's text size when nil.
@@ -37,10 +43,10 @@ public struct SnapshotEnvironment {
     /// The timeline entry's date: where a `countdown` starts from.
     public var entryDate: Date
 
-    public init(family: Family, placeholder: Bool = false, linkBase: URL? = nil, imageRoots: [URL] = [Bundle.main.bundleURL],
-                contentMargins: EdgeInsets? = nil, rootFontSize: CGFloat? = nil, entryDate: Date = .now) {
-        self.family = family; self.placeholder = placeholder; self.linkBase = linkBase; self.imageRoots = imageRoots
-        self.contentMargins = contentMargins; self.rootFontSize = rootFontSize; self.entryDate = entryDate
+    public init(family: Family, placeholder: Bool = false, linkBase: URL? = nil, imageRoots: [URL] = [Bundle.main.bundleURL], appGroup: URL? = nil,
+                rasters: SnapshotRasters = SnapshotRasters(), contentMargins: EdgeInsets? = nil, rootFontSize: CGFloat? = nil, entryDate: Date = .now) {
+        self.family = family; self.placeholder = placeholder; self.linkBase = linkBase; self.imageRoots = imageRoots; self.appGroup = appGroup
+        self.rasters = rasters; self.contentMargins = contentMargins; self.rootFontSize = rootFontSize; self.entryDate = entryDate
     }
 }
 
@@ -159,8 +165,10 @@ public struct SnapshotView: View {
 
 /// D5: the root's background is the widget's, which the system draws and
 /// removes where widgets have none (StandBy, the Lock Screen, the accented
-/// mode), painted on the container's real bounds. Unsaid, it is the
-/// system's background.
+/// mode): its colour and gradients painted full bleed on the container's
+/// real bounds, which the system shapes (a hand-built `containerBackground`
+/// has no radius of its own; the root's stays on its border and content
+/// inside the margins). Unsaid, it is the system's background.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct ContainerBackground: View {
     let root: HeadlessSession.Node?
@@ -171,7 +179,7 @@ struct ContainerBackground: View {
         if let paint, paint.hasBackground {
             GeometryReader { proxy in
                 let bounds = CGRect(origin: .zero, size: proxy.size)
-                paint.fill(in: bounds, positioned: bounds)
+                paint.fill(in: bounds, positioned: bounds, rounded: false)
             }
         } else {
             Rectangle().fill(.background)

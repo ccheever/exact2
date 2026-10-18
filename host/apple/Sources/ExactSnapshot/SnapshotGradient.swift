@@ -52,11 +52,15 @@ struct GradientRow {
         else { return nil }
     }
 
+    /// Whether the ramp shown in an appearance crosses as linear sRGB, which
+    /// the shading then interpolates in (`.linearColor`).
+    func isLinear(dark isDark: Bool) -> Bool { isDark && dark != nil ? darkLinear : lightLinear }
+
     /// The stops under an appearance, as SwiftUI colours: the sRGB ramp, or
     /// the linear one in its own space.
     func stops(dark isDark: Bool) -> [Gradient.Stop] {
         let s = isDark ? dark ?? light : light
-        let linear = isDark && dark != nil ? darkLinear : lightLinear
+        let linear = isLinear(dark: isDark)
         var stops: [Gradient.Stop] = []
         for i in stride(from: 0, to: s.count, by: 5) {
             let color = linear ? Color(.sRGBLinear, red: s[i + 1], green: s[i + 2], blue: s[i + 3], opacity: s[i + 4])
@@ -142,9 +146,10 @@ struct SnapshotGradients: View {
             for row in layers.reversed() {
                 let gradient = row.resolving(in: CGRect(origin: .zero, size: box.size), dark: dark) ?? row
                 let stops = Gradient(stops: gradient.stops(dark: dark))
+                let options: GraphicsContext.GradientOptions = gradient.isLinear(dark: dark) ? .linearColor : []
                 switch gradient.placement(in: box) {
                 case .axial(let a, let b):
-                    context.fill(whole, with: .linearGradient(stops, startPoint: a, endPoint: b))
+                    context.fill(whole, with: .linearGradient(stops, startPoint: a, endPoint: b, options: options))
                 case .radial(let c, let r):
                     guard r.width > 0, r.height > 0 else {
                         // CSS: a radial with no area is its last colour everywhere.
@@ -156,7 +161,7 @@ struct SnapshotGradients: View {
                         layer.scaleBy(x: r.width, y: r.height)
                         let reach = (size.width + size.height) / min(r.width, r.height) + 2
                         layer.fill(Path(CGRect(x: -reach, y: -reach, width: reach * 2, height: reach * 2)),
-                                   with: .radialGradient(stops, center: .zero, startRadius: 0, endRadius: 1))
+                                   with: .radialGradient(stops, center: .zero, startRadius: 0, endRadius: 1, options: options))
                     }
                 }
             }

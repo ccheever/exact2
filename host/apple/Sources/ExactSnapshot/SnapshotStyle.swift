@@ -307,8 +307,8 @@ struct SnapshotPaint {
     /// layer (the first on top), positioned on the padding box `box`
     /// (CSS Backgrounds 3 §3.7: the default `background-origin`).
     @ViewBuilder
-    func fill(in rect: CGRect, positioned box: CGRect? = nil) -> some View {
-        let shape = outline(in: rect)
+    func fill(in rect: CGRect, positioned box: CGRect? = nil, rounded: Bool = true) -> some View {
+        let shape = rounded ? outline(in: rect) : RoundedOutline(radii: Array(repeating: .zero, count: 4))
         let box = box ?? rect.insetBy(dx: style.borderWidth, dy: style.borderWidth)
         ZStack(alignment: .topLeading) {
             if let color = SnapshotColor.style(style.color("background_color"), dark: dark, context: .fill) {
