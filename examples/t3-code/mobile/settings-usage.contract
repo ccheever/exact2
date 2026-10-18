@@ -94,6 +94,7 @@ shape MobileUsageData
   limitsEmpty: string
   total: string
   chartTitle: string
+  chartHasActivity: bool
   headlineLabel: string
   headlineValue: string
   headlineDetail: string
@@ -216,11 +217,15 @@ component SettingsUsage
                 text data.headlineLabel color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=400
                 text data.headlineValue color=colors.foreground font-size=31.5 line-height="35px" font-weight=700 font-variant-numeric="tabular-nums"
                 text data.headlineDetail color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=400
-              row gap=2 height=180 align-items="flex-end" aria-label=data.chartTitle
-                for bar in data.chart key=bar.id
-                  column flex=1 min-width=0 height=180 justify-content="flex-end" aria-label=bar.label
-                    for band in bar.bands key=band.id
-                      view height=band.height background-color=(dark ? band.dark : band.light) aria-label=`${band.id}: ${band.value}`
+              if data.chartHasActivity
+                row gap=2 height=180 align-items="flex-end" aria-label=data.chartTitle
+                  for bar in data.chart key=bar.id
+                    column flex=1 min-width=0 height=180 justify-content="flex-end" aria-label=bar.label
+                      for band in bar.bands key=band.id
+                        view height=band.height background-color=(dark ? band.dark : band.light) aria-label=`${band.id}: ${band.value}`
+              else
+                column height=180 align-items="center" justify-content="center"
+                  text "No activity in this window." color=colors.muted font-size=roles.body.size line-height=`${roles.body.line}px`
               row justify-content="space-between" align-items="center"
                 text data.chartStart flex-shrink=0 color=colors.tertiary font-size=roles.label.size line-height=`${roles.label.line}px`
                 row gap=14 align-items="center" flex-shrink=0

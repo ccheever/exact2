@@ -32,6 +32,7 @@ export function mobileUsagePresentation(input:Prepared|null,publish=true){
       resets:window.resets.map(reset=>({key:reset.member.account.key,text:`${reset.member.account.displayName||provider(reset.member.account.driver).label} · ${formatResetsIn(reset.member.window,input?.now??0)} · restores ${reset.restoresPercent}%`}))}))})),
     limitsEmpty:input?.tab==='limits'&&pools.length===0?'No subscription limits reported.':'',
     total:actual?(tokens?formatTokens(merged.totalTokens):formatUsd(merged.costUsd)):'',chartTitle:`${input?.window.resolution==='hour'?'Hourly':'Daily'} ${tokens?'processed tokens':'cost'}`,
+    chartHasActivity:(input?.window.resolution==='hour'?merged.hourly:merged.daily).some(period=>period.totalTokens>0),
     headlineLabel:actual?(tokens?'Processed tokens':'Raw token cost'):'',
     headlineValue:actual?(tokens?formatTokens(merged.totalTokens):`${formatUsd(merged.costUsd)}*`):'',
     headlineDetail:actual?(tokens?`Across ${formatCount(merged.sessions)} sessions`:'* if billed at full API rate'):'',
