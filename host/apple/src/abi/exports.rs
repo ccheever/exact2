@@ -747,6 +747,14 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.resize(width, height), |n| n)
         }
 
+        /// A placement root's resolved margins and its width's authorship (LLP 1126.001
+        /// WP10): the output holds JSON `[left, top, right, bottom, authored]`, no batch
+        /// around it; returns its length.
+        #[no_mangle]
+        pub extern "C" fn exact_placement_box(rt: u32, view: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.placement_box(view), |n| n)
+        }
+
         /// Resolve a logical row key in the input buffer, or UINT32_MAX.
         #[no_mangle]
         pub extern "C" fn exact_list_index(rt: u32, view: u32, len: u32) -> u32 {

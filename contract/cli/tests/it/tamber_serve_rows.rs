@@ -438,3 +438,261 @@ fn a_named_row_is_edited_under_a_later_shorthand() {
     assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+const CARD: &str = "component Card\n  view\n    column background-color=\"accent.fill\" testId=\"card\"\n      text \"c\"\n\ncomponent App\n  view\n    column\n      Card()\n";
+
+/// Stage 9 D3, LLP 1122 D6: promote to param is one transaction (a
+/// `set-row` reading it and its `add-param`), with one undo; either alone
+/// is refused with the hint; detaching the last reader takes the param.
+#[test]
+fn promote_to_param_and_detach_are_each_one_transaction() {
+    let dir = app("promote-param", DESIGN);
+    let file = dir.join("app.contract");
+    std::fs::write(&file, CARD).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let row = |line: u32, value: &str, sha: String| json!({"op": "set-row", "file": "app.contract", "at": {"line": line, "col": 12}, "sha256": sha, "row": "background-color", "value": value});
+    let add = json!({"op": "add-param", "component": "Card", "name": "fill", "kind": "color", "default": "accent.fill", "attrs": {"label": "Fill", "control": "color"}});
+    // Alone, an unread param: refused, with the hint.
+    let (alone, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.contract": digest(&file)}, "ops": [add]}));
+    assert!(
+        alone["error"]["hint"]
+            .as_str()
+            .unwrap_or("")
+            .contains("set-row"),
+        "{alone}"
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), CARD);
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.contract": digest(&file)}, "ops": [row(3, "param.fill", digest(&file)), add]}));
+    assert!(done["ok"]["inverse"].is_string(), "{done}");
+    let written = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        written.contains("  params\n    fill: color = \"accent.fill\""),
+        "{written}"
+    );
+    assert!(
+        written.contains("control = \"color\" label = \"Fill\""),
+        "{written}"
+    );
+    assert!(
+        written.contains("background-color=\"param.fill\""),
+        "{written}"
+    );
+    // Removing a read param alone: refused, with the hint.
+    let remove = json!({"op": "remove-param", "component": "Card", "name": "fill"});
+    let (read, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.contract": digest(&file)}, "ops": [remove]}));
+    assert!(read["error"]["hint"].is_string(), "{read}");
+    // Detach: the row's own value again, and the param with its last reader.
+    let (detached, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.contract": digest(&file)}, "ops": [row(5, "#ffffff", digest(&file)), remove]}));
+    assert!(detached["ok"]["inverse"].is_string(), "{detached}");
+    let after = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        !after.contains("params") && after.contains("#ffffff"),
+        "{after}"
+    );
+    s.ask(json!({"method": "undo", "client": "one", "inverse": detached["ok"]["inverse"]}));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), written);
+    s.ask(json!({"method": "undo", "client": "one", "inverse": done["ok"]["inverse"]}));
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        CARD,
+        "one undo, the bytes back"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Promote to token: a new token and the row naming it, two files, one
+/// transaction and one undo; an undo after a hand edit to either file is
+/// refused (the commit guard), writing neither.
+#[test]
+fn promote_to_token_writes_two_files_as_one() {
+    let dir = app("promote-token", DESIGN);
+    let file = dir.join("app.contract");
+    let design = dir.join("app.tamber");
+    std::fs::write(&file, CARD).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let ops = json!([
+        {"op": "add-token", "name": "card.fill", "kind": "color", "value": "#fafafa"},
+        {"op": "set-row", "file": "app.contract", "at": {"line": 3, "col": 12}, "sha256": digest(&file), "row": "background-color", "value": "card.fill"},
+    ]);
+    let (design_before, card_before) =
+        (std::fs::read_to_string(&design).unwrap(), CARD.to_string());
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.contract": digest(&file), "app.tamber": digest(&design)}, "ops": ops}));
+    assert!(done["ok"]["inverse"].is_string(), "{done}");
+    assert!(std::fs::read_to_string(&design)
+        .unwrap()
+        .contains("card.fill"));
+    assert!(std::fs::read_to_string(&file)
+        .unwrap()
+        .contains("background-color=\"card.fill\""));
+    // A hand edit to the design: the undo is refused, and neither file moves.
+    let edited = std::fs::read_to_string(&design)
+        .unwrap()
+        .replace("#fafafa", "#f0f0f0");
+    std::fs::write(&design, &edited).unwrap();
+    let card_now = std::fs::read_to_string(&file).unwrap();
+    let (refused, _) =
+        s.ask(json!({"method": "undo", "client": "one", "inverse": done["ok"]["inverse"]}));
+    assert!(refused["error"].is_object(), "{refused}");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), card_now);
+    assert_eq!(std::fs::read_to_string(&design).unwrap(), edited);
+    // Put back as written: the one undo takes both files back.
+    std::fs::write(&design, edited.replace("#f0f0f0", "#fafafa")).unwrap();
+    let (undone, _) =
+        s.ask(json!({"method": "undo", "client": "one", "inverse": done["ok"]["inverse"]}));
+    assert!(undone["ok"].is_object(), "{undone}");
+    assert_eq!(std::fs::read_to_string(&design).unwrap(), design_before);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), card_before);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// D3 review round 1: the section goes in the named component, before
+/// its own `view` even with a comment there; the last param's removal
+/// takes a commented header and its comments; the hint is for an unread
+/// param only.
+#[test]
+fn param_lines_find_their_own_component() {
+    let dir = app("param-lines-r1", DESIGN);
+    let file = dir.join("app.contract");
+    let view = "component App\n  view\n    column\n      Card()\n      Other()\n\ncomponent Logic\n  state n = 0\n\ncomponent Card\n  view // body\n    column background-color=\"accent.fill\"\n      text \"c\"\n\ncomponent Other\n  view\n    column\n      text \"o\"\n";
+    std::fs::write(&file, view).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let line = view
+        .lines()
+        .position(|l| l.contains("accent.fill"))
+        .unwrap() as u32
+        + 1;
+    let row = json!({"op": "set-row", "file": "app.contract", "at": {"line": line, "col": 12}, "sha256": digest(&file), "row": "background-color", "value": "param.fill"});
+    let add = json!({"op": "add-param", "component": "Card", "name": "fill", "kind": "color", "default": "accent.fill"});
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.contract": digest(&file)}, "ops": [row, add]}));
+    assert!(done["ok"]["inverse"].is_string(), "{done}");
+    let written = std::fs::read_to_string(&file).unwrap();
+    let card = written.find("component Card").unwrap();
+    let params = written.find("  params").unwrap();
+    assert!(
+        params > card && params < written.find("component Other").unwrap(),
+        "{written}"
+    );
+    // A commented header and a comment inside: the last param takes both.
+    let commented = written.replace("  params\n", "  params // controls\n    // colours\n");
+    std::fs::write(&file, &commented).unwrap();
+    let pline = commented
+        .lines()
+        .position(|l| l.contains("param.fill"))
+        .unwrap() as u32
+        + 1;
+    let back = json!({"op": "set-row", "file": "app.contract", "at": {"line": pline, "col": 12}, "sha256": digest(&file), "row": "background-color", "value": "#ffffff"});
+    let remove = json!({"op": "remove-param", "component": "Card", "name": "fill"});
+    let (detached, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.contract": digest(&file)}, "ops": [back, remove]}));
+    assert!(detached["ok"]["inverse"].is_string(), "{detached}");
+    let after = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        !after.contains("params") && !after.contains("colours"),
+        "{after}"
+    );
+    // A promote that fails for another reason: no unread-param hint.
+    std::fs::write(&file, view).unwrap();
+    let bad = json!({"op": "add-param", "component": "Card", "name": "fill", "kind": "color", "default": "accent.nope"});
+    let row = json!({"op": "set-row", "file": "app.contract", "at": {"line": line, "col": 12}, "sha256": digest(&file), "row": "background-color", "value": "param.fill"});
+    let (refused, _) = s.ask(json!({"method": "propose", "ops": [row, bad]}));
+    assert!(refused["error"]["diagnostics"].is_array(), "{refused}");
+    assert!(refused["error"].get("hint").is_none(), "{refused}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// D3 review round 2: a param the app sets a value for in its design is
+/// not detached (LLP 1122 D6), both files left as they are; the last
+/// param takes the comments under it too.
+#[test]
+fn detach_refuses_a_param_the_app_sets() {
+    let dir = app("detach-set", DESIGN);
+    let file = dir.join("app.contract");
+    let design = dir.join("app.tamber");
+    let view = "component App\n  view\n    column\n      Card()\n\ncomponent Card\n  params\n    fill: color = \"accent.fill\"\n    // under it\n  view\n    column background-color=\"param.fill\"\n      text \"c\"\n";
+    std::fs::write(&file, view).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let (set, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&design)}, "ops": [{"op": "set-param", "name": "Card.fill", "value": "#fafafa"}]}));
+    assert!(set["ok"]["inverse"].is_string(), "{set}");
+    let line = view
+        .lines()
+        .position(|l| l.contains("param.fill\""))
+        .unwrap() as u32
+        + 1;
+    let detach = json!([
+        {"op": "set-row", "file": "app.contract", "at": {"line": line, "col": 12}, "sha256": digest(&file), "row": "background-color", "value": "#ffffff"},
+        {"op": "remove-param", "component": "Card", "name": "fill"},
+    ]);
+    let (design_before, card_before) = (
+        std::fs::read_to_string(&design).unwrap(),
+        std::fs::read_to_string(&file).unwrap(),
+    );
+    let (refused, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.contract": digest(&file), "app.tamber": digest(&design)}, "ops": detach}));
+    assert!(
+        refused["error"].to_string().contains("sets in"),
+        "{refused}"
+    );
+    assert_eq!(std::fs::read_to_string(&design).unwrap(), design_before);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), card_before);
+    // Unset in the same transaction: detached, the section with its comment.
+    let mut ops = detach.as_array().unwrap().clone();
+    ops.insert(0, json!({"op": "unset-param", "name": "Card.fill"}));
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.contract": digest(&file), "app.tamber": digest(&design)}, "ops": ops}));
+    assert!(done["ok"]["inverse"].is_string(), "{done}");
+    let after = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        !after.contains("params") && !after.contains("under it"),
+        "{after}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// D3 after round 3: the hint is for this transaction's param named whole
+/// (not `missing` beside `(its params: fill)`); the last param takes a
+/// comment under it past a blank line.
+#[test]
+fn param_hint_names_its_own_param_whole() {
+    let dir = app("param-hint-r3", DESIGN);
+    let file = dir.join("app.contract");
+    let view = "component App\n  view\n    column\n      Card()\n\ncomponent Card\n  view\n    column background-color=\"accent.fill\" color=\"param.missing\"\n      text \"c\"\n";
+    std::fs::write(&file, view).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let line = view
+        .lines()
+        .position(|l| l.contains("accent.fill"))
+        .unwrap() as u32
+        + 1;
+    let ops = json!([
+        {"op": "set-row", "file": "app.contract", "at": {"line": line, "col": 12}, "sha256": digest(&file), "row": "background-color", "value": "param.fill"},
+        {"op": "add-param", "component": "Card", "name": "fill", "kind": "color", "default": "accent.fill"},
+    ]);
+    let (refused, _) = s.ask(json!({"method": "propose", "ops": ops}));
+    assert!(
+        refused["error"]["diagnostics"]
+            .to_string()
+            .contains("missing"),
+        "{refused}"
+    );
+    assert!(
+        refused["error"].get("hint").is_none(),
+        "another param's error: {refused}"
+    );
+    // A comment under the last param, past a blank line, goes with it.
+    let with = "component App\n  view\n    column\n      Card()\n\ncomponent Card\n  params\n    fill: color = \"accent.fill\"\n\n    // fill help\n  view\n    column background-color=\"param.fill\"\n      text \"c\"\n";
+    std::fs::write(&file, with).unwrap();
+    let pline = with
+        .lines()
+        .position(|l| l.contains("param.fill\""))
+        .unwrap() as u32
+        + 1;
+    let detach = json!([
+        {"op": "set-row", "file": "app.contract", "at": {"line": pline, "col": 12}, "sha256": digest(&file), "row": "background-color", "value": "#ffffff"},
+        {"op": "remove-param", "component": "Card", "name": "fill"},
+    ]);
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.contract": digest(&file)}, "ops": detach}));
+    assert!(done["ok"]["inverse"].is_string(), "{done}");
+    let after = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        !after.contains("fill help") && !after.contains("params"),
+        "{after}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

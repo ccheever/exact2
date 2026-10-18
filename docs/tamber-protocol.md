@@ -81,7 +81,7 @@ on macOS and Linux.
   a hold named on a node inside it resolved to), each row its `token` (the runner's, as a style
   row's), and the join names an `:active` row as its author wrote it (`background-color`, with the
   press row it lowered to as `row`). Stage 9's later wire changes add under the same version: D2's
-  `set-row`.
+  `set-row`, D3's `add-param` and `remove-param`.
 
 ## Where it runs
 
@@ -337,12 +337,15 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
 | `unset-param` (*1.10*) | `name`, `when?` | removes the param's line (the component's default applies again), or one `when` line |
 | `set-state` | `style`, `state` (`active`, `hover`, `focus-visible`, `disabled`, `checked`, a `:` allowed), `row`, `value` (a string, written as a Contract string, or a number), `file?` | a row of a `style`'s state part in a `.contract` file (*1.11*, stage 8 D): the block and the row made if not there; `rebuild`, no scrub |
 | `set-row` | at a place: `file`, `at` `{line, col}` (1-based; `col` a UTF-8 byte column, as the map gives it), `sha256`, `row`, `state?`; or on a style: `style`, `row`, `state?`, `file?`; and `value` (a string, written as a Contract string: a token's or param's name too, `"param.fill"`; or a number) | one row of the app's own Contract, its value replaced where its author wrote it (*1.12*, stage 9 D2; LLP 1122 D6): at a place, the attribute the selection's row names (its `at`, `attr` and the file's `sha256` from the join), refused when the file moved, the attribute there is another, it is a layout row (D14), a prop, or written as an expression, or the row is a longhand of a shorthand written there (the shorthand and its text named: `set-row` edits the shorthand whole); on a style, a row it writes (a state part's is `set-state`'s); `rebuild`, no scrub |
+| `add-param` | `component`, `name`, `kind`, `default` (a token value, written as a Contract string), `attrs?` (`range`, `step`, `control`, `options`, `label`, `help`, `group`, `priority`: strings or numbers), `file?` | a line of the component's `params` (*1.12*, stage 9 D3; LLP 1121 D15), the section made before its `view` where it has none; D15 refuses a param no row reads, so it goes in one transaction with the `set-row` that reads it (promote to param); refused alone, with a `hint`; `rebuild`, no scrub |
+| `remove-param` | `component`, `name`, `file?` | the param's line, and the section with its last (*1.12*, stage 9 D3); refused while a row reads it, so it goes with the `set-row` that stops reading it (detach), with a `hint`; refused while the app sets a value for it in its design (unset it first, or in the same transaction: LLP 1122 D6); `rebuild`, no scrub |
 | `unset-state` | `style`, `state`, `row`, `file?` | that row removed, and its block when it empties |
 
 - **Values are source text**, as the file writes them: `"light-dark(#fff, #000)"`, `"accent"`,
   `"oklch(from accent calc(l + 0.1) c h)"`.
-- **A `.contract` write** (`set-state`, `unset-state`, `set-row`) finds its `style` in the app's
-  own Contract sources when it names no `file` (refused where none or two declare it, naming them), goes
+- **A `.contract` write** (`set-state`, `unset-state`, `set-row`, `add-param`, `remove-param`)
+  finds its `style` (or, for a param, its component) in the app's own Contract sources when it
+  names no `file` (refused where none or two declare it, naming them), goes
   through `contract fmt`, and is refused, writing nothing, unless the whole app then builds (the
   build's diagnostics answer it). Its inverse restores the file's bytes as they were, an
   unformatted file's included.
@@ -376,6 +379,11 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   tool saw it, from the last up, before the transaction's other writes to it, then laid out once.
   Every refusal says why and where to edit instead (the source, the node, a param's or token's
   rung).
+- **Promote and detach** (*1.12*, LLP 1122 D6): promote to param is an `add-param` with the
+  `set-row` naming `param.<name>`; promote to token an `add-token` (or `set-token`) with the
+  `set-row` naming the token, the design and the `.contract` file in one transaction with one
+  inverse; detaching a param's last reader sends its `remove-param` with the `set-row`. A param
+  added or removed alone is refused by the compile with a `hint` saying so.
 - **Not yet built:** `preview` as an operation (it is a request instead: see the build channel).
 
 ### `propose`
@@ -618,7 +626,8 @@ list is unchanged: it keeps its own.
   style) is `{what: "row", name: <style>, row, when: [], before, after}`: a paint row alone on its
   line, its value on that line; a layout row, a part's, one sharing its line, and the order of a
   style's own rows are code. A node's own attribute (`set-row` at a place) has no key a node keeps
-  across versions and stays code. The file says `code: true` where the commit changed its other
+  across versions and stays code, as does a component's `params` line (*1.12*, its revert needs
+  the row that reads it). The file says `code: true` where the commit changed its other
   lines too. A `.contract` change with no state row or style row is the app's code, not the
   design's: it is left out, and a commit with nothing else is not listed (so a page may hold
   fewer than `limit`). History reads the Contract sources the server has now; a revert reads
@@ -1124,5 +1133,4 @@ The tool drives no input into an app; a command changes only what `prefer` would
 - **LLP 1121 stage 4's gate also names `resolve-on`.** LLP 1122 defers it to T2b, where a build's
   `selected` report carries the value it resolved.
 - **Later stages:**
-  - component params (stage 7) and state parts (stage 8);
   - pairing and remote clients (stage 10).

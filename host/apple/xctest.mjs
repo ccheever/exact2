@@ -26,8 +26,28 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   writeFileSync(resolve(refusing, 'app.json'), JSON.stringify({ name: 'Refusing refresh', app: { id: appId, name: 'Refusing refresh' }, widgets: [{ kind: 'refusing', families: ['systemSmall'], component: 'Card', props: 'Props', refresh: 'nextTrains', preview: { title: 'Preview' } }] }));
   // Caltrain's nextTrains answers a different Props shape: the refresh must refuse.
   contract([resolve(refusing, 'app.contract'), '--entry', 'refusing', '-o', env[`${prefix}_SNAPSHOT_REFUSING_PLAN`] = resolve(dir, 'refusing.plan')]);
+  // An activity whose Lock Screen placement has a background and a link (ActivityDriverTests: the tint, the URL).
+  const tinted = resolve(dir, 'entries/tinted');
+  mkdirSync(tinted, { recursive: true });
+  writeFileSync(resolve(tinted, 'app.contract'), 'shape TintedState\n  title: string\ncomponent App\n  view\n    text "App"\ncomponent Tinted\n  props\n    title: string\n  view\n    view slot="lockScreen" background-color="#1e3a5f" padding=8\n      link href="/alerts" display="block"\n        text title color="#ffffff"\n    view slot="compactLeading"\n      text "T"\n    view slot="compactTrailing"\n      text title text-align="center"\n    view slot="minimal"\n      text "T"\n    view slot="expanded"\n      view slot="leading"\n        text title\n      view slot="trailing"\n        text title width=120\n      view slot="center"\n        link href="/alerts" display="block"\n          text title\n      view slot="bottom"\n        text title\n');
+  writeFileSync(resolve(tinted, 'app.json'), JSON.stringify({ name: 'Tinted activity', app: { id: appId, name: 'Tinted activity', origin: 'https://tinted.exact.invalid' }, live_activities: [{ kind: 'tinted', component: 'Tinted', state: 'TintedState', preview: { title: 'Preview title' } }] }));
+  contract([resolve(tinted, 'app.contract'), '--entry', 'tinted', '-o', env[`${prefix}_SNAPSHOT_TINTED_PLAN`] = resolve(dir, 'tinted.plan')]);
+  // An activity whose Lock Screen root has a gradient and a colour (the colour is the tint, the gradient paints).
+  const graded = resolve(dir, 'entries/graded');
+  mkdirSync(graded, { recursive: true });
+  writeFileSync(resolve(graded, 'app.contract'), 'shape GradedState\n  title: string\ncomponent App\n  view\n    text "App"\ncomponent Graded\n  props\n    title: string\n  view\n    view slot="lockScreen" background-color="#1e3a5f" background-image="linear-gradient(to right, #ff0000, #0000ff)"\n      text title color="#ffffff"\n    view slot="compactLeading"\n      text "G"\n    view slot="compactTrailing"\n      text title\n    view slot="minimal"\n      text "G"\n    view slot="expanded"\n      view slot="leading"\n        text title\n      view slot="trailing"\n        text title\n      view slot="center"\n        text title\n      view slot="bottom"\n        text title\n');
+  writeFileSync(resolve(graded, 'app.json'), JSON.stringify({ name: 'Graded activity', app: { id: appId, name: 'Graded activity' }, live_activities: [{ kind: 'graded', component: 'Graded', state: 'GradedState', preview: { title: 'Preview title' } }] }));
+  contract([resolve(graded, 'app.contract'), '--entry', 'graded', '-o', env[`${prefix}_SNAPSHOT_GRADED_PLAN`] = resolve(dir, 'graded.plan')]);
+  // An activity exercising the sizes a region takes (ActivityDriverTests): root margins, `flex-basis: 0` beside an
+  // authored width, a `min-width` past the proposal, a percentage of the proposal, `margin: auto`, justified content,
+  // a wrapping paragraph, viewport-dependent content; and no `data-privacy` word, so the Lock Screen redacts it.
+  const sized = resolve(dir, 'entries/sized');
+  mkdirSync(sized, { recursive: true });
+  writeFileSync(resolve(sized, 'app.contract'), 'shape SizedState\n  title: string\n  long: string\nshape SizedViewport\n  width: number\n  height: number\ncomponent App\n  view\n    text "App"\ncomponent Sized\n  props\n    title: string\n    long: string\n  inject\n    snapshot_viewport: SizedViewport\n  view\n    view slot="lockScreen" margin=12\n      text title\n      text long\n    view slot="compactLeading" width=120 min-width=0 flex-basis=0\n      text title\n    view slot="compactTrailing" min-width=200\n      text title\n    view slot="minimal" width="50%"\n      text title\n    view slot="expanded"\n      view slot="leading" display="flex" flex-direction="row" justify-content="flex-end"\n        text title\n      view slot="trailing"\n        text long\n      view slot="center" margin="auto"\n        text title\n      view slot="bottom"\n        text title\n        if snapshot_viewport.width > 160\n          text long\n');
+  writeFileSync(resolve(sized, 'app.json'), JSON.stringify({ name: 'Sized activity', app: { id: appId, name: 'Sized activity' }, live_activities: [{ kind: 'sized', component: 'Sized', state: 'SizedState', preview: { title: 'Hi', long: 'A long paragraph that wraps to several lines in any Island region or Lock Screen card.' } }] }));
+  contract([resolve(sized, 'app.contract'), '--entry', 'sized', '-o', env[`${prefix}_SNAPSHOT_SIZED_PLAN`] = resolve(dir, 'sized.plan')]);
   const copies = new Map();
-  for (const [app, kind, key] of [['apps/caltrain', 'next-trains', 'SNAPSHOT_TRAINS'], [question, 'question-small', 'SNAPSHOT_QUESTION_SMALL'],
+  for (const [app, kind, key] of [['apps/caltrain', 'next-trains', 'SNAPSHOT_TRAINS'], ['apps/caltrain', 'departure', 'SNAPSHOT_DEPARTURE'], ['apps/caltrain', 'service-alert', 'SNAPSHOT_SERVICE_ALERT'], [question, 'question-small', 'SNAPSHOT_QUESTION_SMALL'],
     [question, 'question-medium', 'SNAPSHOT_QUESTION_MEDIUM'], [question, 'question-rectangular', 'SNAPSHOT_QUESTION_RECTANGULAR'], [question, 'question-adaptive', 'SNAPSHOT_QUESTION_ADAPTIVE'], [question, 'gradient-card', 'SNAPSHOT_GRADIENT']]) {
     let copy = copies.get(app);
     if (!copy) {

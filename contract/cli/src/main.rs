@@ -21,6 +21,7 @@ mod tamber_gen;
 mod tamber_history;
 mod tamber_import;
 mod tamber_ops;
+mod tamber_param_lines;
 mod tamber_rows;
 mod tamber_serve;
 mod verify;

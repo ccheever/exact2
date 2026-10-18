@@ -21,12 +21,16 @@ public struct SnapshotEnvironment {
     public enum Family: String, Sendable {
         case systemSmall, systemMedium, systemLarge, systemExtraLarge
         case accessoryRectangular, accessoryCircular, accessoryInline, accessoryCorner
+        /// A Live Activity's placement (LLP 1126.001 WP10), named by `placement`.
+        case liveActivity
         /// The Home Screen families, whose container background the system
         /// draws; the accessory families have none.
         public var isSystem: Bool { rawValue.hasPrefix("system") }
     }
     public var entryName: String
     public var family: Family
+    /// The placement a `liveActivity` render is of; nil for a widget.
+    public var placement: ActivityPlacement?
     public var placeholder: Bool
     /// The app's origin or scheme a route path (`/prompt/3`) is a URL under.
     public var linkBase: URL?
@@ -47,10 +51,20 @@ public struct SnapshotEnvironment {
     /// An agent read freezes live leaves at its clock; WidgetKit leaves this nil.
     public var frozenDate: Date?
 
-    public init(family: Family, entryName: String = "snapshot", placeholder: Bool = false, linkBase: URL? = nil, imageRoots: [URL] = [Bundle.main.bundleURL], appGroup: URL? = nil,
+    public init(family: Family, entryName: String = "snapshot", placement: ActivityPlacement? = nil, placeholder: Bool = false, linkBase: URL? = nil, imageRoots: [URL] = [Bundle.main.bundleURL], appGroup: URL? = nil,
                 rasters: SnapshotRasters = SnapshotRasters(), contentMargins: EdgeInsets? = nil, rootFontSize: CGFloat? = nil, entryDate: Date = .now, frozenDate: Date? = nil) {
-        self.entryName = entryName; self.family = family; self.placeholder = placeholder; self.linkBase = linkBase; self.imageRoots = imageRoots; self.appGroup = appGroup
+        self.entryName = entryName; self.family = family; self.placement = placement; self.placeholder = placeholder; self.linkBase = linkBase; self.imageRoots = imageRoots; self.appGroup = appGroup
         self.rasters = rasters; self.contentMargins = contentMargins; self.rootFontSize = rootFontSize; self.entryDate = entryDate; self.frozenDate = frozenDate
+    }
+
+    /// Whether a nested link draws as a `Link` (D7): the medium and larger
+    /// Home Screen families, the Lock Screen and the expanded Island.
+    package var takesLinks: Bool {
+        switch family {
+        case .systemMedium, .systemLarge, .systemExtraLarge: return true
+        case .liveActivity: return placement?.takesLinks ?? false
+        default: return false
+        }
     }
 }
 
@@ -123,11 +137,11 @@ public enum SnapshotDriver {
         return text == 1 && images <= 1 && other == 0
     }
 
-    /// The URL a snapshot opens: the first link's, in document order; a
-    /// `display: none` subtree has none.
-    public static func url(_ snapshot: HeadlessSession.Snapshot, environment: SnapshotEnvironment) -> URL? {
+    /// The URL a snapshot opens: the first link's, in document order, under
+    /// `roots` (the tree's when nil); a `display: none` subtree has none.
+    public static func url(_ snapshot: HeadlessSession.Snapshot, from roots: [UInt32]? = nil, environment: SnapshotEnvironment) -> URL? {
         guard !environment.placeholder else { return nil }
-        var stack = Array(snapshot.roots.reversed())
+        var stack = Array((roots ?? snapshot.roots).reversed())
         while let id = stack.popLast() {
             guard let node = snapshot.nodes[id], node.style["display"]?.string != "none" else { continue }
             if let url = SnapshotLinks.url(node.props["href"], base: environment.linkBase) { return url }
