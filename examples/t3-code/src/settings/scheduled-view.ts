@@ -8,7 +8,7 @@
 // is the user's own switch. Labels and the scope rule are scheduled-tasks.ts ports.
 import { fleet } from '../connections/settings-b-fleet';
 import { deliveriesPage, closeDeliveries, EMPTY_DELIVERIES } from './scheduled-deliveries';
-import { webhookAddress, webhookSchedule } from './scheduled-webhook';
+import { webhookAddress, webhookDraft, webhookSchedule } from './scheduled-webhook';
 import { arr, obj, str, num, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
@@ -28,7 +28,7 @@ export { scheduleLabel, relativeLabel as runLabel, taskStatus } from './schedule
 export function editorDraft(task: Obj | undefined, projectId: string, modelKey: string, environmentId = '') {
   const draft = task ? taskToDraft(task) : emptyDraft(projectId, modelKey);
   const schedule = obj(task?.schedule);
-  return { ...draft, id: draft.editingId, environmentId, title: draft.title, prompt: draft.prompt, enabled: draft.enabled, scheduleMode: draft.scheduleMode, intervalMinutes: draft.intervalMinutes,
+  return { ...webhookDraft(task), id: draft.editingId, environmentId, title: draft.title, prompt: draft.prompt, enabled: draft.enabled, scheduleMode: draft.scheduleMode, intervalMinutes: draft.intervalMinutes,
     timeOfDay: draft.timeOfDay, sunday: draft.sunday, monday: draft.monday, tuesday: draft.tuesday, wednesday: draft.wednesday, thursday: draft.thursday, friday: draft.friday,
     saturday: draft.saturday, projectId: draft.projectId, threadId: draft.threadId, workspaceMode: draft.workspaceMode, baseRef: draft.baseRef, startFromOrigin: draft.startFromOrigin,
     path: draft.existingWorktreePath, modelKey: draft.modelKey, legacyInterval: schedule.type === 'interval' && num(schedule.everyMs) < 60000 };

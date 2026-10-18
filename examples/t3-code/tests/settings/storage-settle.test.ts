@@ -1,4 +1,6 @@
 import { expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { appPath } from '../support/app-files';
 import { buildScript, decodeInput, parseProjectScripts, primaryScript, releaseClaimedRoles, scriptMenuLabel } from '../../src/settings/settings-b-actions';
 import { cardScripts } from '../../src/details/project-scripts';
 import { isWorkingThread, shellRuntime } from '../../src/sidebar/sidebar-model';
@@ -67,6 +69,24 @@ test('webhook age and signature validation preserve write-only existing secrets'
   expect(webhookSchedule({ signatureEnabled: 'true', signatureHeader: ' x-signature ', signatureSecret: ' secret ', signaturePrefix: 'sha256=' })).toMatchObject({ signature: { secret: 'secret', encoding: 'hex', header: 'x-signature' } });
   expect(webhookSchedule({ signatureEnabled: 'false' }, existing).signature).toBeNull();
   expect(() => webhookSchedule({ maxDeliveryAgeMinutes: '1441' })).toThrow('Invalid age limit');
+});
+
+test('new and existing task editor projections match the strict Contract draft shape', () => {
+  const contract = readFileSync(appPath('settings-scheduled.contract'), 'utf8');
+  const fields = contract.match(/shape TaskDraftView\n([\s\S]*?)(?=\nshape )/)?.[1];
+  expect(fields).toBeDefined();
+  const declared = [...(fields ?? '').matchAll(/^  ([A-Za-z][A-Za-z0-9]*):/gm)].map(match => match[1]).sort();
+  const existing = { id: 'task', title: 'Webhook', runtimeMode: 'full-access', interactionMode: 'default',
+    modelSelection: { instanceId: 'codex', model: 'm', options: { reasoning: 'high' } },
+    workspaceStrategy: { type: 'existing_worktree', worktreePath: '/fixture/checkout' },
+    schedule: { type: 'webhook', signature: { header: 'x-signature', encoding: 'hex', prefix: 'sha256=' }, maxDeliveryAgeMinutes: 60 }, webhook: { hasSecret: true } };
+  for (const task of [undefined, existing]) {
+    const draft = editorDraft(task, 'project', 'codex:m', 'environment');
+    const projected = { ...draft, ...webhookAddress(task?.webhook, 'http://127.0.0.1:16771'), key: 'editor', missing: false };
+    expect(Object.keys(projected).sort()).toEqual(declared);
+    expect(draft.signatureSecret).toBe('');
+    expect(draft.hasSecret).toBe(task !== undefined);
+  }
 });
 
 test('the webhook editor round-trips its trigger and reports Listening instead of a next run', () => {
