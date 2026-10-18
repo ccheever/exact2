@@ -453,13 +453,13 @@ fn field_navigation_uses_the_live_value_before_display_acknowledgement() {
 
 #[test]
 fn field_click_uses_the_live_value_before_display_acknowledgement() {
-    let (mut p, id) = boot("input", "abcdef", "");
+    let (mut p, id) = boot("input", "iiiiii", "");
     p.set_focus(Some(id), 0.);
     let first = p.display_frame().unwrap();
     assert!(p.display_complete(&first));
     p.mark_field(
         id,
-        "abcdef",
+        "iiiiii",
         FieldSelection {
             start: 0,
             end: 6,
@@ -467,8 +467,15 @@ fn field_click_uses_the_live_value_before_display_acknowledgement() {
         },
         false,
     );
-    key(&mut p, id, "X");
+    key(&mut p, id, "W");
     let pending = p.display_frame().unwrap();
+    let stale = p.brush.field_text[&id].hit(17., 72.).unwrap().offset.min(1);
+    assert_ne!(
+        stale, 0,
+        "the point must distinguish a live hit from clamping a stale hit"
+    );
+    p.press_field(id, 17., 72.);
+    assert_eq!(p.field_selection(id), FieldSelection::caret(0));
     p.press_field(id, 180., 72.);
     assert_eq!(p.field_selection(id), FieldSelection::caret(1));
     assert!(p.display_complete(&pending));
@@ -554,19 +561,26 @@ fn field_horizontal_arrows_and_delete_use_graphemes() {
         assert_eq!(p.field_text(id), "x");
     }
     assert_eq!(
-        delete("e\u{301}", FieldSelection::caret(2), false)
-            .unwrap()
-            .0,
+        delete(
+            "e\u{301}",
+            FieldSelection::caret(2),
+            false,
+            TextBoundary::Grapheme
+        )
+        .unwrap()
+        .0,
         "e"
     );
 }
 
 #[test]
-fn field_word_arrows_stop_between_adjacent_emoji() {
+fn field_word_arrows_group_adjacent_emoji_as_chrome() {
+    // Chrome 151.0.7922.34 on Linux, measured with Control+ArrowRight/Left.
     for (value, forward, backward) in [
-        ("😀👍", vec![2, 4], vec![2, 0]),
-        ("a😀👍b", vec![1, 3, 5, 6], vec![5, 3, 1, 0]),
+        ("😀👍", vec![4], vec![0]),
+        ("a😀👍b", vec![1, 5, 6], vec![5, 1, 0]),
         ("a…… b", vec![1, 3, 5], vec![4, 1, 0]),
+        ("a😀...👍b", vec![1, 8, 9], vec![8, 1, 0]),
     ] {
         let (mut p, id) = boot("input", value, "");
         p.set_focus(Some(id), 0.);
@@ -634,5 +648,40 @@ fn field_pending_display_uses_live_wraps_alignment_and_password_offsets() {
         let latest = shown.display_frame().unwrap();
         assert!(shown.display_complete(&latest));
         assert_eq!(shown.field_selection(id), immediate.field_selection(other));
+    }
+}
+
+#[test]
+fn field_password_arrows_and_delete_cross_one_bullet() {
+    for value in ["e\u{301}", "🇺🇸", "👩\u{200d}💻"] {
+        let first = value.chars().next().unwrap().len_utf16() as u32;
+        let last = value.chars().next_back().unwrap().len_utf16() as u32;
+        let len = utf16_len(value);
+        let mut actual = Vec::new();
+        for (name, at) in [
+            ("ArrowRight", 0),
+            ("ArrowLeft", len),
+            ("Delete", 0),
+            ("Backspace", len),
+        ] {
+            let (mut p, id) = boot("input", value, "type=\"password\"");
+            p.set_focus(Some(id), 0.);
+            p.mark_field(id, value, FieldSelection::caret(at), false);
+            key(&mut p, id, name);
+            actual.push((p.field_selection(id).start, p.field_text(id)));
+        }
+        assert_eq!(
+            actual,
+            [
+                (first, value.to_owned()),
+                (len - last, value.to_owned()),
+                (0, value.chars().skip(1).collect::<String>()),
+                (
+                    len - last,
+                    value[..value.len() - value.chars().next_back().unwrap().len_utf8()].to_owned()
+                ),
+            ],
+            "{value}"
+        );
     }
 }

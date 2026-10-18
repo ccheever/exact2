@@ -8,7 +8,6 @@ use super::*;
 use crate::text::field::Cursor;
 use exact_runner::{ControlValue, FieldSelection, InputDetails, SelectionDirection};
 use std::rc::Rc;
-use swash::text::{Category, Codepoint};
 use unicode_segmentation::UnicodeSegmentation;
 
 /// A field's selection as this host keeps it, beside the value it indexes.
@@ -75,17 +74,33 @@ pub(super) fn replace(
     (next, FieldSelection::caret(caret))
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum TextBoundary {
+    Scalar,
+    Grapheme,
+}
+
+impl TextBoundary {
+    fn step(self, text: &str, at: u32, forward: bool) -> u32 {
+        match self {
+            Self::Scalar => step(text, at, forward),
+            Self::Grapheme => grapheme_step(text, at, forward),
+        }
+    }
+}
+
 /// Backspace (`forward`: Delete): the selection, else the character before
 /// (after) the caret; `None` when there is nothing to delete.
 pub(super) fn delete(
     text: &str,
     selection: FieldSelection,
     forward: bool,
+    boundary: TextBoundary,
 ) -> Option<(String, FieldSelection)> {
     let mut s = selection;
     if s.start == s.end {
         let other = if forward {
-            grapheme_step(text, s.start, true)
+            boundary.step(text, s.start, true)
         } else {
             step(text, s.start, false)
         };
@@ -149,6 +164,7 @@ pub(super) fn moved(
     key: &str,
     extend: bool,
     textarea: bool,
+    boundary: TextBoundary,
 ) -> Option<FieldSelection> {
     let s = selection;
     let (anchor, focus) = match s.direction {
@@ -156,8 +172,8 @@ pub(super) fn moved(
         _ => (s.start, s.end),
     };
     let to = |at: u32| match key {
-        "ArrowLeft" => Some(grapheme_step(text, at, false)),
-        "ArrowRight" => Some(grapheme_step(text, at, true)),
+        "ArrowLeft" => Some(boundary.step(text, at, false)),
+        "ArrowRight" => Some(boundary.step(text, at, true)),
         "Home" => Some(line_edge(text, at, false, textarea)),
         "End" => Some(line_edge(text, at, true, textarea)),
         _ => None,
@@ -201,33 +217,21 @@ fn toward(s: FieldSelection, focus: u32, extend: bool) -> FieldSelection {
     }
 }
 
-/// Linux word arrows skip whitespace, then cross one word or punctuation group.
+/// Linux word arrows cross one word or a run of punctuation and symbols, skipping whitespace.
 fn word_step(text: &str, at: u32, forward: bool) -> u32 {
     let mut words: Vec<(usize, usize, bool)> = Vec::new();
     for (start, part) in text.split_word_bound_indices() {
         if part.chars().all(char::is_whitespace) {
             continue;
         }
-        let punctuation = part.chars().all(|c| {
-            matches!(
-                c.category(),
-                Category::Punctuation
-                    | Category::ConnectorPunctuation
-                    | Category::DashPunctuation
-                    | Category::ClosePunctuation
-                    | Category::FinalPunctuation
-                    | Category::InitialPunctuation
-                    | Category::OtherPunctuation
-                    | Category::OpenPunctuation
-            )
-        });
+        let nonword = part.unicode_words().next().is_none();
         if let Some(last) = words
             .last_mut()
-            .filter(|last| punctuation && last.2 && last.1 == start)
+            .filter(|last| nonword && last.2 && last.1 == start)
         {
             last.1 += part.len();
         } else {
-            words.push((start, start + part.len(), punctuation));
+            words.push((start, start + part.len(), nonword));
         }
     }
     let byte = byte_at(text, at);
@@ -379,11 +383,31 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
+    fn field_boundary(&self, id: ViewId) -> TextBoundary {
+        if self.host.kernel().node(id).is_some_and(|node| {
+            node.props.str(PropId::Type) == Some("password") || crate::fields::hosts(&node)
+        }) {
+            // A password paints one bullet per scalar. The hosted agent
+            // path leaves native grapheme editing to the shell's input.
+            TextBoundary::Scalar
+        } else {
+            TextBoundary::Grapheme
+        }
+    }
+
     fn current_field(
         &mut self,
         id: ViewId,
         value: &str,
     ) -> Option<Rc<crate::paint::field::PaintedField>> {
+        if self
+            .host
+            .kernel()
+            .node(id)
+            .is_some_and(|n| crate::fields::hosts(&n))
+        {
+            return None;
+        }
         self.boxes();
         let field = self.brush.field_text.get(&id)?.clone();
         if field.value == value {
@@ -435,14 +459,20 @@ impl<D: DataSource> Presenter<D> {
     ) {
         let modifiers = self.modifiers();
         let cursor = self.field_cursor(id);
+        let boundary = self.field_boundary(id);
+        let field = if textarea && !modifiers.ctrl {
+            self.current_field(id, value)
+        } else {
+            None
+        };
         let mut preferred_x = None;
         let (to, upstream) = if modifiers.ctrl {
             let at = word_step(value, cursor.offset, key == "ArrowRight");
             (toward(selection, at, modifiers.shift), false)
-        } else if textarea && matches!(key, "ArrowUp" | "ArrowDown" | "Home" | "End") {
-            let Some(field) = self.current_field(id, value) else {
-                return;
-            };
+        } else if let Some(field) = field
+            .as_ref()
+            .filter(|_| matches!(key, "ArrowUp" | "ArrowDown" | "Home" | "End"))
+        {
             let to = if matches!(key, "ArrowUp" | "ArrowDown") {
                 let x = self
                     .fields
@@ -458,10 +488,10 @@ impl<D: DataSource> Presenter<D> {
                 toward(selection, to.offset.min(utf16_len(value)), modifiers.shift),
                 to.upstream,
             )
-        } else if textarea && matches!(key, "ArrowLeft" | "ArrowRight") {
-            let Some(field) = self.current_field(id, value) else {
-                return;
-            };
+        } else if let Some(field) = field
+            .as_ref()
+            .filter(|_| matches!(key, "ArrowLeft" | "ArrowRight"))
+        {
             let forward = key == "ArrowRight";
             let collapse = !modifiers.shift && selection.start != selection.end;
             let to = if !collapse
@@ -480,7 +510,7 @@ impl<D: DataSource> Presenter<D> {
                         selection.start
                     }
                 } else {
-                    grapheme_step(value, cursor.offset, forward)
+                    boundary.step(value, cursor.offset, forward)
                 };
                 Cursor {
                     offset,
@@ -489,7 +519,7 @@ impl<D: DataSource> Presenter<D> {
             };
             (toward(selection, to.offset, modifiers.shift), to.upstream)
         } else {
-            let Some(to) = moved(value, selection, key, modifiers.shift, textarea) else {
+            let Some(to) = moved(value, selection, key, modifiers.shift, textarea, boundary) else {
                 return;
             };
             (to, false)
@@ -946,10 +976,12 @@ impl<D: DataSource> Presenter<D> {
                 return;
             }
             "Enter" => replace(&value, selection, "\n"),
-            "Backspace" | "Delete" => match delete(&value, selection, name == "Delete") {
-                Some(edit) => edit,
-                None => return,
-            },
+            "Backspace" | "Delete" => {
+                match delete(&value, selection, name == "Delete", self.field_boundary(id)) {
+                    Some(edit) => edit,
+                    None => return,
+                }
+            }
             s if s.chars().count() == 1 && !chord => replace(&value, selection, s),
             _ => return,
         };

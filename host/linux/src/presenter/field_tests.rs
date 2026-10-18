@@ -3,7 +3,7 @@
 //! edits, moves and `select` events, `setSelectionRange` on an unfocused
 //! field; a radio's exclusive check, its arrows and Space, a refused
 //! action's snap back, and an unbound group's own state.
-use super::field::{byte_at, delete, fit, moved, replace};
+use super::field::{byte_at, delete, fit, moved, replace, TextBoundary};
 use super::*;
 use exact_runner::{FieldSelection, SelectionDirection, Value};
 
@@ -107,43 +107,124 @@ fn a_selection_edits_moves_and_extends_as_htmls() {
     // UTF-16 offsets: the emoji is two units, one character.
     assert_eq!(byte_at("a😀b", 3), 5);
     assert_eq!(
-        delete("a😀b", caret(3), false),
+        delete("a😀b", caret(3), false, TextBoundary::Grapheme),
         Some(("ab".into(), caret(1)))
     );
-    assert_eq!(delete("ab", caret(0), false), None);
-    assert_eq!(delete("ab", caret(0), true), Some(("b".into(), caret(0))));
+    assert_eq!(delete("ab", caret(0), false, TextBoundary::Grapheme), None);
     assert_eq!(
-        delete("abcd", range(1, 3, SelectionDirection::None), false),
+        delete("ab", caret(0), true, TextBoundary::Grapheme),
+        Some(("b".into(), caret(0)))
+    );
+    assert_eq!(
+        delete(
+            "abcd",
+            range(1, 3, SelectionDirection::None),
+            false,
+            TextBoundary::Grapheme
+        ),
         Some(("ad".into(), caret(1)))
     );
     // A plain arrow collapses a range to its end, else moves a character.
     let r = range(1, 3, SelectionDirection::Forward);
-    assert_eq!(moved("abcd", r, "ArrowLeft", false, false), Some(caret(1)));
-    assert_eq!(moved("abcd", r, "ArrowRight", false, false), Some(caret(3)));
     assert_eq!(
-        moved("abcd", caret(0), "ArrowLeft", false, false),
-        Some(caret(0))
+        moved("abcd", r, "ArrowLeft", false, false, TextBoundary::Grapheme),
+        Some(caret(1))
     );
-    // Shift extends: left of the caret is backward, past it again forward.
-    let back = moved("abcd", caret(2), "ArrowLeft", true, false).unwrap();
-    assert_eq!(back, range(1, 2, SelectionDirection::Backward));
-    let more = moved("abcd", back, "ArrowLeft", true, false).unwrap();
-    assert_eq!(more, range(0, 2, SelectionDirection::Backward));
-    let shrunk = moved("abcd", more, "ArrowRight", true, false).unwrap();
-    assert_eq!(shrunk, range(1, 2, SelectionDirection::Backward));
-    let home = moved("abcd", caret(2), "Home", true, false).unwrap();
-    assert_eq!(home, range(0, 2, SelectionDirection::Backward));
-    // A textarea's Home and End are its line's.
     assert_eq!(
-        moved("ab\ncd", caret(4), "Home", false, true),
+        moved(
+            "abcd",
+            r,
+            "ArrowRight",
+            false,
+            false,
+            TextBoundary::Grapheme
+        ),
         Some(caret(3))
     );
     assert_eq!(
-        moved("ab\ncd", caret(1), "End", false, true),
+        moved(
+            "abcd",
+            caret(0),
+            "ArrowLeft",
+            false,
+            false,
+            TextBoundary::Grapheme
+        ),
+        Some(caret(0))
+    );
+    // Shift extends: left of the caret is backward, past it again forward.
+    let back = moved(
+        "abcd",
+        caret(2),
+        "ArrowLeft",
+        true,
+        false,
+        TextBoundary::Grapheme,
+    )
+    .unwrap();
+    assert_eq!(back, range(1, 2, SelectionDirection::Backward));
+    let more = moved(
+        "abcd",
+        back,
+        "ArrowLeft",
+        true,
+        false,
+        TextBoundary::Grapheme,
+    )
+    .unwrap();
+    assert_eq!(more, range(0, 2, SelectionDirection::Backward));
+    let shrunk = moved(
+        "abcd",
+        more,
+        "ArrowRight",
+        true,
+        false,
+        TextBoundary::Grapheme,
+    )
+    .unwrap();
+    assert_eq!(shrunk, range(1, 2, SelectionDirection::Backward));
+    let home = moved(
+        "abcd",
+        caret(2),
+        "Home",
+        true,
+        false,
+        TextBoundary::Grapheme,
+    )
+    .unwrap();
+    assert_eq!(home, range(0, 2, SelectionDirection::Backward));
+    // A textarea's Home and End are its line's.
+    assert_eq!(
+        moved(
+            "ab\ncd",
+            caret(4),
+            "Home",
+            false,
+            true,
+            TextBoundary::Grapheme
+        ),
+        Some(caret(3))
+    );
+    assert_eq!(
+        moved(
+            "ab\ncd",
+            caret(1),
+            "End",
+            false,
+            true,
+            TextBoundary::Grapheme
+        ),
         Some(caret(2))
     );
     assert_eq!(
-        moved("ab\ncd", caret(1), "End", false, false),
+        moved(
+            "ab\ncd",
+            caret(1),
+            "End",
+            false,
+            false,
+            TextBoundary::Grapheme
+        ),
         Some(caret(5))
     );
 }
