@@ -1,4 +1,4 @@
-// MIT T3 Code 1e2ecbd975: rightPanelStore / RightPanelTabs / ChatView.
+// MIT T3 Code 9c161462c9: rightPanelStore / RightPanelTabs / ChatView.
 // Browser tabs close through the 'browser' close hook (browser-surface.ts); their Mute / Unmute row is tabMuteMenuItem.
 import type { T3Client } from '../client/client';
 import type { PanelState, Surface, SurfaceKind } from './panel-surfaces';
@@ -46,12 +46,21 @@ export function tabContextMenuItems(surface: Surface, surfaces: readonly Surface
  */
 export const tabMenuRows = (surface: Surface, surfaces: readonly Surface[], mute?: MuteRow): TabMenuRow[] =>
   tabContextMenuItems(surface, surfaces, mute).map(item => ({ id: item.id, label: item.label, disabled: item.disabled === true }));
+/** moveSurface changes only ordering: the active tab and proactive-open revision stay intact. */
+export function moveSurface(state: PanelState, id: string, toIndex: number): void {
+  const from = state.surfaces.findIndex(surface => surface.id === id);
+  if (from < 0 || !Number.isSafeInteger(toIndex)) return;
+  const to = Math.max(0, Math.min(state.surfaces.length - 1, toIndex));
+  if (from === to) return;
+  const [surface] = state.surfaces.splice(from, 1);
+  if (surface) state.surfaces.splice(to, 0, surface);
+}
 export function closeSurface(state: PanelState, id: string): void {
   const index = state.surfaces.findIndex(entry => entry.id === id);
   if (index < 0) return;
   state.surfaces.splice(index, 1);
   if (state.active === id) state.active = state.surfaces[Math.min(index, state.surfaces.length - 1)]?.id ?? '';
-  if (!state.surfaces.length) { state.visible = false; state.active = ''; }
+  if (!state.surfaces.length) { state.visible = false; state.active = ''; state.maximized = false; }
 }
 export function closeOtherSurfaces(state: PanelState, id: string): void {
   const surface = state.surfaces.find(entry => entry.id === id);
@@ -64,7 +73,7 @@ export function closeSurfacesToRight(state: PanelState, id: string): void {
   state.surfaces = state.surfaces.slice(0, index + 1);
   if (!state.surfaces.some(entry => entry.id === state.active)) state.active = id;
 }
-export function closeAllSurfaces(state: PanelState): void { state.surfaces = []; state.active = ''; state.visible = false; }
+export function closeAllSurfaces(state: PanelState): void { state.surfaces = []; state.active = ''; state.visible = false; state.maximized = false; }
 export const deviceSurfaceId = (target: DeviceTarget) => `device:${encodeURIComponent(target.hostId)}:${encodeURIComponent(target.deviceId)}`;
 export function openDeviceSurface(state: PanelState, target: DeviceTarget): Surface {
   const id = deviceSurfaceId(target), existing = state.surfaces.find(entry => entry.id === id);

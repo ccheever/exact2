@@ -16,7 +16,7 @@ const android = { hostId: 'nucbox', deviceId: 'emulator-5580', name: 'Pixel', pl
 const ios = { hostId: 'macmini', deviceId: 'ios-1', name: 'iPhone', platform: 'ios' };
 const native: Native = { available: true, watch() {}, later: async () => ({}) };
 function client(call: (request: Record<string, unknown>) => Promise<unknown> = async () => ({})): T3Client {
-  return { draftKey: 'env:t1', diffOpen: false, restAccess: () => ({ call }) } as unknown as T3Client;
+  return { local: {}, draftKey: 'env:t1', diffOpen: false, restAccess: () => ({ call }) } as unknown as T3Client;
 }
 describe('rightPanelStore', () => {
   test('closing the active surface activates a neighboring surface', () => { const state = panel(); closeSurface(state, 'b'); expect(state.active).toBe('c'); closeSurface(state, 'c'); expect(state.active).toBe('a'); });

@@ -287,6 +287,8 @@ component StashMenu
 // below is placed, the command or stash menu in the composer's flow. (The
 // stash badge rides the banners' row, app.contract.)
 component ComposerEditorDock
+  inject
+    rem: number
   props
     editor: ComposerEditorView
     dark: bool
@@ -301,7 +303,7 @@ component ComposerEditorDock
         if editor.menu.open
           ComposerCommandMenu(menu=editor.menu, dark=dark, listMax=288, layered=false, op=op)
         else
-          if editor.stash.menuOpen
+          if editor.stash.menuOpen and editor.drawer.cardWidth > 2.75 * rem
             StashMenu(stash=editor.stash, layered=false, op=op)
 
 // ComposerCommandMenuLayer: the open drawer over the chat column, 22pt inside
@@ -320,7 +322,7 @@ component ComposerDrawerLayer
     dark: bool
     op: action
   view
-    if editor.drawer.placed and (editor.menu.open or editor.stash.menuOpen)
+    if editor.drawer.placed and editor.drawer.width > 2.75 * rem and (editor.menu.open or editor.stash.menuOpen)
       column position="absolute" left=(editor.drawer.left + 1.375 * rem) width=(editor.drawer.width - 2.75 * rem) bottom=editor.drawer.bottom overflow="hidden" border-top-left-radius="1.125rem" border-top-right-radius="1.125rem" backdrop-filter=(dark ? "blur(16px)" : "blur(12px)") testId="composer-drawer-layer"
         column width="100%" margin-bottom="-1.0625rem" flex-shrink=0
           if editor.menu.open
