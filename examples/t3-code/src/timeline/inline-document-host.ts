@@ -46,7 +46,7 @@ export function makeDocumentRuntime(client: T3Client, input: {
       const info = obj(await queue(native => client.rpc(native, 'mcpApps.toolInfo', { ...target, name })));
       if (info.callable !== true) throw new McpAppHostRefusal('This app cannot call that tool.');
       if (info.readOnly !== true && !await ask(`Allow ${input.app.server} to run ${str(info.title) || name}?\n${JSON.stringify(args, null, 2)}`)) throw new McpAppHostRefusal('Declined by the user.');
-      return queue(async native => { requireOwner(); const result = obj(await client.rpc(native, 'mcpApps.callTool', { ...target, name, arguments: obj(args) })); return { content: arr(result.content), ...result }; });
+      return queue(async native => { requireOwner(); const result = obj(await client.rpc(native, 'mcpApps.callTool', { ...target, name, arguments: obj(args) }, info.readOnly !== true)); return { content: arr(result.content), ...result }; });
     },
     readResource: ({ uri }) => queue(native => client.rpc(native, 'mcpApps.readResource', { ...target, uri })),
     openLink: async url => {
@@ -57,7 +57,7 @@ export function makeDocumentRuntime(client: T3Client, input: {
       if (!await ask(`Send this message from ${input.app.server}?\n${text}`)) throw new McpAppHostRefusal('Declined by the user.');
       await queue(async (native, storage) => { requireOwner(); if (!storage || client.threadId !== input.conversationThreadId) throw new McpAppHostRefusal('This conversation is no longer selected.'); await client.command('send', '', text, 0, native, storage); });
     },
-    updateModelContext: context => queue(async native => { await client.rpc(native, 'mcpApps.updateModelContext', obj({ ...target, ...context, conversationThreadId: input.conversationThreadId })); }),
+    updateModelContext: context => queue(async native => { await client.rpc(native, 'mcpApps.updateModelContext', obj({ ...target, ...context, conversationThreadId: input.conversationThreadId }), true); }),
     requestDisplayMode: async mode => { requireOwner(); if (mode === 'inline') runtime.fullscreen = false; else if (mode === 'fullscreen' && input.canExpand()) runtime.fullscreen = true; client.revision++; return runtime.fullscreen ? 'fullscreen' : 'inline'; },
     downloadFile: async files => {
       if (!await ask(`Save ${files.map(file => file.name).join(', ')} from ${input.app.server}?`)) throw new McpAppHostRefusal('Declined by the user.');
