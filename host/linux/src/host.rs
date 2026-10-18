@@ -1288,6 +1288,7 @@ impl<D: DataSource> Host<D> {
                 if let Some(id) = self.keys.get(key).copied() {
                     self.presented.remove(&id);
                     self.renewed.push(id);
+                    self.scroll_anchors.renewed(id, *key);
                     self.values.committed(id, None);
                 }
             }

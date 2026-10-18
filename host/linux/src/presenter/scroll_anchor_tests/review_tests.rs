@@ -1,0 +1,353 @@
+use super::*;
+use exact_runner::{DataError, Value};
+
+fn offset(p: &Presenter<()>, port: ViewId) -> (f32, f32) {
+    if port == PAGE {
+        p.page()
+    } else {
+        p.scroll_of(port)
+    }
+}
+
+fn attach(p: &mut Presenter<()>) {
+    let frame = p.display_frame().unwrap();
+    assert!(p.display_complete(&frame));
+}
+
+#[test]
+fn a_reader_sample_can_fold_the_header_without_invalidating_the_next_sample() {
+    let source = source(false)
+        .replace(
+            "  action fold",
+            "  action moved(x: number, y: number)\n    if y > 400\n      header = 0\n  action fold",
+        )
+        .replace("testId=\"port\"", "testId=\"port\" scroll=moved");
+    for attached in [false, true] {
+        let mut p = boot_source(&source);
+        let port = named(&p, "port");
+        p.scroll_to(port, (0., 400.)).unwrap();
+        if attached {
+            attach(&mut p);
+        }
+        let rev = p.reader_under(200., 60., 1.)[5] as u32;
+        assert_eq!(p.reader_scrolled(port, (0., 10.), rev), Some((0., 10.)));
+        if attached {
+            attach(&mut p);
+        }
+        assert_eq!(p.scroll_of(port), (0., 362.));
+        assert_eq!(p.reader_scrolled(port, (0., 10.), rev), Some((0., 10.)));
+        assert_eq!(p.scroll_of(port), (0., 372.));
+    }
+}
+
+#[test]
+fn queued_corrections_precede_absolute_seeks() {
+    for page in [false, true] {
+        for attached in [false, true] {
+            let source =
+                source(page).replace("height=header", "height=\"env(safe-area-inset-top)\"");
+            let mut p = boot_source(&source);
+            p.host.set_safe_area([48., 0., 0., 0.]).unwrap();
+            assert_eq!(p.after_commit(), None);
+            let port = if page { PAGE } else { named(&p, "port") };
+            p.scroll_to(port, (0., 400.)).unwrap();
+            if attached {
+                attach(&mut p);
+            }
+            p.host.set_safe_area([0.; 4]).unwrap();
+            assert_eq!(p.scroll_to(port, (0., 200.)), Some((0., 200.)));
+            if attached {
+                attach(&mut p);
+            }
+            assert_eq!(
+                offset(&p, port),
+                (0., 200.),
+                "page={page} attached={attached}"
+            );
+        }
+    }
+}
+
+#[test]
+fn pending_corrections_do_not_override_absolute_seeks() {
+    for page in [false, true] {
+        for target in [10., 200., 600.] {
+            let mut p = boot(page);
+            let port = if page { PAGE } else { named(&p, "port") };
+            p.scroll_to(port, (0., 400.)).unwrap();
+            attach(&mut p);
+            fold(&mut p);
+            let stale = p.display_frame().unwrap();
+            p.scroll_to(port, (0., target)).unwrap();
+            assert!(p.display_complete(&stale));
+            attach(&mut p);
+            assert_eq!(offset(&p, port), (0., target), "page={page}");
+        }
+    }
+}
+
+#[test]
+fn reader_corrections_clamp_to_both_boundaries_before_paint() {
+    for page in [false, true] {
+        for (header, by, expected) in [(0, -390., 0.), (96, 340., 744.)] {
+            let mut source = source(page).replace("header = 0", &format!("header = {header}"));
+            source.push_str("      box height=144-header\n");
+            let mut p = boot_source(&source);
+            let port = if page { PAGE } else { named(&p, "port") };
+            p.scroll_to(port, (0., 400.)).unwrap();
+            attach(&mut p);
+            let rev = p.reader_under(200., 60., 1.)[5] as u32;
+            fold(&mut p);
+            let stale = p.display_frame().unwrap();
+            p.reader_scrolled(port, (0., by), rev).unwrap();
+            assert!(p.display_complete(&stale));
+            let next = p.display_frame().unwrap();
+            let model = if page {
+                p.model_page()
+            } else {
+                p.collection_paint_scroll()
+                    .as_ref()
+                    .unwrap_or(&p.scroll)
+                    .get(&port)
+                    .copied()
+                    .unwrap()
+            };
+            assert_eq!(model.1, expected, "page={page} header={header}");
+            assert!(p.display_complete(&next));
+            assert_eq!(offset(&p, port).1, expected);
+            assert_eq!(p.reader_scrollers(&[], 1.).unwrap()[2] as u32, rev);
+        }
+    }
+}
+
+#[test]
+fn scaled_content_anchors_in_scrollport_coordinates() {
+    for page in [false, true] {
+        let source = source(page).replace("      box", "        box").replace(
+            "        box height=header",
+            "      box scale=2 transform-origin=\"0 0\"\n        box height=header",
+        );
+        let mut p = boot_source(&source);
+        let port = if page { PAGE } else { named(&p, "port") };
+        p.scroll_to(port, (0., 400.)).unwrap();
+        let row = named(&p, "row10");
+        let before = p.boxes().iter().find(|b| b.id == row).unwrap().rect.1;
+        assert_eq!(before, 96.);
+        fold(&mut p);
+        assert_eq!(offset(&p, port), (0., 304.));
+        assert_eq!(
+            p.boxes().iter().find(|b| b.id == row).unwrap().rect.1,
+            before
+        );
+    }
+}
+
+#[test]
+fn clipped_wrappers_do_not_stop_anchor_descent() {
+    let source = source(false).replace("      box", "        box").replace(
+        "        box height=header",
+        "      box overflow=\"clip\"\n        box height=header",
+    );
+    let mut p = boot_source(&source);
+    let port = named(&p, "port");
+    p.scroll_to(port, (0., 400.)).unwrap();
+    fold(&mut p);
+    assert_eq!(p.scroll_of(port), (0., 352.));
+    assert_eq!(row_y(&mut p), 48.);
+}
+
+#[test]
+fn a_box_hidden_by_the_border_is_not_an_anchor() {
+    let source = source(false)
+        .replace("state header = 48", "state header = 38")
+        .replace("header = 0", "header = 0\n    last = 21")
+        .replace("  action fold", "  state last = 20\n  action fold")
+        .replace(
+            "testId=\"port\"",
+            "testId=\"port\" box-sizing=\"border-box\" border-top-width=10 border-style=\"solid\"",
+        )
+        .replace(
+            "testId=\"row17\" width=400 height=20",
+            "testId=\"row17\" width=400 height=last",
+        );
+    let mut p = boot_source(&source);
+    let port = named(&p, "port");
+    p.scroll_to(port, (0., 400.)).unwrap();
+    let before = row_y(&mut p);
+    fold(&mut p);
+    assert_eq!(p.scroll_of(port), (0., 363.));
+    assert_eq!(row_y(&mut p), before);
+}
+
+#[test]
+fn a_page_absolute_matches_chromes_document_anchor() {
+    let source = source(true).replace(
+        "      box height=header",
+        "      box position=\"absolute\" top=420 width=20 height=20\n      box height=header",
+    );
+    let mut p = boot_source(&source);
+    p.scroll_to(PAGE, (0., 400.)).unwrap();
+    let before = row_y(&mut p);
+    fold(&mut p);
+    assert_eq!(p.page(), (0., 400.));
+    assert_eq!(row_y(&mut p), before - 48.);
+}
+
+struct Rows;
+impl DataSource for Rows {
+    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+        Ok(Value::list(
+            (0..200).map(|i| Value::Number(i as f64)).collect(),
+        ))
+    }
+}
+
+fn row_name<D: DataSource>(p: &Presenter<D>, name: &str) -> ViewId {
+    let k = p.host.kernel();
+    k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+}
+
+#[test]
+fn acknowledgement_after_scroller_unmount_does_not_restore_its_offset() {
+    for list in [false, true] {
+        let source = format!(
+            r#"component App
+  resource rows = rows() as shape number[]
+  state top = 0
+  state visible = true
+  state header = 48
+  action fold
+    header = 0
+    top = 352
+  action remove
+    visible = false
+  view
+    column width=400
+      button "remove" testId="remove" press=remove
+      button "fold" testId="fold" press=fold
+      if visible
+        {} testId="port" width=400 height=400 {}
+{}          for x in rows key=x
+            box height=20
+"#,
+            if list {
+                "list virtualized=true"
+            } else {
+                "scroll"
+            },
+            if list { "scrollTop=top" } else { "" },
+            if list {
+                ""
+            } else {
+                "          box height=header\n"
+            }
+        );
+        let (mut p, error) = Presenter::boot_with(
+            &crate::test_plan(&source),
+            Rows,
+            (400., 450.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert_eq!(error, None);
+        assert_eq!(p.settle_collections(), None);
+        let port = row_name(&p, "port");
+        p.scroll_to(port, (0., 400.)).unwrap();
+        let first = p.display_frame().unwrap();
+        assert!(p.display_complete(&first));
+        let fold = row_name(&p, "fold");
+        assert_eq!(p.host.dispatch_at(fold, Event::Press, p.host.now()), None);
+        assert_eq!(p.after_commit(), None);
+        assert!(p.pending_model_scroll(port).is_some());
+        let pending = p.display_frame().unwrap();
+        let remove = row_name(&p, "remove");
+        assert_eq!(p.host.dispatch_at(remove, Event::Press, p.host.now()), None);
+        assert_eq!(p.after_commit(), None);
+        assert!(p.host.kernel().node(port).is_none());
+        assert!(p.display_complete(&pending));
+        assert_eq!(p.scroll_of(port), (0., 0.));
+    }
+}
+
+#[test]
+fn recycled_scrollers_forget_corrections_waiting_for_acknowledgement() {
+    let source = r#"component App
+  resource rows = rows() as shape number[]
+  state header = 48
+  action fold
+    header = 0
+  view
+    list virtualized=true testId="list" width=400 height=300
+      for x in rows key=x
+        scroll testId=`row-${x}` width=400 height=50
+          box height=header
+          box height=500 press=fold testId=`fold-${x}`
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        Rows,
+        (400., 400.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert_eq!(error, None);
+    assert_eq!(p.settle_collections(), None);
+    p.host.runner_mut().set_row_reuse(true);
+    let mut old = Vec::new();
+    for i in 0..6 {
+        let id = row_name(&p, &format!("row-{i}"));
+        p.scroll_to(id, (0., 100.)).unwrap();
+        old.push((
+            id,
+            p.host.kernel().node(id).unwrap().key,
+            format!("row-{i}"),
+        ));
+    }
+    let first = p.display_frame().unwrap();
+    assert!(p.display_complete(&first));
+    let fold = row_name(&p, "fold-0");
+    assert_eq!(p.host.dispatch_at(fold, Event::Press, p.host.now()), None);
+    assert_eq!(p.after_commit(), None);
+    assert!(old
+        .iter()
+        .all(|(id, _, _)| p.pending_model_scroll(*id).is_some()));
+    let pending = p.display_frame().unwrap();
+    let list = row_name(&p, "list");
+    for top in [1000., 2000.] {
+        p.scroll_to(list, (0., top)).unwrap();
+        assert_eq!(p.settle_collections(), None);
+    }
+    let rebound: Vec<_> = old
+        .iter()
+        .filter(|(id, key, name)| {
+            p.host.kernel().node(*id).is_some_and(|n| {
+                n.key == *key && n.props.str(PropId::TestId) != Some(name.as_str())
+            })
+        })
+        .collect();
+    assert!(!rebound.is_empty());
+    assert!(p.display_complete(&pending));
+    for (id, _, _) in rebound {
+        assert_eq!(p.scroll_of(*id), (0., 0.));
+        assert!(p.pending_model_scroll(*id).is_none());
+    }
+}
+
+#[test]
+fn an_invalid_seek_keeps_the_pending_anchor_correction() {
+    for page in [false, true] {
+        let mut p = boot(page);
+        let port = if page { PAGE } else { named(&p, "port") };
+        p.scroll_to(port, (0., 400.)).unwrap();
+        attach(&mut p);
+        fold(&mut p);
+        let pending = p.display_frame().unwrap();
+        assert_eq!(p.scroll_to(port, (0., f32::NAN)), None);
+        assert!(p.display_complete(&pending));
+        assert_eq!(offset(&p, port), (0., 352.));
+    }
+}

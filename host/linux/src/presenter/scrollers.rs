@@ -231,7 +231,21 @@ impl<D: DataSource> Presenter<D> {
     /// Scroll `id` to `to`, clamped to its travel on the axes it scrolls
     /// along; where it then is, or `None` when `id` is no scroll container.
     pub fn scroll_to(&mut self, id: ViewId, to: (f32, f32)) -> Option<(f32, f32)> {
-        self.scroll_to_completion(id, to, Completion::Instant)
+        if !to.0.is_finite() || !to.1.is_finite() {
+            return None;
+        }
+        self.restore_scroll_anchors();
+        // An absolute destination supersedes the previous position's correction.
+        self.cancel_anchor_correction(id);
+        let result = self.scroll_to_completion(id, to, Completion::Instant);
+        self.arm_scroll_anchors();
+        result.map(|_| {
+            if id == PAGE {
+                self.page
+            } else {
+                self.scroll_of(id)
+            }
+        })
     }
 
     fn scroll_to_completion(
@@ -260,6 +274,12 @@ impl<D: DataSource> Presenter<D> {
         if next == s.offset {
             return Some(next);
         }
+        if completion == Completion::Reader {
+            if let Some((_, accepted)) = self.reader.tracked.get_mut(&id) {
+                // A scroll handler may rebase this position before dispatch returns.
+                *accepted = next;
+            }
+        }
         if id == PAGE {
             self.page = next;
         } else {
@@ -279,6 +299,7 @@ impl<D: DataSource> Presenter<D> {
     /// it knew the app had moved the scroller (dropped), or for a scroller
     /// it was never told of.
     pub fn reader_scrolled(&mut self, id: ViewId, by: (f32, f32), rev: u32) -> Option<(f32, f32)> {
+        self.restore_scroll_anchors();
         if !self.reader.tracked.contains_key(&id) {
             return None;
         }
@@ -292,7 +313,6 @@ impl<D: DataSource> Presenter<D> {
         let from = s.offset;
         let to =
             self.scroll_to_completion(id, (from.0 + by.0, from.1 + by.1), Completion::Reader)?;
-        self.reader.tracked.insert(id, (rev, to));
         Some((to.0 - from.0, to.1 - from.1))
     }
 

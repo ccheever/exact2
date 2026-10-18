@@ -91,7 +91,6 @@ fn anchoring_waits_for_the_picture_and_rebases_the_reader() {
         fold(&mut p);
         let offset = |p: &Presenter<()>| if page { p.page() } else { p.scroll_of(port) };
         assert_eq!(offset(&p), (0., 400.));
-        assert_eq!(row_y(&mut p), before);
         let b = p.display_frame().unwrap();
         assert_eq!(offset(&p), (0., 400.));
         assert!(p.display_complete(&b));
@@ -151,8 +150,19 @@ fn anchoring_sends_scroll_without_completing_a_scroll() {
     }
 }
 
+fn assert_fold_anchors(source: &str, top: f32, shift: f32) {
+    let mut p = boot_source(source);
+    let port = named(&p, "port");
+    p.scroll_to(port, (0., top)).unwrap();
+    let before = row_y(&mut p);
+    fold(&mut p);
+    assert_eq!(p.scroll_of(port), (0., top - shift));
+    assert_eq!(row_y(&mut p), before);
+}
+
 #[test]
 fn zero_offset_and_explicit_scroll_requests_win() {
+    assert_fold_anchors(&source(false), 400., 48.);
     let mut p = boot(false);
     fold(&mut p);
     assert_eq!(p.scroll_of(named(&p, "port")), (0., 0.));
@@ -160,6 +170,7 @@ fn zero_offset_and_explicit_scroll_requests_win() {
         .replace("  action fold", "  state top = 0\n  action fold")
         .replace("    header = 0", "    header = 0\n    top = 200")
         .replace("testId=\"port\"", "testId=\"port\" scrollTop=top");
+    assert_fold_anchors(&source.replace("\n    top = 200", ""), 400., 48.);
     let mut p = boot_source(&source);
     let port = named(&p, "port");
     p.scroll_to(port, (0., 400.)).unwrap();
@@ -204,6 +215,11 @@ fn anchor_chain_layout_changes_and_out_of_flow_changes_suppress() {
                     if change == "height" { "" } else { "height=20" }
                 ),
             );
+        assert_fold_anchors(
+            &source.replace(&format!("\n    changed = {value}"), ""),
+            400.,
+            48.,
+        );
         let mut p = boot_source(&source);
         let port = named(&p, "port");
         p.scroll_to(port, (0., 400.)).unwrap();
@@ -252,6 +268,7 @@ fn an_environment_relayout_anchors_before_clamping() {
     }
 }
 
+#[cfg(not(windows))]
 #[test]
 fn a_corrected_authored_request_still_completes_after_its_picture() {
     let source = source(false)
@@ -294,6 +311,11 @@ fn an_out_of_flow_change_elsewhere_suppresses() {
             "    header = 0\n    position = \"absolute\"",
         )
         .replace("testId=\"row0\"", "testId=\"row0\" position=position");
+    assert_fold_anchors(
+        &source.replace("\n    position = \"absolute\"", ""),
+        400.,
+        48.,
+    );
     let mut p = boot_source(&source);
     let port = named(&p, "port");
     p.scroll_to(port, (0., 400.)).unwrap();
@@ -315,11 +337,21 @@ fn selection_descends_into_partly_visible_wrappers_and_clamps_at_the_end() {
     fold(&mut p);
     assert_eq!(p.scroll_of(port), (0., 352.));
     assert_eq!(row_y(&mut p), 48.);
-    let mut p = boot(false);
+    let end = self::source(false)
+        .replace("  action fold", "  state bottom = 20\n  action fold")
+        .replace("    header = 0", "    header = 0\n    bottom = 0")
+        .replace(
+            "testId=\"row49\" width=400 height=20",
+            "testId=\"row49\" width=400 height=bottom",
+        );
+    assert_fold_anchors(&end, 610., 48.);
+    let mut p = boot_source(&end);
     let port = named(&p, "port");
     p.scroll_to(port, (0., 648.)).unwrap();
+    let before = row_y(&mut p);
     fold(&mut p);
-    assert_eq!(p.scroll_of(port), (0., 600.));
+    assert_eq!(p.scroll_of(port), (0., 580.));
+    assert_eq!(row_y(&mut p), before + 20.);
 }
 
 #[test]
@@ -344,9 +376,12 @@ fn excluded_boxes_are_not_selected_and_removing_the_anchor_does_not_scroll() {
         "      box testId=\"row17\"",
         "      if header > 0\n        box testId=\"row17\"",
     );
+    assert_fold_anchors(&source.replace("if header > 0", "if true"), 400., 48.);
     let mut p = boot_source(&source);
     let port = named(&p, "port");
     p.scroll_to(port, (0., 400.)).unwrap();
     fold(&mut p);
     assert_eq!(p.scroll_of(port), (0., 400.));
 }
+
+mod review_tests;

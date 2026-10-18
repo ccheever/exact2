@@ -884,6 +884,7 @@ impl<D: DataSource> Presenter<D> {
             self.scroll_end.forget(*id);
             self.dirty |= self.scroll.remove(id).is_some();
         }
+        self.renew_scroll_anchors(&renewed);
         self.hosted_renewed(&renewed);
         self.hatches.renewed.extend(&renewed);
         let reports = self.images.renew(self.host.kernel(), &renewed);
@@ -1141,6 +1142,7 @@ impl<D: DataSource> Presenter<D> {
         if self.alert.is_some() && self.hit(x, y).is_none() {
             return;
         }
+        self.restore_scroll_anchors();
         // A canvas that wants input takes the wheel, and the nodes' own
         // `wheel` is still heard (review b5-b 2), as the web's element hears it.
         let canvas = self.surface_wheel(x, y, dx, dy, self.pointer_now());

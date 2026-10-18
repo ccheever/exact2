@@ -814,6 +814,7 @@ impl<D: DataSource> Presenter<D> {
 
     fn collection_scroll_turn(&mut self, view: ViewId, owned_edge: bool) {
         self.collection.scroll_events.retain(|(id, _)| *id != view);
+        let max = self.live_scroll_max(view);
         if let Some(cursor) = self.collection.cursors.get_mut(&view) {
             let correction = cursor
                 .model_scroll
@@ -821,13 +822,10 @@ impl<D: DataSource> Presenter<D> {
             cursor.advance();
             if correction != 0. {
                 let offset = self.scroll.entry(view).or_default();
-                cursor.model_offset(
-                    cursor.key.unwrap(),
-                    (offset.0, offset.1 + correction),
-                    true,
-                    offset,
-                );
-                cursor.model_scroll.as_mut().unwrap().rebase = correction;
+                // Input uses the acknowledged bounds; the next picture uses the live bounds.
+                let top = (offset.1 + correction).clamp(0., max);
+                cursor.model_offset(cursor.key.unwrap(), (offset.0, top), true, offset);
+                cursor.model_scroll.as_mut().unwrap().rebase = top - offset.1;
             }
         }
         self.arm_scroll_anchors();

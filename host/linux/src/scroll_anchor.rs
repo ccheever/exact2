@@ -2,11 +2,12 @@
 //! every Linux layout entry. Snapshots are armed at the presenter's current
 //! offsets, before a runner commit can replace styles or geometry.
 //! https://drafts.csswg.org/css-scroll-anchoring/#description
-use crate::paint::effective_overflow;
+use crate::paint::{bbox, effective_overflow, Presented};
 use exact_kernel::{
     Display, Kernel, NodeKey, NodeRef, Overflow, PositionType, PropId, StyleId, StyleProps, ViewId,
 };
 use std::collections::BTreeMap;
+use tiny_skia::Transform;
 
 const PAGE: ViewId = crate::presenter::PAGE;
 
@@ -71,6 +72,17 @@ impl State {
                 capture(kernel, roots, id, offset, anchor.viewport).map(|next| (id, next))
             })
             .collect();
+    }
+
+    pub(crate) fn renewed(&mut self, view: ViewId, key: NodeKey) {
+        self.corrections.remove(&view);
+        self.anchors.retain(|&id, anchor| {
+            let stays = id != view && !anchor.chain.iter().any(|(k, _)| *k == key);
+            if !stays {
+                self.corrections.remove(&id);
+            }
+            stays
+        });
     }
 
     pub(crate) fn take(&mut self) -> BTreeMap<ViewId, f32> {
@@ -153,7 +165,28 @@ fn excluded(kernel: &Kernel, node: NodeRef<'_>, scroller: ViewId) -> bool {
 
 fn scrolls(node: NodeRef<'_>) -> bool {
     let (x, y) = effective_overflow(&node);
-    x != Overflow::Visible || y != Overflow::Visible
+    !matches!(x, Overflow::Visible | Overflow::Clip)
+        || !matches!(y, Overflow::Visible | Overflow::Clip)
+}
+
+// Frames share layout coordinates; transforms compose only below the scrollport.
+fn bounds(kernel: &Kernel, node: NodeRef<'_>, scroller: ViewId) -> (f32, f32, f32, f32) {
+    let f = node.frame;
+    let mut transform = Transform::identity();
+    let mut at = Some(node.id);
+    while let Some(n) = at
+        .filter(|&id| id != scroller)
+        .and_then(|id| kernel.node(id))
+    {
+        let f = n.frame;
+        let local = Presented::from_style(n.style).transform(
+            (f.x, f.y, f.width, f.height),
+            n.style.transform_origin.resolve(f.width, f.height),
+        );
+        transform = local.pre_concat(transform);
+        at = n.parent;
+    }
+    bbox(transform, (f.x, f.y, f.width, f.height))
 }
 
 fn select(kernel: &Kernel, nodes: &[ViewId], scroller: ViewId, port: [f32; 4]) -> Option<NodeKey> {
@@ -165,17 +198,11 @@ fn select(kernel: &Kernel, nodes: &[ViewId], scroller: ViewId, port: [f32; 4]) -
         if excluded(kernel, node, scroller) {
             continue;
         }
-        let f = node.frame;
-        if f.width <= 0.
-            || f.height <= 0.
-            || f.x >= x + w
-            || f.y >= y + h
-            || f.x + f.width <= x
-            || f.y + f.height <= y
-        {
+        let (nx, ny, nw, nh) = bounds(kernel, node, scroller);
+        if nw <= 0. || nh <= 0. || nx >= x + w || ny >= y + h || nx + nw <= x || ny + nh <= y {
             continue;
         }
-        let fully = f.x >= x && f.y >= y && f.x + f.width <= x + w && f.y + f.height <= y + h;
+        let fully = nx >= x && ny >= y && nx + nw <= x + w && ny + nh <= y + h;
         if !fully && !scrolls(node) {
             if let Some(child) = select(kernel, &node.children(), scroller, port) {
                 return Some(child);
@@ -222,15 +249,21 @@ fn capture(
             return None;
         }
         let f = node.frame;
+        let [top, right, bottom, left] = node.style.border_widths();
         (
             node.children(),
-            [f.x + offset.0, f.y + offset.1, f.width, f.height],
+            [
+                f.x + left + offset.0,
+                f.y + top + offset.1,
+                (f.width - left - right).max(0.),
+                (f.height - top - bottom).max(0.),
+            ],
             Some(node.key),
         )
     };
     let key = select(kernel, &nodes, id, port)?;
     let node = kernel.node_by_key(key)?;
-    let y = node.frame.y - kernel.node(id).map_or(0., |n| n.frame.y);
+    let y = bounds(kernel, node, id).1 - kernel.node(id).map_or(0., |n| n.frame.y);
     let mut chain = Vec::new();
     let mut at = Some(node.id);
     while let Some(node) = at.filter(|&n| n != id).and_then(|n| kernel.node(n)) {
@@ -280,6 +313,10 @@ impl Anchor {
                 }
             }
         }
-        Some(node.frame.y - kernel.node(scroller).map_or(0., |n| n.frame.y) - self.y)
+        Some(
+            bounds(kernel, node, scroller).1
+                - kernel.node(scroller).map_or(0., |n| n.frame.y)
+                - self.y,
+        )
     }
 }

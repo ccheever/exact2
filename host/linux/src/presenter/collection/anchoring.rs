@@ -17,6 +17,7 @@ impl<D: DataSource> Presenter<D> {
                     .is_some_and(|n| cursor.key == Some(n.key))
         });
         // Page input has no collection turn to invalidate a submitted intent.
+        let page_max = (self.live_document().1 - self.viewport.1).max(0.);
         if let Some(cursor) = self.collection.cursors.get_mut(&PAGE) {
             if cursor.page_at.is_some_and(|at| at != self.page) {
                 let correction = cursor
@@ -24,13 +25,14 @@ impl<D: DataSource> Presenter<D> {
                     .map_or(0., |p| p.rebase - cursor.rebased);
                 cursor.advance();
                 if correction != 0. {
+                    let top = (self.page.1 + correction).clamp(0., page_max);
                     cursor.model_offset(
                         cursor.key.unwrap(),
-                        (self.page.0, self.page.1 + correction),
+                        (self.page.0, top),
                         true,
                         &mut self.page,
                     );
-                    cursor.model_scroll.as_mut().unwrap().rebase = correction;
+                    cursor.model_scroll.as_mut().unwrap().rebase = top - self.page.1;
                 }
                 cursor.page_at = Some(self.page);
             }
@@ -51,6 +53,46 @@ impl<D: DataSource> Presenter<D> {
             .collect();
         offsets.push((PAGE, self.model_page()));
         self.host.arm_scroll_anchors(&offsets, self.viewport);
+    }
+
+    pub(in crate::presenter) fn renew_scroll_anchors(&mut self, renewed: &[ViewId]) {
+        for view in renewed {
+            if let Some(cursor) = self.collection.cursors.get_mut(view).filter(|c| c.anchored) {
+                // Keep the sequence beyond any picture submitted for the previous item.
+                *cursor = Cursor {
+                    key: cursor.key,
+                    sequence: cursor.sequence.saturating_add(1),
+                    ordinary: true,
+                    anchored: true,
+                    ..Cursor::default()
+                };
+            }
+        }
+    }
+
+    pub(in crate::presenter) fn cancel_anchor_correction(&mut self, view: ViewId) {
+        if let Some(cursor) = self
+            .collection
+            .cursors
+            .get_mut(&view)
+            .filter(|c| c.anchored)
+        {
+            self.dirty |= cursor.model_scroll.is_some();
+            cursor.advance();
+            cursor.page_at = (view == PAGE).then_some(self.page);
+        }
+    }
+
+    pub(in crate::presenter) fn live_scroll_max(&self, view: ViewId) -> f32 {
+        if view == PAGE {
+            return (self.live_document().1 - self.viewport.1).max(0.);
+        }
+        self.host.kernel().node(view).map_or(0., |node| {
+            self.brush
+                .scroll_bounds(self.host.kernel(), self.host.content_region(), &node, None)
+                .max
+                .1
+        })
     }
 
     pub(in crate::presenter) fn restore_scroll_anchors(&mut self) {
