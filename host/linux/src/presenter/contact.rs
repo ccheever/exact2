@@ -73,8 +73,8 @@ pub(super) struct Contact {
     pan_velocity: VelocityTracker,
     retained: Option<super::retained_action::RetainedContact>,
     press: Option<(NodeKey, PaintedBox)>,
-    /// A mouse field's focus default was decided on down, even if prevented.
-    field_focus_on_down: bool,
+    /// A mouse field decided focus on down; its prior focus, possibly none.
+    field_focus_before_down: Option<Option<ViewId>>,
     /// The canvas that owns this contact and sees its down, moves and up.
     canvas: Option<ViewId>,
 }
@@ -468,8 +468,7 @@ impl<D: DataSource> Presenter<D> {
             }
             return;
         }
-        self.contact.as_mut().unwrap().field_focus_on_down = true;
-        self.note_press(hit, false);
+        self.contact.as_mut().unwrap().field_focus_before_down = Some(self.focus);
         if !self.pointerdown_prevents_focus(hit) {
             self.focus_for_press(hit, point, now_ms, false);
         }
@@ -506,7 +505,7 @@ impl<D: DataSource> Presenter<D> {
                     group: false,
                     retained: Some(retained),
                     press: None,
-                    field_focus_on_down: false,
+                    field_focus_before_down: None,
                     canvas: None,
                     panning: false,
                     pan_velocity: VelocityTracker::new(),
@@ -560,7 +559,7 @@ impl<D: DataSource> Presenter<D> {
                 pan_velocity: VelocityTracker::new(),
                 retained: None,
                 press: None,
-                field_focus_on_down: false,
+                field_focus_before_down: None,
                 canvas: Some(canvas),
             });
             return Ok(true);
@@ -600,7 +599,7 @@ impl<D: DataSource> Presenter<D> {
             pan_velocity,
             retained: None,
             press,
-            field_focus_on_down: false,
+            field_focus_before_down: None,
             canvas: None,
         });
         self.set_collection_interaction(Some(view));
@@ -990,8 +989,14 @@ impl<D: DataSource> Presenter<D> {
                     // `press_at` decides it: a `retainFocus` child counts.
                     let hit = self.host.kernel().node_by_key(contact.hit).map(|n| n.id);
                     let hit = hit.unwrap_or(id);
-                    self.note_press(hit, false);
-                    if !contact.field_focus_on_down && !self.pointerdown_prevents_focus(hit) {
+                    self.note_press_from(
+                        hit,
+                        false,
+                        contact.field_focus_before_down.unwrap_or(self.focus),
+                    );
+                    if contact.field_focus_before_down.is_none()
+                        && !self.pointerdown_prevents_focus(hit)
+                    {
                         self.focus_for_press(hit, (x, y), now_ms, self.contact_is_direct());
                     }
                     self.activate(id, now_ms);
@@ -1008,7 +1013,7 @@ impl<D: DataSource> Presenter<D> {
                         self.retained_press_target(target, now_ms);
                     }
                 } else {
-                    self.press_at_with_focus(x, y, now_ms, !contact.field_focus_on_down);
+                    self.press_at_after_down(x, y, now_ms, contact.field_focus_before_down);
                 }
             }
             Ok(false)
