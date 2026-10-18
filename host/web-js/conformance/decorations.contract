@@ -9,12 +9,16 @@ component App
   state status = "Ready"
   state geometry = ""
   state toggleCount = 0
+  state inputCount = 0
+  state lastSelection = ""
+  state lastBeforeInput = ""
   derive ranges = TextDecorations(value=painted,
     spans=[TextDecorationSpan(name="accent", start=19, end=24)],
     blocks=[TextDecorationBlock(name="heading", start=0, end=11, marker=""), TextDecorationBlock(name="task", start=34, end=44, marker=(painted.slice(37, 38) == "x" ? "checkbox:on" : "checkbox:off"))],
     hidden=[TextDecorationHidden(start=0, end=3, reveal=none), TextDecorationHidden(start=17, end=19, reveal=some(TextDecorationRange(start=17, end=26))), TextDecorationHidden(start=24, end=26, reveal=some(TextDecorationRange(start=17, end=26))), TextDecorationHidden(start=34, end=40, reveal=none)],
     atoms=[TextDecorationAtom(name="pill", start=27, end=33, label="Alice")])
   action edit(value: string)
+    inputCount = inputCount + 1
     draft = value
     if value.length == 44
       painted = value
@@ -25,6 +29,13 @@ component App
     status = "Ready"
     geometry = ""
     toggleCount = 0
+    inputCount = 0
+    lastSelection = ""
+    lastBeforeInput = ""
+  action moved(e: InputEvent)
+    lastSelection = `${e.selectionStart}:${e.selectionEnd}`
+  action beforeEdit(e: InputEvent)
+    lastBeforeInput = `${e.selectionStart}:${e.selectionEnd} ${e.inputType}`
   action replace
     setRangeText("composer", "Hi", 11, 16, "select", "undo")
   action measure
@@ -40,7 +51,7 @@ component App
     setRangeText("composer", e.newState == "checked" ? "x" : " ", e.start + 3, e.start + 4, "preserve", "undo")
   view
     column padding=24 gap=12
-      textarea id="composer" testId="composer" aria-label="Composer" value=draft input=edit decorations=ranges toggle=taskToggle width=500 height=240 font-size=16
+      textarea id="composer" testId="composer" aria-label="Composer" value=draft input=edit selectionchange=moved beforeinput=beforeEdit decorations=ranges toggle=taskToggle width=500 height=240 font-size=16
       row gap=8
         button id="replace" testId="replace" press=replace
           text "Replace"
@@ -52,3 +63,5 @@ component App
         text "Probe touch geometry"
       text status testId="status"
       text geometry testId="geometry"
+      text lastSelection testId="selection"
+      text lastBeforeInput testId="before-input"

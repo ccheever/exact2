@@ -113,6 +113,7 @@ if (!argv.includes('--decorations')) {
     try {
       s = await open({ host: 'ios', app: 'caltrain', plan, touch: 'platform' });
       await s.clock('settle');
+      const initialFailures = failures.length;
       const original = (await s.state()).slots.draft;
       await s.tap('probe');
       await s.clock('settle');
@@ -136,13 +137,18 @@ if (!argv.includes('--decorations')) {
       check(state.slots.draft === original && state.slots.toggleCount === 2,
         `decorations: a second marker tap must toggle once: ${JSON.stringify(state.slots)}`);
       await tap(atomX + atomWidth / 2, atomY + atomHeight / 2);
-      await s.type('composer', { key: 'Backspace' });
+      const selected = (await s.state()).slots;
+      check(selected.draft === original && selected.lastSelection === '27:33',
+        `decorations: an atom tap must select its complete unchanged source range: ${JSON.stringify(selected)}`);
+      const deletion = await s.type('composer', { key: 'Backspace' });
+      console.log(`decorations: atomic deletion ${JSON.stringify({ selected, deletion })}`);
       await s.clock('settle');
       state = await s.state();
       check(state.slots.draft === original.replace('@alice', '') && state.decorations[0].applied.record.atoms.length === 0,
         `decorations: a native atom tap and Backspace must delete the complete source atom: ${JSON.stringify(state.slots)}`);
       check(state.slots.toggleCount === 2, 'decorations: an atom tap must not emit a checkbox toggle');
-      console.log('decorations: real marker taps toggle once each; atom tap and Backspace delete its complete source');
+      check(state.slots.inputCount === selected.inputCount + 1, 'decorations: Backspace must publish exactly one source edit');
+      if (failures.length === initialFailures) console.log('decorations: real marker taps toggle once each; atom tap and Backspace delete its complete source');
     } catch (error) {
       check(false, `decorations: ${error.message}`);
     } finally { await s?.close(); }

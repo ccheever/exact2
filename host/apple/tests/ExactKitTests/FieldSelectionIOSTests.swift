@@ -355,6 +355,59 @@ final class FieldSelectionIOSTests: XCTestCase {
         XCTAssertNil(node.fieldDecorations)
     }
 
+    func testAtomicDeletionKeepsAdjacentSourceAndNativeUndo() throws {
+        ExactMarkdown.install()
+        let session = ExactApp.shared.makeSession(label:"decoration-delete-ios")
+        defer { window.isHidden = true; session.destroy() }
+        let p = presenter(session:session), source = "hello @alice there", removed = "hello  there"
+        let node = try XCTUnwrap(p.views[2]), field = try XCTUnwrap(node.textArea)
+        let control = UITextView(frame:CGRect(x:0,y:150,width:300,height:80))
+        window.addSubview(control)
+        var native: [String:String] = [:]
+        for (name,smart) in [("default",UITextSmartInsertDeleteType.default),("no",.no)] {
+            control.text = source
+            control.smartInsertDeleteType = smart
+            XCTAssertTrue(control.becomeFirstResponder())
+            control.selectedRange = NSRange(location:6,length:6)
+            control.deleteBackward()
+            native[name] = control.text
+        }
+        print("UITextView atomic-range delete controls: \(native)")
+        XCTAssertEqual(native["no"],removed)
+        control.removeFromSuperview()
+        field.text = source
+        XCTAssertTrue(field.becomeFirstResponder())
+        field.selectedRange = NSRange(location:6,length:6)
+        field.deleteBackward()
+        XCTAssertEqual(field.text,native["default"],"ordinary fields retain the platform's smart deletion")
+        let metadata = #"{"value":"hello @alice there","spans":[],"blocks":[],"hidden":[],"atoms":[{"name":"pill","start":6,"end":12,"label":"Alice"}]}"#
+        let manager = try XCTUnwrap(field.undoManager)
+        manager.groupsByEvent = false
+        var inputs: [String] = [], beforeInput: [String] = []
+        p.onInput = { _,value in inputs.append(value) }
+        node.handlers.insert("beforeinput")
+        p.fieldSelections.onBeforeInput = { _,_,selection,edit in beforeInput.append("\(selection.start):\(selection.end) \(edit.inputType)") }
+        for caret in [false,true] {
+            field.text = source
+            p.apply(wireBatch([["op":"props","id":2,"set":["value":source,"decorations":metadata,"decorationStyles":"{\"pill\":[]}"]]]))
+            manager.removeAllActions();inputs.removeAll();beforeInput.removeAll()
+            field.selectedRange = NSRange(location:caret ? 12 : 6,length:caret ? 0 : 6)
+            let before = field.selectedRange
+            field.deleteBackward()
+            print("atomic caret=\(caret) selected=\(before) beforeinput=\(beforeInput) source=\(field.text ?? "")")
+            XCTAssertEqual(beforeInput,["6:12 deleteContentBackward"])
+            XCTAssertEqual(field.text,removed,"atomic deletion must preserve every source unit outside its range")
+            XCTAssertEqual(inputs,[removed])
+            XCTAssertTrue(manager.canUndo)
+            manager.undo()
+            XCTAssertEqual(field.text,source)
+            XCTAssertEqual(inputs,[removed,source])
+            manager.redo()
+            XCTAssertEqual(field.text,removed)
+            XCTAssertEqual(inputs,[removed,source,removed])
+        }
+    }
+
     func testRangeTextPreservesSelectionWithoutFocusOrUndo() throws {
         let p = presenter()
         let node = try XCTUnwrap(p.views[2])
