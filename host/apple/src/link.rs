@@ -13,6 +13,8 @@ use exact_runner::{DataSource, DeviceLinks, RunnerLinks};
 use std::sync::OnceLock;
 
 static LINKED: OnceLock<Uses> = OnceLock::new();
+/// Last store counter published by this process, recorded before its ping.
+pub static STORE_PUBLISHED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Every capability: what an entry that names none links (a hand-written
 /// `host!`, a development build).

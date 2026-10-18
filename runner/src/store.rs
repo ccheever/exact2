@@ -418,7 +418,7 @@ impl Store {
 
     /// Adopt a host snapshot without publishing its values as new writes.
     /// The open checkpoint can restore it if settlement refuses the change.
-    pub(crate) fn refresh_snapshot(&mut self, snapshot: Vec<(String, Vec<u8>)>) {
+    pub(crate) fn refresh_snapshot(&mut self, snapshot: Vec<(String, Vec<u8>)>) -> bool {
         let next: exact_kernel::SortedMap<_, _> = snapshot
             .into_iter()
             .filter(|(name, _)| self.is_granted(name) || Self::runner_owned(name))
@@ -426,10 +426,12 @@ impl Store {
         let mut names: Vec<String> = self.values.keys().chain(next.keys()).cloned().collect();
         names.sort();
         names.dedup();
+        let mut changed = false;
         for name in names {
             if self.values.get(&name) == next.get(&name) {
                 continue;
             }
+            changed = true;
             self.remember(&name);
             match next.get(&name) {
                 Some(value) => {
@@ -440,7 +442,10 @@ impl Store {
                 }
             }
         }
-        self.revision += 1;
+        if changed {
+            self.revision += 1;
+        }
+        changed
     }
 
     /// Everything kept: what a reload carries (`Carried::store`).
@@ -683,5 +688,10 @@ mod tests {
         store.set("token", "new").unwrap();
         assert_eq!(store.revision(), before + 1);
         assert_eq!(store.take_writes().len(), 1);
+        let revision = store.revision();
+        assert!(!store.refresh_snapshot(store.snapshot()));
+        assert_eq!(store.revision(), revision);
+        assert!(store.refresh_snapshot(vec![("token".into(), b"peer".to_vec())]));
+        assert_eq!(store.revision(), revision + 1);
     }
 }

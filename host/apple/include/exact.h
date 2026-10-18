@@ -392,6 +392,7 @@ uint32_t exact_prepare_module(ExactRuntime rt, uint64_t token, size_t plan, size
 uint32_t exact_data_ready(ExactRuntime rt);
 /* A peer committed to the shared store. Does not activate before first pixel. */
 uint32_t exact_store_changed(ExactRuntime rt);
+uint64_t exact_store_published(void);
 void exact_discard_plan(ExactRuntime rt);
 /* Content has settled (a scroll came to rest): the tree and the motion
  * engine give back storage beyond the live nodes. Changes nothing shown. */

@@ -135,7 +135,7 @@ fn peer_store_refresh_reasks_readers_and_restores_persisted_slots_in_every_sessi
                 300.0,
                 200.0,
                 None,
-                platform.snapshot(),
+                platform.snapshot(Vec::new()).values,
                 Some(platform.clone()),
             )
             .unwrap()
@@ -204,6 +204,23 @@ fn peer_store_refresh_reasks_readers_and_restores_persisted_slots_in_every_sessi
             Some(&Value::record(vec![Value::str("none")]))
         );
     }
+    platform
+        .write(&StoreWrite {
+            name: "exact.state.starred".into(),
+            value: None,
+        })
+        .unwrap();
+    for host in &mut hosts {
+        host.refresh_store();
+        assert_eq!(
+            host.runner.persisted("starred"),
+            Some(Value::Bool(false)),
+            "a peer deletion restores the initializer"
+        );
+        let asks_before = asks.lock().unwrap().len();
+        assert_eq!(host.refresh_store(), "{\"ops\":[]}");
+        assert_eq!(asks.lock().unwrap().len(), asks_before);
+    }
     assert_eq!(
         asks.lock().unwrap().iter().filter(|s| *s == "pure").count(),
         pure_asks
@@ -213,4 +230,265 @@ fn peer_store_refresh_reasks_readers_and_restores_persisted_slots_in_every_sessi
         2,
         "refresh never activates the data module again"
     );
+}
+
+struct ChangingReader {
+    asks: Arc<AtomicUsize>,
+}
+impl DataSource for ChangingReader {
+    fn app_id(&self) -> &str {
+        "test.exact.wp12-self"
+    }
+    fn grants(&self) -> &str {
+        "secret.keep favourite"
+    }
+    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+        unreachable!()
+    }
+    fn answer(
+        &mut self,
+        store: &mut exact_runner::Store,
+        _: &str,
+        _: &[Value],
+    ) -> Result<exact_runner::Answer, DataError> {
+        store.get("favourite");
+        let n = self.asks.fetch_add(1, Ordering::SeqCst) + 1;
+        Ok(exact_runner::Answer::Now(Value::record(vec![Value::str(
+            &n.to_string(),
+        )])))
+    }
+}
+
+#[test]
+fn app_side_writes_publish_without_reasking_a_time_varying_reader() {
+    let app = "test.exact.wp12-self";
+    if std::env::var("EXACT_WP12_WRITER_TEST").as_deref() != Ok("1") {
+        // Environment is fixed before the child starts; parallel tests in
+        // this process never observe a changed app group or writer identity.
+        let root = std::env::temp_dir().join(format!("exact-wp12-self-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "host::activation_tests::app_side_writes_publish_without_reasking_a_time_varying_reader", "--test-threads=1"])
+            .env("EXACT_WP12_WRITER_TEST", "1")
+            .env("EXACT_APP_GROUP_ROOT", &root)
+            .env("EXACT_APP_GROUP_APP", app)
+            .env("EXACT_WIDGET_WRITER", app)
+            .output().unwrap();
+        let _ = std::fs::remove_dir_all(root);
+        assert!(
+            result.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+        return;
+    }
+    let root = std::path::PathBuf::from(std::env::var_os("EXACT_APP_GROUP_ROOT").unwrap());
+    let plan = contract::compile("shape Text\n  value: string\ncomponent App\n  state starred = false persist\n  resource favourite = favourite() as shape Text\n  action star\n    starred = !starred\n  view\n    text favourite.value\n").unwrap().encode();
+    crate::store::PLATFORM
+        .with(|p| *p.borrow_mut() = Some(Arc::new(ibex2::secrets::MemoryStore::new())));
+    let asks = Arc::new(AtomicUsize::new(0));
+    let bindings = crate::store::endow_for("secret.keep favourite", app).unwrap();
+    let platform = crate::store::Platform::of(&bindings);
+    let (mut host, _) = Host::boot_stored(
+        &plan,
+        ChangingReader { asks: asks.clone() },
+        Box::new(MonospaceMeasurer::default()),
+        300.,
+        200.,
+        None,
+        Vec::new(),
+        Some(platform),
+    )
+    .unwrap();
+    crate::store::PLATFORM.with(|p| *p.borrow_mut() = None);
+    host.activate_data();
+    let before = asks.load(Ordering::SeqCst);
+    let receipt = host.runner.act("star", vec![]).unwrap();
+    host.commit(&[Timed { at_ms: 0., receipt }], None);
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !root.join("widget-store-generation").exists() && std::time::Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(root.join("widget-store-generation").exists());
+    assert!(crate::link::STORE_PUBLISHED.load(Ordering::Acquire) > 0);
+    for _ in 0..3 {
+        host.refresh_store();
+    }
+    assert_eq!(
+        asks.load(Ordering::SeqCst),
+        before,
+        "an own ping cannot start a changing-answer loop"
+    );
+    host.secrets = None;
+    assert_eq!(
+        host.refresh_store(),
+        "{\"ops\":[]}",
+        "an archive without I/O performs no commit"
+    );
+    // The publisher owns only queued paths; wait for both the boot and action counters before removal.
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::fs::read_to_string(root.join("widget-store-generation"))
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0)
+        < 2
+        && std::time::Instant::now() < until
+    {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+struct DeferredReader {
+    ready: bool,
+    later: bool,
+    asks: Arc<AtomicUsize>,
+    sends: Arc<AtomicUsize>,
+    refused: bool,
+}
+impl DataSource for DeferredReader {
+    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+        unreachable!()
+    }
+    fn grants(&self) -> &str {
+        "secret.keep favourite\nnet.fetch https://example.test"
+    }
+    fn ready(&self) -> bool {
+        self.ready
+    }
+    fn activate(&mut self) -> Result<(), DataError> {
+        self.ready = true;
+        Ok(())
+    }
+    fn answer(
+        &mut self,
+        store: &mut exact_runner::Store,
+        name: &str,
+        _: &[Value],
+    ) -> Result<exact_runner::Answer, DataError> {
+        if name == "save" {
+            self.sends.fetch_add(1, Ordering::SeqCst);
+            return Ok(exact_runner::Answer::Now(Value::record(vec![Value::str(
+                "sent",
+            )])));
+        }
+        store.get("favourite");
+        self.asks.fetch_add(1, Ordering::SeqCst);
+        if self.later {
+            return Ok(exact_runner::Answer::Later(exact_runner::Request::get(
+                "https://example.test/value",
+            )));
+        }
+        let value = if self.refused {
+            "ok"
+        } else {
+            self.refused = true;
+            "refuse"
+        };
+        Ok(exact_runner::Answer::Now(Value::record(vec![Value::str(
+            value,
+        )])))
+    }
+}
+
+#[test]
+fn deferred_peer_refresh_asks_once_and_a_refusal_can_retry_after_activation() {
+    use crate::store::Platform;
+    use exact_runner::StoreWrite;
+    for later in [true, false] {
+        let mut plan = contract::compile("shape Text\n  value: string\ncomponent App\n  state local = 0\n  mutation saved as shape Text\n  action save\n    send saved = save()\n  resource favourite = favourite() as shape Text\n  action tick\n    local = local + 1\n  task watch key=favourite.value == \"refuse\" ? 0 / 0 : 1\n    after(10000, tick)\n  view\n    text favourite.value\n").unwrap();
+        plan.resources[0].reader = true;
+        crate::store::PLATFORM
+            .with(|p| *p.borrow_mut() = Some(Arc::new(ibex2::secrets::MemoryStore::new())));
+        let bindings = crate::store::endow("secret.keep favourite").unwrap();
+        crate::store::PLATFORM.with(|p| *p.borrow_mut() = None);
+        let platform = Platform::of(&bindings);
+        let asks = Arc::new(AtomicUsize::new(0));
+        let sends = Arc::new(AtomicUsize::new(0));
+        let (mut host, _) = Host::boot_stored(
+            &plan.encode(),
+            DeferredReader {
+                ready: false,
+                later,
+                asks: asks.clone(),
+                sends: sends.clone(),
+                refused: false,
+            },
+            Box::new(MonospaceMeasurer::default()),
+            300.,
+            200.,
+            None,
+            Vec::new(),
+            Some(platform.clone()),
+        )
+        .unwrap();
+        if later {
+            let receipt = host.runner.act("save", vec![]).unwrap();
+            host.commit(&[Timed { at_ms: 0., receipt }], None);
+            assert_eq!(sends.load(Ordering::SeqCst), 0);
+        }
+        platform
+            .write(&StoreWrite {
+                name: "favourite".into(),
+                value: Some(b"peer".to_vec()),
+            })
+            .unwrap();
+        host.secrets = Some(Box::new(RefusedRead {
+            platform,
+            first: std::cell::Cell::new(true),
+        }));
+        host.refresh_store();
+        assert_eq!(asks.load(Ordering::SeqCst), 0);
+        let batch = host.activate_data();
+        assert!(host.data_activated);
+        assert_eq!(
+            sends.load(Ordering::SeqCst),
+            usize::from(later),
+            "a refused store read must not swallow an unsent mutation"
+        );
+        assert_eq!(
+            asks.load(Ordering::SeqCst),
+            1,
+            "data_ready is the only activation ask: {batch}"
+        );
+        if later {
+            assert_eq!(
+                host.runner.take_requests().len(),
+                1,
+                "no discarded duplicate request is dispatched"
+            );
+        }
+        assert!(
+            host.store_refresh_pending,
+            "the incomplete read remains pending after activation"
+        );
+        let retried = host.refresh_store();
+        assert_eq!(
+            retried, "{\"ops\":[]}",
+            "the successful retry with identical values asks nothing"
+        );
+        assert!(!host.store_refresh_pending);
+        assert_eq!(asks.load(Ordering::SeqCst), 1);
+    }
+}
+
+struct RefusedRead {
+    platform: crate::store::Platform,
+    first: std::cell::Cell<bool>,
+}
+impl crate::store::KeptStore for RefusedRead {
+    fn snapshot(&self, previous: Vec<(String, Vec<u8>)>) -> crate::store::StoreRead {
+        let mut read = self.platform.snapshot(previous);
+        if self.first.replace(false) {
+            read.complete = false;
+        }
+        read
+    }
+    fn write(&self, write: &exact_runner::StoreWrite) -> Result<(), String> {
+        self.platform.write(write).map_err(|e| e.to_string())
+    }
+    fn kept_failures(&self) -> Vec<String> {
+        self.platform.kept_failures()
+    }
 }

@@ -413,17 +413,57 @@ impl<D: DataSource> Runner<D> {
     pub fn store_changed(
         &mut self,
         snapshot: Vec<(String, Vec<u8>)>,
-    ) -> Result<CommitReceipt, RunnerError> {
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
         let was_poisoned = self.poisoned;
         let checkpoint = self.checkpoint(false);
-        self.store.refresh_snapshot(snapshot);
+        let result = self.restore_store(snapshot).and_then(|changed| {
+            if !changed {
+                return Ok(None);
+            }
+            let readers = self.store_readers();
+            self.owe(&readers);
+            self.refresh_next.extend(readers);
+            if self.poisoned {
+                return Err(RunnerError::Poisoned);
+            }
+            self.settle(false)
+                .and_then(|_| self.gate_step())
+                .and_then(|_| self.update())
+                .map(Some)
+        });
+        self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_next(result.is_ok());
+        if let Some(receipt) = result.as_ref().ok().and_then(Option::as_ref) {
+            self.log_outcome("store changed", &Ok(receipt.clone()), was_poisoned);
+        }
+        result
+    }
+
+    /// Adopt a pre-pixel change without asking; `data_ready_after_store`
+    /// performs the activation's one settlement, including queued sends.
+    pub fn adopt_store(&mut self, snapshot: Vec<(String, Vec<u8>)>) -> Result<bool, RunnerError> {
+        let was_poisoned = self.poisoned;
+        let checkpoint = self.checkpoint(false);
+        let result = self.restore_store(snapshot);
+        self.conclude(checkpoint, &result, was_poisoned);
+        result
+    }
+
+    fn restore_store(&mut self, snapshot: Vec<(String, Vec<u8>)>) -> Result<bool, RunnerError> {
+        if !self.store.refresh_snapshot(snapshot) {
+            return Ok(false);
+        }
         for i in 0..self.slots.len() {
             if self.plan.slots[i].persist {
-                self.slots[i] = self.restore_persisted(i, self.slots[i].clone());
+                let initial = self.eval(self.plan.slots[i].init, &[], &[])?;
+                self.slots[i] = self.restore_persisted(i, initial);
             }
         }
-        let readers: Vec<usize> = self
-            .store_readers
+        Ok(true)
+    }
+
+    fn store_readers(&self) -> Vec<usize> {
+        self.store_readers
             .iter()
             .enumerate()
             .filter_map(|(i, reads)| {
@@ -433,20 +473,7 @@ impl<D: DataSource> Runner<D> {
                     ))
                 .then_some(i)
             })
-            .collect();
-        self.owe(&readers);
-        self.refresh_next.extend(readers);
-        let result = if self.poisoned {
-            Err(RunnerError::Poisoned)
-        } else {
-            self.settle(false)
-                .and_then(|_| self.gate_step())
-                .and_then(|_| self.update())
-        };
-        self.conclude(checkpoint, &result, was_poisoned);
-        self.arm_next(result.is_ok());
-        self.log_outcome("store changed", &result, was_poisoned);
-        result
+            .collect()
     }
 
     /// The data source is ready — a host loaded its TypeScript module after
@@ -458,15 +485,30 @@ impl<D: DataSource> Runner<D> {
     /// commit, and a refusal fails the resource, which `refresh` asks again,
     /// as after a failed reply.
     pub fn data_ready(&mut self) -> Result<Option<CommitReceipt>, RunnerError> {
+        self.data_ready_after_store(false)
+    }
+
+    /// Activation after adopting a peer's pre-pixel store revision.
+    pub fn data_ready_after_store(
+        &mut self,
+        store_changed: bool,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
         if !self.data.ready() {
             self.log("data_ready: the data source is not ready");
             return Ok(None);
         }
-        let stale: Vec<usize> = (0..self.stale.len()).filter(|i| self.stale[*i]).collect();
+        let readers = if store_changed {
+            self.store_readers()
+        } else {
+            Vec::new()
+        };
+        let stale: Vec<usize> = (0..self.stale.len())
+            .filter(|i| self.stale[*i] || readers.contains(i))
+            .collect();
         // Writes made before the source was ready are overlaid from here
         self.overlays.iter_mut().for_each(|o| *o = None);
         if self.unsent.is_empty() {
-            if stale.is_empty() && self.writes.records.is_empty() {
+            if !store_changed && stale.is_empty() && self.writes.records.is_empty() {
                 return Ok(None);
             }
             self.owe(&stale);

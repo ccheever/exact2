@@ -348,6 +348,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.store_changed(), |n| n)
         }
 
+        /// The counter this process most recently published, or zero.
+        #[no_mangle]
+        pub extern "C" fn exact_store_published() -> u64 {
+            $crate::link::STORE_PUBLISHED.load(::std::sync::atomic::Ordering::Acquire)
+        }
+
         /// Prepare an admitted module generation, optionally carrying a delivery token;
         /// `let_go`: the dev loop's, with requests in flight too (LLP 1007 §6).
         #[no_mangle]

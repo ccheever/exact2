@@ -195,8 +195,8 @@ fn endow_in(host: Host, grants: &str) -> Result<Bindings, String> {
 /// platform's stores, behind the I/O link (LLP 1047.001), so an archive that
 /// links no I/O names neither them nor the Keychain and files under them.
 pub trait KeptStore {
-    /// Read the same endowed stores again after another session commits.
-    fn snapshot(&self) -> Vec<(String, Vec<u8>)>;
+    /// Re-read endowed stores, retaining previous values for failed reads.
+    fn snapshot(&self, previous: Vec<(String, Vec<u8>)>) -> StoreRead;
     /// Write one store change.
     fn write(&self, w: &StoreWrite) -> Result<(), String>;
     /// The kept answers the writer failed to write since the last call.
@@ -204,8 +204,8 @@ pub trait KeptStore {
 }
 
 impl KeptStore for Platform {
-    fn snapshot(&self) -> Vec<(String, Vec<u8>)> {
-        snapshot_parts(&self.secrets, &self.kv, &self.prefs)
+    fn snapshot(&self, previous: Vec<(String, Vec<u8>)>) -> StoreRead {
+        snapshot_parts(&self.secrets, &self.kv, &self.prefs, previous)
     }
     fn write(&self, w: &StoreWrite) -> Result<(), String> {
         Platform::write(self, w).map_err(|e| e.to_string())
@@ -471,37 +471,92 @@ pub fn snapshot_in(bindings: Option<&Bindings>, prefs: &Prefs) -> Vec<(String, V
     let Some(b) = bindings else {
         return Vec::new();
     };
-    snapshot_parts(&b.secrets, &b.kv, prefs)
+    snapshot_parts(&b.secrets, &b.kv, prefs, Vec::new()).values
 }
 
-fn snapshot_parts(secrets: &Secrets, kv: &Kv, prefs: &Prefs) -> Vec<(String, Vec<u8>)> {
-    // What a runner before this one kept is on disk first. No more than the
-    // runner keeps together is read, on the thread that boots it.
+/// A partial read keeps the session's previous value; confirmed absence alone deletes.
+pub struct StoreRead {
+    /// Successfully read entries, with unreadable entries retained from memory.
+    pub values: Vec<(String, Vec<u8>)>,
+    /// Every listing and read succeeded within the kept-answer budget.
+    pub complete: bool,
+}
+
+fn snapshot_parts(
+    secrets: &Secrets,
+    kv: &Kv,
+    prefs: &Prefs,
+    previous: Vec<(String, Vec<u8>)>,
+) -> StoreRead {
+    // This also waits on the running app's owner thread at refresh. A slow
+    // kept writer can delay that turn; moving the read off-owner needs an
+    // ordered snapshot handoff, not a read ahead of its flush.
     flush_kept();
-    let mut left = Store::KEPT_TOTAL_BYTES;
-    let kept = kv
-        .keys(KEPT)
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|key| {
-            let value = kv.get(KEPT, &key).ok().flatten()?;
-            left = left.checked_sub(value.len())?;
-            Some((format!("{}{key}", Store::KEPT), value))
-        })
-        .collect::<Vec<_>>();
-    secrets
-        .names()
+    let mut values: std::collections::BTreeMap<_, _> = previous.into_iter().collect();
+    let mut complete = true;
+    for name in secrets.names() {
+        match secrets.get(name) {
+            Ok(Some(value)) => {
+                values.insert(name.to_owned(), value.into_bytes());
+            }
+            Ok(None) => {
+                values.remove(name);
+            }
+            Err(_) => complete = false,
+        }
+    }
+    read_kv(kv, KEPT, Store::KEPT, &mut values, &mut complete);
+    match prefs {
+        Prefs::Kv => read_kv(kv, STATE, Store::STATE, &mut values, &mut complete),
+        Prefs::Defaults(_) => {
+            values.retain(|name, _| !name.starts_with(Store::STATE));
+            values.extend(prefs.read(kv));
+        }
+    }
+    StoreRead {
+        values: values.into_iter().collect(),
+        complete,
+    }
+}
+
+fn read_kv(
+    kv: &Kv,
+    scope: &str,
+    prefix: &str,
+    values: &mut std::collections::BTreeMap<String, Vec<u8>>,
+    complete: &mut bool,
+) {
+    let Ok(keys) = kv.keys(scope) else {
+        *complete = false;
+        return;
+    };
+    values.retain(|name, _| {
+        name.strip_prefix(prefix)
+            .is_none_or(|key| keys.iter().any(|k| k == key))
+    });
+    let mut bytes: usize = values
         .iter()
-        .filter_map(|n| {
-            secrets
-                .get(n)
-                .ok()
-                .flatten()
-                .map(|v| (n.to_string(), v.into_bytes()))
-        })
-        .chain(kept)
-        .chain(prefs.read(kv))
-        .collect()
+        .filter(|(name, _)| name.starts_with(prefix))
+        .map(|(_, value)| value.len())
+        .sum();
+    for key in keys {
+        let name = format!("{prefix}{key}");
+        match kv.get(scope, &key) {
+            Ok(Some(value)) => {
+                let next = bytes - values.get(&name).map_or(0, Vec::len) + value.len();
+                if scope == KEPT && next > Store::KEPT_TOTAL_BYTES {
+                    *complete = false;
+                    continue;
+                }
+                bytes = next;
+                values.insert(name, value);
+            }
+            Ok(None) => {
+                bytes -= values.remove(&name).map_or(0, |v| v.len());
+            }
+            Err(_) => *complete = false,
+        }
+    }
 }
 
 /// Widget builds share one group, explicitly supplied by their signed host.
@@ -547,7 +602,7 @@ fn publish_widget_change(root: std::path::PathBuf, app: String) {
     let temporary = root.join(format!(".widget-store-{}", std::process::id()));
     // Until the counter advances, the extension's fallback still matches the
     // store before this write: retry rather than leave it current.
-    let published = (0..3).any(|attempt| {
+    let published = (0..3).find_map(|attempt| {
         if attempt > 0 {
             std::thread::sleep(std::time::Duration::from_millis(50 << attempt));
         }
@@ -558,12 +613,16 @@ fn publish_widget_change(root: std::path::PathBuf, app: String) {
             .saturating_add(1);
         std::fs::write(&temporary, value.to_string())
             .and_then(|_| std::fs::rename(&temporary, &current))
-            .is_ok()
+            .ok()
+            .map(|_| value)
     });
-    if !published {
+    let Some(published) = published else {
         let _ = std::fs::remove_file(&temporary);
         return;
-    }
+    };
+    crate::link::STORE_PUBLISHED.store(published, std::sync::atomic::Ordering::Release);
+    // WP11's extension writer (Q1 B) posts this ping after releasing its
+    // store transaction lock, and reloads its written kinds itself.
     #[cfg(target_vendor = "apple")]
     if let Ok(name) = std::ffi::CString::new(format!("{app}.widget-store")) {
         unsafe extern "C" {
@@ -935,3 +994,7 @@ mod tests {
         assert!(!file.exists());
     }
 }
+
+#[cfg(test)]
+#[path = "store_refresh_tests.rs"]
+mod refresh_tests;
