@@ -14,6 +14,7 @@ import type { HomeMenuItem } from './home-actions';
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Obj, type Shell } from './shared/domain';
 import { fleet, fleetThreadId, type EnvironmentFleet } from './shared/settings-b-fleet';
+import { visiblePullRequests } from './shared/shell-pr';
 import { machineKind } from './shared/connections';
 import { groupLabel, logicalKey } from './shared/r6-polish-groups';
 import { serverMatches, searchMatch } from './shared/sidebar-presentation';
@@ -56,6 +57,12 @@ const blankItem = (key: string): HomeItem => ({ key, kind: 'thread', draftKey: '
   time: '', error: '', card: false, pinned: false, queued: false, expanded: false, disabled: false, count: 0,
   last: false, trailingDivider: false, selected: false, faviconTarget: mobileProjectFaviconTarget(''), favicon: '', iconKind: '', iconText: '', iconColor: '', iconSurface: '', iconSize: 0, provider: blankHomeProvider(), searchExcerpt: '', swipe: blankHomeSwipe(), menuItems: [], nativeMenu: '' });
 const scoped = (environmentId: string, id: unknown) => `${environmentId}:${str(id)}`;
+/** threadPullRequestSearchTerms (packages/shared/src/threadPullRequests.ts at 365aa87982): visible links, else the legacy link. */
+const pullRequestSearchTerms = (thread: Obj): string[] => {
+  const links = arr(thread.pullRequests), legacy = thread.linkedPullRequest && typeof thread.linkedPullRequest === 'object' ? obj(thread.linkedPullRequest) : null;
+  if (links.length) return visiblePullRequests(links).flatMap(link => [`#${String(link.number ?? '')}`, `${str(link.repository)}#${String(link.number ?? '')}`, str(link.url), str(obj(link.snapshot).title)]);
+  return legacy ? [`#${String(legacy.number ?? '')}`, `${str(legacy.repository)}#${String(legacy.number ?? '')}`, str(legacy.url)] : [];
+};
 const timestamp = (value: unknown) => { const stamp = Date.parse(str(value)); return Number.isFinite(stamp) ? stamp : -Infinity; };
 const machineSymbols: Record<string, string> = { server: 'server.rack', cloud: 'cloud', linux: 'terminal', desktop: 'desktopcomputer', laptop: 'laptopcomputer', 'mac-mini': 'macmini', 'mac-studio': 'macstudio' };
 
@@ -138,16 +145,15 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
   const projects = mobileHomeProjects(sources, options), selectedProject = projects.find(project => project.key === options.projectKey || project.projectKeys.includes(options.projectKey ?? ''));
   const titles = new Map(projects.flatMap(project => project.projectKeys.map(key => [key, project.title] as const)));
   const parts: Record<SidebarSection, Obj[]> = { pinned: [], active: [], working: [], snoozed: [], settled: [] };
-  const ownership = new Map<Obj, HomeSource>(), query = options.query?.trim().toLowerCase() ?? '';
+  const ownership = new Map<Obj, HomeSource>(), query = options.query?.trim().toLocaleLowerCase() ?? '';
   let nextSnoozeWakeAt: number | null = null;
   for (const source of sources) for (const raw of source.shell.threads) {
     if (!sidebarVisible(raw) || options.environmentId && source.environmentId !== options.environmentId
       || selectedProject && !selectedProject.projectKeys.includes(scoped(source.environmentId, raw.projectId))) continue;
     const thread: Obj = { ...raw, environmentId: source.environmentId };
     const key = scoped(source.environmentId, thread.id);
-    const prs = arr(thread.pullRequests);
-    if (query && !str(thread.title).toLowerCase().includes(query)
-      && !prs.some(pr => `#${String(pr.number ?? "")}`.includes(query) || str(pr.title).toLowerCase().includes(query))
+    if (query && !str(thread.title).toLocaleLowerCase().includes(query)
+      && !pullRequestSearchTerms(thread).some(term => term.toLocaleLowerCase().includes(query))
       && !options.messageMatches?.has(key)) continue;
     ownership.set(thread, source);
     const caps = capabilities(source.config);
@@ -206,7 +212,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
   }
   const pendingTitle = (task: MobilePendingTask) => editorTitles.get(task.owner) ?? homeDraftTitle(task.record.text, task.record.attachments.length);
   const pendingRows = projectHomePending([...pendingTasks.values()], { environmentId: options.environmentId, projectRefs })
-    .filter(task => (!query || pendingTitle(task).toLowerCase().includes(query)) && (editorTitles.has(task.owner)
+    .filter(task => (!query || pendingTitle(task).toLocaleLowerCase().includes(query)) && (editorTitles.has(task.owner)
       || !sources.find(source => source.environmentId === task.record.environmentId)?.shell.threads.some(thread => thread.id === task.record.threadId)));
   // Only hide a duplicate if its actual replacement survived this view's filters.
   // Unknown/orphan content without validated marker ownership remains visible.

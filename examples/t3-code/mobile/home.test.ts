@@ -9,6 +9,9 @@ const at = (minutes: number) => new Date(now + minutes * 60_000).toISOString();
 const thread = (id: string, fields: Obj = {}): Obj => ({ id, projectId: 'project', title: id, createdAt: at(-60), updatedAt: at(-5), archivedAt: null, ...fields });
 const source = (id: string, threads: Obj[] = [], caps: Obj = {}): HomeSource => ({ environmentId: id, label: `Machine ${id}`, machine: 'laptop', focused: id === 'one',
   config: { environment: { capabilities: caps } }, shell: { ...initialShell(), projects: [{ id: 'project', title: 'Project', workspaceRoot: '/repo' }], threads } });
+const snapshot = (title: string): Obj => ({ state: 'open', title, headBranch: 'feature', baseBranch: 'main', isDraft: false, updatedAt: at(-5), syncedAt: at(-5) });
+const link = (number: number, fields: Obj = {}): Obj => ({ host: 'github.com', repository: 'team/repo', number, url: `https://github.com/team/repo/pull/${number}`,
+  source: 'manual', linkedAt: at(-10), snapshot: snapshot('Cache PR'), stack: null, ...fields });
 const rows = (result: ReturnType<typeof projectMobileHome>) => result.items.filter(item => item.kind === 'thread');
 const capabilities = { threadSettlement: true, threadSnooze: true, threadPinning: true };
 
@@ -96,7 +99,7 @@ describe('mobile V2 home projection', () => {
   });
 
   test('title, PR and server-message queries filter without crossing environment ownership', () => {
-    const first = source('one', [thread('same', { title: 'Fix cache', pullRequests: [{ number: 42, title: 'Cache PR' }] })]);
+    const first = source('one', [thread('same', { title: 'Fix cache', pullRequests: [link(42)] })]);
     const second = source('two', [thread('same', { title: 'Unrelated' })]);
     expect(rows(projectMobileHome([first, second], now, { query: '#42' })).map(row => row.key)).toEqual(['one:same']);
     const result = projectMobileHome([first, second], now, { query: 'needle', messageMatches: new Map([['two:same', { snippet: 'the needle is here' }]]) });
@@ -104,6 +107,32 @@ describe('mobile V2 home projection', () => {
     expect(rows(result)[0]?.searchExcerpt).toBe('the needle is here');
     const empty = projectMobileHome([first, second], now, { query: 'absent' });
     expect(empty.emptyTitle).toBe('No results'); expect(empty.emptyDetail).toBe('No threads matching "absent".');
+  });
+
+  test('PR search terms are #n, repository#n, URL and snapshot title of visible links, else the legacy link', () => {
+    const legacy = { projectId: 'project', repository: 'team/legacy', number: 7, url: 'https://github.com/team/legacy/pull/7' };
+    const input = source('one', [
+      thread('linked', { title: 'Fix cache', pullRequests: [link(42)] }),
+      thread('dismissed', { pullRequests: [link(43, { source: 'stack-dismissed', snapshot: snapshot('Dismissed Layer') })], linkedPullRequest: legacy }),
+      thread('mixed', { pullRequests: [link(44, { source: 'stack-dismissed' }), link(45, { source: 'stack', snapshot: null })] }),
+      thread('absent', { linkedPullRequest: legacy }),
+      thread('empty', { pullRequests: [], linkedPullRequest: { ...legacy, number: 8, url: 'https://github.com/team/legacy/pull/8' } }),
+      thread('branch', { branchPullRequest: { repository: 'team/branch', number: 9, url: 'https://github.com/team/branch/pull/9', title: 'Branch PR' } }),
+    ]);
+    const matches = (query: string) => rows(projectMobileHome([input], now, { query })).map(row => row.threadId).sort();
+    expect(matches('cache pr')).toEqual(['linked']);
+    expect(matches('CACHE PR')).toEqual(['linked']);
+    expect(matches('Team/Repo#42')).toEqual(['linked']);
+    expect(matches('GITHUB.COM/TEAM/REPO/PULL/42')).toEqual(['linked']);
+    expect(matches('#42')).toEqual(['linked']);
+    expect(matches('#43')).toEqual([]);
+    expect(matches('dismissed layer')).toEqual([]);
+    expect(matches('team/legacy#7')).toEqual(['absent']);
+    expect(matches('legacy/pull/8')).toEqual(['empty']);
+    expect(matches('#44')).toEqual([]);
+    expect(matches('team/repo#45')).toEqual(['mixed']);
+    expect(matches('#9')).toEqual([]);
+    expect(matches('branch pr')).toEqual([]);
   });
 
   test('mobile timestamps and project override fallbacks use source presentation rules', () => {
