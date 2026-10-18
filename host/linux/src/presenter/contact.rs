@@ -462,13 +462,7 @@ impl<D: DataSource> Presenter<D> {
         };
         let (hit, point) = (node.id, contact.origin);
         if !self.focusable(hit) || self.focus_refusal(hit).is_some() {
-            // Keep the held pointer for the physical release and its hatch Up.
-            let contact = self.contact.take().unwrap();
-            if let Some((key, _)) = contact.press {
-                self.host.press_feedback(key, false, now_ms);
-                self.dirty = true;
-            }
-            self.set_collection_interaction(None);
+            // The contact still carries release and cancellation through the agent.
             return;
         }
         self.contact.as_mut().unwrap().field_focus_before_down = Some(self.focus);

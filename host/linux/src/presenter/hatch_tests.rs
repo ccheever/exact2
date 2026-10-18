@@ -526,20 +526,65 @@ fn field_hidden_on_down_keeps_pointerup_and_hatch_up_until_release() {
                     &["outer"],
                 );
                 first_pixel(&mut p);
-                p.pointer_down(20., 20., 1.).unwrap();
+                let view = id(&p, "field");
+                let down = agent(
+                    &mut p,
+                    json!({"op": "tap", "phase": "down", "id": view, "x": 20, "y": 20, "mouse": true}),
+                );
+                assert!(down.get("error").is_none(), "{down}");
                 assert_eq!(notes(), ["outer Down handled=true inside=true"]);
                 assert_eq!(
                     state(&mut p)["slots"]["ups"],
                     0,
                     "{field} {parent} {feedback}: pointerup waits for release"
                 );
-                p.pointer_up(20., 20., 2.).unwrap();
+                let up = agent(&mut p, json!({"op": "tap", "phase": "up", "mouse": true}));
+                assert!(up.get("error").is_none(), "{up}");
                 assert_eq!(notes(), ["outer Up handled=true inside=true"]);
                 let slots = state(&mut p)["slots"].clone();
                 assert_eq!(slots["ups"], 1);
-                assert_eq!(slots["presses"], 0);
+                assert_eq!(slots["presses"], u32::from(!feedback.is_empty()));
             }
         }
+    }
+}
+
+#[test]
+fn field_hidden_on_down_lifts_on_cancel_without_a_painted_position() {
+    for end in ["lost", "cancel"] {
+        let mut p = boot::<Ears>(
+            r#"component App
+  state shown = true
+  state ups = 0
+  action hide
+    shown = false
+  action lifted
+    ups = ups + 1
+  view
+    column hatch="outer" width=300 height=300 pointerup=lifted
+      input value="abcd" width=100 height=40 display=(shown ? "block" : "none") pointerdown=hide
+"#,
+            &["outer"],
+        );
+        first_pixel(&mut p);
+        p.pointer_down(20., 20., 0.).unwrap();
+        assert_eq!(notes(), ["outer Down handled=true inside=true"]);
+        assert_eq!(state(&mut p)["slots"]["ups"], 0);
+        assert!(p.pointer.is_none());
+        if end == "lost" {
+            p.pointer_lost(0.).unwrap();
+        } else {
+            let cancel = agent(
+                &mut p,
+                json!({"op": "tap", "phase": "cancel", "mouse": true}),
+            );
+            assert!(cancel.get("error").is_none(), "{cancel}");
+        }
+        assert_eq!(state(&mut p)["slots"]["ups"], 1, "{end}");
+        assert_eq!(notes(), ["outer Cancel handled=true inside=true"]);
+        p.pointer_lost(0.).unwrap();
+        assert_eq!(state(&mut p)["slots"]["ups"], 1, "{end}: no stale pointer");
+        assert!(notes().is_empty());
     }
 }
 

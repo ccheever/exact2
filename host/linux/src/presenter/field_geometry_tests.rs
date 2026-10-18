@@ -189,13 +189,28 @@ fn cancelled_mouse_field_contact_keeps_focus_and_never_presses() {
 
 #[test]
 fn field_down_revalidates_after_authored_pointerdown() {
-    for (down, visibility) in [
-        ("shown = false", ""),
-        ("disabled = true", ""),
-        ("fieldDisplay = \"none\"", ""),
-        ("parentDisplay = \"none\"", ""),
-        ("fieldVisibility = \"hidden\"", "visibility=fieldVisibility"),
-        ("parentVisibility = \"hidden\"", ""),
+    for (down, visibility, feedback_focus, feedback_log) in [
+        ("shown = false", "", Some("other"), "down "),
+        ("disabled = true", "", Some("other"), "down "),
+        (
+            "fieldDisplay = \"none\"",
+            "",
+            Some("field"),
+            "down focus press ",
+        ),
+        (
+            "parentDisplay = \"none\"",
+            "",
+            Some("field"),
+            "down focus press ",
+        ),
+        (
+            "fieldVisibility = \"hidden\"",
+            "visibility=fieldVisibility",
+            None,
+            "down press ",
+        ),
+        ("parentVisibility = \"hidden\"", "", None, "down press "),
     ] {
         for feedback in ["", "-exact-press-scale=0.9"] {
             let (mut p, id) = contact_field("input", &format!("{feedback} {visibility}"), down);
@@ -205,9 +220,19 @@ fn field_down_revalidates_after_authored_pointerdown() {
             let (x, y) = second_character(&mut p, id, false);
             p.pointer_down(x, y, 1.).unwrap();
             assert_eq!(p.focus, Some(other), "{down} {feedback}: down");
+            assert_eq!(contact_log(&p), "down ", "{down} {feedback}: down");
             p.pointer_up(x, y, 2.).unwrap();
-            assert_eq!(p.focus, Some(other), "{down} {feedback}: up");
-            assert_eq!(contact_log(&p), "down ", "{down} {feedback}");
+            // Press feedback retains its release target even when hit-testing hides it.
+            let (focus, log) = if feedback.is_empty() {
+                (Some(other), "down ")
+            } else {
+                let k = p.host.kernel();
+                let focus = feedback_focus
+                    .map(|name| k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id);
+                (focus, feedback_log)
+            };
+            assert_eq!(p.focus, focus, "{down} {feedback}: up");
+            assert_eq!(contact_log(&p), log, "{down} {feedback}: up");
         }
     }
 }
