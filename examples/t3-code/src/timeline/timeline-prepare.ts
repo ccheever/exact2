@@ -1,3 +1,4 @@
+import { fileMetadataNeeded, refreshFileMetadata } from '../shared/file-metadata';
 // The timeline's native work before each snapshot: the worktree setup stream (timeline-worktree.ts).
 import { refreshNextOpenTurnItemDetail, turnItemDetailsNeeded } from './timeline-item-fetch';
 import { syncToolActivityIcons, toolActivityIconsNeeded } from './timeline-tool-icons';
@@ -14,9 +15,9 @@ export async function prepareTimeline(client: T3Client, native: Native | null | 
 
 /** Snapshot exposes readiness; a distinct root mutation owns every pending native call. */
 export function timelineReadsNeeded(client: T3Client): boolean {
-  return secretAnswersNeeded(client) || turnItemDetailsNeeded(client) || toolActivityIconsNeeded(client);
+  return secretAnswersNeeded(client) || turnItemDetailsNeeded(client) || toolActivityIconsNeeded(client) || fileMetadataNeeded(client);
 }
 export async function refreshTimelineReads(client: T3Client, native: Native | null | undefined): Promise<void> {
   if (!native?.available) return;
-  if (!await refreshSecretAnswer(client, native) && !await refreshNextOpenTurnItemDetail(client, native)) await syncToolActivityIcons(client, native);
+  if (!await refreshSecretAnswer(client, native) && !await refreshNextOpenTurnItemDetail(client, native) && !await refreshFileMetadata(client, native)) await syncToolActivityIcons(client, native);
 }
