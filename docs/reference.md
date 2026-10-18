@@ -839,9 +839,10 @@ Call `sendFrame` through a Contract `mutation`, after the feed reports `open`.
 `send` accepts a string, ArrayBuffer or ArrayBufferView; bytes are copied at
 the call. `close(code = 1000, reason = "")` accepts 1000 or 3000–4999 and a
 reason of at most 123 UTF-8 bytes. In a mutation, both methods are allowed
-only during its source's synchronous call. A source that stages socket operations
-must answer now with a value: not a promise, not a stream answer, and with
-no `fetch` in the same mutation. Whichever of a socket operation and a
+during its source's synchronous call, and after it only when the source
+answered with a promise (below). A source that stages socket operations
+answers now with a value or with a promise (then it is an answer in flight,
+below), not a stream answer, and makes no `fetch` in the same source. Whichever of a socket operation and a
 `fetch` comes second throws `a mutation cannot both send on a socket and
 fetch`, and the mutation is refused before either takes effect: no frame is
 sent and no request starts. A thrown source, wrong-shaped answer or refused
@@ -906,7 +907,9 @@ synchronous call may send; a continuation refuses, since the page cannot
 tell whose it is. An answer
 the runner lets go (new arguments, `refresh`, a newer send, leaving the
 view) sends nothing more as its own; what it sent stays sent. It may also
-`fetch`. Its bounds are a mutation's, over all its turns (`socket answer
+`fetch`, though a mutation's synchronous source still may not do both. A
+refused commit's batches are taken back without telling the code, so a
+protocol that awaits a reply times out. Its bounds are a mutation's, over all its turns (`socket answer
 exceeds 256 operations`, `… 1 MiB`); overload throws without failing the
 answer. A handle that is not open, or whose socket a mutation's stream
 owns, throws `InvalidStateError`, and so does an operation after the

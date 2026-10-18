@@ -81,6 +81,7 @@ function say(id: string, what: string): unknown {
       case "big": socket.send("x".repeat(200000)); return "sent";
       case "send then fetch": socket.send("a"); fetch("https://echo.test/x").catch(() => {}); return "sent";
       case "send, await, fetch": socket.send("a"); return Promise.resolve().then(() => fetch("https://echo.test/x").catch(() => "refused"));
+      case "send, fetch, await": socket.send("a"); fetch("https://echo.test/x").catch(() => {}); return Promise.resolve().then(() => fetch("https://echo.test/y").catch(() => "refused"));
       case "send then fetch later": socket.send("a"); Promise.resolve().then(() => fetch("https://echo.test/x").catch(() => {})); return "sent";
       case "fetch then send": fetch("https://echo.test/x").catch(() => {}); try { socket.send("a"); } catch {} return "sent";
       case "abort": controllers.get(id)!.abort(); socket.send("x"); return "sent";

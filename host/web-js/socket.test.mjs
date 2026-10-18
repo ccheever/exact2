@@ -72,6 +72,9 @@ test('JS target socket mutations, mapper replies and answers echo ordered frames
     send watched = watched()
   action askFor(what: string)
     q = what
+  action rollbackAsync
+    send sent = write("async-rollback")
+    send second = refuse()
   view
     column
       text feed testId="feed"
@@ -125,6 +128,10 @@ test('JS target socket mutations, mapper replies and answers echo ordered frames
         text "ask refused"
       button press=askFor("probe 5") testId="ask-probe"
         text "ask probe"
+      button press=askFor("throw 6") testId="ask-throw"
+        text "ask throws"
+      button press=rollbackAsync testId="rollback-async"
+        text "rollback a promise"
 `);
   writeFileSync(resolve(dir, 'app.ts'), `export const appId = 'test.socket';
 export const grants = ${JSON.stringify(`net.websocket ${url}\nnet.fetch http://127.0.0.1:${peer.port}`)};
@@ -142,6 +149,7 @@ export function answer(name: string, args: any): any {
     if (!answers || !what) return '';
     if (what === 'many') { try { for (let i = 0; i < 257; i++) answers.send('many'); } catch (e: any) { return e.message; } }
     if (what === 'probe') { const before = answers.bufferedAmount; answers.send('abc'); return before + ':' + answers.bufferedAmount; }
+    if (what === 'throw') { answers.send('request ' + n); throw new Error('the answer threw'); }
     answers.send('request ' + n);
     return new Promise(resolve => waiters.set(n, resolve)).then(got => {
       if (what !== 'later') return 'got ' + got;
@@ -216,6 +224,7 @@ export function answer(name: string, args: any): any {
   }
   if (mode === 'overflow') { for (let i = 0; i < 257; i++) s.send('too many'); return 'bad'; }
   // A waiting mutation's continuation has no turn this page can tie to it.
+  if (mode === 'async-rollback') { t.send(mode); return Promise.resolve('x'); }
   if (mode === 'later') return Promise.resolve().then(() => { try { s.send('later'); return 'sent later'; } catch (e: any) { return 'later: ' + e.message; } });
   s.send(mode);
   if (mode === 'throw') throw new Error('source failed');
@@ -271,7 +280,11 @@ export function answer(name: string, args: any): any {
     await browser.tap('ask-probe');
     expect((await until(s => s.resources.asked === '0:3')).resources.asked).toBe('0:3');
     await until(() => asked.includes('abc'));
-    expect(asked).toEqual(['request 1', 'request 2', ...Array(256).fill('many'), 'abc']);
+    // What a source sent before it threw goes: the commit stood, and the resource failed.
+    await browser.tap('ask-throw');
+    await until(s => s.failed?.asked?.includes('the answer threw'));
+    await until(() => asked.includes('request 6'));
+    expect(asked).toEqual(['request 1', 'request 2', ...Array(256).fill('many'), 'abc', 'request 6']);
     const answerLogs = (await browser.logs()).lines.join('\n');
     expect(answerLogs).toMatch(/answer asked failed: .*deliberate commit refusal; socket frames were refused/);
     // A socket no resource owns (a mutation's stream) takes none of its
@@ -329,8 +342,13 @@ export function answer(name: string, args: any): any {
     expect(logs).toContain('socket close: 4001 finished');
     expect(logs).toContain('socket mutation exceeds 256');
     expect(logs).toContain('the socket is not open');
+    // A refused commit takes back what a promise-answering mutation's source sent, and says so.
+    const sentBefore = received.length;
+    await browser.tap('rollback-async');
     await browser.tap('later');
     await until(s => JSON.stringify(s.slots.sent).includes("later: socket.send is only available in a mutation's or a resource's synchronous source, or its socket's own mapper"));
+    expect(received.length).toBe(sentBefore);
+    expect((await browser.logs()).lines.join('\n')).toMatch(/answer sent failed: .*deliberate commit refusal; socket frames were refused/);
     // bufferedAmount counts what the mutation has staged.
     await browser.tap('probe');
     await until(s => JSON.stringify(s.slots.sent).includes('0:3') && s.resources.other === 'abc|');

@@ -322,7 +322,7 @@ export function install(data, mixed = false, modules = null) {
   // paint (rt.js `painted`), whether or not anything asks `later`.
   load = modules && (() => painted().then(modules));
   if (modules && typeof requestAnimationFrame === 'function') pageModule().catch(e => journal.push(`t=${clock.now} native: ${e.message}`));
-  let keys = null, asking = '';
+  let keys = null, asking = '', thrown = null;
   const kept = () => keys ??= import('./storage-environment.js').then(({ keyStore, storageKey }) =>
     keyStore(typeof location === 'object' && source.appId ? storageKey(source.appId) : null, globalThis.indexedDB));
   __AUTH_INSTALL__
@@ -344,10 +344,16 @@ export function install(data, mixed = false, modules = null) {
     // The store as the module sees it (LLP 1018): a read marks the answer.
     const seen = createSecretFacade(store, tsGrantSet, kept);
     asking = target ?? name; watching = name;
-    const call = answering.call = { stream: null, mutation, name: target ?? name };
+    const call = answering.call = { stream: null, mutation, name: target ?? name }, target_ = target ?? name;
+    // What the source sent goes once the commit that asked it stands: an answer in flight's (a resource's, or a mutation's that
+    // answers with a promise) whatever it then answers, a refused commit saying so (LLP 1016.000 D7, amended 2026-10-18).
+    const effectsOf = answer => {
+      const said = why => journal.push(`t=${clock.now} ${answer ? 'answer' : 'send'} ${target_} failed: ${why}; socket frames were refused`);
+      return call.effects?.map(effect => Object.assign(() => { try { effect(); } catch (e) { said(e?.message ?? e); } }, answer ? { refused: said } : {}));
+    };
     let r;
-    try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } catch (e) { call.settled = true; throw e; } finally { asking = ''; watching = null; answering.call = null; }
-    const target_ = target ?? name;
+    thrown = null;
+    try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } catch (e) { call.settled = true; if (!mutation) thrown = effectsOf(true); throw e; } finally { asking = ''; watching = null; answering.call = null; }
     const shaped = types ? v => checked(name, v, result) : v => v;
     // A stream's answer has replied once it returns (LLP 1016.000): what runs on is background work.
     // Socket operations go out only with a value given now: not with a
@@ -356,10 +362,7 @@ export function install(data, mixed = false, modules = null) {
       call.socketConflict = true; Promise.resolve(r).catch(() => {}); call.settled = true;
       throw new Error(SOCKET_AND_FETCH);
     }
-    // What the source sent goes once the commit that asked it stands: a resource's answer's and a mutation's that answers
-    // with a promise go whatever it then answers (LLP 1016.000 D7, amended 2026-10-18), and a refused commit says so.
-    const verb = mutation ? 'send' : 'answer', said = why => journal.push(`t=${clock.now} ${verb} ${target_} failed: ${why}; socket frames were refused`);
-    const effects = call.effects?.map(effect => Object.assign(() => { try { effect(); } catch (e) { said(e?.message ?? e); } }, mutation ? {} : { refused: said }));
+    const effects = effectsOf(!mutation || !!(r && typeof r.then === 'function'));
     if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_), target_), store: seen.read, effects }; }
     if (r && typeof r.then === 'function') {
       pendingAnswers++;
@@ -387,5 +390,7 @@ export function install(data, mixed = false, modules = null) {
     } finally { overlaying.on = false; }
   });
   data.ts = ts;
+  // A resource's source that sent and then threw: what it sent, which rt.js `ask` queues with the commit.
+  data.thrown = () => { const t = thrown ?? []; thrown = null; return t; };
   for (const f of data.q.splice(0)) f();
 }

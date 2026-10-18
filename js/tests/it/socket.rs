@@ -405,10 +405,13 @@ fn buffered_amount_is_the_turn_s_snapshot_plus_what_it_stages() {
 fn a_mutation_cannot_both_send_and_fetch() {
     let (mut r, ticket) = boot();
     open(&mut r, ticket);
+    // A source that answers with a promise is held to it too, and its
+    // continuation's fetch is refused with it.
     for what in [
         "send then fetch",
         "fetch then send",
         "send then fetch later",
+        "send, fetch, await",
     ] {
         let (said, ops) = say(&mut r, what);
         assert_eq!((said.as_str(), ops), ("", vec![]), "{what}");
@@ -419,7 +422,7 @@ fn a_mutation_cannot_both_send_and_fetch() {
         journal
             .matches("send said failed: a mutation cannot both send on a socket and fetch")
             .count(),
-        3,
+        4,
         "{journal}"
     );
     assert_eq!(say(&mut r, "x").1.len(), 2, "the module goes on");
