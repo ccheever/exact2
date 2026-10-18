@@ -1041,11 +1041,15 @@ function sections(text) {
   return { lines, kinds, heads };
 }
 
+/** A word whose section ranking alone misses, because it is said in passing more densely elsewhere, and its section. */
+const TOPICS = { log: 'Inspection and testing', sheet: 'Recipe: a navigation stack' };
+
 const STOP = new Set(['a', 'an', 'and', 'by', 'for', 'in', 'it', 'its', 'of', 'on', 'or', 'the', 'to', 'you']);
 
-/** Words as whole words, one after another by spaces or hyphens, a plural `s` allowed: `logs` is not in "catalogs";
- *  `-exact-exit-animation` holds `exit`, and `exit animation` together. */
-const wholeWords = (...words) => new RegExp(`(?<![a-z0-9_])${words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s-]+')}s?(?![a-z0-9_])`, 'gi');
+/** Words as whole words, one after another by spaces or hyphens, singular or plural (`sheets` finds `sheet`): `logs` is
+ *  not in "catalogs"; `-exact-exit-animation` holds `exit`, and `exit animation` together. */
+const singular = w => w.length > 3 && /[^s]s$/i.test(w) ? w.slice(0, -1) : w;
+const wholeWords = (...words) => new RegExp(`(?<![a-z0-9_])${words.map(w => singular(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s-]+')}s?(?![a-z0-9_])`, 'gi');
 
 /** A line's weighted mentions of a word: code (in a fence or backticks) defines it, prose, or a part of a hyphenated
  *  name (`syntax-call-cycle` for `call`), mentions it. */
@@ -1074,30 +1078,43 @@ export function docs(words, say = console.log) {
     for (const h of f.heads) {
       const counts = res.map(re => { let n = 0; for (let i = h.from; i < h.own; i++) n += mentions(f.lines[i], f.kinds[i], re); return n; });
       if (counts.some(n => n === 0)) continue;
-      // A heading is on the words when they are half its own words or more ("Tabular numbers", "Recipe: motion"), not
-      // when it only says one ("Before you call it done").
-      const own = h.title.replace(/^Recipe:/, '').toLowerCase().match(/[a-z0-9_-]+/g)?.filter(w => !STOP.has(w)) ?? [];
-      const titled = res.every(re => h.title.match(re)) && words.length * 2 >= own.length;
+      // A heading is on the words when they are half its own words or more ("Tabular numbers", "Recipe: motion"), or
+      // when it is a recipe's title that holds them all ("Recipe: files, SQLite and grants"); not when a section's
+      // heading only says one ("Before you call it done").
+      const recipe = path.includes('/recipes/'), own = h.title.replace(/^Recipe:/, '').toLowerCase().match(/[a-z0-9_-]+/g)?.filter(w => !STOP.has(w)) ?? [];
+      const titled = res.every(re => h.title.match(re)) && (words.length * 2 >= own.length || (recipe && h.level === 1));
+      // A section whose first paragraph names the words is about them ("A Cancel/Save sheet" opens the navigation stack's).
+      let first = h.from + 1;
+      while (first < h.own && f.lines[first].trim() === '') first++;
+      let last = first;
+      while (last < h.own && !(f.kinds[last] === 'text' && f.lines[last].trim() === '')) last++;
+      const opens = res.every(re => f.lines.slice(first, last).some((line, i) => mentions(line, f.kinds[first + i], re)));
       let joined = 0;
       if (together) for (let i = h.from; i < h.own; i++) joined += mentions(f.lines[i], f.kinds[i], together);
       const density = (counts.reduce((a, b) => a + b, 0) + 2 * joined) / (h.own - h.from + 8);
-      units.push({ f, h, titled, score: density * (path.includes('/recipes/') ? 1.5 : 1) * (titled ? 3 : 1) });
+      // A heading that is the words ("Tabular numbers") weighs more again; a word's own section (TOPICS) comes first.
+      const exact = own.map(singular).join(' ') === words.map(w => singular(w).toLowerCase()).join(' ');
+      const topic = words.length === 1 && TOPICS[singular(words[0]).toLowerCase()] === h.title;
+      units.push({ f, h, titled, score: topic ? Infinity : density * (recipe ? 1.5 : 1) * (titled ? 3 : 1) * (exact ? 2 : 1) * (opens ? 1.5 : 1) });
     }
   }
   if (!units.length) return say(`docs: no section of the guides holds ${words.map(w => `"${w}"`).join(' and ')} as words; try fewer, or bun exact.mjs contract vocab <name>`);
   units.sort((a, b) => b.score - a.score);
   const at = (f, line) => `${f.shown}:${line + 1}`;
   const [{ f, h, titled }] = units;
-  let from = h.from, end = Math.min(h.to, h.from + SECTION_LINES), where = '';
-  if (!titled) {
-    // The paragraph or list item (outside a fence: from the blank line before it) where a word is first mentioned.
-    from = f.lines.findIndex((line, i) => i > h.from && i < h.own && res.some(re => mentions(line, f.kinds[i], re)));
+  // The paragraph or list item (outside a fence: from the blank line before it) where a word is first mentioned; none
+  // when only the heading holds them.
+  let from = titled ? -1 : f.lines.findIndex((line, i) => i > h.from && i < h.own && res.some(re => mentions(line, f.kinds[i], re)));
+  const whole = from < 0;
+  let end = Math.min(h.to, h.from + SECTION_LINES), where = '';
+  if (whole) from = h.from;
+  else {
     const starts = i => f.kinds[i] === 'text' && /^\s*([-*]|\d+\.)\s/.test(f.lines[i]);
     while (from - 1 > h.from && !starts(from) && !(f.lines[from - 1].trim() === '' && f.kinds[from - 1] === 'text')) from--;
     end = Math.min(h.own, from + SECTION_LINES);
     where = `, under "${h.title}"`;
   }
-  const cut = end < (titled ? h.to : h.own) ? `\n… to ${at(f, (titled ? h.to : h.own) - 1)}` : '';
+  const cut = end < (whole ? h.to : h.own) ? `\n… to ${at(f, (whole ? h.to : h.own) - 1)}` : '';
   const also = units.slice(1, 9).map(u => `${at(u.f, u.h.from)} ${u.h.title}`);
   say(`${at(f, from)}${where}\n${f.lines.slice(from, end).join('\n').trimEnd()}${cut}${also.length ? `\nAlso: ${also.join(' · ')}` : ''}`);
 }

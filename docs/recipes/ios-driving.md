@@ -9,13 +9,13 @@ reference, screen, differences). Each tap is a real touch, reaching a pull-down 
 rows, tabs and a native module's controls. A context menu, a row scrolled out of its
 menu and an alert's buttons take a drive without the flag.
 
-Edit and check on the web (`verify`: seconds); run `verify ios` once, at the end: the tests with
+Edit and check on the web (`verify`); run `verify ios` once, at the end: the tests with
 UIKit's bars, `check` light and dark, and a relaunch ([tests](tests.md#before-you-call-it-done)).
 A clean `verify ios` is done. Drives build first when stale (log
-`.exact/ios-build.log`); `--prebuild` starts the first early. An edit to only `.contract` files
-or what `app.ts` imports reaches iOS in seconds: the drive bakes the new plan into the build you
-have (a bake error fails it, log `.exact/ios-plan.log`). `app.json`, assets, fonts and new
-grants rebuild. Before done: `bun exact.mjs ios`, then `verify ios`.
+`.exact/ios-build.log`); `--prebuild` starts the first early. With an `app.ts` data module, an
+edit to `.contract` files or what `app.ts` imports reaches iOS in seconds, its plan baked
+into your build (log `.exact/ios-plan.log`). `app.json`, assets, fonts, new grants and,
+with a Rust data crate, any edit rebuild. Before done: `bun exact.mjs ios`, then `verify ios`.
 
 ```sh
 bun exact.mjs ios --prebuild

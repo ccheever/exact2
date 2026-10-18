@@ -778,13 +778,18 @@ test('docs prints the section on its words first, matching whole words', () => {
     [['screenshot'], 'docs/recipes/ios-driving.md', /screenshot\s+\.exact\/x\.png compare/],
     [['scheme', 'fixed'], 'docs/recipes/theme.md', /scheme=fixed/],
     [['tabular', 'numbers'], 'docs/contract-for-agents.md', /^### Tabular numbers/],
+    [['grant'], 'docs/recipes/files-and-grants.md', /^# Recipe: files, SQLite and grants/],
+    [['sheet'], 'docs/recipes/navigation-stack.md', /Cancel\/Save sheet/],
+    [['sheets'], 'docs/recipes/navigation-stack.md', /Cancel\/Save sheet/],
+    // A whole word: `logs` is the driver's op, not "catalogs".
+    [['logs'], 'docs/contract-for-agents.md', /^The driver has ten operations[^]*`logs`/],
+    [['colours'], 'docs/recipes/theme.md', /^# Recipe: theme: colours/],
+    // A heading that alone holds the word prints from the heading.
+    [['accessibility'], 'docs/contract-for-agents.md', /^### Native views: accessibility\n+\S/],
+    [['optimistic'], 'docs/contract-for-agents.md', /^### Optimistic writes: the overlay\n+\S/],
   ]) {
     const { where, text } = first(...words);
     assert.ok(where.startsWith(`${file}:`), `docs ${words.join(' ')}: ${where}`);
     assert.match(text, shows, `docs ${words.join(' ')} prints from the lines that hold them:\n${text}`);
   }
-  // A whole word: `logs` is the driver's op, not "catalogs".
-  const logs = first('logs');
-  assert.match(logs.text, /`logs`/);
-  assert.doesNotMatch(logs.text, /catalogs/);
 });

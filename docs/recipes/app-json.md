@@ -46,6 +46,7 @@ component App
   `commands` (the app's own `bun exact.mjs <verb>`).
 - **Not here:** grants are `app.ts`'s `export const grants`; fonts and sounds are declared in
   Contract.
-- **A change to `app.json`, `assets/`, Swift, grants, `appId`, fonts, strings or a Rust data
-  crate rebuilds** the native app (`bun exact.mjs ios`); an edit to `.contract` files or what
-  `app.ts` imports reaches a running build in seconds ([ios-driving](ios-driving.md)).
+- **A change to `app.json`, `assets/`, Swift, grants, `appId`, fonts or strings rebuilds** the
+  native app (`bun exact.mjs ios`). In an app whose data is `app.ts`, an edit to `.contract`
+  files or what `app.ts` imports reaches a running build in seconds; with a Rust data crate,
+  any edit rebuilds ([ios-driving](ios-driving.md)).

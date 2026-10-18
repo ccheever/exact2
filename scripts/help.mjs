@@ -483,8 +483,7 @@ export function indexText({ verbs = Object.keys(HELP).filter((v) => v !== 'new')
     'bun exact.mjs <verb> [arguments]    from the app\'s directory (EXACT2=<path> picks another exact2)',
     ...names.map((verb) => `  ${verb.padEnd(width)}  ${line(verb)}`),
     ...(forms.length ? ['The forms a build uses:', ...forms.map((form) => `  ${form}`)] : []),
-    'bun exact.mjs <verb> --help: flags and an example;',
-    'bun exact.mjs <verb> --help all: every flag and port.',
+    'bun exact.mjs <verb> --help: flags and an example; bun exact.mjs <verb> --help all: every flag and port.',
   ].join('\n');
 }
 
