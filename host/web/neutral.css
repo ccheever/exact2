@@ -25,7 +25,7 @@
 
      The roles this sheet and the shell's name (the neutral column's pairs, which the same test holds
      to the table), and the look's own few values. */
-  :root { --exact-label: light-dark(#000000ff, #ffffffff); --exact-secondary-label: light-dark(#474747ff, #bdbdbdff); --exact-placeholder: light-dark(#5c5c5cff, #a3a3a3ff); --exact-separator: light-dark(#0000001f, #ffffff29); --exact-background: light-dark(#ffffffff, #121212ff); --exact-secondary-background: light-dark(#f5f5f5ff, #1e1e1eff); --exact-grouped-background: light-dark(#f5f5f5ff, #121212ff); --exact-secondary-grouped-background: light-dark(#ffffffff, #1e1e1eff); --exact-fill: light-dark(#00000024, #ffffff29); --exact-secondary-fill: light-dark(#0000001a, #ffffff1f); --exact-tertiary-fill: light-dark(#00000012, #ffffff17); --exact-quaternary-fill: light-dark(#0000000a, #ffffff0f); --exact-system-red: light-dark(#c90f1aff, #fe7367ff);
+  :root { --exact-label: light-dark(#000000ff, #ffffffff); --exact-field-text: light-dark(#000000ff, #ffffffff); --exact-secondary-label: light-dark(#474747ff, #bdbdbdff); --exact-placeholder: light-dark(#5c5c5cff, #a3a3a3ff); --exact-separator: light-dark(#0000001f, #ffffff29); --exact-background: light-dark(#ffffffff, #121212ff); --exact-secondary-background: light-dark(#f5f5f5ff, #1e1e1eff); --exact-grouped-background: light-dark(#f5f5f5ff, #121212ff); --exact-secondary-grouped-background: light-dark(#ffffffff, #1e1e1eff); --exact-fill: light-dark(#00000024, #ffffff29); --exact-secondary-fill: light-dark(#0000001a, #ffffff1f); --exact-tertiary-fill: light-dark(#00000012, #ffffff17); --exact-quaternary-fill: light-dark(#0000000a, #ffffff0f); --exact-system-red: light-dark(#c90f1aff, #fe7367ff);
     --exact-gray-text: light-dark(#707070ff, #929292ff); --exact-line: color-mix(in srgb, var(--exact-label) 45%, transparent); --exact-raised: 0 0 0 1px var(--exact-separator), 0 4px 12px rgb(0 0 0 / .12); --exact-modal: 0 0 0 1px var(--exact-separator), 0 16px 48px rgb(0 0 0 / .24); --exact-scrim: rgb(0 0 0 / .4); }
   /* The accent: the browser's own (`AccentColor`), kept to a lightness at which it reads at 4.5:1 as text on the page
      in each scheme (0.53 in light, 0.72 in dark, the neutral column's own two). An author's `accent-color` is the
@@ -77,14 +77,17 @@
   #exact-root button[data-button-style="bordered"]:disabled { border-color: var(--exact-separator); }
   #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style="tinted"], [data-button-style="bordered-tinted"]):disabled { background-color: var(--exact-tertiary-fill); }
 
+  /* An author's `:hover` look (LLP 1121 D8) sets this to `none` on its node: it replaces the wash. Each pressable
+     starts unset, so a look's `none` reaches none inside it. */
+  :where(#exact-root :is(button, a[data-view][href], [data-exact-on~="press"])) { --exact-hover-wash: initial; }
   /* The unsaid hover (LLP 1115.000 D6): a custom `button`, a link or a box with a `press` shows a wash where a
      pointer hovers, as an image, so it lies over a fill the author gave the box. Only the innermost pressable; not a
      native control, which has its own, nor a pressable covering the window, nor a link in running text or one that
      is text (they underline, below). */
   @media (hover: hover) {
-    #exact-root :is(button, a[data-view][href], [data-exact-on~="press"]):hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], [data-exact-text] a, a[href]:not([role], :has(> :not([data-exact-text], img))), :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); }
+    #exact-root :is(button, a[data-view][href], [data-exact-on~="press"]):hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], [data-exact-text] a, a[href]:not([role], :has(> :not([data-exact-text], img))), :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: var(--exact-hover-wash, linear-gradient(var(--exact-quaternary-fill) 0 0)); }
     /* A button its author filled (LLP 1129 D1): the filled button's hover, a wash of its own ink, which shows over any fill. */
-    #exact-root :is(button, a[data-view][href], [data-exact-on~="press"])[data-exact-said~="background-color"]:hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], [data-exact-text] a, a[href]:not([role], :has(> :not([data-exact-text], img))), :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: linear-gradient(color-mix(in srgb, currentColor 12%, transparent) 0 0); }
+    #exact-root :is(button, a[data-view][href], [data-exact-on~="press"])[data-exact-said~="background-color"]:hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], [data-exact-text] a, a[href]:not([role], :has(> :not([data-exact-text], img))), :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: var(--exact-hover-wash, linear-gradient(color-mix(in srgb, currentColor 12%, transparent) 0 0)); }
     /* A grouped list's row starts at its text: the wash reaches the card's edge before it. */
     #exact-root [data-liststyle] > section > div > :is(button, a[href], [data-exact-on~="press"]):hover:not(:disabled, [data-native], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { box-shadow: -64px 0 0 var(--exact-quaternary-fill); }
   }
@@ -104,20 +107,20 @@
      keyboard's ring is drawn inside the row, where the list's own clip cannot cut it. */
   #exact-root [data-listrows] > :not(:last-child, [aria-hidden="true"], [data-exact-said~="border-bottom"], [data-listitemkey]:has(> [data-exact-said~="border-bottom"]), :has(+ [data-exact-said~="border-top"]), :has(+ [data-listitemkey] > [data-exact-said~="border-top"])) { box-shadow: inset 0 -1px 0 var(--exact-separator); }
   @media (hover: hover) {
-    #exact-root :where([data-listrows], [data-listrows] > [data-listitemkey]) > a[data-view][href]:hover:not([data-button-style], [data-exact-surface], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); }
+    #exact-root :where([data-listrows], [data-listrows] > [data-listitemkey]) > a[data-view][href]:hover:not([data-button-style], [data-exact-surface], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: var(--exact-hover-wash, linear-gradient(var(--exact-quaternary-fill) 0 0)); }
   }
   #exact-root [data-listrows] :is(button, a[data-view][href], [data-exact-on~="press"]):is(:active, [data-pressed]):not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"], [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"], [data-exact-surface], [data-exact-text] a, :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):is(:active, [data-pressed]))) { background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); }
   #exact-root [data-listrows] :is(button:not([data-native]), a[data-view][href], [data-exact-on~="press"]):focus-visible { outline-offset: -2px; }
 
   /* Fields and `select`: 36 px in every engine (a said line height again), the control's line, the field's own ground
      and ink (the page's `color` does not tint a surface the host paints; the node's own, inline or its class's,
-     still wins). */
-  #exact-root input[data-native], #exact-root textarea[data-native], #exact-root select:not([multiple]), #exact-root input[data-exact-field] { border-color: var(--exact-line); background-color: var(--exact-secondary-grouped-background); color: var(--exact-label); }
+     still wins; the ground and ink are the design's Field and FieldText where it overrides them, LLP 1121 D9). */
+  #exact-root input[data-native], #exact-root textarea[data-native], #exact-root select:not([multiple]), #exact-root input[data-exact-field] { border-color: var(--exact-line); background-color: var(--exact-field, var(--exact-secondary-grouped-background)); color: var(--exact-field-text); }
   #exact-root input[data-native], #exact-root textarea[data-native] { padding: .4375em .75em; line-height: 1.25; }
   #exact-root input[data-exact-field] { height: 2.25em; }
   #exact-root :is(input, textarea)::placeholder { color: var(--exact-placeholder-color, var(--exact-placeholder)); opacity: 1; }
   @media (pointer: coarse) { #exact-root input[data-native] { padding-block: .6875em; } #exact-root input[data-exact-field] { height: 44px; } #exact-root select:not([multiple]) { line-height: 2.625; } }
-  #exact-root input[data-native]:disabled, #exact-root textarea[data-native]:disabled, #exact-root select:not([multiple]):disabled, #exact-root input[data-exact-field]:disabled { color: var(--exact-gray-text); background-color: var(--exact-secondary-background); border-color: var(--exact-separator); }
+  #exact-root input[data-native]:disabled, #exact-root textarea[data-native]:disabled, #exact-root select:not([multiple]):disabled, #exact-root input[data-exact-field]:disabled { color: var(--exact-gray-text); background-color: var(--exact-field, var(--exact-secondary-background)); border-color: var(--exact-separator); }
   /* The select's caret, in the secondary label's ink, at the inline end. */
   #exact-root select:not([multiple]) { background-image: linear-gradient(45deg, #0000 50%, var(--exact-secondary-label) 50%), linear-gradient(135deg, var(--exact-secondary-label) 50%, #0000 50%); }
 

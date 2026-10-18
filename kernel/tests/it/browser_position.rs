@@ -22,6 +22,21 @@
 //! `Chrome 151 wrapping content bases` uses that version and date for nested
 //! wrapping items after a wider item. The absolute frames also agree inside
 //! width:min-content wrappers, used for the direct intrinsic requests below.
+//! `Chrome 151 stretched ratio` uses that version and date for percentage
+//! children of stretched ratio items, including unchanged content-grown heights.
+//! Its fractional cases cover item margins, container padding and borders,
+//! both box-sizing modes, nested containers, columns and clamping. Actual
+//! stretch is checked down to one 1/64px layout unit.
+//! `Chrome 151 stretched ratio snapped` compares frames in layout units:
+//! these constraints differ within a unit, while kernel geometry stays f32.
+//! `Chrome 151 ratio minimum` uses that version and date for widths derived
+//! from definite heights in shrinking rows and an absolute block. Controls
+//! cover explicit minima, overflow, stretch, columns, wider content, height
+//! bounds, and padding and borders under both box-sizing modes.
+//! `Chrome 151 ratio column stretch` uses that version and date for narrow
+//! columns, reversed columns, alignment overrides, auto and fixed margins,
+//! width and height bounds, padding, wider content, intrinsic widths,
+//! wrapping, block and grid.
 //!
 //! A fixture line is `name`, the root's declarations, the nodes (`id>parent>
 //! declarations>text`, joined by ` & `) and Chrome's frames (`id=x,y,w,h`),
@@ -95,7 +110,24 @@ fn failures(fixture: &str, relative: bool) -> Vec<(String, Vec<String>)> {
                 .collect();
             let texts: Vec<(u32, &str)> = texts.iter().map(|(id, s)| (*id, s.as_str())).collect();
             let k = lay_out_with(props(&positioned(case.root, relative)), nodes, &texts, &[]);
-            (case.name.to_string(), mismatches(case.name, &k, &case.want))
+            let wrong = if case.name.starts_with("Chrome 151 stretched ratio snapped ") {
+                case.want
+                    .iter()
+                    .filter_map(|(id, want)| {
+                        let f = k.node(*id).unwrap().frame;
+                        let got = [f.x, f.y, f.width, f.height];
+                        got.iter()
+                            .zip(want)
+                            .any(|(g, w)| (g * 64.0).floor() != (w * 64.0).floor())
+                            .then(|| {
+                                format!("{} #{id}: kernel {got:?}, Chrome {want:?}", case.name)
+                            })
+                    })
+                    .collect()
+            } else {
+                mismatches(case.name, &k, &case.want)
+            };
+            (case.name.to_string(), wrong)
         })
         .collect()
 }

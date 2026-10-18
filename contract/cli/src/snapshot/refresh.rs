@@ -1,5 +1,5 @@
 //! The refresh uses the data seam's source types, without a render resource.
-use super::{compile_widgets, Entry};
+use super::{compile_entries, Entry};
 use crate::{BakeError, DataSource, Manifest};
 use exact_plan::{builder::PlanBuilder, Plan, TypeKind, TypesId, Value};
 use exact_runner::{Answer, DataError, Store};
@@ -7,7 +7,7 @@ use std::{collections::BTreeMap, path::Path};
 
 /// Compile the entries once, for declarations, validation and the bundle receipt.
 pub fn entries(app: &Path) -> Result<BTreeMap<String, Entry>, String> {
-    compile_widgets(app, &Manifest::read(app)?).map_err(|errors| {
+    compile_entries(app, &Manifest::read(app)?).map_err(|errors| {
         errors
             .iter()
             .map(ToString::to_string)
@@ -25,7 +25,10 @@ pub fn check_refreshes(
 ) -> Result<(), String> {
     for (kind, entry) in entries {
         let plan = &entry.plan;
-        let signature = plan.source(plan.snapshot_refresh.expect("refresh signature"));
+        let Some(refresh) = plan.snapshot_refresh else {
+            continue;
+        };
+        let signature = plan.source(refresh);
         let name = plan.str(signature.name);
         data.bind(plan);
         let mut store = Store::new(data.grants(), []);
@@ -164,7 +167,10 @@ pub fn source_plan(entries: &BTreeMap<String, Entry>, plan: &Plan) -> Result<Pla
     }
     for entry in entries.values() {
         let from = &entry.plan;
-        let source = from.source(from.snapshot_refresh.expect("refresh signature"));
+        let Some(refresh) = from.snapshot_refresh else {
+            continue;
+        };
+        let source = from.source(refresh);
         let name = from.str(source.name);
         let wanted = signature(from, source);
         if let Some(existing) = signatures.get(name) {

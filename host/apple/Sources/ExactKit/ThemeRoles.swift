@@ -162,6 +162,10 @@ extension NodeView {
         if field != nil || textArea != nil { reapplyColors() }
         #else
         if field != nil { applyFieldStyle() }
+        // Its ink may be the design's FieldText, which a live edit moves.
+        if textArea != nil { styleTextArea() }
+        // Its ground may be the design's Field (applyBoxLayer, on display).
+        if isNativeTextControl { layer.setNeedsDisplay() }
         textArea?.setNeedsDisplay()
         setNeedsLayout()
         #endif

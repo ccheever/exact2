@@ -357,6 +357,26 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
     weak var host: NavigationHost?
     /// The field's placeholder is drawn in an authored colour, not UIKit's.
     var paintsPlaceholder = false
+    /// The field's text is drawn in its own colour or the design's FieldText.
+    var paintsInk = false
+    /// UIKit's field's text: the node's own colour, else the design's
+    /// FieldText where it overrides it, else UIKit's (LLP 1115 D4, LLP 1121
+    /// D9); and its fill, the design's Field where it overrides it. Set
+    /// again on a live retheme.
+    func ink() {
+        #if !os(tvOS)
+        guard let field else { return }
+        let text = controller.searchBar.searchTextField
+        text.backgroundColor = field.fieldGroundColor
+        if field.showsOwnTextColor || ThemeRoles.color("FieldText", in: field) != nil {
+            text.textColor = field.fieldInk
+            paintsInk = true
+        } else if paintsInk {
+            text.textColor = .label
+            paintsInk = false
+        }
+        #endif
+    }
     weak var field: NodeView? {
         didSet {
             if oldValue !== field { oldValue?.headerField = nil }
@@ -611,7 +631,10 @@ extension NavigationHost {
     func retheme() {
         var seen = Set<ObjectIdentifier>()
         for nav in [primaryNavigation].compactMap({ $0 }) + presentedNavigations + tabNavigations.values where seen.insert(ObjectIdentifier(nav)).inserted { titleInk(nav) }
-        for c in controllers.values { c.titleView?.retheme() }
+        for c in controllers.values {
+            c.titleView?.retheme()
+            c.search?.ink()
+        }
     }
 
     func makeNavigation(first: NodeView?) -> UINavigationController {
@@ -878,6 +901,7 @@ extension NavigationHost {
             bar.searchTextField.attributedPlaceholder = nil
             bar.placeholder = placeholder
         }
+        search.ink()
         // The Contract's value wins unless the reader is typing it.
         let value = field.props["value"] ?? ""
         if !bar.isFirstResponder, bar.text != value { bar.text = value }

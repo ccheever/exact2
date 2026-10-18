@@ -138,9 +138,10 @@ impl<D: DataSource> Presenter<D> {
         buttons: u8,
         now_ms: f64,
     ) -> Option<String> {
-        let held = self
-            .hit(x, y)
-            .and_then(|hit| self.pointer_node(hit, &KINDS))?;
+        // A press on a held node lets its hold go (LLP 1122 D8).
+        let hit = self.hit(x, y);
+        self.hold_input(hit);
+        let held = hit.and_then(|hit| self.pointer_node(hit, &KINDS))?;
         let mut path = Vec::new();
         let mut at = Some(held);
         while let Some(view) =

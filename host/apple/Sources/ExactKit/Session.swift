@@ -306,8 +306,11 @@ public final class ExactApp {
         selectedToken = token
         if let shaderSources { surfaces?.replaceShaders(shaderSources) }
         for (session, _) in batches { session.awaitingTree = true } // each report waits for its own tree: one tree may retint the window
+        MainActor.assumeIsolated { HeldState.swap() } // the hold let go unsaid before the old tree goes, real input none till after (HeldState.swift)
         for (session, batch) in batches { session.presentCommitted(batch, label: label) }
         for session in participants { session.apply(session.runtime.deliverySync()) }
+        MainActor.assumeIsolated { HeldState.swapping = false }
+        rehold()
         transaction = false
         let callbacks = notifications
         notifications = []

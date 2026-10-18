@@ -247,6 +247,13 @@ fn word_step(text: &str, at: u32, forward: bool) -> u32 {
 }
 
 impl<D: DataSource> Presenter<D> {
+    /// Where the latest frame painted field `id`'s label and value (a fresh
+    /// frame when stale), as `bars()` names the bars' texts.
+    pub fn field_texts(&mut self, id: ViewId) -> Option<crate::paint::FieldTexts> {
+        self.boxes();
+        self.brush.labels.texts(id)
+    }
+
     /// What `id` shows: typed text kept against its bound value, else that
     /// value (LLP 1069.001 D4). A selection indexes this, not the prop a
     /// later write replaced.

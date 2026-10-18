@@ -102,11 +102,27 @@ extension NodeView {
     field?.textAlignment = NSTextAlignment(rawValue: textAlignmentCode) ?? .left
     if let f = field, let t = text {
         f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
-        f.textColor = color("text_color", SystemColor.canvasText)
+        f.textColor = fieldInk
         applyPlaceholder(f)
         styleNativeField()
         updateNumberStepper() // `appearance` may have changed (LLP 1116.007 D4)
     }
+    }
+    /// A field's ground where it writes none: the design's `Field` where it
+    /// overrides that role (LLP 1121 D9), else none, as before (the page
+    /// shows through the box Exact paints; a search field's chrome keeps
+    /// UIKit's fill).
+    var fieldGroundColor: UIColor? {
+        guard isNativeTextControl, !wrote("background_color") else { return nil }
+        return ThemeRoles.color("Field", in: self)
+    }
+    /// The ground the node's layer paints under its field: none where a
+    /// search field's chrome fills it (`styleNativeField`).
+    var fieldGround: CGColor? {
+        #if !os(tvOS)
+        if searchChrome != nil { return nil }
+        #endif
+        return fieldGroundColor?.resolvedColor(with: traitCollection).cgColor
     }
     var isNativeTextControl: Bool {
         (field != nil || textArea != nil) && props["markup"] != "markdown" && style["appearance"]?.string != "none"
@@ -114,6 +130,14 @@ extension NodeView {
     /// A native field in a grouped list's row (LLP 1116.005 D2), as the
     /// kernel publishes it with the editor box: borderless, its cell being
     /// the field, as a hand-built settings form's is.
+    /// The design's Field under a field's own bezel sits on the bezel's
+    /// corners (BoxLayerIOS.swift); the background's own clip still holds
+    /// inside it. Nil in a grouped cell, which has no corners.
+    func fieldOutline() -> CGPath? {
+        guard !isCellField else { return nil }
+        let r = min(FieldChromeCache.textareaRadius, bounds.width / 2, bounds.height / 2)
+        return CGPath(roundedRect: bounds, cornerWidth: r, cornerHeight: r, transform: nil)
+    }
     var isCellField: Bool { isNativeTextControl && fieldInCell }
     /// Whether a touch a grouped row leaves to no control falls to the row's
     /// field (`cellField`). It widens the field's target to the cell, as a
@@ -165,6 +189,8 @@ extension NodeView {
         } else if !search, let chrome = searchChrome {
             chrome.removeFromSuperview()
         }
+        // The chrome's fill is the design's Field where it overrides it.
+        searchChrome?.backgroundColor = fieldGroundColor
         #endif
         if isNativeTextControl {
             field.defaultTextAttributes[.kern] = number("letter_spacing")

@@ -86,14 +86,33 @@ impl Event {
             46 | 47 => Event::focus_payload(kind == 46, payload).ok_or("invalid focus event"),
             53 | 54 => Event::edit_payload(kind, payload).ok_or("invalid input event"),
             50 => {
-                let (old, new) = payload.split_once(',').ok_or("invalid toggle event")?;
-                if ![old, new].iter().all(|s| matches!(*s, "open" | "closed")) {
-                    return Err("invalid toggle event");
+                let fields: Vec<_> = payload.split(',').collect();
+                match fields.as_slice() {
+                    [old, new] if [old, new].iter().all(|s| matches!(**s, "open" | "closed")) => {
+                        Ok(Event::Toggle {
+                            old_open: *old == "open",
+                            new_open: *new == "open",
+                        })
+                    }
+                    [old, new, start, end]
+                        if [old, new]
+                            .iter()
+                            .all(|s| matches!(**s, "checked" | "unchecked")) =>
+                    {
+                        let start = start.parse::<u32>().map_err(|_| "invalid toggle range")?;
+                        let end = end.parse::<u32>().map_err(|_| "invalid toggle range")?;
+                        if start >= end {
+                            return Err("invalid toggle range");
+                        }
+                        Ok(Event::DecorationToggle {
+                            old_checked: *old == "checked",
+                            new_checked: *new == "checked",
+                            start,
+                            end,
+                        })
+                    }
+                    _ => Err("invalid toggle event"),
                 }
-                Ok(Event::Toggle {
-                    old_open: old == "open",
-                    new_open: new == "open",
-                })
             }
             _ => Err("unknown event kind"),
         }

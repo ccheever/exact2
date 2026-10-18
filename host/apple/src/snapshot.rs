@@ -6,7 +6,15 @@ pub(crate) fn props(plan: &Plan, bytes: &[u8]) -> Result<Carried, String> {
     let row = plan
         .slots
         .iter()
-        .find(|s| plan.str(s.name) == "snapshot_props" && s.owner.is_none())
+        .find(|s| {
+            (plan.str(s.name)
+                == if plan.activity_slots.is_empty() {
+                    "snapshot_props"
+                } else {
+                    "snapshot_state"
+                })
+                && s.owner.is_none()
+        })
         .ok_or("entry has no props slot")?;
     let json = serde_json::from_slice(bytes).map_err(|e| format!("entry props: {e}"))?;
     let value =
