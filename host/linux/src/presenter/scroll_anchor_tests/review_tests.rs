@@ -461,7 +461,11 @@ fn input_clamps_the_sum_of_the_pending_correction_and_the_whole_delta() {
                 if wheel {
                     p.wheel_at(200., 200., 0., by);
                 } else {
-                    p.reader_scrolled(port, (0., by), rev).unwrap();
+                    let expected_delta = if first == 10. { 190. } else { 0. };
+                    assert_eq!(
+                        p.reader_scrolled(port, (0., by), rev),
+                        Some((0., expected_delta))
+                    );
                 }
                 attach(&mut p);
                 assert_eq!(
@@ -568,9 +572,129 @@ fn acknowledging_a_smaller_range_keeps_the_pending_reader_base() {
         let frame = p.display_frame().unwrap();
         p.reader_scrolled(port, (0., 230.), rev).unwrap();
         assert!(p.display_complete(&frame));
-        assert_eq!(p.reader_scrolled(port, (0., 10.), rev), Some((0., 10.)));
+        assert_eq!(p.reader_scrolled(port, (0., 10.), rev), Some((0., 0.)));
         attach(&mut p);
         assert_eq!(offset(&p, port).1, 592.);
         assert_eq!(p.reader_scrolled(port, (0., -10.), rev), Some((0., -10.)));
+    }
+}
+
+fn pending_authored_seek() -> (Presenter<()>, ViewId, u32) {
+    let source = source(false)
+        .replace("  action fold", "  state top = 0\n  state ends = 0\n  action ended\n    ends = ends + 1\n  action seek\n    top = 600\n  action fold")
+        .replace("testId=\"port\"", "testId=\"port\" id=\"port\" scrollTop=top scrollend=ended")
+        .replace("testId=\"row20\"", "testId=\"row20\" dblclick=seek");
+    let mut p = boot_source(&source);
+    let port = named(&p, "port");
+    p.scroll_to(port, (0., 400.)).unwrap();
+    attach(&mut p);
+    fold(&mut p);
+    attach(&mut p);
+    p.scroll_to(port, (0., 400.)).unwrap();
+    attach(&mut p);
+    assert_eq!(p.pump(p.host.now()), None);
+    let rev = p.reader_under(200., 60., 1.)[5] as u32;
+    let row = named(&p, "row20");
+    assert_eq!(p.host.dispatch_at(row, Event::Dblclick, p.host.now()), None);
+    assert_eq!(p.after_commit(), None);
+    assert_eq!(p.scroll_of(port).1, 400.);
+    assert_eq!(p.collection_paint_scroll().unwrap()[&port].1, 600.);
+    (p, port, rev)
+}
+
+#[test]
+fn no_op_relative_inputs_preserve_a_pending_authored_seek() {
+    for input in ["command", "reader", "feed"] {
+        let (mut p, port, rev) = pending_authored_seek();
+        let ends = p.host.runner().slot("ends").cloned();
+        let pending = p.pending_model_scroll(port);
+        match input {
+            "command" => {
+                p.scroll_element_by(&[Value::str("port"), Value::Number(0.), Value::Number(0.)])
+            }
+            "reader" => assert_eq!(p.reader_scrolled(port, (0., 0.), rev), Some((0., 0.))),
+            _ => assert!(!p.scroll_by(port, 0.)),
+        }
+        assert!(p.pending_model_scroll(port) == pending, "input={input}");
+        assert_eq!(p.pump(p.host.now()), None);
+        assert_eq!(p.host.runner().slot("ends"), ends.as_ref());
+        attach(&mut p);
+        assert_eq!(p.scroll_of(port).1, 600.);
+    }
+}
+
+#[test]
+fn reader_movement_does_not_include_the_cancelled_authored_seek() {
+    let (mut p, port, rev) = pending_authored_seek();
+    assert_eq!(p.reader_scrolled(port, (0., 10.), rev), Some((0., 10.)));
+    assert_eq!(p.scroll_of(port).1, 410.);
+    attach(&mut p);
+    assert_eq!(p.scroll_of(port).1, 410.);
+    assert_eq!(p.reader_scrolled(port, (0., 10.), rev), Some((0., 10.)));
+}
+
+#[test]
+fn changing_only_the_rotation_axis_suppresses_anchoring() {
+    for page in [false, true] {
+        let source = source(page)
+            .replace("  state header = 48", "  state header = 48\n  state rotation = \"y 60deg\"")
+            .replace("header = 0", "rotation = \"x 60deg\"")
+            .replace("      box", "        box")
+            .replace("        box height=header", "      box testId=\"wrapper\" rotate=rotation transform-origin=\"0 0\"\n        box height=header");
+        let mut p = boot_source(&source);
+        let port = if page { PAGE } else { named(&p, "port") };
+        p.scroll_to(port, (0., 400.)).unwrap();
+        let wrapper = named(&p, "wrapper");
+        assert_eq!(
+            p.host.kernel().node(wrapper).unwrap().style.rotate_axis.0,
+            [0., 1., 0.]
+        );
+        fold(&mut p);
+        assert_eq!(
+            p.host.kernel().node(wrapper).unwrap().style.rotate_axis.0,
+            [1., 0., 0.]
+        );
+        assert_eq!(offset(&p, port).1, 400., "page={page}");
+    }
+}
+
+#[cfg(not(windows))]
+#[test]
+fn input_that_only_moves_the_pending_model_completes_after_acknowledgement() {
+    for input in ["wheel", "command", "reader", "feed"] {
+        let mut source = source(false)
+            .replace("  action fold", "  state footer = 0\n  state order = \"\"\n  action moved(x: number, y: number)\n    order = `${order}s${y};`\n  action ended\n    order = `${order}e;`\n  action fold")
+            .replace("header = 0", "header = 0\n    footer = 248\n    order = \"\"")
+            .replace("testId=\"port\"", "testId=\"port\" id=\"port\" scroll=moved scrollend=ended");
+        source.push_str("      box height=footer\n");
+        let mut p = boot_source(&source);
+        let port = named(&p, "port");
+        p.scroll_to(port, (0., 648.)).unwrap();
+        attach(&mut p);
+        assert_eq!(p.pump(p.host.now()), None);
+        let rev = p.reader_under(200., 60., 1.)[5] as u32;
+        fold(&mut p);
+        assert_eq!(p.live_scroll_max(port), 848.);
+        match input {
+            "wheel" => p.wheel_at(200., 200., 0., 10.),
+            "command" => {
+                p.scroll_element_by(&[Value::str("port"), Value::Number(0.), Value::Number(10.)])
+            }
+            "reader" => {
+                p.reader_scrolled(port, (0., 10.), rev).unwrap();
+            }
+            _ => assert!(p.scroll_by(port, 10.)),
+        }
+        assert_eq!(p.scroll_of(port).1, 648.);
+        assert_eq!(p.collection_paint_scroll().unwrap()[&port].1, 610.);
+        assert_eq!(p.clock(p.host.now() + 100.).1, None);
+        let order = p.host.runner().slot("order").unwrap().as_str().unwrap();
+        assert!(!order.contains('e'), "input={input} order={order}");
+        attach(&mut p);
+        assert_eq!(p.scroll_of(port).1, 610.);
+        assert_eq!(p.clock(p.host.now() + 100.).1, None);
+        let order = p.host.runner().slot("order").unwrap().as_str().unwrap();
+        assert!(order.ends_with("s610;e;"), "input={input} order={order}");
+        assert_eq!(order.matches("e;").count(), 1);
     }
 }

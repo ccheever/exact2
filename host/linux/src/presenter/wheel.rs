@@ -89,7 +89,7 @@ impl<D: DataSource> Presenter<D> {
                     let moved = self.anchor_input(id, off, if take_y { dy } else { 0. }, (nx, ny));
                     self.scroll.insert(id, (nx, ny));
                     if (nx, ny) != off || moved.is_some_and(|dy| dy != 0.) {
-                        self.scroll_end_moved(id, Completion::Instant);
+                        self.scroll_end_input(id, off, Completion::Instant);
                     }
                     self.last_wheel = Some(id);
                     self.dirty = true;

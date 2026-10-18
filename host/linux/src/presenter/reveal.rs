@@ -124,7 +124,7 @@ impl<D: DataSource> Presenter<D> {
         let moved = self.anchor_input(id, off, if scrolls(oy) { by(2) } else { 0. }, next);
         if next != off || moved.is_some_and(|dy| dy != 0.) {
             self.scroll.insert(id, next);
-            self.scroll_end_moved(id, Completion::Instant);
+            self.scroll_end_input(id, off, Completion::Instant);
             self.dirty = true;
             self.collection_scrolled(id);
         }
@@ -242,7 +242,7 @@ impl<D: DataSource> Presenter<D> {
             if next != off || moved.is_some_and(|dy| dy != 0.) {
                 self.scroll.insert(a, next);
                 if completion {
-                    self.scroll_end_moved(a, Completion::Instant);
+                    self.scroll_end_input(a, off, Completion::Instant);
                 }
                 self.dirty = true;
                 self.collection_scrolled(a);

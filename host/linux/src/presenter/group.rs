@@ -568,7 +568,7 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         self.scroll.insert(id, next);
-        self.scroll_end_moved(id, Completion::Edge(owner));
+        self.scroll_end_input(id, old, Completion::Edge(owner));
         self.publish_scroll();
         self.dirty = true;
         if list {

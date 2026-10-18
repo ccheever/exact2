@@ -97,8 +97,7 @@ impl<D: DataSource> Presenter<D> {
         let (corrected, max) = self.anchor_input_position(view, from.1)?;
         let top = (corrected + dy).clamp(0., max);
         let cursor = self.collection.cursors.get_mut(&view)?;
-        let previous = cursor.model_scroll.map_or(from.1, |p| p.top);
-        if next == from && top == previous {
+        if next == from && (dy == 0. || top == corrected) {
             return Some(0.);
         }
         cursor.advance();
@@ -110,7 +109,7 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         self.dirty = true;
-        Some(top - previous)
+        Some(top - corrected)
     }
 
     pub(in crate::presenter) fn rebase_clamped_anchor(

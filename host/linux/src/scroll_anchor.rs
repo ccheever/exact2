@@ -290,7 +290,9 @@ impl Anchor {
         let mut at = Some(node.id);
         for (key, style) in &self.chain {
             let current = kernel.node(at?)?;
+            // Rotate's numeric value holds the angle without its resolved axis.
             if current.key != *key
+                || current.style.rotate_axis != style.rotate_axis
                 || excluded(kernel, current, scroller)
                 || LAYOUT
                     .iter()

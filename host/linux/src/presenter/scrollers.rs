@@ -274,9 +274,8 @@ impl<D: DataSource> Presenter<D> {
         );
         let moved = relative
             .and_then(|by| self.anchor_input(id, s.offset, if s.axes.1 { by.1 } else { 0. }, next));
-        let result = (next.0, moved.map_or(next.1, |dy| s.offset.1 + dy));
         if next == s.offset && moved.is_none_or(|dy| dy == 0.) {
-            return Some(result);
+            return Some(next);
         }
         if completion == Completion::Reader {
             if let Some((_, accepted)) = self.reader.tracked.get_mut(&id) {
@@ -288,14 +287,14 @@ impl<D: DataSource> Presenter<D> {
             self.page = next;
         } else {
             self.scroll.insert(id, next);
-            self.scroll_end_moved(id, completion);
+            self.scroll_end_input(id, s.offset, completion);
             self.collection_scrolled(id);
         }
         self.dirty = true;
         if let Some(error) = self.refresh_transform_geometry() {
             self.host.log(error);
         }
-        Some(result)
+        Some(next)
     }
 
     /// The reader moved scroller `id` by `by`, knowing revision `rev` of
