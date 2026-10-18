@@ -270,10 +270,11 @@ struct Integrity {
   };
   std::vector<std::pair<std::string, jsi::Value>> globals;
   std::vector<Intrinsic> intrinsics;
-  jsi::Function descriptor, names, symbols, prototype, frozen, same;
+  jsi::Function descriptor, names, symbols;
   // Made once: a PropNameID made from text is a heap allocation, and every
   // descriptor read takes three.
   jsi::PropNameID value_name, get_name, set_name;
+  jsi::Function prototype, frozen, same;
   bool validated = false;
 
   explicit Integrity(jsi::Runtime& rt)
@@ -1252,8 +1253,8 @@ void require_unreachable(
     auto seen = walk.set.callAsConstructor(rt).getObject(rt);
     std::vector<jsi::Value> pending;
     size_t edges = 0;
-    // Made once: a jsi::String or PropNameID made from text is a heap
-    // allocation, and the walk reads a field of every property.
+    // Made once: descriptor records have ordinary own data fields, while
+    // creating field strings or IDs for every edge allocates in Hermes.
     const auto value_key = jsi::String::createFromAscii(rt, "value");
     const auto value_name = jsi::PropNameID::forAscii(rt, "value");
     const auto get_name = jsi::PropNameID::forAscii(rt, "get");
@@ -1271,13 +1272,9 @@ void require_unreachable(
           auto raw = walk.descriptor.call(rt, object, keys.getValueAtIndex(rt, i));
           if (!raw.isObject()) continue;
           auto descriptor = raw.getObject(rt);
-          // Classify by the descriptor record's OWN fields, tested with the
-          // captured hasOwnProperty. `hasProperty` would consult
-          // Object.prototype, where bootstrap can plant a `value` that hides an
-          // accessor's getter. The record is the ordinary object
-          // FromPropertyDescriptor made, whose fields are own data properties
-          // (a data record's `value`, an accessor record's `get` and `set`), so
-          // reading a field the test found runs nothing.
+          // Classify by the descriptor record's OWN fields with the captured
+          // hasOwnProperty. The record is the ordinary FromPropertyDescriptor
+          // result, so reading a field after that test invokes no user code.
           if (walk.has_own.callWithThis(rt, descriptor, value_key).getBool()) {
             pending.push_back(descriptor.getProperty(rt, value_name));
           } else {
@@ -1946,10 +1943,9 @@ void Adapter::harden(const CompiledScript& script) {
     throw std::invalid_argument("Ibex2 harden requires its compiled bytecode");
   validate_bytecode(script, state_->bytecode_version);
   verify_harden_preconditions();
-  // The guard's walk and harden.js each allocate about 0.45 MB, nearly all of
-  // it garbage. Hermes' young generation keeps every page it has touched, so
-  // collecting between them lets harden.js reuse the guard's pages rather
-  // than touch as many again. 0.15 ms (iPhone simulator).
+  // The guard and harden.js each allocate mostly short-lived descriptor and
+  // traversal objects. Collect between them so harden.js reuses the young
+  // generation pages after the guard's rooted identities have been checked.
   if (!state_->bootstrap_outputs.empty())
     rt.instrumentation().collectGarbage("ibex2 harden guard");
   state_->hardened = true;

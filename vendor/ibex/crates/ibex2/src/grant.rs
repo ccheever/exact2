@@ -21,11 +21,10 @@ use std::collections::BTreeSet;
 
 /// An origin, for the two network capabilities.
 ///
-/// Compared by exact tuple equality. Two patterns are their own grant
-/// kinds, so an exact grant never matches as a pattern: a `net.fetch` grant
-/// may name every host under one domain, `https://*.host.example` (LLP 0067
-/// §2, the subdomain grant), and either family may name every origin of one
-/// scheme, `https:` (a CSP scheme source; Exact patch, `EXACT-PATCHES.md`).
+/// Compared by exact tuple equality. Patterns are separate grant kinds, so an
+/// exact grant never matches as a pattern: a `net.fetch` grant may name every
+/// host under one domain, `https://*.host.example`, and either network family
+/// may name every origin of one of its schemes, such as `https:` (LLP 0067 §2).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Origin {
     pub scheme: String,
@@ -167,7 +166,7 @@ pub enum Grant {
     /// two labels and not an address.
     FetchSubdomains(Origin),
     /// `net.fetch http:` or `net.fetch https:`: every origin of the scheme,
-    /// any host and any port, as a CSP scheme source admits it (Exact patch).
+    /// with any host and port, as a CSP scheme source admits it.
     FetchScheme(String),
     WebSocket(Origin),
     /// `net.websocket ws:` or `net.websocket wss:`: every origin of the scheme.
@@ -371,8 +370,8 @@ impl GrantSet {
             };
             let target = quoted.as_deref().unwrap_or(first);
             let grant = match capability {
-                // A scheme source, as CSP writes one (`https:`): every origin
-                // of the scheme (Exact patch, `EXACT-PATCHES.md`).
+                // A CSP scheme source is a scheme and its colon. Keep the two
+                // network families disjoint and admit only their URL schemes.
                 "net.fetch" | "net.websocket" if is_scheme_source(target) => {
                     let scheme = target[..target.len() - 1].to_ascii_lowercase();
                     match (capability, scheme.as_str()) {
@@ -477,8 +476,7 @@ impl GrantSet {
 #[path = "grant_quoted_tests.rs"]
 mod quoted_tests;
 
-/// A CSP scheme source ([CSP3 `scheme-source`](https://www.w3.org/TR/CSP3/#grammardef-scheme-source)):
-/// a scheme and its colon, nothing else.
+/// A CSP3 `scheme-source`: a scheme and its colon, with nothing after it.
 fn is_scheme_source(target: &str) -> bool {
     target.strip_suffix(':').is_some_and(|scheme| {
         let mut chars = scheme.chars();
@@ -610,14 +608,14 @@ mod tests {
     }
 
     #[test]
-    fn a_scheme_line_admits_every_origin_of_its_scheme_and_family() {
+    fn a_scheme_line_admits_only_its_scheme_and_capability_family() {
         let set = GrantSet::parse("net.fetch HTTP:\nnet.websocket ws:").unwrap();
         let fetch = |origin: Origin| set.permits(&Operation::Fetch { origin });
         let socket = |origin: Origin| set.permits(&Operation::WebSocket { origin });
+
         assert!(fetch(Origin::new("http", "127.0.0.1", 49152)));
         assert!(fetch(Origin::new("http", "laptop.tailnet.ts.net", 80)));
         assert!(socket(Origin::new("ws", "[::1]", 3773)));
-        // Not the secure scheme, not the other family.
         assert!(!fetch(Origin::new("https", "127.0.0.1", 49152)));
         assert!(!socket(Origin::new("wss", "127.0.0.1", 3773)));
         assert!(!fetch(Origin::new("ws", "127.0.0.1", 3773)));
@@ -626,6 +624,7 @@ mod tests {
             .permits(&Operation::WebSocket {
                 origin: Origin::new("wss", "example.com", 8443)
             }));
+
         for bad in [
             "net.fetch ws:",
             "net.fetch file:",

@@ -65,11 +65,10 @@ pub trait MessageSender: Send + Sync {
     fn send_binary(&self, bytes: &[u8]) -> Result<(), HostError>;
     fn close(&self, code: Option<u16>, reason: &str) -> Result<(), HostError>;
     fn buffered_amount(&self) -> usize;
-    /// Messages admitted and not yet handed to the network. A transport
-    /// whose outbound queue also bounds messages closes the connection when
-    /// a send would pass that bound (WHATWG's "full"); a caller that must
-    /// refuse instead checks this first. Zero for a transport with no such
-    /// bound.
+    /// An observational snapshot of the transport's outbound message count.
+    /// This does not reserve admission: a concurrent or subsequent send may
+    /// change the count before a caller acts on it. Zero is the default for
+    /// transports without a message count.
     fn buffered_messages(&self) -> usize {
         0
     }
@@ -780,7 +779,6 @@ mod tests {
             opened("net.websocket ws://127.0.0.1:4350", "ws://127.0.0.1:4351/x"),
             "denied: net.websocket"
         );
-        // A scheme-wide line admits any host and port of its scheme alone.
         assert_eq!(
             opened("net.websocket ws:", "ws://127.0.0.1:4351/x"),
             "reached the transport"

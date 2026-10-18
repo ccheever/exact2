@@ -3,7 +3,7 @@
 ## Snapshot and update recipe
 
 - Upstream: `https://github.com/expo/ibex.git` at
-  `e742c7284a767edbfb711db3333f7610c24f99f8` (2026-10-14).
+  `bbf47f380c138d1138581c299f298e3b1bd9cb9c` (2026-10-18).
 - Source trees: `crates/{ibex2,ibex2-sqlite,hermes-lean-sys,hermes-lean-sys-installer}`.
 - Data inputs: `scripts/icu74-filter-{root-en,en-intl}.json` and
   `third_party/wpt/urltestdata.json`.
@@ -33,6 +33,22 @@ transport tunnels through the environment's proxy as fetch does
 (`transport/websocket.rs` and its tests, the only vendored inputs that changed
 since `e60b3e0`). Manifests, locks and integration seams are unchanged.
 
+The October 18 refresh compared that `e742c72` upstream tree, Exact
+`a28fc4f18fda0da187f0a8e564f8407c57748dd8`'s vendor tree, and the new
+`bbf47f3` upstream tree before replacement. Upstream now supplies the socket
+queue count, scheme-wide grants, allocation-reduced descriptor reads and the
+collection between the hardening guard and `harden.js`; their active local
+patches are retired below. The refresh also adopts fail-closed portable fetch
+for an unsupported environment SOCKS proxy, including a `NO_PROXY` bypass and
+one proxy snapshot per transport. The eight changed upstream inputs are
+`bindings/install.cc`, `grant.rs`, `stdlib/websocket.rs`, the two Darwin
+WebSocket files, `rustls_http.rs`, `transport/websocket.rs`, and its tests.
+The v5 engine trust table, manifests, data inputs and standalone locks did not
+change. After replacement, the complete Exact delta apart from this ledger is
+ten files: the two locks, three workspace boundaries, two stub build seams,
+the app-facing storage declaration, Keychain group selection and read-only
+directory snapshots.
+
 For another refresh, export the four named crate trees and all three data inputs
 from the selected commit into a temporary directory. Recover the current local
 delta against the pin above before replacing them; classify each difference
@@ -57,10 +73,10 @@ bun -e 'const fs=require("node:fs"),read=p=>Bun.TOML.parse(fs.readFileSync(p,"ut
 
 Numbers preserve the former ledger so a patch never disappears without its
 replacement and consumer evidence. Rows 3–7 and 9–13 retire the corresponding
-local source patches. The evidence below qualifies the macOS consumers and
-portable adapter; platform-specific limits are named rather than inferred from
-source replacement. The consumer deltas are two explicit stub build scripts, two standalone locks,
-and the workspace boundaries below.
+October 13 source patches. The four named rows added on October 18 retire the
+last reusable source patches. Platform-specific limits are named rather than
+inferred from source replacement. The remaining consumer deltas are the seams
+listed below.
 
 | Former Exact patch | Upstream replacement | Exact consumer evidence |
 |---|---|---|
@@ -75,6 +91,15 @@ and the workspace boundaries below.
 | 12. Bounded native filesystem results | Explicit `ResultLimits`; bounded reads/enumeration and batched recursive removal | Exact 16 MiB native/app/document cap tests pass, preserving the typed result-limit error |
 | 13. Async fetch | Fallible preparation, infallible accepted activation, terminal retirement, bounded portable workers | Admission refusal, physical retirement, all six base-start failure positions and bounded-worker lifetime tests pass |
 | Windows chosen-document EISDIR | Same retained-handle native document executor | Source patch retired against upstream native Windows tests; native Windows Exact storage, document and ordinary TypeScript host requalification is recorded below |
+| Socket queued-message count | `MessageSender::buffered_messages`, implemented by the portable sender and the Darwin sender under its lock; the Darwin source test observes a paused native send complete | Exact's native executor checks a batch whole before the transport's 256-message limit; `executor_socket_tests::a_batch_is_refused_whole_past_the_buffer_or_after_a_close` is the direct consumer |
+| Scheme-wide network grants | Ibex `GrantSet` owns `http:`/`https:` fetch grants and `ws:`/`wss:` socket grants, with independent family admission tests | `exact-grants` compares Ibex and Exact against `host/web/tests/fixtures/grants.json`; the web matcher consumes that same corpus |
+| Allocation-reduced descriptor reads | Ibex captures `hasOwnProperty` and reuses property identifiers while still walking captured own-property descriptors | The linked-lean `exact-js` bootstrap tests refuse Proxy-hidden abort hooks and prove every descriptor-reachable payload is frozen |
+| Collection after the hardening guard | Ibex collects only after a trusted bootstrap guard ran, before evaluating `harden.js` | The same linked-lean bootstrap tests exercise the guarded and unguarded paths with production bindings |
+
+Upstream `f28b08d`'s portable-fetch tests run the unsupported SOCKS cases in
+child processes, prove refusal before DNS or a direct connection, prove
+`NO_PROXY` bypass, and prove a pooled transport retains one supported proxy
+snapshot. Exact's render and non-Apple executors consume that portable path.
 
 Patch 9's app interface stays Exact's and is replayed on a refresh:
 `bindings/storage.d.ts` declares `compressImage(from, to, {maxDimension,
@@ -170,6 +195,22 @@ configuration and emits empty engine/compiler metadata with no native link.
 Normal builds still validate and link the receipted lean VM. These remain
 Exact-only; paired `HERMESC_PATH` export is now generic upstream support.
 
+`secrets/darwin_keychain.mm` selects the bundle's
+`ExactKeychainAccessGroup` only when `ExactAppIdentifier` equals the Keychain
+service. Exact's app and WidgetKit extension can therefore read the app's
+granted secrets through their shared group without changing another Ibex
+consumer's service. `host/apple/bundle.mjs` publishes the two values, and
+`host/apple/widget-keychain.test.mjs` is the opt-in simulator integration
+witness. This is Exact application policy and remains local.
+
+On Unix, `AppDirectories::snapshot` pins only roots that already exist and
+leaves the others absent for that invocation. A read-only widget refresh can
+therefore run first-launch application logic without creating the app's data,
+cache or temporary directories. `exact-js` selects it only for a snapshot;
+`missing_snapshot_roots_do_not_prevent_activation_or_create_app_directories`
+is the direct consumer test. This is LLP 1126 D8 application policy and
+remains local.
+
 The standalone locks above remain local. Application policy stays in Exact:
 request scheduling and byte budgets, whole-exchange deadlines, source grants,
 document session identity, JSON result vocabulary, native image codec, and
@@ -201,92 +242,6 @@ them. Declarations only: no Ibex source runs either. Exact's prelude
 expected write as a `stat`, a comparison and the write, queued together; the
 web glue and Exact's Rust storage do the same. Replay the declarations on a
 refresh.
-
-## Local patch, upstream-bound: a socket's buffered message count
-
-Exact's runner-owned sockets (LLP 1016.000 D7) refuse a mutation's batch
-whole when the transport could not queue it. Both transports bound their
-outbound queue at 256 messages as well as 16 MiB and, past either, close the
-connection while `send_*` returns `Ok` (WHATWG's "full"), so a caller cannot
-refuse first without the count. The patch adds
-`MessageSender::buffered_messages()` (default 0) in
-`crates/ibex2/src/stdlib/websocket.rs`, implemented by the portable
-`TcpSender` (`queued_messages`) and by `DarwinSender` through a new
-`ibex2_darwin_ws_buffered_messages` in `transport/darwin_websocket.mm`
-(`pendingMessages`, read under the socket's lock). It is additive; no
-existing behaviour changes. To go upstream to expo/ibex; replay it on a
-refresh until it is there. Consumer: `host/apple/src/executor_socket.rs`
-(`Core::socket`) and its scripted test.
-
-## Local patch, Exact's grammar: scheme-wide network grants
-
-A `net.fetch` or `net.websocket` line may name a whole scheme as a CSP scheme
-source writes it (`net.fetch http:`, `net.fetch https:`, `net.websocket ws:`,
-`net.websocket wss:`), admitting every host and port of that scheme; any other
-scheme in that form is refused. `crates/ibex2/src/grant.rs` gains
-`Grant::FetchScheme` and `Grant::WebSocketScheme`, their parse
-(`is_scheme_source`) and their admission, with a test; `stdlib/websocket.rs`'s
-admission test opens a socket under one and is refused under the other scheme.
-Exact's own grammar (`grants/src/lib.rs`) has the same change, and the shared
-corpus (`host/web/tests/fixtures/grants.json`, `grants/tests/parity.rs`) holds
-the two grammars and the web matcher to the same answers. Replay it on a
-refresh until upstream has it. Consumers: every native executor's
-`GrantSet::parse` (Apple, Linux, Windows, the render server) and the bake's
-check of a TypeScript module's grants (`js/src/lib.rs`, `Module::inspect`).
-
-## Local patch, upstream-bound: fewer allocations per descriptor read
-
-Hermes keeps every young-generation page a runtime has touched, so what
-hardening allocates between two collections stays in the app's footprint.
-The reachability guard and the intrinsic snapshot read a descriptor for
-every property of the objects they reach. Besides each record, the guard
-made a string and a second record per field it read
-(`getOwnPropertyDescriptor` on the record), and the snapshot a property name
-per field. In Exact's runtime (898 objects, 2,604 properties) the guard
-allocated 795 KB and each of the two snapshots 66 KB, nearly all of it
-garbage.
-
-`bindings/install.cc` changes only how a record's fields are read. Every
-walk still enumerates with its captured `getOwnPropertyNames` and
-`getOwnPropertySymbols` and reads every property through its captured
-`getOwnPropertyDescriptor`, so a Proxy is read through its traps as before
-and no getter or `get` trap runs (JSI and the pinned Hermes have no native
-descriptor read). The guard tests a record's own `value` with
-`Object.prototype.hasOwnProperty`, captured with its other readers when
-`install_with` builds `Reachability`, instead of making a second record,
-then reads that field, or `get` and `set`, from the record: an ordinary
-object whose fields are own data properties (FromPropertyDescriptor), so the
-read runs nothing. The guard makes its `value` key and the guard's and
-snapshot's `value`, `get` and `set` property names once, not per read.
-`bindings/harden.js` is upstream's.
-
-The guard still visits 898 objects over 3,503 edges, and `harden.js` 898
-objects, 2,488 properties past the global object, 89 of them accessors. The
-guard now allocates 449 KB and a snapshot about 40 KB. `js/src/lib.rs`
-`bootstrap_tests` holds what a bootstrap could hide: abort hooks behind a
-Proxy whose `get` trap answers undefined still refuse hardening; a payload
-behind such a Proxy, and one published under a symbol after
-`Reflect.ownKeys` was made to list only names, end frozen with everything
-else descriptors reach, by readers the fixture took before bootstrap
-(`js/tests/fixtures/harden-probe.js`). To go upstream to expo/ibex; replay it
-on a refresh until it is there.
-
-## Local patch, upstream-bound: a collection between the guard and `harden.js`
-
-`Adapter::harden` (`bindings/install.cc`) collects garbage after
-`verify_harden_preconditions()` and before it evaluates `harden.js`, when
-`install_with` published a trusted-bootstrap output (otherwise the guard is
-a no-op). The guard allocates about 447 KB and `harden.js` 444 KB, nearly all
-of it garbage, and Hermes' young generation keeps every page touched between
-two collections, so the two together set the data module's young-generation
-footprint. With the collection each reuses the other's pages: in Exact's
-template and in euxy (Release, iPhone 17 simulator, 10 s after launch) the
-young generation keeps 528 KB rather than 944, for 0.15 ms of boot. A
-collection runs no JavaScript (finalization callbacks wait for the next
-microtask drain), and the guard's temporaries are dead by then while the
-bootstrap identities it checked stay rooted in the adapter's state, so the
-graph `harden.js` freezes is the same. To go upstream to expo/ibex; replay
-it on a refresh until it is there.
 
 ## Qualification boundaries
 

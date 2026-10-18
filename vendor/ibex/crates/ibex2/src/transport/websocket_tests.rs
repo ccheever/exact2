@@ -1353,7 +1353,16 @@ fn assert_stall_deadline(secure: bool, flood_pongs: bool) {
             &AbortSignal::default(),
         )
         .unwrap();
+    let sender = socket.sender().expect("the portable socket has a sender");
     socket.send_binary(&vec![5u8; LARGE_SEND]).unwrap();
+    if !flood_pongs {
+        wait_for_kernel_backpressure(&observer);
+        assert_eq!(
+            sender.buffered_messages(),
+            1,
+            "the active portable message remains counted until it reaches the network"
+        );
+    }
     let error = socket
         .next()
         .expect_err("the client's no-progress deadline must fail the socket");
