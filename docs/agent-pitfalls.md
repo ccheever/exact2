@@ -989,11 +989,24 @@ screen, 2026-10-16.)
 - **After a long press made with `axe touch --down --up --delay`, the iOS simulator
   ignores taps.** An action sheet or alert the long press opened stays up whatever
   is tapped, and relaunching the app does not help: Apple's Settings app on that
-  simulator ignores taps too, until the simulator reboots. Cause: AXe 1.8.0's
-  touch command, not the app. Fix: make real touches with the agent, which taps
+  simulator ignores taps too, until the simulator reboots. In an Exact app the
+  symptom can be partial: the tab bar and an alert's buttons, which are UIKit's,
+  ignore taps while the app's own buttons still answer them. UIKit's controls do
+  that while another touch is down: with `axe touch --down` holding one finger,
+  Apple's Photos ignores a tap on its tab bar exactly as an Exact app's does, and
+  a sequencer's play button still plays. Cause: AXe 1.8.0's touch command, not
+  the app. Fix: make real touches with the agent, which taps
   an alert's buttons too: `bun exact.mjs agent ios --touch platform "tap <row> down"
   "tap hold 900" "tap up" "clock settle" "tap <button testId>"`. (euxy port's rename
-  prompt, 2026-10-18.)
+  prompt, and its tab bar after a relaunch, 2026-10-18.)
+- **A share link's sheet closes before the screenshot.** `xcrun simctl openurl`
+  asks "Open in …?" only sometimes (the first link after the simulator boots, in
+  one run); otherwise the app opens the link at once. A drive that then taps where
+  the confirmation's Open button would be (`axe tap -x 275 -y 474` on an iPhone 17)
+  taps the dimmed screen just above a 45 % sheet the link presented, and UIKit
+  dismisses it, as it would for a person. Fix: check for the confirmation with
+  `axe describe-ui` and tap Open by its label only when it is there. (euxy port's
+  "Added to Library" sheet, Release build, 2026-10-18.)
 - **`xcrun simctl ui <udid> appearance dark` does not darken an agent drive.** The
   driver sets the media preferences itself. Fix: `"prefer prefers-color-scheme dark"`
   as the drive's first operation. (Shelf recipe, 2026-10-10.)
