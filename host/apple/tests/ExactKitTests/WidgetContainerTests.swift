@@ -36,4 +36,65 @@ final class WidgetContainerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("widget-generations/current").path))
     }
 
+    private enum RefreshFailure: Error { case offline }
+
+    func testAccountSwitchRefusesLastGoodTimelineUntilTheNewAccountRefreshes() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func cache(_ kind: String = "question", _ generation: String = "one") throws -> WidgetTimelineCache {
+            try WidgetTimelineCache(root: root, kind: kind, generation: generation)
+        }
+        func offline() throws -> Data { throw RefreshFailure.offline }
+        let a = Data(#"[{"date":1,"props":{"question":"Account A"}}]"#.utf8)
+        let b = Data(#"[{"date":2,"props":{"question":"Account B"}}]"#.utf8)
+        let before = try cache()
+        XCTAssertEqual(try before.resolve { a }, a)
+        XCTAssertEqual(try before.resolve(offline), a, "a failure without a store write keeps the last good answer")
+        XCTAssertEqual(try cache().resolve(offline), a, "a new process restores the same account's answer")
+        XCTAssertThrowsError(try cache("another-kind").resolve(offline))
+        XCTAssertThrowsError(try cache("question", "another-generation").resolve(offline))
+
+        // The app publishes this counter before the Darwin ping for its store write.
+        try Data("1".utf8).write(to: root.appendingPathComponent("widget-store-generation"), options: .atomic)
+        let after = try cache()
+        XCTAssertNotEqual(before, after, "a new account must not join the old account's in-flight refresh")
+        XCTAssertFalse(before.isCurrent, "an in-memory answer from A must not reach a completion after the write")
+        XCTAssertThrowsError(try before.resolve(offline))
+        XCTAssertThrowsError(try after.resolve(offline), "the provider must take its Open-app path, never return A's entries")
+        XCTAssertThrowsError(try cache().resolve(offline), "restarting the extension must not restore A's persisted entries")
+
+        XCTAssertEqual(try after.resolve { b }, b)
+        XCTAssertEqual(try after.resolve(offline), b, "the counter does not invalidate a newly written good answer")
+        XCTAssertEqual(try cache().resolve(offline), b)
+    }
+
+    func testStoreWriteDuringRefreshDiscardsItsAnswer() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = try WidgetTimelineCache(root: root, kind: "question", generation: "one")
+        let a = Data("account A".utf8)
+        XCTAssertEqual(try cache.resolve { a }, a)
+        XCTAssertThrowsError(try cache.resolve {
+            try Data("1".utf8).write(to: root.appendingPathComponent("widget-store-generation"), options: .atomic)
+            return a
+        }, "a refresh that straddles a store write cannot save or return its old account's answer")
+        let next = try WidgetTimelineCache(root: root, kind: "question", generation: "one")
+        XCTAssertThrowsError(try next.resolve { throw RefreshFailure.offline })
+    }
+
+    func testUnknownStoreCounterAndUnversionedCacheCannotAuthorizeAccountData() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("Library/Caches/widget-timelines/one/question.json")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"[{"date":1,"props":{"question":"Account A"}}]"#.utf8).write(to: file)
+        let cache = try WidgetTimelineCache(root: root, kind: "question", generation: "one")
+        XCTAssertThrowsError(try cache.resolve { throw RefreshFailure.offline }, "an old cache has no proof of its store revision")
+        _ = try cache.resolve { Data("account A".utf8) }
+        try Data("corrupt".utf8).write(to: root.appendingPathComponent("widget-store-generation"), options: .atomic)
+        XCTAssertFalse(cache.isCurrent)
+        XCTAssertThrowsError(try cache.resolve { throw RefreshFailure.offline })
+        XCTAssertThrowsError(try WidgetTimelineCache(root: root, kind: "question", generation: "one"))
+    }
+
 }

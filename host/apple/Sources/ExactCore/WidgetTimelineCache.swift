@@ -1,0 +1,54 @@
+// @ref LLP 1126.000 WP5, LLP 1126 D8 — account data expires on a store change.
+import Foundation
+
+/// A refresh captures the app's store counter before reading any account data.
+/// The same identity scopes in-flight sharing and the extension's persisted answer.
+public struct WidgetTimelineCache: Hashable {
+    private let file: URL
+    private let counterFile: URL
+    private let counter: UInt64
+    private enum Failure: Error { case storeChanged }
+    private struct Saved: Codable {
+        let counter: UInt64
+        let bytes: Data
+    }
+
+    public init(root: URL, kind: String, generation: String) throws {
+        file = root.appendingPathComponent("Library/Caches/widget-timelines/\(generation)/\(kind).json")
+        counterFile = root.appendingPathComponent("widget-store-generation")
+        counter = try Self.readCounter(counterFile)
+    }
+
+    private static func readCounter(_ file: URL) throws -> UInt64 {
+        let text: String
+        do { text = try String(contentsOf: file, encoding: .utf8) }
+        catch CocoaError.fileReadNoSuchFile { return 0 }
+        guard let counter = UInt64(text) else { throw CocoaError(.fileReadCorruptFile) }
+        return counter
+    }
+
+    /// Recheck after refresh and before delivery: a write can race either path.
+    /// An unreadable counter cannot authorize account content.
+    public var isCurrent: Bool { (try? Self.readCounter(counterFile)) == counter }
+
+    /// Only validated timeline bytes belong here. A failure may reuse an answer
+    /// from this store revision, never one written before an account switch.
+    public func resolve(_ refresh: () throws -> Data) throws -> Data {
+        do {
+            guard isCurrent else { throw Failure.storeChanged }
+            let bytes = try refresh()
+            guard isCurrent else { throw Failure.storeChanged }
+            let saved = try JSONEncoder().encode(Saved(counter: counter, bytes: bytes))
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try saved.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            guard isCurrent else { throw Failure.storeChanged }
+            return bytes
+        } catch {
+            // This cache is separate from the app's store and update pointer.
+            // A fresh process must prove the saved counter matches as well.
+            guard isCurrent, let saved = try? JSONDecoder().decode(Saved.self, from: Data(contentsOf: file)),
+                  saved.counter == counter, isCurrent else { throw error }
+            return saved.bytes
+        }
+    }
+}
