@@ -11,7 +11,7 @@ import { activeRun, providerAvailable } from './protocol';
 import type { T3Client } from './client';
 import { timelineMessages, timelineSnapshot, transcriptRows } from '../timeline/timeline-presentation';
 import { sidebarSnapshot } from '../sidebar/sidebar-view';
-import { subagentLead } from '../sidebar/sidebar-lineage';
+import { parentThreadLink, subagentLead } from '../sidebar/sidebar-lineage';
 import { requestPresentation } from '../composer/requests';
 import { threadErrorView } from '../timeline/timeline-errors';
 import { diffNotGit, diffSnapshot, NOT_GIT_REPO } from '../diff/diff';
@@ -137,7 +137,7 @@ export function snapshot(client: T3Client, now = 0, displayMode = '') {
     projectId: client.projectId, projectName: str(project?.title, 'Choose a project'), threadId: client.threadId,
     threadTitle: str(obj(client.projection.thread).title, 'New thread'),
     // The header title keyed by its text: a reused one-line text keeps drawing the previous title clipped to the new width.
-    threadHeading: [str(obj(client.projection.thread).title, 'New thread')].map(title => ({ id: title, label: title })), draft: client.draft, snapshotDrafts: snapshotDraftTiles(client), snapshotOwner: client.snapshotOwner,
+    threadHeading: [str(obj(client.projection.thread).title, 'New thread')].map(title => ({ id: title, label: title })), parentThread: parentThreadLink(client), draft: client.draft, snapshotDrafts: snapshotDraftTiles(client), snapshotOwner: client.snapshotOwner,
     settled: section(obj(client.projection.thread)) === 'settled', ...projectIdentity(str(project?.title)),
     running: !!run, subagentsLive: transcript.some(message => (message.activities ?? []).some(activity => (activity.startedMs ?? 0) > 0)), // AgentElapsed ticks
     canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId && !projectCloneBlock(client) && !feedbackUploading(client), // a cloning project waits (project-clones-live.ts)

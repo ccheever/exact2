@@ -1,10 +1,11 @@
+// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
 // The sidebar's projection into the snapshot (Sidebar.tsx render): the rows in
 // paint order (collapsed shelves contribute only the open thread, as the
 // reference renders them, so thread.jump and prev/next follow the same list)
 // plus the sidebar's own view state. Pure over the client and `now`.
-import { arr, num, obj, str, type Obj } from '../client/domain';
+import { arr, obj, str, type Obj } from '../client/domain';
 import { machineKind } from '../connections/connections';
-import { fleetThreads, parseFleetThreadId, fleetTerminalProcessCount, remoteThread } from '../connections/settings-b-fleet'; // settings-b: background environments' threads
+import { fleet, fleetThreads, parseFleetThreadId, fleetRunningTerminalIds, remoteThread } from '../connections/settings-b-fleet'; // settings-b: background environments' threads
 import type { T3Client } from '../client/client';
 import { knownSessions } from '../terminal/terminal-drawer-view';
 import { selectRunningSubprocessTerminalIds } from '../terminal/terminal-session';
@@ -21,7 +22,7 @@ import type { Probe } from '../composer/composer-menus';
 export { grayIdentity } from './sidebar-glyph';
 import { ageLabel, capabilities, canSnooze, isWoke, lastVisited, recedes, sectionOf, settledTimestamp, sidebarStatus, sidebarVisible,
   snoozeWakeLabel, sortActive, sortByReturn, sortPinned, sortSettled, sortSnoozed, sortWorkingThreadsBySend, threadTimeLabel, topStatus, unseenCompletion,
-  wokeAt, workingDuration, workingStartedAt, type SidebarSection } from './sidebar-model';
+  statusSince, wokeAt, workingDuration, type SidebarSection } from './sidebar-model';
 import { sidebarPrBadge } from '../panel/pr-surface';
 import { branchPrBadge, branchPullRequest } from './sidebar-branch-pr';
 import { notePlaces, rowHoverKey } from './row-hover-key';
@@ -31,17 +32,20 @@ import { bulkMenuState, menuRows, threadMenuItems, threadMenuState, type MenuRow
 import { draftMenuRows } from './draft-rows';
 import { replaceContextReferences } from '../composer/composer-editor-menu'; // a draft row's chips read as their labels
 import { renameHeld } from './sidebar-rename-wait';
+import { pullRequestSearchTerms, searchPullRequest } from './search-pull-request';
+import { isScratch, scratchRootOf } from '../composer/scratch-machine';
 
 type Identity = (name: string) => { projectMark: string; projectInk: string; projectSurface: string };
 type Badge = (provider: Obj | undefined, providers: Obj[]) => { providerBadge: string; providerBadgeColor: string };
 export interface SidebarHelpers { projectIdentity: Identity; providerBadge: Badge }
 
-/** ThreadStatusIndicators/Sidebar.tsx: shells alone are idle; only child processes count. */
-export function terminalProcessCount(client: T3Client, threadId: string): number {
+/** ThreadStatusIndicators/Sidebar.tsx runningTerminalIds: shells alone are idle; only child processes count. */
+export function runningTerminalIds(client: T3Client, threadId: string): string[] {
   const ref = parseFleetThreadId(threadId) ?? { environmentId: client.environmentId, threadId };
-  if (ref.environmentId !== client.environmentId) return fleetTerminalProcessCount(ref.environmentId, ref.threadId);
-  return selectRunningSubprocessTerminalIds(knownSessions(client, ref)).length;
+  if (ref.environmentId !== client.environmentId) return fleetRunningTerminalIds(ref.environmentId, ref.threadId);
+  return [...selectRunningSubprocessTerminalIds(knownSessions(client, ref))];
 }
+export const terminalProcessCount = (client: T3Client, threadId: string): number => runningTerminalIds(client, threadId).length;
 export const terminalProcessLabel = (count: number): string => count ? `${count} terminal ${count === 1 ? 'process' : 'processes'} running` : '';
 
 export interface SidebarThread {
@@ -57,6 +61,8 @@ export interface SidebarThread {
   idleRecede: boolean; idleTitleColor: string; idleTitleWeight: number; tips: SidebarRowTip[];
   hoverEnvironment: string; hoverMachine: string; hoverModel: string; hoverHandoff: string; hoverError: string; hoverErrorWarning: boolean;
   workingSince: number; remoteMachine: string; // the ticking Working label; a background environment's machine glyph
+  scratchMachine: string; scratchLabel: string; // a "No project" thread's machine, in the branch's place
+  searchPr: string; searchPrState: string; searchPrLabel: string; // a search result's matching pull request number
   menu: MenuRow[]; // handleThreadContextMenu's items (the bulk menu's on a selected row), for the row's context popover
 }
 export interface SidebarScope { key: string; label: string; mark: string; ink: string; surface: string; selected: boolean; all: boolean; glyph: ProjectGlyph }
@@ -153,7 +159,7 @@ export function searchRows(client: T3Client, parts: Partition): { thread: Obj; s
   const server = serverMatches(client), titles: { thread: Obj; section: SidebarSection }[] = [], content: typeof titles = [];
   for (const section of ['pinned', 'active', 'working', 'snoozed', 'settled'] as SidebarSection[]) {
     for (const thread of parts[section]) {
-      const terms = [str(thread.title), ...arr(thread.pullRequests).flatMap(pr => [`#${num(pr.number)}`, str(pr.title), str(pr.url)])];
+      const terms = [str(thread.title), ...pullRequestSearchTerms(thread)];
       if (terms.some(term => term.toLowerCase().includes(query))) titles.push({ thread, section });
       else if (server.has(str(thread.id))) content.push({ thread, section });
     }
@@ -187,7 +193,31 @@ export function scopedRowKey(client: T3Client, id: string): string {
   const ref = parseFleetThreadId(id);
   return ref ? `${ref.environmentId}:${ref.threadId}` : `${client.environmentId}:${id}`;
 }
-function row(client: T3Client, thread: Obj, section: SidebarSection, now: number, helpers: SidebarHelpers, extra: { searchFirst: boolean; jump: string; searching: boolean; menu: MenuRow[] }): SidebarThread {
+/** projectGroupsSpanEnvironments: the sidebar's projects come from more than one machine. */
+export function projectsSpanEnvironments(client: T3Client): boolean {
+  let machines = client.shell.projects.length ? 1 : 0;
+  for (const entry of fleet.entries.values()) {
+    if (entry.phase !== 'connected' || entry.synchronized !== entry.generation || entry.environmentId === client.environmentId) continue;
+    if (entry.shell.projects.length && ++machines > 1) return true;
+  }
+  return false;
+}
+/**
+ * Sidebar.tsx scratchMachineLabelFor: when the projects span machines, a thread in a machine's "No project" folder
+ * names that machine (its label and glyph) where a branch would be.
+ */
+export function scratchMachine(client: T3Client, thread: Obj, spans: boolean): { machine: string; label: string } | null {
+  if (!spans) return null;
+  const ref = parseFleetThreadId(str(thread.id));
+  if (!ref) {
+    const project = client.shell.projects.find(candidate => candidate.id === thread.projectId);
+    return isScratch(project, scratchRootOf(true, client.config)) ? { machine: machineKind(client.config), label: str(obj(client.config.environment).label) } : null;
+  }
+  const entry = [...fleet.entries.values()].find(candidate => candidate.environmentId === ref.environmentId);
+  const project = entry?.shell.projects.find(candidate => `fleet:${ref.environmentId}:${str(candidate.id)}` === thread.projectId);
+  return entry && isScratch(project, scratchRootOf(true, entry.config)) ? { machine: str(thread.fleetMachine, 'server'), label: str(thread.fleetEnvironmentLabel) } : null;
+}
+function row(client: T3Client, thread: Obj, section: SidebarSection, now: number, helpers: SidebarHelpers, extra: { searchFirst: boolean; jump: string; searching: boolean; menu: MenuRow[]; spans: boolean }): SidebarThread {
   const caps = capabilities(client.config), prefs = sidebarPrefs(client), session = sidebarSession(client);
   const providers = arr(client.config.providers);
   const project = client.shell.projects.find(candidate => candidate.id === thread.projectId);
@@ -202,7 +232,9 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
   const recede = recedes(status, unread, woke, active, multi), idleRecede = recedes(status, unread, woke, false, multi);
   const pill = topStatus(status, woke, unread);
   const card = section === 'active' || section === 'pinned' || section === 'working';
-  const started = workingStartedAt(thread);
+  const started = statusSince(thread, status);
+  const scratch = str(thread.branch) ? null : scratchMachine(client, thread, extra.spans);
+  const searchPr = extra.searching ? searchPullRequest(client, thread, client.query) : null;
   const draftKey = `${client.environmentId}:${id}`;
   const glyph = project ? projectGlyph(client, project, helpers.projectIdentity) : projectGlyph(client, { title: projectTitle }, helpers.projectIdentity);
   return {
@@ -214,8 +246,10 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     section, status: pill?.label ?? '', selected: active, searchFirst: extra.searchFirst,
     ...searchMatch(thread, client.query, serverMatches(client).get(id)),
     card, statusIcon: pill?.icon ?? '', statusColor: pill?.color ?? SECONDARY,
-    duration: status === 'working' && started ? workingDuration(now - Date.parse(started)) : '',
-    workingSince: status === 'working' && started && Number.isFinite(Date.parse(started)) ? Date.parse(started) : 0, remoteMachine: remoteThread(client, thread)?.machine ?? '',
+    duration: started ? workingDuration(now - Date.parse(started)) : '',
+    workingSince: started ? Date.parse(started) : 0, remoteMachine: scratch ? '' : remoteThread(client, thread)?.machine ?? '',
+    scratchMachine: scratch?.machine ?? '', scratchLabel: scratch?.label ?? '',
+    searchPr: searchPr ? String(searchPr.number) : '', searchPrState: searchPr?.state ?? '', searchPrLabel: searchPr?.label ?? '',
     titleColor: titleInk(card, section, recede, unread, woke, status, active), titleWeight: recede ? 400 : 500, recede,
     pinned: thread.pinnedAt != null, canPin: caps.pinning,
     canSettle: caps.settlement && card, canSnooze: caps.snooze && card && canSnooze(thread, now),
@@ -264,8 +298,9 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
   // A background environment's row has its menu too, by that environment's capabilities (handleThreadContextMenu).
   const menuOf = (thread: Obj): MenuRow[] => searching ? []
     : session.selection.includes(str(thread.id)) ? bulk : menuRows(threadMenuItems(threadMenuState(client, thread, false, scopes, now)));
+  const spans = projectsSpanEnvironments(client);
   const threads = rows.map(({ thread, section }, index) => row(client, thread, section, now, helpers,
-    { searchFirst: searching && index === searchIndex, jump: jumps[index] ?? '', searching, menu: menuOf(thread) }));
+    { searchFirst: searching && index === searchIndex, jump: jumps[index] ?? '', searching, menu: menuOf(thread), spans }));
   const total = parts.pinned.length + parts.active.length + parts.working.length + parts.snoozed.length + parts.settled.length;
   const shownSettled = Math.min(parts.settled.length, session.settledVisible + (parts.settled.slice(session.settledVisible).some(thread => thread.id === client.threadId) ? 1 : 0));
   const hidden = parts.settled.length - shownSettled;

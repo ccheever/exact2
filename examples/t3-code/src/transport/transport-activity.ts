@@ -21,7 +21,8 @@ export class ActivityScopes {
   retain(environment: string, method: string, payload: Record<string, unknown>): (() => void) | null {
     let scope: Scope;
     if (method === 'subscribeResourceTelemetry') scope = { type: 'diagnostics' };
-    else if (method === 'subscribeVcsStatus' && typeof payload.cwd === 'string') scope = { type: 'vcs-status', cwd: payload.cwd };
+    // A passive observer (`includeRemote: false`) reads cached remote status and retains no refresh loop.
+    else if (method === 'subscribeVcsStatus' && typeof payload.cwd === 'string' && payload.includeRemote !== false) scope = { type: 'vcs-status', cwd: payload.cwd };
     else return null;
     const key = JSON.stringify([environment, scope.type, scope.cwd ?? null]);
     const entry = this.entries.get(key) ?? { environment, scope, count: 0 };

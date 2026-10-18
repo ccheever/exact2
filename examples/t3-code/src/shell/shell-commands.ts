@@ -122,7 +122,7 @@ const messageOf = (error: unknown) => error instanceof Error ? error.message : '
 
 /** The reference's failure toast titles for main-window actions (Sidebar.tsx, ChatView.tsx, useThreadActionMenu.ts). */
 const FAILURE_TITLES: Record<string, string> = {
-  'chat:settle': 'Failed to settle thread', 'chat:unsettle': 'Failed to un-settle thread', unsettle: 'Failed to un-settle thread',
+  'chat:settle': 'Failed to settle thread', 'chat:settle-advance': 'Failed to settle thread', 'chat:unsettle': 'Failed to un-settle thread', unsettle: 'Failed to un-settle thread',
   'chat:unsnooze': 'Failed to wake thread', 'chat:snooze': 'Failed to snooze thread',
   'shell:pin': 'Failed to pin thread', 'shell:unpin': 'Failed to unpin thread', 'shell:rename': 'Failed to rename thread',
   'shell:archive': 'Failed to archive thread', 'shell:delete': 'Failed to delete thread',

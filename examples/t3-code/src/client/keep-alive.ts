@@ -1,5 +1,5 @@
 // Running threads stay live, after T3 Code (MIT, see
-// LICENSE-T3; reference 1e2ecbd975) apps/web/src/state/threads.ts createRunningThreadKeepAliveAtom
+// LICENSE-T3; reference 9c161462c9) apps/web/src/state/threads.ts createRunningThreadKeepAliveAtom
 // and RunningThreadKeepAlive: every running thread of every enabled environment keeps its detail
 // stream open; a thread the shell reports stopped stays until its own detail is live and shows the
 // stop (or cannot progress: deleted or failed); an environment that leaves drops its streams.
@@ -26,7 +26,7 @@ export type KeptThreads = ReadonlyMap<string, ReadonlySet<string>>;
 /** A kept detail stream's state: its thread, whether it is in sync, and whether it can still progress. */
 export type KeptDetail = { status: 'loading' | 'live' | 'deleted'; thread: ThreadState | null; error: string };
 
-export const isRunning = (status: string) => status === 'preparing' || status === 'starting' || status === 'running';
+export const isRunning = (status: string) => status === 'preparing' || status === 'queued' || status === 'starting' || status === 'running';
 
 /** isDetailDone: in sync and settled, or unable to progress (deleted or failed). A detail not yet loaded waits. */
 export function isDetailDone(detail: KeptDetail | undefined): boolean {
