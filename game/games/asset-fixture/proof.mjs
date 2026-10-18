@@ -183,8 +183,8 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
       check('late restore refusal stays on the fresh surface', state.restored===false && state.restoreError?.includes('restore refused'), state.restoreError);
       await refused.world('world').run(100);
       check('fresh world runs after deferred refusal', (await refused.state()).world[0].tick===6);
-      const lines = (await refused.logs()).world?.flatMap(w=>w.lines) ?? [];
-      const again = (await refused.logs()).world?.flatMap(w=>w.lines) ?? [];
+      const lines = (await refused.logs()).world?.flatMap(w=>Array.isArray(w.lines) ? w.lines : []) ?? [];
+      const again = (await refused.logs()).world?.flatMap(w=>Array.isArray(w.lines) ? w.lines : []) ?? [];
       check('late restore refusal is journalled exactly once', lines.filter(l=>l.includes('restore refused')).length===1 && !again.some(l=>l.includes('restore refused')));
       await refused.close();
     }
