@@ -29,6 +29,7 @@ fn movement_seed_jump_and_save() {
     println!("W 1500 ms: {p:?}");
     assert!((p.z - -5.3666644).abs() < 0.001);
     assert_eq!(a.world().hash(), b.world().hash());
+    a.assert_pin(include_str!("../../pins.json"));
     a.settle();
     a.tap("Space");
     a.run(250.0);
