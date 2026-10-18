@@ -256,7 +256,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
         settle += "}";
         (write, read, moving, settle)
     };
-    let mut out = format!("impl ::exact_game::Data for {name} {{ fn moving(&self, now: ::exact_game::Now) -> ::core::primitive::bool {{ let _ = now; {moving} }} fn settle_tick(&self, now: ::exact_game::Now) -> ::core::option::Option<::core::primitive::u64> {{ {settle} }} fn write(&self, w: &mut dyn ::exact_game::Writer) {{ {write} }} fn read(&mut self, r: &mut dyn ::exact_game::Reader) -> ::core::result::Result<(), ::exact_game::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
+    let mut out = format!("impl ::exact_game::Data for {name} {{ const TYPE_ID: &'static str = ::core::concat!(\"table:\", ::core::module_path!(), \"::\", ::core::stringify!({name})); fn moving(&self, now: ::exact_game::Now) -> ::core::primitive::bool {{ let _ = now; {moving} }} fn settle_tick(&self, now: ::exact_game::Now) -> ::core::option::Option<::core::primitive::u64> {{ {settle} }} fn write(&self, w: &mut dyn ::exact_game::Writer) {{ {write} }} fn read(&mut self, r: &mut dyn ::exact_game::Reader) -> ::core::result::Result<(), ::exact_game::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
     if let Some(marker) = marker {
         let (marker, extra) = if marker == "Presentation" {
             (

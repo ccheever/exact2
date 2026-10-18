@@ -416,6 +416,7 @@ fn live_edits_interleave_with_replay_and_restore_in_every_mode() {
 
 #[test]
 fn restore_distinguishes_same_named_types_in_different_modules() {
+    assert_eq!(Tuning::TYPE_ID, "table:tables::Tuning");
     mod movement {
         use exact_game::*;
         #[derive(Default, Data)]
@@ -456,4 +457,111 @@ fn restore_distinguishes_same_named_types_in_different_modules() {
         assert!(error.contains(name), "{error}");
     }
     assert_eq!(changed.save().unwrap(), before);
+}
+
+fn complete_barrier(s: &mut Sim<SetupTables>) {
+    s.asset(
+        "barrier.model",
+        Some(&bin::to_vec(&asset::Model::default())),
+    )
+    .unwrap();
+}
+fn future_inputs() -> Vec<asset::TableInput> {
+    [(0, 4.0), (5, 5.0), (20, 20.0)]
+        .into_iter()
+        .map(|(tick, speed)| asset::TableInput {
+            tick,
+            rows: rows(speed, "first"),
+        })
+        .collect()
+}
+#[test]
+fn replay_crosses_the_initial_barrier_without_consuming_future_ticks() {
+    let mut expected = None;
+    for mode in [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame] {
+        for replay_first in [true, false] {
+            let mut s = Sim::<SetupTables>::new(Options::default())
+                .unwrap()
+                .paranoid(mode);
+            setup_delivery(&mut s, 4.0);
+            if replay_first {
+                s.replay_tables(&future_inputs()).unwrap();
+            }
+            complete_barrier(&mut s);
+            if !replay_first {
+                s.replay_tables(&future_inputs()).unwrap();
+            }
+            assert_eq!(s.get::<Seen>("player").unwrap().speed, 4.0);
+            let mut hashes = vec![s.world().hash()];
+            for tick in 1..=24 {
+                s.run(1.0);
+                assert_eq!(
+                    s.world().table::<Tuning>("weapons.json").unwrap().speed,
+                    if tick < 5 {
+                        4.0
+                    } else if tick < 20 {
+                        5.0
+                    } else {
+                        20.0
+                    }
+                );
+                hashes.push(s.world().hash());
+            }
+            assert_eq!(
+                s.table_inputs().iter().map(|i| i.tick).collect::<Vec<_>>(),
+                [0, 5, 20]
+            );
+            if let Some(expected) = &expected {
+                assert_eq!(&hashes, expected);
+            } else {
+                expected = Some(hashes);
+            }
+        }
+    }
+}
+#[test]
+fn restart_admits_latest_live_delivery_and_retains_future_replay_in_every_mode() {
+    let mut expected = None;
+    for mode in [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame] {
+        let mut s = Sim::<SetupTables>::new(Options::default())
+            .unwrap()
+            .paranoid(mode);
+        setup_delivery(&mut s, 4.0);
+        complete_barrier(&mut s);
+        s.replay_tables(&future_inputs()).unwrap();
+        setup_delivery(&mut s, 20.0);
+        setup_delivery(&mut s, 2.0);
+        let saved = s.save().unwrap();
+        // The live/replay distinction must survive restoration before restart as well.
+        s.restore(&saved).unwrap();
+        s.bind(&[Value::Bool(false), Value::Bool(true)], None)
+            .unwrap();
+        assert_eq!(s.get::<Seen>("player").unwrap().speed, 2.0);
+        assert_eq!(s.world().tick(), 0);
+        assert_eq!(
+            s.table_inputs().iter().map(|i| i.tick).collect::<Vec<_>>(),
+            [0, 5, 20]
+        );
+        assert_eq!(s.table_inputs()[0].rows, rows(2.0, "first"));
+        let mut hashes = vec![s.world().hash()];
+        for tick in 1..=24 {
+            s.run(1.0);
+            assert_eq!(
+                s.world().table::<Tuning>("weapons.json").unwrap().speed,
+                if tick < 5 {
+                    2.0
+                } else if tick < 20 {
+                    5.0
+                } else {
+                    20.0
+                }
+            );
+            hashes.push(s.world().hash());
+        }
+        if let Some(expected) = &expected {
+            assert_eq!(&hashes, expected);
+        } else {
+            expected = Some(hashes);
+        }
+    }
 }

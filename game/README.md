@@ -655,14 +655,16 @@ then delivers all tables together through `assets/exact-tables.json`. It prints 
 time and subprocess count. No Cargo or rustc runs for a tuning save. A complete valid
 transaction activates at the next simulation tick; a rejected transaction keeps the old
 values. Paused tables await resume without preventing settlement. Restart and initial setup
-admit the latest valid pending transaction before setup reads it. Levels require a new
-session. Tables never spawn entities.
+admit the most recently delivered live transaction before setup reads it. Future replay
+transactions keep their recorded ticks across the initial asset barrier and restart.
+Levels require a new session. Tables never spawn entities.
 
 Active table bytes appear in world resources and contribute to the hash. Every admitted
 version remains in saved inputs for the session. `sim.table_inputs()` exports these
 clock-stamped bytes; `sim.replay_tables(&inputs)` queues them on a tick-zero simulation
 loaded with their original setup version. A restore requires the same active table bytes
-and module-qualified declared type names, and refuses changed tables by name. Development swaps are reported as `tableEdits` in
+and declared type identities (`table:` plus the declaring module path and type name),
+and refuses changed tables by name. Development swaps are reported as `tableEdits` in
 world state and refuse a proof pin. Delivery while running is admitted at the next tick;
 replay preserves those recorded ticks, including transactions still pending at export.
 

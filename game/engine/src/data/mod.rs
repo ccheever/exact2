@@ -77,6 +77,9 @@ pub mod text;
 /// enum Discriminants { #[default] A = 1, B = 2 }
 /// ```
 pub trait Data: Sized + Default + 'static {
+    /// Persisted table identity. The derive captures the declaring module and type name.
+    /// Manual table records must provide their own stable, qualified identity.
+    const TYPE_ID: &'static str = "";
     /// Whether any nested spring is still moving. Derives walk non-transient fields.
     fn moving(&self, _now: crate::Now) -> bool {
         false

@@ -9,16 +9,20 @@ pub const TABLE_ASSET: &str = "exact-tables.json";
 pub struct Table {
     /// Authored JSON path, relative to the game directory.
     pub name: &'static str,
-    ty: fn() -> &'static str,
+    ty: &'static str,
     decode: fn(&str) -> Result<TableValue, DataError>,
 }
 impl Table {
     /// Declare a tuning record without a separate schema.
     pub const fn of<T: Data + Send + Sync>(name: &'static str) -> Self {
+        assert!(
+            !T::TYPE_ID.is_empty(),
+            "table records require a declared Data::TYPE_ID"
+        );
         Self {
             name,
             decode: decode::<T>,
-            ty: std::any::type_name::<T>,
+            ty: T::TYPE_ID,
         }
     }
     /// Validate a complete record, including required fields.
@@ -130,11 +134,16 @@ pub struct TableInput {
 #[derive(Default, crate::Resource)]
 pub(crate) struct TableValues(pub BTreeMap<String, String>);
 #[derive(Default, Clone, Data)]
+struct Pending {
+    input: TableInput,
+    live: bool,
+}
+#[derive(Default, Clone, Data)]
 struct History {
     types: BTreeMap<String, String>,
     active: BTreeMap<String, String>,
     inputs: Vec<TableInput>,
-    pending: Vec<TableInput>,
+    pending: Vec<Pending>,
 }
 #[derive(Clone)]
 pub(crate) struct TableStore {
@@ -150,7 +159,7 @@ impl TableStore {
             history: History {
                 types: declarations
                     .iter()
-                    .map(|table| (table.name.into(), (table.ty)().into()))
+                    .map(|table| (table.name.into(), table.ty.into()))
                     .collect(),
                 ..History::default()
             },
@@ -216,7 +225,12 @@ impl crate::World {
     pub(crate) fn redecode_tables(&mut self) {
         if let Some(old) = &self.assets.tables {
             let mut fresh = TableStore::new(old.declarations);
-            for input in old.history.inputs.iter().chain(&old.history.pending) {
+            for input in old
+                .history
+                .inputs
+                .iter()
+                .chain(old.history.pending.iter().map(|pending| &pending.input))
+            {
                 fresh.validate(&input.rows).expect("retained table input");
             }
             fresh.activate(old.history.active.clone());
@@ -231,7 +245,7 @@ impl crate::World {
             .history
             .pending
             .first()
-            .map(|input| input.tick)
+            .map(|pending| pending.input.tick)
     }
     pub(crate) fn pending_table_names(&self) -> String {
         self.assets
@@ -239,7 +253,13 @@ impl crate::World {
             .as_ref()
             .and_then(|s| s.history.pending.first())
             .map_or_else(String::new, |input| {
-                input.rows.keys().cloned().collect::<Vec<_>>().join(", ")
+                input
+                    .input
+                    .rows
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
             })
     }
     pub(crate) fn activate_tables(&mut self) {
@@ -251,7 +271,7 @@ impl crate::World {
             .history
             .pending
             .first()
-            .is_some_and(|input| input.tick <= tick)
+            .is_some_and(|pending| pending.input.tick <= tick)
         {
             return;
         }
@@ -260,9 +280,9 @@ impl crate::World {
             .history
             .pending
             .first()
-            .is_some_and(|input| input.tick <= tick)
+            .is_some_and(|pending| pending.input.tick <= tick)
         {
-            let input = store.history.pending.remove(0);
+            let input = store.history.pending.remove(0).input;
             self.log(format_args!(
                 "table swap at tick {}: {}; tick reads take effect now; setup-only reads take effect at the next setup",
                 input.tick,
@@ -277,16 +297,16 @@ impl crate::World {
     pub(crate) fn setup_tables(&mut self) {
         if let Some(current) = &self.assets.tables {
             let mut store = (**current).clone();
-            // Restart is an admission boundary: setup uses the latest accepted transaction,
-            // even when the old world was paused or still awaiting other assets.
-            if let Some(input) = store.history.pending.last().cloned() {
-                store.activate(input.rows);
+            // Live deliveries precede this setup boundary even if their next tick has not
+            // run. Replay rows retain their future ticks across setup and restart.
+            if let Some(pending) = store.history.pending.iter().rev().find(|p| p.live) {
+                store.activate(pending.input.rows.clone());
             }
             store.history.inputs = vec![TableInput {
                 tick: 0,
                 rows: store.history.active.clone(),
             }];
-            store.history.pending.clear();
+            store.history.pending.retain(|pending| !pending.live);
             self.insert_resource(TableValues(store.history.active.clone()));
             self.assets.tables = Some(Arc::new(store));
         }
@@ -322,7 +342,8 @@ impl crate::World {
                 }
                 last = input.tick;
             }
-            for input in &store.history.pending {
+            for pending in &store.history.pending {
+                let input = &pending.input;
                 if input.tick <= self.tick() || input.tick < last {
                     return Err(DataError::new(
                         "restore refused: invalid pending table tick",
@@ -352,7 +373,7 @@ impl crate::World {
                 return Err(DataError::new(format!(
                     "restore refused: table type identity differs (saved {:?}, declared `{}`)",
                     history.types.get(table.name),
-                    (table.ty)()
+                    table.ty
                 ))
                 .at(table.name));
             }
@@ -364,7 +385,11 @@ impl crate::World {
         }
         let mut store = (**current).clone();
         store.validate(&history.active)?;
-        for input in history.inputs.iter().chain(&history.pending) {
+        for input in history
+            .inputs
+            .iter()
+            .chain(history.pending.iter().map(|pending| &pending.input))
+        {
             store.validate(&input.rows)?;
         }
         store.activate(history.active.clone());
@@ -396,12 +421,22 @@ impl<G: crate::Game> crate::Sim<G> {
                 let at = store
                     .history
                     .pending
-                    .partition_point(|input| input.tick <= tick);
+                    .partition_point(|pending| pending.input.tick <= tick);
                 let previous = at.checked_sub(1).map_or(&store.history.active, |index| {
-                    &store.history.pending[index].rows
+                    &store.history.pending[index].input.rows
                 });
-                if previous != &rows {
-                    store.history.pending.insert(at, TableInput { tick, rows });
+                if previous != &rows
+                    || at
+                        .checked_sub(1)
+                        .is_some_and(|index| !store.history.pending[index].live)
+                {
+                    store.history.pending.insert(
+                        at,
+                        Pending {
+                            input: TableInput { tick, rows },
+                            live: true,
+                        },
+                    );
                 }
             }
             self.world.assets.tables = Some(Arc::new(store));
@@ -432,7 +467,7 @@ impl<G: crate::Game> crate::Sim<G> {
                 s.history
                     .inputs
                     .iter()
-                    .chain(&s.history.pending)
+                    .chain(s.history.pending.iter().map(|pending| &pending.input))
                     .cloned()
                     .collect()
             })
@@ -463,7 +498,11 @@ impl<G: crate::Game> crate::Sim<G> {
             store.validate(&input.rows)?;
             last = input.tick;
         }
-        store.history.pending = inputs[1..].to_vec();
+        store.history.pending = inputs[1..]
+            .iter()
+            .cloned()
+            .map(|input| Pending { input, live: false })
+            .collect();
         self.world.assets.tables = Some(Arc::new(store));
         Ok(())
     }
