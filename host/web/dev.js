@@ -268,6 +268,8 @@ if (es) {
   // build asks for the snapshot. A frame before boot waits for it, the
   // latest only (a snapshot carries the whole design).
   let designing = Promise.resolve();
+  // A scrub's status, taken once its drag rests.
+  let statusLater = null;
   // Applied in place (the wasm's `exact_design_rows`): its batch is the
   // page's only when `live` says applied.
   // `still()`, after every wait, says whether the frame is still this page's.
@@ -278,7 +280,9 @@ if (es) {
     if (typeof x.wasm?.exact_design_rows !== "function") return { live: "unsupported" };
     const n = x.wasm.exact_design_rows(x.writeIn(JSON.stringify(frame))), out = JSON.parse(x.readOut(n));
     if (out.live === "applied") { if (frame.scrub) unmoving(() => x.send(n)); else x.send(n); }
-    if (typeof out.design === "string" && out.design !== x.designDigest) { x.designDigest = out.design; status(); }
+    // A scrub's frames say the design once the drag rests (a status reads the
+    // root's computed style and posts, each frame otherwise).
+    if (typeof out.design === "string" && out.design !== x.designDigest) { x.designDigest = out.design; clearTimeout(statusLater); if (frame.scrub) statusLater = setTimeout(status, 150); else status(); }
     if (out.unsupported) { console.warn("exact dev: the wide colour table is full: a colour was refused, its rows keep their value"); report({ kind: "unsupported", what: "batch", detail: "the wide colour table is full: a colour was refused" }); }
     return out;
   };
