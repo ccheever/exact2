@@ -64,3 +64,11 @@ test('preview uses its own session, globally replaces a composer press and close
   composerChipPreview(client, { ...preview, live: false });
   expect(composerChipCurrent(client)).toBeNull();
 });
+
+test('product press admission resolves context state and rejects unavailable context callbacks', () => {
+  const state = setup('[PR #7](t3-context://v1/review-comment/review-comment_p) [gone](t3-context://v1/terminal/terminal_missing)');
+  Object.assign(state.client.local, { reviewComments: { 'review-comment_p': { kind: 'review-comment', contextId: 'review-comment_p', pullRequest: { state: 'merged', number: 7 } } } });
+  expect(composerChipOpen(state.client, state.request())).toMatchObject({ kind: 'pr-merged', act: 'pr-merged', context: 'review-comment_p' });
+  expect(composerChipOpen(state.client, state.request(1))).toBeNull();
+  expect(composerChipOpen(state.client, { ...state.request(), comment: true })).toBeNull();
+});
