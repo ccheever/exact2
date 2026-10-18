@@ -45,7 +45,7 @@ component SettingsThreadPreferences
           if data.project
             column gap=7
               SettingsSectionLabel(title="Project", colors=colors, roles=roles)
-              column background-color=colors.grouped border-radius=24 overflow="hidden"
+              column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" overflow="hidden"
                 row min-height=56 box-sizing="border-box" gap=10.5 padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5 align-items="center"
                   text data.projectLabel flex=1 min-width=0 line-clamp=2 font-size=roles.body.size color=colors.foreground
                   if not busy and not data.pending and data.supportsOverrides and data.hasOverrides
@@ -56,12 +56,12 @@ component SettingsThreadPreferences
           else
             column gap=7
               SettingsSectionLabel(title="Usage limits", colors=colors, roles=roles)
-              column border-radius=24 background-color=colors.grouped overflow="hidden"
+              column border-radius=24 corner-shape="-exact-continuous" background-color=colors.grouped overflow="hidden"
                 ThreadPreferenceSwitch(id="autoResumeLimitedThreads", label="Auto-resume limited threads", icon="clock", checked=data.autoResume, mixed=data.autoResumeMixed, disabled=(busy or data.disabled), colors=colors, roles=roles, change=changeServer)
                 ThreadPreferenceSwitch(id="snoozeLimitedThreads", label="Snooze limited threads", icon="clock", checked=data.snooze, mixed=data.snoozeMixed, disabled=(busy or data.disabled), colors=colors, roles=roles, change=changeServer)
           column gap=7
             SettingsSectionLabel(title="Auto-settle", colors=colors, roles=roles)
-            column border-radius=24 background-color=colors.grouped overflow="hidden"
+            column border-radius=24 corner-shape="-exact-continuous" background-color=colors.grouped overflow="hidden"
               ThreadPreferenceSwitch(id="sidebarAutoSettleOnMerge", label="Auto-settle merged threads", icon="arrow.triangle.branch", checked=data.settleMerged, mixed=false, disabled=(busy or data.disabled), colors=colors, roles=roles, change=changeServer)
               ThreadPreferenceSwitch(id="inactive", label="Auto-settle inactive threads", icon="clock", checked=data.settleInactive, mixed=false, disabled=(busy or data.disabled), colors=colors, roles=roles, change=changeServer)
               if data.settleInactive
@@ -69,7 +69,7 @@ component SettingsThreadPreferences
           if not busy and not data.pending and data.mismatchLabels != ""
             column gap=7
               SettingsSectionLabel(title="Across environments", colors=colors, roles=roles)
-              column gap=10.5 padding=14 background-color=colors.grouped border-radius=24
+              column gap=10.5 padding=14 background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous"
                 text "Auto-settle defaults differ" font-size=roles.body.size color=colors.foreground
                 text data.mismatchLabels font-size=roles.footnote.size color=colors.muted
                 button press=changeServer("apply", data.autoSettlePatch) disabled=data.disabled align-self="flex-start" background-color=colors.subtle border-radius=99 padding-left=14 padding-right=14 padding-top=7 padding-bottom=7
@@ -77,13 +77,13 @@ component SettingsThreadPreferences
         column gap=10.5
           column gap=7
             SettingsSectionLabel(title="Beta", colors=colors, roles=roles)
-            column background-color=colors.grouped border-radius=24 overflow="hidden"
+            column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" overflow="hidden"
               ThreadPreferenceSwitch(id="workingEnabled", label="Working section", icon="bolt.circle", checked=data.workingEnabled, mixed=false, disabled=false, colors=colors, roles=roles, change=preference)
           text "Fold working and monitoring threads into a Working section. They return to the top of the list when they need you. While this is on, active threads are ordered by time and cannot be moved." padding-left=7 padding-right=7 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
         column gap=10.5
           column gap=7
             SettingsSectionLabel(title="Legacy", colors=colors, roles=roles)
-            column background-color=colors.grouped border-radius=24 overflow="hidden"
+            column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" overflow="hidden"
               ThreadPreferenceSwitch(id="planModeEnabled", label="Plan Mode", icon="hammer", checked=data.planModeEnabled, mixed=false, disabled=false, colors=colors, roles=roles, change=preference)
           text "Opt into retired interfaces kept for compatibility. Plan Mode restores the Build/Plan control; otherwise every task runs in Build mode." padding-left=7 padding-right=7 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
 component ThreadPreferenceSwitch

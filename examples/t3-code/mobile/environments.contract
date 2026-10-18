@@ -288,7 +288,7 @@ component GitHubRoutingSettings
               line-height="19px"
               font-weight=500
               color=colors.muted
-            column border-radius=24 background-color=colors.groupedCard overflow="hidden"
+            column border-radius=24 corner-shape="-exact-continuous" background-color=colors.groupedCard overflow="hidden"
               for entry in items key = entry.id
                 column
                   button press=toggleRow(entry.id)

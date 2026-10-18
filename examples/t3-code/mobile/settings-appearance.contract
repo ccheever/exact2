@@ -115,7 +115,7 @@ component SettingsAppearance
                 text card.label padding-left=3.5 padding-right=3.5 font-size=data.roles.headline.size line-height=`${data.roles.headline.line}px` font-weight=500 color=data.colors.foreground line-clamp=1 text-overflow="ellipsis" pointer-events="none"
         column gap=7
           SettingsSectionLabel(title="Text", colors=data.colors, roles=data.roles)
-          column border-radius=24 overflow="hidden" background-color=data.colors.grouped
+          column border-radius=24 corner-shape="-exact-continuous" overflow="hidden" background-color=data.colors.grouped
             column gap=3.5 padding=14
               text "The quick brown fox jumps over the lazy dog." font-size=data.baseFontSize line-height=`${data.bodyLine}px` color=data.colors.foreground testId="settings-text-preview"
               text "Messages, labels, and headings scale with this size." font-size=data.sampleSmallSize line-height=`${data.sampleSmallLine}px` color=data.colors.muted
@@ -123,7 +123,7 @@ component SettingsAppearance
             SettingsFontSlider(id="baseFontSize", label="Text size", value=data.baseFontSize, valueLabel=data.baseLabel, low=11, high=22, step=1, ready=data.ready, colors=data.colors, roles=data.roles, change=change)
         column gap=7
           SettingsSectionLabel(title="Terminal", colors=data.colors, roles=data.roles)
-          column border-radius=24 overflow="hidden" background-color=data.colors.grouped
+          column border-radius=24 corner-shape="-exact-continuous" overflow="hidden" background-color=data.colors.grouped
             SettingsTerminalPreview(data=data)
             view height=1 background-color=data.colors.separator
             SettingsPreferenceSwitch(id="terminalFontSize", icon="terminal", label="Custom font size", checked=data.terminalCustom, onValue=`${data.terminalFontSize}`, offValue="auto", ready=data.ready, colors=data.colors, roles=data.roles, change=change)
@@ -131,7 +131,7 @@ component SettingsAppearance
               SettingsFontSlider(id="terminalFontSize", label="Font size", value=data.terminalFontSize, valueLabel=data.terminalLabel, low=6, high=14, step=0.5, ready=data.ready, colors=data.colors, roles=data.roles, change=change)
         column gap=7
           SettingsSectionLabel(title="Code & Diffs", colors=data.colors, roles=data.roles)
-          column border-radius=24 overflow="hidden" background-color=data.colors.grouped
+          column border-radius=24 corner-shape="-exact-continuous" overflow="hidden" background-color=data.colors.grouped
             SettingsCodePreview(data=data)
             view height=1 background-color=data.colors.separator
             SettingsPreferenceSwitch(id="codeFontSize", icon="chevron.left.forwardslash.chevron.right", label="Custom font size", checked=data.codeCustom, onValue=`${data.codeFontSize}`, offValue="auto", ready=data.ready, colors=data.colors, roles=data.roles, change=change)

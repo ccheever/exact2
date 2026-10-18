@@ -50,7 +50,7 @@ component SettingsServer
           if data.project
             column gap=7
               SettingsSectionLabel(title="Project", colors=colors, roles=roles)
-              column border-radius=24 overflow="hidden" background-color=colors.grouped
+              column border-radius=24 corner-shape="-exact-continuous" overflow="hidden" background-color=colors.grouped
                 row min-height=56 box-sizing="border-box" align-items="center" gap=10.5 padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5
                   text data.projectLabel flex=1 min-width=0 line-clamp=2 font-size=roles.body.size line-height=`${roles.body.line}px` color=colors.foreground
                   if not data.pending and data.supportsOverrides and data.hasOverrides
@@ -65,7 +65,7 @@ component SettingsServer
                 view flex=1
                 if section.mixed
                   text "Mixed" padding-left=7 padding-right=7 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted aria-label=(data.project ? "Selected project checkouts use different values" : "Selected environments use different values")
-              column border-radius=24 overflow="hidden" background-color=colors.grouped
+              column border-radius=24 corner-shape="-exact-continuous" overflow="hidden" background-color=colors.grouped
                 for item in section.rows key=`${item.key}:${item.value}`
                   SettingsServerRow(item=item, colors=colors, roles=roles, change=change, environment=environment)
 component SettingsServerRow
