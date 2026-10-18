@@ -5,7 +5,7 @@
 // swap that fails leaves the build as it was.
 import { expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -35,7 +35,9 @@ async function stress(env, swaps = 100, gap = 20) {
   return { ...JSON.parse(out.trim().split('\n').pop()), final };
 }
 
-test('exchanged in one step, a reader never finds no build nor a file gone', async () => {
+const { directoryExchange } = await import(SERVE);
+
+test.skipIf(!directoryExchange())('exchanged in one step, a reader never finds no build nor a file gone', async () => {
   const got = await stress({});
   expect(got.final).toBe('<p>100');
   expect(got.ok).toBeGreaterThan(1000);
@@ -43,12 +45,16 @@ test('exchanged in one step, a reader never finds no build nor a file gone', asy
 }, 120_000);
 
 test('by two renames (no exchange) the swap still lands whole, but a reader can find no build or a file gone', async () => {
-  // As fast as it can, to meet the moment between the renames.
-  const got = await stress({ EXACT_DIRECTORY_EXCHANGE: '0' }, 400, 0);
-  expect(got.final).toBe('<p>400');
-  expect(got.ok).toBeGreaterThan(1000);
+  // As fast as it can, to meet the moment between the renames (a run that
+  // never met it is run again, three times at most).
+  let got;
+  for (let run = 0; run < 3 && !(got?.miss + got?.err); run++) {
+    got = await stress({ EXACT_DIRECTORY_EXCHANGE: '0' }, 400, 0);
+    expect(got.final).toBe('<p>400');
+    expect(got.ok).toBeGreaterThan(1000);
+  }
   expect(got.miss + got.err).toBeGreaterThan(0);
-}, 120_000);
+}, 300_000);
 
 test('a swap that fails leaves the build as it was', async () => {
   const { replaceBuild } = await import(SERVE);
@@ -56,5 +62,15 @@ test('a swap that fails leaves the build as it was', async () => {
   mkdirSync(dist); writeFileSync(join(dist, 'index.html'), '<p>kept');
   expect(() => replaceBuild(join(dir, 'no-stage'), dist)).toThrow();
   expect(readFileSync(join(dist, 'index.html'), 'utf8')).toBe('<p>kept');
+  // A stage that is a link is refused, not put in place as a link.
+  mkdirSync(join(dir, 'elsewhere')); writeFileSync(join(dir, 'elsewhere', 'index.html'), '<p>linked');
+  symlinkSync(join(dir, 'elsewhere'), join(dir, 'linked'));
+  expect(() => replaceBuild(join(dir, 'linked'), dist)).toThrow();
+  expect(lstatSync(dist).isDirectory()).toBe(true);
+  expect(readFileSync(join(dist, 'index.html'), 'utf8')).toBe('<p>kept');
+  // A swap killed between its renames left only `.previous`: no stage keeps it.
+  renameSync(dist, `${dist}.previous`);
+  expect(() => replaceBuild(join(dir, 'no-stage'), dist)).toThrow();
+  expect(readFileSync(join(`${dist}.previous`, 'index.html'), 'utf8')).toBe('<p>kept');
   rmSync(dir, { recursive: true, force: true });
 });

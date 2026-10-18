@@ -385,24 +385,37 @@ export function staticFile(dist, pathname) {
   // A complete current build is authoritative even when it lacks an optional
   // route (notably GPU files). Consult previous only while the current root
   // itself is absent; otherwise two apps' artifacts could be mixed.
-  let root;
-  try { root = realpathSync(dist); }
-  catch {
-    try { root = realpathSync(`${dist}.previous`); }
-    catch { return null; }
+  // Asked again, three times at most, as buildTreeFile asks.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const root = buildRoot(dist);
+    if (!root) continue;
+    try {
+      const inside = path => {
+        const child = relative(root, path);
+        return child !== '' && child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child);
+      };
+      const path = resolve(root, '.' + route);
+      if (!inside(path)) return null;
+      const real = realpathSync(path);
+      // Reject both a symlink file and a file reached through a symlink dir.
+      if (real !== path || !inside(real) || !statSync(real).isFile()) continue;
+      return { path: real, route };
+    } catch { /* again */ }
   }
-  try {
-    const inside = path => {
-      const child = relative(root, path);
-      return child !== '' && child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child);
-    };
-    const path = resolve(root, '.' + route);
-    if (!inside(path)) return null;
-    const real = realpathSync(path);
-    // Reject both a symlink file and a file reached through a symlink dir.
-    if (real !== path || !inside(real) || !statSync(real).isFile()) return null;
-    return { path: real, route };
-  } catch { return null; }
+  return null;
+}
+
+const sameFile = (a, b) => a.dev === b.dev && a.ino === b.ino;
+/** The real path of the build at `dist` (of `.previous` while dist is absent
+ * between two renames), or null to ask again: a build put in place as it was
+ * looked up can resolve to where the old tree has just gone, so the path must
+ * be dist itself (the same file, however its name is spelt). */
+function buildRoot(dist) {
+  let root;
+  try { root = realpathSync(dist); } catch {
+    try { return realpathSync(`${dist}.previous`); } catch { return null; }
+  }
+  try { return sameFile(statSync(root), statSync(dist)) ? root : null; } catch { return null; }
 }
 
 /** Resolve and read together, retrying when a build rename moved the path
@@ -599,13 +612,15 @@ export function replaceBuild(stage, dist) {
     }
   }
   try {
+    // Before `.previous` goes: it may be the only tree left by a swap that
+    // was killed between its renames.
+    if (!realDirectory(stage)) throw new Error(`${stage}: no build to put in place`);
     rmSync(`${dist}.previous`, { recursive: true, force: true });
     // One step where the system has one: dist is the new tree from one
     // instant to the next, never absent, and the old tree is left at the
     // stage's path. Else two renames, between which a reader falls back to
     // `.previous`.
-    if (!existsSync(stage)) throw new Error(`${stage}: no build to put in place`);
-    if (existsSync(dist) && exchangeDirectories(stage, dist)) { rmSync(stage, { recursive: true, force: true }); return; }
+    if (realDirectory(dist) && exchangeDirectories(stage, dist)) { rmSync(stage, { recursive: true, force: true }); return; }
     if (existsSync(dist)) renameSync(dist, `${dist}.previous`);
     try { renameSync(stage, dist); }
     catch (error) { if (existsSync(`${dist}.previous`)) renameSync(`${dist}.previous`, dist); throw error; }
@@ -613,7 +628,10 @@ export function replaceBuild(stage, dist) {
   } finally { rmSync(lock, { force: true }); }
 }
 
+const realDirectory = (path) => { try { return lstatSync(path).isDirectory(); } catch { return false; } };
 let exchangeCall, exchangeSaid = false;
+/** Whether builds are put in place in one step here (a test's question). */
+export const directoryExchange = () => { exchangeDirectories(null, null); return exchangeCall != null; };
 /** Exchange directories `a` and `b` in one step (macOS `renamex_np`
  * RENAME_SWAP, Linux `renameat2` RENAME_EXCHANGE): whether it was done.
  * Not where the system has none (another OS, a filesystem without it, a
@@ -642,8 +660,9 @@ function exchangeDirectories(a, b) {
       }
     } catch { exchangeCall = null; }
   }
+  if (a === null) return false;
   const done = exchangeCall?.(a, b) ?? false;
-  if (!done && !exchangeSaid) { exchangeSaid = true; console.log(`${b}: no one-step directory exchange here; a build is put in place by two renames`); }
+  if (!done && !exchangeSaid) { exchangeSaid = true; console.log(`${b}: not exchanged in one step (none here, or not on this volume); put in place by two renames`); }
   return done;
 }
 
@@ -665,10 +684,8 @@ export function buildTreeFile(dist, pathname, accept = '') {
   // moves the tree it resolved away under it (its files then resolve to
   // where the old tree went).
   for (let attempt = 0; attempt < 4; attempt++) {
-    let root, at;
-    try { root = realpathSync(dist); at = resolve(realpathSync(dirname(dist)), basename(dist)); } catch { try { root = realpathSync(`${dist}.previous`); } catch { return null; } }
-    // dist itself, not where its old tree has just gone (a link to it is its own).
-    try { if (at && root !== at && lstatSync(dist).isDirectory()) continue; } catch { continue; }
+    const root = buildRoot(dist);
+    if (!root) continue;
     const prefix = root.endsWith(sep) ? root : root + sep;
     for (const route of [path, path.replace(/\/?$/, '/index.html'), ...(appDocumentPath(pathname, acceptsHTML(accept)) ? ['/index.html'] : [])]) {
       const file = resolve(root, '.' + route);
