@@ -872,7 +872,7 @@ package final class Presenter {
                 v.handlers = op.handlers
                 // Before the style makes it a scroll container: a swipe row's waits.
                 v.swipeOwner = op.props["swipeContent"] != nil
-                v.applyStyle(v.pressPainted(op.style))
+                v.applyStyle(v.presented(op.style))
                 v.applyProps(set: op.props, clear: [])
                 if reused != nil { v.finishReuse() }
                 views[id] = v
@@ -892,7 +892,7 @@ package final class Presenter {
                 if flats.isFlat(id), flats.style(id, op) { continue }
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let color = v.style["text_color"], old = v.style
-                v.applyStyle(v.pressPainted(op.style))
+                v.applyStyle(v.presented(op.style))
                 anchorChanges.note(id, from: old, to: v.style)
                 flats.styleChanged(id)
                 if v.surface != nil { v.applySurface() }

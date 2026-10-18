@@ -3479,3 +3479,22 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
     - a disabled box taking none.
   - The kernel's op round trip and its refusals; `modes_tests.rs`, the JS target's rule group.
   - LLP 1061's press tests unchanged.
+
+### Stage 8, commit B2: Apple (iOS and Mac) (draft for theme2)
+
+- **The absolute press opacity** (`PressPaint.swift`). `press_opacity_to` is a pressed paint row: it makes the node `authorsPress`, so there is no dim and no ink wash. A full press takes away `shown − to`, where "shown" is a hover or focus look's opacity, else the node's own, through the same additive `pressOpacity` animation. That depth is recomputed when the base moves live or a look comes or goes mid-press. A hand-written `press_opacity` keeps D7's share.
+- **Looks** (`host/apple/src/looks.rs`). The node's style dictionary carries `"looks": {"hover": {…}, "focus_visible": {…}}`. Each look's rows are written as the style's own (colour pairs, roles), and its opacity is a number.
+- **How Swift shows them.** Swift keeps the engine's style (`presented` → `looked` → `pressPainted`).
+  - While the pointer hovers the node (the Mac) or its focus is visible, the look's background, border colours and shadow stand in, at once. The focus's go over the hover's, and the press's paint goes over both.
+  - The look's opacity is an additive `lookOpacity` layer animation that snaps.
+  - None of this applies on a disabled node.
+- **Mac hover** (`Mac/HoverMac.swift`). `setHoverPath` passes its whole path to `hoverLooks`. So a node shows its `:hover` look whether or not it hears `hover`, and only nodes with a handler get the runner's hover event. The native-module `hover(_:_:)` moved to that file too (PresenterMac.swift is at its cap).
+- **iOS** has no hover (an iPad pointer's hover is a later step), and no focus-visible yet.
+- **Tests:**
+  - `StateLooksTests` (Mac and iOS):
+    - `:active`'s paint with its absolute 0.6 (depth 0.4) and no dim;
+    - a base change while pressed;
+    - on the Mac, hover and focus looks at once, with the press easing from the hover's 0.8 to 0.6, then back;
+    - a disabled node taking none.
+  - `looks.rs`'s dictionary test. `PressPaintTests` and `PressFeedback*Tests` are unchanged.
+

@@ -836,6 +836,7 @@ package final class Presenter {
     /// The innermost hovered listener, with its listening ancestors below.
     weak var hovered: NodeView?
     var hoveredNodes: [NodeView] = [] // innermost first, the hit's ancestor path
+    var lookHovered: [WeakNodeView] = [] // those whose `:hover` look holds (HoverMac.swift)
     weak var trackedPointerEvent: NSEvent?
     /// The canvas input the tracked move reached through the hit's ancestors.
     weak var trackedCanvas: AnyObject?
@@ -928,6 +929,7 @@ package final class Presenter {
     /// give their occluded owners a separate hover.
     func setHoverPath(_ nodes: [NodeView], inline: UInt32? = nil) {
         if applying { afterBatch { [weak self] in self?.setHoverPath(nodes, inline: inline) }; return }
+        defer { hoverLooks(nodes) } // LLP 1121 D8, the path's own (HoverMac.swift)
         hoverTransition &+= 1
         inlineHoverTransition &+= 1 // cancel an inline enter awaiting its leave callback
         let generation = hoverTransition
@@ -959,21 +961,6 @@ package final class Presenter {
         hoveredNodes.removeAll { !eligible($0) }; hovered = hoveredNodes.first
         guard hoverTransition == generation else { return }
         if let inline, inlineEnabled(inline) { hoverInline(inline) }
-    }
-    /// Native-module hover dispatch uses the same ancestor coverage.
-    func hover(_ view: NodeView, _ over: Bool) {
-        guard views[view.id] === view else { return }
-        if over {
-            var path: [NodeView] = []
-            var current: NSView? = view
-            while let node = current {
-                if let node = node as? NodeView { path.append(node) }
-                current = node.superview
-            }
-            setHoverPath(path)
-        } else {
-            setHoverPath(hoveredNodes.filter { !$0.isDescendant(of: view) })
-        }
     }
     func key(_ id: UInt32, _ press: KeyPress) { send(id) { [self] in onKey?(id, press) } }
     func clipboard(_ id: UInt32, _ kind: UInt32, _ text: String) { send(id) { [self] in onClipboard?(id, kind, text) } }
@@ -1093,7 +1080,7 @@ package final class Presenter {
             case .create:
                 let v = NodeView(id: id, kind: op.kind, presenter: self)
                 v.handlers = op.handlers
-                v.applyStyle(v.pressPainted(op.style))
+                v.applyStyle(v.presented(op.style))
                 v.applyProps(set: op.props, clear: [])
                 views[id] = v
                 elements.created(v)
@@ -1109,7 +1096,7 @@ package final class Presenter {
             case .style:
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let color = v.style["text_color"], old = v.style
-                v.applyStyle(v.pressPainted(op.style))
+                v.applyStyle(v.presented(op.style))
                 anchorChanges.note(id, from: old, to: v.style)
                 if v.surface != nil { v.applySurface() }
                 // Paint motion re-sends a style per frame (LLP 1055.000 D6);
