@@ -1465,27 +1465,32 @@ eight normal-flow layouts, including the capped failure and the content-growth
 control. Its percentage heights and following sibling positions failed before
 the final stretch size became definite.
 
-`determine_used_cross_size` records whether stretching, after the item's bounds,
-changed its height, rounding the change to the nearest 1/64px layout unit. The
-absolute solver passes measured sizes back without their origin, so a local provenance flag
-cannot distinguish natural heights from constraints. Comparing layout units
-avoids treating margin, padding or border arithmetic as stretch. It also keeps
-the ratio basis when an item maximum cancels stretching. The earlier exact
-margin-box comparisons and special case preserving the hypothetical size are
-removed; this does not quantize layout geometry or change intrinsic measurement.
+`determine_used_cross_size` compares the clamped and hypothetical cross sizes
+in 1/64px units, truncating each positive size as
+[Blink's `LayoutUnit(float)`](https://raw.githubusercontent.com/chromium/chromium/main/third_party/blink/renderer/platform/geometry/layout_unit.h)
+does. Rounding their difference incorrectly treats distinct lengths within the
+same unit as stretch. When the item's measured outer size already fills the
+line, compare with the same container insets added to both sides, preserving
+its hypothetical height before reversing inset and margin additions. Apply the
+item's bounds to that comparison too: an item maximum can cancel stretching.
+This changes definiteness only; layout geometry and intrinsic measurement stay
+unchanged.
 
-Fourteen fractional-margin cases and 44 container cases, all measured in Chrome
+Fourteen fractional-margin cases and 44 container cases, measured in Chrome
 151.0.7922.34 on 2026-10-18, cover absolute and in-flow rows, padding, borders,
-box-sizing, nested containers, columns, bounds and stretch down to one layout
-unit. With 200px container padding and 60.1px content after the percentage child,
-the kernel gave that child 110.100006px instead of Chrome's 50px. The container
-cases had 22 failing frames before the layout-unit comparison.
+box-sizing, nested containers, columns, bounds and layout-unit boundaries.
+Eight further cases cover fractional constraints in both flow modes. Chrome
+uses 110.078125px for a 110.09px maximum; minima of 110.102px, 110.108px and
+110.109px share the natural 110.09375px unit and retain a 50px percentage basis.
+The latter two minima gave the percentage child the full height before the
+correction: eight frame mismatches. These eight fixture cases compare literal
+frames in layout units because the kernel retains f32 geometry.
 
 Taffy's `fractional_cross_margins_do_not_make_content_growth_a_stretch` checks ten
 layouts without pixel rounding. `container_insets_do_not_make_content_growth_a_stretch`
-checks sixteen more, including unit boundaries, one-unit changes and an unchanged
-subunit cap; six layouts failed before the correction. Both retain the ratio
-basis for content growth and use the final size for actual stretch.
+checks twenty-four more, including the fractional bounds, unit boundaries and
+an unchanged subunit cap. Four layouts failed before the per-size comparison.
+Both retain the ratio basis for content growth and the final size for stretch.
 
 ## Cargo workspace boundary
 

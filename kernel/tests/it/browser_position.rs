@@ -27,6 +27,8 @@
 //! Its fractional cases cover item margins, container padding and borders,
 //! both box-sizing modes, nested containers, columns and clamping. Actual
 //! stretch is checked down to one 1/64px layout unit.
+//! `Chrome 151 stretched ratio snapped` compares frames in layout units:
+//! these constraints differ within a unit, while kernel geometry stays f32.
 //!
 //! A fixture line is `name`, the root's declarations, the nodes (`id>parent>
 //! declarations>text`, joined by ` & `) and Chrome's frames (`id=x,y,w,h`),
@@ -100,7 +102,24 @@ fn failures(fixture: &str, relative: bool) -> Vec<(String, Vec<String>)> {
                 .collect();
             let texts: Vec<(u32, &str)> = texts.iter().map(|(id, s)| (*id, s.as_str())).collect();
             let k = lay_out_with(props(&positioned(case.root, relative)), nodes, &texts, &[]);
-            (case.name.to_string(), mismatches(case.name, &k, &case.want))
+            let wrong = if case.name.starts_with("Chrome 151 stretched ratio snapped ") {
+                case.want
+                    .iter()
+                    .filter_map(|(id, want)| {
+                        let f = k.node(*id).unwrap().frame;
+                        let got = [f.x, f.y, f.width, f.height];
+                        got.iter()
+                            .zip(want)
+                            .any(|(g, w)| (g * 64.0).floor() != (w * 64.0).floor())
+                            .then(|| {
+                                format!("{} #{id}: kernel {got:?}, Chrome {want:?}", case.name)
+                            })
+                    })
+                    .collect()
+            } else {
+                mismatches(case.name, &k, &case.want)
+            };
+            (case.name.to_string(), wrong)
         })
         .collect()
 }

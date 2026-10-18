@@ -14,7 +14,7 @@ use crate::tree::{LayoutFlexboxContainer, LayoutPartialTreeExt, NodeId};
 use crate::compute::common::absolute::AbsolutePass;
 use crate::compute::ratio::{sizes_through_ratio, transfer_into_unsized, Ratio};
 use crate::util::debug::debug_log;
-use crate::util::sys::{f32_max, f32_min, new_vec_with_capacity, round, Vec};
+use crate::util::sys::{f32_max, f32_min, floor, new_vec_with_capacity, Vec};
 use crate::util::MaybeMath;
 use crate::util::{MaybeResolve, ResolveOrZero};
 use crate::{BoxGenerationMode, BoxSizing, Dimension, Direction, RequestedAxis};
@@ -2447,14 +2447,27 @@ fn determine_used_cross_size(
                         child.min_size.cross(constants.dir),
                         max_size_ignoring_aspect_ratio.cross(constants.dir),
                     );
-                    // EXACT PATCH 49: measured container sizes lose their origin
-                    // across the absolute solver. Round the change to Chrome's
-                    // 1/64px layout-unit precision so inset/margin round trips
-                    // do not make a content-grown ratio height definite, even
-                    // at unit boundaries. Clamp first: an item maximum can
-                    // cancel the stretch.
-                    let change = cross_size - child.hypothetical_inner_size.cross(constants.dir);
-                    child.cross_size_was_stretched = round(change.abs() * 64.0) != 0.0;
+                    // EXACT PATCH 49: compare before reversing inset and margin
+                    // additions when the item's measured outer size fills the
+                    // line. Otherwise that round trip can cross a layout-unit
+                    // boundary. Item bounds still apply to the comparison.
+                    let hypothetical_cross = child.hypothetical_inner_size.cross(constants.dir);
+                    let inset = constants.content_box_inset.cross_axis_sum(constants.dir);
+                    let comparison_cross = if line_cross_size + inset
+                        == child.hypothetical_outer_size.cross(constants.dir) + inset
+                    {
+                        hypothetical_cross.maybe_clamp(
+                            child.min_size.cross(constants.dir),
+                            max_size_ignoring_aspect_ratio.cross(constants.dir),
+                        )
+                    } else {
+                        cross_size
+                    };
+                    // Blink's LayoutUnit(float) truncates each positive size to
+                    // 1/64px. Rounding their difference misclassifies bounds
+                    // that resolve to the same unit as the natural height.
+                    child.cross_size_was_stretched =
+                        floor(comparison_cross * 64.0) != floor(hypothetical_cross * 64.0);
                     cross_size
                 } else {
                     child.hypothetical_inner_size.cross(constants.dir)
@@ -3811,6 +3824,10 @@ mod intrinsic_tests {
                 ("border", 0.0, 100.0, auto(), length(400.0), auto(), 60.1, 50.0),
                 ("padding and border", 100.0, 100.0, auto(), length(400.0), auto(), 60.1, 50.0),
                 ("subunit cap", 200.0, 0.0, auto(), length(110.095), auto(), 60.1, 50.0),
+                ("fractional cap", 200.0, 0.0, auto(), length(110.09), auto(), 60.1, 110.078125),
+                ("same unit minimum 110.102", 200.0, 0.0, length(110.102), length(400.0), auto(), 60.1, 50.0),
+                ("same unit minimum 110.108", 200.0, 0.0, length(110.108), length(400.0), auto(), 60.1, 50.0),
+                ("same unit minimum 110.109", 200.0, 0.0, length(110.109), length(400.0), auto(), 60.1, 50.0),
                 ("unit shrink", 200.0, 0.0, auto(), length(110.078125), auto(), 60.1, 110.078125),
                 ("unit grow", 200.0, 0.0, length(110.109375), length(400.0), auto(), 60.1, 110.109375),
                 ("maximum cancels stretch", 200.0, 0.0, length(120.0), length(400.0), length(110.1), 60.1, 50.0),
@@ -3852,7 +3869,9 @@ mod intrinsic_tests {
                 tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
                 let height = tree.layout(percentage).unwrap().size.height;
                 let following_y = tree.layout(following).unwrap().location.y;
-                if height != percentage_height || following_y != percentage_height {
+                if [height, following_y].into_iter().any(|value| {
+                    crate::util::sys::floor(value * 64.0) != percentage_height * 64.0
+                }) {
                     failures.push(format!(
                         "{position:?} {name}: percentage {height}, following y {following_y}; Chrome {percentage_height}",
                     ));
