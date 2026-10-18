@@ -29,6 +29,7 @@ pub use android::{buffer_frame, window_ready};
 pub(crate) use android::{device_pending as gpu_device_pending, prepare as prepare_gpu};
 #[path = "surface_controls.rs"]
 pub(crate) mod controls;
+pub(crate) mod digest;
 mod pixels;
 mod shaders;
 #[cfg(windows)]
@@ -342,7 +343,11 @@ fn verify_module(path: &std::path::Path, compat: &Value, artifact: &str) -> Resu
         }
         &receipt["artifact"]
     } else {
-        &card["sha256"]
+        // The bake's card is the product's code digest (a Mach-O's signature left out).
+        let bytes = std::fs::read(path).map_err(|e| refuse(&e.to_string()))?;
+        return (card["sha256"].as_str() == Some(digest::code_digest(&bytes).as_str()))
+            .then_some(())
+            .ok_or_else(|| refuse("digest mismatch"));
     };
     if identity.as_str() != Some(file_digest(path).map_err(|e| refuse(&e))?.as_str()) {
         return Err(refuse("digest mismatch"));
