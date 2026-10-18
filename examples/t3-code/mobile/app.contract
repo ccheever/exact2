@@ -317,7 +317,7 @@ component App
   state automationRefresh = 0
   state automationElapsed = 0
   resource scheduledClockTime = scheduledClockTime(top(nav).name == "settingsScheduledTasks", `${top(nav).id}`, automationElapsed, top(nav).name == "settingsScheduledTasks" ? wallTime.epochAtZero + performanceNow() : 0) as shape ScheduledClockTime
-  resource automationPrepared = automationPrepare(top(nav).name, settingsData.serverScope, top(nav).params.usageAccount, top(nav).params.usageWindow, top(nav).params.usageKind, top(nav).name == "settingsScheduledTasks" ? scheduledClockTime.now : wallTime.epochAtZero + max(elapsed, automationElapsed), data.revision, automationRefresh) as shape AutomationPrepared
+  resource automationPrepared = automationPrepare(top(nav).name, settingsData.serverScope, top(nav).params.usageAccount, top(nav).params.usageWindow, top(nav).params.usageKind, top(nav).name == "settingsScheduledTasks" ? scheduledClockTime.now : wallTime.epochAtZero + max(elapsed, automationElapsed), data.revision, automationRefresh, top(nav).name == "settingsUsageAccount" ? `${top(nav).id}` : "", stack(nav).filter(entry => entry.name == "settingsUsageAccount").map(entry => `${entry.id}`).join("|")) as shape AutomationPrepared
   resource automationData = automationSnapshot(automationPrepared, pending(automationChanged)) as shape AutomationData
   resource scheduledHeader = scheduledHeader(preferences.serialized, data.environments, `${top(nav).id}`, settingsVisitSelection(settingsVisits, settingsVisit.visitToken), automationData.scheduled.canCreate, settingsVisit.visitToken) as shape ScheduledHeader
   mutation automationChanged as shape AutomationChange refreshes automationData then didAutomationChange

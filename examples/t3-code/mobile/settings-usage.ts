@@ -10,7 +10,7 @@ import { makeWindow, type UsageWindow } from './shared/pages-usage';
 import { collectLimitAccounts, type LimitPresentations } from './settings-usage-limits';
 import { mobileUsageConfig } from './settings-usage-types';
 import { mobileUsagePresentation, type UsageSourceView } from './settings-usage-view';
-export { mobileUsageAccount, mobileUsageReveal } from './settings-usage-view';
+export { mobileUsageAccount } from './settings-usage-view';
 export const USAGE_ROUTES=['SettingsUsage','SettingsUsageAccount'];
 export function mobileUsageSelection(json:string):string[]|null {
   let value:unknown;try{value=JSON.parse(json);}catch{throw new ClientError('The usage environment selection is invalid.');}

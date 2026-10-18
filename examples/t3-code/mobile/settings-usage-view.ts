@@ -20,9 +20,7 @@ export function mobileUsageProviderRows(providers:Readonly<ReturnType<typeof mer
   });
 }
 const provider=(id:string)=>MOBILE_USAGE_PROVIDERS.find(provider=>provider.id===id||provider.driver===id)??{id,driver:id,label:id,light:'#737373',dark:'#a3a3a3'};
-const reveals=new Set<string>();let detailPrepared:Prepared|null=null;
-export function mobileUsageReveal(key:string){if(reveals.has(key))reveals.delete(key);else reveals.add(key);}
-const masked=(value:string|undefined,key:string)=>!value?'':reveals.has(key)?value:'••••••••';
+let detailPrepared:Prepared|null=null;
 const paceLabel=(pace:string|null)=>pace==='ahead'?'Ahead of pace':pace==='under'?'Under pace':pace==='on'?'On pace':'';
 const LIMIT_DRIVER_LABEL:Readonly<Record<string,string>>={codex:'Codex',claudeAgent:'Claude'};
 function limitAccountName(account:LimitAccount){
@@ -32,7 +30,7 @@ function limitAccountName(account:LimitAccount){
   return `${local[0]??''}${domain[0]??''}`.toUpperCase()||'Account';
 }
 export function mobileUsagePresentation(input:Prepared|null,publish=true,pendingCursor:(id:string)=>boolean=()=>false){
-  if(publish){detailPrepared=input;if(!input)reveals.clear();}
+  if(publish)detailPrepared=input;
   const sources=input?.sources??[],summaries=sources.flatMap(source=>source.summary?[{id:source.id,label:source.label,summary:source.summary}]:[]),merged=mergeUsage(summaries),tokens=input?.metric==='tokens',compatible=summaries.filter(item=>Number(item.summary.contractVersion)>=4&&Number(item.summary.contractVersion)<=6),actual=compatible.length>0;
   const accounts=collectLimitAccounts(input?.presentations??new Map()),pools=collectLimitPools(accounts,input?.now??0),periods=input?windowPeriods(input.window):[],byPeriod=new Map((input?.window.resolution==='hour'?merged.hourly:merged.daily).map(period=>[period.key,period]));
   const activePeriods=(input?.window.resolution==='hour'?merged.hourly:merged.daily).filter(period=>period.totalTokens>0).length;
@@ -58,7 +56,7 @@ export function mobileUsagePresentation(input:Prepared|null,publish=true,pending
           remaining:window.remainingPercent,pace:paceLabel(window.pace),nextRefill:refill?`↻ +${refill.restoresPercent}% ${refill.at<=now?'now':`in ${formatDuration(refill.at-now)}`}`:'',
           columns:window.columns.map(({account,window:own})=>{
             const resetsIn=own?formatResetsIn(own,now):null;
-            return {key:account.key,label:limitAccountName(account),present:!!own,remaining:own?remainingPercent(own):0,email:masked(account.email,account.key),
+            return {key:account.key,label:limitAccountName(account),present:!!own,remaining:own?remainingPercent(own):0,email:account.email?'••••••••':'',
               pending:!!own?.resetsAt,resetsIn:resetsIn??'',resetLabel:resetsIn?.replace('resets in ','↻ ')??'',credits:account.limits.resetCredits?.availableCount??0};
           })};
       })})),
@@ -94,12 +92,12 @@ export function mobileUsagePresentation(input:Prepared|null,publish=true,pending
         detail:tokens?`${formatPercent(model.tokenShare)} of tokens · ${unknown?'no known rates':formatUsd(model.costUsd)}`:unknown?`no known rates · ${formatTokens(model.totalTokens)} tokens`:`${formatPercent(model.costShare)} of cost · ${formatTokens(model.totalTokens)} tokens`};
     })};
 }
-export function mobileUsageAccount(key:string,windowId:string,kind:string,now:number){
+export function mobileUsageAccount(key:string,windowId:string,kind:string,now:number,revealed:boolean){
   const input=detailPrepared,account=collectLimitAccounts(input?.presentations??new Map()).find(account=>account.key===key),pool=collectLimitPools(account?[account]:[],now)[0],window=account?.limits.windows.find(window=>window.id===windowId&&window.kind===kind),credits=account?.limits.resetCredits;
   const pooled=collectLimitPools(collectLimitAccounts(input?.presentations??new Map()),now).find(pool=>pool.driver===account?.driver)?.windows.find(window=>window.id===windowId&&window.kind===kind);
   const reset=pooled?.resets.find(reset=>reset.member.account.key===key);
   return {present:!!account&&!!window,error:account&&window?'':'This account is no longer reporting limits on the selected environments.',key,driver:account?.driver??'',label:account?.displayName??LIMIT_DRIVER_LABEL[account?.driver??'']??account?.driver??'',
-    email:account?.email?(reveals.has(key)?account.email:'••••••@••••••'):'',hasEmail:!!account?.email,revealed:reveals.has(key),plan:account?.plan??'',
+    email:account?.email?(revealed?account.email:'••••••@••••••'):'',hasEmail:!!account?.email,revealed,plan:account?.plan??'',
     windowLabel:window?.label??'',remaining:window?`${remainingPercent(window)}% left`:'',resets:window?.resetsAt?new Date(window.resetsAt).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}):'',restores:reset&&reset.restoresPercent>0?`Restores ${reset.restoresPercent}% of the pool`:'',
     sourceTitle:account?.environments.length?'Signed in':'Source',sourceItems:account?account.environments.length?account.environments.map(env=>({id:env.environmentId,label:env.label})):[{id:'source',label:account.sourceLabel??''}]:[],
     credits:credits?credits.availableCount===0?'No reset credits banked':`${credits.availableCount} ${credits.availableCount===1?'reset credit':'reset credits'} banked${credits.nextExpiresAt?` · next expires in ${formatDuration(Date.parse(credits.nextExpiresAt)-now)}`:''}`:'',
