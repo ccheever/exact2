@@ -610,10 +610,7 @@ fn native_button_wrap_and_bound_title_remeasure_the_painted_face() {
 
 #[test]
 fn live_time_ticks_in_the_terminal_without_an_app_task() {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as f64;
+    let now = 1_767_225_600_000.;
     let source = format!(
         "component App\n  view\n    time datetime={} format=\"relative\" testId=\"live-time\"\n",
         now - 120_000.

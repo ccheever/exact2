@@ -37,6 +37,8 @@ vte = "0.15"
 # (LLP 1101.002 §0 P1); the writer's tests check against it too.
 vt100 = "0.15"
 iana-time-zone = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+chrono-tz = "0.10"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
