@@ -590,11 +590,15 @@ describe('inline confirmation input', () => {
     const window = contractComponent('app-window.contract', 'T3Window');
     const sent: unknown[][] = [];
     const scope = { prDetail: { ref: 'pr7', actions: { armedAction: 'merge', armedSerial: 9 } }, prConfirmTarget: 'pull-request-primary',
-      frame: () => ({ x: 20, y: 20, width: 80, height: 24 }), chatLocal: (...args: unknown[]) => sent.push(args), chipShown: false, detailsOpen: false };
+      frame: () => ({ x: 20, y: 20, width: 80, height: 24 }), prConfirmDisarm: (...args: unknown[]) => sent.push(args), chipShown: false, detailsOpen: false };
     const state = { outsideDown: false, keybindingField: '', citeFor: '' };
     window.call('outsidePressDown', state, scope, [{ buttons: 1, clientX: 40, clientY: 30 }]);
     expect(sent).toEqual([]);
     window.call('outsidePressDown', state, scope, [{ buttons: 1, clientX: 400, clientY: 300 }]);
-    expect(sent).toEqual([['pr-ui-disarm', 'pr7', 'serial:9']]);
+    expect(sent).toEqual([['pr7', 'serial:9']]);
+    const root = contractComponent('app.contract', 'T3Code');
+    const requests: unknown[][] = [];
+    root.call('prConfirmDisarm', {}, { command: (...args: unknown[]) => requests.push(args) }, sent[0]!);
+    expect(requests).toEqual([['chatlocal:pr-ui-disarm', 'pr7', 'serial:9', 0]]);
   });
 });

@@ -474,7 +474,7 @@ component T3Window
     outsideDown = e.buttons == 1
     // useInlineActionConfirm also disarms on a press outside the armed control, including non-focusable text.
     if prDetail.actions.armedAction != "" and not (e.clientX >= frame(prConfirmTarget).x and e.clientX < frame(prConfirmTarget).x + frame(prConfirmTarget).width and e.clientY >= frame(prConfirmTarget).y and e.clientY < frame(prConfirmTarget).y + frame(prConfirmTarget).height)
-      chatLocal("pr-ui-disarm", prDetail.ref, `serial:${prDetail.actions.armedSerial}`)
+      prConfirmDisarm(prDetail.ref, `serial:${prDetail.actions.armedSerial}`)
     // A press outside the keybinding field ends its recording: a browser blurs the reference's focused input on a
     // press that lands outside it, where an AppKit text field keeps the focus.
     if keybindingField != "" and e.buttons == 1 and not (e.clientX >= frame(keybindingField).x and e.clientX < frame(keybindingField).x + frame(keybindingField).width and e.clientY >= frame(keybindingField).y and e.clientY < frame(keybindingField).y + frame(keybindingField).height)
