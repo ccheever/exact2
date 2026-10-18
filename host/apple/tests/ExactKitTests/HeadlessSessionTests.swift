@@ -108,6 +108,10 @@ final class HeadlessSessionTests: XCTestCase {
         let rest = "efficiency efficiency".dropFirst(keptLigature.count)
         XCTAssertFalse(keptLigature.hasSuffix("f") && (rest.hasPrefix("i") || rest.hasPrefix("f")), "cut inside a ligature: \(keptLigature)|\(rest)")
         XCTAssertLessThanOrEqual(width(keptLigature + "…"), ligature.width + 0.5)
+        // A trailing ligature before the token keeps every character when the
+        // line already fits: "The staff…", not "The staf…".
+        let ff = try XCTUnwrap(node("clamped-ff").lines.first)
+        XCTAssertEqual(ff.text, "The staff…")
         let hyphen = try XCTUnwrap(node("hyphen").lines.first)
         XCTAssertEqual(hyphen.range, NSRange(location: 0, length: 3))
         XCTAssertEqual(hyphen.text, "ab-")

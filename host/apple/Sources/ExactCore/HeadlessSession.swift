@@ -81,6 +81,9 @@ public final class HeadlessSession {
             if !lines.isEmpty || !runs.isEmpty { textLines = HeadlessLines(lines: lines, runs: runs) }
         }
         fileprivate var content: CGRect?
+        /// The presented `opacity` (a `present` op), kept apart from the
+        /// style rows a `style` op replaces, and laid over them.
+        fileprivate var presentedOpacity: Double?
         fileprivate var inline: [InlineText] = []
         fileprivate var flow: [TextFlowShape] = []
         fileprivate var textLines: HeadlessLines?
@@ -219,7 +222,9 @@ public final class HeadlessSession {
             case .props:
                 for key in op.clear { nodes[op.id]?.props[key] = nil }
                 for (key, value) in op.props { nodes[op.id]?.props[key] = value }
-            case .style: nodes[op.id]?.style = op.style
+            case .style:
+                nodes[op.id]?.style = op.style
+                if let opacity = nodes[op.id]?.presentedOpacity { nodes[op.id]?.style["opacity"] = .number(opacity) }
             case .children: nodes[op.id]?.children = op.ids
             case .paragraph: nodes[op.id]?.inline = op.runs
             case .frame: nodes[op.id]?.frame = CGRect(x: op.x, y: op.y, width: op.w, height: op.h)
@@ -233,7 +238,9 @@ public final class HeadlessSession {
             // row the serializer leaves to presentation (`style.rs`), so the
             // model keeps it as the row it is; the others are motion, which a
             // snapshot has none of.
-            case .present where op.property == "opacity": nodes[op.id]?.style["opacity"] = .number(op.x)
+            case .present where op.property == "opacity":
+                nodes[op.id]?.presentedOpacity = op.x
+                nodes[op.id]?.style["opacity"] = .number(op.x)
             case .roots: roots = op.ids
             case .destroy: nodes[op.id] = nil
             case .language:
@@ -326,7 +333,9 @@ fileprivate final class HeadlessLines {
                 let end = clamped ? Self.kept(line, range: range, source: source) : NSMaxRange(range)
                 let suffix = clamped ? "…" : ""
                 let shown = NSRange(location: range.location, length: end - range.location)
-                let painted = Self.ink(source.substring(with: shown)) + suffix
+                // `clampedLine` measured the soft hyphen invisible and Core Text
+                // paints it so; only an unclamped line's break inks it.
+                let painted = clamped ? source.substring(with: shown) + suffix : Self.ink(source.substring(with: shown))
                 var segments: [HeadlessSession.Segment] = [], from = range.location
                 for (run, runEnd) in ends.enumerated() where runEnd > from && from < end {
                     let to = min(runEnd, end)
@@ -335,7 +344,7 @@ fileprivate final class HeadlessLines {
                     from = to
                 }
                 if let tail = segments.popLast() {
-                    segments.append(.init(run: tail.run, text: Self.ink(tail.text) + suffix, range: tail.range))
+                    segments.append(.init(run: tail.run, text: clamped ? tail.text + suffix : Self.ink(tail.text), range: tail.range))
                 } else if clamped {
                     segments.append(.init(run: 0, text: suffix))
                 }
@@ -356,10 +365,11 @@ fileprivate final class HeadlessLines {
     /// glyph covers the characters up to the next glyph's index in the line
     /// (sorted, whatever the visual order; the token's counts, so a ligature
     /// before it keeps both its characters), and the line's last glyph the
-    /// composed character sequence at its index. The token's own glyph is
-    /// attributed to the index of the first character it displaced, so it
-    /// is told apart by what it is: the font's "…" (the missing glyph when
-    /// the face has none) where the source has no "…".
+    /// composed character sequence at its index. The token is any glyph at
+    /// or past the stripped end (the appended "…", a boundary the glyph
+    /// before it ends at, so a trailing ligature keeps every character); a
+    /// token glyph attributed to the index of a character it displaced is
+    /// told apart by what it is: the font's "…" where the source has none.
     private static func kept(_ line: CTLine, range: NSRange, source: NSString) -> Int {
         let breaks: Set<Int> = [9, 10, 13, 32, 0x2028, 0x2029]
         var stripped = NSMaxRange(range)
@@ -377,8 +387,8 @@ fileprivate final class HeadlessLines {
                 var ellipsis: UniChar = 0x2026
                 CTFontGetGlyphsForCharacters(font as! CTFont, &ellipsis, &token, 1)
             }
-            for (index, glyph) in zip(indices, ids) where index >= range.location && index < stripped {
-                glyphs.append((index, glyph == token && source.character(at: index) != 0x2026))
+            for (index, glyph) in zip(indices, ids) where index >= range.location {
+                glyphs.append((index, index >= stripped || (token != 0 && glyph == token && source.character(at: index) != 0x2026)))
             }
         }
         glyphs.sort { $0.index < $1.index }
