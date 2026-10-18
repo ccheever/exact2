@@ -11,8 +11,8 @@
 //   the batch, compiling nothing). Where the loop cannot patch a frame it is
 //   planned (`propose` with `texts`) and the texts compiled (`preview`), as
 //   before. Updates that come while one previews wait, and only the latest
-//   is previewed, at most one every PACE_MS; the others are answered
-//   `superseded`.
+//   is previewed next; the others are answered `superseded`. Nothing else
+//   paces them: a build shows the latest batch it has at its next frame.
 // - A patched frame is verified once the gesture rests (VERIFY_MS with no
 //   update): the fold again with the write's own checks, and the compile
 //   of its texts (`verify`), must give the design it patched; where either
@@ -29,11 +29,28 @@
 import { randomBytes } from 'node:crypto';
 
 export const SCRUB_IDLE_MS = 30_000;
-/** At most one preview starts per this many ms (~60 Hz): the latest value
- * waits, the ones before it are superseded. */
-export const PACE_MS = 16;
+/** At most one preview starts per this many ms; the latest value waits, the
+ * ones before it are superseded. None: a 16 ms pace held a frame that came
+ * early for the next (+13 ms p95 on the clone, a frame in 30 superseded),
+ * and the one preview at a time already keeps the latest. */
+export const PACE_MS = 0;
 /** A patched frame is verified once no update came for this long. */
 export const VERIFY_MS = 150;
+// EXACT_SCRUB_TRACE=1: every 120 patched frames, the p50/p95 of each step's
+// ms, from the update's arrival: waiting for the pace or the frame before,
+// the fold, the patch (to the batch sent to the builds).
+const trace = process.env.EXACT_SCRUB_TRACE ? traced() : null;
+function traced() {
+  const steps = [[], [], []];
+  const pct = (a, p) => [...a].sort((x, y) => x - y)[Math.min(a.length - 1, Math.floor(a.length * p))].toFixed(1);
+  return (_request, t) => {
+    if (t.length < 4) return;
+    for (let i = 0; i < 3; i++) steps[i].push(t[i + 1] - t[i]);
+    if (steps[0].length < 120) return;
+    console.log(`scrub trace (${steps[0].length} frames, ms p50/p95): wait ${pct(steps[0], .5)}/${pct(steps[0], .95)} · fold ${pct(steps[1], .5)}/${pct(steps[1], .95)} · patch ${pct(steps[2], .5)}/${pct(steps[2], .95)}`);
+    for (const s of steps) s.length = 0;
+  };
+}
 
 /**
  * `ask` sends the design server a request; `write` makes a write as the
@@ -96,18 +113,21 @@ export function scrubSessions({ ask, write, patch = null, verify = null, preview
   };
 
   /** Fold and patch one update of scrub `id`, or plan and preview it. */
-  async function show(request, id) {
+  async function show(request, id, arrived = null) {
     if (open?.id !== id) return refused(409, 'the scrub ended');
     const at = ends;
     const gone = () => ends !== at || open?.id !== id;
     let planned = null, shown = null;
+    const t = trace && [arrived ?? performance.now(), performance.now()];
     if (patch) {
       planned = await ask({ method: 'scrub-fold', ops: request.ops, files: open.files, open: !open.folded });
+      t?.push(performance.now());
       if (gone()) return refused(409, 'the scrub ended');
       if (!planned.ok) { failed(id); return planned; }
       if (planned.ok.class !== 'live') { failed(id); return refused(409, REBUILD); }
       open.folded = true;
       shown = await patch(planned.ok.values ?? [], mark(id), planned.ok.files);
+      t?.push(performance.now());
       if (gone()) { void restore(mark(id)); return refused(409, 'the scrub ended'); }
       if (shown?.fallback) shown = null;
     }
@@ -129,6 +149,7 @@ export function scrubSessions({ ask, write, patch = null, verify = null, preview
     open.ops = request.ops;
     open.rev++;
     if (open.patched && verify) verifyLater();
+    if (t) trace(request, t);
     return { ok: { scrub: id, class: 'live', changed: planned.ok.changed, synthetic: planned.ok.synthetic, files: planned.ok.files } };
   }
   /** Verify the patched frame shown once the gesture rests. */
@@ -155,7 +176,7 @@ export function scrubSessions({ ask, write, patch = null, verify = null, preview
     waiting = null;
     started = Date.now();
     (async () => {
-      try { j.done(await show(j.request, j.id)); } catch (e) { failed(j.id); j.done(refused(500, e.message)); }
+      try { j.done(await show(j.request, j.id, j.at)); } catch (e) { failed(j.id); j.done(refused(500, e.message)); }
       busy = null;
       pump();
     })();
@@ -183,7 +204,7 @@ export function scrubSessions({ ask, write, patch = null, verify = null, preview
       clearTimeout(open.verifier);
       return new Promise((done) => {
         if (waiting) waiting.done({ ok: { scrub: id, superseded: true } });
-        waiting = { request, id, done };
+        waiting = { request, id, done, at: trace ? performance.now() : null };
         pump();
       });
     },

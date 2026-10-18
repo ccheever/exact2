@@ -411,8 +411,9 @@ to no file while the gesture lasts, and is written once, on release. The wire ru
     cannot set so (a row that would gain or lose its per-tuple values, a design it has not built
     yet) is planned (`propose` with `texts`) and compiled in place of the design file, as before.
     The snapshot it serves (`/__dev/design`) is the scrub's while it lasts.
-  - **Updates that come while one previews** wait; only the latest is previewed, at most one every
-    16 ms, and the others are answered `{scrub, superseded: true}`. An update back to the
+  - **Updates that come while one previews** wait; only the latest is previewed next, and the
+    others are answered `{scrub, superseded: true}`. Nothing else paces them: a build shows the
+    latest frame it has at its next display frame. An update back to the
     committed value previews the committed design, and the scrub stays open.
   - **Each frame a scrub sends is marked** (*1.11*): its batch and the snapshot carry `scrub`
     `{id, rev, run}`, the scrub's id, a revision that rises over every frame of every scrub the
