@@ -129,12 +129,12 @@ function typescriptBundle(bundle, build, baked, cohort) {
   return { bundle: { ...bundle, assets: [...bundle.assets, ...assets] }, build: { ...build, graph: { ...build.graph, artifacts } } };
 }
 
-function planGraph(tool, app, plan, cohort) {
+function planGraph(tool, app, plan, cohort, env) {
   const dir = mkdtempSync(resolve(app.target, 'push-graph-'));
   try {
     writeFileSync(resolve(dir, 'app.plan'), plan);
     writeFileSync(resolve(dir, 'compat.json'), JSON.stringify(cohort.compat));
-    const r = spawnSync(tool, ['graph', resolve(dir, 'app.plan'), resolve(dir, 'compat.json'), cohort.compat.target], { encoding: 'utf8' });
+    const r = spawnSync(tool, ['graph', resolve(dir, 'app.plan'), resolve(dir, 'compat.json'), cohort.compat.target], { env, encoding: 'utf8' });
     if (r.status !== 0) refuse(r.stderr.trim());
     return JSON.parse(r.stdout);
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -199,7 +199,7 @@ export async function pusher(opts) {
     const snapshot = { id: gitHead(), commit: gitHead(), dirty: true };
     const results = [];
     for (const { stream, head, cohort, platform, build: binary } of found) {
-      const graph = planGraph(tools.graph, app, built.plan, cohort);
+      const graph = planGraph(tools.graph, app, built.plan, cohort, env);
       const inputs = cohort.compat.inputs;
       const assets = head ? await carriedAssets(origin, app, head) : bakedAssets(app, binary);
       let bundle = { plan: { bytes: built.plan, sha256: sha256(built.plan), formatVersion: inputs.formatVersion, kernelSchema: inputs.kernelSchema }, assets };
