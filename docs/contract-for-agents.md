@@ -3102,17 +3102,20 @@ component App
 `aria-pressed` true) are the runner's: they take `background-color`, `color`,
 `border-color`, `opacity`, `box-shadow` and `-exact-tint-color`, `:checked`
 under `:disabled`, and `:disabled` is your own disabled look (no default dim).
-`:active` (the host's press), `:hover` and `:focus-visible` are the host's:
-their rows never inherit (`background-color`, `border-color`, `opacity`,
-`box-shadow`, `-exact-press-scale`) and are literals, tokens included. Each
-host applies them on its own tracking, over the node's rows (rows a part doesn't
-name show the base, also a base that changes while pressed), `:hover` then
-`:focus-visible` then `:active`: `:active` is the host's own press of the
-innermost node with a `press`, easing on its press curve (under Reduce Motion
-too, as the press is feedback), its `-exact-press-scale` the press's scale, and it replaces the
-host's unsaid press look (no 65% dim on top). A disabled node takes none.
-The web (both targets) does this today; Apple, Linux and Android follow (LLP
-1121 stage 8 B). A part
+`:active` is the host's own press of the innermost node with a `press`: it takes
+`background-color`, `color`, `opacity` and `-exact-press-scale`, which become the
+node's pressed paint (LLP 1061 D7), eased on the press curve (under Reduce
+Motion too, as the press is feedback) and replacing the host's unsaid press (no
+65% dim on top); its `opacity` is the opacity it shows pressed, not a share.
+Say each once: `:active background-color` beside `-exact-press-background-color`
+is refused (`lower-state-press-paint`), as is a border or shadow there, which the
+press cannot paint yet. `:hover` and `:focus-visible` take `background-color`,
+`border-color`, `opacity` and `box-shadow`, shown at once while they hold, the
+focus's over the hover's, under the press. Each host applies them on its own
+tracking, over the node's rows (rows a part doesn't name show the base, also a
+base that changes while pressed); their rows are literals, tokens included. A
+disabled node takes none. The web (both targets) does this today; Apple, Linux
+and Android follow (LLP 1121 stage 8 B). A part
 on a native control or a list's row is refused (their states are the
 platform's); a node's own part whose state it never writes (`:disabled` with no
 `disabled`) is warned of (`lower-state-dead`).

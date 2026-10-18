@@ -7,7 +7,9 @@
 //! writes as authored ([`crate::css::css_text_relative`]): the page keeps no
 //! kernel to re-resolve them when a font size changes, and the browser does.
 
-use super::{browser_kernel, css_style_named, font_names, host_css, in_button, svg_props, tag_for};
+use super::{
+    browser_kernel, css_style_named, font_names, host_css, in_button, props_for, svg_props, tag_for,
+};
 use exact_kernel::{Kernel, SortedMap, ViewId};
 use exact_plan::Plan;
 
@@ -56,10 +58,10 @@ pub fn parts_with(
 ) -> Option<Parts> {
     let node = kernel.node(id)?;
     let tag = tag_for(&node, in_button(kernel, &node));
-    let mut props = looks::props(&node);
+    let mut props = props_for(&node);
     svg_props(kernel, &node, &mut props);
-    let style = looks::with_press(css_style_named(kernel, &node, false), &node);
-    let (text, skipped) = crate::css::css_text_relative(&style, &font_names(plan));
+    let (text, skipped) =
+        crate::css::css_text_relative(&css_style_named(kernel, &node, false), &font_names(plan));
     let css = super::element::contents(
         host_css(kernel, &node, text, tag),
         may_fold && super::element::folded(kernel, &node, false),

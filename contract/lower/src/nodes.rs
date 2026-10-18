@@ -284,6 +284,17 @@ impl Lowerer<'_> {
             self.link_colour(tag, parent_tag, expanded, children)
                 .map(|e| ("color", e)),
         );
+        // The press's absolute opacity is lowering's, from `:active`.
+        if let Some(a) = expanded
+            .iter()
+            .find(|a| a.name == crate::states::PRESS_OPACITY_TO)
+        {
+            return err(
+                "lower-unknown-attr",
+                format!("unknown attribute `{}`: the press's opacity is `opacity` in an `:active` part (LLP 1121 D8), or `-exact-press-opacity`, a share of the node's own (LLP 1061 D7)", a.name),
+                a.span,
+            );
+        }
         let states = self.fold_states(expanded, target, &implied, class_len, scope, locals)?;
         let expanded = states.as_ref().map_or(expanded, |s| s.attrs.as_slice());
         let mut bindings: Vec<BindingsRow> = Vec::new();
@@ -673,7 +684,6 @@ impl Lowerer<'_> {
                 )?;
             }
             let state = match state.as_str() {
-                "active" => 0,
                 "hover" => 1,
                 _ => 2,
             };

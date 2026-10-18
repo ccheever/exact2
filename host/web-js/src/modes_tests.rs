@@ -506,39 +506,51 @@ fn the_design_readers_structure_moves_for_what_the_plan_keeps() {
     let _ = std::fs::remove_dir_all(plain);
 }
 
-/// @ref LLP 1121 D8 (stage 8 B): a node's state looks are the sheet's rules
-/// for its set, over its class, with a varying token as its property; the
-/// node names its set and its states, and an `:active` look's press scale is
-/// its press; a node without looks has neither.
+/// @ref LLP 1121 D8 (stage 8 B): a node's `:hover` and `:focus-visible`
+/// looks are the sheet's rules for its set, with a varying token as its
+/// property; the node names its set; `:active` is the node's press paint, an
+/// absolute opacity included; a node without looks has neither.
 #[test]
 fn state_looks_are_sheet_rules_for_the_nodes_set() {
-    let view = "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      column testId=\"card\" press=go background-color=\"#ffffff\"\n        :active\n          background-color = \"surface.card\"\n          -exact-press-scale = 0.95\n        :hover\n          border-color = \"brand\"\n        text \"c\"\n      column testId=\"same\" press=go\n        :active\n          background-color = \"surface.card\"\n          -exact-press-scale = 0.95\n        :hover\n          border-color = \"brand\"\n        text \"d\"\n      column testId=\"plain\" press=go\n        text \"p\"\n      column testId=\"cleared\" press=go opacity=0.5\n        :active\n          opacity = \"unset\"\n        text \"u\"\n";
-    let out = emitted("looks", DESIGN, view);
-    assert!(out.js.contains("\"data-exact-looks\":\"1\""), "{}", out.js);
+    let part = ":active\n          background-color = \"surface.card\"\n          opacity = 0.6\n          -exact-press-scale = 0.95\n        :hover\n          border-color = \"brand\"\n        :focus-visible\n          background-color = \"surface.card\"\n";
+    let view = format!("component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      column testId=\"card\" press=go background-color=\"#ffffff\"\n        {part}        text \"c\"\n      column testId=\"same\" press=go\n        {part}        text \"d\"\n      column testId=\"plain\" press=go\n        text \"p\"\n      column testId=\"cleared\" press=go opacity=0.5\n        :hover\n          opacity = \"unset\"\n        text \"u\"\n");
+    let out = emitted("looks", DESIGN, &view);
     assert_eq!(
         out.js.matches("\"data-exact-looks\":\"1\"").count(),
         2,
         "one set for both: {}",
         out.js
     );
+    assert!(out.js.contains("--exact-press:0.95"), "{}", out.js);
     assert!(
-        out.js.contains("\"data-exact-look\":\"active hover\""),
-        "{}",
+        out.js.contains("--exact-press-opacity-to:0.6"),
+        "the press's absolute opacity: {}",
         out.js
     );
-    assert!(out.js.contains("--exact-press:0.95"), "{}", out.js);
+    assert!(
+        out.js
+            .contains("--exact-press-background-color:var(--x-surface-card"),
+        "a varying token stays its property: {}",
+        out.js
+    );
     let hover = out
         .css
         .find("[data-exact-looks=\"1\"]:hover")
         .expect("a hover rule");
-    let pressed = out
+    let focus = out
         .css
-        .find("[data-exact-looks=\"1\"][data-pressed]")
-        .expect("a press rule");
-    assert!(hover < pressed, "{}", out.css);
+        .find("[data-exact-looks=\"1\"]:focus-visible")
+        .expect("a focus rule");
+    assert!(hover < focus, "{}", out.css);
     assert!(
-        out.css.contains("var(--x-surface-card"),
-        "a varying token stays its property: {}",
+        !out.css.contains("data-pressed"),
+        "`:active` is no look: {}",
+        out.css
+    );
+    assert!(out.css.contains("var(--x-surface-card"), "{}", out.css);
+    assert!(
+        out.css.contains("opacity:unset!important"),
+        "an explicit clear, as a static row's: {}",
         out.css
     );
 }

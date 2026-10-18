@@ -42,18 +42,16 @@ pub enum Op {
     SetChildren { id: ViewId, children: Vec<ViewId> },
     /// Register `id` as a layout root. Roots have no parent.
     AttachRoot { id: ViewId },
-    /// Replace `id`'s host-known state looks (LLP 1121 D8): each a state
-    /// ([`LOOK_ACTIVE`], [`LOOK_HOVER`], [`LOOK_FOCUS_VISIBLE`]; ascending,
-    /// each once) and a patch of [`look_rows`] only, resolved as a static
-    /// row is. Empty clears them.
+    /// Replace `id`'s state looks (LLP 1121 D8): each a state
+    /// ([`LOOK_HOVER`], [`LOOK_FOCUS_VISIBLE`]; ascending, each once) and a
+    /// patch of [`look_rows`] only, resolved as a static row is. Empty
+    /// clears them. `:active` is no look: it lowers to the press paint.
     SetLooks {
         id: ViewId,
         looks: Vec<(u8, StyleProps)>,
     },
 }
 
-/// A look's state: `:active`, the host's press.
-pub const LOOK_ACTIVE: u8 = 0;
 /// A look's state: `:hover`.
 pub const LOOK_HOVER: u8 = 1;
 /// A look's state: `:focus-visible`.
@@ -70,7 +68,6 @@ pub fn look_rows() -> StyleMask {
         crate::StyleId::BorderColorLeft,
         crate::StyleId::Opacity,
         crate::StyleId::BoxShadow,
-        crate::StyleId::PressScale,
     ] {
         mask.set(id);
     }
@@ -214,14 +211,15 @@ impl Op {
             OpCode::AttachRoot => Op::AttachRoot { id },
             OpCode::SetLooks => {
                 let count = r.u8()?;
-                if count > 3 {
+                if count > 2 {
                     return Err(DecodeError::TooManyLooks(count));
                 }
                 let mut looks = Vec::with_capacity(count as usize);
                 for _ in 0..count {
                     let state = r.u8()?;
                     // Ascending, each once: one encoding of one set.
-                    if state > LOOK_FOCUS_VISIBLE || looks.last().is_some_and(|(s, _)| *s >= state)
+                    if !(LOOK_HOVER..=LOOK_FOCUS_VISIBLE).contains(&state)
+                        || looks.last().is_some_and(|(s, _)| *s >= state)
                     {
                         return Err(DecodeError::LookState(state));
                     }
@@ -263,15 +261,19 @@ mod tests {
         let hover = active.clone();
         round_trip(Op::SetLooks {
             id: 7,
-            looks: vec![(LOOK_ACTIVE, active.clone()), (LOOK_HOVER, hover)],
+            looks: vec![(LOOK_HOVER, active.clone()), (LOOK_FOCUS_VISIBLE, hover)],
         });
         round_trip(Op::SetLooks {
             id: 7,
             looks: vec![],
         });
         for looks in [
-            vec![(LOOK_HOVER, active.clone()), (LOOK_ACTIVE, active.clone())],
-            vec![(LOOK_ACTIVE, active.clone()), (LOOK_ACTIVE, active.clone())],
+            vec![
+                (LOOK_FOCUS_VISIBLE, active.clone()),
+                (LOOK_HOVER, active.clone()),
+            ],
+            vec![(LOOK_HOVER, active.clone()), (LOOK_HOVER, active.clone())],
+            vec![(0, active.clone())],
             vec![(3, active.clone())],
         ] {
             let mut w = Writer::new();

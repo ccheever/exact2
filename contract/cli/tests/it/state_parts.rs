@@ -121,7 +121,21 @@ fn a_state_part_is_refused_where_it_cannot_be() {
         "lower-state-row"
     );
     assert_eq!(
-        refused(&node(":active\n          color = \"#000000\"")),
+        refused(&node(":active\n          border-color = \"#000000\"")),
+        "lower-state-row"
+    );
+    assert_eq!(
+        refused(&node(
+            ":active\n          box-shadow = \"0 1px 2px #000000\""
+        )),
+        "lower-state-row"
+    );
+    assert_eq!(
+        refused(&node(":hover\n          -exact-press-scale = 0.9")),
+        "lower-state-row"
+    );
+    assert_eq!(
+        refused(&node(":hover\n          color = \"#000000\"")),
         "lower-state-row"
     );
     assert_eq!(
@@ -164,54 +178,84 @@ fn fmt_keeps_a_state_part() {
     assert_eq!(contract_syntax::fmt::format(src).unwrap(), src);
 }
 
-/// A host-known state's look is recorded on its node, one a state, its
-/// class's and its own rows composed by longhand, each a literal row.
+/// A `:hover` look is recorded on its node, its class's and its own rows
+/// composed by longhand, each a literal row; `:active` lowers to the press
+/// paint on the node, its class's then its own (the node's wins), with no
+/// look (LLP 1121 D8 as amended 2026-10-18).
 #[test]
 fn a_host_states_look_is_recorded_one_a_state() {
-    let src = "style Card\n  background-color = \"#ffffff\"\n  :active\n    background-color = \"#eeeeee\"\n    opacity = 0.9\n  :hover\n    border-color = \"#cccccc\"\n\ncomponent App\n  state on = false\n  action go\n    on = !on\n  view\n    column class=Card press=go testId=\"card\"\n      :active\n        background-color = \"#dddddd\"\n      text \"c\"\n";
+    let src = "style Card\n  background-color = \"#ffffff\"\n  :active\n    background-color = \"#eeeeee\"\n    opacity = 0.9\n  :hover\n    border-color = \"#cccccc\"\n\ncomponent App\n  state on = false\n  action go\n    on = !on\n  view\n    column class=Card press=go testId=\"card\"\n      :active\n        background-color = \"#dddddd\"\n        color = \"#ff0000\"\n      text \"c\"\n";
     let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e:?}"));
     let node = plan.looks.first().expect("a node with looks").node;
     let looks: Vec<_> = plan.looks.iter().filter(|l| l.node == node).collect();
     assert_eq!(looks.len(), plan.looks.len(), "one node's looks, by node");
     assert_eq!(
         looks.iter().map(|l| l.state).collect::<Vec<_>>(),
-        [0, 1],
-        "one look a state: :active, :hover"
+        [1],
+        "a :hover look; :active is no look"
     );
-    let rows = |l: &exact_plan::LooksRow| -> Vec<(u16, String)> {
-        (l.bindings.start..l.bindings.start + l.bindings.len)
-            .map(|i| {
-                let b = &plan.bindings[i as usize];
-                let code = plan.code(b.expr);
-                (b.id, format!("{:?}", code))
-            })
-            .collect()
-    };
-    let active = rows(looks[0]);
-    assert_eq!(active.len(), 2, "{active:?}");
-    assert!(
-        active
-            .iter()
-            .any(|(id, _)| *id == StyleId::BackgroundColor as u16),
-        "{active:?}"
+    assert_eq!(
+        looks[0].bindings.len, 4,
+        "a border colour is its four sides"
     );
+    let own: Vec<u16> = plan.nodes[node.0 as usize]
+        .bindings
+        .iter()
+        .map(|b| plan.binding(b).id)
+        .collect();
+    for row in [
+        StyleId::PressBackgroundColor,
+        StyleId::PressColor,
+        StyleId::PressOpacityTo,
+    ] {
+        assert_eq!(
+            own.iter().filter(|id| **id == row as u16).count(),
+            1,
+            "{row:?} once: {own:?}"
+        );
+    }
     let text = format!("{:?}", plan.strings);
     assert!(
         text.contains("#dddddd") && !text.contains("#eeeeee"),
         "the node's own wins"
     );
-    assert!(
-        active.iter().any(|(id, _)| *id == StyleId::Opacity as u16),
-        "{active:?}"
+}
+
+/// `:active` says each paint of the press once with the node's own press
+/// rows (one spelling, the class's counted): a press scale too.
+#[test]
+fn active_and_the_press_paint_are_one_spelling() {
+    let node = |rows: &str, part: &str| {
+        format!("style Card\n  {rows}\n\ncomponent App\n  state on = false\n  action go\n    on = !on\n  view\n    column class=Card press=go\n      :active\n        {part}\n      text \"b\"\n")
+    };
+    for (rows, part) in [
+        ("-exact-press-color = \"#000000\"", "color = \"#ff0000\""),
+        ("-exact-press-scale = 0.9", "-exact-press-scale = 0.95"),
+    ] {
+        assert_eq!(
+            refused(&node(rows, part)),
+            "lower-state-press-paint",
+            "{rows}"
+        );
+    }
+    assert_eq!(
+        refused(&node("-exact-press-scale = 0.9", "color = \"#ff0000\"")),
+        "compiled"
     );
-    assert_eq!(rows(looks[1]).len(), 4, "a border colour is its four sides");
+    assert_eq!(
+        refused(
+            "component App\n  view\n    column -exact-press-opacity-to=0.5\n      text \"b\"\n"
+        ),
+        "lower-unknown-attr",
+        "lowering's row, never an author's"
+    );
 }
 
 /// Looks are by node, then state, whatever order the source writes the
 /// states in; a plan out of that order is refused (hosts binary-search).
 #[test]
 fn looks_are_by_node_then_state() {
-    let src = "component App\n  state on = false\n  action go\n    on = !on\n  view\n    column\n      column press=go testId=\"a\"\n        :hover\n          opacity = 0.8\n        :active\n          opacity = 0.5\n        text \"a\"\n      column press=go testId=\"b\"\n        :focus-visible\n          opacity = 0.7\n        :active\n          opacity = 0.6\n        text \"b\"\n";
+    let src = "component App\n  state on = false\n  action go\n    on = !on\n  view\n    column\n      column press=go testId=\"a\"\n        :focus-visible\n          opacity = 0.8\n        :hover\n          opacity = 0.5\n        text \"a\"\n      column press=go testId=\"b\"\n        :focus-visible\n          opacity = 0.7\n        :hover\n          opacity = 0.6\n        text \"b\"\n";
     let mut plan = contract::compile(src).unwrap_or_else(|e| panic!("{e:?}"));
     let keys: Vec<_> = plan.looks.iter().map(|l| (l.node.0, l.state)).collect();
     assert_eq!(keys.len(), 4, "{keys:?}");
@@ -221,7 +265,7 @@ fn looks_are_by_node_then_state() {
     );
     assert_eq!(
         keys.iter().map(|k| k.1).collect::<Vec<_>>(),
-        [0, 1, 0, 2],
+        [1, 2, 1, 2],
         "{keys:?}"
     );
     plan.validate().unwrap();
@@ -230,6 +274,9 @@ fn looks_are_by_node_then_state() {
     plan.looks.swap(0, 1);
     plan.looks[1] = plan.looks[0].clone();
     assert!(plan.validate().is_err(), "a state twice is refused");
+    let mut plan = contract::compile(src).unwrap();
+    plan.looks[0].state = 0;
+    assert!(plan.validate().is_err(), "`:active` is no look");
 }
 
 /// A node's own `:disabled` where it writes no `disabled` never holds: a
@@ -430,7 +477,13 @@ fn a_param_read_only_by_a_state_part_is_reached() {
         names.contains(&pressed.as_str()) && names.contains(&faded.as_str()),
         "{names:?}"
     );
-    assert!(plan.looks.iter().any(|l| l.state == 0), "the :active look");
+    assert!(
+        plan.bindings
+            .iter()
+            .any(|b| b.id == StyleId::PressBackgroundColor as u16
+                && b.kind == exact_plan::BindingKind::Style),
+        "the :active row, the press's background"
+    );
     // The :disabled row folded over the param: 0.4 once disabled.
     let plan = contract::bake(plan, NoData).unwrap();
     let mut r = Runner::boot(

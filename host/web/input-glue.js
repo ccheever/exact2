@@ -170,7 +170,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (radioArrow(root, event) || roveArrow(root, event) || event.repeat) return;
     // @ref LLP 1115.000 D4.14 — Space holds a `<button>` down until its keyup,
     // when the browser clicks it. A press it declares shows meanwhile, as under
-    // a pointer: a native button's highlight, a `-exact-press-scale`, a pressed paint, an `:active` look. (The
+    // a pointer: a native button's highlight, a `-exact-press-scale`, a pressed paint. (The
     // unsaid dim needs nothing here: it is the browser's own `:active`.)
     if (event.key === " " && el?.matches?.("button:enabled") && root.contains(el) && (el.hasAttribute("data-button-style") || declaresPress(el))) return keyed(el);
     if (typeof el?.matches !== "function" || !root.contains(el) || !pressesByKey(el)) return;
@@ -225,8 +225,10 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // beneath, which this piece reads again whenever the node's style or class
   // changes, the scheme flips, or the press turns. Its `color` reaches the
   // subtree as CSS's does.
-  const PAINT = ["--exact-press-opacity", "--exact-press-background-color", "--exact-press-color"];
-  const declaresPress = el => !!el.style.getPropertyValue("--exact-press") || PAINT.some(p => el.style.getPropertyValue(p)) || el.matches("[data-exact-look~=active]");
+  // `:active`'s opacity is the press's absolute target (`--exact-press-opacity-to`,
+  // LLP 1121 D8), eased from what shows at the press, a hover look's included.
+  const PAINT = ["--exact-press-opacity", "--exact-press-opacity-to", "--exact-press-background-color", "--exact-press-color"];
+  const declaresPress = el => !!el.style.getPropertyValue("--exact-press") || PAINT.some(p => el.style.getPropertyValue(p));
   const paints = new Map();
   const EASE = { duration: 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both" };
   // Start the ease toward `state.to` from where it shows, over `duration`,
@@ -277,11 +279,6 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (!down && (now || !el.isConnected)) endPaint(el, state);
   };
   const showPress = (el, down, now = false) => {
-    // An `:active` look's rows ease on the press's curve, both ways (LLP 1121 D8), under
-    // Reduce Motion too, as the pressed paint's (the press is feedback, not motion); never on
-    // the agent's clock. Set before the press turns, so its transition times the change.
-    const looked = el.matches("[data-exact-look~=active]"); // its rows ease even at a scale of 1
-    if (looked && !agentMode && el.hasAttribute("data-pressed") !== down) el.setAttribute("data-exact-easing", "");
     el.toggleAttribute("data-pressed", down);
     showPaint(el, down, now);
     // A design token's scale is its property's `var()`: the computed value
@@ -289,18 +286,17 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const press = el.style.getPropertyValue("--exact-press");
     const to = down ? Number((press.includes("var(") ? getComputedStyle(el).getPropertyValue("--exact-press") : press) || 1) : 1;
     const old = feedback.get(el);
-    if (old ? old.to === to && old.down === down : to === 1 && !(looked && down)) return;
+    if (old?.to === to || !old && to === 1) return;
     const progress = old?.animation.effect.getComputedTiming().progress ?? 0;
     const from = old ? old.from + (old.to - old.from) * progress : 1;
     old?.animation.cancel();
     const animation = el.animate([{ "--exact-press-factor": from }, { "--exact-press-factor": to }], {
       duration: agentMode ? 0 : 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both",
     });
-    const state = { animation, from, to, down };
+    const state = { animation, from, to };
     feedback.set(el, state);
     animation.onfinish = () => {
-      if (feedback.get(el) === state) el.removeAttribute("data-exact-easing");
-      if (to === 1 && !down && feedback.get(el) === state) { animation.cancel(); feedback.delete(el); }
+      if (to === 1 && feedback.get(el) === state) { animation.cancel(); feedback.delete(el); }
     };
     if (agentMode || now) animation.finish();
   };

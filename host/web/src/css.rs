@@ -595,6 +595,8 @@ fn spell_property(out: &mut String, id: StyleId) {
         // @ref LLP 1061 D7 — the pressed paint: custom properties input-glue.js
         // reads from the pressed element's own style, as `--exact-press`.
         StyleId::PressOpacity => return out.push_str("--exact-press-opacity"),
+        // `:active`'s opacity, lowered (LLP 1121 D8).
+        StyleId::PressOpacityTo => return out.push_str("--exact-press-opacity-to"),
         StyleId::PressBackgroundColor => return out.push_str("--exact-press-background-color"),
         StyleId::PressColor => return out.push_str("--exact-press-color"),
         StyleId::PositionType => return out.push_str("position"),
@@ -708,6 +710,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             | StyleId::FlexShrink
             | StyleId::Opacity
             | StyleId::PressOpacity
+            | StyleId::PressOpacityTo
             | StyleId::Order
             | StyleId::ColumnCount
             | StyleId::Widows

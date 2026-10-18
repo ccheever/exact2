@@ -1420,8 +1420,7 @@ impl<D: exact_runner::DataSource> super::Host<D> {
     pub(crate) fn view_css(&self, node: &exact_kernel::NodeRef<'_>) -> String {
         let kernel = self.runner.kernel();
         let m = self.mirror.get(&node.id);
-        let (css, _) =
-            crate::css::css_text(&super::looks::css_style(kernel, node), &self.font_names);
+        let (css, _) = crate::css::css_text(&css_style(kernel, node), &self.font_names);
         let css = host_css(
             kernel,
             node,

@@ -343,7 +343,7 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                 for (state, patch) in looks {
                     // Each state once, ascending; only the look rows, set
                     // or cleared.
-                    if *state > crate::LOOK_FOCUS_VISIBLE
+                    if !(crate::LOOK_HOVER..=crate::LOOK_FOCUS_VISIBLE).contains(state)
                         || last.is_some_and(|l| l >= *state)
                         || !patch.mask.union(patch.written).minus(rows).is_empty()
                         || patch.validate_domain().is_err()

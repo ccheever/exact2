@@ -1,8 +1,8 @@
-//! @ref LLP 1121 D8 (stage 8 B): a node's host-known state looks reach the
-//! kernel resolved, as a static row is, and a token's live edit resolves
-//! them again.
+//! @ref LLP 1121 D8 (stage 8 B): a node's `:hover` and `:focus-visible`
+//! looks reach the kernel resolved, as a static row is, and a token's live
+//! edit resolves them again; `:active` is the node's press paint.
 
-use exact_kernel::{Kernel, LOOK_ACTIVE, LOOK_HOVER};
+use exact_kernel::{Kernel, LOOK_HOVER};
 use exact_plan::{Plan, Value};
 use exact_runner::{DataError, DataSource, Runner};
 
@@ -63,34 +63,46 @@ fn a_nodes_looks_reach_the_kernel_resolved_and_follow_a_live_token() {
     let states: Vec<u8> = node.looks().iter().map(|(s, _)| *s).collect();
     assert_eq!(
         states,
-        [LOOK_ACTIVE, LOOK_HOVER],
-        "one look a state, ascending"
+        [LOOK_HOVER],
+        "a :hover look; :active is the press paint"
     );
-    let before = looks(&r);
-    assert!(before.contains("0.9"), "{before}");
-    // The base is untouched: the look is the host's to apply.
+    // `:active` is the node's own press rows (LLP 1121 D8 as amended).
+    let pressed = |r: &Runner<NoData>| {
+        let k = r.kernel();
+        let node = k.node_by_key(k.find_by_test_id("card")[0]).unwrap();
+        (
+            format!("{:?}", node.style.press_background_color),
+            node.style.press_opacity_to,
+        )
+    };
+    let (fill, to) = pressed(&r);
+    assert_eq!(to, 0.9, "the absolute target");
     assert_eq!(
         format!("{:?}", node.style.background_color),
         "Some(Fixed(Color(4294967295)))",
         "the base keeps its own white"
     );
+    let before = looks(&r);
     let mut r = r;
-    let (_, set) = r.set_token("accent.soft", "#ff0000", &[]).unwrap();
-    assert!(set >= 1, "the look's rows were set again");
-    let after = looks(&r);
-    assert_ne!(before, after, "the look follows the token");
-    // The hover's own token moves it too; a token no look reads sets no look.
+    r.set_token("accent.soft", "#ff0000", &[]).unwrap();
+    assert_ne!(
+        pressed(&r).0,
+        fill,
+        "the press's row follows its token, as any row"
+    );
+    assert_eq!(looks(&r), before, "no look read it");
+    // The hover's own token moves its look; a token only the base reads sets no look.
     r.set_token("ink", "#222222", &[]).unwrap();
     let inked = looks(&r);
-    assert_ne!(after, inked, "the hover follows its token");
+    assert_ne!(before, inked, "the hover follows its token");
     let (_, set) = r.set_token("page", "#000000", &[]).unwrap();
     assert_eq!(set, 1, "the base's row alone");
     assert_eq!(looks(&r), inked);
 }
 
-/// theme2's 05:28 ruling (3): `:active` and D7's pressed paint saying the
-/// same paint on one node (or its class) is refused, naming both; different
-/// paint, or another state, is not.
+/// One spelling a node (LLP 1121 D8): `:active` and D7's pressed paint
+/// saying the same paint on one node (or its class) is refused, naming both;
+/// different paint, or another state, is not.
 #[test]
 fn an_active_look_and_the_pressed_paint_say_one_paint_once() {
     let refused = |rows: &str, part: &str| {

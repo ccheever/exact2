@@ -754,7 +754,7 @@ fn continuation_resynchronizes_text_created_in_an_earlier_phase() {
 /// once; they go with the node.
 #[test]
 fn looks_take_the_look_rows_only_and_go_with_the_node() {
-    use crate::{LOOK_ACTIVE, LOOK_HOVER};
+    use crate::{LOOK_FOCUS_VISIBLE, LOOK_HOVER};
     let mut k = kernel(&create([1], NodeType::View));
     let mut fill = StyleProps::default();
     fill.set_dynamic(
@@ -769,11 +769,14 @@ fn looks_take_the_look_rows_only_and_go_with_the_node() {
     for (looks, ok) in [
         (vec![(LOOK_HOVER, width)], false),
         (
-            vec![(LOOK_HOVER, fill.clone()), (LOOK_ACTIVE, fill.clone())],
+            vec![
+                (LOOK_FOCUS_VISIBLE, fill.clone()),
+                (LOOK_HOVER, fill.clone()),
+            ],
             false,
         ),
         (
-            vec![(LOOK_ACTIVE, fill.clone()), (LOOK_HOVER, opacity)],
+            vec![(LOOK_HOVER, fill.clone()), (LOOK_FOCUS_VISIBLE, opacity)],
             true,
         ),
     ] {

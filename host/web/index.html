@@ -62,7 +62,7 @@
      selector's order: a disabled button; a native control, which keeps its own
      feedback, and a game's action button, which is held; an authored press,
      which replaces it (`-exact-press-scale`, the pressed paint of LLP 1061
-     D7, which the input glue shows, an `:active` state look, LLP 1121 D8, or `pointerdown` or `pointerup`
+     D7, which the input glue shows, or `pointerdown` or `pointerup`
      handlers, which draw one; a `hover` handler observes and replaces
      nothing); a pressable covering the window, a surface the input glue
      measures at the press; anything in a row of a `list` whose rows are
@@ -74,7 +74,7 @@
   #exact-root :is(button, a[data-view][href], [data-exact-on~="press"]):is(:active, [data-pressed]):not(
     :disabled,
     [data-button-style], [data-native], input, select, textarea, [data-action],
-    [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"], [data-exact-look~="active"],
+    [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-opacity-to:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"],
     [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"],
     [data-exact-surface],
     [data-listrows] *, [data-liststyle] > section > * > *,
@@ -303,6 +303,8 @@
      the glue reads with the paint off. Important, so the page's own declarations do not hide it. */
   @property --exact-press-paint { syntax: "<number>"; inherits: false; initial-value: 0; }
   #exact-root [data-exact-painting][style*="--exact-press-opacity:"] { opacity: calc(var(--exact-press-base-opacity) * (1 - var(--exact-press-paint) * (1 - clamp(0, var(--exact-press-opacity), 1)))) !important; }
+  /* LLP 1121 D8: `:active`'s opacity, an absolute target the press eases to from the opacity beneath. */
+  #exact-root [data-exact-painting][style*="--exact-press-opacity-to:"] { opacity: calc(var(--exact-press-base-opacity) + (clamp(0, var(--exact-press-opacity-to), 1) - var(--exact-press-base-opacity)) * var(--exact-press-paint)) !important; }
   #exact-root [data-exact-painting][style*="--exact-press-background-color:"] { background-color: color-mix(in srgb, var(--exact-press-background-color) calc(var(--exact-press-paint) * 100%), var(--exact-press-base-background)) !important; }
   #exact-root [data-exact-painting][style*="--exact-press-color:"] { color: color-mix(in srgb, var(--exact-press-color) calc(var(--exact-press-paint) * 100%), var(--exact-press-base-color)) !important; }
   [data-scroll="true"] { overflow: auto; }

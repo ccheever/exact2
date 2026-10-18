@@ -3423,46 +3423,46 @@ verifying build (not reproduced in three replays).
 
 ### Stage 8, commit B1: host looks on the runner and the web (draft for theme2)
 
-- **The runner resolves a look** (`runner/src/instance/looks.rs`; plan point 1, ruling (a)). At a node's mount,
-  and when its tuple moves (a mode, a pin), each of its `looks` rows' bindings goes through
-  `set_plan_style` in the node's tuple into a patch, and the node gets `Op::SetLooks {id, looks}`. A look
-  that read a token is kept in `ThemeIndex::looks`; `set_tokens` (a live batch, a role override's value)
-  sends that node's looks again, whole. Hosts never resolve a token.
-- **`Op::SetLooks`** (`kernel/src/wire/ops.rs`, op 9): a count (at most 3), then per look its state
-  (ascending, each once) and a patch of the look rows only (`look_rows()`); decode and `validate` refuse
-  anything else (`LookState`, `TooManyLooks`, `LookRow`). The arena keeps a node's looks (`NodeRef::looks`)
-  and drops them with the node. SCHEMA_DIGEST moves to `0xfc1d_b07f_ddf2_8296` (stage 8's break window);
-  the plan and FORMAT_DIGEST are unchanged.
-- **The web (wasm)** (`host/web/src/host/looks.rs`). A node with looks gets `data-exact-look` (its
-  states) and a `looks` batch op: one rule per state in the page's `#exact-looks` sheet, `:hover` (under
-  `@media (hover:hover)`), `:focus-visible`, then `[data-pressed]`, under `#exact-root` (over the shell's
-  pressed paint), none on a disabled node (`:disabled`, or a box's `disabled` of any value but "false"),
-  rows `!important` over the inline base; the sheet goes with the last plan at a boot. An explicit clear
-  (`unset`) crosses written with no value, as a static row's. So rows a look doesn't name show the base, a base that
-  changes while pressed included, and a disabled node takes none. An `:active` look's
-  `-exact-press-scale` is written as the node's own press scale (it only shows while pressed). The
-  unsaid 65% rule stands aside for `[data-exact-look~="active"]` (no double dim), and the press glue
-  tracks such a node at scale 1 too.
-- **The ease** (ruling (b)): while the press factor animates, the glue sets `data-exact-easing`,
-  whose rule transitions the `:active` look's properties on the press curve (120 ms,
-  `cubic-bezier(.16,1,.3,1)`), both ways, under Reduce Motion too, as D7's pressed paint (theme2's
-  05:28 ruling (2): the press is feedback; `:hover` and `:focus-visible` snap). Not on the agent's clock. Deviation: the CSS transition interpolates in the browser's own way (sRGB for
-  colours, shadow by shadow), not by the factor's numbers. While it runs (120 ms), the transition
-  list replaces an authored `transition` on that node.
-- **`lower-state-press-paint`** (theme2's 05:28 ruling (3)): an `:active` `background-color` or `opacity`
-  on a node, or its class, that also writes `-exact-press-background-color` or `-exact-press-opacity`
-  is refused, naming both (`contract/lower/src/states.rs`).
-- **The JS target** (`host/web-js`): the static tree applies each node's `looks` rows (`SetLooks`), and
-  the template carries their declarations. A varying token's sentinel becomes its `var()`, as in a
-  class. Each distinct set of looks is one rule group, `[data-exact-looks="N"]`, after the classes.
-  The node takes `data-exact-looks` and `data-exact-look`, and the press piece loads for it. A live
-  batch or mode reaches a look through its custom property.
+### Stage 8, commit B1: `:active` as the press paint; looks on the runner and the web (draft for theme2)
+
+Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on the replan).
+
+- **`:active` lowers to the press paint** (`contract/lower/src/states.rs`). Its rows are written on the node, the class's then the node's (the node's wins), each keeping its `:active` span for inspect and the map:
+  - `background-color` → `-exact-press-background-color`;
+  - `color` → `-exact-press-color`;
+  - `-exact-press-scale` → the node's own;
+  - `opacity` → `-exact-press-opacity-to`, a new row, bit 215, lowering's alone. An author's is `lower-unknown-attr`, naming `:active opacity`, and `contract vocab` doesn't list it.
+
+  Tokens stay names, as in any row.
+
+  Refused:
+  - `border-color` and `box-shadow` in `:active` (`lower-state-row`: the press can't paint them yet);
+  - `-exact-press-scale` in `:hover` or `:focus-visible` (`lower-state-row`, pointing at `:active`);
+  - a node, or its class, saying a press paint both ways (`lower-state-press-paint`): `-exact-press-background-color`, `-exact-press-color`, `-exact-press-opacity` or `-exact-press-scale` beside the same `:active` row.
+- **The absolute press opacity.** The press eases from the opacity shown at the press, a hover or focus look's included, to the target. For that node it replaces D7's clamped share. A hand-written `-exact-press-opacity` keeps the share.
+  - Web: `--exact-press-opacity-to`. The glue's `PAINT` list takes it, and index.html computes `base + (to − base) × paint`.
+  - Apple, Linux and Android: B2 and B3.
+- **Looks are `:hover` and `:focus-visible` only.**
+  - The looks table's state 0 is retired: the reader refuses it, and codes 1 and 2 are kept. `format.json`'s comment says so, so FORMAT_DIGEST moves to `0xa73a_9b21_a5db_bd34`.
+  - The runner resolves a node's looks rows in its tuple (`set_plan_style`) and sends `Op::SetLooks` (op 9: at most 2 looks, states 1 and 2, ascending; look rows only, set or cleared). It sends them at mount and when its tuple moves (a mode, a pin). `ThemeIndex::looks` keeps those that read a token, and `set_tokens` (a live batch, a role's value) sends them again.
+  - SCHEMA_DIGEST moves to `0x249a_8376_117a_eb08` (op 9 and bit 215), in stage 8's window. Every host takes a new binary.
+- **The web, wasm** (`host/web/src/host/looks.rs`). A node with looks gets a `looks` batch op: one rule per state in the page's `#exact-looks` sheet, written as follows.
+  - `:hover` goes under `@media (hover:hover)`, then `:focus-visible`; none applies on a disabled node (`:disabled`, or a box's `disabled` of any value but "false").
+  - The rows are `!important` over the inline base, and below the shell's pressed-paint rules, which are `#exact-root`-scoped. So the press paint shows over a hover.
+  - They have no transition: a look snaps, under Reduce Motion too.
+  - The sheet goes with the last plan at a boot. An explicit clear (`unset`) crosses written with no value, as a static row's.
+- **The JS target** (`host/web-js`):
+  - The static tree applies each node's looks rows (`SetLooks`), and the template carries their declarations. A varying token's sentinel becomes its `var()`, as in a class, and look declarations join the sentinel scan.
+  - Each distinct set of looks is one rule group, `[data-exact-looks="N"]`, after the classes; the node takes `data-exact-looks`.
+  - `:active` reaches the page as D7's custom properties through the template.
 - **Tests:**
-  - `contract/cli/tests/it/state_looks.rs`: the runner resolves the looks and a live token re-sends them.
-  - `host/web/tests/it/looks.rs`: the attribute, the rules in order, the press scale, a live batch
-    re-sending the rules, and a node without looks writing neither.
-  - `host/web/tests/looks.test.mjs` (Chrome): hover, a press showing only the overlay with no 65%, a
-    base change while pressed, the ease set and cleared, Reduce Motion still easing, a disabled node taking none.
-  - `modes_tests.rs`: the JS target's rule group, shared by two nodes, with a varying token as its `var()`.
-  - The kernel's op round trip and its refusals.
-  - LLP 1061's press tests (`press.test.mjs`, `neutral-look.test.mjs`) unchanged.
+  - `state_parts.rs` and `state_looks.rs`: each lowering, the refusals, one spelling, the internal row, retired state 0, looks re-sent by a live token (and not by one only the base reads), `unset`.
+  - `host/web/tests/it/looks.rs`: the press rows, the rules in order, a live batch re-sending them.
+  - `host/web/tests/looks.test.mjs` (Chrome):
+    - a hover at once;
+    - the press easing from the hovered 0.8 to its absolute 0.6, its paint over the hover;
+    - a base change while pressed;
+    - Reduce Motion (press colours ease, hover snaps);
+    - a disabled box taking none.
+  - The kernel's op round trip and its refusals; `modes_tests.rs`, the JS target's rule group.
+  - LLP 1061's press tests unchanged.

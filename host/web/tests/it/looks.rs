@@ -1,7 +1,7 @@
-//! LLP 1121 D8 (stage 8 B): the wasm host writes a node's state looks as
-//! page rules (`looks`), names them on the node (`data-exact-look`), takes an
-//! `:active` look's press scale as the node's, and writes them again when a
-//! token they read moves live. A node with no looks writes neither.
+//! LLP 1121 D8 (stage 8 B): the wasm host writes a node's `:hover` and
+//! `:focus-visible` looks as page rules (`looks`), again when a token they
+//! read moves live; `:active` is the node's press paint (its scale, its
+//! background, its absolute opacity). A node with no looks writes none.
 
 use exact_runner::{design, DataError, DataSource, Value};
 use exact_web::Host;
@@ -13,7 +13,7 @@ impl DataSource for NoData {
     }
 }
 
-const VIEW: &str = "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      column testId=\"card\" press=go background-color=\"#ffffff\"\n        :active\n          background-color = \"accent.soft\"\n          -exact-press-scale = 0.95\n        :hover\n          border-color = \"#00ff00\"\n        text \"c\"\n      column testId=\"plain\" press=go\n        text \"p\"\n";
+const VIEW: &str = "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      column testId=\"card\" press=go background-color=\"#ffffff\"\n        :active\n          background-color = \"#0000ff\"\n          opacity = 0.6\n          -exact-press-scale = 0.95\n        :hover\n          border-color = \"#00ff00\"\n        :focus-visible\n          background-color = \"accent.soft\"\n        text \"c\"\n      column testId=\"plain\" press=go\n        text \"p\"\n";
 
 fn plan(dir: &std::path::Path, soft: &str) -> exact_plan::Plan {
     std::fs::write(
@@ -46,18 +46,19 @@ fn a_nodes_looks_are_page_rules_that_follow_a_live_token() {
     let (mut host, boot) = Host::boot(&a.encode(), NoData, Default::default(), "/").unwrap();
     let card = created(&boot, "card");
     assert!(
-        card.contains("\"data-exact-look\":\"active hover\""),
+        card.contains("--exact-press:0.95"),
+        "the press's scale: {card}"
+    );
+    assert!(
+        card.contains("--exact-press-opacity-to:0.6"),
+        "its absolute opacity: {card}"
+    );
+    assert!(
+        card.contains("--exact-press-background-color:rgba(0,0,255,1)"),
         "{card}"
     );
-    assert!(
-        card.contains("--exact-press:0.95"),
-        "the look's scale is the press's: {card}"
-    );
     let plain = created(&boot, "plain");
-    assert!(
-        !plain.contains("data-exact-look") && !plain.contains("--exact-press"),
-        "{plain}"
-    );
+    assert!(!plain.contains("--exact-press"), "{plain}");
     let looks: Vec<&str> = boot
         .match_indices("{\"op\":\"looks\"")
         .map(|(at, _)| &boot[at..])
@@ -65,8 +66,12 @@ fn a_nodes_looks_are_page_rules_that_follow_a_live_token() {
     assert_eq!(looks.len(), 1, "only the card has looks: {boot}");
     let rules = looks[0];
     let hover = rules.find(":hover").expect("a hover rule");
-    let pressed = rules.find("[data-pressed]").expect("a press rule");
-    assert!(hover < pressed, "the press look wins: {rules}");
+    let focus = rules.find(":focus-visible").expect("a focus rule");
+    assert!(hover < focus, "the focus look wins: {rules}");
+    assert!(
+        !rules.contains("data-pressed"),
+        "`:active` is no look: {rules}"
+    );
     assert!(
         rules.contains("background-color:rgba(238,238,238,1)!important"),
         "{rules}"

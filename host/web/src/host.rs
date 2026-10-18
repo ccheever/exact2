@@ -35,8 +35,9 @@ pub mod document;
 mod element;
 #[path = "template.rs"]
 pub mod template;
-use element::{css_style_named, host_css, in_button, props_for, svg_props, tag_for, Mirror};
-use mode::looks::{self, css_style};
+use element::{
+    css_style, css_style_named, host_css, in_button, props_for, svg_props, tag_for, Mirror,
+};
 #[path = "height_drag.rs"]
 mod height_drag;
 pub use height_drag::HeightDragBinding;
@@ -1365,7 +1366,7 @@ impl<D: DataSource> Host<D> {
             _ => {
                 let kernel = self.runner.kernel();
                 let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
-                let mut props = looks::props(&node);
+                let mut props = props_for(&node);
                 svg_props(self.runner.kernel(), &node, &mut props);
                 let css = host_css(kernel, &node, css, tag);
                 let css = element::folded_css(kernel, &node, css, !kinds.is_empty());
@@ -1426,7 +1427,7 @@ impl<D: DataSource> Host<D> {
             .str(PropId::BackgroundMaterial)
             .zip(crate::link::linked().materials)
             .and_then(|(name, material)| (material.1)(name));
-        let mut props = looks::props(&node);
+        let mut props = props_for(&node);
         element::router_press(&mut props, self.runner.press_writes_router(id));
         svg_props(self.runner.kernel(), &node, &mut props);
         let css = self.view_css(&node);

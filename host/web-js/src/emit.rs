@@ -958,9 +958,9 @@ impl Em<'_> {
         if presence.contains("--exact-press:")
             || presence.contains("--exact-press-haptic:")
             || presence.contains("--exact-press-opacity:")
+            || presence.contains("--exact-press-opacity-to:")
             || presence.contains("--exact-press-background-color:")
             || presence.contains("--exact-press-color:")
-            || !parts.looks.is_empty()
             || attrs.iter().any(|a| {
                 a.0 == "data-button-style"
                     || (a.0 == "role" && ["radiogroup", "tablist", "menu"].contains(&a.1.as_str()))
