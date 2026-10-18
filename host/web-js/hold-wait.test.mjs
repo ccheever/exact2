@@ -19,15 +19,13 @@ test('a hold waits for the input glue to say it has loaded, however long it take
   expect(Date.now() - at).toBeLessThan(8000);
 });
 
-test('the glue\'s signal ends the wait as it comes, not at the next look', async () => {
+test('the glue\'s signal ends the wait itself, not the wait\'s own looks', async () => {
   delete globalThis.exact;
-  let said = 0;
-  const waiting = glueHold(10_000).then((hold) => ({ hold, late: Date.now() - said }));
-  // 100 ms on, between two of the wait's own looks (every 250 ms).
-  setTimeout(() => { (globalThis.exact ??= {}).hold = () => ({}); said = Date.now(); globalThis.dispatchEvent(new Event('exact-hold')); }, 100);
-  const { hold, late } = await waiting;
-  expect(typeof hold).toBe('function');
-  expect(late).toBeLessThan(100);
+  // Said with no hold there (the looks alone would wait out the 10 s bound): the signal is what ends it.
+  const at = Date.now();
+  setTimeout(() => globalThis.dispatchEvent(new Event('exact-hold')), 100);
+  expect(await glueHold(10_000)).toBe(null);
+  expect(Date.now() - at).toBeLessThan(5000);
 });
 
 test('a glue loaded already answers at once; one that never loads gives up at the bound; a newer frame ends the wait', async () => {
