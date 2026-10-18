@@ -181,7 +181,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   writeFileSync(refusedFile, 'invalid simulation save');
   session = await open({fresh:true, world:refusedFile});
   let refusal;
-  try { await session.tap('play'); } catch (error) { refusal = error.message; }
+  try { refusal = (await session.tap('play')).landError; } catch (error) { refusal = error.message; }
   check('the operation creating the canvas reports its restore refusal', refusal?.includes('restore refused'), refusal);
   const fresh = (await session.state()).world[0];
   check('refusal belongs to canvas state and leaves a fresh world', fresh.tick === 0 && fresh.restoreError?.includes('restore refused'), fresh);
