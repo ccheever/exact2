@@ -47,7 +47,7 @@ export type CodeState = {
   parsed: Map<string, RenderablePatch>;
   toggled: ReadonlySet<string>; foldOverride: DiffFoldOverride; visibleCommits: number;
   ignoreWhitespace: boolean; wrap: boolean; orphansOpen: boolean; treeClosed: Set<string>; treeSelected: string;
-  reveal: { path: string; nonce: number } | null;
+  reveal: { path: string; nonce: number; pending: boolean } | null;
   selection: { path: string; range: SelectedLineRange } | null; drag: LineDrag | null; draft: Draft | null;
   contents: Record<string, FileContents>; expansions: Record<string, Expansion>; contentsDue: Map<string, { path: string; gap: number }>;
   viewed: FilesViewedStore; threads: ThreadState; shown: string;
@@ -156,16 +156,28 @@ export async function readCode(ctx: CodeContext & { native: Native; tab: string;
       code.contents[contentsKey] = { state: 'error', oldContents: '', newContents: '', error: error instanceof Error && error.message ? error.message : 'Unable to load file contents.' };
     }
   }
-  if (code.reveal) {
-    const target = filesOf(code).find(file => file.path === code.reveal?.path);
-    if (target) {
-      if (isCollapsed({ foldOverride: effectiveFold(client, code), toggled: code.toggled }, target)) { const toggled = new Set(code.toggled); if (toggled.has(target.path)) toggled.delete(target.path); else toggled.add(target.path); code.toggled = toggled; }
-      code.treeSelected = target.path;
-      for (const directory of ancestorDirectories(target.path)) code.treeClosed.delete(directory);
-    } else { const next = code.slices.at(-1)?.nextCursor; if (next && !code.diffError) { code.cursor = next; code.diffDue = true; return 'wake'; } }
+  if (code.reveal?.pending && !applyReveal(client, code)) {
+    const next = code.slices.at(-1)?.nextCursor;
+    if (next && !code.diffError) { code.cursor = next; code.diffDue = true; return 'wake'; }
   }
   code.shown = signature(code);
   return 'done';
+}
+/** Apply a reveal once; later I/O preserves the reader's folds, folders and selection. */
+function applyReveal(client: T3Client, code: CodeState): boolean {
+  const reveal = code.reveal;
+  if (!reveal?.pending) return false;
+  const target = filesOf(code).find(file => file.path === reveal.path);
+  if (!target) return false;
+  if (isCollapsed({ foldOverride: effectiveFold(client, code), toggled: code.toggled }, target)) {
+    const toggled = new Set(code.toggled);
+    if (toggled.has(target.path)) toggled.delete(target.path); else toggled.add(target.path);
+    code.toggled = toggled;
+  }
+  code.treeSelected = target.path;
+  for (const directory of ancestorDirectories(target.path)) code.treeClosed.delete(directory);
+  reveal.pending = false;
+  return true;
 }
 /**
  * createPullRequestDiffFileContentsLoader's request: the change type and both names of the file,
@@ -338,12 +350,11 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
     case 'folders': code.treeClosed = value === 'collapse' ? new Set(collectDirectoryPaths(files().map(entry => entry.path))) : new Set(); return '';
     case 'reveal': {
       // revealFile: a folded file opens; its folders open; the list scrolls to it (the contract's scrollIntoView).
-      code.reveal = { path: value, nonce: (code.reveal?.nonce ?? 0) + 1 };
-      const target = file(value);
-      if (!target) { const next = code.slices.at(-1)?.nextCursor; if (next && !code.diffDue) { code.cursor = next; code.diffDue = true; } return ''; }
-      if (isCollapsed({ foldOverride: effectiveFold(client, code), toggled: code.toggled }, target)) { const next = new Set(code.toggled); if (next.has(value)) next.delete(value); else next.add(value); code.toggled = next; }
-      code.treeSelected = value;
-      for (const directory of ancestorDirectories(value)) code.treeClosed.delete(directory);
+      code.reveal = { path: value, nonce: (code.reveal?.nonce ?? 0) + 1, pending: true };
+      if (!applyReveal(client, code)) {
+        const next = code.slices.at(-1)?.nextCursor;
+        if (next && !code.diffDue) { code.cursor = next; code.diffDue = true; }
+      }
       return '';
     }
     case 'expand': {

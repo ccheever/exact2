@@ -89,3 +89,23 @@ test('overlapping guide excerpts share pending comments but mount only the selec
   await guideDiffLocal(ctx, entry, 'add', 'Keep the contract.');
   expect(presentGuideDiff(ctx, entry).cards.every(card => card.items.some(item => item.kind === 'pr-pending'))).toBe(true);
 });
+
+
+test('a completed Code reveal does not reopen user folds or replace folder/tree choices on refresh', async () => {
+  const { client, native } = await connected(), previous = native.later.bind(native);
+  native.later = async input => obj(input).op === 'prDiff' ? native.good({ patch: patch(), truncated: false, nextCursor: null, omittedFileStats: [] }) : previous(input);
+  const ctx = { client, native, reference, detail, activity: null, tab: 'code', refresh: 0 };
+  for (let read = 0; read < 3; read++) await readCode(ctx);
+  await prCodeLocal(ctx, 'reveal', 'src/a.ts');
+  const code = codeState(client, `${client.environmentId}|${pullRequestReviewKey(reference)}`);
+  expect(code.reveal?.pending).toBe(false);
+  await prCodeLocal(ctx, 'fold', 'src/a.ts'); await prCodeLocal(ctx, 'folder', 'src/');
+  code.treeSelected = 'reader-selected.ts';
+  const folded = [...code.toggled];
+  for (let read = 0; read < 3; read++) await readCode({ ...ctx, refresh: 1 });
+  expect([...code.toggled]).toEqual(folded); expect(code.treeClosed.has('src/')).toBe(true); expect(code.treeSelected).toBe('reader-selected.ts');
+  expect(presentCode({ ...ctx, now: 0 }).view).toMatchObject({ revealPath: 'src/a.ts', revealNonce: 1 });
+  await prCodeLocal(ctx, 'reveal', 'src/a.ts');
+  expect([...code.toggled]).not.toEqual(folded); expect(code.treeClosed.has('src/')).toBe(false); expect(code.treeSelected).toBe('src/a.ts');
+  expect(presentCode({ ...ctx, now: 0 }).view.revealNonce).toBe(2);
+});
