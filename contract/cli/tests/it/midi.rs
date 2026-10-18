@@ -142,6 +142,31 @@ fn reaching_midi_without_its_grant_warns_at_the_call() {
     std::fs::create_dir_all(dir.join("strings")).unwrap();
     std::fs::write(dir.join("strings/en.json"), r#"{"purpose.midi": "Plays."}"#).unwrap();
     assert!(grant("device.midi purpose.midi").is_empty());
+    // A comment in a file read first does not stand for the grant (round 1:
+    // it read as the key `grants`), nor does it hide the grant.
+    std::fs::write(
+        dir.join("a.ts"),
+        "// device.midi grants instrument access\nexport {};\n",
+    )
+    .unwrap();
+    assert!(grant("device.midi purpose.midi").is_empty());
+    let said = grant("");
+    assert!(
+        matches!(&said[..], [(5, m)] if m.contains("no file of the app's data module names it")),
+        "{said:?}"
+    );
+    // A grant built at run time cannot be read, so nothing is said.
+    for built in [
+        "export const grants = `device.midi ${PURPOSE}`;\n",
+        "export const grants = ['device.midi', 'purpose.midi'].join(' ');\n",
+    ] {
+        std::fs::write(dir.join("app.ts"), built).unwrap();
+        let (_, warnings) = contract::compile_path_all_warned(&dir.join("app.contract"), false);
+        assert!(
+            !warnings.iter().any(|w| w.id == "grant-device-missing"),
+            "{built}: {warnings:?}"
+        );
+    }
     let _ = std::fs::remove_dir_all(&dir);
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/metronome/app.contract");

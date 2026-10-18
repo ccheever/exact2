@@ -1143,30 +1143,84 @@ function resolveOffline(dir, deferrable = false) {
   throw new Error(`cargo could not resolve ${dir} offline:\n${lock.stderr}`);
 }
 
-/** `update --without <platform>`: the app stops building and shipping it. Its crate
- * goes with its workspace member, and app.json's `host`, `deploy.store` and
- * `deploy.binaries` keys for it, which are what the compiler reads as shipping it
- * (contract/lower/src/icons.rs `targets`); `updateApp` then re-resolves Cargo.lock.
- * Returns what it removed. */
+/** A workspace member's path as Cargo compares it: `./linux/` is `linux`. */
+const memberPath = m => String(m).replace(/^(?:\.\/)+/, '').replace(/\/+$/, '');
+
+/** `text`, a workspace Cargo.toml, without `member` in `[workspace]`'s `members` and
+ * `default-members`: each string naming it (either quote, `./`, a multiline array with
+ * comments) goes with its comma, and the rest of the file is left as written. The result
+ * is parsed again and refused unless those arrays are exactly the old ones less it. */
+export function withoutMember(text, member) {
+  const lists = t => { const w = Bun.TOML.parse(t).workspace ?? {}; return [w.members, w['default-members']]; };
+  const before = lists(text);
+  let out = text;
+  for (const key of ['members', 'default-members']) {
+    const head = new RegExp(`^[ \\t]*${key}[ \\t]*=[ \\t]*\\[`, 'm').exec(out);
+    if (!head) continue;
+    // The array's string tokens, to its `]`, past quotes and `#` comments.
+    const tokens = [];
+    let i = head.index + head[0].length;
+    for (; i < out.length && out[i] !== ']'; i++) {
+      if (out[i] === '#') { while (i < out.length && out[i] !== '\n') i++; continue; }
+      if (out[i] !== '"' && out[i] !== "'") continue;
+      const quote = out[i], start = i;
+      for (i++; i < out.length && out[i] !== quote; i++) if (quote === '"' && out[i] === '\\') i++;
+      tokens.push({ start, end: i + 1, value: out.slice(start + 1, i) });
+    }
+    for (const t of tokens.reverse().filter(t => memberPath(t.value) === member)) {
+      // Its comma after it, else the one before it (the last element); a line it had to
+      // itself goes whole, with the comment on it.
+      const after = /^[ \t]*,/.exec(out.slice(t.end));
+      if (!after) {
+        const comma = /,[ \t\r\n]*$/.exec(out.slice(0, t.start));
+        out = out.slice(0, comma ? comma.index : t.start) + out.slice(t.end);
+        continue;
+      }
+      const lineStart = out.lastIndexOf('\n', t.start - 1) + 1, rest = out.slice(t.end + after[0].length);
+      const tail = /^[ \t]*(?:#[^\n]*)?\n/.exec(rest);
+      out = /^[ \t]*$/.test(out.slice(lineStart, t.start)) && tail
+        ? out.slice(0, lineStart) + rest.slice(tail[0].length)
+        : out.slice(0, t.start) + rest.replace(/^[ \t]+/, '');
+    }
+  }
+  const expected = before.map(l => l?.filter(m => memberPath(m) !== member));
+  if (JSON.stringify(lists(out)) !== JSON.stringify(expected)) throw new Error(`could not remove ${member} from the workspace's members in Cargo.toml; remove it there by hand`);
+  return out;
+}
+
+/** `update --without <platform>`: the app stops building and shipping it. Its workspace
+ * member goes, with app.json's `host`, `deploy.store` and `deploy.binaries` keys for it,
+ * which are what the compiler reads as shipping it (contract/lower/src/icons.rs `targets`);
+ * Cargo.lock is re-resolved, and only then is its crate deleted. Any failure puts
+ * Cargo.toml and app.json back and keeps the crate. Returns what it removed. */
 function dropPlatform(dir, platform) {
   if (platform === 'web') throw new Error('update --without web: the web host is the dev loop\'s and the agent\'s (`web`, `test web`, `agent web`), so it stays');
   if (!['linux', 'android'].includes(platform)) throw new Error(`update --without ${platform}: it takes linux (which Android builds too) or android`);
+  const workspacePath = resolve(dir, 'Cargo.toml'), manifestPath = resolve(dir, 'app.json');
+  const workspace = readFileSync(workspacePath, 'utf8'), manifestText = existsSync(manifestPath) ? readFileSync(manifestPath, 'utf8') : null;
   const removed = [];
+  try {
+    const members = withoutMember(workspace, platform);
+    if (members !== workspace) { writeFileSync(workspacePath, members); removed.push('its workspace member'); }
+    if (manifestText !== null) {
+      const manifest = JSON.parse(manifestText), deploy = manifest.deploy ?? {};
+      for (const [key, table] of [['host', manifest.host], ['deploy.store', deploy.store], ['deploy.binaries', deploy.binaries]]) {
+        if (table && platform in table) { delete table[platform]; removed.push(`app.json ${key}.${platform}`); }
+      }
+      // A deploy naming no native platform is read as every one (scripts/deploy.mjs `nativePlatforms`), Linux included.
+      const native = [...Object.keys(deploy.store ?? {}), ...Object.keys(deploy.binaries ?? {})].filter(p => p !== 'web');
+      if ((deploy.store || deploy.binaries) && !native.length) throw new Error(`app.json deploy.store would name no native platform, which deploy reads as all of them, ${platform} included: name the ones the app ships there (as \`"ios": "0"\`) first`);
+      writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    }
+    resolveOffline(dir);
+  } catch (error) {
+    writeFileSync(workspacePath, workspace);
+    if (manifestText !== null) writeFileSync(manifestPath, manifestText);
+    throw new Error(`update --without ${platform}: ${error.message}; Cargo.toml, app.json and ${platform}/ are as they were`);
+  }
   if (existsSync(resolve(dir, platform, 'Cargo.toml'))) {
     rmSync(resolve(dir, platform), { recursive: true, force: true });
     removed.push(`${platform}/`);
-  }
-  const workspace = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
-  const members = workspace.replace(/^members\s*=\s*\[([^\]]*)\]/m, (_, list) =>
-    `members = [${list.split(',').map(m => m.trim()).filter(m => m && m !== `"${platform}"`).join(', ')}]`);
-  if (members !== workspace) { writeFileSync(resolve(dir, 'Cargo.toml'), members); removed.push('its workspace member'); }
-  const manifestPath = resolve(dir, 'app.json');
-  if (existsSync(manifestPath)) {
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-    for (const [key, table] of [['host', manifest.host], ['deploy.store', manifest.deploy?.store], ['deploy.binaries', manifest.deploy?.binaries]]) {
-      if (table && platform in table) { delete table[platform]; removed.push(`app.json ${key}.${platform}`); }
-    }
-    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
   }
   return removed.length ? `without ${platform} (removed ${removed.join(', ')})` : `without ${platform} (it shipped none already)`;
 }
