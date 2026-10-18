@@ -4,16 +4,16 @@
     "1080": "0x1e5dd38f9b0ce70a"
   },
   "saves": {
-    "continuation": "4ca444cecd3cc78c47c989ee94cbbd81d493f30e2371fc9bee1c0a78884f9791"
+    "continuation": "3d5e3c8f6a57c946e57a737edbd47ea8ea5b255c2f5a10f2abc256fb821e6e4c"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "a47b8ffb9ef18b2337f1ef5f7800bbe9e0e679d255907bb26bad1ef10cf03377",
-  "sourceInputs": "a7ed70dcafbf921c7bb6d43c39ac4b8a8e99e87339d978b11b06ee6b9a934d39",
+  "inputs": "4b7d5cb042da73ad817fea6fef7a5a260ae65de3682fc1592758f815b601cfc4",
+  "sourceInputs": "be98365975107c7dd392163a499732083adda1b8866717eba678893cba388fa7",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "ad1abcb951e94fe8f4258198aac7e426e64366ad",
-  "reason": "EXSIM v8 (LLP 1127.003 D10: InputEvent::Pad and player) moves the continuation save. Ticks 0 and 1080 move as origin/main already moved them: they hash the same with and without this lane's engine (probed)."
+  "at": "71cfed16ad8bbddc5d447cc83fb343f687f5ca07",
+  "reason": "Review round 1 of LLP 1127.003: trigger gestures and latches move from Input's saved copy into the InputGestures world resource, so the continuation save's bytes move; Rivals uses neither, and ticks 0 and 1080 are unchanged."
 }
