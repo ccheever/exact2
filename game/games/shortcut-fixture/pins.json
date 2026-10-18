@@ -1,8 +1,17 @@
 {
+  "ticks": {
+    "30": "0x79f19e59c94a7399"
+  },
+  "saves": {
+    "after-shortcuts": "db02877813691d0e934bb81e387904ebfd18119edeb0dc98d77177f765eed3f0"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "inputs": "ffe58bdf35fbcec5c9501039073fa6d5aff9cb13a7f13da30bb50c33a085a503",
+  "sourceInputs": "ffc34035bf3f9ccc8a85b072fd90a3f0e23133bfbcc1fdcc7af10f19345596d1",
   "game": "shortcut-fixture",
-  "ticks": {},
-  "saves": {},
-  "hosts": [],
-  "generated": "bun game/prove.mjs shortcut-fixture",
-  "at": "unverified"
+  "generated": "bun game/prove.mjs shortcut-fixture --hosts 'linux,web'",
+  "at": "0b0a7c9eed6e63c0879f4efd90b12ffeb824e4fb"
 }
