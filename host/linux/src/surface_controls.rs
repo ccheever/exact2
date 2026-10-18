@@ -276,6 +276,18 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
+    /// A gamepad's state goes to the canvas a key would: the focus, or with
+    /// none the first canvas that takes input (LLP 1127.003 D2).
+    pub fn hardware_pad(&mut self, index: u8, connected: bool, buttons: [f32; 17], axes: [f32; 4]) {
+        let target = self.focus.or_else(|| {
+            let mut canvases = self.surfaces.canvases.keys().copied();
+            canvases.find(|view| self.surfaces.wants_input(*view))
+        });
+        if let Some(view) = target.filter(|v| self.surfaces.wants_input(*v)) {
+            self.surfaces.input(view, json!({"t":"pad","index":index,"connected":connected,"standard":true,
+                "buttons":buttons,"axes":axes,"at":self.host.now()}));
+        }
+    }
     /// Route device keys through the same targeted path as agent keys.
     pub fn hardware_key(&mut self, code: &str, key: &str, down: bool, repeat: bool) {
         self.restore_controls();

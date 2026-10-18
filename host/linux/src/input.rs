@@ -1,5 +1,5 @@
-//! Input: evdev, read directly — pointer motion, buttons, wheels, keys —
-//! with a US keymap for typing. No libinput (nothing to link), so no
+//! Input: evdev, read directly — pointer motion, buttons, wheels, keys,
+//! gamepads — with a US keymap for typing. No libinput (nothing to link), so no
 //! pointer acceleration, touchpad gestures, or hotplug: the trades LLP 1015
 //! §7 declares.
 //!
@@ -11,6 +11,9 @@ use evdev::{
     AbsoluteAxisCode, Device, EventSummary, EventType, RelativeAxisCode, SynchronizationCode,
 };
 use std::os::fd::AsRawFd;
+
+mod pad;
+pub use pad::{Reading as PadReading, MAX_PADS};
 
 /// One thing the user did.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -32,6 +35,16 @@ pub enum InputEvent {
     /// A wheel: (dx, dy) in points, the web's sign (a positive `dy` scrolls
     /// down).
     Wheel(f32, f32),
+    /// A gamepad's whole state in the W3C Gamepad API's standard mapping,
+    /// when it changed; `connected: false` when the pad went away.
+    Pad {
+        /// The pad's index, in the order the pads were opened.
+        index: u8,
+        /// False once the pad is gone.
+        connected: bool,
+        /// Its buttons and axes.
+        reading: PadReading,
+    },
     /// A keyboard edge. Translate US codes at dispatch, keeping the queue compact.
     Key {
         /// Physical evdev key code, also used by VNC's US mapping.
@@ -92,9 +105,11 @@ pub const LINE: f32 = 40.0;
 /// An absolute device's (min, max) per axis, x then y.
 type Ranges = [(i32, i32); 2];
 
-/// Every device that points or types.
+/// Every device that points, types or plays.
 pub struct Input {
     devices: Vec<(Device, Option<Ranges>)>,
+    // A pad, its index, its state, and whether its connection was reported.
+    pads: Vec<(Device, u8, pad::State, bool)>,
     keyboard: Keyboard,
 }
 
@@ -103,8 +118,17 @@ impl Input {
     /// Devices that cannot be opened (no permission — the `input` group) are
     /// skipped.
     pub fn open() -> Input {
-        let mut devices = Vec::new();
+        let (mut devices, mut pads) = (Vec::new(), Vec::new());
         for (_, d) in evdev::enumerate() {
+            // A pad's sticks are ABS_X/ABS_Y too: it is a pad, not a pointer.
+            if pad::is_pad(&d) {
+                if pads.len() < MAX_PADS {
+                    nonblocking(&d);
+                    let state = pad::State::new(pad::ranges(&d));
+                    pads.push((d, pads.len() as u8, state, false));
+                }
+                continue;
+            }
             let pointer = d.supported_events().contains(EventType::RELATIVE);
             // An absolute pointer: ABS_X/ABS_Y with their ranges (a KVM's
             // mouse, a tablet, a USB touchscreen). Multitouch slots are
@@ -128,41 +152,87 @@ impl Input {
             if !(pointer || absolute.is_some() || keyboard) {
                 continue;
             }
-            // SAFETY: fcntl on a file descriptor this process owns; the
-            // flags are read and written whole.
-            unsafe {
-                let fd = d.as_raw_fd();
-                let flags = libc::fcntl(fd, libc::F_GETFL);
-                if flags >= 0 {
-                    libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-                }
-            }
+            nonblocking(&d);
             devices.push((d, absolute));
         }
         Input {
             devices,
+            pads,
             keyboard: Keyboard::default(),
         }
     }
 
     /// How many devices are open.
     pub fn len(&self) -> usize {
-        self.devices.len()
+        self.devices.len() + self.pads.len()
     }
 
     /// Whether none opened.
     pub fn is_empty(&self) -> bool {
-        self.devices.is_empty()
+        self.len() == 0
     }
 
     /// The descriptors to poll.
     pub fn fds(&self) -> Vec<i32> {
-        self.devices.iter().map(|(d, _)| d.as_raw_fd()).collect()
+        let pads = self.pads.iter().map(|(d, ..)| d);
+        let devices = self.devices.iter().map(|(d, _)| d);
+        devices.chain(pads).map(|d| d.as_raw_fd()).collect()
+    }
+
+    /// Each pad's changes since the last read: its connection first, then its
+    /// state after each batch that changed it.
+    fn read_pads(&mut self, out: &mut Vec<InputEvent>) {
+        self.pads.retain_mut(|(d, index, state, announced)| {
+            let index = *index;
+            if !std::mem::replace(announced, true) {
+                out.push(InputEvent::Pad {
+                    index,
+                    connected: true,
+                    reading: state.reading,
+                });
+            }
+            let events = match d.fetch_events() {
+                Ok(events) => events,
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                    ) =>
+                {
+                    return true
+                }
+                Err(_) => {
+                    out.push(InputEvent::Pad {
+                        index,
+                        connected: false,
+                        reading: PadReading::default(),
+                    });
+                    return false;
+                }
+            };
+            let mut changed = false;
+            for e in events {
+                changed |= match e.destructure() {
+                    EventSummary::Key(_, code, value) => state.key(code.0, value),
+                    EventSummary::AbsoluteAxis(_, code, value) => state.axis(code.0, value),
+                    _ => false,
+                };
+            }
+            if changed {
+                out.push(InputEvent::Pad {
+                    index,
+                    connected: true,
+                    reading: state.reading,
+                });
+            }
+            true
+        });
     }
 
     /// Everything that arrived since the last read.
     pub fn read(&mut self) -> Vec<InputEvent> {
         let mut out = Vec::new();
+        self.read_pads(&mut out);
         let mut gone = Vec::new();
         for (index, (d, absolute)) in self.devices.iter_mut().enumerate() {
             let events = match d.fetch_events() {
@@ -275,6 +345,18 @@ impl Input {
             self.devices.remove(index);
         }
         coalesce(out)
+    }
+}
+
+fn nonblocking(d: &Device) {
+    // SAFETY: fcntl on a file descriptor this process owns; the flags are
+    // read and written whole.
+    unsafe {
+        let fd = d.as_raw_fd();
+        let flags = libc::fcntl(fd, libc::F_GETFL);
+        if flags >= 0 {
+            libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+        }
     }
 }
 

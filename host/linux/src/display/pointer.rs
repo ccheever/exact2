@@ -13,7 +13,7 @@ pub(super) fn dispatch<D: DataSource>(
 ) -> Result<(), String> {
     if !matches!(
         event,
-        InputEvent::Key { .. } | InputEvent::Back | InputEvent::Cancel
+        InputEvent::Key { .. } | InputEvent::Pad { .. } | InputEvent::Back | InputEvent::Cancel
     ) && !p.display_input_mapping(viewport, scale)
     {
         // An uncertified physical release must end capture without executing
@@ -56,6 +56,11 @@ pub(super) fn dispatch<D: DataSource>(
             p.system_back(now_ms);
         }
         InputEvent::Wheel(dx, dy) => p.wheel_at(pointer.0, pointer.1, dx, dy),
+        InputEvent::Pad {
+            index,
+            connected,
+            reading,
+        } => p.hardware_pad(index, connected, reading.buttons, reading.axes),
         // The same targeted path as VNC and agent keys: text, Escape blur and a
         // canvas's held keys (`hardware_key`). Escape also ends a pointer hold.
         InputEvent::Key {
