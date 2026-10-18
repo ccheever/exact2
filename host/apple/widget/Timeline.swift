@@ -54,7 +54,7 @@ private func widgetSnapshotView(_ entry: ExactWidgetEntry, displaySize: CGSize, 
         imageRoots: [entry.root, embeddedRoot()], appGroup: WidgetContainer.root, entryDate: entry.date)
     #if EXACT_INSPECT
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-        widgetLog.notice("afterArchive pid=\(getpid()) peak=\(footprint())")
+        widgetLog.notice("afterArchive pid=\(getpid()) now=\(footprintNow()) peak=\(footprint())")
     }
     #endif
     // SnapshotView retains the session until WidgetKit has evaluated its layout and leaves.
@@ -129,7 +129,17 @@ struct ExactTimelineProvider: TimelineProvider {
 #if EXACT_INSPECT
 private func measurement(_ phase: String, start: UInt64, details: String) {
     let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
-    widgetLog.notice("\(phase, privacy: .public) pid=\(getpid()) \(details, privacy: .public) ms=\(elapsed) peak=\(footprint())")
+    widgetLog.notice("\(phase, privacy: .public) pid=\(getpid()) \(details, privacy: .public) ms=\(elapsed) now=\(footprintNow()) peak=\(footprint())")
+}
+/// The resident footprint now, apart from the ledger's lifetime peak: a
+/// series of these over renders tells a high-water mark from a leak.
+private func footprintNow() -> UInt64 {
+    var info = task_vm_info_data_t()
+    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+    let status = withUnsafeMutablePointer(to: &info) { pointer in
+        pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+    }
+    return status == KERN_SUCCESS ? info.phys_footprint : 0
 }
 private func footprint() -> UInt64 {
     var info = task_vm_info_data_t()
