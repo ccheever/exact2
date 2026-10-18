@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { capturedLockDrift, gameDefaults, gameShells } from './app/shells.mjs';
 import { readDeviceStamp } from '../snapback4/web/device-build.mjs';
@@ -116,7 +116,7 @@ export function createApp(destination, options = {}) {
   if (!destination || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name) || /-(web|apple|linux|gpu)$/.test(name)) {
     throw new Error('Usage: exact new <path> [--update | --snapback [--port <n>]] (the last part names the app: lowercase-hyphenated, no host suffix)');
   }
-  if (options.update) return updateApp(dir, name);
+  if (options.update) return updateApp(dir, name, options);
   if (existsSync(dir) && readdirSync(dir).length) throw new Error(`${dir} already exists and is not empty`);
   const port = options.snapback ? snapbackPort(options.snapback.port) : null;
   if (options.snapback?.online && !existsSync(resolve(dir, '..', 'snapback/schema.q'))) throw new Error('exact new --snapback --online: write the backend schema above the app first; the guestbook starter uses a device');
@@ -976,6 +976,7 @@ the only required reading (LLP 1115 D7). When a name is in question, \`bun exact
 vocab <name>\` answers it (no name: the card, which ${doc('card.md')} holds too). Run
 \`bun exact.mjs verify\` when the features work, and \`verify ios\` once at the end for an iPhone
 app. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"commands"\`.
+\`bun exact.mjs update --without linux\` stops shipping Linux.
 \`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.
 ${DIARY_LINE}
 ${snapbackNotes(dir)}
@@ -1142,9 +1143,127 @@ function resolveOffline(dir, deferrable = false) {
   throw new Error(`cargo could not resolve ${dir} offline:\n${lock.stderr}`);
 }
 
-function updateApp(dir, name) {
+/** A workspace member's path as Cargo compares it: `./linux/` is `linux`. */
+const memberPath = m => String(m).replace(/^(?:\.\/)+/, '').replace(/\/+$/, '');
+
+/** `text`, a workspace Cargo.toml, without `member` in the `[workspace]` table's own
+ * `members` and `default-members`: each string naming it (either quote, `./`, a multiline
+ * array with comments) goes with its comma, and the rest of the file is left as written.
+ * Only a form it reads with certainty is edited: one `[workspace]` header, bare keys, plain
+ * strings. Anything else is refused, naming the edit to make by hand, and so is a result
+ * that parses to anything but the old document less that member. */
+export function withoutMember(text, member) {
+  const refuse = why => { throw new Error(`Cargo.toml's [workspace] is in a form this does not edit (${why}): remove "${member}" from [workspace] members and default-members by hand, then run it again`); };
+  let doc;
+  try { doc = Bun.TOML.parse(text); } catch (error) { refuse(`it does not parse: ${error.message}`); }
+  const named = l => Array.isArray(l) && l.some(m => memberPath(m) === member);
+  if (!named(doc.workspace?.members) && !named(doc.workspace?.['default-members'])) return text;
+  const expected = structuredClone(doc);
+  for (const key of ['members', 'default-members']) if (Array.isArray(expected.workspace[key])) expected.workspace[key] = expected.workspace[key].filter(m => memberPath(m) !== member);
+  if (expected.workspace['default-members']?.length === 0) refuse('default-members would be empty');
+  // The `[workspace]` table's body: from its one header to the next table's.
+  const headers = [...text.matchAll(/^[ \t]*\[[ \t]*workspace[ \t]*\][ \t]*(?:#[^\n]*)?$/gm)];
+  if (headers.length !== 1) refuse(headers.length ? 'two [workspace] headers' : 'no [workspace] header');
+  const from = headers[0].index + headers[0][0].length;
+  // A line opening with `[` inside a value ends the body early; the check below then refuses.
+  const next = /^[ \t]*\[/m.exec(text.slice(from));
+  const to = next ? from + next.index : text.length;
+  let body = text.slice(from, to);
+  if (/^[ \t]*["'](?:default-)?members["']/m.test(body)) refuse('a quoted members key');
+  for (const key of ['members', 'default-members']) {
+    const head = new RegExp(`^[ \\t]*${key}[ \\t]*=[ \\t]*\\[`, 'm').exec(body);
+    if (!head) continue;
+    // The array's string tokens, to its `]`, past quotes and `#` comments.
+    const tokens = [];
+    let i = head.index + head[0].length;
+    for (; i < body.length && body[i] !== ']'; i++) {
+      if (body[i] === '#') { while (i < body.length && body[i] !== '\n') i++; continue; }
+      if (/\s|,/.test(body[i])) continue;
+      if (body[i] !== '"' && body[i] !== "'") refuse(`${key} holds something other than a string`);
+      if (body.startsWith('"""', i) || body.startsWith("'''", i)) refuse(`${key} holds a multiline string`);
+      const quote = body[i], start = i;
+      for (i++; i < body.length && body[i] !== quote && body[i] !== '\n'; i++) if (body[i] === '\\') refuse(`${key} holds an escaped string`);
+      if (body[i] !== quote) refuse(`${key} holds an unclosed string`);
+      tokens.push({ start, end: i + 1, value: body.slice(start + 1, i) });
+    }
+    if (i >= body.length) refuse(`${key} is not closed`);
+    let out = body;
+    for (const t of tokens.reverse().filter(t => memberPath(t.value) === member)) {
+      // Its comma after it, else the one before it (the last element); a line it had to
+      // itself goes whole, with the comment on it.
+      const after = /^[ \t]*,/.exec(out.slice(t.end));
+      if (!after) {
+        const comma = /,[ \t\r\n]*$/.exec(out.slice(0, t.start));
+        out = out.slice(0, comma ? comma.index : t.start) + out.slice(t.end);
+        continue;
+      }
+      const lineStart = out.lastIndexOf('\n', t.start - 1) + 1, rest = out.slice(t.end + after[0].length);
+      const tail = /^[ \t]*(?:#[^\n]*)?\n/.exec(rest);
+      out = /^[ \t]*$/.test(out.slice(lineStart, t.start)) && tail
+        ? out.slice(0, lineStart) + rest.slice(tail[0].length)
+        : out.slice(0, t.start) + rest.replace(/^[ \t]+/, '');
+    }
+    body = out;
+  }
+  const out = text.slice(0, from) + body + text.slice(to);
+  let edited = null;
+  try { edited = Bun.TOML.parse(out); } catch {}
+  if (JSON.stringify(edited) !== JSON.stringify(expected)) refuse('the edit would change more than that member');
+  return out;
+}
+
+/** `update --without <platform>`: the app stops building and shipping it. Its workspace
+ * member goes, with app.json's `host`, `deploy.store` and `deploy.binaries` keys for it,
+ * which are what the compiler reads as shipping it (contract/lower/src/icons.rs `targets`).
+ * Its crate is moved aside, Cargo.lock is re-resolved without it, and only then is the
+ * crate deleted. Any failure before that puts Cargo.toml, app.json, Cargo.lock (or its
+ * absence) and the crate back as they were; a failed delete leaves the app without the
+ * platform and says what to delete. Returns what it removed. */
+function dropPlatform(dir, platform) {
+  if (platform === 'web') throw new Error('update --without web: the web host is the dev loop\'s and the agent\'s (`web`, `test web`, `agent web`), so it stays');
+  if (!['linux', 'android'].includes(platform)) throw new Error(`update --without ${platform}: it takes linux (which Android builds too) or android`);
+  const workspacePath = resolve(dir, 'Cargo.toml'), manifestPath = resolve(dir, 'app.json');
+  const workspace = readFileSync(workspacePath, 'utf8'), manifestText = existsSync(manifestPath) ? readFileSync(manifestPath, 'utf8') : null;
+  // Each file as it was, `null` for one that was absent; `cargo metadata` may rewrite the lock before it fails.
+  const saved = [workspacePath, manifestPath, resolve(dir, 'Cargo.lock')].map(path => [path, existsSync(path) ? readFileSync(path) : null]);
+  const crate = resolve(dir, platform), aside = resolve(dir, `.${platform}-removed-${randomBytes(4).toString('hex')}`);
+  let moved = false;
+  const removed = [];
+  try {
+    const members = withoutMember(workspace, platform);
+    if (members !== workspace) { writeFileSync(workspacePath, members); removed.push('its workspace member'); }
+    if (manifestText !== null) {
+      const manifest = JSON.parse(manifestText), deploy = manifest.deploy ?? {};
+      for (const [key, table] of [['host', manifest.host], ['deploy.store', deploy.store], ['deploy.binaries', deploy.binaries]]) {
+        if (table && platform in table) { delete table[platform]; removed.push(`app.json ${key}.${platform}`); }
+      }
+      // A deploy naming no native platform is read as every one (scripts/deploy.mjs `nativePlatforms`), Linux included.
+      const native = [...Object.keys(deploy.store ?? {}), ...Object.keys(deploy.binaries ?? {})].filter(p => p !== 'web');
+      if ((deploy.store || deploy.binaries) && !native.length) throw new Error(`app.json deploy.store would name no native platform, which deploy reads as all of them, ${platform} included: name the ones the app ships there (as \`"ios": "0"\`) first`);
+      writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    }
+    if (existsSync(resolve(crate, 'Cargo.toml'))) { renameSync(crate, aside); moved = true; }
+    resolveOffline(dir);
+  } catch (error) {
+    const unrestored = [];
+    for (const [path, bytes] of saved) {
+      try { if (bytes === null) rmSync(path, { force: true }); else writeFileSync(path, bytes); } catch { unrestored.push(relative(dir, path)); }
+    }
+    if (moved) try { renameSync(aside, crate); } catch { unrestored.push(`${platform}/ (it is at ${relative(dir, aside)})`); }
+    throw new Error(`update --without ${platform}: ${error.message}; ${unrestored.length ? `could not put back ${unrestored.join(', ')}` : `Cargo.toml, app.json, Cargo.lock and ${platform}/ are as they were`}`);
+  }
+  if (moved) {
+    try { rmSync(aside, { recursive: true, force: true }); removed.push(`${platform}/`); } catch (error) {
+      removed.push(`${platform}/ from the workspace; deleting its files failed (${error.message}), so delete ${relative(dir, aside)} by hand`);
+    }
+  }
+  return removed.length ? `without ${platform} (removed ${removed.join(', ')})` : `without ${platform} (it shipped none already)`;
+}
+
+function updateApp(dir, name, { without = null } = {}) {
   // A game has no workspace of its own (the bake generates .shells/): its runner and notes are all there is to rewrite.
   if (existsSync(resolve(dir, 'app.contract')) && !existsSync(resolve(dir, 'Cargo.toml')) && gameDefaults(dir)) {
+    if (without) throw new Error('update --without: a game\'s hosts are its bake\'s (game/README.md), not crates of its own');
     writeFileSync(resolve(dir, 'exact.mjs'), commandsFor(dir, name, {game:true}));
     const notes = updateNotes(dir, name, {game:true});
     if (editorTasks(dir, {game:true})) notes.push('.vscode/tasks.json');
@@ -1172,8 +1291,13 @@ function updateApp(dir, name) {
   writeFileSync(resolve(dir, '.cargo/config.toml'), readFileSync(resolve(ROOT, '.cargo/config.toml')));
   writeFileSync(resolve(dir, 'exact.mjs'), commandsFor(dir, name));
   chmodSync(resolve(dir, 'exact.mjs'), 0o755);
-  // An app made before the scaffold wrote a Linux host gains one (LLP 1086), unless it has its own.
-  const addedLinux = !existsSync(resolve(dir, 'linux'));
+  const dropped = without ? dropPlatform(dir, without) : null;
+  // An app made before the scaffold wrote a Linux host gains one (LLP 1086), unless it has its own
+  // or ships no Linux: app.json deploy.store.linux, which the scaffold writes and `--without linux`
+  // removes, says it does.
+  let storesLinux = false;
+  try { storesLinux = 'linux' in (JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).deploy?.store ?? {}); } catch {}
+  const addedLinux = storesLinux && !existsSync(resolve(dir, 'linux'));
   if (addedLinux) {
     mkdirSync(resolve(dir, 'linux'));
     const title = name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
@@ -1215,7 +1339,7 @@ test "the app opens"
     if (next !== text) { writeFileSync(path, next); changed.push(file); }
   }
   resolveOffline(dir);
-  return `Updated ${dir}: patches, toolchain, exact.mjs${addedLinux ? ', a linux/ host crate' : ''}${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}`;
+  return `Updated ${dir}: patches, toolchain, exact.mjs${addedLinux ? ', a linux/ host crate' : ''}${dropped ? `, ${dropped}, Cargo.lock` : ''}${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}`;
 }
 
 if (import.meta.main) {

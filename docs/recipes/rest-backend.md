@@ -1,129 +1,30 @@
 # Recipe: your own REST server
 
-A list shared by a Bun server (`pattern rest` writes `server.ts` and this), with a
-bearer token, polled. The server listens at app.ts's `API` and answers CORS and its preflight.
+The REST starter creates a shared-list app and a Bun server:
 
-```contract
-routes nav
-  home "/"
-
-shape Items
-  ok: bool
-  error: string
-  titles: string[]
-
-shape Reply
-  ok: bool
-  error: string
-
-shape Person
-  token: string
-  name: string
-
-component Shared
-  state persona = "ada" persist
-  resource people = loadPeople() as shape Person[] else empty()
-  state draft = ""
-  resource items = loadItems(persona) as shape Items else empty(ok=true)
-  mutation added as shape Reply refreshes items then afterAdd
-  derive me = match first(people.filter(p => p.token == persona)) { case some(p) => p.name, case none => "" }
-  derive addError = match added { case some(r) => r.error, case none => "" }
-  derive listError = pending(added) ? "" : addError != "" ? addError : items.error
-  task poll mount
-    every(4000, pull)
-  action pull
-    refresh items
-  action signIn(p: string)
-    persona = p
-  action edit(v: string)
-    draft = v
-  action add
-    if draft.trim() != "" and not pending(added)
-      send added = addItem(persona, draft.trim())
-  action afterAdd
-    if addError == ""
-      draft = ""
-  view
-    main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
-      for e in stack(nav) key=e.id
-        column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0
-          header display="flex" align-items="center" padding="8px 16px"
-            text "Shared List" role="heading" aria-level=1 flex=1
-            button popovertarget="who" testId="persona"
-              text me
-          list id="list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
-            section
-              row
-                column flex=1 min-width=0 gap=4
-                  input value=draft input=edit submit=add placeholder="Add an item" testId="draft"
-                  if listError != ""
-                    text listError font="-exact-footnote" color="-exact-system-red" testId="error"
-              for t in items.titles key=t
-                row
-                  text t testId=`item-${t}`
-      column id="who" popover="auto" role="menu"
-        for p in people key=p.token
-          button role="menuitemradio" aria-checked=(persona == p.token) press=signIn(p.token)
-            popovertarget="who" popovertargetaction="hide" testId=`persona-${p.token}`
-            text p.name
+```sh
+bun exact.mjs pattern rest
 ```
 
-```ts
-import type { Answer, Result, Sources } from './app.contract.d.ts';
+The [REST starter](../patterns/rest/app.contract) writes the Contract app and
+Bun server together. Its data source validates read responses before returning
+them. When a read fails because of a transport error, an HTTP error or an invalid
+response, Exact keeps the prior answer and exposes the failure. The view shows
+that answer only when `lib.owner == persona`; otherwise, it shows loading or
+retry state. A validated empty list is a successful answer.
 
-export const appId = 'com.example.shared';
-export const API = 'http://127.0.0.1:8787';
-export const grants = `net.fetch ${API}`;
-const PEOPLE = [{ token: 'ada', name: 'Ada Lovelace' }, { token: 'grace', name: 'Grace Hopper' }];
+The starter's writes return shaped replies for operation refusals, such as a
+duplicate title, so `then` can keep the form open and display the reason. Its
+mutation helper also converts transport failures to shaped replies. If a source
+lets a transport rejection escape instead, the mutation gets no new reply, keeps
+its previous value, and does not run `then`; `failure(mutation)` explains the
+request failure.
 
-async function call(persona: string, path: string, init: RequestInit = {}) {
-  try {
-    const res = await fetch(`${API}${path}`, { ...init, exactTimeout: 10000,
-      headers: { authorization: `Bearer ${persona}`, 'content-type': 'application/json' } });
-    const body = (await res.json().catch(() => ({}))) as { error?: unknown };
-    return { error: res.ok ? '' : typeof body.error === 'string' ? body.error : 'The server had a problem. Try again.', body };
-  } catch (e) {
-    if ((e as { code?: string }).code === 'bake') throw e;
-    return { error: 'Can’t reach the server. Check that it’s running, then try again.', body: [] };
-  }
-}
-
-let last: Result<'loadItems'>['titles'] = [];
-const sources: Sources = {
-  loadPeople: async () => PEOPLE,
-  loadItems: async ([persona]) => {
-    const { error, body } = await call(persona, '/items');
-    if (!error) last = (body as Array<{ title: string }>).map((i) => i.title);
-    return { ok: !error, error, titles: last };
-  },
-  addItem: async ([persona, title]) => {
-    const { error } = await call(persona, '/items', { method: 'POST', body: JSON.stringify({ title }) });
-    return { ok: !error, error };
-  },
-};
-export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);
-```
-
-```contract-test
-test "a second person's item arrives; the persona is kept"
-  type "draft" "Milk"
-  type "draft" key "Enter"
-  clock data
-  expect tree has "item-Milk"
-  request POST "/items" {"title": "Bread"} as grace
-  clock +4000
-  clock data
-  expect tree has "item-Bread"
-  tap "persona"
-  tap "persona-grace"
-  reload
-  expect state persona == "grace"
-```
-
-- **`test`, `verify` and `agent` run the server** on the database `DB` names (empty for a
-  test, one per `--storage`; server.ts reads `process.env.DB ?? 'data.db'`); stop yours.
-- **A second person is a test line**: `request POST "/items" {...} as grace` sends `Bearer
-  grace`; `expect 409` after it tests a refusal; then `clock +4000` (the poll), `clock data`.
-- **Who is signed in: a bar button with their name**, not an icon; `persist` keeps it.
-- Every failure is words (the server's `error` or a sentence), never a status code. The field
-  clears in `then` on an ok reply ([after-a-write](after-a-write.md)); a failed poll keeps the list.
+The sample `persona` values are public development identities. A real app should
+put a stable, non-secret principal id in the resource call and keep bearer
+credentials in the granted store. It should await an app-owned current-session
+helper inside the data source before issuing authenticated requests, then verify
+that the session authorizes the principal named by the resource. Exact does not
+provide that session helper. This starter demonstrates owner gating, not a full
+authentication lifecycle; a real authenticated view must also gate retained
+answers by the app-owned authorized principal and auth generation.

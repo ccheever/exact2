@@ -135,10 +135,18 @@ pub(crate) fn sizes_through_ratio(
 /// style does not size (`sized`); a sized axis keeps its own limit only.
 pub(crate) fn transfer_into_unsized(
     limits: Size<Option<f32>>,
-    ratio: Option<f32>,
+    ratio: Option<Ratio>,
     sized: Size<bool>,
 ) -> Size<Option<f32>> {
-    let transferred = limits.maybe_apply_aspect_ratio(ratio);
+    // EXACT PATCH 39: limits are border-box sizes; transfer in the box
+    // the ratio relates, leaving padding and border fixed.
+    let transferred = match ratio {
+        Some(ratio) => Size {
+            width: limits.width.or_else(|| limits.height.map(|h| ratio.width(h))),
+            height: limits.height.or_else(|| limits.width.map(|w| ratio.height(w))),
+        },
+        None => limits,
+    };
     Size {
         width: if sized.width { limits.width } else { transferred.width },
         height: if sized.height { limits.height } else { transferred.height },

@@ -16,7 +16,8 @@ import android.os.Build
  * From Android 14 the platform has each role as a colour of its own (`android.R.color.system_primary_light` and the
  * rest), and nothing is derived. Android 12 and 13 have only the dynamic tonal palettes (`system_accent1_*`,
  * `system_accent2_*`, `system_neutral1_*`, `system_neutral2_*`, a swatch each for tones 100, 99, 95, 90 … 10, 0), so
- * there each role is the tone Material's scheme gives it ([derived]).
+ * there each role is the tone Material's scheme gives it ([derived]). Before Android 12 there is no dynamic colour, and
+ * the roles are Material's baseline scheme ([Legacy.palette]).
  */
 internal object Palette {
     /** How many roles are told for each scheme. Their order is exact2's (`presenter::Material`): primary, onPrimary,
@@ -26,6 +27,7 @@ internal object Palette {
 
     /** The twelve roles light, then the twelve dark, ARGB. */
     fun read(context: Context): IntArray {
+        if (Build.VERSION.SDK_INT < 31) return Legacy.palette()
         if (Build.VERSION.SDK_INT < 34) return derived(context)
         val light = intArrayOf(
             system.system_primary_light, system.system_on_primary_light, system.system_secondary_container_light,
@@ -54,6 +56,7 @@ internal object Palette {
      * platform computes ([ColorStateList.withLStar], as Material's own library does for these). `error` is no part
      * of a dynamic palette: it is Material's baseline error, tones 40 and 80.
      */
+    @android.annotation.TargetApi(31)
     private fun derived(context: Context): IntArray {
         val c = { id: Int -> context.getColor(id) }
         val neutral = { tone: Float -> ColorStateList.valueOf(c(system.system_neutral1_600)).withLStar(tone).defaultColor }

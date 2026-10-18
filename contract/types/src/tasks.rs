@@ -8,14 +8,15 @@ use contract_syntax::{Component, Expr};
 pub(crate) mod sequences;
 
 /// `type-child-resource`'s message for `child`, which declares a resource,
-/// a mutation or a task, under the root `root`. A child's task most often
-/// means "when this sheet or route opens": the root's gated task does that,
-/// keyed on the route (the euxy port's icon picker).
+/// a mutation or a task, under the root `root`. A child's task is most often
+/// a timer the child starts and stops (the euxy port's press-and-hold
+/// capsule) or "when this sheet or route opens" (its icon picker): the
+/// root's gated task does each, so the message shows both.
 pub(crate) fn child_owns(root: &str, child: &Component) -> String {
     let name = &child.name;
     if child.resources.is_empty() && child.mutations.is_empty() {
         return format!(
-            "only the root, the root file's first component (`{root}`), may declare a `task`: a timer is the app's; `{name}` is a child, which may own state, derives, and actions. Move the task into `{root}`, gated on what shows `{name}` and keyed on what opens it again, its action one of `{root}`'s: to act when a sheet or route opens, `task reveal when top(nav).name == \"icons\" key=top(nav).id` with `after(1, reveal)` under it. Or, if `{name}` is the app, move it above `{root}`"
+            "only the root, the root file's first component (`{root}`), may declare a `task`: a timer is the app's; `{name}` is a child, which may own state, derives, and actions. Move the task into `{root}` with the state that gates it, and pass `{name}` that state and the actions that set it as props. A press-and-hold: in `{root}`, `state holding = false`, `task charging when holding` with `every(16, step)` under it, and `action hold(on: bool)` that sets `holding = on`; then `{name}(charge=charge, down=hold(true), up=hold(false))`, whose `props` declare `down: action` and `up: action` and whose view binds `pointerdown=down pointerup=up` (docs/recipes/timer-in-a-component.md). To act when a sheet or route opens, gate the task on what shows `{name}` and key it on what opens it again: `task reveal when top(nav).name == \"icons\" key=top(nav).id` with `after(1, reveal)` under it. Or, if `{name}` is the app, move it above `{root}`"
         );
     }
     format!(

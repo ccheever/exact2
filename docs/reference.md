@@ -1853,7 +1853,7 @@ visibility deviation; other native hosts remain unqualified.
 `time` is HTML's instant, in epoch milliseconds. `format` names the platform
 presentation: `relative`, `timer`, `countdown`, `date-short`, `date-medium`
 (the default), `date-long`, `date-full`, or `time-short` and `time-medium` (with seconds). Date and time styles use the viewer's locale and
-time zone. Children are fallback text if the host cannot format the instant.
+time zone (Linux desktop currently uses English). Children are fallback text if the host cannot format the instant.
 
 ```contract
 component Clock
@@ -1869,8 +1869,9 @@ Relative time changes at minute boundaries, timers and countdowns each second.
 A timer counts elapsed or remaining time on either side of its instant; a
 countdown stops at zero. The runner drives them without an app task, including
 under the agent's `clock +60000`. A standalone live `time` reserves its box
-for the widest presentation at its font, including two units for relative
-time. A live `time` inside a `text` with other runs reflows as on the web;
+at its font: two localized units for relative time, one extra hour digit
+for a timer, and the first displayed shape for a countdown. Apple timers use
+SwiftUI’s first field (`0:05`, `1:00:00`). A live `time` inside a `text` with other runs reflows as on the web;
 make it its own text node when its width must stay fixed. Changing numeric
 text uses tabular digits by default.
 

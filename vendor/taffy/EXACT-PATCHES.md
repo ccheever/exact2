@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37 and 38 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42 and 43 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1149,6 +1149,120 @@ and `zero_content_minima_transfer_through_the_ratio`: literal Chrome 151.0.7922.
 frames for canvas, loaded images, unsized SVG and metadata-free video. Cases cover
 both box-sizing modes, row and column axes, authored ratios, borders and a maximum
 that caps a transferred minimum.
+
+## Patch 39: retain the ratio's inset in flex sizing and intrinsic floors
+
+The definite-cross-size flex basis, intrinsic main-size contribution and min/max
+transfers into unsized axes use `Ratio::width` and `Ratio::height`.
+These conversions subtract the source-axis inset and restore the destination-axis
+inset for a content-box ratio. An authored border-box ratio uses zero inset.
+A padded canvas stretched to 100px tall therefore has a 180px flex basis:
+80px of content height at 2:1, plus 20px of horizontal padding.
+
+The kernel's intrinsic measurement of a replaced element without natural size
+also transfers the vertical padding/border floor through an authored border-box
+ratio. Its content height cannot become negative, so its automatic width must
+fit that floor before the leaf applies constraints. The floor can exceed an
+offered width or the percentage fallback; an explicitly given width still wins.
+Content-box ratios retain their zero content-size contribution.
+
+**Held by** `browser_replaced::constraints::intrinsic_padding_floors_preserve_the_replaced_ratio`
+and `flex_ratio_transfers_keep_padding_and_border`: literal Chrome 151.0.7922.34
+frames measured on 2026-10-18. Cases cover metadata-free videos in block flex
+items, stretched canvases, both flex axes and box-sizing modes, width and height
+maxima, asymmetric padding with borders, and authored and auto ratios.
+`intrinsic_flex_ratio_transfers_keep_padding_and_border` holds growing canvases
+inside a shrink-to-fit block, including column sizing and zero-grow controls.
+`unsized_ratio_padding_floors_survive_width_offers` holds video, iframe and SVG
+floors against narrow definite offers and cyclic percentage widths, including
+an offer wide enough to expose the full max-content contribution.
+
+## Patch 40: retain the definite height in absolute shrink-to-fit probes
+
+An absolute non-replaced box's intrinsic width probes receive its authored
+height, or the height between top and bottom insets, clamped by min/max and
+floored by padding and border. A flex row can then stretch its items and
+transfer their ratios when computing its intrinsic width. An automatic height
+with only min/max constraints is still passed as unknown.
+
+**Held by** `browser_replaced::constraints::absolute_flex_intrinsic_width_uses_the_clamped_definite_height`:
+literal Chrome 151.0.7922.34 frames measured on 2026-10-18 for two padded
+canvases in an absolute flex row. The 29 cases cover authored and between-insets
+heights, min/max clamping, a minimum above the maximum, a percentage height,
+an authored height overriding insets, growing and zero-grow items, authored
+border-box ratios, and automatic-height controls with only a maximum.
+The separate automatic-height constraint gaps are recorded in `QUEUE.md`.
+
+## Patch 41: restrict intrinsic flex stretching to eligible items
+
+An intrinsic main-size contribution uses the container's cross size for stretch
+only in a single-line container with a definite cross size and with neither
+cross-axis margin automatic. Otherwise the item contributes its content size
+without a transferred stretch. This applies both to an absolute flex container's
+width probe and to a flex container inside a shrink-to-fit block.
+
+**Held by** `browser_replaced::constraints::intrinsic_flex_stretch_requires_a_single_line_and_non_auto_cross_margins`:
+literal Chrome 151.0.7922.34 frames for top, bottom and paired auto margins,
+wrap and wrap-reverse, with controls for ordinary stretch, main-axis auto
+margins, non-stretch alignment and an authored item height, in both containers.
+`absolute_flex_height_resolves_against_an_auto_height_containing_block` holds
+percentage and calc heights and opposing insets against the containing block's
+used height, with automatic and zero item minima.
+
+## Patch 42: a recorded call is looked up among its own box's calls — Exact's
+
+**Implementer:** Claude (Opus 5.5), 2026-10-18, for
+`issues/closed/20261017-memo-recorder-repeats-quadratic.md`.
+
+Patch 29's `Recorder::repeats` asks whether the trace already holds a box's
+answer under an input, once for every answer a recorded layout takes from
+outside the computation (a measure, a cache hit). It scanned every call
+recorded so far, so recording a subtree of n boxes made O(n²) comparisons.
+`asked` now links each call to its box's call before it, and `last_asked`
+holds each box's last call by the trace's box index (dense: indices are
+given in order from 0), so a lookup compares that box's own few inputs and
+answers as before.
+
+**Held by** `tree::memo::tests::a_recorded_call_is_looked_up_among_its_own_boxs_calls`
+(2,000 boxes asked three questions each, twice: every answer is recorded
+once, and no lookup makes more than three comparisons; the scan made up to
+6,000 comparisons a lookup, 36,000,000 in all),
+`a_lookup_answers_as_a_scan_of_every_recorded_call_does` (20,000 recordings
+and lookups in a fixed pseudo-random order, each lookup checked against a
+scan of every recorded call), both run by hand (`cargo test --manifest-path
+vendor/taffy/Cargo.toml --lib tree::memo`; no lane runs taffy's unit tests),
+and the kernel's `layout::memo_tests`, which compare replayed layouts with
+fresh ones bit for bit.
+
+## Patch 43: keep height bounds indefinite during intrinsic flex sizing
+
+Equal or inverted width bounds remain known in both sizing modes so they can
+size a column's height. Height bounds do not supply a known height while the
+inline size is unresolved in `ContentSize` or an intrinsic width probe. The latter
+includes `InherentSize`, which a block parent uses to measure its children.
+This prevents premature stretch and ratio transfer during width measurement
+without discarding a column's bounded width during height measurement. Authored
+sizes and dimensions supplied by the caller remain intact, including the clamped
+final height an absolute box receives in `ContentSize`. Block and root size
+promotion are unchanged.
+
+**Held by** `browser_replaced::constraints::intrinsic_flex_height_bounds_do_not_make_auto_height_definite`:
+12 literal Chrome 151.0.7922.34 cases measured on 2026-10-18. Absolute flex rows
+and normal flex rows inside absolute blocks stay 640px wide with two 320px
+canvases, for equal and inverted height bounds and natural and authored
+border-box ratios. Their final height stays 100px. Normal rows in a definite
+800px parent keep 400px items. Floated rows were also measured at 640/320px in
+Chrome; the kernel has no float style row. Patches 40 and 41 retain their
+definite-height, auto-margin and wrapping controls.
+
+`intrinsic_flex_column_height_uses_bounded_width` holds 12 further Chrome cases:
+max-content grid rows sized by bounded columns with canvases and percentage-width
+squares, plus non-stretched flex-parent controls. Equal and inverted width bounds
+and `column-reverse` retain the width used for height measurement. Taffy's
+`bounded_column_width_sizes_content_and_max_content_grid_height` holds both sizing
+modes and grid items with `width:max-content;height:max-content`, whose keywords
+are not exposed by the kernel. The grid, column and square stay 200px tall at a
+bounded 200px width.
 
 ## Cargo workspace boundary
 

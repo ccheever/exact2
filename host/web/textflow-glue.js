@@ -263,6 +263,8 @@ function replaceNodes(element, nodes) {
   for (const node of nodes) element.append(node); // no argument-stack bound on rich text
 }
 
+const keyForwarders = new WeakMap();
+
 function paintContent(span, fragment, state, lineHeight) {
   const children = [];
   // Binary search avoids scanning all inline runs for every fragment.
@@ -277,12 +279,41 @@ function paintContent(span, fragment, state, lineHeight) {
       clone.removeAttribute('id'); clone.removeAttribute('data-testid');
       // Original listeners remain valid by kernel view identity while detached.
       // Forward authored events only; a plain <a> keeps its native default.
-      for (const event of new Set(original.exactFlowEvents ?? [])) clone.addEventListener(event, e => {
-        e.stopPropagation();
+      const events = new Set(original.exactFlowEvents ?? []);
+      keyForwarders.set(clone, events);
+      for (const event of events) clone.addEventListener(event, e => {
+        const keyboard = e.type === 'keydown' || e.type === 'keyup';
+        if (keyboard) {
+          // Only the innermost forwarding clone sends this dispatch through the authored chain.
+          if (e.composedPath().find(node => keyForwarders.get(node)?.has(e.type)) !== clone) return;
+        }
+        // A capture action can restore the originals; then the copy already reaches live ancestors.
+        if (!keyboard || original.isConnected) e.stopPropagation();
         const forwarded = new e.constructor(e.type, e);
+        if (keyboard) for (const method of ['stopPropagation', 'stopImmediatePropagation']) {
+          // Chrome clears cancelBubble after dispatch, so carry native stops while they happen.
+          forwarded[method] = () => { e[method](); Event.prototype[method].call(forwarded); };
+        }
+        if (keyboard) {
+          // Live ancestors already captured the source event, even if a commit restored these runs.
+          forwarded.exactFlowCapture = run.chain;
+          const cancelBubble = Object.getOwnPropertyDescriptor(Event.prototype, 'cancelBubble');
+          Object.defineProperty(forwarded, 'cancelBubble', {
+            get: () => cancelBubble.get.call(forwarded),
+            set(value) { cancelBubble.set.call(forwarded, value); if (forwarded.cancelBubble) e.stopPropagation(); },
+          });
+        }
         forwarded.exactStopped = e.exactStopped; forwarded.$stopped = e.$stopped;
         if (e.defaultPrevented) forwarded.preventDefault();
-        if (!original.dispatchEvent(forwarded)) e.preventDefault();
+        try {
+          if (!original.dispatchEvent(forwarded)) e.preventDefault();
+        } finally {
+          // A retained copy's next dispatch must capture through its own live ancestors.
+          delete forwarded.exactFlowCapture;
+        }
+        if (keyboard) {
+          e.exactStopped = forwarded.exactStopped; e.$stopped = forwarded.$stopped;
+        }
       });
       if (inner) inner.append(clone); else outer = clone;
       inner = clone;

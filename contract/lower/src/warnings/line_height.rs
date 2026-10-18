@@ -9,7 +9,7 @@ use crate::LowerError;
 use contract_syntax::{Attr, Expr};
 
 /// The smallest multiplier taken to mean points.
-const IMPLAUSIBLE: f64 = 4.0;
+pub(crate) const IMPLAUSIBLE: f64 = 4.0;
 
 /// The warning for each literal `line-height` among `attrs` (an arm of a
 /// choice included) that is a bare number of [`IMPLAUSIBLE`] or more.

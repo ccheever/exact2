@@ -19,7 +19,7 @@ use exact_plan::BindingsRow;
 /// has no DOM name for, written as `data-<the prop's name, lowercased>`.
 /// `host/web`'s `every_data_name_the_host_writes_is_a_reserved_word` keeps
 /// the second half whole.
-const HOST_WORDS: [&str; 95] = [
+const HOST_WORDS: [&str; 96] = [
     "accept",
     "accessibilitybusy",
     "accessibilitydisabled",
@@ -83,6 +83,7 @@ const HOST_WORDS: [&str; 95] = [
     "navigationbar",
     "navigationdetent",
     "navigationgrabber",
+    "navigationinitialdetent",
     "navigationscroll",
     "num",
     "pressed",

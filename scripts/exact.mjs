@@ -582,9 +582,9 @@ export function refreshTypes(dir, binary = resolve(ROOT, 'target/debug', process
 
 /** `exact new`: check the machine first, since a missing Cargo fails the
  * scaffold itself; then write the app and say what its builds will still need. */
-function newApp(path, {update = false, game = false, assets = false, snapback = null} = {}) {
+function newApp(path, {update = false, without = null, game = false, assets = false, snapback = null} = {}) {
   if (update) {
-    console.log(createApp(path, {update}));
+    console.log(createApp(path, {update, without}));
     const manifest = resolve(path, 'app.json');
     if (existsSync(manifest) && Object.values(JSON.parse(readFileSync(manifest, 'utf8')).typescript?.sources ?? {}).some(p => /(?:^|\/)snapback4\/ts\/?$/.test(p)))
       console.log(wireSnapback(path, {artifactOnly:true}));
@@ -1006,11 +1006,13 @@ async function main(argv) {
   if (verb === 'pattern') return pattern(guardFlags('pattern', argv.slice(1)));
   if (verb === 'new') {
     // Flags may come before the path: `exact new --game ./my-game`.
-    const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), port = args.indexOf('--port'), path = args.find((arg, i) => !arg.startsWith('--') && (port < 0 || i !== port + 1));
+    const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), port = args.indexOf('--port'), without = args.indexOf('--without');
+    const path = args.find((arg, i) => !arg.startsWith('--') && (port < 0 || i !== port + 1) && (without < 0 || i !== without + 1));
     if (args.includes('--online') && !args.includes('--snapback')) throw new Error('exact new: --online requires --snapback and an existing backend schema');
     if (port >= 0 && !args.includes('--snapback')) throw new Error('exact new: --port is the Snapback origin’s, with --snapback');
+    if (without >= 0 && !args[without + 1]) throw new Error('update --without: name the platform, as in --without linux');
     const snapback = args.includes('--snapback') ? { port: port >= 0 ? args[port + 1] : undefined, online: args.includes('--online') } : null;
-    return newApp(path, {update: args.includes('--update'), game: args.includes('--game'), assets: args.includes('--assets'), snapback});
+    return newApp(path, {update: args.includes('--update'), without: without >= 0 ? args[without + 1] : null, game: args.includes('--game'), assets: args.includes('--assets'), snapback});
   }
   if (verb === 'backend') {
     const dir = resolve(name), parent = resolve(dir, '..');

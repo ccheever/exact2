@@ -290,6 +290,13 @@ drawn as written in its bar item; swipe actions whose controls all say
 `appearance="none"` keep their paint. Take: none offered; waived by that
 instruction. Still out: an arbitrary subtree as a bar item, a prompt with
 several fields.
+**Expanded (Charlie, 2026-10-17: "Exact should allow the developer to
+configure this on platforms that support it"):** a sheet route's
+`navigationInitialDetent` names the `navigationDetent` word it opens at
+(UIKit's `selectedDetentIdentifier`). Lexy's Last Parked sheet, which opens
+tall over a half-height stop, is the consumer. Take: none offered; waived by
+Charlie's approval. Still out: reading or binding the detent a person drags
+the sheet to.
 **Expanded (Charlie, 2026-10-03: "A native grouped-list role mapped to
 UICollectionView list layout"):** `list appearance="auto"` is a grouped list
 (LLP 1084): sections with a header and footer, rows read by shape, UIKit's

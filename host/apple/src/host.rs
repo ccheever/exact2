@@ -96,6 +96,7 @@ use layout::{content_size, published_content_box};
 mod resize;
 #[path = "scale.rs"]
 mod scale;
+pub(crate) use scale::LaunchLayout;
 #[cfg(test)]
 #[path = "spacing_tests.rs"]
 mod spacing_tests;
@@ -322,6 +323,7 @@ impl<D: DataSource> Host<D> {
             PlanBytes::Copied(plan_bytes),
             data,
             measurer,
+            scale::LaunchLayout::NONE,
             exact_runner::Viewport::sized(width as f64, height as f64),
             carried,
             snapshot,
@@ -347,6 +349,7 @@ impl<D: DataSource> Host<D> {
         plan_bytes: PlanBytes<'_>,
         data: D,
         measurer: Box<dyn TextMeasurer>,
+        layout: scale::LaunchLayout,
         viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
         snapshot: Vec<(String, Vec<u8>)>,
@@ -365,6 +368,7 @@ impl<D: DataSource> Host<D> {
             plan_bytes,
             data,
             measurer,
+            layout,
             viewport,
             carried,
             snapshot,
@@ -387,6 +391,7 @@ impl<D: DataSource> Host<D> {
         plan_bytes: PlanBytes<'_>,
         data: D,
         measurer: Box<dyn TextMeasurer>,
+        layout: scale::LaunchLayout,
         viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
         snapshot: Vec<(String, Vec<u8>)>,
@@ -417,7 +422,8 @@ impl<D: DataSource> Host<D> {
         }
         // This archive links its grammars; every public boot links all (LLP 1047.001 D3; 1053.000 §2).
         links.grammars.link();
-        let kernel = scale::kernel(measurer);
+        let mut kernel = scale::kernel(measurer);
+        layout.prepare(&mut kernel)?;
         let facts = candidate_delivery.unwrap_or_else(|| {
             let mut facts = exact_runner::Delivery::default();
             if let Some(json) = compat {
@@ -1112,22 +1118,6 @@ impl<D: DataSource> Host<D> {
             ),
             Ok(None) => self.finish(Batch::new(), None),
             Err(e) => self.finish(Batch::new(), Some(format!("page: {e:?}"))),
-        }
-    }
-
-    /// The root font size `rem` follows (LLP 1069.000 D3): a relayout in
-    /// one commit, no resource asked again; the same size commits nothing.
-    pub fn set_root_font_size(&mut self, px: f64) -> String {
-        match self.runner.set_root_font_size(px) {
-            Ok(Some(receipt)) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => self.finish(Batch::new(), None),
-            Err(e) => self.finish(Batch::new(), Some(format!("root font size: {e:?}"))),
         }
     }
 

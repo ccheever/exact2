@@ -165,6 +165,8 @@ pub fn refusal(name: &str) -> Option<String> {
         "floor" | "ceil" | "round" | "sin" | "cos" => format!(
             "write `{name}(n)`: `Math.{name}(n)`, written as a function"
         ),
+        // @ref LLP 1027.000 D1 — a draw is a pure function of a seed passed in.
+        "random" => "Contract has no ambient randomness (LLP 1027.000 D1): a draw comes from a seed passed to a pure function. For rolls in an expression, copy `roll(seed, k, n)` from docs/recipes/random-rolls.md: `1 + roll(time.seed, rolls, 6)` is a die, with `time` an `exactTime()` resource and `rolls` a counter in state; a deal or a shuffle is the data module's (docs/recipes/random-and-shuffle.md)".into(),
         "String" => "write `x.toString()`, or a template, `` `${x}` ``".into(),
         "useEffect" | "useState" | "useMemo" | "watch" | "effect" | "onChange" => format!(
             "Contract has no `{name}`, nor code that runs because a value changed (LLP 1116.016 D0): an action runs on an event and assigns what changes, a `derive` is a value computed from others, and a timer is a gated `task` (`task t when cond` with `after(ms, action)`)"

@@ -20,6 +20,8 @@ contract-syntax = { path = "../syntax" }
 contract-types = { path = "../types" }
 exact-kernel = { path = "../../kernel" }
 exact-plan = { path = "../../plan" }
+# The route table a warning matches locations against (`lower-replace-root`).
+exact-route = { path = "../../route" }
 exact-motion = { path = "../../motion" }
 exact-num = { path = "../../num" }
 # Which literal is a colour, for the one-scheme warning (LLP 1116.002 D1).

@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 pub mod functions;
+mod grants;
 /// The Lean backend: a program as a term of `semantics/` (LLP-free; see
 /// `semantics/README.md`).
 pub mod lean;
@@ -683,7 +684,10 @@ fn compile_path_warned(
         all
     };
     let strings = strings::load(&app_root, path).map_err(joined)?;
-    let mut own = Vec::new();
+    let mut own = match warned {
+        Some(_) => grants::check(&file, &app_root, strings.as_deref()),
+        None => Vec::new(),
+    };
     let compiled = compile_file_warned(
         &file,
         Some(&app_root),

@@ -1,3 +1,4 @@
+export { liveTime } from "./live-time.js";
 import { inertAncestor, renderMarkup, reportPlace, onSelection, textField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots, openTabs, unopened, tp } from "./document.js"; export { Head, unopened, tp }; import { conforms, eq, equal, failureCode, failureReason } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
@@ -16,7 +17,6 @@ let Media = null; export function useMedia(m) { Media = m; } // and media.js onl
 //   compiled ones; a source not ready keeps the value and asks again when it
 //   is; a later answer lands in its own commit, if its ticket is current;
 // - timers fire on a clock the host moves (`advance`), each at its own time.
-// ---------------------------------------------------------------- signals
 let Listener = null, Owner = null, Queue = [], FocusQueue = [], Flushing = false, Rev = 0;
 const CLEAN = 0, CHECK = 1, DIRTY = 2;
 function node(fn, v, effect) {
@@ -221,7 +221,7 @@ export function commit(f, what = "commit") {
 export function recommit(f, what) { const done = commit(f, what), owed = done === false ? Resources.filter(r => r.reconciling) : [], why = Refused?.message; if (owed.length) { for (const r of owed) r.giveUp(`the commit that asked it again was refused: ${why}`); commit(() => {}, "the reads a refused commit owed"); } return done; }
 /** What runs after each commit's tree update (a loaded piece's publication), before it (the text flow piece puts
  * flowed paragraphs back), and as the clock moves: before each timer or `then` fires, and where an advance lands. */
-export const After = [], Before = [], Clocked = []; export { liveTime } from "./live-time.js";
+export const After = [], Before = [], Clocked = [];
 /** `-exact-fit` (LLP 1116.001 D1.4): fitted texts are scaled after each tree update (navigation.js `fitText`). */ export const fitTexts = () => installFits(After);
 /** Authored scroll offsets (`scrollTop`, `scrollLeft`), set once the commit's tree is in place, as the web host's `pendingScrolls`
  * (a virtualized list builds the rows there first: `$jump`, list.js); and a select's committed
@@ -929,7 +929,7 @@ export const onBeforeInput = (e, kind, f, l) => l(kind, ev => { const outer = Ke
 export const onHover = (e, kind, f, l) => { l("pointerenter", () => f(true)); return l("pointerleave", () => f(false)); };
 export const onFocusWithin = (e, kind, f, l) => l(kind, ev => { if (ev.$stopped) return; const outer = KeyEvent; KeyEvent = ev; try { f([ev.target?.exactExitId ?? ev.target?.id ?? "", ev.relatedTarget?.exactExitId ?? ev.relatedTarget?.id ?? null]); } finally { KeyEvent = outer; } });
 // `keycapture` hears keydown outermost first, then `key` bubbles; `keyup` bubbles too (#140). An action taking one more parameter hears the KeyboardEvent record (contract/types selection.rs's order: code and repeat last).
-export const onKey = (e, kind, f, l) => { const type = kind === "keyup" ? "keyup" : "keydown"; if (!(e.exactFlowEvents ??= []).includes(type)) e.exactFlowEvents.push(type); return l(type, ev => { if (ev.$stopped) return; const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey, ev.code, ev.repeat]); } finally { KeyEvent = outer; } }, kind === "keycapture"); };
+export const onKey = (e, kind, f, l) => { const type = kind === "keyup" ? "keyup" : "keydown"; if (!(e.exactFlowEvents ??= []).includes(type)) e.exactFlowEvents.push(type); return l(type, ev => { if (ev.$stopped || kind === "keycapture" && ev.exactFlowCapture && !ev.exactFlowCapture.includes(e)) return; const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey, ev.code, ev.repeat]); } finally { KeyEvent = outer; } }, kind === "keycapture"); };
 export const onMIDI = (e, kind, f) => { (Sounds.midi ??= new Set()).add([e, f]); }; // a MIDI input's message (LLP 1125 D8), heard by every connected element whose `midiinputs` lists the input (midi.js)
 // The window's, heard by every connected element that declares it (studio diary R17).
 export const onUnload = (e, kind, f, l) => { return addEventListener("beforeunload", ev => { if (!e.isConnected) return; const outer = KeyEvent; KeyEvent = ev; try { f(); } finally { KeyEvent = outer; } }); };

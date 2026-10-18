@@ -223,6 +223,25 @@ fn a_childs_task_is_moved_to_the_root_keyed_on_what_opens_it() {
 }
 
 #[test]
+fn a_childs_timer_is_moved_to_the_root_with_its_state_and_action_props() {
+    // The euxy port: a capsule charged by a press-and-hold `every(16)`.
+    let src = "component A\n  view\n    Capsule()\ncomponent Capsule\n  state charge = 0\n  state holding = false\n  task charging when holding\n    every(16, step)\n  action step\n    charge = charge + 2\n  action hold(on: bool)\n    holding = on\n  view\n    button pointerdown=hold(true) pointerup=hold(false)\n      text `${charge}`\n";
+    let e = contract::compile(src).unwrap_err();
+    assert_eq!(e.id, "type-child-resource");
+    for part in [
+        "`task charging when holding` with `every(16, step)`",
+        "`Capsule(charge=charge, down=hold(true), up=hold(false))`",
+        "`pointerdown=down pointerup=up`",
+        "docs/recipes/timer-in-a-component.md",
+    ] {
+        assert!(e.message.contains(part), "{part}: {}", e.message);
+    }
+    // The repair it names compiles.
+    let fixed = "component A\n  state charge = 0\n  state holding = false\n  task charging when holding\n    every(16, step)\n  action step\n    charge = charge + 2\n  action hold(on: bool)\n    holding = on\n  view\n    Capsule(charge=charge, down=hold(true), up=hold(false))\ncomponent Capsule\n  props\n    charge: number\n    down: action\n    up: action\n  view\n    button pointerdown=down pointerup=up\n      text `${charge}`\n";
+    contract::compile(fixed).unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[test]
 fn child_derives_resolve_in_either_order_without_capturing_the_parent() {
     let src = "component App\n  state a = 100\n  view\n    column\n      Forward()\n      Ordered()\ncomponent Forward\n  state n = 2\n  derive b = a * 2\n  derive a = n + 1\n  view\n    text `${a} ${b}` testId=\"forward\"\ncomponent Ordered\n  state n = 2\n  derive a = n + 1\n  derive b = a * 2\n  view\n    text `${a} ${b}` testId=\"ordered\"\n";
     let plan = contract::compile(src).unwrap();

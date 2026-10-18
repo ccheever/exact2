@@ -27,7 +27,7 @@ first: first(xs) -> option<T>
 formatDate: formatDate(ms, offsetMinutes, "medium"|"month-year"|"iso") -> string
 formatDay: formatDay(then, now, offsetMinutes, "day"|"day-time"|"list") -> string  (Today, Monday)
 formatDecimal: (cents to "12.34"; literal digits)
-formatNumber: formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string
+formatNumber: formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string  (1,234.5; 26%)
 formatTime: ("2:13 PM"; minutes east of UTC)
 frame: (in an action)
 includes: s.includes(x) -> bool  (text or list)
@@ -115,7 +115,7 @@ main navigationKey=`${top(nav).id}` navigationBack="back"
             image "symbol:checkmark"
 ```
 ### a confirmation
-`aria-label` is the question; each action `button` acts and closes (`command="close"`); the Cancel has no `press`. Open it with `command="show-modal"`, or `showModal(id)` in an action.
+`aria-label` is the question; action buttons run their `press` and close (`command="close"`); Cancel has no `press`. Open it with `command="show-modal"` or `showModal(id)`.
 ```contract
 state n = 1
 action remove
@@ -129,7 +129,7 @@ dialog id="remove" role="alertdialog" aria-label="Delete it?"
     text "Cancel"
 ```
 ### a timer
-`every(ms, action)` repeats, `after(ms, action)` fires once, `when cond` arms the task. A `derive` never rereads the clock: an action writes `performanceNow()` to state.
+`every(ms, action)` repeats, `after(ms, action)` fires once, `when cond` arms the task. An action writes `performanceNow()` to state; a `derive` never rereads it.
 ```contract
 state now = 0
 task tick mount

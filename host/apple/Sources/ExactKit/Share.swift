@@ -10,7 +10,10 @@
 // a copy read as `readFile` reads it; an `"#id"` as a PNG of that node's view as it is drawn now,
 // at the display's scale, written to a scratch directory removed when the
 // sheet closes. Under the agent nothing is drawn: the hold records the
-// entries.
+// entries. A drive that shows UIKit's own presentations (`--touch platform`,
+// `ExactEnv.agentPaints` false) keeps the hold and presents the real sheet
+// too: a window screenshot shows it, `back` or `tap @t cancel` closes it,
+// and its outcome answers the hold, journalled as the agent's answer is.
 #if canImport(UIKit)
 import UIKit
 typealias ShareAnchorView = UIView
@@ -22,6 +25,7 @@ typealias ShareAnchorView = NSView
 extension ExactSession {
     func share(_ args: [Any], source: UInt32?) {
         var request: [String: Any] = ["command": "share", "agent": PageFacts.substituted]
+        if PageFacts.substituted && !ExactEnv.agentPaints { request["present"] = true }
         for (i, key) in ["title", "text", "url"].enumerated() where i < args.count {
             if let value = args[i] as? String { request[key] = value }
         }
@@ -29,6 +33,16 @@ extension ExactSession {
         if let source { request["source"] = source }
         let ruling = runtime.command(request)
         guard ruling["present"] as? Bool == true else { return }
+        // The hold a shown sheet answers with its outcome (`share: shared`
+        // is `tap @t shared`; dismissed or failed, `cancel`).
+        let ticket = (ruling["ticket"] as? NSNumber)?.uint64Value
+        let outcome: (String) -> Void = { [weak self] line in
+            guard let self else { return }
+            guard let ticket else { self.log(line); return }
+            ShareSheet.shown[ShareSheet.Key(self, ticket)] = nil
+            if line.hasPrefix("share: refused") { self.log(line) }
+            _ = self.agent("{\"op\":\"tap\",\"ticket\":\(ticket),\"choice\":\"\(line == "share: shared" ? "shared" : "cancel")\"}")
+        }
         var items: [Any] = []
         if let text = request["text"] as? String { items.append(text) }
         if let url = (request["url"] as? String).flatMap(URL.init(string:)) { items.append(url) }
@@ -47,12 +61,12 @@ extension ExactSession {
                     let ask = try JSONSerialization.data(withJSONObject: ["op": "shareFile", "path": path, "to": url.path])
                     let reply = (try? JSONSerialization.jsonObject(with: Data(agent(String(decoding: ask, as: UTF8.self)).utf8))) as? [String: Any]
                     guard reply?["file"] is String else {
-                        discard(); log("share: refused: \(reply?["error"] as? String ?? "\(path) could not be read")"); return
+                        discard(); outcome("share: refused: \(reply?["error"] as? String ?? "\(path) could not be read")"); return
                     }
                     items.append(url)
                 } else if let id = file["id"] as? String, let view = (file["view"] as? NSNumber)?.uint32Value {
                     guard let node = presenter.views[view], let picture = ShareSheet.picture(of: node) else {
-                        discard(); log("share: refused: #\(id) is not drawn"); return
+                        discard(); outcome("share: refused: #\(id) is not drawn"); return
                     }
                     let url = try ShareSheet.scratchFile(dir, index, ShareSheet.pictureName(id))
                     try picture.png.write(to: url)
@@ -60,13 +74,14 @@ extension ExactSession {
                     log("share: picture of #\(id): \(picture.width)×\(picture.height) px, \(picture.png.count) bytes")
                 }
             } catch {
-                discard(); log("share: refused: \(error.localizedDescription)"); return
+                discard(); outcome("share: refused: \(error.localizedDescription)"); return
             }
         }
         let (view, rect) = presenter.shareAnchor(source)
-        guard let view, ShareSheet.present(items, title: request["title"] as? String, from: view, at: rect,
-                                           outcome: { [weak self] line in discard(); self?.log(line) }) != nil
-        else { discard(); log("share: refused: no window to present from"); return }
+        guard let view, let sheet = ShareSheet.present(items, title: request["title"] as? String, from: view, at: rect,
+                                                       outcome: { line in discard(); outcome(line) })
+        else { discard(); outcome("share: refused: no window to present from"); return }
+        if let ticket { ShareSheet.shown[ShareSheet.Key(self, ticket)] = (sheet, { discard(); outcome("share: dismissed") }) }
     }
 }
 
@@ -100,6 +115,59 @@ extension Presenter {
 }
 
 enum ShareSheet {
+    /// A shown sheet's hold: tickets are each session's runner's, and a
+    /// process can hold two sessions (the sample host, LLP 1031).
+    struct Key: Hashable {
+        let session: ObjectIdentifier, ticket: UInt64
+        init(_ session: ExactSession, _ ticket: UInt64) { self.session = ObjectIdentifier(session); self.ticket = ticket }
+    }
+    /// The real sheets a drive shows beside their holds: each one's sheet
+    /// and what closes it as dismissed.
+    nonisolated(unsafe) static var shown: [Key: (sheet: AnyObject, dismissed: () -> Void)] = [:]
+
+    /// The agent answered a share's hold in `session` (`tap @t shared|cancel`):
+    /// its sheet closes, the answer already journalled.
+    static func answered(_ reply: [String: Any], in session: ExactSession) {
+        guard reply["capability"] as? String == "share", let ticket = (reply["ticket"] as? NSNumber)?.uint64Value,
+              let open = shown.removeValue(forKey: Key(session, ticket)) else { return }
+        close(open.sheet)
+    }
+
+    /// `back` in `session` with a sheet of its shown: the newest closes,
+    /// dismissed, as a person's swipe down or Close button closes it. False
+    /// with none.
+    static func agentBack(in session: ExactSession) -> Bool {
+        let mine = ObjectIdentifier(session)
+        guard let key = shown.keys.filter({ $0.session == mine }).max(by: { $0.ticket < $1.ticket }),
+              let open = shown.removeValue(forKey: key) else { return false }
+        close(open.sheet)
+        open.dismissed()
+        return true
+    }
+
+    /// Whether a sheet `session` shows has yet to finish arriving: UIKit
+    /// presents it on a later turn and then animates it in, and a picture
+    /// taken before would show the app alone or the sheet half in.
+    static func arriving(in session: ExactSession) -> Bool {
+        #if canImport(UIKit)
+        let mine = ObjectIdentifier(session)
+        return shown.contains { key, open in
+            guard key.session == mine, let sheet = open.sheet as? UIViewController else { return false }
+            return sheet.presentingViewController == nil || sheet.isBeingPresented
+        }
+        #else
+        return false
+        #endif
+    }
+
+    private static func close(_ sheet: AnyObject) {
+        #if canImport(UIKit)
+        (sheet as? UIViewController)?.dismiss(animated: !ExactEnv.agentFreezes)
+        #else
+        _ = sheet // no drive shows the Mac's picker beside a hold (`--touch platform` is iOS's)
+        #endif
+    }
+
     /// Where entry `index` of a share is written under `dir`: a folder of its
     /// own, so two entries whose names come out alike (`#card.one` and
     /// `#card-one`, or two files of one name) stay two files, each with a

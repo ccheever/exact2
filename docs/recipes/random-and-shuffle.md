@@ -1,9 +1,9 @@
 # Recipe: randomness and a shuffle
 
-The data module refuses `Math.random()`. Deal from `exactTime()`'s `seed`: a whole number
-below 2^32, new at each launch, fixed under the driver (`seed 2` in a test), with the round
-mixed in. A quiz shuffles its answers too and keeps the right one by identity (`correct`,
-set before the shuffle), never by index.
+Rolls in the view: [random-rolls](random-rolls.md). The data module refuses
+`Math.random()`. Deal from `exactTime()`'s `seed`: a whole number below 2^32, new at each
+launch, fixed in a test (`seed 2`), with the round mixed in. A quiz shuffles its answers
+too and keeps the right one by identity (`correct`, set before the shuffle), never by index.
 
 ```contract
 shape Choice
@@ -49,7 +49,7 @@ import type { Answer, Sources } from './app.contract.d.ts';
 
 export const appId = 'com.example.quiz'; // exact new writes this line
 export const grants = '';
-const QUESTIONS = [ // the right answer first; `correct` keeps it
+const QUESTIONS = [ // the right answer first
   ['Largest planet?', 'Jupiter', 'Mars', 'Venus', 'Mercury'],
   ['Capital of France?', 'Paris', 'Rome', 'Madrid', 'Berlin'],
 ];

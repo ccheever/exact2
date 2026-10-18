@@ -32,19 +32,20 @@ test('a missing or stale build is built first, said in one line; a fresh one run
     const built = new Date(Date.now() + 10_000), edited = new Date(+built + 10_000), before = new Date(Date.now() - 60_000);
     for (const file of ['app.contract', 'app.json', 'exact.mjs', 'apple/Cargo.toml', 'web/Cargo.toml']) utimesSync(resolve(dir, file), before, before);
     const said = [], builds = [];
-    const drive = (host, { sim, code = 0, output = '' } = {}) => buildFirst(host, app, {
-      sim, say: line => said.push(line), wait: () => {}, build: async (args, log) => (builds.push({ args, log }), { code, output }),
+    const drive = (host, { code = 0, output = '' } = {}) => buildFirst(host, app, {
+      say: line => said.push(line), wait: () => {}, build: async (args, log) => (builds.push({ args, log }), { code, output }),
     });
 
     // No build yet: built first, for either host, by the command `bun exact.mjs ios|mac` runs.
     for (const host of ['ios', 'macos']) assert.equal(buildReason(nativeBuild(host, app), app), 'there is no build yet');
     assert.throws(() => refuseBuild('ios', nativeBuild('ios', app), app), new RegExp(`^Error: run \\(cd '${dir}' && bun exact\\.mjs ios\\) first$`));
-    assert.equal(await drive('ios', { sim: 'lane-r5ab' }), 0);
-    assert.deepEqual(builds.map(b => b.args), [['--ios', 'field-log-apple', '--sim', 'lane-r5ab']]);
+    assert.equal(await drive('ios'), 0);
+    // The drive installs, keeping a Release build it replaces: the build installs nothing.
+    assert.deepEqual(builds.map(b => b.args), [['--ios', 'field-log-apple', '--no-install']]);
     assert.equal(builds[0].log, resolve(dir, '.exact/ios-build.log'));
     assert.equal(said.length, 1);
     assert.match(said[0], /^building for iOS: there is no build yet; its log: \S*\.exact\/ios-build\.log$/);
-    assert.deepEqual(buildArgs('macos', app, 'lane-r5ab'), ['field-log-apple'], 'a Mac build takes no simulator');
+    assert.deepEqual(buildArgs('macos', app), ['field-log-apple']);
 
     // A build its receipt shows fresh: nothing runs, nothing is said.
     const bundle = appleArtifacts(app, { destination: 'ios-simulator' }).bundle, receipt = resolve(bundle, 'receipt.json');
@@ -63,7 +64,7 @@ test('a missing or stale build is built first, said in one line; a fresh one run
     assert.throws(() => refuseBuild('ios', nativeBuild('ios', app), app), /^Error: ios build is stale: .*app\.contract changed since .*; run \(cd .* && bun exact\.mjs ios\)$/);
     assert.equal(await drive('ios'), 0);
     // (A contract edit alone is a plan-only edit, which a build with no module receipt to check its bake against still rebuilds.)
-    assert.deepEqual([said, builds.map(b => b.args)], [['building for iOS: the build is older than its sources (app.contract changed), and the build has no module receipt to check a new plan against; its log: ' + said[0].split('its log: ')[1]], [['--ios', 'field-log-apple']]]);
+    assert.deepEqual([said, builds.map(b => b.args)], [['building for iOS: the build is older than its sources (app.contract changed), and the build has no module receipt to check a new plan against; its log: ' + said[0].split('its log: ')[1]], [['--ios', 'field-log-apple', '--no-install']]]);
 
     // A scratch file in .exact/ (the build's log among them) is not a source.
     utimesSync(resolve(dir, 'app.contract'), before, before);
