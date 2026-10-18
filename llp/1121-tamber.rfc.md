@@ -3814,3 +3814,8 @@ Built to the approved plan (`~/x2theme/x2p4-s9e-plan.md`; theme2's 16:13 ruling 
   - The JS target: a link's empty `data-view` marker names no node 0 (the runtime's id is the agent's and the selection's); the held node's instance path comes from the inspect table where the page has one (`exact.instanceOf`); `provenance: "incomplete"` only for a token reference (`var(--x-…)`) modes.js can't name, never for a literal pair or a host's own property.
   - The join checks the held node's own files (its file, chain and parts) for freshness, as the selected node's.
   - Tests: the clear said; a JS link's held node; the held node's moved file read-only; Linux's held answer names the card from the child's layout too.
+- **After review round 2 (Astra, Grok):**
+  - `hello` reports `tamber/1.12` (the server's `PROTOCOL`, its tests and the guide's version lines).
+  - The JS target names a role's override too (`var(--exact-canvas-text)` is `CanvasText`, modes.js's table), a host's own property still none.
+  - A site the inspect table lacks gives the held answer no instance path (not the root's `[]`).
+  - Tests: the runtime's id names a JS link; a role override named; `cargo fmt` over the new tests.

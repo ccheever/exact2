@@ -20,7 +20,7 @@ test('a boundary takes its tuple and the inherited token text, in document order
   const own = el(page, 'c3', { 'data-x-b': '1', 'data-x-pin': 'ink=plain' });
   const bad = el(page, 'c2', { 'data-x-b': '0', 'data-x-pin': 'dark-style:dim' });
   const bound = el(page, 'c2', { 'data-x-b': '0', 'data-x-pin': 'unset' });
-  modes([['dark-style', ['black', 'dim']], ['ink', ['tint', 'plain']]], { c1: { 0: 0 }, c3: { 0: -1 } }, ['color:var(--x-text-primary)'], {}, [], { '--x-text-primary': 'text.primary', '--x-text-secondary': 'text.secondary' });
+  modes([['dark-style', ['black', 'dim']], ['ink', ['tint', 'plain']]], { c1: { 0: 0 }, c3: { 0: -1 } }, ['color:var(--x-text-primary)'], {}, [], { '--x-text-primary': 'text.primary', '--x-text-secondary': 'text.secondary', '--exact-canvas-text': 'CanvasText' });
   for (const f of After) f();
   expect(document.documentElement.getAttribute('data-x-modes')).toBe('dark-style=black,ink=tint');
   expect(dim.getAttribute('data-x-modes')).toBe('dark-style=dim,ink=tint');
@@ -60,6 +60,9 @@ test('a boundary takes its tuple and the inherited token text, in document order
   expect(T(pinned, 'color', 'var(--x-text-secondary)')).toEqual({ names: ['text.secondary'], text: 'var(--x-text-secondary)', modes: 'dark-style=dim,ink=tint', implied: true });
   expect(T(page, 'color', 'var(--x-text-secondary)').implied).toBe(false);
   expect(T(page, 'color', '#123456')).toBeUndefined();
+  // A role's override is named too (stage 9 E: a held row that reads it names it); a host's own property is not.
+  expect(T(page, 'color', 'var(--exact-canvas-text)').names).toEqual(['CanvasText']);
+  expect(T(page, 'color', 'var(--exact-accent)')).toBeUndefined();
   // Off a boundary a clear is written as itself.
   const plainBox = el(page, '');
   Sx(S, plainBox, 'color', '', () => 'inherit', 0);

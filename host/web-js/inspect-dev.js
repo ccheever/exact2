@@ -531,7 +531,10 @@ export async function frame(m) {
 export function install(given) {
   env = given;
   // A held node's instance path, for the held answer (input-glue.js `heldOf`): the inspect table's, once read.
-  (globalThis.exact ??= {}).instanceOf = (el) => (table && el?.dataset?.site != null ? instanceOf(table, el, table.sites[String(el.dataset.site)] ?? {}) : null);
+  (globalThis.exact ??= {}).instanceOf = (el) => {
+    const entry = table && el?.dataset?.site != null ? table.sites[String(el.dataset.site)] : null;
+    return entry ? instanceOf(table, el, entry) : null; // (a site the table lacks has no path to say)
+  };
   // The dev client's own stand-in (its cover and shield while this loaded) goes.
   document.getElementById("exact-inspect-early")?.remove();
   document.getElementById("exact-inspect-early-shield")?.remove();

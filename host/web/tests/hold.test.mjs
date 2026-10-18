@@ -89,6 +89,9 @@ check('a held state is the real one, until real input, its disabling or its goin
     // A JS link's `data-view` is an empty marker: no node 0 (the runtime names it, as the agent does).
     expect((await hold('lnk', 'active')).held).toBe('active');
     expect((await evaluate('exact.heldOf(document.getElementById("lnk"))')).held.node).toBe(null);
+    // Where the runtime numbers its views (the JS target's `$exactViewId`), the link is named by it.
+    expect(await evaluate('(globalThis.$exactViewId = (el) => el.id === "lnk" ? 41 : null, exact.heldOf(document.getElementById("lnk")).held.node)')).toBe(41);
+    await evaluate('delete globalThis.$exactViewId');
     await hold('label', 'active');
     await evaluate('dropped.splice(0)');
     // A node no press reaches holds none, said why.

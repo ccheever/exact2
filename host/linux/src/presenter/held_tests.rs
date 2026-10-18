@@ -152,7 +152,10 @@ fn a_held_active_is_the_press_paint_until_real_input_lets_it_go() {
     // It names the node it is held on, the card, by its site and instance (stage 9 E).
     assert_eq!(layout["node"]["held"]["node"], card);
     assert_eq!(layout["node"]["held"]["site"], layout["node"]["site"]);
-    assert_eq!(layout["node"]["held"]["instance"], layout["node"]["instance"]);
+    assert_eq!(
+        layout["node"]["held"]["instance"],
+        layout["node"]["instance"]
+    );
     let own = layout["node"].clone();
     let layout: Value =
         serde_json::from_str(&p.layout_held(Some(view(&p, "child")), false)).unwrap();
@@ -161,7 +164,10 @@ fn a_held_active_is_the_press_paint_until_real_input_lets_it_go() {
         json!([{"name": "press_background_color", "value": "#0000ff"}]),
         "named on the child, it answers for the child too, with the card's rows"
     );
-    assert_eq!(layout["node"]["held"]["node"], card, "the card it is held on");
+    assert_eq!(
+        layout["node"]["held"]["node"], card,
+        "the card it is held on"
+    );
     assert_eq!(layout["node"]["held"]["site"], own["site"]);
     assert_eq!(layout["node"]["held"]["instance"], own["instance"]);
     // A real press on it lets it go; the press goes on, and its release lets it up.
