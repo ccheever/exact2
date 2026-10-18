@@ -110,8 +110,10 @@ impl Game for Beacons {
     fn tick(w: &mut World, input: &Input, _: &Options) {
         w.character("player")
             .step(input.stick_xz("move"), input.pressed("jump"));
-        if input.pressed("sprint") || input.released("sprint") {
-            let speed = if input.held("sprint") { RUN } else { WALK };
+        // The speed follows the hold, not its edges: a release while paused
+        // leaves none, and the player walks again on resume.
+        let speed = if input.held("sprint") { RUN } else { WALK };
+        if w.require::<Character>("player").speed != speed {
             w.require_mut::<Character>("player").speed = speed;
         }
         let mut near = "";
