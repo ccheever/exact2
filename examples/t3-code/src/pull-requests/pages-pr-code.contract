@@ -104,6 +104,8 @@ fn pcCommentsOff(): string = "M19 19H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.7.7
 // conversations off the diff over the list and the tree. The draft's words live here, so a row
 // scrolled away keeps them.
 component PrdCode
+  inject
+    rem: number
   props
     width: number
     code: PrCodeView
@@ -179,6 +181,8 @@ component PrdCode
 
 // The toolbar (h-10, px-4, border-b): the scope menu and the meta line on the left, the view toggles on the right.
 component PrdCodeToolbar
+  inject
+    rem: number
   props
     width: number
     code: PrCodeView
@@ -427,6 +431,8 @@ component PrdCodeRow
 // A file's header (@pierre/diffs with renderHeaderPrefix and renderHeaderMetadata): the chevron, the
 // status glyph and the path fold the file; the counts; the Viewed tick, which keeps its press to itself.
 component PrdCodeFileHeader
+  inject
+    rem: number
   props
     width: number
     item: DiffItem
