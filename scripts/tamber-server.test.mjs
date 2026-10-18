@@ -1466,7 +1466,7 @@ test('a hold reaches its build and follows its site into the build\'s next plan'
   const hover = await post({ method: 'hold', client: 'tool', build: 'web-1', site: 2, instance: [], state: 'hover' });
   tamber.channel.report(JSON.stringify({ nonce: s.nonce, kind: 'unsupported', what: 'hold', detail: 'no hover here', revision: hover.body.ok.revision }));
   const seen = async (client) => (await ask(tamber, gate, { path: '/__tamber/events', method: 'POST', headers, body: JSON.stringify({ after: 0, wait: false, client }) })).body.events.filter(e => e.event === 'unsupported');
-  expect(await seen('tool')).toMatchObject([{ build: 'web-1', what: 'hold', detail: 'no hover here', to: 'tool' }]);
+  expect(await seen('tool')).toMatchObject([{ build: 'web-1', what: 'hold', detail: 'no hover here', only: 'tool' }]);
   expect(await seen('other')).toEqual([]);
   await tamber.close();
 });

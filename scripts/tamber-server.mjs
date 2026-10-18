@@ -179,8 +179,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     events.push(event);
     if (events.length > KEPT) events.shift();
     const line = `data: ${JSON.stringify(event)}\n\n`;
-    // One `to` a client (a hold's refusal, its owner's: theme2's 07:48 (c)) is that client's alone.
-    for (const res of subscribers) if (!event.to || res.client === event.to) res.write(line);
+    // One `only` a client (a hold's refusal, its owner's: theme2's 07:48 (c)) is that client's alone.
+    for (const res of subscribers) if (!event.only || res.client === event.only) res.write(line);
     for (const poll of polls) poll();
   };
   // The dev loop's running builds (LLP 1122 D4): registered on its streams,
@@ -478,7 +478,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     async function longPoll() {
       const after = request?.after ?? seq;
       const answer = () => {
-        const since = events.filter(e => e.seq > after && (!e.to || e.to === request?.client));
+        const since = events.filter(e => e.seq > after && (!e.only || e.only === request?.client));
         // Fewer kept than asked for, or a number from before this server
         // started: the client missed some, and reads again.
         const missed = (request?.epoch !== undefined && request.epoch !== epoch) || after > seq || after < seq && (events[0]?.seq ?? seq + 1) > after + 1;

@@ -79,6 +79,8 @@ check('a held state is the real one, until real input, its disabling or its goin
     expect(await evaluate(`['data-pressed', 'data-exact-painting'].map(a => document.getElementById('card').hasAttribute(a))`)).toEqual([true, true]);
     expect(await face()).toBe('color(srgb 0 0 1)');
     expect((await evaluate('exact.heldOf(document.getElementById("card"))')).held).toEqual({ state: 'active', rows: [{ name: 'press_background_color', value: 'rgba(0,0,255,1)' }] });
+    // The element it was named on answers too, with the press's rows.
+    expect((await evaluate('exact.heldOf(document.getElementById("label"))')).held.rows).toEqual([{ name: 'press_background_color', value: 'rgba(0,0,255,1)' }]);
     // A node no press reaches holds none, said why.
     expect((await hold('plain', 'active')).reason).toBe('gone');
     expect(await dropped()).toEqual(['replaced']);

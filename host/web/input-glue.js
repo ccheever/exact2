@@ -348,11 +348,11 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (state != null && !["active", "hover", "focus-visible"].includes(state)) return { error: "holdState is active, hover, focus-visible or null", malformed: true };
     letGo("replaced");
     if (state == null) return { held: null };
-    // `active`: the node with the press (or the link) the press resolves to, as a real press's (theme2's 07:48).
-    const node = state === "active" ? el?.closest?.("[data-exact-on~=press],a[data-view][href]") : el;
+    // `active`: the innermost node with a press handler, as a real press's (theme2's 07:48); none there is `gone`.
+    const node = state === "active" ? el?.closest?.("[data-exact-on~=press]") : el;
     if (!node?.isConnected || !root.contains(node)) return { reason: "gone", error: state === "active" ? "no press there: the node presses nothing, nor does any around it" : "the node is not on the page" };
     if (node.closest(DISABLED)) return { reason: "disabled", error: "a disabled node holds no state" };
-    held = { el: node, state, dropped };
+    held = { el: node, asked: el, state, dropped };
     watch.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["disabled"] });
     if (state === "active") {
       if (press?.el === node) press = null;
@@ -362,12 +362,14 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     return { held: state, el: node };
   };
   globalThis.exact.holdQuiet = () => letGo(null);
-  // What is held on `el`, for `layout` and inspect (LLP 1122 D8): its state and the rows that state shows, by their
+  // What is held on `el` (or on the press it resolved to, `el` named), for `layout` and inspect (LLP 1122 D8): its
+  // state and the rows that state shows, by their
   // wire names: a press's paint rows (`:active` lowered to them), else the state look's rows in the looks sheet
   // (its `[data-exact-held~=…]` rule). The rows' places are the server's to join, from the source map.
   const WIRE = { "--exact-press": "press_scale", "--exact-press-background-color": "press_background_color", "--exact-press-color": "press_color", "--exact-press-opacity": "press_opacity", "--exact-press-opacity-to": "press_opacity_to" };
   globalThis.exact.heldOf = (el) => {
-    if (!held || held.el !== el) return null;
+    if (!held || (held.el !== el && held.asked !== el)) return null;
+    el = held.el;
     const rows = [];
     if (held.state === "active") for (const [prop, name] of Object.entries(WIRE)) { const value = el.style.getPropertyValue(prop).trim(); if (value) rows.push({ name, value }); }
     else for (const sheet of document.styleSheets) {

@@ -3635,10 +3635,16 @@ Built to the approved plan (`~/x2theme/x2p4-s8e-plan.md`; theme2's 07:48 ruling 
 - **After review round 1 (Astra, Grok):**
   - Revisions: every hold frame, a replay included, has a new one, and only a report naming the last one sent counts (`held` requires it). A late echo or a superseded frame's `replaced` is dropped. A let-go at that revision ends the hold, an agent's hold in its place included.
   - A registration with no hold is sent `hold: null`; a replay that finds no single site sends `hold: null` as well as `hold-cleared`. A hold or its end announces `builds`.
-  - A hold `unsupported` is checked against the hold revision, not the pin's; it ends the hold and goes to its owner alone (07:48 (c); an event's `to`, which the subscription and the long poll honour).
+  - A hold `unsupported` is checked against the hold revision, not the pin's; it ends the hold and goes to its owner alone (07:48 (c); an event's `only`, which the subscription and the long poll honour).
   - The wasm dev loop's new generation lets the hold go unsaid (`exact.holdQuiet`, before the tree goes) and takes it again itself under the same plan; under another, the server's replay does once the status names it.
   - The JS target: hold frames run one at a time, and one a newer frame replaced while it waited is dropped; the runtime is imported from beside `app.js`; `layout` and the selection carry `held`.
   - No single view there lets the previous hold go too. Instance paths compare with sorted keys.
-  - `active` resolves to a press handler or a link only (07:48), not a bare styled button. A real press on the node as it is held ends there: its release leaves the held paint.
+  - `active` resolves to the innermost press handler only (07:48), not a bare styled button. A real press on the node as it is held ends there: its release leaves the held paint.
   - Looks held snap, on and off, an authored transition or not. The pointer or the focus leaving the node lets a hover or a focus go.
   - Held rows a token or a role writes carry `computed`, and the held answer says `provenance: "incomplete"`.
+- **After review round 2 (Astra, Grok):**
+  - The wasm loop: only the latest hold frame applies (a same-plan replay queued before a newer clear does not), and a frame a generation swap overtook while it waited is left unsaid to `rehold` (same plan) or the server's replay; a clear always applies. Taking the same frame again (resent, or `rehold`'s) reports no `replaced`; the JS target likewise.
+  - The JS target: an instance path that does not resolve matches nothing (not the empty path); an unreadable inspect table lets the previous hold go and refuses this one by name.
+  - The server: a let-go closes its revision (a late applied report of it is dropped); an applied report with no hold kept applies nothing; a hold `unsupported` clears `held`; a hold taken before the build named a plan takes the first plan it names; the owner-only field is `only` (`to` stays the inspect handoff's).
+  - `active` resolves to the innermost press handler only, as the ruling says; `heldOf` answers for the element named too (a label inside the press), with the press's rows.
+  - The wasm agent's `holdState` waits for the glue as the JS agent's does. `hello`'s builds name `hold` and `held`.

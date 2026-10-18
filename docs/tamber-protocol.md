@@ -168,9 +168,10 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 **`hello`** answers:
 - `protocol` and `format`;
 - `builds` (*1.2*): the registered development builds with an open stream, each `{id, host,
-  capabilities, inspector, plan, planDigest, design, status, pin, pinRevision, unsupported}`
-  (`pinRevision` and `unsupported` *1.3*; `inspector`, the client whose inspect mode it is in or
-  null, *1.6*; see [The build channel](#the-build-channel-llp-1122-d4-12));
+  capabilities, inspector, plan, planDigest, design, status, pin, pinRevision, hold, held,
+  unsupported}` (`pinRevision` and `unsupported` *1.3*; `inspector`, the client whose inspect mode
+  it is in or null, *1.6*; `hold`, the hold the server keeps for it, and `held`, its last `held`
+  report's `{state, reason}`, *1.11*; see [The build channel](#the-build-channel-llp-1122-d4-12));
 - `files`;
 - `app`: the app's directory, absolute (*1.1*);
 - `epoch`: this run of the server, the same value its events carry (*1.1*);
@@ -974,7 +975,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
   included, has a new revision. Only a report naming the last hold frame's revision counts (an
   older one is dropped, 204): a `held` report is then every client's event (`held {build, state,
   reason}`), and one that lets the hold go ends it at the server too; a hold `unsupported` ends it
-  and is its owner's `unsupported` event alone (theme2's 07:48 (c): `to` names the client, and no
+  and is its owner's `unsupported` event alone (theme2's 07:48 (c): `only` names the client, and no
   other subscription or poll sees it). A hold or its end announces `builds`. Holds
   are not kept across a server restart, as pins are not.
 - **A selection joined to source** (*1.3*, LLP 1122 D5). The server takes a `selected` report

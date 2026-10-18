@@ -193,6 +193,8 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
   const replayHold = (id, plan, always = false) => {
     const h = holds.get(id);
     if (!h) { if (always) sendHold(id, null); return; }
+    // Held before the build named its plan: the first plan it names is the one held under.
+    if (!h.plan && plan && !always) { h.plan = plan; return; }
     if (h.plan && plan && h.plan !== plan) {
       const site = correspond(h.plan, plan, h.hold.site);
       if (site == null) {
@@ -362,7 +364,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         const was = b.planDigest;
         if ('planDigest' in r) b.planDigest = r.planDigest ?? null;
         // A rebuild that kept its stream: its hold, under its new plan.
-        if (b.planDigest && was && b.planDigest !== was) replayHold(b.id, b.planDigest);
+        if (b.planDigest && b.planDigest !== was) replayHold(b.id, b.planDigest);
         if (typeof r.design === 'string') b.design = r.design;
         send({ event: 'build-status', build: shown(b) });
       } else if (r.kind === 'held') {
@@ -373,10 +375,11 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         // frame (a late echo, the `replaced` of the frame that replaced it)
         // is old news. A let-go at that revision ends the hold: the host's
         // own (input, disabled, gone), or an agent's hold in its place.
+        // A let-go closes the revision: a late report of it applies nothing.
         const h = holds.get(b.id);
-        if (r.revision !== holdSent.get(b.id)) return { status: 204, body: null };
+        if (r.revision !== holdSent.get(b.id) || (r.state !== null && !h)) return { status: 204, body: null };
         b.held = { state: r.state ?? null, reason: r.reason ?? null };
-        if (r.state === null && h) { holds.delete(b.id); announce(); }
+        if (r.state === null) { holdSent.set(b.id, null); if (h) { holds.delete(b.id); announce(); } }
         log(`build ${b.id}: ${r.state ? `holds ${r.state}` : `let go${r.reason ? ` (${r.reason})` : ''}`}`);
         send({ event: 'held', build: b.id, state: r.state ?? null, reason: r.reason ?? null });
       } else if (r.kind === 'unsupported') {
@@ -387,7 +390,9 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
           const h = holds.get(b.id);
           if (r.revision !== holdSent.get(b.id) || !h) return { status: 204, body: null };
           holds.delete(b.id);
-          send({ event: 'unsupported', build: b.id, what: 'hold', detail: r.detail ?? null, to: h.client });
+          holdSent.set(b.id, null);
+          b.held = null;
+          send({ event: 'unsupported', build: b.id, what: 'hold', detail: r.detail ?? null, only: h.client });
           announce();
           return { status: 204, body: null };
         }

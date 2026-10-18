@@ -221,7 +221,10 @@ if (es) {
     apply: async (candidate, current) => {
       if (!current()) return false;
       const t = performance.now();
-      const accepted = await globalThis.exact.reloadGeneration(candidate.plan, candidate.assets, current, candidate.module, candidate.rust, true);
+      // (A hold command meanwhile is the new generation's: `rehold` or the server's replay has it.)
+      swaps += 1;
+      let accepted = false;
+      try { accepted = await globalThis.exact.reloadGeneration(candidate.plan, candidate.assets, current, candidate.module, candidate.rust, true); } finally { swaps -= 1; if (!accepted) rehold(); }
       if (accepted) {
         navigator.sendBeacon(`/__dev/reloaded?epoch=${candidate.epoch}&seq=${candidate.seq}&dom=${Date.now()}&fetch=${candidate.fetchMs.toFixed(1)}&boot=${(performance.now() - t).toFixed(1)}`);
         requestAnimationFrame(() => navigator.sendBeacon(`/__dev/painted?epoch=${candidate.epoch}&seq=${candidate.seq}&paint=${Date.now()}`));
@@ -339,7 +342,8 @@ if (es) {
   // nonce, reports its effective facts, and takes `pin` and `inspect` from
   // the design server's clients; the other commands are reserved, and
   // answered unsupported. Every report waits for the stream's registration.
-  const channel = { nonce: null, registered: null, revision: null, before: null, held: null, hold: null, plan: null, told: null };
+  const channel = { nonce: null, registered: null, revision: null, before: null, held: null, hold: null, holdLatest: null, plan: null, told: null };
+  let applying = null;
   // The tab's own id, kept across its reloads (sessionStorage); a duplicated
   // tab, which copies that storage, takes another when this one answers.
   const buildId = (async () => {
@@ -707,14 +711,21 @@ if (es) {
   // A new generation's tree takes the hold again (the glue let it go unsaid with the old tree): under the same plan
   // here; under another the server replays it, its site corresponded, once the status says the new plan.
   const canonical = (v) => JSON.stringify(v ?? [], (_, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
+  let swaps = 0;
   const rehold = async () => {
     const kept = channel.hold;
-    if (kept && (await planDigest()) === kept.digest && channel.hold === kept) command(kept.frame);
+    if (kept && (await planDigest()) === kept.digest && channel.hold === kept && channel.holdLatest === kept.frame) command(kept.frame);
   };
   const hold = async (frame) => {
     for (let i = 0; i < 40 && !globalThis.exact.hold; i++) await new Promise((ok) => setTimeout(ok, 50)); // the input glue loads after paint
+    // Only the latest frame applies (a replay queued before a newer clear does not), and only on the tree it was
+    // resolved against: one a new generation overtook is left to `rehold` or the server's replay, unsaid.
     const holds = globalThis.exact.hold, h = frame.hold, revision = frame.revision;
-    channel.hold = h ? { frame, digest: await planDigest() } : null;
+    if (channel.holdLatest !== frame) return;
+    const gen = generations, digest = await planDigest();
+    if (channel.holdLatest !== frame) return;
+    if (h && (swaps || gen !== generations)) { channel.hold = { frame, digest }; if (!swaps) rehold(); return; }
+    channel.hold = h ? { frame, digest } : null;
     if (!holds) { report({ kind: "unsupported", what: "hold", detail: "the input glue is not loaded", revision }); return; }
     if (!h) { holds(null); report({ kind: "held", state: null, revision }); return; }
     let found = null, two = false;
@@ -724,8 +735,15 @@ if (es) {
       if (node.site === h.site && canonical(node.instance) === canonical(h.instance)) { if (found != null) { two = true; break; } found = id; }
     }
     const el = found != null && !two ? globalThis.exact.views.get(found) : null;
+    applying = revision;
     // (No one view there: the one held before is let go too.)
-    const r = el ? holds(el, h.state, (reason) => { if (channel.hold?.frame === frame) channel.hold = null; report({ kind: "held", state: null, reason, revision }); }) : (holds(null), { reason: "gone" });
+    const r = el ? holds(el, h.state, (reason) => {
+      // (The same frame taken again, a resent one or `rehold`'s, replaces nothing.)
+      if (reason === "replaced" && applying === revision) return;
+      if (channel.hold?.frame === frame) channel.hold = null;
+      report({ kind: "held", state: null, reason, revision });
+    }) : (holds(null), { reason: "gone" });
+    applying = null;
     if (r.reason && channel.hold?.frame === frame) channel.hold = null;
     report(r.reason ? { kind: "held", state: null, reason: r.reason, revision } : { kind: "held", state: h.state, revision });
   };
@@ -786,6 +804,7 @@ if (es) {
       return;
     }
     if (message.kind === "tamber-batch" || message.kind === "tamber-snapshot") { design(message); return; }
+    if (message.kind === "hold") channel.holdLatest = message;
     if (message.kind === "pin" || message.kind === "inspect" || message.kind === "outline" || message.kind === "hold") { command(message); return; }
     if (message.hello && message.nonce && message.nonce !== channel.nonce) {
       const nonce = channel.nonce = message.nonce;
