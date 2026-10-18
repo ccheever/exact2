@@ -232,7 +232,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       // which moves no file of the app's): read again, its names kept
       // meanwhile and no alias offered.
       if (report.selected.planDigest && report.selected.planDigest !== params.plan) learnParams(null, report.selected.planDigest);
-      const selection = join(build, report.selected, map, { served: designServed(), design: designPath(appDir), params: params.map });
+      const selection = join(build, report.selected, map, { served: designServed(), design: designPath(appDir), params: params.map, app: appDir, own: known.size ? new Set(ownContracts()) : null });
       send({ event: 'selection', seq: ++seq, epoch, ...selection });
       // Outlined as the client that owns inspect mode on that build, naming
       // the click it answers (its page does not scroll for it).

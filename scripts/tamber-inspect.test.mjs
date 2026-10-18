@@ -3,11 +3,11 @@
 // editability, and the sites to outline.
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join as joinPath } from 'node:path';
 import { buildChannel } from './tamber-builds.mjs';
-import { correspondingSite, current, editable, join, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, staleMap } from './tamber-inspect.mjs';
+import { correspondingSite, current, editable, join, stateRung, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, staleMap } from './tamber-inspect.mjs';
 
 const sha = text => createHash('sha256').update(text).digest('hex');
 
@@ -88,7 +88,8 @@ test('an `:active` row lowered to the press paint is joined at its part, read-on
       ['press_background_color', 'active', 9, 'token'],
       ['press_color', 'active', 10, null],
     ]);
-    expect(s.rows[1].editable.reason).toContain('set-state');
+    // Written on the node itself (no style): `set-row` edits it, with T5.
+    expect(s.rows[1].editable.reason).toContain('set-row');
     // `uses` names the part's own place; outlining it finds the node.
     expect(sitesAt(map, part)).toEqual([0]);
     // What is held (LLP 1122 D8): an `:active` row at its part, named by its state.
@@ -178,6 +179,77 @@ test('a row that reads a component param joins on the param rung, by its full na
   writeFileSync(post, 'post, edited');
   expect(join({ id: 'web-1' }, selected, map, { params }).rows[0].editable).toMatchObject({ rung: null, link: 'post.contract#PostButton.fill' });
   rmSync(dir, { recursive: true, force: true });
+});
+
+test('a style\'s state part row joins on the state rung for set-state, the default: its style as its file declares it, the row as written, its file and text; a token it reads offered beside; a held one where the build names the held node; a package\'s refused (LLP 1122 T4)', () => {
+  const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-state-'));
+  try {
+    const post = joinPath(dir, 'post.contract');
+    const text = ['component X', '  view', '    text "x"', '', 'style Card', '  color="white"', '  :active', '    background-color="primary_600"', '    opacity=0.8', '    color="red"', ''].join('\n');
+    writeFileSync(post, text);
+    // The map's span names the attribute (the compiler's), not its value.
+    const at = (line, attr) => ({ file: post, line, col: 5, end_col: 5 + attr.split('=')[0].length });
+    const pkg = joinPath(dir, 'node_modules', 'ui', 'card.contract');
+    mkdirSync(joinPath(dir, 'node_modules', 'ui'), { recursive: true });
+    writeFileSync(pkg, 'pkg');
+    // The compiler renamed this file's `style Card` (another file has one): the map says Card__post.
+    const map = { digest: 'p1', sources: [{ file: post, sha256: sha(text) }, { file: pkg, sha256: sha('pkg') }], nodes: [
+      { file: post, line: 3, col: 5, end_col: 11, component: 'X', chain: [], bindings: [
+        { row: 'press_background_color', origin: 'class:Card__post', state: 'active', at: at(8, 'background-color="primary_600"') },
+        { row: 'press_opacity_to', origin: 'class:Card__post', state: 'active', at: at(9, 'opacity=0.8') },
+        { row: 'press_color', origin: 'class:A/B', state: 'active', at: at(10, 'color="red"') },
+        { row: 'press_scale', origin: 'class:Pkg', state: 'active', at: { file: pkg, line: 3, col: 5, end_col: 9 } },
+      ] },
+      { file: post, line: 1, col: 1, end_col: 2, component: 'X', chain: [], bindings: [{ row: 'press_opacity_to', origin: 'class:Card__post', state: 'active', at: at(9, 'opacity=0.8') }] },
+    ] };
+    const selected = { node: 1, site: 0, instance: [], rows: [
+      { name: 'press_background_color', value: '#00f', source: 'authored', token: { names: ['primary_600'], text: 'primary_600', modes: '', implied: false } },
+      { name: 'press_opacity_to', value: 0.8, source: 'authored' },
+      { name: 'press_color', value: '#f00', source: 'authored' },
+      { name: 'press_scale', value: 0.95, source: 'authored' },
+    ] };
+    const s = join({ id: 'web-1' }, selected, map, { app: dir });
+    const state = { rung: 'state', style: 'Card', state: 'active', file: 'post.contract' };
+    expect(s.rows[0].editable).toEqual({ ...state, row: 'background-color', text: 'primary_600', token: 'primary_600' });
+    expect(s.rows[1].editable).toEqual({ ...state, row: 'opacity', text: '0.8' });
+    // Under a conditional class: no one style to edit.
+    expect(s.rows[2].editable.rung).toBe(null);
+    // A package's style: read-only, said so.
+    expect(s.rows[3].editable).toMatchObject({ rung: null, reason: expect.stringContaining("a package's style") });
+    // Held, where the build names the held node (stage 9 E's site): offered there; else shown only.
+    const heldAt = { state: 'active', site: 1, rows: [{ name: 'press_opacity_to', value: '0.8' }] };
+    expect(join({ id: 'web-1' }, { ...selected, held: heldAt }, map, { app: dir }).held.rows[0].editable).toEqual({ ...state, row: 'opacity', text: '0.8' });
+    expect(join({ id: 'web-1' }, { ...selected, held: { state: 'active', rows: heldAt.rows } }, map, { app: dir }).held.rows[0].editable).toBe(undefined);
+    // A file the server does not count as the app's own (a vendored package's): refused.
+    expect(join({ id: 'web-1' }, selected, map, { app: dir, own: new Set(['app.contract']) }).rows[1].editable).toMatchObject({ rung: null, reason: expect.stringContaining("a package's style") });
+    expect(join({ id: 'web-1' }, selected, map, { app: dir, own: new Set(['post.contract']) }).rows[1].editable.rung).toBe('state');
+    // The held node's part in another file, moved since: nothing offered, the selected node's files unmoved.
+    const styles = joinPath(dir, 'styles.contract'), was = 'style Press\n  :active\n    opacity=0.5\n';
+    writeFileSync(styles, was);
+    const two = { ...map, sources: [...map.sources, { file: styles, sha256: sha(was) }], nodes: [...map.nodes, { file: post, line: 2, col: 3, end_col: 7, component: 'X', chain: [], bindings: [{ row: 'press_opacity_to', origin: 'class:Press', state: 'active', at: { file: styles, line: 3, col: 5, end_col: 12 } }] }] };
+    const heldTwo = { ...selected, held: { state: 'active', site: 2, rows: heldAt.rows } };
+    expect(join({ id: 'web-1' }, heldTwo, two, { app: dir }).held.rows[0].editable).toEqual({ ...state, style: 'Press', file: 'styles.contract', row: 'opacity', text: '0.5' });
+    writeFileSync(styles, `style Other\n${was}`);
+    const moved = join({ id: 'web-1' }, heldTwo, two, { app: dir });
+    expect(moved.readOnly).toBeTruthy();
+    expect(moved.held.rows[0].editable).toBe(undefined);
+    // The value as written: a whole literal only, bare, quoted or in parentheses; else none (the editor starts empty).
+    const textOf = line => stateRung({ name: 'press_background_color' }, { state: 'active', origin: 'class:Card', at: { file: post, line: 2, col: 5, end_col: 21 } }, dir, () => `style Card\n    ${line}\n`)?.text;
+    expect(textOf('background-color=("accent.fill")')).toBe('accent.fill');
+    expect(textOf('background-color = accent.fill // a note')).toBe('accent.fill');
+    expect(textOf('background-color=""')).toBe('');
+    expect(textOf('background-color=("accent.fill"')).toBe(undefined);
+    expect(textOf('background-color="a \\"b\\""')).toBe(undefined);
+    expect(textOf('background-color=mix(accent.fill, white)')).toBe(undefined);
+    expect(textOf('opacity=0.8//note')).toBe('0.8');
+    expect(textOf('opacity=0.8 color="red"')).toBe('0.8');
+    expect(textOf('background-color="a b" color="red" // c')).toBe('a b');
+    // A file moved since: nothing offered.
+    writeFileSync(post, `${text}// edited\n`);
+    expect(join({ id: 'web-1' }, selected, map, { app: dir }).rows[1].editable.rung).toBe(null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // LLP 1122 D8 (the lead's 18:30, amending theme2's 07:48 (a)): a held site

@@ -178,11 +178,43 @@ const scrubbed = (rows, params) => (rows ?? []).map(r => (r.token ? { ...r, toke
 // A held state's rows (LLP 1121 stage 8 E), scrubbed as the selection's.
 const heldOf = (held, params) => ({ ...held, rows: scrubbed(held.rows, params) });
 
+// A row by the name its author wrote: an `:active` part's as the press paint carries it (AUTHORED, below).
+const authored = name => AUTHORED[name] ?? String(name).replace(/_/g, '-');
+
+/** A state part's row as `set-state` addresses it (LLP 1122 T4, tamber/1.12):
+ * the style whose part writes it, by the name its file declares it with
+ * (the compiler may rename a second `style Card` in another file), the
+ * state, the row as written, the style's file relative to the app, and the
+ * row's value as written there (`text`, what an editor starts from). Null
+ * for a row a node writes itself (no style) or under a conditional class;
+ * a reason for a style outside the app's own files (a package's, vendored
+ * or linked ones included: `own`, the server's own Contract sources by
+ * app-relative path, when it is given), which no operation writes. */
+export function stateRung(row, b, app, read = readFileSync, own = null) {
+  if (!b?.state || !b.at?.file) return null;
+  if (!/^class:[A-Za-z_][\w-]*$/.test(b.origin ?? '')) return null;
+  const rel = app && b.at.file.startsWith(`${app}/`) ? b.at.file.slice(app.length + 1) : null;
+  if (!rel || b.at.file.includes('/node_modules/') || (own && !own.has(rel))) return { rung: null, reason: `a package's style (${b.origin.slice(6)}): read-only here` };
+  let lines;
+  try { lines = String(read(b.at.file)).split('\n'); } catch { return null; }
+  // Its `style` line: the nearest above the part's row, at the line's start.
+  let style = null;
+  for (let i = b.at.line - 1; i >= 0 && !style; i--) style = /^style\s+([A-Za-z_][\w-]*)/.exec(lines[i] ?? '')?.[1] ?? null;
+  if (!style) return null;
+  // The row's value as written: the attribute the span names starts there.
+  // Only a whole one-literal value (a string, bare or in parentheses, with no
+  // escape), then the line's end, a comment or another attribute, is read;
+  // else none, and an editor starts empty.
+  const m = /^[\w-]+\s*=\s*(\(\s*)?(?:"([^"\\]*)"|((?:(?!\/\/)[^\s"()\\])+))\s*(\))?(?:\s*$|\s*\/\/.*$|\s+[\w-]+\s*=.*$)/.exec((lines[b.at.line - 1] ?? '').slice(Math.max(0, b.at.col - 1)));
+  const text = m && !m[1] === !m[4] ? m[2] ?? m[3] : null;
+  return { rung: 'state', style, state: b.state, row: authored(row.name), file: rel, ...(text != null ? { text } : {}) };
+}
+
 /** Each row's editability: the token or param rung, or why not (D5, D6). Fails
  * closed: the rung only for a row the node itself sets (`authored`, its own
  * attribute in the map) whose whole value is one token; every other row
  * says why, and links the tokens it reads. */
-export function editable(row, origin, params = new Map(), unread = false) {
+export function editable(row, origin, params = new Map(), unread = false, state = null) {
   const names = row.token?.names ?? [];
   // (A param, by its full name, is a link too: the tool opens the param.)
   const isParam = n => [...params.values()].some(p => p.param === n);
@@ -194,11 +226,20 @@ export function editable(row, origin, params = new Map(), unread = false) {
   if (row.source !== 'authored') return { rung: null, reason: `a row whose source is ${row.source ?? 'not known'}: read-only here`, link };
   if (row.token?.implied) return { rung: null, reason: 'a mode boundary sets it: read-only here', link };
   if (origin == null) return { rung: null, reason: 'the source map does not say where this row is set: read-only', link };
+  // A style's state part row (T4): the state rung, the default (D6); the
+  // token its whole value is, offered beside it, never the default.
+  if (state) {
+    if (!state.rung) return { ...state, link };
+    const text = String(row.token?.text ?? '').trim(), one = names.length === 1 && declared(names[0]) && (text === names[0] || text.replace(/^-exact-/, '') === names[0]);
+    return one ? { ...state, token: names[0] } : state;
+  }
   if (origin.startsWith('class:') && origin.includes('/')) return { rung: null, reason: `a conditional class (${origin.slice(6)}): refused here`, link };
   if (origin.startsWith('class:')) return { rung: null, reason: `a style's row (${origin.slice(6)}): comes with template editing (T5)`, link };
   if (origin !== 'own') return { rung: null, reason: 'the tag\'s own row: comes with template editing (T5)', link };
   // @ref LLP 1121 D8 — an `:active` row lowered to the press paint: its part's to edit.
-  if (!names.length && row.state) return { rung: null, reason: `a \`:${row.state}\` part's row: \`set-state\` edits it` };
+  // A state part's row: its style's part is edited by `set-state` (T4); one
+  // a node writes itself waits for `set-row` (T5).
+  if (!names.length && row.state) return { rung: null, reason: `an inline \`:${row.state}\` row on the node: \`set-row\` edits it (T5)` };
   if (!names.length) return { rung: null, reason: 'a value, not a token: setting a row comes with T5' };
   // Its whole value is the token: its name, or the role spelling the runner
   // resolved to it (`-exact-secondary-label` for `secondary-label`).
@@ -216,7 +257,7 @@ const AUTHORED = { press_background_color: 'background-color', press_color: 'col
 
 /** A build's selection joined to source, for the `selection` event, from
  * `map` (null when the build's map is not here). */
-export function join(build, selected, map, { read = readFileSync, served = null, design = null, params = new Map() } = {}) {
+export function join(build, selected, map, { read = readFileSync, served = null, design = null, params = new Map(), app = null, own = null } = {}) {
   const base = { build: build.id, node: selected.node, site: selected.site, instance: selected.instance, tuple: selected.tuple, trimmed: !!selected.trimmed, ...(selected.held ? { held: heldOf(selected.held, params) } : {}) };
   const rows = (selected.rows ?? []).map(r => { const n = named(r.token, params); return { ...r, ...(r.token ? { token: n.token } : {}), unread: n.unread }; });
   if (!map) return { ...base, source: null, rows: rows.map(({ unread, ...r }) => ({ ...r, editable: { rung: null, reason: 'no source map for this build\'s plan' } })), readOnly: 'no source map for this build\'s plan' };
@@ -236,12 +277,15 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   if (base.held) {
     const ownerBound = owner === node ? bound : new Map((owner?.bindings ?? []).map(b => [b.row, b]));
     const ownerSource = owner === node ? source : owner && { file: owner.file, line: owner.line, col: owner.col, end_col: owner.end_col, component: owner.component, chain: owner.chain ?? [] };
+    // Edited where it is held (T4): only where the build names that node (its held site); else shown, not offered.
+    const named = Number.isSafeInteger(base.held.site) && !!owner;
     base.held = { ...base.held, rows: (base.held.rows ?? []).map(r => {
       const b = ownerBound.get(r.name);
       // An `:active` row is named as its author wrote it, under its part (theme2's 16:13 (2)), the press row it
       // lowered to beside it (`row`).
       const authored = b?.state ? AUTHORED[r.name] ?? null : null;
-      return { ...r, ...(authored ? { name: authored, row: r.name } : {}), state: base.held.state, source: b?.state ? b.at ?? null : ownerSource ?? null };
+      const offered = !named || readOnly ? null : editable({ ...r, source: 'authored', state: b?.state }, b?.origin ?? null, params, false, stateRung(r, b, app, read, own));
+      return { ...r, ...(authored ? { name: authored, row: r.name } : {}), state: base.held.state, source: b?.state ? b.at ?? null : ownerSource ?? null, ...(offered ? { editable: offered } : {}) };
     }) };
   }
   return {
@@ -256,7 +300,7 @@ export function join(build, selected, map, { read = readFileSync, served = null,
       const written = b?.at && !b.state ? { at: { ...b.at, ...(sha(b.at.file) ? { sha256: sha(b.at.file) } : {}) }, attr: b.attr } : {};
       const part = b?.state ? { state: b.state, at: b.at ?? null } : written;
       const { unread, ...row } = r;
-      const offered = editable({ ...row, ...part }, origin, params, unread);
+      const offered = editable({ ...row, ...part }, origin, params, unread, stateRung(row, b, app, read, own));
       return { ...row, origin, ...part, editable: readOnly ? { rung: null, reason: readOnly, link: offered.link ?? offered.param ?? offered.token ?? null } : offered };
     }),
   };
