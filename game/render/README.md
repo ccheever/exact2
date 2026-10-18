@@ -757,8 +757,11 @@ until it has, and the driver asks again.
   transparent, counts nothing. The depth test is the shader's, on the scene's
   depth, because a fragment's storage writes stand even when a depth test after
   the shader drops it, and Metal runs that test after a shader that writes memory;
-  so a look frame with particles draws its translucency in its own pass, as soft
-  particles do. build.rs assembles every quad module, validates it with naga, and
+  so a look frame with particles draws its translucency in a pass of its own, as
+  soft particles do, over the attachments the live frame draws into: the HDR
+  image, or a direct frame's target, with the direct frame's format, blending and
+  resolve (its colour and depth kept between the two passes in attachments of the
+  look frame's own, so the live frame's stay transient). build.rs assembles every quad module, validates it with naga, and
   reflects the probe variants' counter group, from which the renderer takes its
   layout, binding numbers and entry points. Limits, each a gap or a stated
   meaning, not an approximation: GL has no fragment storage writes, and a scene
@@ -769,19 +772,21 @@ until it has, and the driver asks again.
 - **Shadow casters**: what the sun's shadow passes drew, read from their output.
   After the passes, a look frame counts on the GPU the texels each cascade's map
   holds nearer than its clear depth (`shaders/shadow_count.wgsl`, reflected at
-  build), and the tell reads those. The listing's caster instances come from the
+  build) into a counter it zeroes first, and the tell reads those. The listing's caster instances come from the
   shadow passes' draw records and the cull's counts for each cascade; a direct
   frame (no GPU cull, the iOS simulator) draws casters unculled and lists them
   as unknown.
 - **The cull's account** (cull.wgsl `probe`): after the passes, the cull's own
   functions run once more over every item into a buffer of the look frame's own:
-  its world sphere (swept between ticks, skinned), the views whose frustum holds it,
+  its world sphere (swept between ticks, attached, skinned; a kept-whole group's
+  items too), the views whose frustum holds it,
   whether the camera's occlusion pyramid hides it, and whether it is a level of
   detail the frame does not draw.
 - **Draws**: each draw in pass order (occluders, sun shadow cascades, local shadow
   layers, the depth prepass, forward, translucent, post) with its batch (a
   primitive shape, a model and material, a particle look or a sprite's texture),
-  winding (camera-facing for quads), pipeline variant, instances submitted and kept
+  winding (camera-facing for quads), pipeline variant (for a quad, the pipeline
+  bound at its draw), instances submitted and kept
   after culling (from the camera's, cascades' and local shadow layers' indirect
   arguments), a particle draw's counted fragments, whether it covered a sample and
   the attachments it writes (blended draws and the split translucent pass, whose
@@ -801,32 +806,42 @@ until it has, and the driver asks again.
   `outside-cascade <n>` (drawn, beyond every sun cascade), `no-particles` (an
   emitter with none live) or `drawn`. The cull's camera and cascade lists answer
   for meshes and its account says which test dropped one (`not-drawn` names a level
-  of detail not drawn when the account marks it); the CPU cull answers for
+  of detail not drawn when the account marks it, and `lod-hidden` comes from the
+  frame's level selection, its distance measured from where the frame drew the
+  entity, with the selection's hysteresis); the CPU cull answers for
   blended models; for sprites and emitters the quads' own decision this frame
   answers: a texture not resident, outside the view by the quad's own extent about
   its anchor, or drawn.
 - **Views**: the game's camera; an orbit at a yaw, pitch and distance from the
   centre of the scene; or an orthographic plan from above. An orbit or plan first
-  reads a camera frame for the scene's bounds: the cull's sphere of every culled
-  item, and the displayed geometry of what the cull leaves out (`look_bounds.rs`:
-  sprites by their quad about the anchor, emitters by their particles' reach,
-  blended models and kept-whole groups by their boxes); in a direct frame, the
-  displayed geometry of all. A skinned model's box there is its joints' spheres in
+  reads a camera frame for the scene's bounds: the cull's sphere of every item it
+  accounts for, and what else that frame drew, where it drew it (`look_bounds.rs`):
+  blended models by their boxes, and in a direct frame, which has no account,
+  every draw group's items, each at its two ticks' transform rows (read back) at
+  the frame's alpha or at its attachment matrix, as the shaders place it; sprites
+  and emitters at the matrix the quads used, by their quad about the anchor and
+  their particles' reach. A skinned model's box there is its joints' spheres in
   the frame's skin palette, read back, as the cull bounds it. The reply's `bounds`
   gives the centre and radius; that camera frame's readback counts in
   `state.world.perf.look`. Presentation only.
 
 The readback is the colour target (its size is `look.readbackBytes`), the particle
 counts, the query results, the cull's account, each cascade's written texels, the
-skin palette where a record is skinned and, for a culled frame, the indirect
-arguments and the camera's compacted lists; `state.world.perf.look` counts the look
-frames and the bytes they read back. `tests/tells.rs` holds the negative controls: a
-near-black scene, a blown-out one, particles spawned under the ground, sparks whose
-fragments are all transparent and a shadowed sun with no caster in reach each trip
-their tell on both paths, and the same scenes corrected trip none. `tests/look.rs`
-holds the coverage limits: a square seen only through samples that sample 0 misses,
-and a 0.002-alpha dot added over black, each counted. `proof-look.test.mjs` fails a
-starter's web proof on buried sparks in the browser.
+skin palette where a record is skinned, the transform rows of a frame read for its
+bounds and, for a culled frame, the indirect arguments and the camera's compacted
+lists; `state.world.perf.look` counts the look frames and the bytes they read back.
+`tests/tells.rs` holds the negative controls: a near-black scene, a blown-out one,
+particles spawned under the ground, sparks whose fragments are all transparent and a
+shadowed sun with no caster in reach each trip their tell on both paths, and the
+same scenes corrected trip none; a lit look and then a casterless one on the same
+renderer count that frame's texels alone. `tests/look.rs` holds the coverage
+limits: a square seen only through either half of one pixel column, at four
+samples, and a 0.002-alpha dot added over black, each counted.
+`src/look_frame_tests.rs` draws particles over light above one and reads the live
+frame's bytes back from the look frame on the direct and HDR paths, and bounds a
+moving blended model at a fraction of its tick and an attached one where the frame
+drew them. `proof-look.test.mjs` fails a starter's web proof on buried sparks in
+the browser.
 
 ## Residency across restore
 
