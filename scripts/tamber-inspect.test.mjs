@@ -153,6 +153,10 @@ test('a row that reads a component param joins on the param rung, by its full na
   expect(s.rows.some(r => 'unread' in r)).toBe(false);
   // The raw report the server publishes (`selected`) is scrubbed the same way.
   expect(JSON.stringify(published(selected, params))).not.toMatch(/param\.f[0-9a-f]+\./);
+  // A held state's rows too.
+  const held = { ...selected, held: { state: 'active', rows: [{ name: 'background_color', state: 'active', token: { names: [ir_('fill')], text: ir_('fill'), modes: '', implied: false } }] } };
+  expect(JSON.stringify(published(held, params))).not.toMatch(/param\.f[0-9a-f]+\./);
+  expect(JSON.stringify(join({ id: 'web-1' }, held, map, { params }))).not.toMatch(/param\.f[0-9a-f]+\./);
   expect(JSON.stringify(published(selected, new Map()))).not.toMatch(/param\.f[0-9a-f]+\./);
   // Without params read, no IR name either, and no param rung.
   const bare = join({ id: 'web-1' }, selected, map);

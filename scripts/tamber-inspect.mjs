@@ -131,6 +131,12 @@ export function paramsOf(ir) {
     const token = (p.set?.whens ?? 0) === 0 && written ? tokenOf(written) : null;
     out.set(p.token, { param: p.name, short: p.short ?? null, token, css: `var(--x-${p.token.replace(/[^A-Za-z0-9_-]/g, '-')})` });
   }
+  // Two params whose property would be one (the page suffixes the second,
+  // modes.rs) are named by neither: a page's text then says "a component
+  // param" rather than another param's name.
+  const seen = new Map();
+  for (const p of out.values()) seen.set(p.css, (seen.get(p.css) ?? 0) + 1);
+  for (const p of out.values()) if (seen.get(p.css) > 1) p.css = null;
   return out;
 }
 
@@ -139,7 +145,7 @@ export function paramsOf(ir) {
  * where `params` has none (not read yet); and whether one was. */
 function rename(text, params) {
   let unread = false;
-  const css = new Map([...params.values()].map(p => [p.css, p]));
+  const css = new Map([...params.values()].filter(p => p.css).map(p => [p.css, p]));
   const out = String(text)
     .replace(IR_PARAM, n => { const p = params.get(n); if (!p) unread = true; return p ? p.param : 'a component param'; })
     .replace(CSS_PARAM, v => { const p = css.get(v); if (!p) unread = true; return p ? p.param : 'a component param'; });
@@ -166,8 +172,11 @@ export function named(token, params) {
  * scrubbed of IR param tokens as the join's are. */
 export function published(selected, params) {
   if (!selected?.rows) return selected;
-  return { ...selected, rows: selected.rows.map(r => (r.token ? { ...r, token: named(r.token, params).token } : r)) };
+  return { ...selected, rows: scrubbed(selected.rows, params), ...(selected.held ? { held: heldOf(selected.held, params) } : {}) };
 }
+const scrubbed = (rows, params) => (rows ?? []).map(r => (r.token ? { ...r, token: named(r.token, params).token } : r));
+// A held state's rows (LLP 1121 stage 8 E), scrubbed as the selection's.
+const heldOf = (held, params) => ({ ...held, rows: scrubbed(held.rows, params) });
 
 /** Each row's editability: the token or param rung, or why not (D5, D6). Fails
  * closed: the rung only for a row the node itself sets (`authored`, its own
@@ -204,7 +213,7 @@ export function editable(row, origin, params = new Map(), unread = false) {
 /** A build's selection joined to source, for the `selection` event, from
  * `map` (null when the build's map is not here). */
 export function join(build, selected, map, { read = readFileSync, served = null, design = null, params = new Map() } = {}) {
-  const base = { build: build.id, node: selected.node, site: selected.site, instance: selected.instance, tuple: selected.tuple, trimmed: !!selected.trimmed, ...(selected.held ? { held: selected.held } : {}) };
+  const base = { build: build.id, node: selected.node, site: selected.site, instance: selected.instance, tuple: selected.tuple, trimmed: !!selected.trimmed, ...(selected.held ? { held: heldOf(selected.held, params) } : {}) };
   const rows = (selected.rows ?? []).map(r => { const n = named(r.token, params); return { ...r, ...(r.token ? { token: n.token } : {}), unread: n.unread }; });
   if (!map) return { ...base, source: null, rows: rows.map(({ unread, ...r }) => ({ ...r, editable: { rung: null, reason: 'no source map for this build\'s plan' } })), readOnly: 'no source map for this build\'s plan' };
   const node = map.nodes[selected.site];

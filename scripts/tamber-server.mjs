@@ -226,7 +226,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       // (A selection that does not name its plan joins with no map: read-only.)
       const map = report.selected.planDigest ? mapOf(report.selected.planDigest) : null;
       // A plan the params were not read for (a package's component changed,
-      // which moves no file of the app's): read again, the map kept meanwhile.
+      // which moves no file of the app's): read again, its names kept
+      // meanwhile and no alias offered.
       if (report.selected.planDigest && report.selected.planDigest !== params.plan) learnParams(null, report.selected.planDigest);
       const selection = join(build, report.selected, map, { served: designServed(), design: designPath(appDir), params: params.map });
       send({ event: 'selection', seq: ++seq, epoch, ...selection });
@@ -294,6 +295,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // A hand edit competes with a scrub as a write does.
     if (!rest.client && edited.length) scrubs.compete();
     if (edited.length || rest.client) send({ event: 'changed', seq: ++seq, epoch, ...rest, files: Object.fromEntries(known), edited });
+    // A write's files are the design's now: its params are read again.
+    if (edited.length) learnParams(Object.fromEntries(known));
   };
 
   // The server gone (never started, the lock another's, exited): every
@@ -384,7 +387,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const failed = () => { if (at === params.reading) { params.key = null; params.plan = null; } };
     ask({ method: 'describe' }).then(r => {
       if (at !== params.reading) return;
-      if (r?.ok?.ir) params.map = paramsOf(r.ok.ir);
+      // Of the files this read was for, or not kept (they moved meanwhile).
+      const of = r?.ok?.files ? JSON.stringify(Object.entries(r.ok.files).sort()) : null;
+      if (r?.ok?.ir && (!files || of === key)) params.map = paramsOf(r.ok.ir);
       else failed();
     }, failed);
   };
