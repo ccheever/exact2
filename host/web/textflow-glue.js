@@ -305,7 +305,12 @@ function paintContent(span, fragment, state, lineHeight) {
         }
         forwarded.exactStopped = e.exactStopped; forwarded.$stopped = e.$stopped;
         if (e.defaultPrevented) forwarded.preventDefault();
-        if (!original.dispatchEvent(forwarded)) e.preventDefault();
+        try {
+          if (!original.dispatchEvent(forwarded)) e.preventDefault();
+        } finally {
+          // A retained copy's next dispatch must capture through its own live ancestors.
+          delete forwarded.exactFlowCapture;
+        }
         if (keyboard) {
           e.exactStopped = forwarded.exactStopped; e.$stopped = forwarded.$stopped;
         }

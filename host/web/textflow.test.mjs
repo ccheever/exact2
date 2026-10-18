@@ -702,13 +702,18 @@ browserTest('flowed keys reach ancestors once in both web runtimes', async () =>
   }
 }, 60000);
 
-for (const scenario of ['redispatch', 'commits']) browserTest(`flowed keys preserve ${scenario}`, async () => {
+for (const scenario of ['redispatch', 'retained copies', 'commits']) browserTest(`flowed keys preserve ${scenario}`, async () => {
   const results = await inChrome(flowKeyFixture, undefined, {
     '/glue.js': new URL('./glue.js', import.meta.url).pathname,
   }, true);
   for (const { runtime, nested, redispatch } of results) {
     if (scenario === 'redispatch') for (const [first, second] of redispatch) {
       expect({ runtime, nested, heard: second }).toEqual({ runtime, nested, heard: first });
+    }
+  }
+  if (scenario === 'retained copies') for (const { runtime, nested, retainedCopies } of results) {
+    for (const { site, first, repeats } of retainedCopies) {
+      expect({ runtime, nested, site, repeats }).toEqual({ runtime, nested, site, repeats: [first, first] });
     }
   }
   if (scenario === 'commits') expect(results.map(({ runtime, nested, commits }) => ({ runtime, nested, commits }))).toEqual(
@@ -789,7 +794,7 @@ async function flowKeyFixture() {
     await flow.settle();
     const clone = paragraph.querySelector('[data-flow-fragment] a');
     if (!clone || clone === original) throw Error('fixture must key a flowed clone');
-    const flowed = deliver(clone), redispatch = [], commits = [];
+    const flowed = deliver(clone), redispatch = [], commits = [], retainedCopies = [];
     for (const type of ['keydown', 'keyup']) {
       const event = new KeyboardEvent(type, { key: 'b', bubbles: true });
       const deliveries = [];
@@ -808,12 +813,25 @@ async function flowKeyFixture() {
           if (!target || original.isConnected) throw Error('commit case must start with a detached original');
           commitAt = site; heard.length = 0;
           const oldWrites = writes(), oldBubbles = bubbles();
-          target.dispatchEvent(new KeyboardEvent(site === 'up' ? 'keyup' : 'keydown', { key: 'b', bubbles: true }));
-          commits.push({ site, writes: writes() - oldWrites, bubbles: bubbles() - oldBubbles, heard: [...heard] });
+          const event = new KeyboardEvent(site === 'up' ? 'keyup' : 'keydown', { key: 'b', bubbles: true });
+          let retained;
+          original.addEventListener(event.type, copy => { retained = copy; }, { once: true });
+          target.dispatchEvent(event);
+          const first = { writes: writes() - oldWrites, bubbles: bubbles() - oldBubbles, heard: [...heard] };
+          commits.push({ site, ...first });
+          if (!retained || retained === event || !original.isConnected) throw Error('must retain the forwarded copy and restore its original');
+          const repeats = [];
+          for (let i = 0; i < 2; i++) {
+            heard.length = 0;
+            const oldWrites = writes(), oldBubbles = bubbles();
+            original.dispatchEvent(retained);
+            repeats.push({ writes: writes() - oldWrites, bubbles: bubbles() - oldBubbles, heard: [...heard] });
+          }
+          retainedCopies.push({ site, first, repeats });
         }
       } finally { Before.splice(Before.indexOf(before), 1); After.splice(After.indexOf(after), 1); }
     }
-    results.push({ runtime, nested, events: original.exactFlowEvents, unflowed, flowed, redispatch, commits });
+    results.push({ runtime, nested, events: original.exactFlowEvents, unflowed, flowed, redispatch, commits, retainedCopies });
     flow.dispose();
   }
   return results;
