@@ -224,7 +224,7 @@ let liveTable = false;
  * a newer read overtakes it, which then asks for nothing more. */
 async function readDesign(file: string, wanted: () => boolean): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string>; pairs?: unknown }> {
   const which = file ? { file } : {};
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 3 && wanted(); attempt++) {
     const described = await call('/__tamber', { method: 'describe', ...which }, READ_WAIT);
     if (described.error) return { error: described.error };
     const ir = described.reply.ok?.ir, pairs = described.reply.ok?.pairs;
@@ -259,7 +259,7 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
     }));
     if (same && placed) return { error: '', ir, resolved: resolved.map(r => r.reply.ok), files: before, pairs };
   }
-  return { error: 'The design kept changing while it was read. Try again.' };
+  return { error: wanted() ? 'The design kept changing while it was read. Try again.' : 'overtaken by a newer read' };
 }
 
 /** An edit's operation in `tamber/1`'s shape, on `file` (the app's design
@@ -422,7 +422,7 @@ function wroteMine(ok: { write?: number; diff?: string }, redoneBy = '') {
 // gap, a new run), then the build events. Each with the revision of the
 // last pin frame it was sent (`pinRevision`, whoever sent it), and the last
 // command it could not apply, kept while that pin is its pin.
-type BuildState = { id: string; host: string; status: any; plan: string | null; planDigest: string | null; design: string | null; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null };
+type BuildState = { id: string; host: string; status: any; plan: string | null; design: string | null; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null };
 let buildsNow = new Map<string, BuildState>();
 // The latest selection (the server's join, LLP 1122 D5) with what it was
 // made under; a stale one stays stale until a fresh selection (a reload back
@@ -442,9 +442,6 @@ const pinText = (pin: any) => pin ? [pin.scheme, pin.contrast && `contrast ${pin
  * pin, D3), its pin, whether its status has caught up with the last pin
  * frame it was sent (a pin, or a hand-back; none before it reports), and
  * the last command it could not apply, as the server keeps it. */
-/** The builds running, by id, host and plan, not their statuses: what a
- * proposal's class may follow (the JS loop's inline tokens are its pages'). */
-const buildsKey = () => [...buildsNow.values()].map(b => `${b.id} ${b.host} ${b.planDigest ?? ''}`).sort().join('\n');
 const buildRows = () => [...buildsNow.values()].map(b => {
   const st = b.status ?? {};
   const mode = Object.entries((st.mode ?? {}) as Record<string, string>).map(([a, v]) => `${a}=${v}`).join(' ');
@@ -455,7 +452,7 @@ const buildRows = () => [...buildsNow.values()].map(b => {
     unsupported: b.unsupported ? `${b.unsupported.what}${b.unsupported.detail ? `: ${b.unsupported.detail}` : ''}` : '',
   };
 });
-const buildOf = (b: any, was?: BuildState): BuildState => ({ id: String(b.id), host: String(b.host ?? was?.host ?? ''), status: b.status ?? null, plan: b.plan ?? null, planDigest: b.planDigest ?? was?.planDigest ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null });
+const buildOf = (b: any, was?: BuildState): BuildState => ({ id: String(b.id), host: String(b.host ?? was?.host ?? ''), status: b.status ?? null, plan: b.plan ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null });
 /** The server's list, whole: a build it no longer lists is gone. */
 const takeBuilds = (list: any[], client = '') => {
   buildsNow = new Map((list ?? []).map(b => [String(b.id), buildOf(b)]));
@@ -812,7 +809,7 @@ const sources: Sources = {
     const found = partsOf(kind, value, name => kinds?.get(name));
     return found ? { ok: true, of: value, ...found } : { ok: false, of: value, parts: [], tail: '' };
   },
-  proposeEdit: async ([file, kind, target, when, value]) => {
+  proposeEdit: async ([file, kind, target, when, value, , , live]) => {
     const key = keyOf(file, kind, target, when, value);
     const idle = { ok: true, error: '', active: false, chip: '', diff: '', tokens: [], key, review: '' };
     if (!kind || !target) return idle;
@@ -823,7 +820,7 @@ const sources: Sources = {
     // What Apply writes: this edit, against the digests this proposal read,
     // to the server run that read them (its token), carried on the proposal
     // itself, so what is shown is what is written, and where.
-    return { ok: true, error: '', active: true, chip: ok.class === 'live' && liveTable ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token), key, review: JSON.stringify({ key, files: ok.files, diff: ok.diff, token: used }) };
+    return { ok: true, error: '', active: true, chip: ok.class === 'live' && live === true ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token), key, review: JSON.stringify({ key, files: ok.files, diff: ok.diff, token: used }) };
   },
   writeEdit: async ([file, kind, target, when, value, client, review]) => {
     const at = session;
@@ -989,7 +986,7 @@ const sources: Sources = {
     if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
     const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client } : { after: 0, wait: false, client }, 40000);
     answers += 1;
-    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, buildsAt: buildsKey(), recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
+    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
     if (error) return { ok: false, error, missed: false, ...state() };
     if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
     const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; proposals?: any[] };

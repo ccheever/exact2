@@ -204,8 +204,6 @@ shape Changes
   // The files' digests as the poll has them: what a design read follows
   // (a build's status, a scrub's frame or a proposal moves `seq`, not them).
   files: string
-  // The builds running, by id, host and plan: what a proposal follows too.
-  buildsAt: string
 
 // A control drawn from a dial's declared metadata (LLP 1122 D7, LLP 1121
 // D4): `control` is `color`, `slider`, `stepper` or `select`.
@@ -511,7 +509,11 @@ component DesignTool
   // The files as of the last answer: reads of the design follow these, not
   // `since`, so a stream of build statuses never reads a big design again.
   state filesAt = ""
-  state buildsAt = ""
+  // A proposal's place in the poll: it follows every answer, at least one
+  // each 25 s, but while a scrub is shown (its class moves without files:
+  // the JS loop's builds, its design reader getting ready, which says
+  // nothing), so a stream of scrub frames proposes nothing again.
+  state proposeAt = 0
   state asks = 0
   resource hello = loadHello() as shape Hello else empty(ok=true)
   derive client = `design-tool:${person}`
@@ -562,7 +564,7 @@ component DesignTool
   state newValue = ""
   state renameTo = ""
   resource branch = loadBranch(file, selToken, selColumn, design.answer) as shape Branch else empty(ok=true)
-  resource proposal = proposeEdit(file, editKind, editTarget, editWhen, editValue, filesAt, buildsAt, hello.live, epoch) as shape Proposal else empty(ok=true)
+  resource proposal = proposeEdit(file, editKind, editTarget, editWhen, editValue, filesAt, proposeAt, hello.live, epoch) as shape Proposal else empty(ok=true)
   // Scrubbing, chosen explicitly (D6, never the default): each value the
   // draft takes is a frame previewed on every running copy, written to no
   // file; Keep (or a slider let go) writes it once, Cancel puts the
@@ -644,7 +646,8 @@ component DesignTool
       refresh design
     since = changes.seq
     filesAt = changes.files
-    buildsAt = changes.buildsAt
+    if not scrubShown
+      proposeAt = changes.answer
     epoch = changes.epoch
     asks = asks + 1
   action reconnect
@@ -655,7 +658,8 @@ component DesignTool
       if changes.ok
         since = changes.seq
         filesAt = changes.files
-        buildsAt = changes.buildsAt
+        if not scrubShown
+          proposeAt = changes.answer
         epoch = changes.epoch
       asks = asks + 1
   action editName(v: string)

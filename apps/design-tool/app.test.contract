@@ -394,7 +394,7 @@ test "a build's status and a scrub's event read no design again"
   // The stub as the next test expects it: describe answered, no events.
   request POST "/__stub/restart" {} as ada
 
-test "a proposal follows the builds running: a token the JS loop writes inline turns Rebuilds when a web-js build arrives, no file moved"
+test "a proposal is asked again on the poll, not only when files move: a token the JS loop writes inline turns Rebuilds when a web-js build arrives"
   request POST "/__stub/live" {"live": true} as ada
   type "name" "Ada"
   tap "save-name"
