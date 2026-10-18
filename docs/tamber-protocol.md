@@ -1021,10 +1021,14 @@ The tool drives no input into an app; a command changes only what `prefer` would
   components, the copies share calls alike, and each file's calls moved as one edit there moves
   them (those above it by none, those below by one count of lines), else the unmoved copies kept and the rest so among
   themselves (one call moved: the one left over); with copies added or removed, the copy whose
-  calls did not move. So a call moved past another clears the hold (or, landing on another's old line, takes that line's), and two calls swapped onto
-  each other's lines, or a copy added or removed while a line another call had is taken, are
-  taken by their lines; and a slot filled at two outlets is one copy, its outlets told apart by
-  their order. When there is not exactly one, the build is sent `hold: null` and every client
+  calls did not move. The correspondence is by places alone (the map
+  carries no other identity of a call or an element), so it is a guess wherever places are
+  reused: calls reordered with their spacing kept, a call or element moved onto another's old
+  place (a line or a column), or a copy added or removed while one keeps its line, can carry
+  the hold to the other copy (where the copies' instance paths differ, the host finds no view
+  for it and lets it go, `gone`); and a slot filled at two outlets is one copy, its outlets told
+  apart by their order. A call moved past another with the lines between them changed clears
+  the hold. When there is not exactly one, the build is sent `hold: null` and every client
   told (`hold-cleared {build, client, reason}`). Each frame, a replay included, has a new
   revision, and the build's `held` in a listing is null until it reports on that frame. Only a
   report naming the last hold frame's revision counts (an
