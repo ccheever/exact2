@@ -638,23 +638,25 @@ export function serveBuildTree(dist, req, res) {
   sendStaticBody(req, res, readFileSync(found.path), { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
 }
 
-/** The assets by digest (LLP 1023 D4's owed slice; 1026 D11; 1030 D10): every file under assets/, deck/, and shaders/ in a build, named by its path beside the page, so a client fetches by name and verifies by digest and a dev push names what changed. Sorted by name. */
+/** Capture every bundle asset tree through the owned filesystem reader. */
+export function captureAssets(dir, rust = false) {
+  const files = new Map();
+  for (const tree of ['assets', 'deck', 'shaders', 'plans', ...(rust ? ['rust'] : [])]) {
+    const captured = filesystem({ op: 'tree', root: resolve(dir, tree), optionalRoot: true }) ?? {};
+    for (const [relative, encoded] of Object.entries(captured)) files.set(`${tree}/${relative}`, Buffer.from(encoded, 'base64'));
+  }
+  return files;
+}
+
+/** Static builds and dev generations authenticate the same captured bytes. */
+export function assetCards(files) {
+  return [...files].map(([name, bytes]) => ({ name, url: `./${name}`, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length }))
+    .sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+}
+
+/** Every file under assets/, deck/, shaders/ and plans/, sorted by name. */
 export function listAssets(dir, rust = false) {
-  const out = [];
-  const walk = (sub) => {
-    const abs = resolve(dir, sub);
-    if (!existsSync(abs)) return;
-    for (const entry of readdirSync(abs, { withFileTypes: true })) {
-      const rel = `${sub}/${entry.name}`;
-      if (entry.isDirectory()) walk(rel);
-      else if (entry.isFile()) {
-        const bytes = readFileSync(resolve(dir, rel));
-        out.push({ name: rel, url: `./${rel}`, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length });
-      }
-    }
-  };
-  for (const tree of ['assets', 'deck', 'shaders', 'plans', ...(rust ? ['rust'] : [])]) walk(tree);
-  return out.sort((a, b) => (a.name < b.name ? -1 : 1));
+  return assetCards(captureAssets(dir, rust));
 }
 
 /** Named snapshot plans share the asset roster's authenticated bytes. */
