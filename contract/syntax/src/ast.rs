@@ -2,8 +2,7 @@
 pub use crate::colours::{ColorProfileDecl, DesignSource, ThemeDecl};
 use crate::Span;
 use std::collections::BTreeMap;
-/// Identifier ranges that are distinct from their AST construct's diagnostic span.
-/// Compiler tooling consumes these; they never enter an executable plan.
+/// Tooling-only identifier ranges, distinct from AST diagnostic spans and absent from executable plans.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct NameSpans {
     /// Declaration, local binding, or target name, keyed by its construct.
@@ -56,9 +55,8 @@ pub struct File {
     /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
     /// their own beside the app, `app.test.contract`.
     pub tests: Vec<TestDecl>,
-    /// A test file's launch lines (`size`, `epoch`, `time-zone`, `locale`,
-    /// `seed`, `before data`), which every test in the file opens with unless it names its
-    /// own (habits F7, calendar F13).
+    /// Default test launch lines (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`),
+    /// unless overridden by the test (habits F7, calendar F13).
     pub launch: Vec<Step>,
     /// `component` declarations, in order. The first is the root.
     pub components: Vec<Component>,
