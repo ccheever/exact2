@@ -369,6 +369,9 @@ pub(crate) fn eligibility(
             // A glass group ignores the opacity Core Animation plays between
             // it and its glass; the host isolates on what it is told.
             || (props.contains(&Property::Opacity) && in_glass_group(kernel, &n))
+            // What the host paints over the node's own (a press, a look: LLP
+            // 1061 D7, LLP 1121 D8) composes on the engine's sample.
+            || props.iter().any(|p| crate::looks::paints_over(&n, *p))
             // Drawn into an island's pixels, which Core Animation does not
             // animate (except a live filter picture on iOS).
             || (svg && in_picture(kernel, &n, box_motion))
@@ -659,11 +662,6 @@ fn box_eligible(
     props: &[Property],
     interactive: &dyn Fn(exact_kernel::ViewId) -> bool,
 ) -> bool {
-    // What the host paints over the node's own (a press, a look: LLP 1061
-    // D7, LLP 1121 D8) composes on the engine's sample, so it stays there.
-    if props.iter().any(|p| crate::looks::paints_over(n, *p)) {
-        return false;
-    }
     let s = n.style;
     let turns = props
         .iter()

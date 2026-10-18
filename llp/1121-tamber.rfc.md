@@ -3502,6 +3502,12 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
   - An opacity or background track a press row or a look names stays sampled by the engine, not Core Animation, so the additive layers compose on the rendered value.
   - A sheet's or a popover's own window shows `:hover` looks through its pointer tracking.
   - QUEUE: looks on an inline run, which have no view; and a look that comes while a track already plays.
+- **Round 3 (the last):**
+  - An opacity or background animation that a press row or a look names is engine-sampled on both platforms, in the common eligibility, not only for box-lowered properties.
+  - The press's clock moves on every press and release, a depth of 0 included.
+  - The opacity fade is the press's own ease, the same curve and start (`beginTime`), so what shows is `-depth × progress` at every frame.
+  - A press easing out reads its depth from a new style too.
+  - A sheet's or a popover's window keeps its hovered path on a child's exit.
 - **Tests:**
   - `StateLooksTests` (Mac and iOS):
     - `:active`'s paint with its absolute 0.6 (depth 0.4) and no dim;
@@ -3510,3 +3516,43 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
     - a disabled node taking none.
   - `looks.rs`'s dictionary test. `PressPaintTests` and `PressFeedback*Tests` are unchanged.
 
+
+
+
+### Stage 8, commit B3: Linux, and Android through it (draft for theme2)
+
+- **The absolute press opacity** (`press.rs`, `press::present`). After the hover and focus looks' opacity, the press moves `shown.opacity` toward `press_opacity_to` by its progress. `press_opacity` keeps the share. `press_opacity_to` counts as pressed paint (`paints`), so a list row's wash stands aside.
+- **Looks** (`paint/presented.rs`, `BoxPaint::states`). While its `:hover` and then its `:focus-visible` look hold (`Presented.looks`), their background, border colours and shadow replace the box's own, at once. The press's background goes over them.
+- **When a look holds** (`presenter/feedback.rs`, `refresh_looks`):
+  - `:hover`: the mouse's hit and its ancestors that have one, as CSS matches. A finger hovers nothing.
+  - `:focus-visible`: the focus where its ring shows.
+  - A node whose looks change is marked for kept rows, and none applies on a disabled node.
+- **Round 1:**
+  - The engine's presentation cache starts from the committed style (`unpresented`), so a look's or a press's opacity is never kept in it.
+  - The hover looks follow a resting pointer through `hover_at`, as hover handlers do.
+  - A focus with no `:focus-visible` look marks nothing.
+  - A look's `currentcolor` is the node's colour, and a cleared opacity is 1.
+  - On Android's Canvas reader, an opacity, background or colour track the host paints over (a press row, a look naming it) is not lowered: the engine samples it, and the composed value is drawn.
+- **Round 2:**
+  - A reader layer takes the opacity as its alpha only when it plays the opacity. Otherwise the painter draws it, so a lowered scale under a look's or a press's opacity fades once. Before this, a style opacity under 1 with a lowered transform faded twice.
+  - The hover looks follow the point while a contact is held (`follow_pointer`).
+  - A row a look clears is CSS's initial: transparent, `currentcolor` or no shadow. `paints_over` counts a cleared row.
+  - A look's `currentcolor` follows a colour transition.
+  - A disabled node shows no press, its release ease included.
+  - The shown opacity is clamped before the press composes on it.
+  - QUEUE: a look that comes while a track already plays on the reader.
+- **Round 3 (the last):**
+  - An engine-sampled animation is never also a reader track, beside a transition that keeps the node's layer open.
+  - A colour transition stays engine-sampled where a look reads `currentcolor`.
+  - The hover looks follow a display's acknowledged frame (`follow_pointer` after `display_complete`).
+  - A `background-clip: text` background shows the states' colour.
+  - A look painted or taken off, and a focus with a look, take the full painter rather than flow damage.
+  - Not done (nit): an inset border's shading of a look's side colour.
+- **Android** replays the display list Linux records, so it needs no Kotlin change. Android forwards no mouse hover, so it shows none.
+- **Tests:** `presenter/looks_tests.rs`:
+  - the hover at once with its 0.8;
+  - the press easing to its absolute 0.5 with the hover's border beneath;
+  - the hover again after the lift;
+  - hovering a child;
+  - a disabled node, and a finger leaving no hover;
+  - `press_paint_tests.rs` unchanged.

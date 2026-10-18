@@ -137,6 +137,24 @@ final class StateLooksTests: XCTestCase {
         XCTAssertEqual(v.style["background_color"], ink(blue), "the superseded child's look stays off")
     }
 
+    /// A press whose depth is 0 when it starts (its target what shows)
+    /// still runs its clock: a look that goes mid-press takes it the rest of
+    /// the way, and a release takes it back.
+    func testAPressAtNoDepthStillRunsItsClock() throws {
+        let (p, v) = try fixture()
+        p.apply(wireBatch([["op": "style", "id": 1, "style": base(blue).merging(["press_opacity_to": 0.8]) { $1 }]]))
+        p.setHoverPath([v])
+        v.pressed = true
+        XCTAssertNil(fade(v), "0.8 to 0.8: nothing to fade")
+        XCTAssertEqual(v.pressPaint.ease.to, 1, "but the press is down")
+        p.setHoverPath([])
+        XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.2, accuracy: 1e-6, "1 to 0.8 once the hover goes")
+        v.press.start -= 1; v.pressPaint.at -= 1
+        v.pressed = false
+        XCTAssertEqual(v.pressPaint.ease.to, 0)
+        XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), 0, accuracy: 1e-6, "and back")
+    }
+
     /// A hand-written pressed opacity is a share of what shows, a hover's
     /// included, as the web and Linux take it: 0.5 of 0.8.
     func testAPressedShareIsOfTheHoversOpacity() throws {
@@ -148,8 +166,9 @@ final class StateLooksTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.4, accuracy: 1e-6, "then 0.4, half of it")
     }
 
-    /// What shows moves mid-press: the press goes on from `-depth × progress`
-    /// of the new depth, so the opacity is the new base's at that progress.
+    /// What shows moves mid-press: the press goes on as `-depth × progress`
+    /// of the new depth on its own ease, so the opacity is the new base's at
+    /// that progress. A depth of 0 at the press still moves the press's clock.
     func testALookThatGoesMidPressMovesThePressWithIt() throws {
         let (p, v) = try fixture()
         p.setHoverPath([v])
@@ -158,8 +177,13 @@ final class StateLooksTests: XCTestCase {
         let progress = Float(v.pressPaint.ease.factor(at: CACurrentMediaTime()))
         p.setHoverPath([])
         XCTAssertNil(lookFade(v))
-        XCTAssertEqual(try XCTUnwrap(fade(v)?.fromValue as? Float), -0.4 * progress, accuracy: 0.02, "from 1 at this progress")
-        XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.4, accuracy: 1e-6, "to 0.6")
+        // The fade is the press's own ease with the new depth: from 0 at its start to -0.4, begun when the press
+        // began, so it shows -0.4 × progress now (1 less 0.4 of the way to 0.6).
+        let f = try XCTUnwrap(fade(v))
+        XCTAssertEqual(try XCTUnwrap(f.fromValue as? Float), 0, accuracy: 1e-6)
+        XCTAssertEqual(try XCTUnwrap(f.toValue as? Float), -0.4, accuracy: 1e-6, "to 0.6")
+        XCTAssertEqual(f.beginTime, try XCTUnwrap(layer(v)).convertTime(v.pressPaint.ease.start, from: nil), accuracy: 1e-6)
+        XCTAssertGreaterThan(progress, 0)
     }
     #endif
 }

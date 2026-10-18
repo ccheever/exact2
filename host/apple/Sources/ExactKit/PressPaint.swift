@@ -135,30 +135,38 @@ extension NodeView {
     }
 
     private func fadePressOpacity(_ down: Bool, at now: CFTimeInterval, still: Bool) {
-        let key = "pressOpacity"
-        guard let layer = paintLayer else { return }
         if down { pressPaint.depth = pressDepth(style) }
-        let depth = pressPaint.depth
-        guard depth != 0 else { layer.removeAnimation(forKey: key); return }
-        let shown = -depth * Float(pressPaint.ease.factor(at: now))
-        pressPaint.ease.aim(down ? 1 : 0, at: now)
-        let to = -depth * Float(down ? 1 : 0)
+        // The clock moves whatever the depth, so a depth that comes later
+        // takes the press's real progress.
+        if still { pressPaint.ease = PressFeedback(from: down ? 1 : 0, to: down ? 1 : 0, start: now) } else { pressPaint.ease.aim(down ? 1 : 0, at: now) }
+        installPressFade(pressPaint.depth, still: still)
+    }
+
+    /// The press's opacity fade for `depth` as the press's ease describes it
+    /// now: the same curve and start, so what shows is `-depth × progress` at
+    /// every frame; held at its end once settled (always, on the agent's clock).
+    private func installPressFade(_ depth: Float, still: Bool) {
+        guard let layer = paintLayer else { return }
+        let key = "pressOpacity", e = pressPaint.ease
+        let settled = still || e.settled(at: CACurrentMediaTime())
+        guard depth != 0, !(settled && e.to == 0) else { layer.removeAnimation(forKey: key); return }
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.isAdditive = true
-        if still {
-            pressPaint.ease = PressFeedback(from: down ? 1 : 0, to: down ? 1 : 0, start: now)
-            guard down else { layer.removeAnimation(forKey: key); return }
+        fade.fillMode = .both
+        if settled {
             // Held: what the dim's hold is (PressFeedback.swift `dimPress`).
-            fade.fromValue = to
+            fade.fromValue = -depth * Float(e.to)
+            fade.toValue = -depth * Float(e.to)
             fade.duration = .greatestFiniteMagnitude
+            fade.isRemovedOnCompletion = false
         } else {
-            fade.fromValue = shown
+            fade.fromValue = -depth * Float(e.from)
+            fade.toValue = -depth * Float(e.to)
+            fade.beginTime = layer.convertTime(e.start, from: nil)
             fade.duration = PressFeedback.duration
             fade.timingFunction = PressFeedback.timing
+            fade.isRemovedOnCompletion = e.to == 0
         }
-        fade.toValue = to
-        fade.fillMode = .both
-        fade.isRemovedOnCompletion = !down
         layer.add(fade, forKey: key)
     }
 
@@ -235,36 +243,20 @@ extension NodeView {
         }
     }
 
-    /// The opacity's share again while held: the node's own opacity, or its
-    /// pressed share (from style `s`; none is no dim), changed. The
-    /// fade goes on from what shows over the rest of its time; a dim no longer
-    /// written goes at once.
+    /// The press's opacity again when what it starts from or goes to moves
+    /// (the node's own opacity, a look's, style `s`'s press rows): the fade on
+    /// the same ease with the new depth; a press opacity no longer written goes
+    /// at once.
     func refreshPressOpacity(_ s: NodeStyle? = nil) {
         applyLookOpacity()
-        guard let layer = paintLayer else { return }
-        let key = "pressOpacity"
-        let now = CACurrentMediaTime()
-        // The press's progress, held, easing in or easing out: the fade is
-        // always `-depth × progress`, so what shows moves with it, as on the
-        // web and Linux (`shown + (to − shown) × progress`).
-        let progress = Float(pressPaint.ease.factor(at: now))
-        guard pressPaint.down || progress > 0 else { return }
+        // Held, easing in or easing out: the fade is always `-depth ×
+        // progress` on the press's own ease, so what shows moves with it, as
+        // on the web and Linux (`shown + (to − shown) × progress`).
+        guard pressPaint.down || pressPaint.ease.factor(at: CACurrentMediaTime()) > 0 else { return }
         let depth = pressDepth(s ?? style)
         guard depth != pressPaint.depth else { return }
         pressPaint.depth = depth
-        let left = ExactEnv.agentFreezes ? 0 : max(0, pressPaint.ease.start + PressFeedback.duration - now)
-        // None any more goes at once: the platform's press may answer next.
-        guard depth != 0 else { layer.removeAnimation(forKey: key); return }
-        let to = -depth * Float(pressPaint.ease.to)
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.isAdditive = true
-        fade.fromValue = left > 0 ? -depth * progress : to
-        fade.toValue = to
-        fade.duration = left > 0 ? left : .greatestFiniteMagnitude
-        fade.timingFunction = PressFeedback.timing
-        fade.fillMode = .both
-        fade.isRemovedOnCompletion = !pressPaint.down
-        layer.add(fade, forKey: key)
+        installPressFade(depth, still: ExactEnv.agentFreezes)
     }
 
     /// The keys a node's own press shows, from its style's press rows.
@@ -335,6 +327,8 @@ extension NodeView {
     /// new colour goes to its subtree again); a descendant that now writes
     /// its own colour keeps it.
     func pressPainted(_ s: NodeStyle) -> NodeStyle {
+        // A press easing out reads its depth from the new style too.
+        if !pressPaint.down { refreshPressOpacity(s) }
         guard pressPaint.down || !pressPaint.overlay.isEmpty else { return s }
         var s = s
         var overlay = pressPaint.overlay

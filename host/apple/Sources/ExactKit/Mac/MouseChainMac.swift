@@ -532,7 +532,7 @@ extension Presenter {
         // A held contact owns move delivery, but leaving the window still
         // ends hover. Other tracking areas may exit inside the window; hit
         // testing there keeps the subtree currently under the pointer.
-        if event.type == .mouseExited { if !apart { _ = hoverAt(event.locationInWindow) } else { hoverLooks([]) }; return }
+        if event.type == .mouseExited { if !apart { _ = hoverAt(event.locationInWindow) } else { hoverLooks(from: event.window.flatMap { Self.node(at: event.locationInWindow, in: $0) }) }; return }
         guard pointerHeld == nil, pointerSource == nil else { return }
         let leaf = apart ? event.window.flatMap { Self.node(at: event.locationInWindow, in: $0) } : hoverAt(event.locationInWindow)
         // Its own window's `:hover` looks: the node and its authored ancestors there (LLP 1121 D8).
