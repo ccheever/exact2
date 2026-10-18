@@ -734,6 +734,40 @@ fn one_run_reports_every_independent_mistake_call_sites_first() {
     assert_eq!(compile_all("cap", &many).len(), contract::MAX_DIAGNOSTICS);
 }
 
+/// A refused member is skipped and the passes after the syntax check the
+/// rest; what they say about a refused name is left out, since it may only
+/// be that the name is missing.
+#[test]
+fn a_refused_member_does_not_hide_the_other_passes_refusals() {
+    let source = "component App\n  state n = 0\n  action pick\n    match none\n      case some(r) => n = r\n      case none => n = 0\n  action bump\n    n = n + \"x\"\n  view\n    button \"go\" press=pick color=missingName\n";
+    let found = compile_all("member", source);
+    let ids: Vec<(&str, u32)> = found
+        .iter()
+        .map(|(id, line, _)| (id.as_str(), *line))
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            ("syntax-case-arrow", 5),
+            ("type-operand", 8),
+            ("type-unknown-name", 10)
+        ],
+        "{found:#?}"
+    );
+    assert!(
+        found[0].2.contains("end the line at `case some(r)`"),
+        "{}",
+        found[0].2
+    );
+    // A refused first component would make another the app: nothing else is checked.
+    let first = "component App\n  props\n    x number\n  view\n    Card()\ncomponent Card\n  view\n    text \"a\" color=missingName\n";
+    let ids: Vec<String> = compile_all("first", first)
+        .into_iter()
+        .map(|(id, _, _)| id)
+        .collect();
+    assert_eq!(ids, ["syntax-expected"]);
+}
+
 #[test]
 fn an_unclosed_bracket_or_a_stray_line_does_not_hide_the_declarations_after_it() {
     let ids = |name: &str, source: &str| -> Vec<(String, u32)> {
