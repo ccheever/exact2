@@ -71,10 +71,15 @@ fn child() {
 }
 
 fn closed_stdout(requests: usize) {
-    let dist = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target")
-        .join(format!("render-stdout-{}-{requests}", std::process::id()));
-    std::fs::create_dir_all(&dist).unwrap();
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dist = std::env::temp_dir().join(format!(
+        "exact-render-stdout-{}-{requests}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir(&dist).unwrap();
     std::fs::copy(
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../web/index.html"),
         dist.join("shell.html"),
@@ -94,8 +99,10 @@ fn closed_stdout(requests: usize) {
         let mut stdout = BufReader::new(stdout);
         let mut line = String::new();
         while stdout.read_line(&mut line).unwrap() != 0 {
-            if let Some(addr) = line.strip_prefix("serving http://") {
-                let addr: SocketAddr = addr.trim().trim_end_matches('/').parse().unwrap();
+            // A serial test harness prefixes its status on this same line.
+            if let Some((_, ready_line)) = line.split_once("serving http://") {
+                let (addr, _) = ready_line.split_once('/').unwrap();
+                let addr: SocketAddr = addr.parse().unwrap();
                 ready.send((addr, stdout)).unwrap();
                 return;
             }
