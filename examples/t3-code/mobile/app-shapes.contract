@@ -69,6 +69,7 @@ shape HomeView
   emptyDetail: string
   loading: bool
   addEnvironment: bool
+  fullPageEmpty: bool
 shape HomePreferences
   loaded: bool
   workingEnabled: bool

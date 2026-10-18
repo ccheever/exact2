@@ -112,6 +112,18 @@ test('unpaired iPad sidebar uses a list label while compact Home keeps the envir
   expect(emptyView(client, background, { query: 'needle' }).emptyTitle).toBe('No matching threads');
 });
 
+test('only an unfiltered empty catalogue is full-page Home; filtered and sidebar empties stay in the list', () => {
+  const client = new T3Client(), background = new EnvironmentFleet();
+  expect(emptyView(client, background, { surface: 'compact' }).fullPageEmpty).toBe(true);
+  expect(emptyView(client, background, { surface: 'compact', catalogLoaded: false }).fullPageEmpty).toBe(true);
+  expect(emptyView(client, background).fullPageEmpty).toBe(false);
+  const f = fixture();
+  expect(emptyView(f.client, f.background, { surface: 'compact', query: 'absent' })).toMatchObject({ items: [], emptyTitle: 'No results', fullPageEmpty: false });
+  f.remote.shell.threads = [];
+  expect(emptyView(f.client, f.background, { surface: 'compact', environment: 'two' })).toMatchObject({ items: [], emptyTitle: 'No threads in this environment', fullPageEmpty: false });
+  expect(emptyView(f.client, f.background, { surface: 'compact' }).fullPageEmpty).toBe(false);
+});
+
 test('sidebar empty text uses selected logical project and query before environment scope', () => {
   const f = fixture(); f.client.shell.threads = []; f.remote.shell.threads = [];
   f.client.shell.projects = [{ id: 'p', title: 'Local', workspaceRoot: '/one', repositoryIdentity: { canonicalKey: 'shared-repo', displayName: 'team/repo' } }];
