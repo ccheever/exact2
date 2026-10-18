@@ -38,9 +38,9 @@ package final class Owner: @unchecked Sendable {
     private var mailbox: [MainCall] = []
     /// Wakes `sync` waited on, kept for the next: a semaphore makes its
     /// kernel object at its first wait, a Mach call that a frame task's
-    /// sixty syncs a second each paid. One may hold a stale signal (a job
-    /// done before its waiter waited); each waiter checks its job's state
-    /// after every wake, so a stale one only loops it once.
+    /// sixty syncs a second each paid. A wake is signalled only under the
+    /// lock, and drained under it before it goes back, so none comes back
+    /// holding a count.
     private var spareWakes: [DispatchSemaphore] = []
     /// The job main is waiting on: a call for main wakes it.
     private var mainWaits: Job?
@@ -87,8 +87,8 @@ package final class Owner: @unchecked Sendable {
             lock.lock()
             job.body = nil
             job.done = true
-            lock.unlock()
             job.wake.signal()
+            lock.unlock()
         }
     }
 
@@ -114,6 +114,7 @@ package final class Owner: @unchecked Sendable {
                 lock.lock()
                 if job.done {
                     if main { mainWaits = nil }
+                    while job.wake.wait(timeout: .now()) == .success {}
                     spareWakes.append(job.wake)
                     lock.unlock()
                     break
@@ -178,9 +179,8 @@ package final class Owner: @unchecked Sendable {
             let call = MainCall { result = body() }
             lock.lock()
             mailbox.append(call)
-            let waiting = mainWaits
+            mainWaits?.wake.signal()
             lock.unlock()
-            waiting?.wake.signal()
             // Main may be about to wait on a job; the wait loop checks the
             // mailbox first, and this hop covers main not waiting at all.
             DispatchQueue.main.async { [self] in
