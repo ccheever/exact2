@@ -22,6 +22,8 @@
 //! `Chrome 151 wrapping content bases` uses that version and date for nested
 //! wrapping items after a wider item. The absolute frames also agree inside
 //! width:min-content wrappers, used for the direct intrinsic requests below.
+//! `Chrome 151 stretched ratio` uses that version and date for percentage
+//! children of stretched ratio items, including unchanged content-grown heights.
 //!
 //! A fixture line is `name`, the root's declarations, the nodes (`id>parent>
 //! declarations>text`, joined by ` & `) and Chrome's frames (`id=x,y,w,h`),

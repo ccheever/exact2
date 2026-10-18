@@ -2757,7 +2757,13 @@ fn calculate_flex_item(
     let node_inner_size = constants.node_inner_size;
     let direction = constants.dir;
     let layout_direction = constants.layout_direction;
-    let item_known_dimension_definiteness = item_known_dimension_definiteness(constants, item);
+    let mut item_known_dimension_definiteness = item_known_dimension_definiteness(constants, item);
+    // EXACT PATCH 49: only stretch can change the hypothetical cross size here.
+    // Its final size is definite for percentages (Flexbox §9.4). An unchanged
+    // content-grown ratio height keeps patch 12's preferred percentage basis.
+    if item.target_size.cross(direction) != item.hypothetical_inner_size.cross(direction) {
+        item_known_dimension_definiteness.set_cross(direction, true);
+    }
     let layout_output = tree.compute_child_layout(
         item.node,
         LayoutInput {
@@ -3654,6 +3660,71 @@ mod intrinsic_tests {
     use crate::prelude::*;
     use crate::tree::{LayoutPartialTreeExt, SizingMode};
     use crate::Overflow;
+
+    // Chrome 151.0.7922.34, 2026-10-18: stretch supplies the percentage basis
+    // when it changes the ratio item's height; content growth alone does not.
+    #[test]
+    fn stretched_ratio_percentage_height_uses_the_final_cross_size() {
+        let mut failures = Vec::new();
+        for (name, height, minimum, maximum, align, content, item_height, percentage_height) in [
+            ("capped", auto(), auto(), length(30.0), AlignSelf::STRETCH, false, 30.0, 30.0),
+            ("definite", length(30.0), auto(), auto(), AlignSelf::STRETCH, false, 30.0, 30.0),
+            ("start", auto(), auto(), length(30.0), AlignSelf::FLEX_START, false, 50.0, 50.0),
+            ("content growth", auto(), auto(), auto(), AlignSelf::STRETCH, true, 130.0, 50.0),
+            ("capped content", auto(), auto(), length(100.0), AlignSelf::STRETCH, true, 100.0, 100.0),
+            ("unchanged cap", auto(), auto(), length(130.0), AlignSelf::STRETCH, true, 130.0, 50.0),
+            ("definite content", length(130.0), auto(), auto(), AlignSelf::STRETCH, true, 130.0, 130.0),
+            ("minimum", auto(), length(80.0), auto(), AlignSelf::STRETCH, false, 80.0, 80.0),
+        ] {
+            let mut tree = TaffyTree::<()>::new();
+            let percentage = tree.new_leaf(Style {
+                display: Display::Block,
+                size: Size { width: length(20.0), height: percent(1.0) },
+                ..Default::default()
+            }).unwrap();
+            let mut children = vec![percentage];
+            if content {
+                children.push(tree.new_leaf(Style {
+                    display: Display::Block,
+                    size: Size { width: length(20.0), height: length(80.0) },
+                    ..Default::default()
+                }).unwrap());
+            }
+            let item = tree.new_with_children(Style {
+                display: Display::Block,
+                size: Size { width: length(100.0), height: auto() },
+                aspect_ratio: Some(2.0),
+                align_self: Some(align),
+                ..Default::default()
+            }, &children).unwrap();
+            let row = tree.new_with_children(Style {
+                size: Size { width: length(100.0), height },
+                min_size: Size { width: auto(), height: minimum },
+                max_size: Size { width: auto(), height: maximum },
+                ..Default::default()
+            }, &[item]).unwrap();
+            let root = tree.new_with_children(Style {
+                display: Display::Block,
+                size: Size { width: length(800.0), height: length(600.0) },
+                ..Default::default()
+            }, &[row]).unwrap();
+            tree.compute_layout(root, Size {
+                width: AvailableSpace::Definite(800.0), height: AvailableSpace::Definite(600.0),
+            }).unwrap();
+            for (node, width, height, y) in [
+                (item, 100.0, item_height, 0.0),
+                (percentage, 20.0, percentage_height, 0.0),
+            ].into_iter().chain(content.then(|| (children[1], 20.0, 80.0, percentage_height))) {
+                let layout = tree.layout(node).unwrap();
+                let frame = [layout.location.x, layout.location.y, layout.size.width, layout.size.height];
+                let expected = [0.0, y, width, height];
+                if frame != expected {
+                    failures.push(format!("{name}; {node:?}: {frame:?}, Chrome {expected:?}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
 
     // Chrome 151.0.7922.34, 2026-10-18: rows inside width:min-content wrappers.
     #[test]

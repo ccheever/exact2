@@ -1442,6 +1442,29 @@ definite 40px basis control, and both row directions. Literal frames in
 layout at the known width, these direct requests had 57 kernel frame mismatches
 and 34 Taffy size/frame mismatches. All absolute cases already agreed with Chrome.
 
+## Patch 49: resolve percentage heights against a changed final stretch size
+
+`calculate_flex_item` treats the final cross size as definite when stretching
+changes it from the hypothetical cross size. This supplies the used height to
+percentage children as [CSS Flexbox §9.4](https://www.w3.org/TR/css-flexbox-1/#algo-stretch)
+requires. Preliminary measurements retain patch 12's ratio rule. If content
+grows a ratio item without stretch changing its height, its percentage children
+still use the preferred ratio height.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+25 literal cases measured in Chrome 151.0.7922.34 on 2026-10-18, including full
+container, item and descendant frames. They cover absolute and normal rows,
+maxima and minima, definite heights, flex-start, columns, wrapping, reversed
+rows, padding, borders, taller siblings and content growth. Before this patch,
+12 frames differed: the reported 30px item gave its child 50px instead of 30px.
+An uncapped normal row's content-grown 130px item retains its 50px percentage
+basis, as does a row capped at that unchanged height.
+
+Taffy's `stretched_ratio_percentage_height_uses_the_final_cross_size` holds
+eight normal-flow layouts, including the capped failure and the content-growth
+control. Its percentage heights and following sibling positions failed before
+the final stretch size became definite.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
