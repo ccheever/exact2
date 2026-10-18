@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactMarkdown
 
 /// x2apps codeedit #2 on UIKit: a field's `input` reports the selection its
 /// edit left; `setSelectionRange` fires `select`, never focuses, and waits
@@ -12,8 +13,8 @@ final class FieldSelectionIOSTests: XCTestCase {
     private var window: UIWindow!
     private var selects: [String] = []
 
-    private func presenter() -> Presenter {
-        let p = Presenter()
+    private func presenter(session: ExactSession? = nil) -> Presenter {
+        let p = session?.presenter ?? Presenter()
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
@@ -254,6 +255,53 @@ final class FieldSelectionIOSTests: XCTestCase {
         XCTAssertFalse(manager.canUndo)
         XCTAssertFalse(manager.canRedo)
     }
+    func testDecorationEchoRefreshesMarkerAndKeepsUndoableSourceOnUIKit() throws {
+        ExactMarkdown.install()
+        let session = ExactApp.shared.makeSession(label:"decoration-echo-ios")
+        defer { window.isHidden = true; session.destroy() }
+        let p = presenter(session:session), original = "- [ ] task", checked = "- [x] task"
+        let node = try XCTUnwrap(p.views[2]), field = try XCTUnwrap(node.textArea)
+        func metadata(_ source: String, _ on: Bool) throws -> String {
+            let value: [String:Any] = ["value":source,"spans":[],
+                "blocks":[["name":"task","start":0,"end":10,"marker":on ? "checkbox:on" : "checkbox:off"]],
+                "hidden":[["start":0,"end":6]],"atoms":[]]
+            return String(decoding:try JSONSerialization.data(withJSONObject:value),as:UTF8.self)
+        }
+        p.apply(wireBatch([["op":"props","id":2,"set":["value":original,"decorations":try metadata(original,false),"decorationStyles":"{\"task\":[]}"]]]))
+        XCTAssertTrue(field.becomeFirstResponder())
+        let manager = try XCTUnwrap(field.undoManager)
+        manager.groupsByEvent = false
+        manager.removeAllActions()
+        var inputs: [String] = []
+        p.onInput = { _,value in inputs.append(value) }
+        p.fieldSelections.setRangeText(["editor","x",3,4,"preserve","undo"])
+        XCTAssertEqual(field.text,checked)
+        let selection = field.selectedRange
+        func echo(_ source: String, _ on: Bool) throws {
+            p.apply(wireBatch([["op":"props","id":2,"set":["value":source,"decorations":try metadata(source,on)]]]))
+            let state = try XCTUnwrap(node.fieldDecorations?.state)
+            XCTAssertEqual(state["provisional"] as? Bool,false)
+            let blocks = (state["record"] as? [String:Any])?["blocks"] as? [[String:Any]]
+            XCTAssertEqual(blocks?.last?["marker"] as? String,on ? "checkbox:on" : "checkbox:off")
+            XCTAssertEqual((state["hidden"] as? [[String:Int]])?.count,0,"phone syntax remains visible")
+        }
+        try echo(checked,true)
+        XCTAssertEqual(field.selectedRange,selection)
+        manager.undo()
+        XCTAssertEqual(field.text,original)
+        XCTAssertEqual(inputs,[original])
+        try echo(original,false)
+        XCTAssertTrue(manager.canRedo)
+        manager.redo()
+        XCTAssertEqual(field.text,checked)
+        XCTAssertEqual(inputs,[original,checked])
+        try echo(checked,true)
+        p.apply(wireBatch([["op":"props","id":2,"set":[:],"clear":["decorations"]]]))
+        XCTAssertNil(node.fieldDecorations)
+        XCTAssertEqual(field.text,checked)
+        XCTAssertTrue(manager.canUndo)
+    }
+
     func testRangeTextPreservesSelectionWithoutFocusOrUndo() throws {
         let p = presenter()
         let node = try XCTUnwrap(p.views[2])
