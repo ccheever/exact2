@@ -13,8 +13,10 @@ import { formatScheduledTaskInterval, formatNextScheduledTaskRun } from './setti
 import { mobileTaskDraft, mobileTaskInput, mobileTaskSignature, mobileWebhookAddress, WEBHOOK_PROMPT, type MobileTaskDraft } from './settings-scheduled-draft';
 import { resolvedCurrent } from './shared/r3-composer-controls-model';
 import { runtimeModes } from './shared/composer-presentation';
+import { machineKind, MACHINE_KINDS } from './shared/connections';
 
 export const SCHEDULED_ROUTES = ['SettingsScheduledTasks','SettingsScheduledTaskNew','SettingsScheduledTaskEdit','SettingsScheduledTaskModel','SettingsScheduledTaskBranch'];
+const machineSymbols: Record<string, string> = { server: 'server.rack', cloud: 'cloud', linux: 'terminal', desktop: 'desktopcomputer', laptop: 'laptopcomputer', 'mac-mini': 'macmini', 'mac-studio': 'macstudio' };
 export function scheduledGrant(session: Obj): boolean { return session.authenticated === true && (Array.isArray(session.permissions) ? session.permissions.includes('orchestration:operate') : session.permissions === undefined && Array.isArray(session.scopes) && session.scopes.includes('orchestration:operate')); }
 const result = (message = '', closed = false) => ({ revision: ++mobileClient.revision, message, closed });
 const inScope = (scope: MobileServerScope, environmentId: string, projectId: string) => scope.environmentIds.includes(environmentId) && (scope.members === null || scope.members.some(member => member.environmentId === environmentId && member.id === projectId));
@@ -30,7 +32,7 @@ function scheduleLabel(task: Obj) {
   return `${repeat} at ${Number.isInteger(hour)&&Number.isInteger(minute)?time.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}):str(schedule.timeOfDay)}`;
 }
 export async function mobileScheduledTasks(scopeJSON: string, now: number, nativeInput: Native | null | undefined) {
-  const empty = { ready: false, error: '', emptyMessage: '', canCreate: false, sections: [] as { id: string; title: string; error: string; loading: boolean; emptyMessage: string; rows: { id: string; title: string; subtitle: string; error: string; canOperate: boolean; enabled: boolean; webhook: boolean; first: boolean }[] }[] };
+  const empty = { ready: false, error: '', emptyMessage: '', canCreate: false, sections: [] as { id: string; title: string; machineSymbol: string; machineLabel: string; error: string; loading: boolean; emptyMessage: string; rows: { id: string; title: string; subtitle: string; error: string; canOperate: boolean; enabled: boolean; webhook: boolean; first: boolean }[] }[] };
   if (!nativeInput?.available) return empty;
   const scope = decodeMobileServerScope(scopeJSON), native = settingsNative(nativeInput);
   try {
@@ -40,8 +42,8 @@ export async function mobileScheduledTasks(scopeJSON: string, now: number, nativ
       let canOperate = false; const error = environment?.tasks.error ?? '';
       try { canOperate = scheduledGrant(await settingsCall(endpoint, { op: 'http', path: '/api/auth/session' })); }
       catch (cause) { if (letGo(cause)) throw cause; }
-      const tasks = environment?.tasks.value?.filter(task => inScope(scope, source.environmentId, str(task.projectId))) ?? null;
-      return { id: source.environmentId, title: source.label, error, loading: !error && tasks === null,
+      const tasks = environment?.tasks.value?.filter(task => inScope(scope, source.environmentId, str(task.projectId))) ?? null, machine = machineKind(source.config);
+      return { id: source.environmentId, title: source.label, machineSymbol: machineSymbols[machine] ?? machineSymbols.server!, machineLabel: MACHINE_KINDS.find(([kind]) => kind === machine)?.[1] ?? 'Server', error, loading: !error && tasks === null,
         emptyMessage: tasks?.length === 0 ? scope.members === null ? 'No scheduled tasks yet.' : 'No tasks in this project.' : '',
         rows: (tasks ?? []).map((task,index) => ({ id: str(task.id), title: str(task.title), subtitle: `${scheduleLabel(task)}${task.enabled !== true ? ' · Paused' : task.nextRunAt ? ` · ${formatNextScheduledTaskRun(str(task.nextRunAt), now)}` : ''}`,
           error: task.lastRunError ? `Last run failed: ${str(task.lastRunError)}` : '', canOperate, enabled: task.enabled === true, webhook: obj(task.schedule).type === 'webhook', first: index === 0 })) };
