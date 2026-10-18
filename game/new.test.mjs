@@ -770,3 +770,104 @@ test('--render scaffolds a render crate with an explicit shader root', async () 
       'exact_game_render::module!(game_logic::MyGame, hooks = game_render::Passes, shaders = game_render::shaders::SHADERS);\n');
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
+
+// LLP 1132 D6: run each test binary the way a fresh clone would, from another
+// directory, with no assets/ written and no environment variable naming the game.
+test('the --assets scaffold\'s tests bake art in memory under both manifest layouts', async () => {
+  const {gameDefaults, prepareGame} = await import('./app/shells.mjs');
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'assets-scaffold-'))), app = resolve(root, 'model-game');
+  const elsewhere = resolve(root, 'elsewhere');
+  mkdirSync(elsewhere);
+  const env = {...process.env};
+  for (const key of ['EXACT_APP_DIR', 'CARGO_TARGET_DIR', 'CARGO_MANIFEST_DIR']) delete env[key];
+  try {
+    createGame(app, undefined, {assets:true});
+    assert.deepEqual(JSON.parse(readFileSync(resolve(app, 'app.json'), 'utf8')), {game:{assets:true}});
+    for (const file of ['art/crate.gltf', 'logic/tests/model.rs']) assert.ok(existsSync(resolve(app, file)), file);
+    assert.match(readFileSync(resolve(app, 'logic/src/lib.rs'), 'utf8'), /const ASSETS: &'static \[&'static str\] = &\["crate\.model"\];[^]*Mesh::asset\("crate\.model"\)/);
+    // The negative control: without the macro the same world cannot save (F5).
+    writeFileSync(resolve(app, 'logic/tests/control.rs'), `use exact_game::Sim;
+use model_game_logic::{ModelGame, Options};
+#[test]
+fn without_the_art_the_world_cannot_save() {
+    let refused = Sim::<ModelGame>::new(Options::default()).unwrap().save().unwrap_err().to_string();
+    assert!(refused.contains("save refused: assets are not ready"), "{refused}");
+    assert!(refused.contains("exact_game::sim_with_art!"), "the refusal names its fix: {refused}");
+}
+`);
+    const binaries = () => {
+      prepareGame(app, gameDefaults(app).game);
+      const built = spawnSync('cargo', ['test', '--no-run', '--locked', '--offline', '--message-format=json', '-p', 'model-game-logic'],
+        {cwd:resolve(app, '.shells'), env, encoding:'utf8', maxBuffer:1 << 28, stdio:['ignore', 'pipe', 'inherit']});
+      assert.equal(built.status, 0, 'the scaffold\'s tests compile');
+      return built.stdout.split('\n').filter(line => line.startsWith('{')).map(JSON.parse)
+        .filter(m => m.reason === 'compiler-artifact' && m.executable && m.target.kind.includes('test'))
+        .map(m => [m.target.name, m.executable]);
+    };
+    const runAll = layout => {
+      const tests = binaries();
+      assert.deepEqual(tests.map(([name]) => name).sort(), ['control', 'model', 'sim'], layout);
+      for (const [name, executable] of tests) {
+        const result = spawnSync(executable, [], {cwd:elsewhere, env, encoding:'utf8'});
+        assert.equal(result.status, 0, `${layout} ${name}:\n${result.stdout}\n${result.stderr}`);
+      }
+      for (const output of ['assets', '.baked-assets.json']) assert.ok(!existsSync(resolve(app, output)), `${layout}: no ${output}`);
+    };
+    runAll('generated .shells/logic');
+    assert.match(readFileSync(resolve(app, '.shells/logic/Cargo.toml'), 'utf8'), /\[dev-dependencies\]\nexact-game-bake\.workspace = true/);
+    writeFileSync(resolve(app, 'logic/Cargo.toml'), `[package]
+name = "model-game-logic"
+version = "0.1.0"
+edition = "2021"
+workspace = "../.shells"
+
+[dependencies]
+exact-game.workspace = true
+
+[dev-dependencies]
+exact-game-bake.workspace = true
+`);
+    runAll('authored logic/Cargo.toml');
+  } finally { rmSync(root, {recursive:true, force:true}); }
+}, 1800000);
+
+// LLP 1132 D8: an agent looks names up before it reads engine source.
+test('a game\'s AGENTS.md lists vocab, the recipes and the name table first, and every path it names exists', () => {
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'game-notes-'))), app = resolve(root, 'reading-order');
+  try {
+    createGame(app);
+    const notes = readFileSync(resolve(app, 'AGENTS.md'), 'utf8');
+    const list = notes.slice(notes.indexOf('Look things up in this order')).split('\n\n')[1].split('\n').filter(line => line.startsWith('- '));
+    assert.match(list[0], /^- `bun exact\.mjs game vocab <name>`/);
+    assert.match(list[1], /^- \S*game\/recipes\/README\.md:/);
+    assert.match(list[2], /^- \S*game\/names\.md:/);
+    assert.match(list.slice(3).join('\n'), /game\/README\.md[^]*docs\/game-pitfalls\.md/);
+    const paths = list.flatMap(line => [...line.matchAll(/[^\s`]*\/[^\s`]*?\.md(?=[\s:,])/g)].map(m => m[0]));
+    assert.ok(paths.length >= 6, paths.join('\n'));
+    for (const path of paths) assert.ok(existsSync(resolve(app, path)), `${path} does not exist`);
+  } finally { rmSync(root, {recursive:true, force:true}); }
+});
+
+// LLP 1132.000 F17: a test file added after the shells were written is a target at
+// the next `test-rust` (`shells.mjs <game> --test`), with no `shells` in between.
+test('test-rust makes a new logic/tests file a test target before Cargo runs', () => {
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'new-test-target-'))), app = resolve(root, 'tidal');
+  const bin = resolve(root, 'bin'), calls = resolve(root, 'calls.jsonl');
+  try {
+    createGame(app);
+    mkdirSync(bin);
+    // Only Cargo is substituted; it records the test targets the member lists when `cargo test` starts.
+    writeFileSync(resolve(bin, 'cargo'), `#!${process.execPath}\nimport {appendFileSync, readFileSync} from 'node:fs';
+const args = process.argv.slice(2);
+if (args[0] === 'metadata') console.log('{"packages":[]}');
+if (args[0] === 'test') appendFileSync(process.env.TARGETS_CALLS, JSON.stringify(Bun.TOML.parse(readFileSync('logic/Cargo.toml', 'utf8')).test.map(t => t.name)) + '\\n');\n`);
+    chmodSync(resolve(bin, 'cargo'), 0o755);
+    const env = {...process.env, PATH:`${bin}:${process.env.PATH}`, TARGETS_CALLS:calls};
+    const testRust = () => spawnSync(process.execPath, [resolve(import.meta.dir, 'app/shells.mjs'), app, '--test'], {cwd:root, env, encoding:'utf8'});
+    const ok = result => assert.equal(result.status, 0, result.stderr);
+    ok(testRust());
+    writeFileSync(resolve(app, 'logic/tests/debug.rs'), '#[test]\nfn probe() {}\n');
+    ok(testRust());
+    assert.deepEqual(readFileSync(calls, 'utf8').trim().split('\n').map(JSON.parse), [['sim'], ['debug', 'sim']]);
+  } finally { rmSync(root, {recursive:true, force:true}); }
+});

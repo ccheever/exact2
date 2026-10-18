@@ -66,7 +66,7 @@ function logicManifest(dir, crate) {
       if (file) targets.push(`\n[[${table}]]\nname = ${JSON.stringify(file.replace(/(\.rs|\/main\.rs)$/, ''))}\npath = ${JSON.stringify(`../../logic/${kind}/${file}`)}\n`);
     }
   }
-  return `# Generated from ../../logic by the game bake. A game that adds dependencies\n# writes logic/Cargo.toml instead (game/README.md).\n[package]\nname = "${crate}"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\npublish = false\nautobins = false\nautoexamples = false\nautotests = false\nautobenches = false\n\n[lib]\npath = "../../logic/src/lib.rs"\n${targets.join('')}\n[dependencies]\nexact-game.workspace = true\n`;
+  return `# Generated from ../../logic by the game bake. A game that adds dependencies\n# writes logic/Cargo.toml instead (game/README.md).\n[package]\nname = "${crate}"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\npublish = false\nautobins = false\nautoexamples = false\nautotests = false\nautobenches = false\n\n[lib]\npath = "../../logic/src/lib.rs"\n${targets.join('')}\n[dependencies]\nexact-game.workspace = true\n${hasArt(dir) ? '\n# sim_with_art! bakes art/ in memory for the hostless tests.\n[dev-dependencies]\nexact-game-bake.workspace = true\n' : ''}`;
 }
 
 // @ref LLP 1046.008#b-authored-presentation-crate — GPU-only authored hooks (renamed

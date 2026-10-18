@@ -332,7 +332,9 @@ consume input.
 
 `sim.load_assets(|name| std::fs::read(name))?` loads headless dependencies, including
 declared `.sound` assets, which the primitive module also decodes; a save records
-their content identity, as it does a level's.
+their content identity, as it does a level's (a delivered model records none).
+A game's own tests use `exact_game::sim_with_art!(args)`: the game's `art/` baked in
+memory and passed to `Sim::with_assets`.
 `sim.save()?` checks current mesh roots even before requests are drained and
 reports pending or failed declarations by name. Failed cosmetics do not block saves.
 Declared (`Game::ASSETS`) and streamed (`Game::STREAMED`) assets stay resident

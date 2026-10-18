@@ -50,7 +50,8 @@ snapshot `321055e1` (2026-09-21). The original checkout remains intact.
 
 Run these commands from the Exact2 repository root. With the pinned Bun and rustup
 installed, `bun scripts/exact.mjs setup` installs the SDK's Rust toolchains,
-wasm-bindgen, Binaryen and Bun dependencies. `setup --check` diagnoses missing or
+wasm-bindgen, Binaryen and Bun dependencies, and builds the engine rustdoc that
+`exact game vocab <name>` reads, so a first lookup answers at once. `setup --check` diagnoses missing or
 mismatched tools. See [offline setup](#offline-setup) for populating Cargo's cache.
 
 ```sh
@@ -660,7 +661,12 @@ load order never reaches the hash; a save refuses only while a shown one is in
 flight. A model a tick animates or reads belongs in `ASSETS`. Streamed names are
 models and textures (sounds are not streamed yet), and never also in `ASSETS`.
 Models and sprites need the asset-capable module; sounds and untextured emitters do
-not. See [the audio executor](audio/README.md) and
+not. `assets/` is the bake's output, not a test's input: a hostless test builds its world
+with `exact_game::sim_with_art!(Options::default())`, which bakes the game's `art/` in
+memory (the same bytes) from either manifest layout and any working directory, then hands
+them to `Sim::with_assets`; `bun game/new.mjs <game> --assets` starts a game that does.
+A generated `logic` member gets `exact-game-bake` as a dev-dependency when the game has
+`art/`; an authored `logic/Cargo.toml` declares it. See [the audio executor](audio/README.md) and
 [the audio fixture](games/audio-fixture/logic/src/lib.rs) for sampled sounds.
 
 For a data-authored level, derive `Data` for its record and declare `Game::LEVEL`.

@@ -1,18 +1,12 @@
-#[path = "../../../../bake/tests/support/mod.rs"]
-mod baked;
 #[path = "../../../../render/tests/fixture/device.rs"]
 mod gpu_test;
 use exact_game::*;
 use skinned_fixture_logic::{Options, SmallGame};
 fn assets() -> std::collections::BTreeMap<String, Vec<u8>> {
-    baked::assets(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../art/fox.glb")).unwrap()
+    exact_game_bake::game_art(env!("CARGO_MANIFEST_DIR")).unwrap()
 }
 fn sim() -> Sim<SmallGame> {
-    let assets = assets();
-    let mut s = Sim::with_assets(Options::default(), |name| {
-        assets.get(name).cloned().ok_or(name.to_owned())
-    })
-    .unwrap();
+    let mut s: Sim<SmallGame> = sim_with_art!(Options::default()).unwrap();
     s.viewport(1280., 720.);
     s
 }
