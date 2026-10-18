@@ -185,6 +185,15 @@ fn route_headers_keep_the_page_tree_and_take_the_neutral_defaults() {
 
 #[test]
 fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
+    // This binary has one test; pin before any engine reads installed fonts.
+    std::env::set_var(
+        "EXACT_FONTS",
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../scripts/fixtures/fonts/assets"
+        ),
+    );
+    std::env::set_var("EXACT_FONT", "DejaVu Sans");
     exact_linux::app::show_neutral_look();
     invalid_non_fields_keep_their_accent_ring();
     disabled_glass_and_invalid_fields_follow_the_neutral_look();

@@ -8,13 +8,19 @@ use tiny_skia::{Color, FillRule, PathBuilder, Rect};
 pub(super) mod messages_envelope_model;
 
 fn engine() -> TextEngine {
-    TextEngine::with_catalog(catalog::Catalog::installed_with(
-        Path::new(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../scripts/fixtures/fonts/assets"
-        )),
+    TextEngine::from_font_files(
+        &[
+            Path::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../scripts/fixtures/fonts/assets"
+            )),
+            Path::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fonts/NotoColorEmoji-subset.ttf"
+            )),
+        ],
         "DejaVu Sans",
-    ))
+    )
 }
 
 fn spec(text: &str) -> Spec {
@@ -333,7 +339,7 @@ fn actual_color_bitmap_placement_matches_full_paint() {
         let mut catalog = p.source.catalog.borrow_mut();
         let slots = ink::slots(&mut catalog, p.lines());
         let (key, _, _) = ink::physical(g, slots[g.face as usize], (0.0, 0.0), 1.25);
-        catalog.renders_color(key)
+        catalog.renders_color_bitmap(key)
     });
     assert!(color, "fixture must exercise an actual Swash color bitmap");
     for y in [-0.625, -119.375, -p.height + 70.25] {

@@ -159,6 +159,21 @@ fn boot(source: &str, size: (f32, f32), books: usize) -> Presenter<Data> {
     )
     .unwrap();
     assert!(error.is_none(), "{error:?}");
+    *p.text.borrow_mut() = TextEngine::from_font_files(
+        &[std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../scripts/fixtures/fonts/assets"
+        ))],
+        "DejaVu Sans",
+    );
+    // Rebuild measurements made at boot with the local fixture catalog.
+    let kernel = p
+        .host
+        .kernel()
+        .rehydrate(Box::new(Measurer(p.text.clone())));
+    *p.host.runner_mut().kernel_mut() = kernel;
+    assert!(p.resize(size.0, size.1).is_none());
+    p.replaced();
     settle(&mut p);
     p
 }
@@ -333,11 +348,26 @@ fn shelfs_library_is_read_bar_then_page_then_navigation_bar() {
     );
     // Rows past the navigation bar are not there, and the row it cuts shows
     // only what is above it.
-    assert!(nodes
-        .iter()
-        .all(|n| n.name != "Book 9 Susanna Clarke 44% · page 120 of 272"));
-    let cut = named(&nodes, "Book 7 Susanna Clarke 44% · page 120 of 272");
-    assert_eq!(cut.rect[1] + cut.rect[3], 916.0 - 104.0);
+    let bottom = list.rect[1] + list.rect[3];
+    assert_eq!(bottom, WINDOW.size.1 - 104.0);
+    let mut clipped = 0;
+    let mut hidden = 0;
+    for book in 1..=12 {
+        let view = id(&p, &format!("book-seed-{book}"));
+        let (_, y, _, height) = p.rect_of(view).unwrap();
+        let exposed = nodes.iter().find(|n| n.view == view);
+        if y >= bottom {
+            assert!(exposed.is_none(), "Book {book} is below the list");
+            hidden += 1;
+        } else if y + height > bottom {
+            let cut = exposed.expect("the intersecting row is exposed");
+            assert_eq!(cut.rect[1] + cut.rect[3], bottom);
+            assert!(cut.rect[3] > 0.0 && cut.rect[3] < height);
+            clipped += 1;
+        }
+    }
+    assert_eq!(clipped, 1, "one row crosses the list's bottom edge");
+    assert!(hidden > 0, "the fixture has rows below the list");
     // The navigation bar last: a tablist of three, the first selected.
     let tail = &nodes[nodes.len() - 4..];
     assert_eq!(
