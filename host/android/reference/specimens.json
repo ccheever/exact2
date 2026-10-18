@@ -12,7 +12,7 @@
     { "id": "top-app-bar-up", "component": "TopAppBar", "probes": [{ "name": "container", "x": 26, "y": "mid" }] },
     { "id": "navigation-bar", "component": "NavigationBar", "probes": [{ "name": "container", "x": 8, "y": 8 }, { "name": "container-end", "x": -8, "y": -8 }] },
     { "id": "filled-button", "component": "Button", "probes": [{ "name": "container", "x": 6, "y": "mid" }] },
-    { "id": "checkbox-checked", "component": "Checkbox", "probes": [{ "name": "box", "x": 3, "y": "mid" }] },
+    { "id": "checkbox-checked", "component": "Checkbox", "probes": [{ "name": "box", "x": "mid", "y": 3 }] },
     { "id": "checkbox-unchecked", "component": "Checkbox", "probes": [{ "name": "outline", "x": 1, "y": "mid" }] }
   ],
   "defects": [
