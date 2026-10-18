@@ -2,9 +2,8 @@
 // Build the web app (LLP 1071): the JS target, `host/web-js/build.mjs`, the
 // plan compiled to one ES module over a small runtime, into the same dist;
 // what it refuses (a capability the runtime lacks, named) fails the build.
-// A game (LLP 1046), and `--wasm`, get the wasm target: the wasm under the `web` profile (size-tuned),
-// `wasm-opt -Oz` when binaryen is on PATH, then `dist/` = index.html +
-// glue.js + app.wasm.
+// Games and `--wasm` use the wasm target. Shipping modules use `web` plus
+// wasm-opt; proofs may select `gpu-dev` without wasm-opt. The host stays `web`.
 // Usage: bun host/web/build.mjs [crate=caltrain-web]
 // (`--js` is accepted and is the default.) `--wasm` is internal, for what the
 // retiring wasm target still serves (LLP 1071 §7, "Retiring the wasm target
@@ -123,8 +122,8 @@ const keepNames = process.env.EXACT_WEB_NAMES === '1';
 // whole, as does a machine whose binaryen isn't the pinned one.
 const unsplit = keepNames || process.env.EXACT_WEB_LINK === 'all' ? 'a development or names build' : unsplitReason();
 if (keepNames || !unsplit) buildEnv.CARGO_PROFILE_WEB_STRIP = 'debuginfo';
-// Proofs select the fast game module; ordinary builds and production keep shipping bytes.
-const proofProfile = game && buildEnv.EXACT_UPDATE_TRUST !== 'production' ? process.env.EXACT_GAME_PROOF_PROFILE : undefined;
+// Proofs select the requested game profile under either trust mode; ordinary builds ship web.
+const proofProfile = game ? process.env.EXACT_GAME_PROOF_PROFILE : undefined;
 if (proofProfile && !['gpu-dev', 'release'].includes(proofProfile)) throw new Error('EXACT_GAME_PROOF_PROFILE must be gpu-dev or release');
 const gpuProfile = proofProfile === 'gpu-dev' ? 'gpu-dev' : 'web';
 const buildReceipt = contractLast(() => buildBake(app, 'web', 'wasm32-unknown-unknown', {env:buildEnv, check:bakeOnly, gpuProfile}));

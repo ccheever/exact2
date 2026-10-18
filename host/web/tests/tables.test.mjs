@@ -73,3 +73,11 @@ test('unchanged JS and Rust modules allow live table delivery; changed modules r
   candidate.rust={...rust,module:bytes(5)};expect(predicate(candidate,active,sameModule)).toBe(false);
   candidate.rust=rust;candidate.module={...module,script:bytes(6)};expect(predicate(candidate,active,sameModule)).toBe(false);
 });
+
+test('web proof profile selection is retained under production trust', () => {
+  const build=readFileSync(new URL('../build.mjs',import.meta.url),'utf8');
+  const start=build.indexOf('const proofProfile ='),end=build.indexOf('const buildReceipt =',start);
+  const select=new Function('game','buildEnv','process',build.slice(start,end)+'return gpuProfile;');
+  expect(select(true,{EXACT_UPDATE_TRUST:'production'},{env:{EXACT_GAME_PROOF_PROFILE:'gpu-dev'}})).toBe('gpu-dev');
+  expect(select(true,{EXACT_UPDATE_TRUST:'production'},{env:{EXACT_GAME_PROOF_PROFILE:'release'}})).toBe('web');
+});

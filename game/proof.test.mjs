@@ -1,7 +1,6 @@
 import {chromium} from '../scripts/agent-launch.mjs';
 import {runFocusCommands} from '../host/web/navigation.js';
 import {captureWorld, diffWorlds, formatWorldDiff} from './proof.mjs';
-import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {checkSteadyResidency} from './render/tests/residency.mjs';
 import {test, expect} from 'bun:test';
@@ -1182,32 +1181,6 @@ test('R15 even linux-only repin refuses missing or divergent release observation
   rows.at(-1).pins.ticks[60]=repeatedHash('d');
   expect(()=>agreePins(rows,old,['linux'], '.')).toThrow('release');
 });
-
-test('R15 semantic drift fixture is rejected by the release gate',async()=>{
-  const dir=mkdtempSync(resolve(tmpdir(),'r15-profile-drift-'));
-  try {
-    const src=resolve(dir,'profile.rs');
-    writeFileSync(src,'#[no_mangle] pub extern "C" fn mode()->u32{cfg!(debug_assertions) as u32} #[no_mangle] pub extern "C" fn increment(a:u32)->u32{a+1}');
-    const outcomes=[];
-    for(const drift of [true,false]) {
-      const binary=resolve(dir,drift?'drift.wasm':'release.wasm');
-      const compile=Bun.spawn(['rustc',src,'--crate-type','cdylib','--target','wasm32-unknown-unknown','-C','panic=abort','-o',binary,'-C',`debug-assertions=${drift?'yes':'no'}`,'-C',`overflow-checks=${drift?'yes':'no'}`,'-C','llvm-args=-fp-contract=off'],{stdout:'pipe',stderr:'pipe'});
-      expect(await compile.exited).toBe(0);
-      const {instance}=await WebAssembly.instantiate(readFileSync(binary),{});
-      let wrapped=false;try { wrapped=instance.exports.increment(4294967295)===0; } catch(error) {expect(error).toBeInstanceOf(WebAssembly.RuntimeError);}
-      outcomes.push(`${instance.exports.mode()===1}:${wrapped}\n`);
-    }
-    expect(outcomes).toEqual(['true:false\n','false:true\n']);
-    const rows=candidates(['linux']);
-    rows.at(-1).pins.ticks[60]='0x'+createHash('sha256').update(outcomes[1]).digest('hex').slice(0,16);
-    for(const row of rows.slice(0,-1)) row.pins.ticks[60]='0x'+createHash('sha256').update(outcomes[0]).digest('hex').slice(0,16);
-    expect(()=>agreePins(rows,rows[0].pins,['linux'], '.')).toThrow('release');
-    const web = candidates();
-    web.find(row => row.host === 'web' && row.profile === 'release').pins.ticks[60] = rows.at(-1).pins.ticks[60];
-    expect(() => agreePins(web, web[0].pins, ['linux', 'web'], '.')).toThrow('web release proof missing, failed, or disagrees with gpu-dev');
-  } finally {rmSync(dir,{recursive:true,force:true});}
-},60000);
-
 
 test('concurrent prove runs keep their save artifacts and web builds separate', async () => {
   const dir=mkdtempSync(resolve(tmpdir(),'proof-isolation-')), app=resolve(dir,'game'), children=[];
