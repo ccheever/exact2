@@ -1,4 +1,4 @@
-// Timeline rows adapted from T3 Code (MIT, see LICENSE-T3):
+// Timeline rows adapted from T3 Code 9c161462c9 (MIT, see LICENSE-T3):
 // apps/web/src/session-logic.ts deriveTimelineEntriesFromVisibleTurnItems and
 // apps/web/src/components/chat/MessagesTimeline.logic.ts deriveMessagesTimelineRows
 // (turn folds, superseded attempts, live work, working and thinking rows).
@@ -11,7 +11,7 @@ import { groupToolPresentation } from './timeline-work-rows';
 import { agentStarted } from './timeline-worktree';
 import { turnItemIsWorkspacePreparation } from './workspace-retry';
 
-export interface Attempt { id: string; runId: string; status: string }
+export interface Attempt { id: string; runId: string; status: string; completedAt: string }
 export type Entry =
   | { kind: 'message'; id: string; createdAt: string; row: Obj; item: Obj; role: 'user' | 'assistant'; attempt?: Attempt }
   | { kind: 'work'; id: string; createdAt: string; row: Obj; entry: WorkEntry; attempt?: Attempt }
@@ -22,7 +22,9 @@ export type Entry =
 export type Row =
   | { kind: 'entry'; id: string; createdAt: string; entries: WorkEntry[]; label?: string; continues?: boolean }
   | { kind: 'details'; id: string; createdAt: string; entries: WorkEntry[]; continues?: boolean }
-  | { kind: 'live'; id: string; createdAt: string; entry: WorkEntry; entries: WorkEntry[]; groupId: string; expanded: boolean; active: boolean; label: string; continues?: boolean }
+  | { kind: 'live'; id: string; createdAt: string; entry: WorkEntry; entries: WorkEntry[]; groupId: string; expanded: boolean; active: boolean; label: string; continues?: boolean;
+      /** The group's latest reasoning, shown above the status line. */
+      thought?: WorkEntry }
   | { kind: 'working'; id: string; createdAt: string }
   | { kind: 'thinking'; id: string; createdAt: string; continues?: boolean; groupId?: string; expanded?: boolean }
   | { kind: 'group'; id: string; createdAt: string; runId: string; groupId: string; count: number; expanded: boolean; summary: string; icon: string; toolIcon: Obj | null; failed: boolean; continues?: boolean }
@@ -51,6 +53,8 @@ const STANDALONE = new Set(['fork', 'handoff', 'run_interrupt_request', 'run_int
 const PERSISTENT = new Set(['fork', 'thread_created']);
 export function rowKey(row: Obj): string { return JSON.stringify([row.sourceThreadId, row.sourceItemId]); }
 
+const attemptOf = (attempt: Obj): Attempt => ({ id: str(attempt.id), runId: str(attempt.runId), status: str(attempt.status), completedAt: str(attempt.completedAt) });
+
 /** session-logic deriveTimelineEntriesFromVisibleTurnItems, keeping checkpoints for the changed-files card. */
 export function timelineEntries(input: Pick<RowInput, 'rows' | 'attempts' | 'nodes'>): Entry[] {
   const byRoot = new Map(input.attempts.map(attempt => [str(attempt.rootNodeId), attempt]));
@@ -62,11 +66,11 @@ export function timelineEntries(input: Pick<RowInput, 'rows' | 'attempts' | 'nod
     while (nodeId && !seen.has(nodeId)) {
       seen.add(nodeId);
       const direct = byRoot.get(nodeId);
-      if (direct && direct.runId === item.runId) return { id: str(direct.id), runId: str(direct.runId), status: str(direct.status) };
+      if (direct && direct.runId === item.runId) return attemptOf(direct);
       const node = nodes.get(nodeId);
       if (!node) return undefined;
       const root = byRoot.get(str(node.rootNodeId));
-      if (root && root.runId === item.runId) return { id: str(root.id), runId: str(root.runId), status: str(root.status) };
+      if (root && root.runId === item.runId) return attemptOf(root);
       nodeId = node.parentNodeId ? str(node.parentNodeId) : null;
     }
     return undefined;
@@ -119,11 +123,13 @@ export function deriveRows(input: RowInput): Row[] {
     terminal.set(entry.item.runId ? `turn:${str(entry.item.runId)}` : `unkeyed:${responseIndex}`, entry.id);
   }
   const terminalIds = new Set(terminal.values());
-  // Superseded attempts.
+  // Superseded attempts the steer cut off: one whose reply had already finished stays like any turn output.
+  const liveSubagents = liveSubagentCardIds(entries), completeReplies = completeSupersededReplyIds(entries);
+  const completeAttempts = new Set(entries.flatMap(entry => entry.attempt && completeReplies.has(entry.id) ? [entry.attempt.id] : []));
   const attemptGroups = new Map<string, Entry[]>();
   for (const entry of entries) {
-    if (entry.attempt?.status !== 'superseded' || failedRuns.has(entry.attempt.runId) || entry.kind === 'message' && entry.role === 'user'
-      || persistentResource(entry) || entry.kind === 'work' && entry.entry.itemType === 'system_notice') continue;
+    if (entry.attempt?.status !== 'superseded' || completeAttempts.has(entry.attempt.id) || failedRuns.has(entry.attempt.runId) || entry.kind === 'message' && entry.role === 'user'
+      || persistentResource(entry) || liveSubagents.has(entry.id) || entry.kind === 'work' && entry.entry.itemType === 'system_notice') continue;
     attemptGroups.set(entry.attempt.id, [...attemptGroups.get(entry.attempt.id) ?? [], entry]);
   }
   const attemptFolds = new Map<string, { runId: string; attemptId: string; createdAt: string; hidden: Set<string> }>();
@@ -139,7 +145,7 @@ export function deriveRows(input: RowInput): Row[] {
     if (input.isWorking) for (const entry of entries.slice(boundary + 1)) { const run = runOf(entry); if (run) activeRuns.add(run); }
   }
   const runlessWorkActive = input.isWorking && input.runlessWorkActive === true;
-  const folds = turnFolds(entries, terminalIds, latestRun, new Set([...activeRuns, ...failedRuns]), runlessWorkActive);
+  const folds = turnFolds(entries, terminalIds, latestRun, new Set([...activeRuns, ...failedRuns]), runlessWorkActive, new Set([...liveSubagents, ...completeReplies]));
   const collapsed = new Set<string>();
   for (const fold of folds.values()) if (!input.expandedRuns.has(fold.runId)) fold.hidden.forEach(id => collapsed.add(id));
   const collapsedAttempts = new Set<string>();
@@ -160,19 +166,21 @@ export function deriveRows(input: RowInput): Row[] {
         || folds.has(entry.id) || attemptFolds.has(entry.id)) break;
       const attempt = entry.attempt?.id ?? null;
       if (tailAttempt === undefined) tailAttempt = attempt; else if (attempt !== tailAttempt) break;
-      activeTail.unshift(entry);
+      activeTail.push(entry);
     }
+    activeTail.reverse();
   }
   const visibleTail = activeTail.filter(entry => visibleInGroup(entry.entry, true));
   const anchor = activeTail[0], latestVisible = last(visibleTail);
   const latestRunning = findLast(visibleTail, entry => entry.entry.status === 'inProgress');
   const keepsLive = !!latestRunning || !!latestVisible && successKeepsLive(latestVisible.entry);
   const latestFailed = !latestRunning && !!latestVisible && latestVisible.entry.status !== 'declined' && displayFailed(latestVisible.entry);
+  const latestThought = findLast(visibleTail, item => item.entry.itemType === 'reasoning' && !!item.entry.detail?.trim());
   const liveRow: Extract<Row, { kind: 'live' }> | null = anchor && latestVisible && !latestFailed ? (() => {
     const groupId = `work-group:${anchor.id}`, entry = (latestRunning ?? latestVisible).entry;
     return { kind: 'live', id: keepsLive ? 'live-activity-row' : `work-live:${anchor.id}`, createdAt: anchor.createdAt, entry,
       entries: visibleTail.map(item => item.entry), groupId, expanded: input.expandedGroups.has(groupId), active: keepsLive,
-      label: liveEntryLabel(entry, input.root, keepsLive) };
+      label: liveEntryLabel(entry, input.root, keepsLive), ...(latestThought ? { thought: latestThought.entry } : {}) };
   })() : null;
   const liveIds = new Set(liveRow || latestFailed ? activeTail.map(entry => entry.id) : []);
   const rows: Row[] = [];
@@ -299,6 +307,50 @@ export function deriveRows(input: RowInput): Row[] {
   return result;
 }
 
+const boundaryRunOf = (entry: Entry): string => entry.kind === 'message' ? str(entry.item.runId) : entry.kind === 'work' ? entry.entry.runId : '';
+
+/**
+ * liveSubagentCardEntryIds: subagent cards whose child still works stay out of their turn's folds
+ * (and a superseded attempt's); adjacent cards of one provider turn are one row, kept whole while any is live.
+ */
+function liveSubagentCardIds(entries: Entry[]): Set<string> {
+  const visible = new Set<string>();
+  let batch: Extract<Entry, { kind: 'event' }>[] = [];
+  const flush = () => {
+    if (batch.some(entry => ['pending', 'running', 'waiting'].includes(str(entry.item.status)))) for (const entry of batch) visible.add(entry.id);
+    batch = [];
+  };
+  for (const entry of entries) {
+    if (entry.kind !== 'event' || entry.item.type !== 'subagent') { flush(); continue; }
+    const previous = last(batch)?.item;
+    if (previous && (previous.runId !== entry.item.runId || previous.providerTurnId !== entry.item.providerTurnId)) flush();
+    batch.push(entry);
+  }
+  flush();
+  return visible;
+}
+
+/**
+ * completeSupersededReplyEntryIds: a superseded attempt's last output, when it is an assistant reply
+ * that completed before the steer stamped the attempt's completedAt, was whole (an interrupted
+ * stream also closes as completed, so the item status alone cannot tell).
+ */
+function completeSupersededReplyIds(entries: Entry[]): Set<string> {
+  const lastOutput = new Map<string, Entry>();
+  for (const entry of entries) {
+    if (entry.attempt?.status !== 'superseded' || entry.kind === 'message' && entry.role === 'user'
+      || entry.kind === 'work' && ['system_notice', 'notification'].includes(entry.entry.itemType) || entry.kind !== 'message' && entry.kind !== 'work') continue;
+    lastOutput.set(entry.attempt.id, entry);
+  }
+  const ids = new Set<string>();
+  for (const entry of lastOutput.values()) {
+    if (entry.kind !== 'message' || entry.role !== 'assistant' || entry.item.streaming === true || entry.item.status !== 'completed') continue;
+    const completedAt = Date.parse(str(entry.item.completedAt)), supersededAt = Date.parse(entry.attempt?.completedAt ?? '');
+    if (Number.isFinite(completedAt) && Number.isFinite(supersededAt) && completedAt < supersededAt) ids.add(entry.id);
+  }
+  return ids;
+}
+
 function settleReasoning(entries: Entry[]): Entry[] {
   return entries.map((entry, index) => index === entries.length - 1 || entry.kind !== 'work' || entry.entry.itemType !== 'reasoning'
     || entry.entry.status !== 'inProgress' ? entry : { ...entry, entry: { ...entry.entry, status: 'completed' } });
@@ -310,25 +362,31 @@ interface Fold { runId: string; createdAt: string; hidden: Set<string>; label: s
  * turn imported from V1) lends its response a key of its own, decided per
  * prompt so a V1 thread's first V2 run does not unfold every imported turn.
  */
-function turnFolds(entries: Entry[], terminalIds: Set<string>, latestRun: Obj | null, unfolded: Set<string>, runlessWorkActive: boolean): Map<string, Fold> {
+function turnFolds(entries: Entry[], terminalIds: Set<string>, latestRun: Obj | null, unfolded: Set<string>, runlessWorkActive: boolean, kept: Set<string>): Map<string, Fold> {
   const interrupted = new Set(entries.flatMap(entry => entry.kind === 'event' && entry.item.runId
     && (entry.item.type === 'run_interrupt_request' || entry.item.type === 'run_interrupt_result') ? [str(entry.item.runId)] : []));
+  const promptIndex = new Map<string, number>();
+  entries.forEach((entry, index) => { const run = startsResponse(entry) ? boundaryRunOf(entry) : ''; if (run && !promptIndex.has(run)) promptIndex.set(run, index); });
   interface Group { entries: Entry[]; terminal: Entry | null; streaming: boolean; start: string | null; anchor: string }
   const groups = new Map<string, Group>(), runlessFailed = new Set<string>();
-  let runless: string | null = null, pending: { createdAt: string; anchor: string } | null = null;
+  let runless: string | null = null, response: string | null = null, pending: { createdAt: string; anchor: string } | null = null;
   entries.forEach((entry, index) => {
     if (startsResponse(entry)) {
       const next = entries[index + 1];
       pending = next ? { createdAt: entry.createdAt, anchor: next.id } : null;
-      const boundaryRun = entry.kind === 'message' ? str(entry.item.runId) : entry.kind === 'work' ? entry.entry.runId : '';
+      const boundaryRun = boundaryRunOf(entry);
       runless = boundaryRun ? null : `runless:${entry.id}`;
+      response = boundaryRun || runless;
       return;
     }
-    let runId: string | null = null;
-    if (entry.kind === 'work' && entry.entry.itemType === 'system_notice') runId = null;
-    else if (entry.kind === 'message' && entry.role === 'assistant' || entry.kind === 'work') runId = runOf(entry) || runless;
-    else if (entry.kind === 'event' && (persistentResource(entry) || entry.item.type === 'subagent')) runId = str(entry.item.runId) || runless;
-    if (!runId) return;
+    let own: string | null = null;
+    if (entry.kind === 'work' && entry.entry.itemType === 'system_notice') own = null;
+    else if (entry.kind === 'message' && entry.role === 'assistant' || entry.kind === 'work') own = runOf(entry) || runless;
+    else if (entry.kind === 'event' && (persistentResource(entry) || entry.item.type === 'subagent')) own = str(entry.item.runId) || runless;
+    if (!own) return;
+    // A resumed subagent's item moves to the resuming run but keeps its place in the turn that
+    // started it: it folds with that turn, so the later run's fold still opens under its own prompt.
+    const runId = response !== null && (promptIndex.get(own) ?? -1) > index ? response : own;
     if (runId === runless && failedItem(entry)) runlessFailed.add(runId);
     let group = groups.get(runId);
     if (!group) {
@@ -352,7 +410,8 @@ function turnFolds(entries: Entry[], terminalIds: Set<string>, latestRun: Obj | 
       const compaction = entry.kind === 'work' && entry.entry.sourceActivityKind === 'context-compaction';
       const trailing = entry.kind === 'work' && entry.entry.status !== 'inProgress' && !displayFailed(entry.entry);
       if (!compaction && index > terminalIndex && !trailing) return;
-      if (persistentResource(entry) || entry.kind === 'work' && entry.entry.itemType === 'notification') return;
+      // Linked resources, still-working children and finished replies a steer superseded outlive the fold.
+      if (persistentResource(entry) || kept.has(entry.id) || entry.kind === 'work' && entry.entry.itemType === 'notification') return;
       hidden.add(entry.id);
     });
     if (!hidden.size || !group.entries.some(entry => hidden.has(entry.id) && !(entry.kind === 'work' && entry.entry.sourceActivityKind === 'context-compaction'))) continue;

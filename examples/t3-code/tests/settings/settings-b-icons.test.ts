@@ -41,11 +41,13 @@ test('monograms follow ProjectMonogramText and project identity matches the side
   }
 });
 
-test('overrides decode a lucide monogram and encode monograms for older peers', () => {
+test('overrides decode a lucide monogram, a plain one and an unknown kind; monograms encode in their plain shape', () => {
   expect(decodeIcon({ kind: 'lucide', name: 'folder-code', color: 'pink', monogramText: 'AB' })).toEqual({ kind: 'monogram', name: '', color: 'pink', text: 'AB', emoji: '' });
   expect(decodeIcon({ kind: 'lucide', name: 'rocket', color: 'nope' })).toEqual({ kind: 'lucide', name: 'rocket', color: '', text: '', emoji: '' });
+  expect(decodeIcon({ kind: 'monogram', text: 'AB', color: 'pink' })).toEqual({ kind: 'monogram', name: '', color: 'pink', text: 'AB', emoji: '' });
+  expect(decodeIcon({ kind: 'sticker', id: 'x' }).kind).toBe('');
   expect(decodeIcon(null).kind).toBe('');
-  expect(encodeIcon({ kind: 'monogram', name: '', color: 'teal', text: 'Q', emoji: '' })).toEqual({ kind: 'lucide', name: 'folder-code', color: 'teal', monogramText: 'Q' });
+  expect(encodeIcon({ kind: 'monogram', name: '', color: 'teal', text: 'Q', emoji: '' })).toEqual({ kind: 'monogram', text: 'Q', color: 'teal' });
   expect(encodeIcon({ kind: 'emoji', name: '', color: '', text: '', emoji: '🚀' })).toEqual({ kind: 'emoji', emoji: '🚀' });
 });
 
@@ -91,7 +93,7 @@ test('saving fans the icon out to every member and validates first', async () =>
   const { client, writes } = fakeClient(projects, {});
   await runIconOp(client, native, storage, 'project-icon-set', 'p1,p2', 'kind=monogram&text=q&color=teal');
   expect(writes.map(write => (write.payload as Obj).projectId)).toEqual(['p1', 'p2']);
-  expect(writes[0]!.payload).toEqual({ type: 'project.update', commandId: 'cmd-0', projectId: 'p1', faviconPath: null, projectIcon: { kind: 'lucide', name: 'folder-code', color: 'teal', monogramText: 'Q' } });
+  expect(writes[0]!.payload).toEqual({ type: 'project.update', commandId: 'cmd-0', projectId: 'p1', faviconPath: null, projectIcon: { kind: 'monogram', text: 'Q', color: 'teal' } });
   await runIconOp(client, native, storage, 'project-favicon-set', 'p1', 'path=public%2Ffavicon.png');
   expect(writes[2]!.payload).toEqual({ type: 'project.update', commandId: 'cmd-2', projectId: 'p1', faviconPath: 'public/favicon.png', projectIcon: null });
   await expect(runIconOp(client, native, storage, 'project-icon-set', 'p1', 'kind=lucide&name=not-an-icon&color=teal')).rejects.toThrow('Choose an icon');

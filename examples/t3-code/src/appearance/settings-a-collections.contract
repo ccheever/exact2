@@ -3,8 +3,8 @@
 // its variants on hover or focus) and the "Remove themes from …" AlertDialog with a
 // checkbox tile per variant.
 use CoreIcon, CorePaintIcon from "../settings/settings-core.contract"
-use CorePalette from "../settings/settings-core.contract"
-use SettingsGhost from "../settings/settings-core.contract"
+use CorePalette from "../settings/settings-core-shared.contract"
+use SettingsGhost from "../settings/settings-core-shared.contract"
 use ThemeCard from "../settings/settings-core.contract"
 use ThemeOrb from "../settings/settings-core.contract"
 use FocusGuard from "../shared/dialog-trap.contract"

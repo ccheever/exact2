@@ -1,4 +1,6 @@
-// Work-log presentation adapted from T3 Code (MIT, see LICENSE-T3):
+import { commandDisplayText, commandProgramName } from './command-label';
+export { commandDisplayText, commandProgramName } from './command-label';
+// Work-log presentation adapted from T3 Code 9c161462c9 (MIT, see LICENSE-T3):
 // apps/web/src/session-logic.ts (projectedWorkEntry, providerErrorPresentation),
 // packages/client-runtime/src/work-log/presentation.ts (summaries, failure),
 // packages/shared/src/toolActivity.ts (classification, labels) and
@@ -219,49 +221,6 @@ export function workspaceRelativePath(path: string, root: string): string {
   return normalized;
 }
 
-// ---- command labels (client-runtime/work-log/commandLabel.ts, reduced) ----
-const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ash', 'ksh', 'fish']);
-function tokenize(command: string): string[] {
-  const tokens: string[] = []; let current = '', quote = '', active = false;
-  for (const character of command) {
-    if (quote) { if (character === quote) quote = ''; else current += character; continue; }
-    if (character === '"' || character === "'") { quote = character; active = true; continue; }
-    if (/\s/.test(character)) { if (active || current) tokens.push(current); current = ''; active = false; continue; }
-    current += character;
-  }
-  if (active || current) tokens.push(current);
-  return tokens;
-}
-/** Removes a plain `sh -c` wrapper for display. */
-export function commandDisplayText(command: string): string {
-  const trimmed = command.trim();
-  if (/&&|\|\||;|\|/.test(trimmed.replace(/(["'])(?:(?!\1).)*\1/g, ''))) return trimmed;
-  const tokens = tokenize(trimmed), program = tokens[0]?.split(/[\\/]/u).pop()?.replace(/\.exe$/iu, '');
-  if (!program || !SHELLS.has(program)) return trimmed;
-  const flag = tokens.findIndex((token, index) => index > 0 && /^-[a-z]*c[a-z]*$/i.test(token));
-  return flag >= 0 && flag === tokens.length - 2 ? tokens[flag + 1]!.trim() || trimmed : trimmed;
-}
-/** The first real program of a command line: wrappers, assignments and `cd` steps skipped. */
-export function commandProgramName(command: string, depth = 0): string | null {
-  const display = commandDisplayText(command);
-  if (display !== command.trim() && depth < 3) return commandProgramName(display, depth + 1);
-  for (const segment of command.split(/&&|\|\||;|\|/)) {
-    const tokens = tokenize(segment.trim());
-    let index = 0;
-    while (index < tokens.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[index]!) || ['env', 'sudo', 'command', 'builtin', 'exec', 'time', 'noglob', 'nocorrect'].includes(tokens[index]!))) index++;
-    const token = tokens[index];
-    if (!token || ['cd', 'pushd', 'popd', 'export', 'set', 'source', '.', 'true', ':'].includes(token)) continue;
-    const name = token.split(/[\\/]/u).pop()?.replace(/\.exe$/iu, '');
-    if (!name || /^[<>(){}[\];|&$`#!%@:]/.test(name)) continue;
-    if (SHELLS.has(name) && depth < 3) {
-      const script = tokens.slice(index + 1).find((value, position, all) => position > 0 && /^-[a-z]*c/i.test(all[position - 1]!));
-      if (script) return commandProgramName(script, depth + 1) ?? name;
-    }
-    return name;
-  }
-  return null;
-}
-
 // ---- T3 tool identity (work-log/presentation.ts workEntryToolName, resolveWorkEntryToolPresentation) ----
 function entryToolName(entry: WorkEntry): string | undefined {
   if (entry.itemType === 'dynamic_tool' && str(entry.item.toolName)) return str(entry.item.toolName);
@@ -292,7 +251,8 @@ export function isToolLike(entry: WorkEntry): boolean {
 }
 export function displayFailed(entry: WorkEntry): boolean {
   if (entry.tone === 'error' || entry.status === 'failed' || entry.status === 'declined') return true;
-  if (!isToolLike(entry)) return false;
+  // Reasoning detail is the model's own prose, not tool output: "that exit code 2 is expected" is not a failure.
+  if (!isToolLike(entry) || entry.itemType === 'reasoning') return false;
   if (t3ToolDefinition(entryToolName(entry)) && t3ToolResultFailed(entryToolOutput(entry))) return true;
   if (entry.itemType === 'command_execution') {
     if (entry.item.outputIndicatesFailure === true || typeof entry.item.exitCode === 'number' && entry.item.exitCode !== 0) return true;
@@ -420,7 +380,7 @@ export function entryIcon(entry: WorkEntry): string {
   if (entry.itemType === 'notification') {
     if (entry.item.outcome === 'failed') return 'circle-alert';
     const kind = str(obj(entry.item.source).kind);
-    return kind === 'subagent' || kind === 'delegated_task' ? 'bot' : kind === 'command' ? 'terminal' : kind === 'monitor' ? 'eye' : 'zap';
+    return kind === 'subagent' || kind === 'delegated_task' ? 'bot' : kind === 'command' ? 'terminal' : kind === 'monitor' ? 'eye' : kind === 'system' ? 't3-code' : 'zap';
   }
   if (entry.itemType === 'user_input_request' || entry.itemType === 'approval_request') return 'message-circle';
   const surface = extractToolActivityPresentation(entry.item).toolSurface;
@@ -486,6 +446,45 @@ export function liveEntryLabel(entry: WorkEntry, root: string, active: boolean):
     return `${verb} ${commandProgramName(command) ?? 'command'}`;
   }
   return entryDisplayLabel(entry, root);
+}
+
+/**
+ * liveThoughtLine (work-log/presentation.ts): the latest thought on the live row. A bold-only
+ * opening line (Codex's summary heading) wins; otherwise the reasoning's first sentence.
+ */
+export function liveThoughtLine(markdown: string): string {
+  const heading = /^\s*\*\*([^*\r\n]+)\*\*[ \t]*\r?(?:\n|$)/.exec(markdown)?.[1];
+  const text = (heading ?? markdown)
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^[ \t]*(?:#{1,6}|[-*+]|\d+\.)[ \t]+/gm, '')
+    .replace(/`+|\*\*|~~/g, '')
+    .replace(/(^|[^\w*])[*_]([^*_\n]+)[*_](?![\w*])/g, '$1$2')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (heading !== undefined) return text;
+  // Cut after the first . ? or ! (and a closing quote or paren) that a space follows.
+  const end = /[.?!]["'”’)]?(?=\s)/.exec(text);
+  return end ? text.slice(0, end.index + end[0].length) : text;
+}
+
+// ---- thread-read targets (MessagesTimeline.logic.ts threadReadTargetId, threadReadLabelPrefix) ----
+/** The trimmed thread id a `t3_thread_read` call targets, or '' for any other entry. */
+export function threadReadTargetId(entry: WorkEntry): string {
+  if (entry.itemType !== 'dynamic_tool' || t3ToolDefinition(str(entry.item.toolName))?.summaryAction !== 'thread-read') return '';
+  return str(obj(entry.item.input).threadId).trim();
+}
+const THREAD_READ_OBJECT = ' a T3 thread';
+/** "Read a T3 thread" names the read thread instead (`Read thread “Title”`), keeping its tense; '' keeps the generic label. */
+export function threadReadLabelPrefix(label: string): string {
+  return label.endsWith(THREAD_READ_OBJECT) ? `${label.slice(0, -THREAD_READ_OBJECT.length)} thread` : '';
+}
+/** The read thread's live title and the label's prefix, or null when either is missing (threadReadLabel). */
+export function threadReadLabel(entry: WorkEntry, label: string, threads: readonly Obj[]): { threadId: string; title: string; prefix: string; text: string } | null {
+  const threadId = threadReadTargetId(entry), prefix = threadReadLabelPrefix(label);
+  if (!threadId || !prefix) return null;
+  const shell = threads.find(thread => thread.id === threadId);
+  const title = shell && !shell.archivedAt && !shell.deletedAt ? str(shell.title).trim() : '';
+  return title ? { threadId, title, prefix, text: `${prefix} “${title}”` } : null;
 }
 export function activeTurnActivity(entry: WorkEntry): boolean { return entry.status === 'inProgress'; }
 export function successKeepsLive(entry: WorkEntry): boolean { return succeeded(entry); }

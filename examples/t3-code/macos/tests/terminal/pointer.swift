@@ -89,7 +89,7 @@ final class TerminalPointerTests: XCTestCase {
         NSApp.sendEvent(placed(cg, point(60, 40))); NSApp.sendEvent(placed(up, point(60, 40)))
         spin(until: { self.view.actions.status["open"] as? Bool == true }, timeout: 3)
         print("terminal context menu \(view.actions.status)")
-        XCTAssertEqual((view.actions.status["items"] as? [[String: Any]])?.compactMap { $0["label"] as? String }, ["Copy", "Paste"])
+        XCTAssertEqual((view.actions.status["items"] as? [[String: Any]])?.compactMap { $0["label"] as? String }, ["Copy", "Paste", "Select all", "Jump to latest"])
     }
 
     /// A middle press takes the focus from the composer into the terminal (the

@@ -1,4 +1,4 @@
-// Large diffs and hidden lines in the Diff panel, adapted from T3 Code 1e2ecbd975 (MIT; see
+// Large diffs and hidden lines in the Diff panel, adapted from T3 Code 9c161462c9 (MIT; see
 // LICENSE-T3): apps/web/src/components/diffs/useReviewFilePatches.ts (a git preview past the
 // server's 120,000-byte cap with per-file stats is read four files at a time, then four more when
 // the loading boundary nears view; per-file error and truncated marks; Retry by path; the scope
@@ -29,12 +29,14 @@ export function diffSource(result: Obj, kind: DiffSourceKind): DiffSource | null
     diffHash: str(source.diffHash), truncated: source.truncated === true, files };
 }
 
+const filePathCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
 /** DiffPanel's lazySource: a truncated git preview that lists its files. Files sort as the reference's (numeric, case-insensitive). */
 export function lazyPatches(source: DiffSource | null, ignoreWhitespace: boolean, previous: LazyPatches | null): LazyPatches | null {
   if (!source?.truncated || !source.files) return null;
   const scope = JSON.stringify([source.cwd, source.kind, source.diffHash, source.baseRef, ignoreWhitespace]);
   if (previous?.scope === scope) return previous;
-  const files = [...source.files].sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: 'base' }));
+  const files = [...source.files].sort((a, b) => filePathCollator.compare(a.path, b.path));
   return { scope, files, requested: [0, 1, 2, 3].filter(index => index < files.length), patches: new Map() };
 }
 

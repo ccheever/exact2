@@ -2,9 +2,8 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
 afterEach(resetPrimary);
 import { environmentIndicator, shellDetails } from '../../src/details/shell-details';
-import { lineageView, statusLabel, formatElapsed, formatCompactElapsed, liveSubagent, latestMergeBackRun } from '../../src/details/shell-lineage';
+import { lineageView, statusLabel, formatElapsed, formatCompactElapsed, currentSubagent, latestMergeBackRun } from '../../src/details/shell-lineage';
 import { adoptShellPrefs, inlineOpen, shellPrefs, toggleInline } from '../../src/shell/shell-prefs';
-import { nightlyMobileBetaNotice, NIGHTLY_NOTICE } from '../../src/shell/shell-nightly';
 import { pushToast, toasts } from '../../src/shell/toast';
 import { applyDismissals, toastViews } from '../../src/shell/shell';
 import { applyStatusEvent, refreshVcsOnFocus, vcsStatusEvent, VCS_STATUS_KEY } from '../../src/details/shell-vcs';
@@ -53,7 +52,20 @@ describe('lineage (upstream 9c161462c9)', () => {
     expect(kid).toMatchObject({ group: 'active', title: 'Fix Tests', driver: 'codex', status: 'Running', agent: true, elapsed: '2m' });
     expect(view.lineage.find(row => row.id === 'done-kid')).toMatchObject({ group: 'previous', elapsed: '2m', status: 'Done' });
     expect(view.previousCount).toBe(1);
-    expect(liveSubagent({ status: 'completed', result: 'x' }, { activityRunStatus: 'starting' })).toMatchObject({ status: 'pending', startedAt: null, result: null });
+    expect(currentSubagent({ status: 'completed', result: 'x' }, { activityRunStatus: 'starting' })).toMatchObject({ status: 'pending', startedAt: null, result: null });
+  });
+
+  test('a queued follow-up and a finished one follow the child thread; a rolled-back child reads as stopped (#17696)', () => {
+    const task = { status: 'completed', startedAt: at(1), completedAt: at(2), result: 'ok' };
+    expect(currentSubagent(task, { status: 'queued', latestRunRequestedAt: at(3) })).toMatchObject({ status: 'pending', startedAt: null, completedAt: null, result: null });
+    expect(currentSubagent(task, { status: 'failed', latestRunRequestedAt: at(3), latestRunStartedAt: at(4), latestRunCompletedAt: at(6) }))
+      .toMatchObject({ status: 'failed', startedAt: at(4), completedAt: at(6), result: null });
+    expect(currentSubagent(task, { status: 'rolled_back', latestRunRequestedAt: at(3) })).toMatchObject({ status: 'interrupted' });
+    // A child run requested before the task settled is the task's own.
+    expect(currentSubagent(task, { status: 'completed', latestRunRequestedAt: at(1) })).toBe(task);
+    const threads = [shell('me'), shell('kid', { status: 'rolled_back', latestRunId: 'r2', lineage: { parentThreadId: 'me', relationshipToParent: 'subagent' } })];
+    const projection = { thread: { id: 'me', lineage: {} }, runs: [], contextTransfers: [], subagents: [{ childThreadId: 'kid', status: 'completed' }] };
+    expect(lineageView(threads, projection, 'me', [], Date.parse(at(10))).lineage.find(row => row.id === 'kid')).toMatchObject({ status: 'Stopped', group: 'previous' });
   });
 
   test('one trailing item: a timed agent its compact time, a failed one or a thread its status; Stop only for a running T3-owned subagent', () => {
@@ -108,31 +120,13 @@ describe('shell preferences', () => {
     shellPrefs(owner).nightlyNoticeDismissed = true;
     const next = {};
     adoptShellPrefs(next, JSON.parse(JSON.stringify({ shell: shellPrefs(owner) })));
-    expect(next).toEqual({ shell: { nightlyNoticeDismissed: true, inlineClosed: ['env:t1'], providerUpdateDismissals: [], versionMismatchDismissals: [], lastEditor: '', chatgptSharingWelcome: [] } });
+    expect(next).toEqual({ shell: { nightlyNoticeDismissed: true, inlineClosed: ['env:t1'], providerUpdateDismissals: [], versionMismatchDismissals: [], lastEditor: '', chatgptSharingWelcome: [], permissionUpdateDismissals: [] } });
     expect(toggleInline(owner, 'env:t1')).toBe(true);
   });
 });
 
-describe('Nightly beta-app notice (upstream f1dcd93931)', () => {
+describe('toast action dismissal', () => {
   const client = () => ({ local: {}, environmentId: 'env' }) as unknown as T3Client;
-  test('one stacked toast with a ghost Dismiss and the settings action; any close remembers it', () => {
-    const owner = client();
-    expect(nightlyMobileBetaNotice(owner, false)).toBe(0);
-    const id = nightlyMobileBetaNotice(owner, true);
-    expect(id).toBeGreaterThan(0);
-    expect(nightlyMobileBetaNotice(owner, true)).toBe(0);
-    const [view] = toastViews(toasts(owner));
-    expect(view).toMatchObject({ title: NIGHTLY_NOTICE.title, description: NIGHTLY_NOTICE.description, icon: 'smartphone', iconColor: 'light-dark(#27272a, #f5f5f5)',
-      stacked: true, copyText: '', actionLabel: 'Get the beta app', actionOp: 'ui:settings', actionId: 'general', actionValue: 'mobile-beta-ios', secondaryLabel: 'Dismiss', secondaryOp: 'dismiss', secondaryGhost: true });
-    // The action closes it (`a<id>`) and, unlike other toasts, that close also runs onClose.
-    expect(applyDismissals(owner, `a${id}`)).toBe(true);
-    expect(toasts(owner)).toHaveLength(0);
-    expect(shellPrefs(owner).nightlyNoticeDismissed).toBe(true);
-    const other = client();
-    shellPrefs(other).nightlyNoticeDismissed = true;
-    expect(nightlyMobileBetaNotice(other, true)).toBe(0);
-    expect(nightlyMobileBetaNotice(client(), true, false)).toBe(0);
-  });
   test('an ordinary action close leaves onClose alone', () => {
     const owner = client();
     let closed = 0;

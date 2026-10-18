@@ -6,12 +6,12 @@
 // nothing under two). Both environments hold "shared-notes" (one Git origin), so the composer's
 // Run on menu offers both machines for it. README.md has the recipe.
 //
-//   bun machines.mjs up [--older]       starts and seeds the second and third environments; --older puts
+//   bun machines.mjs up [--older] [--many]       starts and seeds the second and third environments; --older puts
 //                                       the older-server stand-in in front of third (pairings go through it)
-//   bun machines.mjs drive [--storage S] [--json] -- <op> …
+//   bun machines.mjs drive [--many] [--storage S] [--json] -- <op> …
 //                                       a drive with This machine and both paired, opened at
 //                                       Settings › Connections, then the ops
-//   bun machines.mjs down               stops both servers
+//   bun machines.mjs down [--many]      stops the selected servers
 import { spawn } from "node:child_process";
 import { openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -19,6 +19,8 @@ import { drive } from "../second-environment/env.mjs";
 import { checkPort, envDir, fixturePaths, routeFile, routeOf, seed, startServer, stopServer } from "../second-environment/lib.mjs";
 
 export const MACHINES = ["second", "third"];
+/** Seven saved environments plus This machine exercise searchable settings scope menus. */
+export const MANY_MACHINES = [...MACHINES, "fourth", "fifth", "sixth", "seventh", "eighth"];
 /** The environment `up --older` fronts with the older-server stand-in, its version, and the stand-in's port (the server's + 40). */
 export const OLDER = { name: "third", version: "0.0.46-nightly.20261001.1", portOffset: 40 };
 
@@ -45,9 +47,10 @@ export const OPEN_CONNECTIONS = ["tap connection-settings", "clock settle", "tap
 if (import.meta.main) {
   const command = process.argv[2];
   const paths = fixturePaths();
+  const machines = process.argv.includes("--many") ? MANY_MACHINES : MACHINES;
   try {
     if (command === "up") {
-      for (const name of MACHINES) {
+      for (const name of machines) {
         const started = await startServer(paths, name);
         await seed(paths, name);
         console.log(`${name}: pid ${started.pid} port ${started.port} label ${JSON.stringify(started.label)}`);
@@ -57,11 +60,11 @@ if (import.meta.main) {
         }
       }
     } else if (command === "down") {
-      for (const name of MACHINES) { const stopped = await stopServer(paths, name); console.log(`${name}: ${stopped ? `stopped pid ${stopped.pid}` : "not running"}`); }
+      for (const name of machines) { const stopped = await stopServer(paths, name); console.log(`${name}: ${stopped ? `stopped pid ${stopped.pid}` : "not running"}`); }
     } else if (command === "drive") {
       const argv = process.argv.slice(3), split = argv.indexOf("--");
       const options = split >= 0 ? argv.slice(0, split) : argv, ops = split >= 0 ? argv.slice(split + 1) : [];
-      process.exitCode = drive(["--local", "--pair", MACHINES.join(","), ...options, "--", ...OPEN_CONNECTIONS, ...ops]);
+      process.exitCode = drive(["--local", "--pair", machines.join(","), ...options, "--", ...OPEN_CONNECTIONS, ...ops]);
     } else { console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 16).join("\n")); process.exitCode = command ? 2 : 0; }
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

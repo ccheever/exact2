@@ -1,4 +1,4 @@
-// MIT T3 Code 1e2ecbd975 (LICENSE-T3): apps/web/src/components/settings/settingsScope.ts
+// MIT T3 Code 9c161462c9 (LICENSE-T3): apps/web/src/components/settings/settingsScope.ts
 // and settingsScopeAxis.ts. Changes: ids are plain strings (no branded EnvironmentId);
 // a member's `physicalProjectKey` is the clone's checkout id (the project id the scope
 // state carries in `settingsCheckout`), see settings-scope-sources.ts.
@@ -61,12 +61,42 @@ export function resolveSettingsScope(search: SettingsScopeSearch, groups: readon
   return { kind: 'all', label: 'All environments', members: [], environmentIds: environments.map(candidate => candidate.environmentId) };
 }
 
-// ── settingsScopeAxis.ts ──────────────────────────────────────────────────
+// ── settingsScopeAxis.ts (T3 Code 9c161462c9) ─────────────────────────────
 type AxisEnvironment = { environmentId: string; label: string; displayUrl?: string | null };
 
+/** The environment's host (`host:port`), its display URL when that is not a URL, or its id without one. */
+export function settingsScopeEnvironmentAddress(environment: AxisEnvironment): string {
+  if (!environment.displayUrl) return environment.environmentId;
+  try { return new URL(environment.displayUrl).host || environment.displayUrl; } catch { return environment.displayUrl; }
+}
+
+/**
+ * The name and the line that tells it apart: none when no other environment shares the name, the address
+ * otherwise, the full display URL (or the id) when another of that name has the same address. With no
+ * list, the address always.
+ */
+export function settingsScopeEnvironmentLabels(environment: AxisEnvironment, environments?: readonly AxisEnvironment[]): { primary: string; secondary: string } {
+  const duplicates = environments?.filter(other => other.environmentId !== environment.environmentId && other.label === environment.label);
+  const address = settingsScopeEnvironmentAddress(environment);
+  const secondary = duplicates?.some(other => settingsScopeEnvironmentAddress(other) === address) ? environment.displayUrl || environment.environmentId : address;
+  return { primary: environment.label, secondary: environments === undefined || duplicates?.length ? secondary : '' };
+}
+
 export function settingsScopeEnvironmentLabel(environment: AxisEnvironment, environments: readonly AxisEnvironment[]): string {
-  const duplicate = environments.some(other => other.environmentId !== environment.environmentId && other.label === environment.label);
-  return duplicate ? `${environment.label} · ${environment.displayUrl ?? environment.environmentId}` : environment.label;
+  const { primary, secondary } = settingsScopeEnvironmentLabels(environment, environments);
+  return secondary ? `${primary} · ${secondary}` : primary;
+}
+
+/** The machines a project group has checkouts on, each once: "<name>" or "<name> · <address>". */
+export function settingsScopeProjectMachines(group: Pick<ScopeGroup, 'memberProjects'>, environments: readonly AxisEnvironment[], includeAddresses = false): string[] {
+  const machines = group.memberProjects.map(member => {
+    const environment = environments.find(entry => entry.environmentId === member.environmentId);
+    if (!environment) return typeof member.environmentLabel === 'string' ? member.environmentLabel : member.environmentId;
+    const { primary, secondary } = settingsScopeEnvironmentLabels(environment, environments);
+    const address = secondary || (includeAddresses ? settingsScopeEnvironmentAddress(environment) : '');
+    return includeAddresses || address ? `${primary} · ${address}` : primary;
+  });
+  return [...new Set(machines)];
 }
 
 export const ALL_ENVIRONMENTS_VALUE = 'all';

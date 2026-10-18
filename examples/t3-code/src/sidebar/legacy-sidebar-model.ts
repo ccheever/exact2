@@ -7,6 +7,7 @@
 // resolveAdjacentThreadId), apps/web/src/uiStateStore.ts (resolveProjectExpanded,
 // reorderProjects), apps/web/src/timestampFormat.ts (formatRelativeTimeLabel) and
 // LegacySidebar.tsx's own helpers. Pure functions over the raw V2 thread shell.
+import { pendingSubagentRequest } from './subagent-requests';
 import { str, type Obj } from '../client/domain';
 import { latestRun, pendingApproval, pendingInput, shellRuntime, backgroundHolds, unseenCompletion } from './sidebar-model';
 import type { MenuItem } from './sidebar-menu';
@@ -110,8 +111,9 @@ function latestRunSettled(thread: Obj): boolean {
 }
 /** resolveThreadStatusPill: approval, input, work, connecting, background wait, plan ready, then an unseen completion. */
 export function resolveThreadStatusPill(thread: Obj, lastVisitedAt: string | undefined): StatusPill | null {
-  if (pendingApproval(thread)) return pill('Pending Approval', 'light-dark(#e17100, #ffd230e6)', 'light-dark(#fe9a00, #ffd230e6)');
-  if (pendingInput(thread)) return pill('Awaiting Input', 'light-dark(#4f39f6, #a3b3ffe6)', 'light-dark(#615fff, #a3b3ffe6)');
+  const subagent = pendingSubagentRequest(thread); // a hidden subagent's request shows on its parent
+  if (pendingApproval(thread) || subagent === 'approval') return pill('Pending Approval', 'light-dark(#e17100, #ffd230e6)', 'light-dark(#fe9a00, #ffd230e6)');
+  if (pendingInput(thread) || subagent === 'user_input') return pill('Awaiting Input', 'light-dark(#4f39f6, #a3b3ffe6)', 'light-dark(#615fff, #a3b3ffe6)');
   const status = shellRuntime(thread)?.status ?? '';
   if (status === 'running' || status === 'waiting') return SKY;
   if (status === 'preparing' || status === 'starting' || status === 'queued') return { ...SKY, label: 'Connecting' };

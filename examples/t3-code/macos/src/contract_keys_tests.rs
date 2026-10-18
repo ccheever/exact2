@@ -132,6 +132,14 @@ fn host() -> exact_apple::Host<Replies> {
     ] {
         set(&plan, row_type, &mut row, &[name], value);
     }
+    let (group_type, mut group) = element(&plan, "bindings", &["groups"]);
+    for (name, value) in [
+        ("id", Value::str("chat")),
+        ("title", Value::str("Chat")),
+        ("rows", Value::list(vec![row.clone()])),
+    ] {
+        set(&plan, group_type, &mut group, &[name], value);
+    }
     replies.fixture(
         &plan,
         "bindings",
@@ -140,6 +148,7 @@ fn host() -> exact_apple::Host<Replies> {
             (&["writable"], Value::Bool(true)),
             (&["draftValid"], Value::Bool(true)),
             (&["rows"], Value::list(vec![row])),
+            (&["groups"], Value::list(vec![group])),
         ],
     );
     let measurer = CallbackMeasurer::new(measure, std::ptr::null_mut(), None);

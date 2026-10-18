@@ -13,7 +13,10 @@ the session's directory: "Edit the notes" edits `README.md` and writes `notes/pl
 `notes/outline.ts` before the turn ends, so the turn's checkpoint (a Git snapshot the server
 takes) has a diff; "Ask before editing the notes" first sends `session/request_permission` for an `edit` tool call, which the
 server turns into an approval on a thread in the runtime mode "approval-required" (in
-"full-access" it allows it itself), and writes `notes/approved.md` only if allowed. Each new or
+"full-access" it allows it itself), and writes `notes/approved.md` only if allowed. "Read the thread <id> for <n>s" thinks first (a
+reasoning item headed "Checking the other thread"), then holds a running `t3_thread_read` tool call
+on that thread id for n seconds before it replies, so a drive sees the live row carry the latest
+thought over a running tool, and the settled row name that thread by its title. Each new or
 loaded session advertises one skill, `$frontend-design` (`available_commands_update`, which T3
 lists under `$` as a skill), so a stand-in thread's composer can hold a skill chip. It
 advertises `loadSession`, and `session/load` brings a session back with no history (it keeps

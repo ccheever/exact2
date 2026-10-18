@@ -9,6 +9,7 @@ import { noteNow, composerNow, resolveDispatchMode, withDispatchMode, submission
 import { applyOptionChoice, providerLock, wokeAt } from '../../src/composer/composer-controls-commands';
 import { footerLayout, textWidth, traitsDisplay, presentBackgroundWork, tasksProgress } from '../../src/composer/composer-controls-view';
 import { traitsMenu } from '../../src/composer/composer-presentation';
+import { threadStatusLine } from '../../src/timeline/thread-status-line';
 import { toasts } from '../../src/shell/toast';
 import { queueState, queuedEdit } from '../../src/composer/composer-controls-queue';
 import { branchMismatchNotice, composerBranches, resolveLocalCheckoutBranchMismatch, restoreThreadBranch, stripWorkspace } from '../../src/composer/composer-controls-branch';
@@ -43,7 +44,7 @@ describe('sticky model and next-turn selection', () => {
     await command('runtime', '', 'approval-required');
     expect(native.committed.length).toBe(before);
     expect(client.error).toBe('');
-    expect(snapshot(client).composer).toMatchObject({ traitsLabel: 'Low', traitsSpeed: '', runtimeLabel: 'Supervised' });
+    expect(snapshot(client).composer).toMatchObject({ traitsLabel: 'Low', runtimeLabel: 'Supervised' });
     // A thread event re-reads the thread's own selection; the staged choice still owns the composer.
     native.emit('thread', { kind: 'event', sequence: 2, event: { id: 'e2', type: 'thread.updated', threadId: 't1', occurredAt: at, payload: {} } });
     await client.refresh(native, storage());
@@ -62,11 +63,11 @@ describe('sticky model and next-turn selection', () => {
     const menu = traitsMenu([effort, fast], [{ id: 'fastMode', value: true }]);
     expect(menu.items.filter(item => item.descriptor === 'fastMode').map(item => [item.kind, item.label, item.selected])).toEqual([
       ['divider', '', false], ['header', 'Fast mode', false], ['option', 'On', true], ['option', 'Off', false]]);
-    expect(traitsDisplay('codex', [effort, fast], [{ id: 'fastMode', value: true }])).toEqual({ label: 'Medium', speed: 'fast' });
-    expect(traitsDisplay('claudeAgent', [fast], [])).toEqual({ label: 'Normal', speed: '' });
+    expect(traitsDisplay('codex', [effort, fast], [{ id: 'fastMode', value: true }])).toEqual({ label: 'Medium Fast' });
+    expect(traitsDisplay('claudeAgent', [fast], [])).toEqual({ label: 'Normal' });
     const tier = { id: 'serviceTier', type: 'select', options: [{ id: 'default', label: 'Normal' }, { id: 'priority', label: 'Fast' }, { id: 'flex', label: 'Ultrafast' }] };
-    expect(traitsDisplay('codex', [effort, tier], [{ id: 'serviceTier', value: 'flex' }])).toEqual({ label: 'Medium', speed: 'ultrafast' });
-    expect(traitsDisplay('codex', [effort, { id: 'thinking', label: 'Thinking', type: 'boolean', currentValue: true }], [])).toEqual({ label: 'Medium · Thinking On', speed: '' });
+    expect(traitsDisplay('codex', [effort, tier], [{ id: 'serviceTier', value: 'flex' }])).toEqual({ label: 'Medium Ultrafast' });
+    expect(traitsDisplay('codex', [effort, { id: 'thinking', label: 'Thinking', type: 'boolean', currentValue: true }], [])).toEqual({ label: 'Medium · Thinking On' });
   });
   test('a started thread locks the picker to its driver; drafts are unrestricted', async () => {
     const { client, command } = await opened();
@@ -129,9 +130,10 @@ describe('follow-up dispatch', () => {
     client.thread!.projection.runs = [{ id: 'r1', ordinal: 1, status: 'interrupted', startedAt: at }, { id: 'r2', ordinal: 2, status: 'queued', queueHeld: true }];
     expect(resumeState(client.projection)).toEqual({ runId: 'r1', heldQueue: true });
     expect(snapshot(client).composer.canResume).toBe(true);
+    await command('model', 'model-b', 'codex');
     await command('cc:resume');
     expect(native.committed.slice(-2)).toEqual([
-      expect.objectContaining({ type: 'message.dispatch', text: 'Continue where you left off.', manualContinuationOfRunId: 'r1', dispatchMode: { type: 'start_immediately' } }),
+      expect.objectContaining({ type: 'message.dispatch', text: 'Continue where you left off.', manualContinuationOfRunId: 'r1', modelSelection: { instanceId: 'codex', model: 'model-b' }, dispatchMode: { type: 'start_immediately' } }),
       expect.objectContaining({ type: 'queue.resume', threadId: 't1' })]);
   });
 });
@@ -176,23 +178,23 @@ describe('docked banners, activity and the provider control', () => {
     const { client, native, command } = await opened();
     const now = Date.now();
     Object.assign(client.shell.threads[0]!, { snoozedUntil: new Date(now + 3_600_000).toISOString(), snoozedAt: new Date(now - 1000).toISOString() });
-    expect(snapshot(client, now).composer.notices.map(notice => [notice.title, notice.description, notice.actionLabel, notice.front])).toEqual([
-      ['This thread is snoozed', 'Send a message to wake', 'Wake now', true]]);
+    expect(threadStatusLine(client, now)).toMatchObject({ title: 'Snoozed, 1h left', actionLabel: 'Wake now', detail: 'cc:unsnooze' });
+    expect(snapshot(client, now).composer.notices).toEqual([]);
     await command('cc:unsnooze');
     expect(native.committed.at(-1)).toMatchObject({ type: 'thread.unsnooze', threadId: 't1', reason: 'user' });
     Object.assign(client.shell.threads[0]!, { snoozedUntil: new Date(now - 60_000).toISOString() });
     expect(wokeAt(client.shell.threads[0]!, now)).toBe(new Date(now - 60_000).toISOString());
-    expect(snapshot(client, now).composer.notices.map(notice => [notice.title, notice.dismissLabel])).toEqual([['Thread woke from snooze', 'Dismiss Woke notification']]);
+    expect(threadStatusLine(client, now)).toMatchObject({ title: 'Woke from snooze', actionLabel: 'Dismiss' });
     await command('cclocal:dismiss-woke');
     expect(snapshot(client, now).composer.notices).toEqual([]);
     Object.assign(client.shell.threads[0]!, { settledOverride: 'settled', snoozedUntil: null });
-    expect(snapshot(client, now).composer.notices.map(notice => [notice.title, notice.actionLabel, notice.action])).toEqual([['This thread is settled', 'Un-settle', 'unsettle']]);
+    expect(threadStatusLine(client, now)).toMatchObject({ title: 'Settled', actionLabel: 'Un-settle', detail: 'unsettle' });
   });
   test('several notices: the first stays attached, the rest wait behind the peek; activity leads when present', async () => {
     const { client } = await opened();
     Object.assign(client.shell.threads[0]!, { settledOverride: 'settled', pendingBackgroundTasks: [{ taskId: 'a', kind: 'command', description: 'npm test' }] });
     const notices = snapshot(client).composer.notices;
-    expect(notices.map(notice => [notice.title, notice.front])).toEqual([['Running: npm test', true], ['This thread is settled', false]]);
+    expect(notices.map(notice => [notice.title, notice.front])).toEqual([['Running: npm test', true]]);
     running(client);
     client.thread!.projection.plans = [{ id: 'todo', kind: 'todo_list', runId: 'r1', steps: [{ text: 'Read', status: 'completed', durationMs: 1200 }, { text: 'Write', status: 'running' }, { text: 'Test', status: 'pending' }] }];
     const view = snapshot(client).composer;

@@ -58,7 +58,7 @@ component DetailsPrRows
       if prs.moreLabel != ""
         button press=local("surface-linked-pr-more", "", "") hover=hover aria-expanded=prs.expanded testId="details-pr-more" width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" background-color=(over ? surfaceRowHover() : "#00000000") display="flex" flex-direction="row" align-items="center"
           SurfaceGlyph(name=(prs.expanded ? "minus" : "plus"), size=16, color=(over ? surfaceRowInk() : "light-dark(#71717bb3, #818181b3)"))
-          text prs.moreLabel flex=1 min-width=0 text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color=(over ? surfaceRowInk() : "light-dark(#71717bb3, #818181b3)")
+          text prs.moreLabel flex=1 min-width=0 text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color=(over ? surfaceRowInk() : "light-dark(#71717bb3, #818181b3)") text-box-trim="trim-both" text-box-edge="cap alphabetic"
 
 // One row: the plain row (no host detail, or nothing to show under it), else two lines so the title keeps the
 // whole row: the number, the checks and the next action sit underneath, aligned with the title text, and the block
@@ -72,42 +72,70 @@ component DetailsPrRowView
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
+  action open(e: MouseEvent)
+    local("surface-linked-pr-open", (e.metaKey or e.ctrlKey) ? "held" : row.target, row.url)
+  // onAuxClick: the middle button opens it in the browser when it goes down and comes up on the row.
+  state middleDown = false
+  action openDown(e: PointerEvent)
+    middleDown = e.buttons == 4
+  action openUp(e: PointerEvent)
+    let box = frame(`details-pr-open-${row.key}`)
+    if middleDown and e.clientX >= box.x and e.clientX <= box.x + box.width and e.clientY >= box.y and e.clientY <= box.y + box.height
+      local("surface-linked-pr-open", "held", row.url)
+    middleDown = false
   view
     box position="relative" width="100%"
-      if not row.split
-        if row.target != ""
-          button press=local("surface-linked-pr-open", row.target, row.url) hover=hover("row") aria-label=row.aria testId=`details-pr-${row.key}` width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" background-color=(hovered == "row" ? surfaceRowHover() : "#00000000") display="flex" flex-direction="row" align-items="center"
-            PgIcon(name=row.icon, size=16, color=(row.tinted ? prdTone(row.state) : surfaceMuted()))
-            text row.label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color=surfaceRowInk()
-        else
-          link cursor="pointer" href=row.url hover=hover("row") aria-label=row.aria testId=`details-pr-${row.key}` width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-radius="0.625rem" background-color=(hovered == "row" ? surfaceRowHover() : "#00000000") display="flex" flex-direction="row" align-items="center" text-decoration-line="none"
-            PgIcon(name=row.icon, size=16, color=(row.tinted ? prdTone(row.state) : surfaceMuted()))
-            text row.label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color=surfaceRowInk()
+      if not row.split and not row.watching
+        button id=`details-pr-open-${row.key}` press=open pointerdown=openDown pointerup=openUp hover=hover("row") aria-label=row.aria testId=`details-pr-${row.key}` width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" background-color=(hovered == "row" ? surfaceRowHover() : "#00000000") display="flex" flex-direction="row" align-items="center"
+          PgIcon(name=row.icon, size=16, color=(row.tinted ? prdTone(row.state) : surfaceMuted()))
+          text row.label flex=1 min-width=0 white-space="nowrap" overflow-x="clip" overflow-y="visible" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color=surfaceRowInk() text-box-trim="trim-both" text-box-edge="cap alphabetic"
         TipBubble(label=row.tooltip, side="top", align="center", offset=36, inset=0, shown=(hovered == "row"))
-      else
-        column width="100%" padding-bottom=(row.checks != "" or row.action != "" ? "0.5rem" : "0px") box-sizing="border-box" testId=`details-pr-${row.key}`
-          // The title's line carries the tooltip card.
+      else if row.split
+        column width="100%" padding-bottom=(row.checks != "" or row.action != "" or row.watching ? "0.5rem" : "0px") box-sizing="border-box" testId=`details-pr-${row.key}`
           box position="relative" width="100%" display="flex"
-            button press=local("surface-linked-pr-open", row.target, row.url) hover=hover("row") aria-label=row.aria flex=1 min-width=0 height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" background-color=(hovered == "row" ? surfaceRowHover() : "#00000000") display="flex" flex-direction="row" align-items="center"
-              PgIcon(name=row.icon, size=16, color=prdTone(row.state))
-              text (row.checks != "" or row.action != "" ? row.extra.card.title : row.label) flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color=surfaceRowInk() testId=`details-pr-title-${row.key}`
+            button id=`details-pr-open-${row.key}` press=open pointerdown=openDown pointerup=openUp hover=hover("row") aria-label=row.aria flex=1 min-width=0 height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" background-color=(hovered == "row" ? surfaceRowHover() : "#00000000") display="flex" flex-direction="row" align-items="center"
+              PgIcon(name=row.icon, size=16, color=(row.tinted ? prdTone(row.state) : surfaceMuted()))
+              text (row.checks != "" or row.action != "" or row.watching ? row.extra.card.title : row.label) flex=1 min-width=0 white-space="nowrap" overflow-x="clip" overflow-y="visible" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color=surfaceRowInk() text-box-trim="trim-both" text-box-edge="cap alphabetic" testId=`details-pr-title-${row.key}`
             if row.extra.card.show
               PrCardView(card=row.extra.card, shown=(hovered == "row"))
             else
               TipBubble(label=row.tooltip, side="top", align="start", offset=36, inset=0, shown=(hovered == "row"))
-          if row.checks != "" or row.action != ""
+          if row.checks != "" or row.action != "" or row.watching
             row width="100%" min-width=0 height="1.5rem" margin-top="-0.25rem" padding-left="2.25rem" padding-right="0.25rem" box-sizing="border-box" gap="0.125rem" align-items="center" testId=`details-pr-meta-${row.key}`
               text row.extra.card.number flex-shrink=0 margin-right="0.25rem" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=surfaceMuted()
               if row.checks != ""
-                // PullRequestChecksPopover variant "count" (pr-row.contract).
                 box position="relative" flex-shrink=0 display="flex"
                   ChecksTrigger(row=row, hovered=(hovered == "checks"), hover=hover("checks"))
                   ChecksPopover(row=row, local=local)
+              if row.watching
+                PrWatchControl(row=row, secondary=false, over=(hovered == "watch"), hover=hover("watch"), act=act)
               box flex=1 min-width=0
               if row.action != ""
                 box position="relative" flex-shrink=0 display="flex"
                   PrActionButton(row=row, hovered=(hovered == "action"), hover=hover("action"), act=act, local=local)
                   TipBubble(label=row.actionTooltip, side="top", align="end", offset=28, inset=0, shown=(hovered == "action"))
+      else
+        row width="100%" height="2rem" align-items="center" border-radius="0.625rem" background-color=(hovered != "" ? surfaceRowHover() : "#00000000") role="group" testId=`details-pr-${row.key}`
+          box position="relative" flex=1 min-width=0 display="flex"
+            button id=`details-pr-open-${row.key}` press=open pointerdown=openDown pointerup=openUp hover=hover("row") aria-label=row.aria flex=1 min-width=0 height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" border-top-right-radius=0 border-bottom-right-radius=0 background-color=(hovered == "row" ? surfaceRowHover() : "#00000000") display="flex" flex-direction="row" align-items="center"
+              PgIcon(name=row.icon, size=16, color=(row.tinted ? prdTone(row.state) : surfaceMuted()))
+              text row.label flex=1 min-width=0 white-space="nowrap" overflow-x="clip" overflow-y="visible" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color=surfaceRowInk() text-box-trim="trim-both" text-box-edge="cap alphabetic"
+            TipBubble(label=row.tooltip, side="top", align="start", offset=36, inset=0, shown=(hovered == "row"))
+          box width=1 height="1rem" flex-shrink=0 background-color="light-dark(#e4e4e7a6, #ffffff0a)"
+          PrWatchControl(row=row, secondary=true, over=(hovered == "watch"), hover=hover("watch"), act=act)
+
+component PrWatchControl
+  props
+    row: DetailsPrRow
+    secondary: bool
+    over: bool
+    hover: action
+    act: action
+  view
+    box position="relative" flex-shrink=0 display="flex"
+      button press=act("shell:surface-pr-watch", row.watchKey, "false") hover=hover aria-label=row.stopWatchLabel testId=`details-pr-watch-${row.key}` width=(secondary ? "2rem" : "1.5rem") height=(secondary ? "2rem" : "1.5rem") padding=0 flex-shrink=0 border-width=0 border-radius=(secondary ? "0.625rem" : "0.375rem") border-top-left-radius=(secondary ? "0px" : "0.375rem") border-bottom-left-radius=(secondary ? "0px" : "0.375rem") background-color=(over ? surfaceRowHover() : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+        PanelIcon(name=(over ? "eye-off" : "eye"), size=(secondary ? 16 : 14), color=surfaceRowInk())
+      TipBubble(label="Watching: the agent wakes when checks finish, someone comments, or the branch conflicts. Click to stop.", side="top", align="end", offset=(secondary ? 36 : 28), inset=0, shown=over)
 
 // The pull-request surface's body: the detail the window's `prDetail` read for
 // this surface (pages-pr-detail.ts) — its ghost, its unavailable state, or the panel.
@@ -125,6 +153,7 @@ component PrSurfaceBody
     local: action
     still: bool
     compact: bool
+    width: number
   // An editor's hold on Escape is the Pull Requests page's (PrPanel); this surface has no page Back.
   action bodyLocal(op: string, id: string, value: string)
     if op != "pr-escape-hold"
@@ -136,7 +165,7 @@ component PrSurfaceBody
         box flex=1 width="100%"
       else
         for bodyRef in [detail.ref] key=bodyRef
-          PrdBody(detail=detail, documents=documents, scheme=scheme, tab=tab, setTab=setTab, reload=reload, act=act, copy=copy, local=bodyLocal, still=still, select=local("pr-ui-select", ""), compact=compact, narrow=compact, scrollId="pr-surface-scroll")
+          PrdBody(detail=detail, documents=documents, scheme=scheme, tab=tab, setTab=setTab, reload=reload, act=act, copy=copy, local=bodyLocal, still=still, select=local("pr-ui-select", ""), compact=compact, narrow=compact, width=width, scrollId="pr-surface-scroll")
 
 // AttachmentFilePreview: "Attachment › name  size" with the icon actions, then the document.
 component AttachmentBody
@@ -264,8 +293,8 @@ component AttachmentCodeRow
     wrap: bool
   view
     row width="100%" align-items="flex-start"
-      text line.number width=gutter flex-shrink=0 padding-right="0.614375rem" box-sizing="border-box" text-align="right" font-family="ui-monospace" font-size="0.8125rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#565656, #9d9d9d)"
-      text flex=1 min-width=0 padding-left="0.4875rem" padding-right="0.4875rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.8125rem" line-height="1.25rem" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
+      text line.number width=gutter flex-shrink=0 padding-right="0.614375rem" box-sizing="border-box" text-align="right" font-family="ui-monospace" font-size="0.8125rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#565656, #9d9d9d)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
+      text flex=1 min-width=0 padding-left="0.4875rem" padding-right="0.4875rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.8125rem" line-height="1.25rem" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
         for run in line.runs key=run.id
           text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax)
 

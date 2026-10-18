@@ -37,7 +37,7 @@ export function relationshipGraph(threads: Obj[], projection: Obj | null): Graph
   const edges = new Map<string, Edge>();
   const add = (edge: Edge) => {
     for (const id of [edge.source, edge.target]) if (!nodes.has(id)) nodes.set(id, { id, thread: null, missing: true });
-    edges.set(`${edge.source}\u001f${edge.target}\u001f${edge.kind}`, edge);
+    edges.set(`${edge.source}\u001f${edge.target}\u001f${edge.kind}`, edge.kind === 'subagent' && edge.status === 'rolled_back' ? { ...edge, status: 'interrupted' } : edge);
   };
   for (const thread of byId.values()) {
     const parent = parentOf(thread);
@@ -49,8 +49,10 @@ export function relationshipGraph(threads: Obj[], projection: Obj | null): Graph
     for (const agent of arr(projection.subagents)) {
       const child = str(agent.childThreadId);
       if (!owner || !child) continue;
-      // A live run on the child thread outranks the settled task's status.
-      add({ source: owner, target: child, kind: 'subagent', status: str(byId.get(child)?.activityRunStatus) || str(agent.status) || null });
+      // The row describes the child conversation, including queued follow-ups and their outcomes;
+      // a child without an app run still uses its task.
+      const shell = byId.get(child);
+      add({ source: owner, target: child, kind: 'subagent', status: str(shell?.activityRunStatus) || (shell?.latestRunId != null ? str(shell.status) : str(agent.status)) || null });
     }
     for (const transfer of arr(projection.contextTransfers)) {
       const source = str(transfer.sourceThreadId), target = str(transfer.targetThreadId);
@@ -144,12 +146,20 @@ export function formatCompactElapsed(totalSeconds: number): string {
   return `${Math.floor(minutes / 6) / 10}h`;
 }
 
-/** liveSubagent: a child thread's live run replaces the settled task's timer and output. */
-export function liveSubagent(agent: Obj | undefined, child: Obj | null | undefined): Obj | undefined {
-  const live = str(child?.activityRunStatus);
-  if (!agent || !live) return agent;
-  return { ...agent, status: live === 'running' || live === 'waiting' ? live : 'pending', startedAt: child?.activityRunStartedAt ? str(child.activityRunStartedAt) : null,
-    completedAt: null, progress: null, result: null, error: null };
+/**
+ * currentSubagent: the row's timer and hover card follow the child's current work, including a
+ * queued follow-up whose provider turn has not started; the task's output stays with its own run.
+ */
+export function currentSubagent(agent: Obj | undefined, child: Obj | null | undefined): Obj | undefined {
+  const live = str(child?.activityRunStatus) || (child?.status === 'queued' ? 'queued' : '');
+  if (!agent || !child) return agent;
+  const requestedAt = Date.parse(str(child.latestRunRequestedAt));
+  const newerRun = Number.isFinite(requestedAt) && requestedAt > Date.parse(str(agent.completedAt ?? agent.startedAt ?? agent.updatedAt));
+  if (!live && !newerRun) return agent;
+  const status = live || str(child.status);
+  const startedAt = live ? child.activityRunStartedAt : child.latestRunStartedAt, completedAt = live ? null : child.latestRunCompletedAt;
+  return { ...agent, status: status === 'preparing' || status === 'starting' || status === 'queued' ? 'pending' : status === 'rolled_back' ? 'interrupted' : status,
+    startedAt: startedAt ? str(startedAt) : null, completedAt: completedAt ? str(completedAt) : null, progress: null, result: null, error: null };
 }
 
 /** deriveSubagentElapsedMs, formatted (`compact` for Lineage's rows); '' when the agent has no start (or a settled one no end). */
@@ -186,7 +196,7 @@ export function lineageView(threads: Obj[], projection: Obj | null, threadId: st
     const node = graph.nodes.get(id), thread = node?.thread ?? null;
     const subagent = edge.kind === 'subagent', parent = isParentRelationship(edge, threadId);
     const status = rowStatus(graph, { threadId: id, edge });
-    const agent = liveSubagent(subagent && !parent ? agents.get(id) : undefined, thread);
+    const agent = currentSubagent(subagent && !parent ? agents.get(id) : undefined, thread);
     const provider = providers.find(entry => str(entry.instanceId) === (str(agent?.providerInstanceId) || str(thread?.providerInstanceId)));
     const driver = subagent && !parent ? str(agent?.driver) || str(provider?.driver) : '';
     const relationship = edge.kind === 'transfer' ? 'Context transfer' : subagent ? (edge.source === threadId ? 'Subagent' : 'Parent agent') : (edge.source === threadId ? 'Fork' : 'Parent thread');

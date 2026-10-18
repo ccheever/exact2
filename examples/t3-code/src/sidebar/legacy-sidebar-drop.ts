@@ -13,6 +13,7 @@ import { arr, obj, str } from '../client/domain';
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
+import { IMAGE_ATTACHMENT_MAX_EDGE } from '../composer/image-attachment-size';
 import { attachStagingLimit, releaseStagedFile } from '../composer/composer-editor-attach';
 import { addAttachedFiles } from '../composer/composer-controls-attach';
 import { fleetThreadId } from '../connections/settings-b-fleet';
@@ -46,7 +47,7 @@ export async function takeRowDrops(client: T3Client, native: Native): Promise<bo
   }
   if (!client.ready || owner !== client.snapshotOwner || !keys.some(key => queued.includes(key))) return false;
   try {
-    const reply = obj(await client.restAccess(native).call({ op: 'rowDropTake', keys, fileLimit: attachStagingLimit(client) }));
+    const reply = obj(await client.restAccess(native).call({ op: 'rowDropTake', keys, fileLimit: attachStagingLimit(client), imageMaxEdge: IMAGE_ATTACHMENT_MAX_EDGE }));
     const files = arr(reply.files);
     if (!files.length) return false;
     if (!client.ready || owner !== client.snapshotOwner) {

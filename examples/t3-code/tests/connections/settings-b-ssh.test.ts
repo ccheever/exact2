@@ -4,6 +4,8 @@ import { connectionsProjection, CONNECTION_OPS, type ConnectionHost } from '../.
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import type { T3Client } from '../../src/client/client';
+import { AUTH_STANDARD_CLIENT_SCOPES, LEGACY_CLIENT_SCOPES, encodeOAuthScope } from '../../src/connections/remote-scopes';
+const STANDARD_SCOPE = encodeOAuthScope(AUTH_STANDARD_CLIENT_SCOPES), LEGACY_SCOPE = encodeOAuthScope(LEGACY_CLIENT_SCOPES);
 
 test('manual SSH targets parse like parseManualDesktopSshTarget', () => {
   expect(parseManualSshTarget({ host: 'devbox', username: '', port: '' })).toEqual({ alias: 'devbox', hostname: 'devbox', username: null, port: null });
@@ -50,7 +52,7 @@ test('adding over SSH tunnels, pairs beside the focused environment and toasts',
   await runSshOp(native, 'environment-ssh-pick', 'devbox', '', true);
   expect(calls.map(call => call.op)).toEqual(['sshResolve', 'sshConnect', 'pairEnvironment']);
   expect(calls[1]).toMatchObject({ alias: 'devbox', hostname: 'devbox.lan', username: 'me', port: 2222, pair: true });
-  expect(calls[2]).toEqual({ op: 'pairEnvironment', origin: 'http://127.0.0.1:41234', credential: 'PAIRCODE123', scope: 'orchestration:read orchestration:operate terminal:operate review:write relay:read' });
+  expect(calls[2]).toEqual({ op: 'pairEnvironment', origin: 'http://127.0.0.1:41234', credential: 'PAIRCODE123', scope: STANDARD_SCOPE, legacyScope: LEGACY_SCOPE });
   calls.length = 0;
   const result = await runSshOp(native, 'environment-ssh-add', 'root@box', 'username=&port=22', false);
   expect(calls.map(call => call.op)).toEqual(['sshConnect', 'connect']);
@@ -76,6 +78,6 @@ test('adding an SSH route requests five scopes and preserves the expected enviro
   await runSshOp(native, 'environment-ssh-add', 'devbox', 'expectedEnvironmentId=env-a', true);
   expect(calls.find(call => call.op === 'pairEnvironment')).toEqual({
     op: 'pairEnvironment', origin: 'http://127.0.0.1:41234', credential: 'PAIRCODE123', expectedEnvironmentId: 'env-a', ssh: true,
-    scope: 'orchestration:read orchestration:operate terminal:operate review:write relay:read',
+    scope: STANDARD_SCOPE, legacyScope: LEGACY_SCOPE,
   });
 });

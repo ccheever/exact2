@@ -109,10 +109,44 @@ describe("thread synchronization", () => {
     expect(unknown.sequence).toBe(80);
     expect(unknown.projection).toBe(first.projection);
     expect(() => applyThread(first, event("turn-item.updated", { id: "broken" }))).toThrow("threadId");
-    expect(() => applyThread(first, event("turn-item.updated", turn("bad-type", 1, { type: "unrecognized" })))).toThrow("unknown value");
+    expect(() => applyThread(first, event("turn-item.updated", turn("bad-type", 1, { type: 7 })))).toThrow("type");
     expect(() => applyThread(first, event("run.updated", { id: "run-1", status: 4 }))).toThrow("status");
     expect(() => threadSnapshot({ snapshotSequence: 0, projection: {} })).toThrow("projection.thread");
     expect(() => threadSnapshot({ snapshotSequence: 0, projection: { thread: { id: "t" } } })).toThrow("projection.runs");
+  });
+
+  test("a turn item type this build does not know is dropped, and a known one that does not decode still fails", () => {
+    const secret = turn("secret", 2, { type: "secret_request", requestId: "request-1" });
+    const loaded = state([turn("known", 1), secret]);
+    expect(arr(loaded.projection.turnItems).map(item => item.id)).toEqual(["known"]);
+    expect(arr(loaded.projection.visibleTurnItems).map(entry => [entry.sourceItemId, entry.position])).toEqual([["known", 0]]);
+    expect(messages(loaded).map(message => message.body)).toEqual(["text known"]);
+    const skipped = applyThread(loaded, event("turn-item.updated", turn("later", 3, { type: "secret_request" }), 40));
+    expect(skipped.sequence).toBe(40);
+    expect(skipped.projection).toBe(loaded.projection);
+    const page = mergeHistory(state([turn("now", 5)], { historyCursor: "c", hasMoreHistory: true }),
+      { snapshotSequence: 10, items: [row(turn("old", 1)), row(turn("old-secret", 2, { type: "secret_request" }))], nextCursor: null, hasMoreHistory: false });
+    expect(arr(page.projection.visibleTurnItems).map(entry => entry.sourceItemId)).toEqual(["old", "now"]);
+    expect(() => state([turn("broken", 1, { type: "assistant_message", text: 3 })])).toThrow("text");
+  });
+
+  test("a pull request link update replaces only the link it names", () => {
+    const link = (number: number, source = "manual"): Obj => ({ host: "github.com", repository: "pingdotgg/t3code", number,
+      url: `https://github.com/pingdotgg/t3code/pull/${number}`, source, linkedAt: timestamp, snapshot: null, stack: null });
+    const linked = state([], { projection: { ...obj(snapshot().projection), thread: { id: "thread-1", title: "Example", pullRequests: [link(1), link(2)] } } });
+    const later = "2026-10-04T00:00:00.000Z";
+    const next = applyThread(linked, event("thread.pull-request-link-updated", link(2, "agent"), 12, { occurredAt: later }));
+    const pullRequests = arr(obj(next.projection.thread).pullRequests);
+    expect(pullRequests.map(entry => [entry.number, entry.source])).toEqual([[1, "manual"], [2, "agent"]]);
+    expect(pullRequests[0]).toBe(arr(obj(linked.projection.thread).pullRequests)[0]!);
+    expect(obj(next.projection.thread).title).toBe("Example");
+    expect(next.projection.updatedAt).toBe(later);
+    expect(next.sequence).toBe(12);
+    // The callers pass threadPullRequestKeysEqual: a link matched by its key, not its URL.
+    const byKey = applyThread(linked, event("thread.pull-request-link-updated", { ...link(1, "agent"), url: "https://github.com/PingDotGG/t3code/pull/1" }, 13),
+      (left, right) => left.number === right.number);
+    expect(arr(obj(byKey.projection.thread).pullRequests).map(entry => entry.source)).toEqual(["agent", "manual"]);
+    expect(() => applyThread(linked, event("thread.pull-request-link-updated", { host: "github.com" }, 14))).toThrow("repository");
   });
 
   test("updates for another thread do not change state or its cursor", () => {
@@ -205,6 +239,21 @@ describe("timeline visibility and bounded history", () => {
     const next = applyThread(ignored, event("turn-item.updated", turn("new", 21), 12));
     expect(next.latestLocalTurnOrdinal).toBe(21);
     expect(messages(next).map(item => item.body)).toEqual(["text parent-row", "text new"]);
+  });
+
+  test("a queued run that starts after a steer keeps its items below the watermark (#17764)", () => {
+    const first = snapshot([turn("steer-reply", 20, { runId: "run-2" })], { historyCursor: "cursor", hasMoreHistory: true, latestLocalTurnOrdinal: 20 });
+    obj(first.projection).runs = [{ id: "run-3", status: "running" }, { id: "run-old", status: "completed" }];
+    // The queued run kept ordinal 15 from when it was queued; it is still unfinished, so its item is new.
+    const queued = applyThread(threadSnapshot(first), event("turn-item.updated", turn("queued", 15, { runId: "run-3" })));
+    expect(messages(queued).map(item => item.body)).toEqual(["text queued", "text steer-reply"]);
+    // Once that run finished, its later item still lands: the run is already in the window.
+    const finished = { ...queued, projection: { ...queued.projection, runs: [{ id: "run-3", status: "completed" }, { id: "run-old", status: "completed" }] } };
+    const later = applyThread(finished, event("turn-item.updated", turn("queued-2", 16, { runId: "run-3" }), 12));
+    expect(messages(later).map(item => item.body)).toContain("text queued-2");
+    // A finished run's unloaded item is still history.
+    const old = applyThread(later, event("turn-item.updated", turn("old", 10, { runId: "run-old" }), 13));
+    expect(messages(old).map(item => item.body)).not.toContain("text old");
   });
 
   test("older-page overlap preserves live text and uses source identity", () => {

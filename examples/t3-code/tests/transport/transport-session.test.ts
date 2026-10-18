@@ -71,6 +71,25 @@ describe('pairing (authorization/remote.ts, resolver.ts)', () => {
     expect(server.requests.filter(request => request.path === '/oauth/token').length).toBe(1);
   });
 
+  // onboarding.test.ts (0ae1091d01): pairing is an explicit request to connect.
+  test('pairing a switched-off environment again turns it back on; a failed pairing leaves it off', async () => {
+    const { drive, server } = await paired();
+    const enabled = async () => (value(await drive.op({ op: 'environments' })).saved as Obj[]).map(entry => entry.enabled);
+    const switchOff = async () => expect((await drive.op({ op: 'setEnvironmentEnabled', origin: ORIGIN, environmentId: 'env-1', enabled: false })).ok).toBe(true);
+    await switchOff();
+    expect(await enabled()).toEqual([false]);
+    server.codes.add('code-2');
+    expect((await drive.op({ op: 'pairEnvironment', origin: ORIGIN, credential: 'wrong' })).ok).toBe(false);
+    expect(await enabled()).toEqual([false]);
+    expect((await drive.op({ op: 'pairEnvironment', origin: ORIGIN, credential: 'code-2' })).ok).toBe(true);
+    expect(await enabled()).toEqual([true]);
+    // The focused connection's pairing does the same.
+    await switchOff();
+    server.codes.add('code-3');
+    expect((await drive.op(pairing(ORIGIN, 'code-3'))).ok).toBe(true);
+    expect(await enabled()).toEqual([true]);
+  });
+
   test('a refused code saves nothing and names the reference error', async () => {
     const drive = new Drive(new FakeServer(ORIGIN));
     const reply = await drive.op(pairing(ORIGIN, 'wrong'));

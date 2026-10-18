@@ -2,14 +2,15 @@
 // it (a976f8c74c), and the Woke dismissal that syncs through thread.visit (c5a929e1ac).
 import { describe, expect, test } from 'bun:test';
 import { arr, obj } from '../../src/client/domain';
+import { threadStatusLine } from '../../src/timeline/thread-status-line';
 import { snapshot } from '../../src/client/presentation';
-import { shouldOffer, NEVER_ANSWER } from '../../src/composer/composer-controls-resume';
+import { shouldOffer, NEVER_ANSWER, keepsFullHistory } from '../../src/composer/composer-controls-resume';
 import { connected } from '../support/composer-controls-fixture';
 
 const NOW = Date.parse('2026-10-03T12:00:30.000Z');
 const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
 
-async function claudeThread(options: { used?: number; idle?: number; compact?: boolean } = {}) {
+async function claudeThread(options: { used?: number; idle?: number; compact?: boolean; ttl?: number } = {}) {
   const context = await connected();
   const { native } = context;
   const claude = arr(native.config.providers).find(provider => provider.instanceId === 'claude')!;
@@ -21,6 +22,7 @@ async function claudeThread(options: { used?: number; idle?: number; compact?: b
   await context.command('select-thread', 't1');
   await context.client.refresh(context.native, context.disk);
   const loaded = context.client.thread!.projection;
+  if (options.ttl) loaded.providerTurns = [{ tokenUsage: { usedTokens: options.used ?? 123_456, maxTokens: 200_000, updatedAt: minutesAgo(options.idle ?? 75), promptCacheTtlMs: options.ttl } }];
   loaded.runs = [{ id: 'r1', ordinal: 1, status: 'completed', startedAt: minutesAgo(80), completedAt: minutesAgo(75) }];
   loaded.visibleTurnItems = [{ item: { type: 'user_message', text: 'Build the parser', attachments: [] } }];
   return context;
@@ -86,9 +88,9 @@ describe('Woke dismissal syncs (c5a929e1ac)', () => {
     Object.assign(arr(native.shell.threads)[0]!, { snoozedUntil: wokeAt, snoozedAt: minutesAgo(60), lastVisitedAt: minutesAgo(30) });
     await command('select-thread', 't1');
     await client.refresh(native, disk);
-    const woke = () => snapshot(client, NOW).composer.notices.find(notice => notice.title === 'Thread woke from snooze');
+    const woke = () => { snapshot(client, NOW); return threadStatusLine(client, NOW) ?? undefined; };
     expect(woke()).toBeDefined();
-    await command(woke()!.dismiss, woke()!.dismissId);
+    await command(woke()!.detail!, woke()!.targetId!);
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(native.committed.filter(entry => entry.type === 'thread.visit')).toEqual([expect.objectContaining({ type: 'thread.visit', threadId: 't1', visitedAt: wokeAt })]);
     expect(client.local.composerControls.wokeSeen).toEqual({});
@@ -106,11 +108,48 @@ describe('Woke dismissal syncs (c5a929e1ac)', () => {
     const wokeAt = minutesAgo(5);
     Object.assign(arr(native.shell.threads)[0]!, { snoozedUntil: wokeAt, snoozedAt: minutesAgo(60) });
     await command('select-thread', 't1');
-    const woke = () => snapshot(client, NOW).composer.notices.find(notice => notice.title === 'Thread woke from snooze');
+    const woke = () => { snapshot(client, NOW); return threadStatusLine(client, NOW) ?? undefined; };
     expect(woke()).toBeDefined();
-    await command(woke()!.dismiss, woke()!.dismissId);
+    await command(woke()!.detail!, woke()!.targetId!);
     expect(native.committed.some(entry => entry.type === 'thread.visit')).toBe(false);
     expect(client.local.composerControls.wokeSeen[`${client.environmentId}:t1`]).toBe(wokeAt);
     expect(woke()).toBeUndefined();
+  });
+});
+
+
+describe('cache-aware Compact chip', () => {
+  test('TTL controls expiry; Full toggles per thread, measured chip width wins', async () => {
+    const { client, command } = await claudeThread({ idle: 6, ttl: 300_000 });
+    expect(snapshot(client, NOW).composer).toMatchObject({ compactTokens: '123k', compactKeepFull: false, compactSend: true, sendLabel: 'Compact and send' });
+    expect(resume(client)).toBeUndefined();
+    client.presentation.anchors = { 'compact:Compact:123k': [0, 157] };
+    expect(snapshot(client, NOW).composer.compactWidth).toBe(157);
+    await command('cclocal:compact-full');
+    expect(snapshot(client, NOW).composer).toMatchObject({ compactKeepFull: true, compactSend: false, sendLabel: 'Submit message' });
+    await command('select-thread', 't2');
+    await command('select-thread', 't1');
+    expect(keepsFullHistory(client)).toBe(true);
+    expect(snapshot((await claudeThread({ idle: 4, ttl: 300_000 })).client, NOW).composer.compactTokens).toBe('');
+  });
+  test('Compact dispatches first, then queues the typed message on the selected model', async () => {
+    const { client, native, command } = await claudeThread({ idle: 6, ttl: 300_000 });
+    snapshot(client, NOW);
+    await command('send', '', 'Continue the parser');
+    const sent = native.committed.filter(entry => entry.type === 'message.dispatch');
+    expect(sent.map(entry => [entry.text, obj(entry.dispatchMode).type])).toEqual([['/compact', 'start_immediately'], ['Continue the parser', 'queue_after_active']]);
+    expect(sent.every(entry => obj(entry.modelSelection).instanceId === 'claude')).toBe(true);
+  });
+  test('Full sends only the draft and resets after success; explicit /compact sends once', async () => {
+    const full = await claudeThread({ idle: 6, ttl: 300_000 });
+    snapshot(full.client, NOW);
+    await full.command('cclocal:compact-full');
+    await full.command('send', '', 'Keep this context');
+    expect(full.native.committed.filter(entry => entry.type === 'message.dispatch').map(entry => entry.text)).toEqual(['Keep this context']);
+    expect(snapshot(full.client, NOW).composer.compactKeepFull).toBe(false);
+    const explicit = await claudeThread({ idle: 6, ttl: 300_000 });
+    snapshot(explicit.client, NOW);
+    await explicit.command('send', '', '/compact');
+    expect(explicit.native.committed.filter(entry => entry.type === 'message.dispatch').map(entry => entry.text)).toEqual(['/compact']);
   });
 });
