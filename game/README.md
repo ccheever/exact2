@@ -257,6 +257,19 @@ warnings beside every other diagnostic, and `contract types` and `contract rust`
 never stop on them; a bake checks them against the declaration it has just written.
 The dev compiler retains its last good plan on an error.
 
+### Controls
+
+`Game::actions` declares the controls once, by name; the tick reads them with
+`input.held(name)`, `input.pressed(name)`, `input.released(name)` and
+`input.stick(name)`. `pressed` is a rising edge since the last tick, even when the
+release lands in the same tick; `held` is the state at the tick's end, so a quick
+tap is `pressed` and never `held`.
+
+| Task | Read it with |
+|---|---|
+| A fire button, one shot per press | `.button("fire", &["KeyF", "MouseLeft"])` read with `input.pressed("fire")` |
+| Fire while held, and on a quick tap | `input.held("fire") \|\| input.pressed("fire")` (Rivals): `held` alone misses a tap whose press and release share a tick |
+
 ### Movement and appearance
 
 | Task | Existing engine operation |
