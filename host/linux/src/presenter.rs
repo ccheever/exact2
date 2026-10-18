@@ -83,7 +83,7 @@ mod hosted;
 mod images;
 mod links;
 mod palette;
-mod preferences;
+pub mod preferences;
 mod requests;
 mod retained_action;
 mod reveal;
@@ -124,7 +124,6 @@ pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo
 pub(crate) use palette::reported_accent;
 pub use palette::{material, Material, Palette, MATERIAL_ROLES};
 pub use pointer::PointerKind;
-pub use preferences::{scrub_frame_drawn, scrub_frames_said};
 pub use requests::{Haptic, Pick, Request};
 pub use scrollers::{Scroller, Under, PAGE};
 pub use window::{Chrome, Window};

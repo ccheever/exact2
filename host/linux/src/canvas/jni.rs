@@ -417,7 +417,7 @@ macro_rules! canvas_jni {
                 let own = waiting.is_none();
                 let ops = waiting.or_else(|| with(|h| h.frame()).flatten());
                 if own {
-                    $crate::presenter::scrub_frame_drawn();
+                    $crate::presenter::preferences::scrub_frame_drawn();
                 }
                 let Some(ops) = ops else {
                     return std::ptr::null_mut();
@@ -842,7 +842,7 @@ macro_rules! canvas_jni {
             ) {
                 with(|h| h.display_frame());
                 // A scrub frame's trace waits for the frame this reader draws.
-                $crate::presenter::scrub_frames_said();
+                $crate::presenter::preferences::scrub_frames_said();
             }
 
             #[no_mangle]
