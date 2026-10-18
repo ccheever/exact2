@@ -1,17 +1,19 @@
 {
   "ticks": {
-    "60": "0x0e6efd40d47f5dd7",
-    "120": "0xf8baf228b103fe37"
+    "60": "0xfaca59677d1c344f",
+    "120": "0x5cd6ed3af60b820a"
   },
   "saves": {
-    "continuation": "94d92ef6986d34858999cb5988e1142172dbe67c91462c8c6daadb3ee03d1ef4"
+    "continuation": "432f2afdd22376557f5cee68d07a977c35d6c56b7cb8d88d7cebef85fb4d2059"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "1bcda3637bea8d8b8da44aa19eda7536b2b4cc51cf07ee1bdef33f3128fd248a",
+  "inputs": "138f4c1500c30b7d112ff0f56b65d1e0540a987c9c688e45cc861fefa84eca98",
+  "sourceInputs": "42057843960e51dad3a74e4e32d5abd41b9a73ee7b8f6c739f2de1d23640ced5",
   "game": "skinned-fixture",
   "generated": "bun game/prove.mjs skinned-fixture --repin --hosts 'linux,web'",
-  "at": "bd6d0aee7e5d2d0c71fda875800b889543052e52"
+  "at": "ee02ae22c0cf9b50a704708309d6b07018c10340",
+  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream; 2e49129cb: EXSIM v7 header; 07170a2db: model fields extend saved asset identities"
 }
