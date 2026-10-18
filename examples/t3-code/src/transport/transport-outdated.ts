@@ -11,13 +11,16 @@
 //
 // A job's socket is one of the transport's update sockets; its HTTP steps run in the answer the
 // transport asks for each step (the descriptor, the ticket, each poll); the tick schedules polls.
-import { TransportFailure, canSelfUpdate, compatibility, credential as parseCredential, decode, encode, exchangeForm, failure as wireFailure,
-  failureMessage, identifier, letGoAbort, origin as parseOrigin, path as onOrigin, protocolOf, request as wireRequest, PROTOCOL_VERSION } from './transport-wire';
+import { TransportFailure, canSelfUpdate, compatibility, credential as parseCredential, decode, encode, exchangeForm, exchangeScopes, failure as wireFailure,
+  failureMessage, failureReason, identifier, letGoAbort, origin as parseOrigin, path as onOrigin, protocolOf, request as wireRequest, PROTOCOL_VERSION } from './transport-wire';
 import { json, type Http } from './transport-routes';
 import { socketURL, type SocketEvent, type SocketHandle } from './transport-session';
 import type { Catalog } from './transport-catalog';
 
+/** OUTDATED_HOST_RESTART_TIMEOUT (outdatedHostUpdate.ts): an outdated host's restart. */
 export const RESTART_TIMEOUT_MS = 240_000;
+/** SERVER_UPDATE_RESUME_TIMEOUT (state/server.ts, reference 9c161462c9): a connected server's, covering the service launcher's 30-minute trial deadline. */
+export const CONNECTED_RESTART_TIMEOUT_MS = 32 * 60_000;
 export const SOCKET_OPEN_TIMEOUT_MS = 15_000;
 export const POLL_INTERVAL_MS = 1_000;
 export const UPDATE_SLOTS = 4;
@@ -50,6 +53,7 @@ export class OutdatedHosts {
   /** Test seam: how long the descriptor poll waits between attempts, and how long the restart may take. */
   pollInterval = POLL_INTERVAL_MS;
   restartTimeout = RESTART_TIMEOUT_MS;
+  connectedRestartTimeout = CONNECTED_RESTART_TIMEOUT_MS;
 
   constructor(private readonly hooks: OutdatedHooks) {}
 
@@ -65,7 +69,7 @@ export class OutdatedHosts {
     try {
       switch (op) {
         case 'fleetOutdatedProbe': return this.ok(await this.descriptor(origin));
-        case 'fleetOutdatedPair': return this.ok(await this.pair(origin, str(request.credential), str(request.scope)));
+        case 'fleetOutdatedPair': return this.ok(await this.pair(origin, str(request.credential), str(request.scope), str(request.legacyScope)));
         case 'fleetOutdatedUpdate': return this.ok(this.update(origin, environment, request));
         case 'fleetOutdatedAck': {
           const jobKey = `${origin}\n${environment}`;
@@ -96,7 +100,7 @@ export class OutdatedHosts {
     }
     const decoded = json(reply);
     if (reply.status < 200 || reply.status >= 300 || typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
-      throw new TransportFailure(reply.status === 401 || reply.status === 403 ? 'Authentication' : 'HTTP', failureMessage(decoded, reply.status));
+      throw new TransportFailure(reply.status === 401 || reply.status === 403 ? 'Authentication' : 'HTTP', failureMessage(decoded, reply.status), false, failureReason(decoded));
     }
     return decoded as Obj;
   }
@@ -108,7 +112,7 @@ export class OutdatedHosts {
 
   // MARK: Pairing (onboarding.ts preparePairingRegistration)
 
-  private async pair(origin: string, input: string, scope: string): Promise<Obj> {
+  private async pair(origin: string, input: string, scope: string, legacyScope: string): Promise<Obj> {
     const code = parseCredential(input, origin);
     if (!code) throw new TransportFailure('Credential', 'Enter a pairing code.');
     const descriptor = await this.descriptor(origin);
@@ -119,7 +123,7 @@ export class OutdatedHosts {
     // Only an outdated host that can update itself is saved; anything else stays refused.
     if (!blocked.serverUpdateRequired) throw new TransportFailure('Protocol', blocked.message);
     let grant: Obj;
-    try { grant = await this.http('/oauth/token', origin, { method: 'POST', body: exchangeForm(code, scope) }); }
+    try { grant = await exchangeScopes(scope, legacyScope, requested => this.http('/oauth/token', origin, { method: 'POST', body: exchangeForm(code, requested) })); }
     catch (error) {
       if (letGoAbort(error)) throw error;
       const failure = error as TransportFailure; throw new TransportFailure(failure.kind, failure.message.split(code).join('[redacted]'));
@@ -306,7 +310,7 @@ export class OutdatedHosts {
 
   private resume(run: Run): void {
     run.phase = 'resume'; run.url = '';
-    run.deadline = this.hooks.now() + this.restartTimeout;
+    run.deadline = this.hooks.now() + (run.connected ? this.connectedRestartTimeout : this.restartTimeout);
     run.nextPollAt = this.hooks.now(); run.step += 1;
     this.setJob(run.key, { stage: 'resuming' });
   }

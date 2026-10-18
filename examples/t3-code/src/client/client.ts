@@ -21,7 +21,9 @@ import { READ_OPS, WRITE_OPS, runOps, type OpOut, type ProvidersRoute } from './
 import { groupingModes, message, projectPath } from './client-shared';
 import { letGo } from './let-go';
 import { fleet } from '../connections/settings-b-fleet';
+import { sessionHasLegacyPermissions, sessionPermissions } from '../connections/remote-scopes';
 import { routedPullRequestRequest } from '../pull-requests/pages-pr-environments';
+import { threadPullRequestKeysEqual } from '../pull-requests/pages-pr-links-logic';
 import { adoptLocalPrefs, refreshLocal, unknownLocalBackend, type LocalBackendStatus, adoptHandoff, keepAliveEvent, keptThread } from '../connections/local-environment';
 import { groupLabel } from '../sidebar/project-groups';
 import { adoptModelPrefs } from '../providers/settings-b-models';
@@ -101,7 +103,10 @@ export class T3Client {
   modelOptions: Obj[] = [];
   runtimeMode = 'approval-required';
   interactionMode = 'default';
+  /** What the session grants, as sessionGrantsScope reads it (remote-scopes.ts sessionPermissions). */
   scopes: string[] = [];
+  /** The server kept this session's grant from before the permission split (the re-pair notice). */
+  legacyPermissions = false;
   shellLive = false;
   threadLive = false;
   configLive = false;
@@ -384,7 +389,7 @@ export class T3Client {
     delete this.subscriptions.config; delete this.subscriptions.shell; this.streamRetryDue.clear();
     const auth = await this.http(native, '/api/auth/session', generation);
     if (auth.authenticated !== true) throw new ClientError('Pair with the T3 server again.', 'auth');
-    this.scopes = scopeStrings(auth.scopes);
+    this.scopes = sessionPermissions(auth); this.legacyPermissions = sessionHasLegacyPermissions(auth);
     const config = await this.request(native, 'server.getConfig', {}, generation);
     const environment = obj(config.environment);
     const incompatible = compatibilityProblem(environment); // protocol-outdated.ts: the message names the direction
@@ -563,7 +568,7 @@ export class T3Client {
             if (itemThread && itemThread !== this.threadId) continue;
             if (item.kind === 'synchronized') this.threadLive = true;
             else {
-              this.thread = applyThread(this.thread, item);
+              this.thread = applyThread(this.thread, item, threadPullRequestKeysEqual);
               this.updateSelectionFromThread();
             }
           }

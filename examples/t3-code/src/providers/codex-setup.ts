@@ -1,4 +1,4 @@
-// Managed Codex with a ChatGPT account, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+// Managed Codex with a ChatGPT account, T3 Code 9c161462c9 (MIT, see LICENSE-T3):
 // apps/web/src/components/settings/CodexSetupSection.tsx (CodexSetupSection :58-156, the
 // state and derivations of ManagedCodexSetup :194-316 and its descriptions, controls and
 // alerts :568-1008, CodexSignInDescription :1082-1107), CodexSetupSection.logic.ts
@@ -14,6 +14,7 @@ import { setupOf } from './provider-setup';
 import type { ProviderHost } from './providers';
 import { redactedValue } from '../shared/redacted-text';
 import { providerState, providerSummary } from './provider-readiness';
+import { legacyProviders } from './providers-meta';
 
 export type CodexHost = ProviderHost & { generation?: number };
 export type CodexHandoff = {
@@ -56,11 +57,16 @@ export function codexFlow(host: object, instanceId: string): CodexFlow {
 export function readCodexSetupMode(config: unknown): 'managed' | 'existing' {
   return config !== null && typeof config === 'object' && 'setupMode' in config && (config as Obj).setupMode === 'managed' ? 'managed' : 'existing';
 }
-/** The instance's config as the server stores it: the explicit instance, else the legacy `providers.codex` slot. */
+/**
+ * The instance's config as the server stores it: the explicit instance, else the default slot's, which an older
+ * server keeps in `providers.codex` and a newer one runs with the driver's default config.
+ */
 export function codexInstance(settings: Obj, instanceId: string): Obj {
   const instance = obj(obj(settings.providerInstances)[instanceId]);
   if (Object.keys(instance).length) return instance;
-  return instanceId === 'codex' ? { driver: 'codex', enabled: obj(obj(settings.providers).codex).enabled !== false, config: obj(obj(settings.providers).codex) } : {};
+  if (instanceId !== 'codex') return {};
+  const legacy = legacyProviders(settings);
+  return legacy ? { driver: 'codex', enabled: obj(legacy.codex).enabled !== false, config: obj(legacy.codex) } : { driver: 'codex', config: {} };
 }
 
 /** Everything ManagedCodexSetup derives from its streams, the provider snapshot and its own state. */

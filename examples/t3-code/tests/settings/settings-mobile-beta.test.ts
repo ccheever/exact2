@@ -40,7 +40,7 @@ describe('beta links as QR codes', () => {
 
 describe('Mobile app row', () => {
   test('IS_NIGHTLY_BUILD reads the first prerelease identifier', () => {
-    expect(isNightlyVersion('0.0.46-nightly.20261004.1')).toBe(true);
+    expect(isNightlyVersion('0.1.1-nightly.20261018.3302')).toBe(true);
     expect(isNightlyVersion('0.0.45')).toBe(false);
     expect(isNightlyVersion('0.0.46-beta.1')).toBe(false);
     expect(showMobileBeta('0.0.45', 'nightly')).toBe(true);
@@ -51,7 +51,7 @@ describe('Mobile app row', () => {
     rememberDelivery(client, 'embedded', false);
     expect(isNightlyVersion(CLIENT_VERSION)).toBe(true);
     expect(aboutRows(client, CLIENT_VERSION).map(row => row.title)).toEqual(['Version', 'Update track', 'Mobile app']);
-    expect(aboutRows(client, CLIENT_VERSION)[0]!.value).toBe('0.0.46-nightly.20261004.1');
+    expect(aboutRows(client, CLIENT_VERSION)[0]!.value).toBe('0.1.1-nightly.20261018.3302');
     rememberDelivery(client, 'nightly/macos-arm64', false);
     const mobile = aboutRows(client, CLIENT_VERSION).at(-1)!;
     expect(mobile).toMatchObject({ id: 'nightly-mobile-beta', kind: 'mobile-beta', description: 'Nightly needs the beta app. The App Store and Google Play versions cannot connect.' });
