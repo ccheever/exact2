@@ -5,7 +5,8 @@ import { Drive, FakeServer, pairing } from '../support/transport-fixture';
 
 type Obj = Record<string, unknown>;
 const value = (reply: Obj) => reply.value as Obj;
-const A = 'http://127.0.0.1:4001', B = 'http://127.0.0.1:4002';
+// LAN addresses: a token paired over plain HTTP on the LAN may be borrowed by another plain-HTTP route (sendsTokenInClear).
+const A = 'http://192.168.1.10:4001', B = 'http://192.168.1.11:4002';
 
 describe('background environments (registry.ts)', () => {
   test('a connect with a fleet key opens a background session in its own slot; fleetStop ends it', async () => {
@@ -110,6 +111,25 @@ describe('routes (driver.ts connectOverRoutes, supervisor.ts checkBetterRoutes)'
     const status = value(await drive.op({ op: 'status' }));
     expect([status.state, status.origin, status.activeRouteId]).toEqual(['connected', B, B]);
     expect(lan.requests.some(request => request.path === '/api/auth/session' && request.headers.Authorization === 'Bearer token-1')).toBe(true);
+  });
+
+  // routes.ts sendsTokenInClear / usableRoutes, driver.ts preflight (c9b8f21bcf).
+  test('a token paired over loopback never goes to a learned plain-HTTP address: the route is left out of the walk and the checks', async () => {
+    const LOOPBACK = 'http://127.0.0.1:4001';
+    const home = new FakeServer(LOOPBACK, 'env-1'), lan = new FakeServer(B, 'env-1');
+    lan.tokens = home.tokens; lan.tickets = home.tickets;
+    const drive = new Drive(home, lan);
+    await drive.op(pairing(LOOPBACK));
+    await drive.op({ op: 'setRoutes', environmentId: 'env-1', routes: [
+      { id: `learned:env-1:${B}@${LOOPBACK}`, origin: B, kind: '', learned: true, credential: LOOPBACK },
+      { id: LOOPBACK, origin: LOOPBACK, kind: '', learned: false, credential: LOOPBACK }] });
+    await drive.advance(61_000, 1_000);
+    expect(value(await drive.op({ op: 'status' })).activeRouteId).toBe(LOOPBACK);
+    await drive.op({ op: 'disconnect', forget: false });
+    home.up = false;
+    await drive.op({ op: 'connect', origin: LOOPBACK, credential: '' });
+    expect(value(await drive.op({ op: 'status' })).state).not.toBe('connected');
+    expect(lan.requests.filter(request => request.headers.Authorization)).toEqual([]);
   });
 
   test('over a fallback route, the 60 s check moves back to the better route once it answers', async () => {

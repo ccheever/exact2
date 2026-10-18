@@ -24,7 +24,7 @@ import { discardDraft, draftChoice } from './draft-rows';
 import { legacyCommand, legacyLocal } from './legacy-sidebar-commands'; // The "Sidebar (legacy)" gestures
 import { legacyEnabled, legacyProjectOrder, threadSortOrder } from './legacy-sidebar-view';
 import { archiveBackground, backgroundThreadPath, backgroundWorktreePlan, envAccess, isBackground, markUnreadBackground, openBackgroundDraft, removeBackground } from './legacy-sidebar-fleet';
-import { openBranchDraft, rowThread } from './legacy-sidebar-links';
+import { openBranchDraft, revealRowTerminal, rowThread } from './legacy-sidebar-links';
 import { dropHeldRename, startHeldRename, startRename } from './sidebar-rename-wait';
 import { openPendingPort, watchRowPorts } from './legacy-sidebar-ports';
 import { closeThreadTerminals, detachThreadSessions, removeOrphanedWorktree, setWorktreePrompt, worktreePlan, worktreePrompt, type WorktreePrompt } from './worktree-cleanup';
@@ -516,6 +516,7 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
     catch (error) { toast(client, 'Could not open threads', error); return ''; }
     return 'sidebar:new-thread';
   }
+  if (op === 'terminal-reveal') return revealRowTerminal(client, nativeHandle, id); // either sidebar's running-terminal button
   // A choice from the row's context popover (sidebar-row.contract ThreadMenu, exact2 #223): the row's
   // menu as painted, so a selected row's is the bulk menu, as the right-click's handler decides. The row's
   // thread is on its own environment (handleThreadContextMenu's threadByKey): a background row's choices act there.

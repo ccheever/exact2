@@ -152,7 +152,9 @@ describe('dragging a background environment\'s row', () => {
     // No keys yet: the drop rewrites every pinned row's key.
     const pinnedKeys = new Map<string, string | null>([['p', null], ['q', null]]);
     expect(planDrop({ ...base, pinnedKeys }).steps.length).toBeGreaterThan(1);
-    expect(planDrop({ ...base, pinnedKeys, pinReorderable: new Set(['x', 'p']) })).toEqual({ verb: '', steps: [], failure: [] });
+    const allowed = planDrop({ ...base, pinnedKeys, pinReorderable: new Set(['x', 'p']) });
+    expect(allowed.verb).toBe('pin');
+    expect(allowed.steps.map(step => step.threadId)).toEqual(['x', 'p']);
     expect(planDrop({ ...base, pinnedKeys, pinReorderable: new Set(['x', 'p', 'q']) }).verb).toBe('pin');
   });
 });

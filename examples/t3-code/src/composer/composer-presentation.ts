@@ -4,7 +4,7 @@
 import { arr, obj, str, type Obj } from '../client/domain';
 import { requestPresentation } from './requests';
 import type { T3Client } from '../client/client';
-import { footerLayout, traitsDisplay, primaryAction, composerNotices, syncStatus, tasksProgress, providerControl, contextMeter } from './composer-controls-view';
+import { footerLayout, traitsDisplay, primaryAction, composerNotices, syncStatus, tasksProgress, providerControl, contextMeter, compactChip } from './composer-controls-view';
 import { planFollowUp, noteNow } from './composer-controls';
 import { queuedView } from './composer-controls-queue';
 import { subagentBar } from './composer-controls-subagent';
@@ -181,7 +181,7 @@ export function composerView(client: ComposerSource, requests: { approval: boole
   const display = traitsDisplay(str(provider?.driver), descriptors, shown, selection, reported, ultra);
   // getTriggerDisplayModelName; the tooltip adds the picker's shortcut (ProviderModelPicker triggerTooltipContent).
   const modelTitle = model ? triggerModelName(model) : modelId || 'Choose model', modelShortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, keyContext).split(' ')[0] ?? '');
-  const { steps, ...layout } = footerLayout({ model: modelTitle, traits: display.label, traitsIcon: !!display.speed,
+  const { steps, ...layout } = footerLayout({ model: modelTitle, traits: display.label, traitsIcon: display.label !== '',
     runtime: runtime.label, plan: planVisible ? (client.interactionMode === 'plan' ? 'Plan' : 'Build') : '', host: anchors.controls.width,
     measure: measuredLabels(client.presentation), previous: footerSteps.get(client) });
   footerSteps.set(client, steps);
@@ -194,7 +194,7 @@ export function composerView(client: ComposerSource, requests: { approval: boole
       projectRequired: !client.projectId, providerUnavailable: chosen.showProviderUnavailable,
       phase: client.threadId ? threadPhase(client.projection) : 'disconnected' }),
     modelTip: modelShortcut ? `${modelTitle}${model?.isUnavailable === true ? ' (Unavailable)' : ''} · ${modelShortcut}` : `${modelTitle}${model?.isUnavailable === true ? ' (Unavailable)' : ''}`,
-    traitsLabel: display.label, traitsSpeed: display.speed, traitsAria: display.speed ? `${display.label}, ${display.speed === 'ultrafast' ? 'Ultrafast' : 'Fast'} mode on` : display.label,
+    traitsLabel: display.label,
     ...layout, traitsCount: traits.count, traitsSelected: traits.selected, traits: traits.items,
     runtimeMode: runtime.mode, runtimeLabel: runtime.label, runtimeIcon: runtime.icon, runtimeDescription: runtime.description,
     runtimeSelected: Math.max(0, runtimes.indexOf(runtime)), runtimeCount: runtimes.length,
@@ -231,6 +231,9 @@ export function composerSnapshot(client: T3Client, now = 0) {
   const notices = composerNotices(client, now).map((notice, index) => ({ ...notice, front: !activity && index === 0 }));
   const queue = queuedView(client), action = primaryAction(client, phase);
   if (queue.queueEditing) Object.assign(action, { sendLabel: 'Update queued message', sendIcon: 'check', sendTooltip: 'Update queued message', sendRunning: true });
+  // A send that compacts first says so (ComposerPrimaryActions submitLabel, submitTooltip).
+  const compact = compactChip(client, now, !!queue.queueEditing);
+  if (compact.compactSend) Object.assign(action, { sendLabel: 'Compact and send', sendTooltip: action.sendStatus || `Summarize ${compact.compactTokens} tokens of history, then send` });
   const chosen = composerSelection(client, !!fanoutSelections(client));
   const modelId = chosen.entry ? chosen.model : client.modelId;
   const model = arr((chosen.provider ?? arr(client.config.providers).find(entry => entry.instanceId === client.providerId))?.models).find(entry => entry.slug === modelId);
@@ -241,7 +244,7 @@ export function composerSnapshot(client: T3Client, now = 0) {
   if (fan.fanout) view.modelTip = shortcut ? `${fan.fanoutAria} · ${shortcut}` : fan.fanoutAria;
   if (bar.subagent) { notices.length = 0; queue.queued = []; }
   const rootFontSize = clampInterfaceFontSize((client.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface);
-  return atRootFontSize({ ...view, ...action, ...fan, attach: !bar.subagent && !requests.approvals.length && attachOffered(client, question), ...providerControl(client), ...tasks, ...queue, ...bar, ...contextMeter(client, str(model?.name, modelId)), meterX: anchors.meter.x, meterWidth: anchors.meter.width, actionsX: anchors.actions.x, ...frameTops(client.presentation),
+  return atRootFontSize({ ...view, ...action, ...compact, ...fan, attach: !bar.subagent && !requests.approvals.length && attachOffered(client, question), ...providerControl(client), ...tasks, ...queue, ...bar, ...contextMeter(client, str(model?.name, modelId)), meterX: anchors.meter.x, meterWidth: anchors.meter.width, actionsX: anchors.actions.x, ...frameTops(client.presentation),
     // composer-editor-intent.ts. A focused Diff (or Files preview) comment draft keeps ⌘↩ (DiffCommentAnnotation's isCommentSubmitShortcut): the
     // reference's send chords answer only with the composer focused, and an `aria-keyshortcuts` button hears its chord before
     // any `key` handler, so the button declares none then. Annotate's editor keeps ⌘↩ the same way (browser-annotation.ts).

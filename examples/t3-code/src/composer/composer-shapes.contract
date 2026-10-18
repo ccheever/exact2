@@ -47,6 +47,8 @@ shape ComposerNotice
   action2Label: string
   lines: string[]
   actionReason: string
+  // The id the action's command receives (the child-input banner's thread).
+  actionId: string
   dismissId: string
   segments: NoticeSegment[]
   // The title's and actions' tooltips, a red icon, a "·" before the description, the title's live role.
@@ -156,8 +158,6 @@ shape ComposerView
   fanoutMore: number
   fanoutKeys: string[]
   traitsLabel: string
-  traitsSpeed: string
-  traitsAria: string
   runtimeIconOnly: bool
   traitsIconOnly: bool
   restingRuntimeIconOnly: bool
@@ -169,6 +169,12 @@ shape ComposerView
   sendSpinner: bool
   sendTooltip: string
   sendChords: string
+  // The Compact chip ('' tokens when it is not offered): off keeps full history; on, the send compacts first.
+  compactTokens: string
+  compactKeepFull: bool
+  compactSend: bool
+  compactTip: string
+  compactWidth: number
   canResume: bool
   planReady: bool
   planTitle: string

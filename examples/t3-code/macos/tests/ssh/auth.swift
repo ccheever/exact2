@@ -209,12 +209,22 @@ final class SshAuthTests: XCTestCase {
             FileManager.default.createFile(atPath: path, contents: Data("#!/bin/sh\n".utf8), attributes: [.posixPermissions: 0o755])
         }
         defer { try? FileManager.default.removeItem(atPath: root) }
-        try make(bin + "/cursor"); try make(bin + "/idea") // idea is not remote-capable
+        try make(bin + "/cursor"); try make(bin + "/idea"); try make(bin + "/trae") // trae is not remote-capable
         try make(apps + "/Visual Studio Code.app/Contents/Resources/app/bin/code")
+        try make(apps + "/Visual Studio Code - Insiders 1.2.app/Contents/Resources/app/bin/code-insiders") // not a version of "Visual Studio Code"
         try make(apps + "/Zed.app/Contents/MacOS/cli")
         try FileManager.default.createDirectory(atPath: apps + "/VSCodium.app/Contents", withIntermediateDirectories: true) // no CLI inside
-        XCTAssertEqual(T3RemoteEditors.probe(path: bin, appRoots: [apps]), ["cursor", "vscode", "zed"])
+        // JetBrains: a Toolbox bundle named with its version, and a Toolbox script.
+        try make(apps + "/PyCharm CE 2026.1.4.app/Contents/MacOS/pycharm")
+        try make(apps + "/GoLand beta.app/Contents/MacOS/goland") // not a version
+        let home = root + "/home"
+        try make(home + "/Library/Application Support/JetBrains/Toolbox/scripts/webstorm")
+        XCTAssertEqual(T3RemoteEditors.probe(path: bin, appRoots: [apps], home: home), ["cursor", "vscode", "vscode-insiders", "zed", "idea", "pycharm", "webstorm"])
+        XCTAssertEqual(T3RemoteEditors.probe(path: bin, appRoots: [apps]), ["cursor", "vscode", "vscode-insiders", "zed", "idea", "pycharm"], "no home: no Toolbox scripts")
+        try FileManager.default.removeItem(atPath: apps + "/Visual Studio Code.app/Contents/Resources/app/bin/code")
+        XCTAssertFalse(T3RemoteEditors.probe(path: bin, appRoots: [apps]).contains("vscode"), "an Insiders version is not stable VS Code")
         XCTAssertEqual(T3RemoteEditors.probe(path: "", appRoots: [root + "/none"]), [], "nothing resolves: the client falls back to VS Code")
+        XCTAssertEqual(T3RemoteEditors.remoteSchemes["pycharm"], "jetbrains")
     }
 
     func testSafeExternalUrls() {
@@ -222,7 +232,11 @@ final class SshAuthTests: XCTestCase {
         XCTAssertEqual(T3RemoteEditors.safeExternalUrl("vscode://vscode-remote/ssh-remote+example.com/home/user/project"), "vscode://vscode-remote/ssh-remote+example.com/home/user/project")
         XCTAssertEqual(T3RemoteEditors.safeExternalUrl("zed://ssh/example.com/home/user/project"), "zed://ssh/example.com/home/user/project")
         XCTAssertEqual(T3RemoteEditors.safeExternalUrl("zed://ssh/example.com/"), "zed://ssh/example.com/")
-        for refused in ["zed://extension/attacker", "vscode://ssh/example.com/home/user/project", "vscode://user@vscode-remote/ssh-remote+example.com/home/user/project",
+        let jetbrains = "jetbrains://gateway/ssh/environment?h=example.com&launchIde=true&ideHint=PY&projectHint=%2Fhome%2Fuser%2Fproject"
+        XCTAssertEqual(T3RemoteEditors.safeExternalUrl(jetbrains), jetbrains)
+        for refused in ["jetbrains://gateway/ssh/environment?launchIde=true", "jetbrains://gateway/ssh/environment?h=", "jetbrains://idea/navigate/reference?project=x",
+                        "jetbrains://user@gateway/ssh/environment?h=example.com", "jetbrains://gateway/com.example.provider/connect?h=x",
+                        "zed://extension/attacker", "vscode://ssh/example.com/home/user/project", "vscode://user@vscode-remote/ssh-remote+example.com/home/user/project",
                         "vscode://:secret@vscode-remote/ssh-remote+example.com/home/user/project", "zed://ssh/user@example.com/home/user/project", "file:///etc/passwd",
                         "vscode://ms-python.python/some-command?argument=attacker", "vscode://vscode-remote/ssh-remote+"] {
             XCTAssertNil(T3RemoteEditors.safeExternalUrl(refused), refused)

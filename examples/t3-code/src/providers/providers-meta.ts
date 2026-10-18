@@ -45,11 +45,11 @@ export const DRIVERS: Driver[] = [
     legacyDefault: { enabled: false, binaryPath: 'opencode', serverUrl: '', serverPassword: '', customModels: [] }, env: [],
     fields: [binary('Path to the OpenCode binary.', 'opencode'),
       field('serverUrl', 'Server URL', 'Leave blank to let T3 Code spawn the server when needed.', 'http://127.0.0.1:4096'),
-      field('serverPassword', 'Server password', 'Stored in plain text on disk.', 'Optional', { control: 'password' })] },
+      field('serverPassword', 'Server password', 'Stored separately on the host.', 'Optional', { control: 'password' })] },
   { id: 'antigravity', label: 'Antigravity', enabledByDefault: false, defaultSlot: true, color: '#5b87bf', modelPlaceholder: 'model-slug',
     legacyDefault: { enabled: false, authMethod: 'oauth-personal', apiKey: '', gcpProject: '', gcpLocation: '', binaryPath: '', customModels: [] }, env: [],
     fields: [field('authMethod', 'Sign-in method', 'Google accounts use your subscription; API keys and Agent Platform bill usage.', '', { control: 'select', options: ANTIGRAVITY_AUTH_METHODS }),
-      field('apiKey', 'API key', 'Gemini or Vertex AI express key. Stored in plain text.', 'Optional', { control: 'password' }),
+      field('apiKey', 'API key', 'Gemini or Vertex AI express key. Stored separately on the host.', 'Optional', { control: 'password' }),
       field('gcpProject', 'GCP project', 'Required for Gemini Enterprise. Agent Platform uses it when no API key is set.', 'my-project-id'),
       field('gcpLocation', 'GCP location', 'Region for Gemini Enterprise or Agent Platform.', 'us-central1'),
       field('binaryPath', 'Binary path', 'Custom ACP executable. Leave empty to select automatically.', 'Automatic', { persist: true })] },
@@ -65,6 +65,17 @@ export const DRIVERS: Driver[] = [
 ];
 
 export const driverMeta = (id: string): Driver | undefined => DRIVERS.find(driver => driver.id === id);
+
+/**
+ * The per-driver `providers` map of a server before 9c161462c9 (2c1160783e dropped it): such a server
+ * keeps a default slot's settings there until it has a `providerInstances` entry. A newer server
+ * runs an unconfigured default slot with the driver's default config, Codex and Claude enabled.
+ */
+export function legacyProviders(settings: Obj): Obj | null {
+  return settings.providers && typeof settings.providers === 'object' && !Array.isArray(settings.providers) ? obj(settings.providers) : null;
+}
+/** isUnconfiguredDefaultInstanceEnabled. */
+export const unconfiguredDefaultEnabled = (instanceId: string) => instanceId === 'codex' || instanceId === 'claudeAgent';
 
 /** `resolveProviderInstanceEnabled`: explicit false wins, then envelope, config, driver default. */
 export function instanceEnabled(instance: Obj): boolean {

@@ -7,6 +7,7 @@ use SettingsSwitch from "./settings-kit.contract"
 use SkPopup from "./settings-kit.contract"
 use SkMenuItem from "./settings-kit.contract"
 use SettingsPickerTrigger from "../composer/model-picker.contract"
+use CnMachineIcon from "./settings-b-kit.contract"
 use LucideLaptop from "./settings-icons.contract"
 use SettingsSelect from "./settings-kit.contract"
 use SettingsSrHeading from "./settings-kit.contract"
@@ -85,6 +86,9 @@ shape TaskModelMark
   accent: string
 // ScheduledTaskEnvironmentSection: `state` is disconnected, error, loading or ready.
 shape TaskSectionView
+  secondary: string
+  kind: string
+  transport: string
   id: string
   label: string
   heading: bool
@@ -93,6 +97,15 @@ shape TaskSectionView
   description: string
   linkMissing: bool
   tasks: TaskRowView[]
+shape TaskSummary
+  id: string
+  text: string
+shape TaskChoice
+  value: string
+  label: string
+  secondary: string
+  kind: string
+  selected: bool
 shape ScheduledPage
   available: bool
   writable: bool
@@ -102,11 +115,14 @@ shape ScheduledPage
   scope: string
   missing: bool
   tasks: TaskRowView[]
+  compact: bool
+  emptyTasks: bool
+  summaries: TaskSummary[]
   sections: TaskSectionView[]
   editors: TaskDraftView[]
-  projects: SelectOption[]
+  projects: TaskChoice[]
   workspaces: SelectOption[]
-  environments: SelectOption[]
+  environments: TaskChoice[]
   branches: TaskBranches[]
   marks: TaskModelMark[]
 
@@ -138,26 +154,47 @@ component ScheduledPanel
       if data.error != ""
         TaskCard()
           TaskMessage(title="Could not load scheduled tasks", description=data.error, status=false)
-      column width="100%" gap="2rem"
-        for section in data.sections key=section.id
-          column width="100%" gap="0.625rem" testId=`task-section-${section.id}`
-            // EnvironmentTasks' SettingsSection title is an `<h2>`, sr-only while one environment shows.
-            if section.heading
-              row min-height="1.25rem" padding-left="1rem" padding-right="1rem" gap="0.375rem" align-items="center" box-sizing="border-box"
-                LucideLaptop(size=14, color="light-dark(#71717b, #818181)")
-                text section.label font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)" role="heading" aria-level=2 testId=`task-section-title-${section.id}`
-            else
-              SettingsSrHeading(title=section.label, level=2)
-            TaskCard()
-              if section.state != "ready"
-                TaskMessage(title=section.title, description=section.description, status=(section.state == "loading"))
+      if data.compact
+        TaskCard()
+          for section in data.sections key=section.id
+            if section.tasks.length > 0
+              row width="100%" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" gap="0.75rem" box-sizing="border-box" align-items="center"
+                CnMachineIcon(kind=section.kind, size=16, color="light-dark(#71717b, #818181)")
+                column flex=1 min-width=0
+                  text section.label line-clamp=1 font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                  if section.secondary != ""
+                    text section.secondary line-clamp=1 font-size="0.75rem" color="light-dark(#71717b, #818181)"
+                  text section.transport font-size="0.75rem" color="light-dark(#71717b, #818181)"
+                text "Connected" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+              for item in section.tasks key=item.id
+                TaskRow(item=item, data=data, busy=busy, open=open, rest=rest)
+            if section.linkMissing
+              TaskMessage(title="Task unavailable", description="This task no longer exists or is outside the selected project scope.", status=true)
+          if data.emptyTasks
+            TaskMessage(title="No scheduled tasks", description="No tasks match this environment and project selection.", status=false)
+          for summary in data.summaries key=summary.id
+            text summary.text title=summary.text role="status" width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.625rem" padding-bottom="0.625rem" line-clamp=1 font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId=`task-summary-${summary.id}`
+      else
+        column width="100%" gap="2rem"
+          for section in data.sections key=section.id
+            column width="100%" gap="0.625rem" testId=`task-section-${section.id}`
+              // EnvironmentTasks' SettingsSection title is an `<h2>`, sr-only while one environment shows.
+              if section.heading
+                row min-height="1.25rem" padding-left="1rem" padding-right="1rem" gap="0.375rem" align-items="center" box-sizing="border-box"
+                  LucideLaptop(size=14, color="light-dark(#71717b, #818181)")
+                  text section.label font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)" role="heading" aria-level=2 testId=`task-section-title-${section.id}`
               else
-                if section.linkMissing
-                  TaskMessage(title="Task unavailable", description="This task no longer exists or is outside the selected project scope.", status=true)
-                if section.tasks.length == 0
-                  TaskMessage(title=section.title, description=section.description, status=false)
-                for item in section.tasks key=item.id
-                  TaskRow(item=item, data=data, busy=busy, open=open, rest=rest)
+                SettingsSrHeading(title=section.label, level=2)
+              TaskCard()
+                if section.state != "ready"
+                  TaskMessage(title=section.title, description=section.description, status=(section.state == "loading"))
+                else
+                  if section.linkMissing
+                    TaskMessage(title="Task unavailable", description="This task no longer exists or is outside the selected project scope.", status=true)
+                  if section.tasks.length == 0
+                    TaskMessage(title=section.title, description=section.description, status=false)
+                  for item in section.tasks key=item.id
+                    TaskRow(item=item, data=data, busy=busy, open=open, rest=rest)
 
 // SettingsSection's card around one environment's rows.
 component TaskCard
@@ -367,6 +404,7 @@ component ScheduledEditor
     if field == "6" and (sunday or monday or tuesday or wednesday or thursday or friday)
       saturday = not saturday
   derive dialogTargets = [(draft.id == "" and not busy ? "task-environment" : "task-title"), "close-scheduled-task"]
+  derive projectItems = data.projects.map((option) => KmItem(id=`task-project-option-${option.value}`, label=option.label))
   derive menuItems = data.environments.map((option) => KmItem(id=`task-environment-option-${option.value}`, label=option.label))
   action environmentKey(k: string, e: KeyboardEvent)
     if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
@@ -402,14 +440,19 @@ component ScheduledEditor
                   LucideChevronDown(size=12, color="light-dark(#71717b, #818181)")
                 SkPopup(menuId="task-environment-menu", invoker="task-environment", label="Runs on", width=526, list=true, endAlign=0, items=menuItems, keyed=0)
                   for option in data.environments key=option.value
-                    SkMenuItem(keysId="task-environment-menu-keys", label=option.label, menuId="task-environment-menu", itemId=`task-environment-option-${option.value}`, selected=option.selected, check=true, destructive=false, disabled=false, choose=choose("environment", option.value))
+                    TaskChoiceItem(option=option, menuId="task-environment-menu", itemId=`task-environment-option-${option.value}`, choose=choose("environment", option.value))
             column gap="0.375rem"
               text "Name" class=TkLabel
               input id="task-title" value=title input=setText("title") placeholder="e.g. Check for Sentry issues" aria-label="Name" class=TkField disabled=busy testId="task-title" autocorrect="off" data-focus-stop=(busy ? "" : "enabled")
             row gap="0.75rem" width="100%"
               column gap="0.375rem" flex=1 min-width=0
                 text "Project" class=TkLabel
-                SettingsSelect(selectId="task-project", label="Project", valueLabel=(chosenProject == "" ? "Select a project" : projectLabel(data.projects, chosenProject)), empty=(chosenProject == ""), value=chosenProject, width=257, disabled=busy, options=data.projects, choose=chooseProject)
+                box position="relative"
+                  button popovertarget="task-project-menu" id="task-project" testId="task-project" role="combobox" aria-label="Project" disabled=busy width="100%" height="2rem" class=TkOutline
+                    text (chosenProject == "" ? "Select a project" : projectLabel(data.projects, chosenProject)) font-size="0.875rem" line-clamp=1
+                  SkPopup(menuId="task-project-menu", invoker="task-project", label="Project", width=257, list=true, endAlign=0, items=projectItems, keyed=0)
+                    for option in data.projects key=option.value
+                      TaskChoiceItem(option=option, menuId="task-project-menu", itemId=`task-project-option-${option.value}`, choose=chooseProject(option.value))
               column gap="0.375rem" flex=1 min-width=0
                 text "Workspace" class=TkLabel
                 SettingsSelect(selectId="task-workspace", label="Workspace", valueLabel=(workspaceMode == "root" ? "Use the project checkout" : (workspaceMode == "existing_worktree" ? "Use a specific checkout" : "Create a new worktree")), empty=false, value=workspaceMode, width=257, disabled=busy, options=data.workspaces, choose=choose("workspace"))
@@ -506,7 +549,7 @@ component ScheduledEditor
           LucideX(size=16, color="light-dark(#71717b, #818181)")
         FocusGuard(guardId="scheduled-task-guard-end", targets=dialogTargets, popup="scheduled-task-dialog")
 
-fn projectLabel(options: SelectOption[], value: string): string = options.filter(option => option.value == value).map(option => option.label).join("")
+fn projectLabel(options: TaskChoice[], value: string): string = options.filter(option => option.value == value).map(option => option.label).join("")
 fn markField(marks: TaskModelMark[], value: string, field: string): string = marks.filter(mark => mark.value == value).map(mark => field == "driver" ? mark.driver : (field == "badge" ? mark.badge : (field == "accent" ? mark.accent : mark.name))).join("")
 
 component Weekday
@@ -520,3 +563,27 @@ component Weekday
   view
     button press=press aria-label=label aria-checked=on testId=`task-day-${label}` height="1.75rem" min-width="1.75rem" padding-left="0.3125rem" padding-right="0.3125rem" box-sizing="border-box" border-style="solid" border-width=1 border-left-width=(first ? 1 : 0) border-color="light-dark(#d4d4d8, #ffffff14)" border-top-left-radius=(first ? "0.625rem" : "0px") border-bottom-left-radius=(first ? "0.625rem" : "0px") border-top-right-radius=(last ? "0.625rem" : "0px") border-bottom-right-radius=(last ? "0.625rem" : "0px") background-color=(on ? "light-dark(#d5d5d8a3, #ffffff14)" : "light-dark(#fcfcfc, #ffffff07)")
       text short font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(on ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)")
+
+
+component TaskChoiceItem
+  props
+    option: TaskChoice
+    menuId: string
+    itemId: string
+    choose: action
+  state lit = false
+  action hover(over: bool)
+    if over
+      focus(itemId)
+    else if lit
+      focus(`${menuId}-keys`)
+  action focused(on: bool)
+    lit = on
+  view
+    button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="option" aria-label=option.label aria-selected=option.selected testId=itemId display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" padding="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(option.selected or lit ? "light-dark(#27272a14, #f5f5f514)" : "#00000000")
+      if option.kind != ""
+        CnMachineIcon(kind=option.kind, size=16, color="light-dark(#71717b, #818181)")
+      column flex=1 min-width=0 align-items="flex-start"
+        text option.label line-clamp=1 font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)"
+        if option.secondary != ""
+          text option.secondary max-width="18rem" line-clamp=1 font-size="0.75rem" color="light-dark(#71717b, #818181)"

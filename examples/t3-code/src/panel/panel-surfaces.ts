@@ -18,6 +18,7 @@ import { diffRequest, adoptDiff, diffNotGit } from '../diff/diff';
 import { fileIconToken } from '../shared/timeline-files';
 import { visiblePullRequests } from './shell-pr';
 import { filesView, filesLocal, ensureFile, ensureTree, reconcileFiles, emptyFiles, pendingPaths, type FilesView } from './files-surface';
+import { readSpeedMode } from '../pull-requests/pages-pr-quick';
 import { prsView, prsLocal, prsCommand, emptyPrs, type PrsView } from './linked-prs';
 import { deviceView, deviceLocal, deviceCommand, deviceReady, watchDevice, emptyDevice, deviceHidden, deviceStateOf, type DeviceView } from '../device/device-surface';
 // Opening a device, its workspace and the floating player (device-session.ts).
@@ -356,6 +357,7 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   const device = live && (deviceSetup || deviceShown) ? await deviceView(client, live, deviceShown) : emptyDevice();
   if (live && open && active.kind === 'device' && !deviceSetup) device.session = await deviceSessionView(client, live, deviceStateOf(client) ?? {}, device.loaded, panelKey(client));
   const prs = open && active.kind === 'pull-requests' ? prsView(client, now) : emptyPrs();
+  if (live && open && active.kind === 'pull-requests') prs.speedMode = await readSpeedMode(client, live);
   const linked = await linkedViews(client, live, active, open, now);
   await linkedPrefetch(client, live, state.surfaces, now); // Tab icons from loaded detail
   return {

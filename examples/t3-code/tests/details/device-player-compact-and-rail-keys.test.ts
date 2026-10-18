@@ -34,13 +34,29 @@ beforeEach(() => {
 
 describe('ThreadDetailsCard measures its content per density', () => {
   test('a full layout gives the full height and the compact one without the parts only full shows; a compact layout the compact one', () => {
-    expect(measureThreadDetailsCard(fullLayout)).toEqual({ full: FULL, compact: COMPACT });
+    expect(measureThreadDetailsCard(fullLayout)).toEqual({ full: FULL, compact: COMPACT, content: FULL });
+    // Lineage (inside the full-only tail) is left out of the height the density fits, not out of the content's.
+    expect(measureThreadDetailsCard({ ...fullLayout, [DETAILS_FRAMES.lineage]: [1300, 310, 264, 40] })).toEqual({ full: FULL - 40, compact: COMPACT, content: FULL });
     // Without Automations, Lineage, a resting Git group or a Version Control section, compact is full less the workspace rows.
-    expect(measureThreadDetailsCard({ [DETAILS_FRAMES.content]: [0, 0, 280, 200], [DETAILS_FRAMES.fullTop]: [0, 0, 264, 64] })).toEqual({ full: 202, compact: 138 });
+    expect(measureThreadDetailsCard({ [DETAILS_FRAMES.content]: [0, 0, 280, 200], [DETAILS_FRAMES.fullTop]: [0, 0, 264, 64] })).toEqual({ full: 202, compact: 138, content: 202 });
     expect(measureThreadDetailsCard({ [DETAILS_FRAMES.content]: [0, 0, 280, 180], [DETAILS_FRAMES.compact]: [0, 0, 0, 0] })).toEqual({ compact: 182 });
     // The essential rows, or a layout caught between densities (no marker), are not measured; nor is a card not shown.
     expect(measureThreadDetailsCard({ [DETAILS_FRAMES.content]: [0, 0, 280, 120] })).toEqual({});
     expect(measureThreadDetailsCard({ chat })).toEqual({});
+  });
+
+  test('expanding Lineage increases scrollable content without hiding workspace controls', () => {
+    const measured = (lineage: number) => measureThreadDetailsCard({
+      [DETAILS_FRAMES.content]: [0, 0, 280, 200 + lineage],
+      [DETAILS_FRAMES.fullTop]: [0, 0, 264, 64],
+      [DETAILS_FRAMES.fullTail]: [0, 64, 264, lineage],
+      [DETAILS_FRAMES.lineage]: [0, 64, 264, lineage],
+    });
+    const collapsed = measured(40), expanded = measured(400);
+    expect(collapsed.full).toBe(expanded.full);
+    expect(collapsed.compact).toBe(expanded.compact);
+    expect(expanded.content).toBe(602);
+    expect(resolveThreadDetailsCardDensity(250, { full: expanded.full!, compact: expanded.compact! })).toBe('full');
   });
 
   test('resolveThreadDetailsCardDensity: full while it fits, then compact, then essential', () => {
@@ -129,13 +145,13 @@ describe('the pull request rows place their cards for the presentation shown', (
       rpc: async (_native: unknown, method: string) => method === 'pullRequests.detail' ? detail : method === 'pullRequests.checks' ? { state: 'open', checks } : {},
       restAccess: () => ({ call: async (request: { op?: string }) => (request.op === 'subscribe' ? { id: 'sub-1' } : {}) }),
     } as unknown as T3Client;
-    // The docked card (open by default on a wide chat): 262 pt rows 12 pt in; the trigger ends 83.3 pt from the window's edge.
+    // The docked card (open by default on a wide chat): 262 pt rows 12 pt in; the trigger ends 185.1 pt from the window's edge.
     const docked = (await shellDetails(prClient, native, false, 't1', true, 1, 0)).prRows.rows[0]!;
-    expect([docked.extra.tail, docked.extra.card.maxWidth]).toEqual([83.3, 262 + 8]);
+    expect([docked.extra.tail, docked.extra.card.maxWidth]).toEqual([185.1, 262 + 8]);
     // The popover shown on the same wide chat: 246 pt rows 13 pt in, as on a narrow one.
     const shown = (await shellDetails(prClient, native, true, 't1', true, 1, 0)).prRows.rows[0]!;
     const narrow = (await shellDetails(prClient, native, true, 't1', false, 1, 0)).prRows.rows[0]!;
-    expect([shown.extra.tail, shown.extra.card.maxWidth]).toEqual([84.3, 246 + 8]);
+    expect([shown.extra.tail, shown.extra.card.maxWidth]).toEqual([170.1, 246 + 8]);
     expect(shown.extra).toEqual(narrow.extra);
     forgetDetails(prClient);
   });

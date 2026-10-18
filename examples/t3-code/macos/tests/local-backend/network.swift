@@ -23,7 +23,7 @@ private final class AccessServer: URLProtocol, @unchecked Sendable {
         let answer: Any = path == "/oauth/token" ? ["access_token": "local-bearer", "token_type": "Bearer"] as Any
             : path == "/api/auth/pairing-token" ? ["id": "link-1", "credential": "SECRET", "expiresAt": "2036-04-07T00:05:00.000Z"] as Any
             : path == "/api/auth/pairing-links" ? [[String: Any]]() as Any
-            : ["environmentId": "local-env", "label": "Lane Mac", "serverVersion": "0.0.46-nightly.20261005.2667"] as Any
+            : ["environmentId": "local-env", "label": "Lane Mac", "serverVersion": "0.1.1-nightly.20261018.3302"] as Any
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["content-type": "application/json"])!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: answer))
         client?.urlProtocolDidFinishLoading(self)
@@ -198,7 +198,7 @@ final class LocalNetworkTests: XCTestCase {
 
     func testARestartStartsANewServerWithTheNewEnvelope() {
         let runtime = scratch("runtime"), script = runtime.appendingPathComponent("t3"), envelopes = scratch("envelopes")
-        try! "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 't3 v0.0.46-nightly.20261005.2667'; exit 0; fi\nhead -n 1 > \(envelopes.path)/$$.json\nwhile :; do sleep 0.1; done\n"
+        try! "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 't3 v0.1.1-nightly.20261018.3302'; exit 0; fi\nhead -n 1 > \(envelopes.path)/$$.json\nwhile :; do sleep 0.1; done\n"
             .write(to: script, atomically: true, encoding: .utf8)
         try! FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         let configuration = URLSessionConfiguration.ephemeral

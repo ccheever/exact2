@@ -7,8 +7,9 @@
 // An environment is one entry per environment id, in the order it was added (rows never jump
 // when one reconnects): its identity, display facts, whether this device keeps it switched on,
 // and its ordered routes (catalog.ts alternateRoutes). A route is `{ id, origin, kind, learned,
-// credential, authorization?, ssh? }`; `credential` names the origin whose token the route
-// uses, so a learned route borrows its source route's token. The entry's `origin` is its home:
+// credential, authorization?, network?, ssh? }`; `credential` names the origin whose token the route
+// uses, so a learned route borrows its source route's token; `network: "tailscale"` marks an
+// address the server found on its Tailscale interface. The entry's `origin` is its home:
 // the first address it was saved under, kept while that route exists.
 import { TransportFailure, trimmed } from './transport-wire';
 
@@ -156,6 +157,7 @@ export class Catalog {
       const stored: Route = { id, origin: trimmed(routeOrigin), kind, learned: route.learned === true, credential: trimmed(owner) };
       if (route.ssh && typeof route.ssh === 'object') stored.ssh = route.ssh;
       if (route.authorization === 't3-connect') stored.authorization = 't3-connect';
+      if (route.network === 'tailscale') stored.network = 'tailscale';
       cleaned.push(stored);
     }
     let removed: Route[] = [];

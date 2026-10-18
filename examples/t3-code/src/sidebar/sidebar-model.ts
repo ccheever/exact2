@@ -1,9 +1,11 @@
+// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
 // The sidebar's thread model (Sidebar.tsx, Sidebar.logic.ts, client-runtime
 // models.ts/threadSettled.ts/threadSort.ts; MIT, see LICENSE-T3): status, the
 // shelf a thread lives on, the static sort, unread/woke/recede prominence and
 // the labels a row draws. Pure functions over the raw V2 thread shell.
 // 1e2ecbd975 (1302ccacbd): the Working shelf orders by the last authored send
 // (threadInbox.ts sortWorkingThreadsBySend); the active shelf keeps the return order.
+import { pendingSubagentRequest } from './subagent-requests';
 import { arr, obj, str, type Obj } from '../client/domain';
 
 export type SidebarSection = 'pinned' | 'active' | 'working' | 'snoozed' | 'settled';
@@ -57,10 +59,11 @@ export function pendingApproval(thread: Obj): boolean {
 }
 export const pendingInput = (thread: Obj): boolean => thread.pendingRuntimeRequest != null && obj(thread.pendingRuntimeRequest).kind === 'user_input';
 
-/** Sidebar.logic.ts resolveSidebarThreadStatus. */
+/** Sidebar.logic.ts resolveSidebarThreadStatus: its own request, else a hidden subagent's below it (subagent-requests.ts). */
 export function sidebarStatus(thread: Obj): SidebarStatus {
-  if (pendingApproval(thread)) return 'approval';
-  if (pendingInput(thread)) return 'input';
+  const subagent = pendingSubagentRequest(thread);
+  if (pendingApproval(thread) || subagent === 'approval') return 'approval';
+  if (pendingInput(thread) || subagent === 'user_input') return 'input';
   const runtime = shellRuntime(thread);
   if (runtime && ['preparing', 'queued', 'starting', 'running', 'waiting'].includes(runtime.status)) return 'working';
   if (runtime?.status === 'idle') return 'waiting';
@@ -78,12 +81,13 @@ export function hasQueuedTurnStart(thread: Obj, now: number): boolean {
   if (!run) return true;
   return [run.requestedAt, run.startedAt, run.completedAt].every(value => value == null || parse(value) < messageAt);
 }
+/** canSnooze: not while the agent or one of its subagents is blocked on the user, nor with a queued turn start. */
 export function canSnooze(thread: Obj, now: number): boolean {
-  return !pendingApproval(thread) && !pendingInput(thread) && !hasQueuedTurnStart(thread, now);
+  return !pendingApproval(thread) && !pendingInput(thread) && pendingSubagentRequest(thread) === null && !hasQueuedTurnStart(thread, now);
 }
-/** threadRaisedHandWhileSnoozed: blocked on the user, a fresh failure, or a newer completion. */
+/** threadRaisedHandWhileSnoozed: it or a subagent is blocked on the user, a fresh failure, or a newer completion. */
 export function raisedHand(thread: Obj): boolean {
-  if (pendingApproval(thread) || pendingInput(thread)) return true;
+  if (pendingApproval(thread) || pendingInput(thread) || pendingSubagentRequest(thread) !== null) return true;
   const runtime = shellRuntime(thread), run = latestRun(thread), snoozedAt = thread.snoozedAt == null ? null : str(thread.snoozedAt);
   if ((runtime?.status === 'error' || runtime?.status === 'failed') && (snoozedAt == null || parse(runtime.updatedAt) > parse(snoozedAt))) return true;
   return snoozedAt != null && run?.status === 'completed' && run.completedAt != null && parse(run.completedAt) > parse(snoozedAt);
@@ -249,11 +253,21 @@ export function workingStartedAt(thread: Obj): string | null {
   return null;
 }
 
+/**
+ * When the pill's timer starts (Sidebar.tsx WorkingDuration): a working
+ * thread's activity run start; a waiting one's latest run end, since Waiting
+ * starts when the turn ends and background work keeps the thread held.
+ */
+export function statusSince(thread: Obj, status: SidebarStatus): string | null {
+  const since = status === 'working' ? workingStartedAt(thread) : status === 'waiting' ? latestRun(thread)?.completedAt ?? null : null;
+  return valid(since) ? since : null;
+}
+
 export interface TopStatus { label: string; icon: string; color: string }
 /** Sidebar.tsx topStatus: the pill that replaces the age at the card's top right. */
 export function topStatus(status: SidebarStatus, woke: boolean, unread: boolean): TopStatus | null {
   if (status === 'working') return { label: 'Working', icon: 'circle-dashed', color: '#2b7fff' };
-  if (status === 'waiting') return { label: 'Waiting', icon: '', color: 'light-dark(#71717b, #818181)' };
+  if (status === 'waiting') return { label: 'Waiting', icon: 'circle-dot-dashed', color: 'light-dark(#71717b, #818181)' };
   if (status === 'approval') return { label: 'Approval', icon: 'shield-question', color: 'light-dark(#bb4d00, #ffb900)' };
   if (status === 'input') return { label: 'Input', icon: 'message-circle-question', color: 'light-dark(#4f39f6, #a3b3ff)' };
   if (status === 'limited') return { label: 'Limited', icon: 'circle-alert', color: '#fe9a00' };

@@ -3,6 +3,7 @@
 // project/checkout scope); a query replaces the list with ranked catalog results whose
 // availability and owning scope match this client.
 import { CATALOG } from './settings-catalog';
+import { commandLabel } from './keybinding-view'; // settingsSearch.ts imports KeybindingsSettings.logic's
 import { arr, obj, str, type Obj } from '../client/domain';
 import { canManageLocalBackend, primary } from '../connections/local-primary';
 
@@ -34,14 +35,7 @@ export function scopeAvailable(required: string, kind: string) {
     default: return true;
   }
 }
-const segment = (part: string) => part.replace(/([a-z0-9])([A-Z])/g, '$1 $2').split(/[-_\s]+/).filter(Boolean).map(word => word[0]!.toUpperCase() + word.slice(1)).join(' ');
-export function commandLabel(command: string) {
-  const special: Record<string, string> = { 'composer.sendAlternate': 'Composer: Opposite Queue or Steer Action', 'composer.sendBackground': 'Composer: Start in Background', 'composer.sendAndNewThread': 'Composer: Send and Start New Thread',
-    'thread.steerQueuedMessage': 'Queue: Send First Queued Message as Steer', 'thread.editQueuedMessage': 'Queue: Edit Last Queued Message', 'thread.copyReference': 'Pull Request: Copy Link or Thread ID' };
-  if (special[command]) return special[command]!;
-  if (command.startsWith('script.') && command.endsWith('.run')) return `Run Script: ${segment(command.slice(7, -4))}`;
-  return command.split('.').map(segment).join(': ');
-}
+export { commandLabel };
 
 /** `localBackend`: canManageLocalBackend; `localEnvironment`: the Local environment switch is on. */
 export type SearchContext = { connected: boolean; autoSettle: boolean; scopeKind: string; keybindings?: Obj[]; localBackend?: boolean; localEnvironment?: boolean };

@@ -1,3 +1,4 @@
+use PrSpeedAction from "../pull-requests/pages-pr-quick.contract"
 use TerminalDrawerView from "../terminal/terminal.contract"
 // The right panel's tabbed surfaces (panel-surfaces.ts):
 // the tab strip, the Files surface (tree and preview), the Linked pull requests
@@ -178,6 +179,9 @@ shape FilesCrumbMenu
   status: string
   entries: FilesCrumbEntry[]
 shape LinkedPrRow
+  context: string
+  speed: PrSpeedAction[]
+  speedPending: bool
   key: string
   index: number
   number: number
@@ -210,6 +214,7 @@ shape LinkedPrRow
   unlinkLabel: string
   canWatch: bool
 shape LinkedPrs
+  speedMode: bool
   supported: bool
   rows: LinkedPrRow[]
   footer: string

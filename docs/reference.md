@@ -316,6 +316,12 @@ The web manifest carries the same entries; browser registration is subject to
 the browser's supported schemes and installation behavior. Linux's CLI URL
 argument retains the ordinary location conversion because it does not
 register OS protocol handlers.
+For packaged-only Apple registration, add `"distribution_only": true` to an
+entry, for example `{"protocol":"notes","url":"/open?u=%s","distribution_only":true}`.
+Archives and `--distribution` builds include it; local builds, including
+`--bundle` and `--release` alone, omit it from both the registered schemes and
+native handler templates. The default is `false`. This option does not filter
+the web manifest or explicit `host.<platform>.urlSchemes`.
 A file chosen in the app's own picker (`showOpenFilePicker`,
 `showSaveFilePicker`) joins File ▸ Open Recent — a save once it is written —
 and becomes the window's document, as a routed one does. A path from the command line, from Finder, from ⌘O, or from a link inside

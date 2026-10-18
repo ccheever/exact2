@@ -74,7 +74,7 @@ component SurfacePanel
         SurfaceBody(panel=shell.panel, scheme=scheme, sheet=sheet, local=local, command=command, paletteShow=paletteShow, look=look, confirm=confirm, closePending=closePending, urlFocus=urlFocus, filesDocuments=filesDocuments, urlFocused=(urlFocusTab != "" and shell.panel.kind == "browser" and urlFocusTab == shell.panel.browser.tabId), searchFocus=filesSearchFocus, still=still)
         // The pull request beside the thread and a sent attachment (pr-attachment.contract).
         if shell.panel.kind == "pull-request"
-          PrSurfaceBody(pr=shell.panel.pr, detail=prDetail, documents=prDocuments, scheme=scheme, tab=prTab, setTab=prSetTab, reload=prReload, act=prAct, copy=prCopy, local=local, still=still, compact=(width < 480))
+          PrSurfaceBody(pr=shell.panel.pr, detail=prDetail, documents=prDocuments, scheme=scheme, tab=prTab, setTab=prSetTab, reload=prReload, act=prAct, copy=prCopy, local=local, still=still, compact=(width < 480), width=width)
         if shell.panel.kind == "attachment"
           AttachmentBody(att=shell.panel.attachment, documents=filesDocuments, scheme=scheme, sheet=sheet, local=local, actionIds="")
       else

@@ -9,8 +9,8 @@ The app carries the official T3 server release (the CLI archive of the release b
 reference pin, unmodified; `server-runtime/runtime-pin.json`) and runs it as its own local
 server, "This machine". It does not modify T3 Code.
 
-The reference is T3 Code `1e2ecbd975` (`referencePin` in `server-runtime/runtime-pin.json`;
-the client mirrors Nightly `0.0.46-nightly.20261004.1`, `version-skew.ts`). Ported files name
+The reference is T3 Code `9c161462c9` (`referencePin` in `server-runtime/runtime-pin.json`;
+the client mirrors Nightly `0.1.1-nightly.20261018.3302`, `version-skew.ts`). Ported files name
 the reference files they follow, and T3 Code's MIT notice is kept in `LICENSE-T3`.
 
 macOS is the only target: there is no web, iOS or Linux build of this app.
@@ -144,7 +144,8 @@ server to come back on the new version and shares that state with Settings › C
   thread with a banner, Copy ID and two local rows; `composer-feedback.ts`). Both long
   writes are detached requests whose reply joins the inbox (`composer-replies.ts`). The composer overlays the transcript, which keeps a
   measured reservation at its end (`composer-overlay.ts`); with Chat width Wide or Full
-  the context strip's workspace control is the desktop Select.
+  the context strip's workspace control is the desktop Select. PNG, JPEG and HEIC images over
+  2000 pixels on their long edge are scaled to that edge before upload; PNGs already within it keep their bytes.
 - Requests: approvals, single/multiple-choice and free-text questions.
 - Version control in the workspace card (`src/details/git*`): the branch picker (search, create
   a ref with Enter, check out, "Start from origin"), the git actions quick action and
@@ -228,6 +229,12 @@ server to come back on the new version and shares that state with Settings › C
   server, split and close, the drawer's state kept per thread. The terminal is T3 Code's own
   Ghostty emulator page (`terminal-host/`, built into `assets/`) in a web view
   (`T3TerminalView.swift`); the sessions are native (`T3TerminalSessions.swift`).
+  ANSI colours use VS Code's palette for the scheme. Shift+PageUp and Shift+PageDown page through
+  the scrollback, ⌘⇧Home and ⌘⇧End jump to its start and the latest output (full-screen programs
+  keep these keys), and ⌘A or the context menu's Select all selects the whole history; Jump to
+  latest returns to the current output. The divider drags are native, outside the page, so the
+  view forwards each mouse release in the window to the page, which sends the settled grid to
+  the shell at once, as T3 Code's window listener does.
 - Browser surface: a right-panel Browser tab on a `WKWebView` in the module
   (`T3BrowserSession*.swift`, `browser-*.ts`; T3 Code embeds Chromium, which exact2 does not
   offer, #100): tabs and the chrome row, history and local servers, zoom, appearance, the

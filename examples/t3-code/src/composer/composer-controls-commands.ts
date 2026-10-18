@@ -1,5 +1,5 @@
 // Composer commands the footer and banners issue,
-// adapted from T3 Code (MIT); see LICENSE-T3. Sources: ChatView.tsx (onResume,
+// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 9c161462c9: ChatView.tsx (onResume,
 // onImplementPlanInNewThread, handleUnsnoozeActiveThread, acknowledgeActiveThreadWoke,
 // onProviderModelSelect's provider lock), ChatView.logic.ts (deriveLockedProvider,
 // resolveComposerProviderSelection), threadWorkflows.ts (threadSupportsProviderHandoff),
@@ -13,8 +13,9 @@ import { attachFiles } from './composer-controls-attach';
 import { openUsageLimits, closeUsageLimits, changeLimitRecovery, usageLocal } from './composer-controls-usage';
 import { feedbackLocal } from './composer-feedback';
 import type { T3Client } from '../client/client';
-import { dismissResumeCompaction } from './composer-controls-resume';
+import { dismissResumeCompaction, keepsFullHistory, setKeepFullHistory } from './composer-controls-resume';
 import { dispatchSelection } from './composer-ultrathink'; // modelOptionsForDispatch
+import { composerSelection } from './composer-provider-selection';
 import { composerNow, clearStaged, nextTurnCommands, planFollowUp, proposedPlanTitle, requireProvider, resumeState, stagedFor,
   PLAN_IMPLEMENTATION_PROMPT_PREFIX, type ComposerControlsPrefs } from './composer-controls';
 import { loadHostResources } from './auto-balance';
@@ -137,8 +138,12 @@ export async function composerCommand(client: T3Client, native: Native, storage:
         await access.dispatch(storage, { ...command, commandId, threadId }, 'Change mode');
       }
       const [commandId, messageId] = await access.ids(2);
+      // Resume continues on the model the composer shows (getSendContext().selectedModelSelection).
+      const chosen = composerSelection(client, false);
+      const modelSelection = dispatchSelection(client, chosen.instanceId || client.providerId, chosen.entry ? chosen.model : client.modelId, client.modelOptions);
       await access.dispatch(storage, { type: 'message.dispatch', commandId, threadId, messageId, text: 'Continue where you left off.', attachments: [],
-        createdBy: 'user', creationSource: 'web', manualContinuationOfRunId: runId, dispatchMode: { type: 'start_immediately' } }, 'Resume thread');
+        createdBy: 'user', creationSource: 'web', manualContinuationOfRunId: runId, modelSelection,
+        dispatchMode: { type: 'start_immediately' } }, 'Resume thread');
       clearStaged(client, key);
     }
     if (heldQueue) {
@@ -249,6 +254,7 @@ export async function composerLocal(client: T3Client, _native: Native, _storage:
   if (op.startsWith('feedback-')) return feedbackLocal(client, _native, op, id);
   if (op === 'queued-cancel') { cancelQueuedEdit(client); return ''; }
   if (op === 'queued-attachment-remove') { removeQueuedEditAttachment(client, id); return ''; }
+  if (op === 'compact-full') { setKeepFullHistory(client, !keepsFullHistory(client)); return ''; } // the Compact chip's toggle
   if (op === 'resume-compaction-dismiss') { dismissResumeCompaction(client, id); return ''; }
   if (op === 'dismiss-woke') { await acknowledgeWoke(client, id || client.threadId, _native, value); return ''; }
   throw new ClientError(`Unknown composer action: ${op}`);

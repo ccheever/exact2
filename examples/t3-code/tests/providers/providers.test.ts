@@ -321,3 +321,15 @@ test('the list row and the editor read the same status, each one text the host r
   expect(source).toContain('                            text row.status font-size="0.75rem" line-height="1.125rem"');
   expect(source).toContain('            row width="100%" min-width=0 padding-top="0.125rem" gap="0.375rem" flex-wrap="wrap" align-items="baseline" testId="provider-editor-status"');
 });
+
+test('new settings use instance mutations for enablement and reset without the removed providers map', async () => {
+  const server = new FakeServer();
+  server.settings = { providerInstances: {} }; server.config = server.snapshot();
+  expect(providerRows(server.settings, []).map(row => [row.id, row.isDirty])).toEqual([['codex', false], ['claudeAgent', false]]);
+  expect(providerPage(server, '', 0).rows.map(row => row.enabled)).toEqual([true, true]);
+  await runProviderOp(server, native, 'provider-enabled', 'codex', 'false');
+  expect(obj(obj(server.settings.providerInstances).codex).enabled).toBe(false);
+  expect(writes(server).every(call => obj(obj(call.payload).patch).providers === undefined)).toBe(true);
+  await runProviderOp(server, native, 'provider-reset', 'codex', '');
+  expect(obj(server.settings.providerInstances).codex).toBeUndefined();
+});
