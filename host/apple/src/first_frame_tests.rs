@@ -154,6 +154,95 @@ fn core_animation_plays_a_started_transition_until_it_is_retargeted() {
     );
 }
 
+const PLAYED: &str = r##"component A
+  state on = false
+  state fogged = false
+  action go
+    on = not on
+  action fog
+    fogged = true
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      button press=fog testId="fog"
+        text "Fog"
+      column testId="wrap" filter=(fogged ? "blur(4px)" : "none")
+        box testId="fade" width=24 height=24 opacity=(on ? 0 : 1) transition="opacity 1s linear"
+      box testId="clipped" width=24 height=24 padding=4 background-clip="content-box" background-color=(on ? "#ff0000" : "#0000ff") transition="background-color 1s linear"
+      box testId="round" width=24 height=24 border-radius="50%" background-color=(on ? "#ff0000" : "#0000ff") transition="background-color 1s linear"
+      box testId="plain" width=24 height=24 background-color=(on ? "#ff0000" : "#0000ff") transition="background-color 1s linear"
+"##;
+
+/// Review round 1 (Astra 2, 3): a background colour goes to Core Animation
+/// only where the layer paints it as UIKit shows it, and a played fade an
+/// ancestor's new filter would capture at its end comes back to the engine
+/// where its curve is, its spec withdrawn in the same batch.
+#[test]
+fn what_core_animation_cannot_play_as_uikit_draws_it_stays_sampled() {
+    let plan = contract::compile(PLAYED).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    host.svg.box_motion = true;
+    host.svg.play_transitions = true;
+    host.engine.set_lowered_properties(&svg::lowered(true));
+    host.start_on_frame(true, 0.0);
+    let key = |host: &Host<NoData>, test_id: &str| {
+        let k = host.runner.kernel();
+        exact_kernel::motion::motion_node(k.find_by_test_id(test_id)[0])
+    };
+    let go = id(&host, "go");
+    host.dispatch_at(go, Event::Press, 100.0);
+    host.tick_at(112.0, 116.0);
+    let played = |host: &Host<NoData>, test_id: &str, p: Property| {
+        host.engine.is_played(key(host, test_id), p)
+    };
+    assert!(played(&host, "fade", Property::Opacity));
+    assert!(played(&host, "plain", Property::BackgroundColor));
+    assert!(
+        !played(&host, "clipped", Property::BackgroundColor),
+        "UIKit draws a clipped background"
+    );
+    assert!(
+        !played(&host, "round", Property::BackgroundColor),
+        "a percentage radius can be elliptical"
+    );
+    let fade = id(&host, "fade");
+    let fogged = host.dispatch_at(id(&host, "fog"), Event::Press, 300.0);
+    assert!(
+        !played(&host, "fade", Property::Opacity),
+        "a filter draws it from the model"
+    );
+    let shown = host
+        .engine
+        .value(key(&host, "fade"), Property::Opacity)
+        .unwrap()
+        .x;
+    assert!(
+        (shown - 0.816).abs() < 1e-3,
+        "where the curve is, not its end: {shown}"
+    );
+    let v: serde_json::Value = serde_json::from_str(&fogged).unwrap();
+    let withdrawn = v["ops"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|op| op["op"] == "animations" && op["id"] == fade);
+    assert_eq!(
+        withdrawn.map(|op| op["specs"].clone()),
+        Some(serde_json::json!([])),
+        "{fogged}"
+    );
+    assert!(motion(&fogged), "the display drives it again");
+}
+
 /// D5: a display frame's batch starts what waits, as its tick would, so
 /// a transition reaches Core Animation in the frame's own batch.
 #[test]

@@ -54,6 +54,38 @@ impl Engine {
         self.running.iter().copied()
     }
 
+    /// The transitions the host plays now.
+    pub fn played_transitions(&self) -> impl Iterator<Item = (u64, Property)> + '_ {
+        self.played.iter().copied()
+    }
+
+    /// Take back a transition the host can no longer play as CSS does: it
+    /// is sampled again from the value its curve has reached now (its end,
+    /// if it is over). `false` when the host does not play it.
+    pub fn reclaim_transition(&mut self, node: u64, property: Property) -> bool {
+        let key = (node, property);
+        if !self.played.remove(&key) {
+            return false;
+        }
+        let at = self.sample_time();
+        if let Some(slot) = self.slots.get_mut(&key) {
+            match slot.running().map(|r| r.sample(at)) {
+                Some(sample) if !sample.done => {
+                    slot.set_presented(sample.value);
+                    self.running.insert(key);
+                }
+                Some(_) => {
+                    slot.set_running(None);
+                    let target = slot.target;
+                    slot.set_presented(target);
+                }
+                None => {}
+            }
+        }
+        self.dirty.insert(key);
+        true
+    }
+
     /// The transition running or played on `property` of `node`, as a host
     /// plays it, and whether it waits for the frame that starts it (LLP
     /// 1003.001 D1; its `start` then assumes the frame comes now). Asking

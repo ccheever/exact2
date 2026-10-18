@@ -513,52 +513,140 @@ const BOX_PLAYED: [Property; 2] = [Property::Opacity, Property::BackgroundColor]
 /// ([`Engine::play_transition`]) as LLP 1055.001 lowers a box's keyframes:
 /// the engine presents the target, the box's specs carry the transition
 /// ([`transition_specs`]), and nothing samples it, so a fade keeps no
-/// display link awake. Sampled instead: what a press or a look paints over,
-/// an animation of the same property (it composes over the transition),
-/// opacity in a glass group, a box under a CSS filter, a colour whose alpha
-/// changes (Core Animation interpolates unpremultiplied), and views `skip`
-/// names. Returns the views handed over.
+/// display link awake. One waiting for its first frame goes at that frame
+/// (LLP 1003.001 D4). Every batch, a played transition that no longer
+/// qualifies ([`playable`]: an ancestor gained a filter, the box a border)
+/// comes back to the engine at the value its curve has reached, and its spec
+/// goes in the same batch. Returns the views either way.
 pub(crate) fn hand_over_transitions(
     kernel: &Kernel,
     engine: &mut Engine,
     skip: &dyn Fn(exact_kernel::ViewId) -> bool,
 ) -> Vec<exact_kernel::ViewId> {
+    let played: Vec<(u64, Property)> = engine
+        .played_transitions()
+        .filter(|(_, p)| BOX_PLAYED.contains(p))
+        .collect();
     let moving: Vec<(u64, Property)> = engine
         .running_transitions()
         .filter(|(_, p)| BOX_PLAYED.contains(p))
         .collect();
     let mut views = Vec::new();
-    for (node, p) in moving {
-        let Some(n) = kernel.node_by_key(exact_kernel::motion::node_key(node)) else {
-            continue;
-        };
-        if n.node_type.is_svg_element()
-            || n.node_type == NodeType::Svg
-            || skip(n.id)
-            || crate::looks::paints_over(&n, p)
-            || under_box_filter(kernel, &n)
-            || engine
-                .animation_plays(node)
-                .iter()
-                .any(|play| play.animation.keyframes.properties().contains(&p))
-        {
-            continue;
+    let node = |key: u64| kernel.node_by_key(exact_kernel::motion::node_key(key));
+    for (key, p) in played {
+        if !playable(kernel, engine, key, p, skip) && engine.reclaim_transition(key, p) {
+            views.extend(node(key).map(|n| n.id));
         }
-        // One waiting for its first frame is handed over at that frame, so
-        // Core Animation never runs it early (LLP 1003.001 D4).
-        let Some((t, waits)) = engine.transition(node, p) else {
-            continue;
-        };
-        let eligible = !waits
-            && match p {
-                Property::Opacity => !in_glass_group(kernel, &n),
-                _ => layer_paints_background(&n) && t.from.w == t.to.w,
-            };
-        if eligible && engine.play_transition(node, p).is_some() {
-            views.push(n.id);
+    }
+    for (key, p) in moving {
+        let waits = engine.transition(key, p).is_none_or(|(_, waits)| waits);
+        if !waits
+            && playable(kernel, engine, key, p, skip)
+            && engine.play_transition(key, p).is_some()
+        {
+            views.extend(node(key).map(|n| n.id));
         }
     }
     views
+}
+
+/// Whether Core Animation can play the transition on `p` of box `key` as
+/// CSS does: not what a press or a look paints over, not a property an
+/// animation also plays (it composes over the transition), no box under a
+/// CSS filter (its picture is drawn from the model), no opacity in a glass
+/// group, a background colour only where the layer paints it with one alpha
+/// at both ends (Core Animation interpolates unpremultiplied), and no view
+/// `skip` names.
+fn playable(
+    kernel: &Kernel,
+    engine: &Engine,
+    key: u64,
+    p: Property,
+    skip: &dyn Fn(exact_kernel::ViewId) -> bool,
+) -> bool {
+    let Some(n) = kernel.node_by_key(exact_kernel::motion::node_key(key)) else {
+        return false;
+    };
+    if n.node_type.is_svg_element()
+        || n.node_type == NodeType::Svg
+        || skip(n.id)
+        || crate::looks::paints_over(&n, p)
+        || under_box_filter(kernel, &n)
+        || engine
+            .animation_plays(key)
+            .iter()
+            .any(|play| play.animation.keyframes.properties().contains(&p))
+    {
+        return false;
+    }
+    match p {
+        Property::Opacity => !in_glass_group(kernel, &n),
+        _ => {
+            layer_paints_background(&n)
+                && background_on_layer(kernel, &n)
+                && engine
+                    .transition(key, p)
+                    .is_some_and(|(t, _)| t.from.w == t.to.w)
+        }
+    }
+}
+
+/// Whether the background colour a box's layer would paint is the box's
+/// fill as UIKit shows it (`BoxLayerIOS.applyBoxLayer`'s `bg`): a fixed or
+/// light-dark colour (a platform or role colour may draw as vibrancy, a wide
+/// one in its own space), over the border box, with one circular radius, a
+/// round or continuous corner, no material, no layout transition that moves
+/// it to a surface, and shown. Anything UIKit rasterizes stays sampled.
+fn background_on_layer(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
+    use exact_kernel::{ColorValue, Dimension};
+    let s = n.style;
+    let radii: Vec<Option<f32>> = [
+        s.border_radius_top_left,
+        s.border_radius_top_right,
+        s.border_radius_bottom_right,
+        s.border_radius_bottom_left,
+    ]
+    .iter()
+    .map(|d| match d {
+        Dimension::Points(r) => Some(*r),
+        Dimension::Percent(r) if *r == 0.0 => Some(0.0),
+        _ => None,
+    })
+    .collect();
+    let set: Vec<f32> = radii
+        .iter()
+        .flatten()
+        .copied()
+        .filter(|r| *r > 0.0)
+        .collect();
+    let one_radius = radii.iter().all(Option::is_some)
+        && set.windows(2).all(|w| (w[0] - w[1]).abs() < 0.01)
+        && set
+            .first()
+            .is_none_or(|r| *r <= n.frame.width.min(n.frame.height) / 2.0 + 0.01);
+    let shown = {
+        let mut at = Some(n.id);
+        loop {
+            let Some(node) = at.and_then(|id| kernel.node(id)) else {
+                break true;
+            };
+            if node.style.mask.has(exact_kernel::StyleId::Visibility) {
+                break node.style.visibility == exact_kernel::Visibility::Visible;
+            }
+            at = node.parent;
+        }
+    };
+    matches!(
+        s.background_color,
+        Some(ColorValue::Fixed(_) | ColorValue::LightDark(..))
+    ) && s.cold.background_clip == exact_kernel::BackgroundClip::BorderBox
+        && (s.rare.corner_shape.is_round() || s.rare.corner_shape.is_apple_continuous())
+        && s.rare.layout_transition.0.is_empty()
+        && n.props
+            .str(exact_kernel::PropId::BackgroundMaterial)
+            .is_none()
+        && one_radius
+        && shown
 }
 
 /// A box's played transitions ([`hand_over_transitions`]) as specs, one
@@ -808,7 +896,7 @@ fn box_eligible(
         return false;
     }
     if props.contains(&Property::BackgroundColor) {
-        if !layer_paints_background(n) {
+        if !layer_paints_background(n) || !background_on_layer(kernel, n) {
             return false;
         }
         // The row's own colour is interpolated only where a keyframe at 0% or
