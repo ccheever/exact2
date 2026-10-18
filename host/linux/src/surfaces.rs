@@ -27,6 +27,7 @@ pub(crate) use android::acquire_fd;
 pub use android::{buffer_frame, window_ready};
 #[cfg(target_os = "android")]
 pub(crate) use android::{device_pending as gpu_device_pending, prepare as prepare_gpu};
+pub(crate) mod code;
 #[path = "surface_controls.rs"]
 pub(crate) mod controls;
 mod pixels;
@@ -325,7 +326,7 @@ fn verify_module(path: &std::path::Path, compat: &Value, artifact: &str) -> Resu
         }
     }
     let receipt;
-    let identity = if card["receipt"] == true
+    let (identity, digest) = if card["receipt"] == true
         && card["trust"] == "development"
         // No-delivery apps omit trust from the cohort; their baked GPU card
         // still records the explicit development build trust.
@@ -340,11 +341,13 @@ fn verify_module(path: &std::path::Path, compat: &Value, artifact: &str) -> Resu
         {
             return Err(refuse("invalid GPU receipt inputs"));
         }
-        &receipt["artifact"]
+        (&receipt["artifact"], file_digest(path))
     } else {
-        &card["sha256"]
+        // The card names the bake's code digest, the signature left out.
+        let bytes = std::fs::read(path).map_err(|e| refuse(&e.to_string()))?;
+        (&card["sha256"], Ok(code::code_digest(&bytes)))
     };
-    if identity.as_str() != Some(file_digest(path).map_err(|e| refuse(&e))?.as_str()) {
+    if identity.as_str() != Some(digest.map_err(|e| refuse(&e))?.as_str()) {
         return Err(refuse("digest mismatch"));
     }
     Ok(())
