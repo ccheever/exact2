@@ -113,7 +113,7 @@ private struct TabBarFace: Equatable {
               image.props["imageSource"]?.hasPrefix("symbol:") == true,
               let label = children.first(where: { $0 !== image }), label.isParagraph,
               !label.accessibleText.isEmpty else { return nil }
-        self.symbol = image.props["symbolName"] ?? ""
+        self.symbol = image.faceSymbol ?? ""
         title = label.accessibleText
         self.label = tab.props["accessibilityLabel"] ?? title
         tint = image.ownUIColor("tint_color")
@@ -253,7 +253,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             // A native tab's symbol, carrying its label (LLP 1069.011.000 D4).
             let size = CGSize(width: -1, height: -1)
             if let old = control.icons[index], (old.source as? NSString) == name as NSString, old.label == label { return }
-            let image = UIImage(systemName: name) ?? UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { _ in }
+            let image = FaceSymbol.image(name) ?? UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { _ in }
             if control.titleForSegment(at: index)?.isEmpty == false { control.setTitle(nil, forSegmentAt: index) }
             image.accessibilityLabel = label
             control.setImage(image, forSegmentAt: index)
@@ -378,7 +378,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         let current = bar.items ?? []
         if current.count != faces.count || zip(current, faces).contains(where: { $0.title != $1.title || $0.madeWith != $1.symbol }) {
             bar.setItems(faces.enumerated().map { index, face in
-                let item = TabBarItem(title: face.title, image: face.symbol.isEmpty ? nil : UIImage(systemName: face.symbol), tag: index)
+                let item = TabBarItem(title: face.title, image: FaceSymbol.image(face.symbol, points: FaceSymbol.tabBarPoints), tag: index)
                 item.made = face.symbol
                 return item
             }, animated: false)

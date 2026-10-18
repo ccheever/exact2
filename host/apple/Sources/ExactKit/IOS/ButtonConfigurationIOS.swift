@@ -131,7 +131,7 @@ enum ButtonConfigurationIOS {
         var (config, drawn, _) = ControlHost.configuration(face)
         config.title = face.title
         config.subtitle = face.subtitle
-        config.image = face.symbol.flatMap { UIImage(systemName: $0) }
+        config.image = face.symbol.flatMap { FaceSymbol.image($0) }
         switch face.placement ?? (face.leading ? "leading" : "trailing") {
         case "trailing": config.imagePlacement = .trailing
         case "top": config.imagePlacement = .top
@@ -210,16 +210,22 @@ enum ButtonConfigurationIOS {
         button.configuration = config
         // Read the real title font for this style/size, after UIKit resolved the configuration.
         let titleFont = button.titleLabel?.font ?? UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits)
+        var symbolPoints = titleFont.pointSize
         if rows.symbol["font_size"] != nil || rows.symbol["font_weight"] != nil {
             let symbolFont = font(titleFont, rows: rows.symbol)
             config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: symbolFont)
+            symbolPoints = symbolFont.pointSize
         } else if face.title?.isEmpty ?? true {
             // A symbol alone is sized as UIKit sizes one: from the body style
             // at the button's text size and its `buttonSize`. Without a title the
             // label's font is UIKit's fixed 17, which kept a − or + small at the
             // accessibility sizes (LLP 1116.019 D1).
             config.preferredSymbolConfigurationForImage = nil
+            symbolPoints = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits).pointSize
         } else { config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: titleFont) }
+        // An svg-only icon's path (stage 9 A2): a template image at the point
+        // size the configuration gives a symbol here, tinted as one below.
+        if let symbol = face.symbol, FaceSymbol.isPath(symbol) { config.image = FaceSymbol.pathImage(symbol, points: symbolPoints) }
         config.imagePadding = rows.imageGap ?? systemSpacing(font: titleFont)
         // A symbol's colour is the configuration's, which UIKit greys with the whole button behind a modal
         // (`tintAdjustmentMode`), its own colour as much as the accent. A glass configuration draws a template

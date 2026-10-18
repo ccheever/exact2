@@ -147,7 +147,7 @@ struct SelectMenu: Equatable {
 
 /// A button's face (`exact_press_face`, LLP 1069.011.000 D1), custom or
 /// native, as the kernel reads it from its children: its title, its symbol as
-/// the platform names it, whether its image is a raster instead, whether the
+/// the platform names it (an svg-only icon's path as its `FaceSymbol` token), whether its image is a raster instead, whether the
 /// image leads, its `aria-label`, whether its children fit (one text, one
 /// image, nothing else); and a native button's `buttonStyles` row (LLP
 /// 1069.011 D2) — each platform's draw, a `~` marking a stand-in. `style` is
@@ -181,7 +181,8 @@ struct ButtonFace: Equatable {
         subtitle = o["subtitle"] as? String
         placement = o["placement"] as? String
         rows = ButtonFaceRows(o["rows"] as? [String: Any] ?? [:])
-        symbol = o["symbol"] as? String
+        // An svg-only icon's path as its token (FaceSymbol, stage 9 A2).
+        symbol = FaceSymbol.of(o)
         raster = o["raster"] as? Bool ?? false
         leading = o["leading"] as? Bool ?? true
         label = o["label"] as? String

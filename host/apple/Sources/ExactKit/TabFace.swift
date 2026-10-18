@@ -12,7 +12,8 @@ import UIKit
 
 struct TabFace: Equatable {
     /// The symbol without a `.fill` ending: a bar chooses the variant it
-    /// draws (UIKit's the filled one for the selected tab).
+    /// draws (UIKit's the filled one for the selected tab). An svg-only
+    /// icon's path token (`FaceSymbol`, stage 9 A2) has no variant.
     /// `accessibilityDisabled`: `aria-disabled`, which reads as disabled
     /// and still presses.
     let base: String?, title: String, disabled: Bool, accessibilityDisabled: Bool
@@ -27,13 +28,13 @@ struct TabFace: Equatable {
             if let title = face.title, !title.isEmpty { label = title }
         }
         for case let child as NodeView in tab.container.subviews {
-            if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty { symbol = name }
+            if child.kind == "image", let name = child.faceSymbol { symbol = name }
             else if child.isParagraph, !child.accessibleText.isEmpty { label = child.accessibleText }
             else if let text = Self.badgeText(child) { badges.append(text) }
         }
         // One badge box, or none: two are not a badge.
         self.badge = badges.count == 1 ? badges[0] : nil
-        base = symbol.map { $0.hasSuffix(".fill") ? String($0.dropLast(5)) : $0 }
+        base = symbol.map { $0.hasSuffix(".fill") && !FaceSymbol.isPath($0) ? String($0.dropLast(5)) : $0 }
         title = label
         disabled = tab.disabled
         accessibilityDisabled = tab.ariaUnavailable

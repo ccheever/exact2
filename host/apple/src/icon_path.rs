@@ -45,6 +45,21 @@ pub(crate) fn commands(name: &str) -> Option<(String, &str)> {
     (!out.is_empty()).then_some((out, path.view_box))
 }
 
+/// `,"symbolPath":…,"symbolViewBox":…` after a control face's symbol in
+/// its JSON (a button face, a grouped row) when `source` (after `symbol:`)
+/// is an icon Apple draws by its path (stage 9 A2): the face makes a
+/// template image of it its control tints as a symbol. Nothing otherwise.
+pub(crate) fn push_json(source: Option<&str>, json: &mut String) {
+    let Some((d, view_box)) = source.and_then(commands) else {
+        return;
+    };
+    let quote = exact_runner::agent::quote;
+    json.push_str(",\"symbolPath\":");
+    quote(&d, json);
+    json.push_str(",\"symbolViewBox\":");
+    quote(view_box, json);
+}
+
 /// A coordinate, the shortest text that reads back as the same `f32` (no
 /// fixed precision: a viewBox may be any size).
 fn n(v: f32) -> String {
@@ -57,7 +72,30 @@ fn n(v: f32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::commands;
+    use super::{commands, push_json};
+
+    #[test]
+    fn a_faces_json_carries_an_svg_only_icons_path_and_no_other() {
+        let mut json = String::new();
+        push_json(
+            Some("icon||0 0 24 24|M2 2 L22 2 L12 20 Z|icons/tri.svg"),
+            &mut json,
+        );
+        assert_eq!(
+            json,
+            r#","symbolPath":"M 2 2 L 22 2 L 12 20 Z","symbolViewBox":"0 0 24 24""#
+        );
+        for source in [
+            Some("icon|heart|0 0 24 24|M2 2 L22 2 L12 20 Z|icons/tri.svg"),
+            Some("sf/lock"),
+            Some("star"),
+            None,
+        ] {
+            let mut json = String::new();
+            push_json(source, &mut json);
+            assert_eq!(json, "", "{source:?}");
+        }
+    }
 
     #[test]
     fn an_svg_only_icon_sends_its_path_and_an_sf_icon_none() {

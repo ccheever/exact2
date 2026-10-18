@@ -241,7 +241,8 @@ impl<D: DataSource> Bridge<D> {
     /// `{"button","title","symbol","raster","leading","label","fits","style",
     /// "ios","iosBefore26","macos","known"}` — `button` false (and the rest
     /// empty) for a node that is not a button, the symbol as the platform
-    /// names it, the style's row of the `buttonStyles` table (`bordered` for a
+    /// names it (an svg-only icon's "", its `symbolPath` and `symbolViewBox`
+    /// beside it), the style's row of the `buttonStyles` table (`bordered` for a
     /// name not in it); with no `buttonStyle` written, `"style":null` and no
     /// platform column (`button::face_json`). Not a batch: nothing changes.
     pub fn press_face(&mut self, view: u32) -> u32 {
@@ -393,7 +394,8 @@ impl<D: DataSource> Bridge<D> {
 
     /// A grouped list's sections and rows (`exact_grouped_list`, LLP 1084
     /// D4), as JSON in the output buffer: `{"style","sections":[{"view",
-    /// "header","footer","headerLook","footerLook","card","spaceAbove","rows":[{"view","custom","symbol","title",
+    /// "header","footer","headerLook","footerLook","card","spaceAbove","rows":[{"view","custom","symbol",("symbolPath","symbolViewBox": an
+    /// svg-only icon's, `icon_path::push_json`),"title",
     /// "secondary","subtitle","accessory","target","pressable","action",
     /// "checked","destructive","disabled","titleLook","secondaryLook"}]}],"spaceBelow"}`,
     /// `null` for a node that is not one. A look is `{"lines","ellipsis",
@@ -463,6 +465,8 @@ impl<D: DataSource> Bridge<D> {
                             r.view, r.custom
                         ));
                         opt(&r.symbol, &mut json);
+                        // An svg-only icon's path (LLP 1121 D10, stage 9 A2).
+                        crate::icon_path::push_json(r.icon.as_deref(), &mut json);
                         json.push_str(",\"title\":");
                         opt(&r.title, &mut json);
                         json.push_str(",\"secondary\":");

@@ -238,14 +238,15 @@ extension NavigationHost {
         let faces = tabs.tabs.map(TabFace.init)
         // A tab's test id is its item's identifier, which XCUITest and
         // Maestro address it by (LLP 1116 D2); without one, its symbol or title.
-        let ids = zip(tabs.tabs, faces).map { tab, face in tab.props["testId"] ?? face.base ?? face.title }
+        let ids = zip(tabs.tabs, faces).map { tab, face in tab.props["testId"] ?? face.base.flatMap { FaceSymbol.isPath($0) ? nil : $0 } ?? face.title }
         let signature = zip(faces, ids).map { face, id in "\(id)|\(face.base ?? "")|\(face.title)|\(face.disabled)|\(face.accessibilityDisabled)|\(face.badge ?? "")" }
         for (index, (nav, face)) in zip(navs, faces).enumerated() where !tabItems.indices.contains(index) || tabItems[index] != signature[index] {
             let item: UITabBarItem = nav.tabBarItem
-            let image = face.base.flatMap { UIImage(systemName: $0) }
+            // An svg-only icon's path (stage 9 A2) at a tab bar's glyph size, one image for both states.
+            let image = face.base.flatMap { FaceSymbol.image($0, points: FaceSymbol.tabBarPoints) }
             item.title = face.title
             item.image = image
-            item.selectedImage = face.base.flatMap { UIImage(systemName: $0 + ".fill") } ?? image
+            item.selectedImage = face.base.flatMap { FaceSymbol.isPath($0) ? nil : UIImage(systemName: $0 + ".fill") } ?? image
             item.accessibilityIdentifier = ids[index]
             item.isEnabled = !face.disabled
             if face.disabled || face.accessibilityDisabled { item.accessibilityTraits.insert(.notEnabled) }

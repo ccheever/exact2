@@ -146,7 +146,8 @@ struct GroupedListModel: Equatable {
             guard let view = id(s["view"]) else { return nil }
             let rows: [Row] = (s["rows"] as? [[String: Any]] ?? []).compactMap { r in
                 guard let view = id(r["view"]) else { return nil }
-                return Row(view: view, custom: r["custom"] as? Bool ?? false, symbol: r["symbol"] as? String,
+                // An svg-only icon's path as its token (FaceSymbol, stage 9 A2).
+                return Row(view: view, custom: r["custom"] as? Bool ?? false, symbol: FaceSymbol.of(r),
                            title: r["title"] as? String, secondary: r["secondary"] as? String,
                            subtitle: r["subtitle"] as? Bool ?? false, accessory: r["accessory"] as? String ?? "none",
                            target: id(r["target"]), checked: r["checked"] as? Bool ?? false, pressable: r["pressable"] as? Bool ?? false,
@@ -885,7 +886,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         for case let carried as NodeView in cell.contentView.subviews { carried.removeFromSuperview() }
         cell.height = nil
         var c: UIListContentConfiguration = row.subtitle ? .subtitleCell() : row.secondary != nil ? .valueCell() : .cell()
-        c.image = row.symbol.flatMap { UIImage(systemName: $0) }
+        c.image = row.symbol.flatMap { FaceSymbol.image($0) }
         // The symbol's tint as the sheet draws it (D7): the author's over the
         // sheet's own, each side of a light-dark() pair for its appearance.
         // The accent (`AccentColor`, the sheet's own) is UIKit's: the cell's
