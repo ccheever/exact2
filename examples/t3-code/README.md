@@ -422,12 +422,18 @@ Differences that belong to the app:
 - The server connections are the data module's (`src/transport/`). Each environment's socket is a
   stream resource, admitted by `net.websocket ws:` and `wss:` since servers are named at run time
   (#703), whose mapper answers Pings and acknowledges chunks in the frame's own commit (#705, LLP
-  1016.000 D7); HTTP goes through `fetch` (`net.fetch http:` and `https:`). A data module sends only
-  from a mutation or that mapper and has no timers, so a mutation the window runs, the tick, sends
-  queued requests and keeps the deadlines, Pings, probes and reconnect ladder: every 16 ms while an
-  answer waits on a reply, every second while connected. A connect replies once the socket's URL is
-  in, not once the socket opens, since an answer may await only what this module's fetch, storage or
-  open stream settles.
+  1016.000 D7); HTTP goes through `fetch` (`net.fetch http:` and `https:`). The answer or command
+  that asks for a request sends it on that socket itself and awaits the reply (#736, D7's amendment
+  of 2026-10-18); a frame no turn may send yet (the socket is not open) waits in the outbox, which
+  the mapper sends when the socket opens and after each frame. A data module has no timers, so a
+  mutation the window runs, the tick, keeps the deadlines, Pings, probes and reconnect ladder: every
+  250 ms while something is near, every second while connected, and once to publish the socket
+  table each time an answer that may wait on the server starts or ends or the delivering answer
+  reports a table the tick has not published. Nothing polls while an answer waits. A request's
+  deadline counts from the tick's last reading of the clock, which can be up to a second old, so
+  its timeout can come up to a second early. A connect replies once the socket's URL is in, not
+  once the socket opens, since an answer may await only what this module's fetch, storage or open
+  stream settles.
 - The terminal's attach stream, the Browser's automation replies and the device hub's tickets keep
   a second, module-owned socket per environment (`T3Link.swift`), which the transport's `links` op
   tells the routes and bearers of the environments it has connected: the terminal's bytes go
@@ -435,9 +441,8 @@ Differences that belong to the app:
   that dates the last interaction stays native too (`T3ActivityInput.swift`); the activity reporter
   is TypeScript.
 - Under the agent driver, a clock step that has a timer due first waits for every answer in flight,
-  up to 20 s, and an answer that awaits a server reply needs the tick, a timer, to send its request.
-  So a drive's first clock step after launch, and one taken while such an answer waits, takes about
-  20 s of real time; the app itself runs its timers on the wall clock. Under the agent the transport's
+  up to 20 s. Answers send their own requests, so that wait ends when the server replies, not after
+  20 s; the app itself runs its timers on the wall clock. Under the agent the transport's
   ids also come from the driver's repeatable random stream, so drives of one persistent server use a
   different `--seed` each launch, or the server takes a repeated command id for the command it
   already ran and does nothing.

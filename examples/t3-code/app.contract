@@ -62,10 +62,11 @@ component T3Code
   // The server connections (src/transport/transport.ts). Each session slot (0: the focused environment, 1 to 8: the
   // background ones) has an answer for the attempts no other answer runs (the ladder's) and its better-route checks,
   // and a socket resource for the URL the tick publishes; each update slot (an outdated host's self-update) has a step and a bare
-  // socket. transportInbox resolves the replies whenever any of them, or the tick, has news. The tick is a mutation
-  // (it sends): every 16 ms while an answer waits or the outbox holds frames, every 250 ms while a backoff, a stream
-  // retry, a debounced activity report or an update is near, every second while connected (deadlines and Pings).
-  state transportTable = TransportTable(deliver=0, fast=false, soon=false, live=false, s0=TransportSlot(key="", attempt=0, check=0, url=""), s1=TransportSlot(key="", attempt=0, check=0, url=""), s2=TransportSlot(key="", attempt=0, check=0, url=""), s3=TransportSlot(key="", attempt=0, check=0, url=""), s4=TransportSlot(key="", attempt=0, check=0, url=""), s5=TransportSlot(key="", attempt=0, check=0, url=""), s6=TransportSlot(key="", attempt=0, check=0, url=""), s7=TransportSlot(key="", attempt=0, check=0, url=""), s8=TransportSlot(key="", attempt=0, check=0, url=""), u0=TransportUpdateSlot(key="", step=0), u1=TransportUpdateSlot(key="", step=0), u2=TransportUpdateSlot(key="", step=0), u3=TransportUpdateSlot(key="", step=0))
+  // socket. transportInbox resolves the replies whenever any of them, or the tick, has news. An answer sends its own
+  // requests (LLP 1016.000 D7, amended 2026-10-18). The tick is a mutation: every 250 ms while a backoff, a stream retry, a
+  // debounced activity report or an update is near, every second while connected (deadlines and Pings), and once to
+  // publish a changed table (below).
+  state transportTable = TransportTable(deliver=0, rev=0, soon=false, live=false, s0=TransportSlot(key="", attempt=0, check=0, url=""), s1=TransportSlot(key="", attempt=0, check=0, url=""), s2=TransportSlot(key="", attempt=0, check=0, url=""), s3=TransportSlot(key="", attempt=0, check=0, url=""), s4=TransportSlot(key="", attempt=0, check=0, url=""), s5=TransportSlot(key="", attempt=0, check=0, url=""), s6=TransportSlot(key="", attempt=0, check=0, url=""), s7=TransportSlot(key="", attempt=0, check=0, url=""), s8=TransportSlot(key="", attempt=0, check=0, url=""), u0=TransportUpdateSlot(key="", step=0), u1=TransportUpdateSlot(key="", step=0), u2=TransportUpdateSlot(key="", step=0), u3=TransportUpdateSlot(key="", step=0))
   resource transportConnect0 = transportConnect(0, transportTable.s0.key, transportTable.s0.attempt, transportTable.s0.check) as shape TransportConnect
   resource transportSocket0 = transportSocket(0, transportTable.s0.url) as shape TransportSocket
   resource transportConnect1 = transportConnect(1, transportTable.s1.key, transportTable.s1.attempt, transportTable.s1.check) as shape TransportConnect
@@ -105,16 +106,19 @@ component T3Code
         transportTable = table
       case none
         transportTable = transportTable
-  // An answer that may wait on a server reply: its request is sent by the tick, so the tick runs fast while one is in flight.
-  derive transportWaiting = pending(data) or pending(balanceLoaded) or pending(attachmentUrls) or pending(home) or pending(usage) or pending(usageShortcuts) or pending(prList) or pending(prDetail) or pending(welcome) or pending(timelineDisclosureChanged) or pending(timelineReadsRefreshed) or pending(timelineReadsRefreshedNext) or pending(workspaceDiscovery) or pending(workspaceRefreshed) or pending(palette) or pending(paletteChanged) or pending(providerAuthChanged) or pending(providerUpdateRun) or pending(changed) or pending(localChanged) or pending(prHandoffChanged) or pending(terminalFocusChanged) or pending(fileCommentChanged) or pending(lineDragChanged) or pending(terminalChanged) or pending(fragmentChanged) or pending(providerPage) or pending(providerWizard) or pending(connectionsPage) or pending(acpAgents) or pending(bindings) or pending(scheduled) or pending(shortcuts) or pending(sourceControl) or pending(integrations) or pending(storageSettings) or pending(archives) or pending(licenses) or pending(diagnostics) or pending(snapshotSettings) or pending(settingsNavigation) or pending(settingsCore) or pending(settings) or pending(projectsSettings) or pending(sbSshHosts) or pending(sshPrompt) or pending(sshAnswered) or pending(pairFields) or pending(sbPicker) or pending(catalog) or pending(editor) or pending(chip) or pending(branches) or pending(sidebarLaunch) or pending(automationRecordingServed0) or pending(automationRecordingServed1) or pending(automationRecordingServed2) or pending(automationRecordingServed3) or pending(themeLive) or pending(shell) or pending(details) or pending(canvas) or pending(terminalDrawer)
-  task transportFast when transportWaiting or transportTable.fast
-    every(16, transportPump)
+  // Each answer that may wait on a server reply, pending or not. The tick publishes the table once whenever one starts
+  // or ends (a connect, a retry or a disconnect changes it inside an answer, which nothing else reads), and once
+  // whenever the delivering answer reports a table the tick has not published (a socket closed, a slot's attempt got
+  // its URL).
+  derive transportAnswering = `${pending(data)}${pending(balanceLoaded)}${pending(attachmentUrls)}${pending(home)}${pending(usage)}${pending(usageShortcuts)}${pending(prList)}${pending(prDetail)}${pending(welcome)}${pending(timelineDisclosureChanged)}${pending(timelineReadsRefreshed)}${pending(timelineReadsRefreshedNext)}${pending(workspaceDiscovery)}${pending(workspaceRefreshed)}${pending(palette)}${pending(paletteChanged)}${pending(providerAuthChanged)}${pending(providerUpdateRun)}${pending(changed)}${pending(localChanged)}${pending(prHandoffChanged)}${pending(terminalFocusChanged)}${pending(fileCommentChanged)}${pending(lineDragChanged)}${pending(terminalChanged)}${pending(fragmentChanged)}${pending(providerPage)}${pending(providerWizard)}${pending(connectionsPage)}${pending(acpAgents)}${pending(bindings)}${pending(scheduled)}${pending(shortcuts)}${pending(sourceControl)}${pending(integrations)}${pending(storageSettings)}${pending(archives)}${pending(licenses)}${pending(diagnostics)}${pending(snapshotSettings)}${pending(settingsNavigation)}${pending(settingsCore)}${pending(settings)}${pending(projectsSettings)}${pending(sbSshHosts)}${pending(sshPrompt)}${pending(sshAnswered)}${pending(pairFields)}${pending(sbPicker)}${pending(catalog)}${pending(editor)}${pending(chip)}${pending(branches)}${pending(sidebarLaunch)}${pending(automationRecordingServed0)}${pending(automationRecordingServed1)}${pending(automationRecordingServed2)}${pending(automationRecordingServed3)}${pending(themeLive)}${pending(shell)}${pending(details)}${pending(canvas)}${pending(terminalDrawer)}`
+  task transportAnswered key=transportAnswering
+    after(1, transportPump)
+  task transportRepublish when transportInbox.table > transportTable.rev key=transportInbox.table
+    after(1, transportPump)
   task transportSoon when transportTable.soon
     every(250, transportPump)
   task transportLive when transportTable.live
     every(1000, transportPump)
-  task transportSettled when not transportWaiting
-    after(1, transportPump)
   // The reachability signals (wakeups.ts): offline questions a live socket, back online wakes a waiting retry; the first
   // reading is the baseline, not a change. Returning to the app is windowReturned's.
   state transportOnline = true

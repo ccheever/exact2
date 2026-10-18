@@ -13,11 +13,11 @@ shape TransportSlot
 shape TransportUpdateSlot
   key: string
   step: number
-// What the tick publishes: news for the delivering answer, when it wants to run again (`fast` every
-// 16 ms, `soon` every 250 ms, `live` every second), and the sockets each slot wants.
+// What the tick publishes: news for the delivering answer, the table's revision, when it wants to run
+// again (`soon` every 250 ms, `live` every second), and the sockets each slot wants.
 shape TransportTable
   deliver: number
-  fast: bool
+  rev: number
   soon: bool
   live: bool
   s0: TransportSlot
@@ -47,7 +47,8 @@ shape TransportSocket
   state: string
   seq: number
 // What the delivering answer reports: status, events and fleet changes for the snapshot, fleet changes
-// alone for Settings › Connections.
+// alone for Settings › Connections, and the revision of the table the tick would publish now.
 shape TransportInbox
   news: number
   fleet: number
+  table: number

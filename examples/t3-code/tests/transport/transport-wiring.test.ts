@@ -1,6 +1,7 @@
 // The window's side of the transport, as app.contract and app.ts declare it: a slot's resources for each
-// session and update slot the transport keeps, the tick running fast while any answer that may wait on a
-// reply is in flight, and the grants a server named at run time needs.
+// session and update slot the transport keeps, the tick publishing the table as each answer that may wait on a
+// reply starts or ends and as the delivering answer reports a newer table, and the grants a server named at run
+// time needs.
 import { describe, test, expect } from 'bun:test';
 import { appPath } from '../support/app-files';
 import { SESSION_SLOTS, Transport } from '../../src/transport/transport';
@@ -21,10 +22,13 @@ describe('app.contract', () => {
     expect(resources.has(`transportSocket${SESSION_SLOTS}`)).toBe(false);
   });
 
-  test('every answer that may wait on a server reply keeps the tick fast while it is in flight', () => {
+  test('every answer that may wait on a server reply has the tick publish the table as it starts and ends; nothing polls', () => {
     // The platform's facts, the Rust Markdown renderer, the highlight pump and the transport's own sources ask no server.
     const exempt = new Set(['wallTime', 'viewport', 'page', 'delivery', 'markdown', 'prMarkdown', 'filesMarkdown', 'highlightSliced', 'transportInbox', 'transportPumped']);
-    const waiting = new Set([...(/derive transportWaiting = (.*)/.exec(contract)?.[1] ?? '').matchAll(/pending\(([A-Za-z0-9]+)\)/g)].map(match => match[1]!));
+    expect(contract).toMatch(/task transportAnswered key=transportAnswering\n    after\(1, transportPump\)/);
+    expect(contract).toMatch(/task transportRepublish when transportInbox\.table > transportTable\.rev key=transportInbox\.table\n    after\(1, transportPump\)/);
+    expect(contract).not.toMatch(/every\(16, transportPump\)/);
+    const waiting = new Set([...(/derive transportAnswering = (.*)/.exec(contract)?.[1] ?? '').matchAll(/pending\(([A-Za-z0-9]+)\)/g)].map(match => match[1]!));
     const answers = [...declared('resource'), ...declared('mutation')].filter(name => !exempt.has(name) && !/^transport(Connect|Socket|UpdateStep|UpdateSocket)\d$/.test(name));
     expect(answers.filter(name => !waiting.has(name))).toEqual([]);
     expect([...waiting].filter(name => !answers.includes(name))).toEqual([]);
@@ -46,7 +50,7 @@ describe('app.ts', () => {
     const table = answer('transportPump', [1_000_000, ''], null, { fs: {} } as never, null);
     expect(typeof (table as { then?: unknown }).then).toBe('undefined');
     expect(table).toMatchObject({ s0: { key: 'focused' }, live: false });
-    expect(answer('transportDeliver', [0], null, { fs: {} } as never, null)).toMatchObject({ news: expect.any(Number), fleet: expect.any(Number) });
+    expect(answer('transportDeliver', [0], null, { fs: {} } as never, null)).toMatchObject({ news: expect.any(Number), fleet: expect.any(Number), table: (table as { rev: number }).rev });
   });
 
   test("a topic watched after the answer replied is taken up by that source's next answer", () => {

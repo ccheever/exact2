@@ -7,9 +7,12 @@
 // - Each session's socket is a stream resource, `transportSocket(slot, url)`, granted by `net.websocket
 //   ws:` and `wss:` (servers are chosen at run time). Its mapper answers Pings and acknowledges chunks in
 //   the frame's own turn and flushes what waits (LLP 1016.000 D7 and its 2026-10-16 amendment).
-// - A request is queued and sent by the transport's tick, a mutation (`transportPump`) the window runs
-//   every 16 ms while an answer waits and every second while connected; it also checks deadlines, pings,
-//   starts the next attempt when its backoff is over and runs the activity reporter's debounce and cadence.
+// - The answer that asks for a request sends it on that socket and awaits the reply (D7's amendment of
+//   2026-10-18): a resource's answer, or a command's once its source has answered with a promise.
+// - The transport's tick, a mutation (`transportPump`), checks deadlines and pings, starts the next attempt
+//   when its backoff is over, runs the activity reporter's debounce and cadence, and publishes the table:
+//   every 250 ms while something is near, every second while connected, and once each time an answer that
+//   may wait on the server starts or ends, or the table the delivering answer sees changes.
 // - The HTTP steps of an attempt run in the answer that asked for the connection (`connect`, `retry`), or,
 //   for the ladder's attempts and a better-route check, in the slot's `transportConnect`; the tick then
 //   publishes the socket's URL to the slot's socket resource.
@@ -44,9 +47,9 @@ const SESSION_OPS = new Set(['status', 'ids', 'connect', 'retry', 'disconnect', 
 
 export interface Slot { key: string; attempt: number; check: number; url: string }
 export interface UpdateSlot { key: string; step: number }
-/** What the tick publishes for the window: the sockets it wants and when it wants to run again. */
+/** What the tick publishes for the window: the sockets it wants, when it wants to run again, and its revision. */
 export interface Table {
-  deliver: number; fast: boolean; soon: boolean; live: boolean;
+  deliver: number; rev: number; soon: boolean; live: boolean;
   s0: Slot; s1: Slot; s2: Slot; s3: Slot; s4: Slot; s5: Slot; s6: Slot; s7: Slot; s8: Slot;
   u0: UpdateSlot; u1: UpdateSlot; u2: UpdateSlot; u3: UpdateSlot;
 }
@@ -80,6 +83,9 @@ export class Transport {
   seq = 0;
   /** Status, events and fleet changes, for the snapshot; fleet changes alone, for Settings › Connections. */
   news = 0;
+  /** The table's revision: it moves whenever what the tick publishes, but the delivery count, changes. */
+  private rev = 0;
+  private revKey = '';
   fleetNews = 0;
   private clock = 0;
   store: SecretStore | null = null;
@@ -146,12 +152,15 @@ export class Transport {
     if (session.wantsFlow(attempt)) await session.connectFlow(attempt).catch(() => '');
     else if (session.flowRunning === attempt) await session.joinFlow(attempt);
     else if (check > 0) await session.checkRoutes(check).catch(() => undefined);
+    // The delivering answer is asked again, and sees the socket's URL in the table it reports.
+    this.bump();
     return { attempt, seq: this.seq };
   }
 
   /** An update job's step: the descriptor and ticket that open its socket, or one poll while the host restarts. */
   async updateStep(slot: number, key: string, step: number): Promise<{ step: number; url: string; seq: number }> {
     const url = key ? await this.outdated.step(slot, key, step) : '';
+    this.bump();
     return { step, url: url || (key ? this.outdated.socketFor(slot, key) : ''), seq: this.seq };
   }
   updateSocket(slot: number, url: string): unknown {
@@ -162,13 +171,16 @@ export class Transport {
     } } as RequestInit);
   }
 
-  /** Resolves the replies that came in, in this answer, and reports what changed. */
-  deliver(): { news: number; fleet: number } {
+  /**
+   * Resolves the replies that came in, in this answer, and reports what changed: news for the snapshot and
+   * Settings › Connections, and the table's revision, which asks the tick to publish a changed table.
+   */
+  deliver(): { news: number; fleet: number; table: number } {
     refillRandom();
     for (let rounds = 0; this.queue.length && rounds < 64; rounds++) {
       for (const work of this.queue.splice(0)) { try { work(); } catch { /* one reply's failure is its own */ } }
     }
-    return { news: this.news, fleet: this.fleetNews };
+    return { news: this.news, fleet: this.fleetNews, table: this.table().rev };
   }
 
   /**
@@ -198,14 +210,15 @@ export class Transport {
     const updates = this.outdated.slotTable();
     const update = (index: number): UpdateSlot => updates[index] ?? { key: '', step: 0 };
     const sessions = this.sessions;
-    return {
-      deliver: this.seq,
-      fast: this.queue.length > 0 || sessions.some(session => session.hasOutbox || session.establishing),
+    const table: Omit<Table, 'deliver' | 'rev'> = {
       soon: sessions.some(session => session.soon) || this.activity.soon || this.outdated.busy,
       live: sessions.some(session => session.wantsConnection || session.state === 'connected') || this.activity.live,
       s0: slot(0), s1: slot(1), s2: slot(2), s3: slot(3), s4: slot(4), s5: slot(5), s6: slot(6), s7: slot(7), s8: slot(8),
       u0: update(0), u1: update(1), u2: update(2), u3: update(3),
     };
+    const key = JSON.stringify(table);
+    if (key !== this.revKey) { this.revKey = key; this.rev += 1; }
+    return { deliver: this.seq, rev: this.rev, ...table };
   }
 
   // MARK: The bridge
