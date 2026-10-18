@@ -199,15 +199,19 @@ export async function takeFold(client: T3Client, native: Native, fold: Obj, id: 
 }
 
 /** attachmentUploadQueue at send time: mint an upload URL, send the bytes (base64), keep the id. */
-async function upload(client: T3Client, native: Native, file: DraftFile, base64: string): Promise<void> {
+async function upload(client: T3Client, native: Native, file: DraftFile, base64: string, assertOwner?: () => void): Promise<void> {
+  assertOwner?.();
   const minted = await client.rpc(native, 'attachments.createUploadUrl', { type: 'file', name: file.name, mimeType: file.mimeType, sizeBytes: file.sizeBytes });
+  assertOwner?.();
   const attachmentId = str(minted.attachmentId);
   if (!attachmentId || !str(minted.relativeUrl).startsWith('/api/attachments/upload/')) throw new ClientError('The server returned an invalid attachment upload.');
   await nativeCall(native, { op: 'uploadAttachment', path: str(minted.relativeUrl), base64, contentType: file.source === 'pasted-text' ? PASTED_TEXT_MIME : file.mimeType, generation: client.generation });
+  assertOwner?.();
   file.attachmentId = attachmentId;
   file.status = 'ready';
   // An attached file's staged copy has done its job once the server holds the bytes.
   if (file.source === 'attached') await nativeCall(native, { op: 'composerAttachRemove', id: file.id }).catch(() => undefined);
+  assertOwner?.();
 }
 
 /** The staged bytes of a draft file, or null when they were lost (a folded paste across a restart, a staged copy removed). */
@@ -221,13 +225,17 @@ async function stagedBytes(client: T3Client, native: Native, file: DraftFile): P
 }
 
 /** The send's file attachments for the prompt's file chips, uploading the staged ones (as SnapShots upload at send). */
-export async function composerFileAttachments(client: T3Client, native: Native, text: string): Promise<Obj[]> {
+export async function composerFileAttachments(client: T3Client, native: Native, text: string, assertOwner?: () => void): Promise<Obj[]> {
+  assertOwner?.();
   const files = referencedFiles(client.local, client.draftKey, text);
   for (const file of files) {
+    assertOwner?.();
     if (file.status === 'ready' && file.attachmentId) continue;
     const bytes = await stagedBytes(client, native, file);
+    assertOwner?.();
     if (bytes === null) throw new ClientError(`${file.name} was not saved with this draft. Attach it again to send it.`);
-    await upload(client, native, file, bytes);
+    await upload(client, native, file, bytes, assertOwner);
+    assertOwner?.();
   }
   const block = fileSendBlock(files);
   if (block) throw new ClientError(block);

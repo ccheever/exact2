@@ -28,7 +28,7 @@ import { pressGesture, sendIntent } from '../composer/composer-editor-intent';
 import { launchTitle } from '../composer/composer-editor-title';
 import { promptLengthMessage } from '../composer/composer-editor-menu';
 import { composerFileAttachments } from '../composer/composer-editor-files';
-import { activeInput, composerInput, composerRequests, setCustomAnswer, chooseOption, advanceQuestion, previousQuestion, dismissPayload, approvalPayload } from '../composer/requests';
+import { activeInput, pendingRequests, composerInput, composerRequests, setCustomAnswer, chooseOption, advanceQuestion, previousQuestion, dismissPayload, approvalPayload } from '../composer/requests';
 import { releaseHeldRequests } from '../composer/composer-typing-guard';
 import { threadPhase } from '../composer/composer-presentation';
 import { refreshNewThreadContext } from '../composer/new-thread-context';
@@ -270,9 +270,11 @@ async function changeMode(this: T3Client, native: Native, storage: Files, op: st
   }
   if (op === 'runtime') this.runtimeMode = value; else this.interactionMode = value;
 }
-async function dispatchRequest(this: T3Client, native: Native, storage: Files, payload: Obj, description: string): Promise<void> {
+async function dispatchRequest(this: T3Client, native: Native, storage: Files, payload: Obj, description: string, assertOwner?: () => void): Promise<void> {
+  assertOwner?.();
   const [commandId] = await this.ids(native, 1);
-  await this.dispatch(native, storage, { ...payload, commandId }, description);
+  assertOwner?.();
+  await this.dispatch(native, storage, { ...payload, commandId }, description, assertOwner);
 }
 async function approve(this: T3Client, native: Native, storage: Files, id: string, decision: string): Promise<void> {
   await dispatchRequest.call(this, native, storage, approvalPayload(this, id, decision), 'Approval');
@@ -288,13 +290,21 @@ async function submitAnswers(this: T3Client, native: Native, storage: Files, id:
   const requestId = id || activeInput(this)?.input.requestId || '';
   const answers = advanceQuestion(this, requestId);
   if (answers) {
+    const owner = { generation: this.generation, environmentId: this.environmentId, origin: this.origin, threadId: this.threadId,
+      request: JSON.stringify(pendingRequests(this.projection).inputs[0]) };
+    const assertOwner = () => {
+      if (owner.generation !== this.generation || owner.environmentId !== this.environmentId || owner.origin !== this.origin || owner.threadId !== this.threadId
+        || owner.request !== JSON.stringify(pendingRequests(this.projection).inputs[0])) throw new ClientError('The question or thread changed before submitting. Your answers are still available.');
+    };
     const projected = Object.fromEntries(Object.entries(answers).map(([id, answer]) => [id, projectPendingUserInputAnswer(answer, threadContextRecords(this, typeof answer === 'string' ? answer : ''))]));
     const attachmentsByQuestionId: Obj = {};
     for (const [id, answer] of Object.entries(answers)) {
-      const attachments = await composerFileAttachments(this, native, typeof answer === 'string' ? answer : '');
+      assertOwner();
+      const attachments = await composerFileAttachments(this, native, typeof answer === 'string' ? answer : '', assertOwner);
+      assertOwner();
       if (attachments.length) attachmentsByQuestionId[id] = attachments;
     }
-    await dispatchRequest.call(this, native, storage, { type: 'runtime-request.respond', threadId: this.threadId, requestId, answers: projected,
-      ...(Object.keys(attachmentsByQuestionId).length ? { attachmentsByQuestionId } : {}) }, 'Answers');
+    await dispatchRequest.call(this, native, storage, { type: 'runtime-request.respond', threadId: owner.threadId, requestId, answers: projected,
+      ...(Object.keys(attachmentsByQuestionId).length ? { attachmentsByQuestionId } : {}) }, 'Answers', assertOwner);
   }
 }
