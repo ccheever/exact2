@@ -134,7 +134,7 @@ final class BarTouch: UIGestureRecognizer, UIGestureRecognizerDelegate {
 #if os(iOS)
 /// An invoker's pull-down (`MenuHost` overlays): the focus set aside while its
 /// menu shows.
-final class MenuButton: UIButton {
+final class MenuButton: InvokerButton {
     weak var focus: MenuFocus?
     weak var popover: NodeView?
     var toggled: ((Bool) -> Void)?

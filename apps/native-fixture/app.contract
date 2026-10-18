@@ -506,6 +506,14 @@ component NativeFixture
                         text "Open in Maps"
                       button press=refreshProviders popovertarget="open-in-sheet" testId="open-in-sheet" padding=6 background-color="#e5e7eb"
                         text "Open in (sheet)"
+                      // A custom invoker whose children cover it: a touch
+                      // on any of them opens the menu, as on a UIButton.
+                      button appearance="none" press=refreshProviders popovertarget="open-in" testId="open-in-row" display="flex" flex-direction="row" align-items="center" gap=6
+                        column width=14 height=14 border-radius=4 background-color="#dbeafe" position="relative"
+                          column position="absolute" top=4 left=4 width=6 height=6 border-radius=3 background-color="#2563eb"
+                        text "Maps" testId="open-in-row-title"
+                        svg width=12 height=12 viewBox="0 0 24 24"
+                          path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width=3
                       text ("opened " + opened) testId="opened"
                     column id="open-in" popover="auto" position="absolute" role="menu" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
                       for p in providerItems key=p.id
