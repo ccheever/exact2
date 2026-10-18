@@ -793,7 +793,7 @@ const api = {
     }
     // A look frame (LLP 1127.000) reads back on the page's next turn: the module
     // answers `pending` until its maps land, and this waits, up to 5 s.
-    if ((request.op === "screenshot" && request.form === "look") || (request.op === "state" && (request.look || request.draws || request.visible))) return (async () => {
+    if ((request.op === "screenshot" && request.form === "look") || (request.op === "state" && (request.look || request.draws || request.visible))) return recoveringDevice || recoveryTimer ? { unavailable: "no picture while the device recovers" } : (async () => {
       for (const end = performance.now() + 5000; performance.now() < end; await new Promise((r) => setTimeout(r, 4))) {
         const reply = agent(request.id, request);
         if (reply?.pending !== "readback") return reply ? tagged(reply) : { error: `view ${request.id} has no world` };
