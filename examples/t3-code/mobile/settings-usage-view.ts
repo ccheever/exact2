@@ -2,7 +2,7 @@
 // Pinned UsageRouteScreen/UsageLimitsPooled projection. Clock supplied by route owner.
 import { arr, obj, str, type Obj } from './shared/domain';
 import { formatCount, formatTokens, formatUsd, formatPercent, formatDayShort, formatHourShort, mergeUsage, windowPeriods, isModelCostUnknown, type UsageWindow } from './shared/pages-usage';
-import { collectLimitAccounts, collectLimitPools, collectLimitNotices, collectExternalUsageLinks, cursorUsageWindowDetails, displayLimitWindows, remainingPercent, formatDuration, type LimitPresentations } from './settings-usage-limits';
+import { collectLimitAccounts, collectLimitPools, collectLimitNotices, collectExternalUsageLinks, cursorUsageWindowDetails, displayLimitWindows, remainingPercent, formatResetsIn, formatDuration, type LimitAccount, type LimitPresentations } from './settings-usage-limits';
 export interface UsageSourceView {id:string;label:string;connected:boolean;summary:Obj|null;error:string;canRead:boolean;canWrite:boolean;canManage:boolean;config:Obj}
 interface Prepared {tab:string;window:UsageWindow;metric:string;now:number;sources:UsageSourceView[];presentations:LimitPresentations;external:boolean}
 export const MOBILE_USAGE_PROVIDERS=[
@@ -25,6 +25,12 @@ export function mobileUsageReveal(key:string){if(reveals.has(key))reveals.delete
 const masked=(value:string|undefined,key:string)=>!value?'':reveals.has(key)?value:'••••••••';
 const paceLabel=(pace:string|null)=>pace==='ahead'?'Ahead of pace':pace==='under'?'Under pace':pace==='on'?'On pace':'';
 const LIMIT_DRIVER_LABEL:Readonly<Record<string,string>>={codex:'Codex',claudeAgent:'Claude'};
+function limitAccountName(account:LimitAccount){
+  if(account.displayName)return account.displayName;
+  if(!account.email)return LIMIT_DRIVER_LABEL[account.driver]??String(account.driver);
+  const [local='',domain='']=account.email.split('@');
+  return `${local[0]??''}${domain[0]??''}`.toUpperCase()||'Account';
+}
 export function mobileUsagePresentation(input:Prepared|null,publish=true,pendingCursor:(id:string)=>boolean=()=>false){
   if(publish){detailPrepared=input;if(!input)reveals.clear();}
   const sources=input?.sources??[],summaries=sources.flatMap(source=>source.summary?[{id:source.id,label:source.label,summary:source.summary}]:[]),merged=mergeUsage(summaries),tokens=input?.metric==='tokens',compatible=summaries.filter(item=>Number(item.summary.contractVersion)>=4&&Number(item.summary.contractVersion)<=6),actual=compatible.length>0;
@@ -44,13 +50,17 @@ export function mobileUsagePresentation(input:Prepared|null,publish=true,pending
     duplicateMessage:merged.duplicates.length?`Counted once across environments sharing a transcript directory: ${merged.duplicates.join(', ')}`:'',
     links:collectExternalUsageLinks(input?.presentations??new Map()).map(link=>({...link,accounts:link.accounts.join(', '),message:link.message??'',disabled:!input?.external})),
     cursor,cursorInsertAt:afterCore(providers.map(item=>item.id),'claude'),cursorPoolInsertAt:afterCore(pools.map(pool=>pool.driver),'claudeAgent'),
-    pools:pools.map(pool=>({id:pool.driver,label:LIMIT_DRIVER_LABEL[pool.driver]??pool.driver,light:provider(pool.driver).light,dark:provider(pool.driver).dark,
+    pools:pools.map(pool=>({id:pool.driver,label:LIMIT_DRIVER_LABEL[pool.driver]??pool.driver,light:provider(pool.driver==='claudeAgent'?'claude':'codex').light,dark:provider(pool.driver==='claudeAgent'?'claude':'codex').dark,
       windows:displayLimitWindows(pool).map(window=>{
         const details=pool.driver==='cursor'?cursorUsageWindowDetails(window.id):undefined;
         const refill=window.resets.find(reset=>reset.restoresPercent>0),now=input?.now??0;
         return {id:`${window.kind}:${window.id}`,windowId:window.id,kind:window.kind,label:details?.label??window.label,description:details?.description??'',
           remaining:window.remainingPercent,pace:paceLabel(window.pace),nextRefill:refill?`↻ +${refill.restoresPercent}% ${refill.at<=now?'now':`in ${formatDuration(refill.at-now)}`}`:'',
-          columns:window.columns.map(({account,window:own})=>({key:account.key,label:account.displayName||provider(account.driver).label,present:!!own,remaining:own?remainingPercent(own):0,email:masked(account.email,account.key)}))};
+          columns:window.columns.map(({account,window:own})=>{
+            const resetsIn=own?formatResetsIn(own,now):null;
+            return {key:account.key,label:limitAccountName(account),present:!!own,remaining:own?remainingPercent(own):0,email:masked(account.email,account.key),
+              pending:!!own?.resetsAt,resetsIn:resetsIn??'',resetLabel:resetsIn?.replace('resets in ','↻ ')??'',credits:account.limits.resetCredits?.availableCount??0};
+          })};
       })})),
     limitsEmpty:input?.tab==='limits'&&pools.length===0&&cursor.length===0?'No subscription limits reported.':'',
     total:actual?(tokens?formatTokens(merged.totalTokens):formatUsd(merged.costUsd)):'',chartTitle:`${input?.window.resolution==='hour'?'Hourly':'Daily'} ${tokens?'processed tokens':'cost'}`,

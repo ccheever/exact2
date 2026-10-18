@@ -10,6 +10,7 @@ import { mobileUsagePresentation, mobileUsageAccount, mobileUsageProviderRows } 
 import { formatDateTimeShort, formatHourShort, formatUsd, mergeUsage } from './shared/pages-usage';
 import { mobileAutomationPrepare, mobileAutomationSnapshot, mobileAutomationCommand } from './settings-scheduled-flow';
 import { ClientError } from './shared/protocol';
+import { settingsColors, settingsTokens } from './settings-appearance';
 const window=(kind='session',usedPercent=50)=>({id:'primary',kind,label:'Allowance',usedPercent,resetsAt:'2026-10-08T00:00:00Z',windowDurationMins:300});
 const nativeAccount=(limits:Obj,email=' A@Example.test '):Obj=>({instanceId:'one',driver:'codex',enabled:true,installed:true,auth:{status:'authenticated',email},usageLimits:limits});
 const limits:Obj={checkedAt:'2026-10-07T00:00:00Z',windows:[window()],resetCredits:{availableCount:1}};
@@ -70,6 +71,53 @@ test('Limits headings and Cursor window descriptions follow pooled reference lab
   ]);
   expect(data.pools[0]!.windows[0]!.label).toBe('Allowance');expect(data.pools[0]!.windows[0]!.description).toBe('');
   expect(data.cursorPoolInsertAt).toBe(1);
+});
+test('pooled Limits columns keep fixed account slots and per-window reset and credit metadata',()=>{
+  const at=Date.parse('2026-10-07T12:00:00Z'),reset=(minutes:number)=>new Date(at+minutes*60_000).toISOString();
+  const a={...nativeAccount({...limits,resetCredits:{availableCount:2},windows:[{...window('session',0),resetsAt:reset(60)},
+    {...window('weekly',100),id:'weekly',resetsAt:undefined}]},'alpha@example.test'),displayName:'Alpha'};
+  const b={...nativeAccount({...limits,resetCredits:{availableCount:0},windows:[{...window('session',37.4),resetsAt:reset(90)}]},'beta@example.test'),instanceId:'two',displayName:'Beta'};
+  const providers=[a,b],before=JSON.stringify(providers),data=presentedLimits(providers,at),[session,weekly]=data.pools[0]!.windows;
+  expect(session!.columns.map(item=>[item.key,item.label,item.present,item.remaining,item.pending,item.resetsIn,item.resetLabel,item.credits])).toEqual([
+    ['a:one','Alpha',true,100,true,'resets in 1h 0m','↻ 1h 0m',2],
+    ['a:two','Beta',true,63,true,'resets in 1h 30m','↻ 1h 30m',0],
+  ]);
+  expect(weekly!.columns.map(item=>[item.key,item.present,item.remaining,item.pending,item.resetsIn,item.resetLabel,item.credits])).toEqual([
+    ['a:one',true,0,false,'','',2],['a:two',false,0,false,'','',0],
+  ]);
+  expect(JSON.stringify(providers)).toBe(before);expect(data.cursorPoolInsertAt).toBe(1);
+});
+test('pooled Limits account names use configured names, email initials and Limits driver fallbacks',()=>{
+  for(const [driver,email,displayName,label] of [
+    ['codex','alice@example.test','  Personal account  ','Personal account'],
+    ['codex','alice@example.test',undefined,'AE'],['codex','@',undefined,'Account'],
+    ['claudeAgent',undefined,undefined,'Claude'],['cursor',undefined,undefined,'cursor'],
+  ] as const){
+    const account={...nativeAccount(limits),driver,displayName,auth:{status:'authenticated',email}},before=JSON.stringify(account);
+    const column=presentedLimits([account]).pools[0]!.windows[0]!.columns[0]!;
+    expect(column.label).toBe(label);expect(column.key).toBe('a:one');expect(column.email).toBe(email?'••••••••':'');
+    expect(JSON.stringify(account)).toBe(before);
+  }
+});
+test('pooled Limits resets retain now copy and omit optional metadata without changing quota values',()=>{
+  const at=Date.parse('2026-10-07T12:00:00Z');
+  for(const [resetsAt,pending,resetsIn,resetLabel] of [
+    [new Date(at-60_000).toISOString(),true,'resets now','resets now'],
+    [undefined,false,'',''],
+  ] as const){
+    const account=nativeAccount({checkedAt:limits.checkedAt,windows:[{...window('session',50),resetsAt}]});
+    const item=presentedLimits([account],at).pools[0]!.windows[0]!.columns[0]!;
+    expect([item.remaining,item.pending,item.resetsIn,item.resetLabel,item.credits]).toEqual([50,pending,resetsIn,resetLabel,0]);
+  }
+});
+test('pooled Limits segments use Claude orange or Codex neutral and bind the badge theme role',()=>{
+  const drivers=['codex','claudeAgent','cursor','grok','opencode','antigravity'];
+  for(const driver of drivers){
+    const data=presentedLimits([{...nativeAccount(limits),driver}]);
+    expect([data.pools[0]!.light,data.pools[0]!.dark]).toEqual(driver==='claudeAgent'?['#d97757','#d97757']:['#3c3c43','#e6e6e6']);
+  }
+  for(const mode of ['light','dark'])for(const theme of ['t3-code','t3-chat','grove','ocean','ember','iris'])
+    expect(settingsColors(mode,theme).subtleStrong).toBe(settingsTokens(mode,theme)['--color-subtle-strong']);
 });
 test('explicit empty selection stays empty; diagnostic permissions distinguish old session scopes',()=>{
   expect(mobileUsageSelection('null')).toBeNull();expect(mobileUsageSelection('[]')).toEqual([]);expect(()=>mobileUsageSelection('{}')).toThrow();
