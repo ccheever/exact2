@@ -288,11 +288,23 @@ fn a_stale_surface_declaration_warns_and_hides_nothing() {
             .unwrap()
     };
     let out = run(&["build", path.to_str().unwrap(), "--json"]);
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(
-        stdout.contains("type-operand") && !stdout.contains("analyze-surface"),
-        "{stdout}"
+    let reply: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let severities: Vec<(&str, &str)> = reply
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| (d["id"].as_str().unwrap(), d["severity"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        severities,
+        [
+            ("type-operand", "error"),
+            ("analyze-surface-arguments", "warning")
+        ],
+        "under --json the stale declaration's findings are the array's warnings"
     );
+    assert_eq!(String::from_utf8_lossy(&out.stderr), "");
+    let out = run(&["build", path.to_str().unwrap()]);
     assert!(String::from_utf8_lossy(&out.stderr)
         .contains("warning: .shells/surfaces.json is older than"));
     // Without the type error the build passes, and `contract rust` writes its shapes either way.
@@ -302,7 +314,9 @@ fn a_stale_surface_declaration_warns_and_hides_nothing() {
     )
     .unwrap();
     let out = run(&["build", path.to_str().unwrap(), "--json"]);
-    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "[]");
+    let reply: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(reply[0]["severity"], "warning", "{reply}");
+    assert_eq!(reply.as_array().unwrap().len(), 1, "{reply}");
     assert!(out.status.success());
     std::fs::File::options()
         .write(true)

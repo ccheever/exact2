@@ -181,7 +181,11 @@ array per refusal. Compilation returns the first refusal. Action-interface
 mismatches link the invocation, declaration and caller binding, each with its
 own source file, including forwarded props and injected actions. Locations use the same byte columns as symbols; zero
 means no source range, and a null file means no file is associated. No prose is
-mixed into JSON, including argument and output-write failures. Exit codes are
+mixed into JSON, including argument and output-write failures, and nothing is
+written to stderr: advice the human form prints there (a resource fed by a live
+clock, a game's stale surface arguments) is among the warnings. `bun exact.mjs
+contract build app.contract --json` appends `app.ts`'s type-check errors to the
+same array, one per TypeScript diagnostic (`id` `typescript-TS<n>`). Exit codes are
 0 for success, 1 for compilation/I/O failure, and 2 for invalid arguments.
 `-o <file.plan>` writes the same plan bytes in either output mode.
 

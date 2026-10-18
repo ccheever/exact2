@@ -109,17 +109,32 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             .collect(),
     };
     refused.extend(crate::ambient::check(Path::new(input)));
-    if let Ok(warnings) = contract::resource_clock_warnings(Path::new(input)) {
-        for finding in warnings {
+    let clocks = contract::resource_clock_warnings(Path::new(input)).unwrap_or_default();
+    if !json {
+        for finding in &clocks {
             eprintln!("warning: {finding}");
         }
     }
     // Warnings never fail the build; they follow its refusals (LLP 1116 D6).
-    let (compiled, warnings) = contract::compile_path_all_warned(Path::new(input), true);
+    let (compiled, mut warnings) = contract::compile_path_all_warned(Path::new(input), true);
     if let Ok(s) = &surfaces {
-        if s.newer.is_some() {
+        if s.newer.is_some() && !json {
             crate::surface_warnings(s);
         }
+    }
+    // Under `--json` the advice above joins the array's warnings: stdout is
+    // one JSON value and stderr stays empty.
+    if json {
+        let stale = surfaces.as_ref().ok().filter(|s| s.newer.is_some());
+        warnings.extend(
+            clocks
+                .into_iter()
+                .chain(stale.map(|s| s.findings.clone()).unwrap_or_default())
+                .map(|e| contract::CompileError {
+                    pass: "warning",
+                    ..e
+                }),
+        );
     }
     let (plan, map) = match compiled {
         Ok(_) if !refused.is_empty() => return report_all(&refused, &warnings, json, 1),
@@ -144,7 +159,9 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             if let Err(error) = write_output(&declaration, types.as_bytes()) {
                 return report(&error, json, 1);
             }
-            eprintln!("{declaration}: regenerated, since a source's signature changed (the types app.ts imports)");
+            if !json {
+                eprintln!("{declaration}: regenerated, since a source's signature changed (the types app.ts imports)");
+            }
         }
     }
     let bytes = plan.encode();

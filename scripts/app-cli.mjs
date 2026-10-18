@@ -102,6 +102,8 @@ const here = process.cwd(), appDir = dir, source = (arg) => /\.(contract|ts|json
 const inApp = (arg) => {
   if (!source(arg) || isAbsolute(arg) || existsSync(resolve(arg))) return null;
   const top = `${basename(appDir)}/`, found = [arg, ...(arg.startsWith(top) ? [arg.slice(top.length)] : [])].map((a) => resolve(appDir, a)).find((p) => existsSync(p));
+  // `build --json` says nothing on stderr: its diagnostics carry the path taken, or the file it could not read.
+  if (rest[0] === 'build' && rest.includes('--json')) return found ?? null;
   if (found) console.error(`exact.mjs: ${arg} is ${found} (the app is ${appDir}; this shell is in ${here})`);
   else console.error(`exact.mjs: no ${arg} in ${here} or in the app, ${appDir}`);
   return found ?? null;
