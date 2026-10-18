@@ -298,7 +298,29 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
         settle += "}";
         (write, read, moving, settle)
     };
-    let mut out = format!("impl ::exact_game::Data for {name} {{ fn moving(&self, now: ::exact_game::Now) -> ::core::primitive::bool {{ let _ = now; {moving} }} fn settle_tick(&self, now: ::exact_game::Now) -> ::core::option::Option<::core::primitive::u64> {{ {settle} }} fn write(&self, w: &mut dyn ::exact_game::Writer) {{ {write} }} fn read(&mut self, r: &mut dyn ::exact_game::Reader) -> ::core::result::Result<(), ::exact_game::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
+    let edit = if kind == "struct" {
+        let b = body(tokens.get(2))?;
+        if b.shape == Shape::Named {
+            let arms = b
+                .fields
+                .iter()
+                .filter(|f| !f.skip)
+                .map(|f| {
+                    format!(
+                        "{:?} => ::exact_game::data::edit_scalar(&mut self.{}, text),",
+                        clean(&f.name),
+                        f.name
+                    )
+                })
+                .collect::<String>();
+            format!("fn set_field(&mut self, field: &str, text: &str) -> Result<(), ::exact_game::DataError> {{ match field {{ {arms} _ => Err(::exact_game::DataError::new(format!(\"unknown field {{field}}\"))) }} }}")
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+    let mut out = format!("impl ::exact_game::Data for {name} {{ {edit} fn moving(&self, now: ::exact_game::Now) -> ::core::primitive::bool {{ let _ = now; {moving} }} fn settle_tick(&self, now: ::exact_game::Now) -> ::core::option::Option<::core::primitive::u64> {{ {settle} }} fn write(&self, w: &mut dyn ::exact_game::Writer) {{ {write} }} fn read(&mut self, r: &mut dyn ::exact_game::Reader) -> ::core::result::Result<(), ::exact_game::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
     if let Some(marker) = marker {
         let (marker, extra) = if marker == "Presentation" {
             (

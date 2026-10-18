@@ -301,6 +301,14 @@ export function pinRevision(app, sourceInputs) {
   }
   refuse(revision);
 }
+/** Pins describe files. A live edit or its retained journal marker refuses the run. */
+export function assertNoLiveEdits(worlds, journals = []) {
+  const edited = worlds?.some(w => w.developmentEdits);
+  const lines = journals.flatMap(j => j.lines ?? []);
+  const line = lines.find(l => /(?:^| tick=\d+ )set(?:\s|$)/.test(l));
+  if (edited || line) throw new Error(`pin refused: journal contains a set development edit${line ? ': ' + line : ''}`);
+}
+
 export function pinRecorder(previous, app, check, collecting = false) {
   const pins = {ticks:{}, saves:{}};
   const record = (section, key, got) => {
@@ -602,10 +610,13 @@ export async function proof(meta, script) {
     let closed = false;
     const close = async () => { if (!closed) {
       try {
+        const journal = (await raw.logs({all:true})).world ?? [];
+        const state = await raw.state();
+        try { assertNoLiveEdits(state.world ?? [], journal); } catch (error) { check(error.message, false); }
         if (compareParanoid || process.env.EXACT_PROOF_COMPARE === '1') {
           const state = await raw.op({op:'state', ...await raw.target('world'), world:true});
           const world = state.world;
-          const logs = (await raw.logs()).world ?? [];
+          const logs = journal;
           finalWorlds.push({session:id, tick:world?.tick, hash:world?.hash,
             published:world?.published,
             // Native hosts own incremental journal cursors, even for since:0.

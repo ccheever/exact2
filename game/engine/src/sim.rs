@@ -194,6 +194,7 @@ pub struct Sim<G: Game> {
     paranoid_skipped: u64,
     // An edit through world_mut since the last present: the next advance presents.
     present_owed: bool,
+    pub(crate) development_edits: bool,
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
@@ -660,6 +661,7 @@ impl<G: Game> Sim<G> {
             paranoid_owed: false,
             paranoid_skipped: 0,
             present_owed: false,
+            development_edits: true,
             game: PhantomData,
         })
     }
@@ -1169,7 +1171,16 @@ impl<G: Game> Sim<G> {
                     stamp < end || (clock == Clock::Live && stamp == end)
                 })
             }) {
-                self.input.apply(self.queue.pop_front().unwrap().event);
+                let event = self.queue.pop_front().unwrap().event;
+                if let InputEvent::Message { text, .. } = &event {
+                    if crate::world::edit::is_set(text) {
+                        self.world.apply_set(text, self.development_edits);
+                    } else {
+                        self.input.apply(event);
+                    }
+                } else {
+                    self.input.apply(event);
+                }
                 delivered = true;
             }
             self.restored = false;

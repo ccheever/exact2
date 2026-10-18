@@ -48,6 +48,7 @@ use crate::renderer::RETIRED_BUDGET;
 pub struct WorldSurface<G: Game, P: Executor = (), const ASSETS: bool = false, H: crate::Hooks = ()>
 {
     sim: Option<Sim<G>>,
+    development_edits: bool,
     pending_restore: Option<(Vec<u8>, Restore)>,
     placed: crate::placed::Placements,
     refusal: Option<SurfaceError>,
@@ -81,6 +82,12 @@ pub struct WorldSurface<G: Game, P: Executor = (), const ASSETS: bool = false, H
     interrupted: bool,
 }
 impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
+    /// Bake-owned development capability; production modules refuse live edits.
+    #[doc(hidden)]
+    pub fn development_edits(mut self, allowed: bool) -> Self {
+        self.development_edits = allowed;
+        self
+    }
     fn check_primitive_assets(&mut self) -> Result<(), SurfaceError> {
         if ASSETS {
             return Ok(());

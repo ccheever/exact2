@@ -9,7 +9,7 @@ import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync
 import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {agreePins, nativeProofHost, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
-import {proofCommand, worldObservations, pinRevision} from './proof.mjs';
+import {assertNoLiveEdits, proofCommand, worldObservations, pinRevision} from './proof.mjs';
 import {comparePlacement} from './games/placement-fixture/proof.mjs';
 import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp, clockSpan, main} from '../scripts/agent.mjs';
 
@@ -1489,4 +1489,11 @@ test('a split clock grows at most 4x a step and never past ten world minutes', a
     span = clockSpan(span, measured);
   }
   expect(worst).toBeLessThanOrEqual(4500 + 1e-6);
+});
+
+test('pins refuse a set journal and the saved marker after journal rollover', () => {
+  expect(() => assertNoLiveEdits([], [{lines:['t=17 tick=1 set player Character.speed 8']}])).toThrow('set player Character.speed 8');
+  expect(() => assertNoLiveEdits([], [{lines:['t=17 tick=1 set refused: production']}])).toThrow('set');
+  expect(() => assertNoLiveEdits([{developmentEdits:true}], [{lines:[]}])).toThrow('set');
+  expect(() => assertNoLiveEdits([{}], [{lines:['t=17 tick=1 publish set: 8']}])).not.toThrow();
 });

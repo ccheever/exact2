@@ -167,6 +167,7 @@ struct Registration {
     ambient: bool,
     // A presentation component: outside saves, hashes and observation.
     presentation: bool,
+    edit: Option<fn(&mut World, Entity, &str, &str) -> Result<(), DataError>>,
 }
 
 #[derive(Clone, Copy)]
@@ -241,6 +242,7 @@ pub struct World {
     pub(crate) animation_runtime: RefCell<Option<Box<dyn std::any::Any>>>,
     journal: RefCell<VecDeque<JournalEvent>>,
     journal_next: std::cell::Cell<u64>,
+    pub(crate) set_seen: std::cell::Cell<bool>,
     pub(crate) published_pending: std::cell::Cell<bool>,
     published: RefCell<BTreeMap<String, crate::values::Stored>>,
     /// Each published value's exact JSON, encoded once per change (`take_published`).
@@ -299,6 +301,7 @@ impl World {
             animation_runtime: RefCell::new(None),
             journal: RefCell::new(VecDeque::new()),
             journal_next: std::cell::Cell::new(0),
+            set_seen: Default::default(),
             published_pending: std::cell::Cell::new(false),
             published: RefCell::new(BTreeMap::new()),
             published_text: RefCell::new(BTreeMap::new()),
@@ -359,6 +362,9 @@ impl World {
         C::register(self);
         let reg = self.registration::<C>(C::NAME);
         reg.make = Some(storage::make::<C>);
+        if !C::PRESENTATION {
+            reg.edit = Some(Self::edit_component::<C>);
+        }
         reg.presentation = C::PRESENTATION;
         self
     }
@@ -379,6 +385,7 @@ impl World {
             resource_size: 0,
             ambient: false,
             presentation: false,
+            edit: None,
         });
         assert_eq!(reg.id, id, "duplicate component name {}", name);
         reg
@@ -1124,6 +1131,10 @@ impl World {
         self.state.write(w);
         w.field("rng");
         self.rng.get(at).unwrap().write(w);
+        if self.set_seen.get() {
+            w.field("developmentEdits");
+            true.write(w);
+        }
         for (kind, storages) in [
             ("components", &self.components),
             ("resources", &self.resources),
@@ -1242,6 +1253,11 @@ impl World {
                 }
                 "assetIdentity" => self.assets.read_identity(r)?,
                 "rng" => self.rng().read(r)?,
+                "developmentEdits" => {
+                    let mut seen = false;
+                    seen.read(r)?;
+                    self.set_seen.set(seen);
+                }
                 "messages" => self.messages.borrow_mut().read(r)?,
                 "components" | "resources" => {
                     if seen & 1 == 0 {
@@ -1454,3 +1470,7 @@ mod required_tests {
         }
     }
 }
+
+pub(crate) mod edit;
+#[cfg(test)]
+mod edit_tests;

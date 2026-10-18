@@ -543,7 +543,7 @@ macro_rules! module {
                 <$game as $crate::exact_game::Game>::NAME,
                 <<$game as $crate::exact_game::Game>::Args as $crate::exact_game::Args>::FIELDS
                     .len(),
-                || Box::new($crate::WorldSurface::<$game, $hook, $assets, $hooks>::default()),
+                || Box::new($crate::WorldSurface::<$game, $hook, $assets, $hooks>::default().development_edits(!matches!(option_env!("EXACT_UPDATE_TRUST"), Some("production")))),
             )],
             shaders: $shaders,
         };

@@ -354,6 +354,9 @@ See the [tick admission contract](engine/README.md#tick-admission).
 The generated proof uses `pin(tick, snapshot)` and `pinSave(name, path)`;
 Rust tests use `sim.assert_pin(include_str!("../../pins.json"))`.
 
+A run containing a development `set` edit refuses both pin matching and repinning,
+including after save/restore or journal rollover. Production bakes refuse the command.
+
 Pins cover the simulation only. Presentation state (`#[derive(Presentation)]`,
 `Game::present`) is outside hashes and saves, so prove looks separately: assert
 presentation values (`sim.world().get::<Offset>(e)`) at an explicit tick, and compare

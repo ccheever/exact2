@@ -1,8 +1,17 @@
 use super::*;
 impl<G: Game> Sim<G> {
+    /// Set once by the bake's host from its embedded trust; never saved or read by gameplay.
+    pub fn development_edits(&mut self, allowed: bool) {
+        self.development_edits = allowed;
+    }
+
     /// Assert a test hash against the game's single pins.json (included by its test).
     /// Unknown metadata fields are skipped by Data; no generated Rust is needed.
     pub fn assert_pin(&self, pins: &str) {
+        assert!(
+            !self.world.set_seen.get(),
+            "pin refused: journal contains a set development edit"
+        );
         let (game, tick, got) = (G::ID, self.world.tick(), self.world.hash());
         #[derive(Default, crate::Data)]
         struct Pins {

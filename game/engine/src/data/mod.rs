@@ -77,6 +77,13 @@ pub mod text;
 /// enum Discriminants { #[default] A = 1, B = 2 }
 /// ```
 pub trait Data: Sized + Default + 'static {
+    /// Development edit of one declared scalar field; custom formats refuse by default.
+    fn set_field(&mut self, field: &str, _text: &str) -> Result<(), DataError> {
+        Err(DataError::new(format!(
+            "unknown or uneditable field {field}"
+        )))
+    }
+
     /// Whether any nested spring is still moving. Derives walk non-transient fields.
     fn moving(&self, _now: crate::Now) -> bool {
         false
@@ -354,4 +361,16 @@ pub(crate) fn f64_bits(n: f64) -> u64 {
 }
 pub(crate) fn type_name<T>() -> &'static str {
     std::any::type_name::<T>().rsplit("::").next().unwrap()
+}
+
+/// Decode a finite scalar or string before replacing a live-edit candidate's field.
+#[doc(hidden)]
+pub fn edit_scalar<T: Data>(value: &mut T, text: &str) -> Result<(), DataError> {
+    let candidate: T = json::from_str(text)?;
+    let json = json::to_string(&candidate)?;
+    if json.starts_with(['[', '{']) || json == "null" {
+        return Err(DataError::new("set accepts one scalar or string"));
+    }
+    *value = candidate;
+    Ok(())
 }

@@ -178,6 +178,20 @@ the world and post commands. A full input queue (1,024 events) refuses a new pos
 with a journal line (one per overflow episode) and counts it in `state`'s `input.refusedPosts`; device events
 never displace a message. `Sim::post(text)` does the same in tests.
 
+## Development edits
+
+Post `set player Character.speed 8` to the canvas (`Sim::post` in tests). The
+message uses the same stamped input queue as every post and applies at the start
+of its next tick. The target resolves by name then. Only a declared scalar or
+string field can change; strings use JSON quotes. Unknown names, unknown fields,
+wrong types and non-finite values refuse by name without changing a component.
+The whole candidate is decoded and validated before replacement. Production bakes
+refuse `set` by name. Every attempt journals its command or refusal. A saved
+sticky diagnostic also records attempts after the journal ring turns over.
+`prove.mjs` and `Sim::assert_pin` refuse a run carrying that diagnostic: put tuning
+that a pin should accept in the authored files. Arguments tune settings a save
+should not carry.
+
 ## Movement, animation and sound
 
 `w.character("player").step(direction, jump)` moves a `Character` and reports its

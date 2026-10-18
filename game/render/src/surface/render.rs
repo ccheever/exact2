@@ -21,6 +21,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Default
     fn default() -> Self {
         Self {
             sim: None,
+            development_edits: true,
             pending_restore: None,
             placed: Default::default(),
             refusal: None,
