@@ -64,7 +64,7 @@ extension Presenter {
     /// The buttons that declare a chord and can be pressed now.
     private var shortcutButtons: [NodeView] {
         chrome.ids("accessibilityKeyShortcuts").sorted().compactMap { views[$0] }
-            .filter { $0.isButton && ($0.handlers.contains("press") || $0.isNativeButton && invocation(of: $0) != nil)
+            .filter { $0.isButton && ($0.handlers.contains("press") || $0.isSurfaceControl || $0.isNativeButton && invocation(of: $0) != nil)
                 && !$0.disabled && $0.accessibilityVisible }
     }
     /// Whether the focus is a text field or area, whose typing a plain key is.
@@ -113,7 +113,7 @@ extension Presenter {
         let names = ChordIOS.names(of: input)
         for name in names.isEmpty ? [input] : names {
             guard let chord = ChordIOS(Substring(name)) else { continue }
-            if let node = shortcut(key: chord.key, held: held, focus: focusedNode) { press(node.id); return }
+            if let node = shortcut(key: chord.key, held: held, focus: focusedNode) { pressShortcut(node); return }
         }
     }
 }

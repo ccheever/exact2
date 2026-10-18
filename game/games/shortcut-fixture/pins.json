@@ -1,0 +1,8 @@
+{
+  "game": "shortcut-fixture",
+  "ticks": {},
+  "saves": {},
+  "hosts": [],
+  "generated": "bun game/prove.mjs shortcut-fixture",
+  "at": "unverified"
+}

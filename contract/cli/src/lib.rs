@@ -569,6 +569,34 @@ pub fn compile_path_terminal(path: &Path) -> Result<Plan, Vec<CompileError>> {
         .map(|(plan, _)| plan)
 }
 
+/// The buttons whose `aria-keyshortcuts` name a key the game's `Actions`
+/// also bind (LLP 1132 D11), as warnings: the shortcut takes the key first
+/// on every host, so the world never hears it while the button shows.
+/// Empty for an app without a game, or before its first GPU build.
+pub fn shortcut_findings(path: &Path) -> Result<Vec<CompileError>, Vec<CompileError>> {
+    let src = read_source(path).map_err(|e| vec![e])?;
+    let app_root = app_root(path)?;
+    let (file, sources) = sources::load(path, &src, &app_root)?;
+    Ok(shortcut_warnings(&file, &app_root)
+        .into_iter()
+        .map(|e| sources.resolve(e))
+        .collect())
+}
+
+fn shortcut_warnings(file: &contract_syntax::File, app_root: &Path) -> Vec<CompileError> {
+    let bound = surface::keys(app_root);
+    if bound.is_empty() {
+        return Vec::new();
+    }
+    contract_analyze::check_shortcut_keys(file, &bound)
+        .into_iter()
+        .map(|e| CompileError {
+            pass: "warning",
+            ..e.into()
+        })
+        .collect()
+}
+
 /// [`compile_path_all`] without the surface-argument check, which the
 /// author's commands make apart ([`surface_findings`]).
 pub fn compile_path_all_unchecked(
@@ -694,6 +722,9 @@ fn compile_path_warned(
         Some(_) => grants::check(&file, &app_root, strings.as_deref()),
         None => Vec::new(),
     };
+    if warned.is_some() {
+        own.extend(shortcut_warnings(&file, &app_root));
+    }
     let compiled = compile_file_warned(
         &file,
         Some(&app_root),

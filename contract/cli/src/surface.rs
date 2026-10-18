@@ -42,6 +42,17 @@ pub(super) fn arguments(
     })
 }
 
+/// The keys each surface's `Actions` bind (`.shells/keys.json`, written by
+/// the game's last GPU build beside `surfaces.json`), each with the actions
+/// it drives; empty without one. It feeds a warning only, so an unreadable
+/// file is none.
+pub(super) fn keys(app_root: &Path) -> BTreeMap<String, BTreeMap<String, Vec<String>>> {
+    std::fs::read(app_root.join(".shells/keys.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
 /// The game Rust newer than `.shells/surfaces.json`, when some is: the
 /// declaration is the last GPU build's, so it may predate an `Options` edit
 /// (the platformer's diary, R4). Content-stable writes keep an unchanged

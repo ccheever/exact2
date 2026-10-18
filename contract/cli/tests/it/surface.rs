@@ -482,3 +482,69 @@ component App
         .set_surface_record("world", Some(r#"{"state":"invalid"}"#))
         .is_err());
 }
+
+/// LLP 1132 D11: a button's `aria-keyshortcuts` on a key the game's
+/// `Actions` bind (`.shells/keys.json`, from its GPU build) is a warning
+/// naming both, through a component prop too; it refuses nothing, and a
+/// key no action binds, or a game without the declaration, says nothing.
+#[test]
+fn a_shortcut_on_a_key_the_game_binds_warns() {
+    let dir = std::env::temp_dir().join(format!("contract-shortcut-keys-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join(".shells")).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(
+        &path,
+        "component App\n  view\n    canvas surface=world()\n      Shop(hotkey=\"1\")\n      button action=\"jump\" aria-keyshortcuts=\"Shift+J 9\" aria-label=\"Jump\"\n        text \"Jump\"\ncomponent Shop\n  props\n    hotkey: string\n  view\n    button action=\"buy\" aria-keyshortcuts=hotkey aria-label=\"Buy\"\n      text \"Buy\"\n",
+    )
+    .unwrap();
+    assert!(
+        contract::shortcut_findings(&path).unwrap().is_empty(),
+        "no declaration, no warning"
+    );
+    std::fs::write(
+        dir.join(".shells/keys.json"),
+        r#"{"world":{"Digit1":["one"],"KeyJ":["jump"],"KeyW":["move"]}}"#,
+    )
+    .unwrap();
+    let found = contract::shortcut_findings(&path).unwrap();
+    let said: Vec<_> = found
+        .iter()
+        .map(|e| (e.id.as_str(), e.is_warning(), e.span.line))
+        .collect();
+    assert_eq!(
+        said,
+        [
+            ("analyze-shortcut-world-key", true, 5),
+            ("analyze-shortcut-world-key", true, 11)
+        ],
+        "{found:?}"
+    );
+    assert!(
+        found[0].message.contains("button's own `action`"),
+        "{}",
+        found[0]
+    );
+    assert!(
+        found[1].message.contains("\"1\" takes Digit1") && found[1].message.contains("`one`"),
+        "{}",
+        found[1]
+    );
+    assert_eq!(found[1].related.len(), 1, "the use that passed \"1\"");
+    assert_eq!(found[1].related[0].span.line, 4);
+    let compiled = contract::compile_path_all(&path, false);
+    assert!(
+        compiled.is_ok(),
+        "a warning refuses nothing: {:?}",
+        compiled.err()
+    );
+    let (_, warned) = contract::compile_path_all_with_warnings(&path, false);
+    assert_eq!(
+        warned
+            .iter()
+            .filter(|e| e.id == "analyze-shortcut-world-key")
+            .count(),
+        2,
+        "a build prints them"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}

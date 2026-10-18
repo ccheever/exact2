@@ -17,6 +17,9 @@ mod calls;
 mod gates;
 mod rereads;
 mod sends;
+mod shortcuts;
+
+pub use shortcuts::{check_shortcut_keys, chord_codes};
 
 pub use contract_types::handler_arity_message;
 

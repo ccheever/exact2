@@ -51,8 +51,8 @@ const transcript = () => {
 };
 const pinned = resolve(ROOT, 'scripts/fixtures/transcript.txt');
 if (argv.includes('--record')) { writeFileSync(pinned, transcript()); console.log(`recorded ${pinned.replace(ROOT + '/', '')}`); process.exit(0); }
-const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'ios' ? 'ios' : argv[0] === 'linux' ? 'linux' : argv[0] === 'host' ? 'host' : argv[0] === 'host-ios' ? 'host-ios' : argv[0] === 'deploy' ? 'deploy' : argv[0] === 'svg' ? 'svg' : argv[0] === 'canvas' ? 'canvas' : argv[0] === 'motion' ? 'motion' : argv[0] === 'duo' ? 'duo' : null;
-if (!host) { console.error('usage: bun scripts/smoke.mjs <web|macos|ios|linux|host|host-ios|deploy|svg|canvas|motion|duo> [--app <name>] [--shot <png>] [--hosts linux,macos,ios] | --record'); process.exit(2); }
+const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'ios' ? 'ios' : argv[0] === 'linux' ? 'linux' : argv[0] === 'host' ? 'host' : argv[0] === 'host-ios' ? 'host-ios' : argv[0] === 'deploy' ? 'deploy' : argv[0] === 'svg' ? 'svg' : argv[0] === 'canvas' ? 'canvas' : argv[0] === 'motion' ? 'motion' : argv[0] === 'duo' ? 'duo' : argv[0] === 'shortcuts' ? 'shortcuts' : null;
+if (!host) { console.error('usage: bun scripts/smoke.mjs <web|macos|ios|linux|host|host-ios|deploy|svg|canvas|motion|duo|shortcuts> [--app <name>] [--shot <png>] [--hosts linux,macos,ios] | --record'); process.exit(2); }
 
 // The two Apple presenters share one Canvases: children captured through the
 // surface, placements (LLP 1014 D2, D5) — what the canvas steps below assert.
@@ -67,6 +67,7 @@ const check = (ok, what) => { if (!ok) failures.push(what); return ok; };
 const t0 = Date.now();
 const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
 const box = (l, id) => l.nodes.find((n) => n.testId === id);
+if (host === 'shortcuts') { /* LLP 1132 D11: a world's focused canvas never hears a shown button's shortcut, each host's run of the fixture's proof (continuous, Save and FreshGame on linux and web) */ const hosts = (argv.includes('--hosts') ? argv[argv.indexOf('--hosts') + 1] : process.platform === 'darwin' ? 'linux,web,macos' : 'linux,web').split(','); for (const h of hosts) check(spawnSync(process.execPath, [resolve(ROOT, 'game/games/shortcut-fixture/proof.mjs'), h, ...(['linux', 'web'].includes(h) ? ['--paranoid'] : [])], { stdio: 'inherit' }).status === 0, `shortcut fixture on ${h}`); console.log(`shortcuts smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`); for (const f of failures) console.error('  ' + f); process.exit(failures.length ? 1 : 0); }
 if (host === 'duo') { const { duoSmoke } = await import('./smoke-duo.mjs'); const r = await duoSmoke({ open: (o) => openAgent({ device, phone, ...o }), check }); console.log(`duo smoke: ${r === 'unsupported' ? 'unsupported' : failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`); for (const f of failures) console.error('  ' + f); process.exit(failures.length ? 1 : 0); }
 
 // A source-checkout invariant for destructive-looking smokes: names,

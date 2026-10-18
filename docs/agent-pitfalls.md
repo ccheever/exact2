@@ -1420,6 +1420,15 @@ screen, 2026-10-16.)
 
 ## Games
 
+- **A HUD shortcut's key never reaches the focused world.** On every host a shown
+  button's `aria-keyshortcuts` takes its key before the canvas hears it; a button with
+  `action=` presses that action, once. Binding the same key in `Actions` as well does
+  nothing while the button shows, and a different action on it never fires (Fishslop
+  F13). The bake warns (`analyze-shortcut-world-key`); drop the key from `Actions` or
+  the shortcut. [Touch controls](../game/recipes/touch-controls.md).
+- **Show on-screen controls by `exactViewport().pointer`, never always.** A stick on a
+  desktop is a tell. The starter shows its stick and buttons under `coarse` only;
+  `prefer pointer coarse` shows them on a desktop drive.
 - **A socket follower's local pose is `SocketFollow::offset`.** Its `Transform`
   is the fallback when the socket cannot resolve; rotating that fallback does not
   rotate a resolved attachment. Use `SocketFollow.offset.rotation` for the local
