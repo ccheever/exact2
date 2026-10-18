@@ -262,7 +262,7 @@ test('enable, delete, refresh and the health interval use the documented server 
 test('read-only and disconnected sessions expose no provider writes', () => {
   const server = new FakeServer();
   server.writable = false;
-  expect(providerPage(server, '', 0)).toMatchObject({ available: true, writable: false, message: "This session can view this environment's providers but can't change their settings." });
+  expect(providerPage(server, '', 0)).toMatchObject({ available: true, writable: false, message: 'This session can view providers but cannot manage provider instances.' });
   server.ready = false;
   expect(providerPage(server, '', 0)).toMatchObject({ available: false, message: 'Connect an environment to set up its providers.', rows: [] });
 });

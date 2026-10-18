@@ -74,8 +74,11 @@ starts it only with an isolated home and a lane port, never `~/.t3` or 3773:
 T3_LOCAL_HOME=/tmp/lane/t3-home T3_LOCAL_PORT=16437 bun host/apple/build.mjs t3-code-macos --bundle --run
 ```
 
-Without both variables its status is `refused` and nothing starts. Only the packaged build
-(`distribution.json` in its Resources) uses `~/.t3` and the port scan from 3773, as T3 Code does.
+Without both variables its status is `refused` and nothing starts. Only a distribution bundle with both the exact `t3code` `/open?u=%s` handler and its
+registered bundle scheme uses `~/.t3` and the port scan from 3773. The app manifest marks the
+handler `distribution_only`, so ordinary development and `--release` builds remain refused
+without their isolated variables. No `distribution.json` marker is required or accepted for
+home admission.
 An agent drive (`bun scripts/agent.mjs macos --size 1280x840 --storage <name> …`, with `EXACT_APP_DIR`
 and both variables set) runs the development binary, which carries no bundle resources and so
 no server: build the bundle, then point `EXACT_MAC_BIN` at its `Contents/MacOS/T3 Code (Exact)`
@@ -84,10 +87,24 @@ no server: build the bundle, then point `EXACT_MAC_BIN` at its `Contents/MacOS/T
 Safari's Web Inspector (exact2 #101): in a development build the app's own web views (the
 terminal, the browser surface, the rendered-HTML preview) are
 `isInspectable`, so Safari's Develop menu lists them. A release build's are not: the packaged
-build (that marker), a production-trust bake or a distributed bundle (`--distribution`, what
+build (that metadata), a legacy packaged marker retained for inspection compatibility, a production-trust bake or a distributed bundle (`--distribution`, what
 `exact release` signs), as main #309 decides for Exact's own `iframe` web views
 (`T3WebInspection.swift`; each web view writes a `t3.inspection:` line to stderr). There is no
 View › Toggle Developer Tools: an inspector for the app's own UI stays out of exact2 (#101).
+
+## Desktop command
+
+An installed distribution exposes **Settings → General → t3 command**. Install creates the
+launcher in `<T3 home>/bin/t3` and an owned link in a writable command directory; Remove
+removes only links written by T3 Code. Another `t3` earlier on PATH is preserved and reported.
+The launcher passes `T3CODE_CLI_PATH`, preserves an explicit `T3CODE_HOME`, and invokes the
+app's installed server executable. Development builds hide this row. Availability uses the
+app's distribution-only handler and scheme metadata, shared with the local backend's
+home/port admission policy described above.
+
+The desktop bootstrap secret stays in native memory and the server's stdin envelope.
+Its HMAC credential changes every twelve hours, including a fresh exchange after suspend.
+Project icon selection also accepts macOS `.icns` files; the embedded server converts them.
 
 ## Connect to a server
 
@@ -186,8 +203,7 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   `html-script-regex.ts`; every right-panel tab (Files, files, the
   pull request list, the Diff, the Device surface with its device, pull request details and
   attachments) is kept per thread across launches, `saved-panel.ts`, `saved-surfaces.ts`;
-  the Diff's preview of a project outside the server's root is asked again at the server's cwd
-  as DiffPanel does, `diff-outside-root.ts`), Linked pull requests (rows, Copy link, Open, Watch for changes / Stop
+  diffs keep the project's requested cwd, including projects outside the server's launch directory), Linked pull requests (rows, Copy link, Open, Watch for changes / Stop
   watching, Unlink), the Pull request surface (`pr-surface.ts`, `pr-attachment*`: the thread's or a link's
   pull request in the Pull Requests page's detail panel, opened from the chooser's P, the
   details card's `#N` rows with "Show N more", and pull request links; `pr-row*`: with the
@@ -353,6 +369,19 @@ values of older builds) reads as unset, so the real time is stored (`onboarding-
 After a lost connection the client follows the reference reconnect ladder
 and resynchronizes before permitting writes. A submission with an uncertain result keeps
 its command identifiers and draft and is never retried automatically.
+Providers follow the selected Settings environment. With a project or checkout selected, the
+provider switch writes that project's checkout overrides; Reset uses the environment setting.
+Provider update details show live installer progress and failures. The Models section can rename
+built-in models and stores favorites, visibility, and order on that environment. Legacy device
+preferences seed only an unset server list; an explicit empty list stays empty.
+
+The model picker explains models that need a newer CLI and links to Provider settings. Workspace
+skills refresh after five minutes. Muse Code is available in Add provider; Usage includes Pi
+sessions and Antigravity quota groups. For a local ACP executable, choose ACP Registry → Enter
+manually → Local command, enter its path, and add one literal argument per row. Secret fields
+show Configured; enter a replacement or use Clear. Provider editor questions keep their prefilled
+answer as literal text, including whitespace and an intentionally cleared answer.
+
 ## Known differences and framework gaps
 
 The clone follows the reference wherever exact2 allows it. Where it cannot, the gap is an

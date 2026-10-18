@@ -55,6 +55,7 @@ struct T3LocalBootstrap: Codable, Equatable {
     var t3Home: String
     var host = "127.0.0.1"
     var desktopBootstrapToken: String
+    var desktopBootstrapSecret: String?
     var tailscaleServeEnabled = false
     var tailscaleServePort = 443
     var resourceMonitorPath: String?

@@ -2,3 +2,8 @@
 export function providerWritable(host: { writable: boolean; ready?: boolean; scopes?: readonly string[] }): boolean {
   return host.scopes ? host.ready !== false && host.scopes.includes('providers:manage') : host.writable;
 }
+
+/** Favorites, model ordering and project overrides are ordinary server settings. */
+export function providerSettingsWritable(host: { writable?: boolean; ready?: boolean; scopes?: readonly string[] }): boolean {
+  return host.scopes ? host.ready !== false && host.scopes.includes('settings:write') : host.writable !== false;
+}
