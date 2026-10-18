@@ -31,16 +31,19 @@ public enum WidgetContainer {
     /// No lock, selection, repair or network access: read the pointer once and
     /// keep its immutable directory for this entire invocation. Stage 1 keeps
     /// all published generations; reclamation needs cross-process leases first.
-    public static func pin() throws -> URL {
+    public static func pin(generation: String? = nil) throws -> URL {
         guard let root else { throw HeadlessSession.Failure(description: "widget App Group is unavailable") }
+        return try pin(root: root, generation: generation, compatibility: compatibility)
+    }
+    package static func pin(root: URL, generation: String? = nil, compatibility: String) throws -> URL {
         let base = root.appendingPathComponent("widget-generations", isDirectory: true)
-        let name = try String(contentsOf: base.appendingPathComponent("current"), encoding: .utf8)
+        let name = try generation ?? String(contentsOf: base.appendingPathComponent("current"), encoding: .utf8)
         guard name.count == 64, name.allSatisfy({ $0.isHexDigit }) else { throw CocoaError(.fileReadCorruptFile) }
-        let generation = base.appendingPathComponent(name, isDirectory: true)
-        guard try String(contentsOf: generation.appendingPathComponent("compatibility"), encoding: .utf8) == compatibility else {
+        let directory = base.appendingPathComponent(name, isDirectory: true)
+        guard try String(contentsOf: directory.appendingPathComponent("compatibility"), encoding: .utf8) == compatibility else {
             throw HeadlessSession.Failure(description: "widget generation belongs to another compatibility cohort")
         }
-        return generation
+        return directory
     }
     private static let publisher = DispatchQueue(label: "exact.widget-generation", qos: .utility)
     private static var typescript: Bool { Bundle.main.object(forInfoDictionaryKey: "ExactWidgetTypeScript") as? Bool == true }

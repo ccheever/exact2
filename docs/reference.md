@@ -376,7 +376,57 @@ The bake writes `plans/<kind>.plan` beside `app.plan`. The envelope's `plans`
 map indexes these authenticated assets in the app's compatibility cohort.
 Kinds, families and gallery labels are binary compatibility inputs; views and preview props
 are plan contents. A running host refuses a snapshot plan at decode, and a
-snapshot reader requires its exact kind and refresh signature.
+snapshot reader requires its exact kind. A widget also requires a refresh
+signature; an activity has named placements and no refresh source.
+
+Live Activities are top-level `app.json` `live_activities` rows:
+
+```json
+{"kind":"departure","component":"DepartureActivity","state":"DepartureState",
+ "preview":{"station":"Mountain View","at":1787915700000},"push":true}
+```
+
+The root's props match every field of `state`. Optional `title` and `description`
+follow the widget label rule; `push` and `frequent` are Booleans, defaulting to
+false. Kinds are unique across both entry lists, ignoring case. Unknown keys fail
+the bake with an edit. Capability flags and labels require a new binary; state
+shapes, previews and views ride the bundle.
+
+Declare the placements in that one component's view with `view slot="lockScreen"`,
+`view slot="compactLeading"`, `view slot="compactTrailing"`, `view slot="minimal"`
+and `view slot="expanded"`. Under `expanded`, declare four `view` children with
+`slot="leading"`, `slot="trailing"`, `slot="center"` and `slot="bottom"`. Each slot
+is required once. Put its layout attributes and content on that slot's view;
+`expanded` only groups its regions. See `apps/caltrain/activities.contract`.
+
+The activity plan has one `snapshot_state` slot and an `activity_slots` table
+mapping each placement name to a node site under a synthetic container. One
+session serves the activity. For each slot, the driver sets the session's viewport
+to the region's proposed content size, lays out, takes that slot's subtree and
+measures its `fit_content_height`. `snapshot_viewport` thus reads the current
+region's size; no app-visible slot selector is injected. The other slots' frames
+are not a shared surface layout. Rendering remains read-only, with the same
+clock, request, input and handler refusals as widgets. `time` and `progress`
+remain platform live views. Activity rendering and sends are separate host work.
+
+The bake writes `plans/activities.json` and `activities/<kind>.schema.json` plus
+`activities/<kind>.d.ts` (exporting `State`, `Attributes` and `ContentState`). The
+state uses JSON Schema 2020-12 with required fields and no additional properties.
+The shape digest hashes its canonical schema, including each record's field
+order. The universal envelope's attributes are `{kind, generation, shape}`;
+its content state is `{shape, state}`, where `state` is a JSON value, not an
+encoded JSON string. `generation` names the immutable publication digest. The
+preview's encoded attributes and content state together must fit 4096 UTF-8
+bytes, including both shape digests; a refusal reports the bytes and asks for
+shorter state. The shared Swift envelope exposes the same check for sends.
+
+An activity pins its named generation within the installed compatibility cohort,
+even after `current` moves. Publications currently keep every generation. The
+per-id state cache also separates generations and shapes: a state the plan cannot
+decode falls back to its last decodable state with the driver's outdated flag,
+or the placeholder when none exists. ActivityKit's `isStale` is a separate system
+fact. Rendering across a compatibility-changing binary update remains subject
+to LLP 1126.001 §5 Q6's pending ruling.
 
 The `snapshot` columns on the style and prop rows declare admission. Unsupported
 rows, scrolling, sticky positioning, timers, requests, native modules and handlers

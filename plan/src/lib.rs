@@ -225,6 +225,50 @@ impl Plan {
     /// progress. Called by the generated `validate`, so every loaded or built
     /// plan has passed it.
     pub fn validate_semantics(&self) -> Result<(), PlanError> {
+        let activity = !self.activity_slots.is_empty();
+        if self.snapshot_entry.is_empty() {
+            if self.snapshot_refresh.is_some() || activity {
+                return Err(PlanError::WrongEntry);
+            }
+        } else if self.snapshot_refresh.is_some() == activity {
+            return Err(PlanError::WrongEntry);
+        }
+        if activity {
+            const NAMES: [&str; 8] = [
+                "lockScreen",
+                "compactLeading",
+                "compactTrailing",
+                "minimal",
+                "expanded.leading",
+                "expanded.trailing",
+                "expanded.center",
+                "expanded.bottom",
+            ];
+            if self.activity_slots.len() != NAMES.len() {
+                return Err(PlanError::WrongEntry);
+            }
+            let roots: Vec<_> = self
+                .nodes
+                .iter()
+                .enumerate()
+                .filter(|(_, n)| n.parent == Some(NodesId(0)) && n.arm.is_none())
+                .map(|(i, _)| i as u32)
+                .collect();
+            for (i, slot) in self.activity_slots.iter().enumerate() {
+                if self.str(slot.name) != NAMES[i] || roots.get(i) != Some(&slot.root.0) {
+                    return Err(PlanError::WrongEntry);
+                }
+            }
+            if roots.len() != NAMES.len()
+                || !self.slots.iter().any(|s| {
+                    self.str(s.name) == "snapshot_state"
+                        && s.owner.is_none()
+                        && self.type_(s.ty).kind == TypeKind::Record
+                })
+            {
+                return Err(PlanError::WrongEntry);
+            }
+        }
         // @ref LLP 1038 D2 — declaration order and the one root router slot.
         let mut notfound = false;
         for (i, route) in self.routes.iter().enumerate() {

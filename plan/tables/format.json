@@ -31,6 +31,20 @@
   "_tables": "Document order is significant: nodes and regions with the same parent are ordered by `order`; an arm's content is every node and region whose `arm` names it; a node with no parent inside an arm is one of the arm's roots. Fonts are static in v1: a face is exactly one source path, weight, and italic flag. Variable-axis ranges are additive later, never inferred from the file by a host.",
   "tables": [
     {
+      "name": "activity_slots",
+      "_comment": "LLP 1126.001 WP8: independent placement roots in one snapshot session; no refresh. Names are lockScreen, compactLeading, compactTrailing, minimal, expanded.leading, expanded.trailing, expanded.center and expanded.bottom.",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "root",
+          "codec": "idx:nodes"
+        }
+      ]
+    },
+    {
       "name": "types",
       "fields": [
         {

@@ -848,13 +848,14 @@ fn a_plan_without_compiled_values_keeps_every_other_data_range() {
     assert_eq!(same, plan);
 }
 
-/// LLP 1126.000 WP2 adds snapshot-entry and typed-refresh headers; every host moves with this format.
+/// LLP 1126.001 WP8 adds activity placement roots and allows a snapshot without
+/// a refresh source. Every host needs a new binary for this plan format.
 /// The format digest is pinned: a change to `tables/format.json`, a comment
 /// included, moves it, and every host then needs a new binary (LLP 1030 D3a).
 #[test]
 fn the_format_digest_is_pinned() {
     assert_eq!(
-        FORMAT_DIGEST, 0x973e_e759_65ad_8001,
+        FORMAT_DIGEST, 0x9881459f2ea6bb12,
         "the plan format digest moved: if intended, name the break and the hosts that move"
     );
 }

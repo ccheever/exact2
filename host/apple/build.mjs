@@ -252,7 +252,7 @@ export function assertAppleIdentity(app, executable, compatibilityId, shared = n
 /** Copy the app-visible static trees into a private Apple package stage.
  * Every leaf goes through the web host's no-symlink policy; `trees` maps an
  * app-relative source (notably `gpu/shaders`) to its bundle-visible name. */
-export function copyAppleStaticTrees(source, target, trees = [['assets', 'assets'], ['deck', 'deck'], ['shaders', 'shaders'], ['rust', 'rust'], ['plans', 'plans'], ['typescript', 'typescript']]) {
+export function copyAppleStaticTrees(source, target, trees = [['assets', 'assets'], ['deck', 'deck'], ['shaders', 'shaders'], ['rust', 'rust'], ['plans', 'plans'], ['typescript', 'typescript'], ['activities', 'activities']]) {
   for (const [from, to] of trees) {
     copyStaticTreeIfPresent(resolve(source, from), resolve(target, to));
   }
@@ -905,7 +905,7 @@ async function main(args) {
     }
     bakedPlan = readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.plan`));
     copyAppleStaticTrees(app.dir, capture, [['assets', 'assets'], ['deck', 'deck']]);
-    copyAppleStaticTrees(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.entries`), capture, [['plans', 'plans'], ['typescript', 'typescript']]);
+    copyAppleStaticTrees(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.entries`), capture, [['plans', 'plans'], ['typescript', 'typescript'], ['activities', 'activities']]);
     copyShaders(app, resolve(capture, 'shaders'));
     if (buildReceipt.rust) copyStaticTreeIfPresent(buildReceipt.rust, resolve(capture, 'rust'));
     verifyBakeFiles(buildReceipt.compat, bakedPlan, listAssets(capture, true, ['typescript']));

@@ -19,9 +19,28 @@ pub(crate) fn emit(
         plans.insert(kind.clone(), card.clone());
         assets.push(card);
     }
-    if !entries.is_empty() {
-        let bytes = std::fs::read(out.join("plans/widgets.json")).map_err(|e| e.to_string())?;
-        assets.push(json!({"name":"plans/widgets.json", "sha256":exact_update::sha256_hex(&bytes), "bytes":bytes.len()}));
+    for name in ["plans/widgets.json", "plans/activities.json"]
+        .into_iter()
+        .map(str::to_owned)
+        .chain(
+            entries
+                .iter()
+                .filter(|(_, e)| !e.plan.activity_slots.is_empty())
+                .flat_map(|(kind, _)| {
+                    [
+                        format!("activities/{kind}.schema.json"),
+                        format!("activities/{kind}.d.ts"),
+                    ]
+                }),
+        )
+    {
+        if !out.join(&name).exists() {
+            continue;
+        }
+        let bytes = std::fs::read(out.join(&name)).map_err(|e| e.to_string())?;
+        assets.push(
+            json!({"name":name, "sha256":exact_update::sha256_hex(&bytes), "bytes":bytes.len()}),
+        );
     }
     if typescript && !entries.is_empty() {
         std::fs::create_dir_all(out.join("typescript")).map_err(|e| e.to_string())?;
@@ -38,17 +57,16 @@ pub(crate) fn emit(
 }
 
 pub(crate) fn copy(out: &Path, destination: &Path, assets: &[Value]) -> Result<(), String> {
-    for tree in ["plans", "typescript"] {
+    for tree in ["plans", "typescript", "activities"] {
         let target = destination.join(tree);
         if target.exists() {
             std::fs::remove_dir_all(target).map_err(|e| e.to_string())?;
         }
     }
     for card in assets {
-        let Some(name) = card["name"]
-            .as_str()
-            .filter(|n| n.starts_with("plans/") || n.starts_with("typescript/"))
-        else {
+        let Some(name) = card["name"].as_str().filter(|n| {
+            n.starts_with("plans/") || n.starts_with("typescript/") || n.starts_with("activities/")
+        }) else {
             continue;
         };
         std::fs::create_dir_all(destination.join(name).parent().unwrap())
@@ -187,6 +205,60 @@ mod tests {
                 assert!(compat.embedded.get("plans").is_none());
                 assert!(!out.join("plans").exists());
             }
+        }
+    }
+
+    #[test]
+    fn activity_only_bake_copies_schemas_and_removes_obsolete_state_artifacts() {
+        let dir = TempDir(
+            std::env::temp_dir().join(format!("exact-activity-bake-{}", std::process::id())),
+        );
+        let out = dir.0.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let app = Path::new(env!("CARGO_MANIFEST_DIR")).join("../apps/caltrain");
+        let mut manifest = Manifest::read(&app).unwrap();
+        manifest.json.as_object_mut().unwrap().remove("widgets");
+        let entries = contract::snapshot::compile_entries(&app, &manifest).unwrap();
+        assert_eq!(entries.len(), 2);
+        let (assets, plans) = emit(&out, false, &entries).unwrap();
+        let destination = dir.0.join("copy");
+        copy(&out, &destination, &assets).unwrap();
+        for a in manifest.live_activities().unwrap() {
+            let plan = &entries[&a.kind].plan;
+            let bytes = std::fs::read(out.join(format!("plans/{}.plan", a.kind))).unwrap();
+            assert_eq!(plans[&a.kind]["sha256"], exact_update::sha256_hex(&bytes));
+            assert_eq!(
+                exact_plan::Plan::decode_snapshot(&bytes, &a.kind).unwrap(),
+                *plan
+            );
+            for extension in ["schema.json", "d.ts"] {
+                let name = format!("activities/{}.{extension}", a.kind);
+                let card = assets.iter().find(|c| c["name"] == name).unwrap();
+                let bytes = std::fs::read(destination.join(&name)).unwrap();
+                assert_eq!(card["sha256"], exact_update::sha256_hex(&bytes));
+                if extension == "schema.json" {
+                    assert_eq!(
+                        serde_json::from_slice::<Value>(&bytes).unwrap(),
+                        contract::snapshot::state_schema(plan)
+                    );
+                } else {
+                    let ts = String::from_utf8(bytes).unwrap();
+                    assert!(
+                        ts.contains("export type State = {")
+                            && ts.contains(&contract::snapshot::shape_digest(plan))
+                    );
+                }
+            }
+        }
+        let registry: Value =
+            serde_json::from_slice(&std::fs::read(out.join("plans/activities.json")).unwrap())
+                .unwrap();
+        assert_eq!(registry.as_array().unwrap().len(), 2);
+        assert_eq!(registry[0]["slots"].as_array().unwrap().len(), 8);
+        let (empty, _) = emit(&out, false, &Default::default()).unwrap();
+        copy(&out, &destination, &empty).unwrap();
+        for tree in ["activities", "plans"] {
+            assert!(!out.join(tree).exists() && !destination.join(tree).exists());
         }
     }
 }
