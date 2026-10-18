@@ -289,8 +289,15 @@ impl Lowerer<'_> {
         // D7's press rows paint no run on Apple or Linux either).
         // (A run is a text node under a text node, as the kernel has it: under
         // `text`, `time` or `option` alike.)
-        if parent_tag.and_then(tags::tag).is_some_and(|p| p.node_type == NodeType::Text) && t.node_type == NodeType::Text {
-            let host = |a: &&Attr| contract_syntax::state::state_of(&a.name).is_some_and(|(s, _)| matches!(s, "active" | "hover" | "focus-visible"));
+        if parent_tag
+            .and_then(tags::tag)
+            .is_some_and(|p| p.node_type == NodeType::Text)
+            && t.node_type == NodeType::Text
+        {
+            let host = |a: &&Attr| {
+                contract_syntax::state::state_of(&a.name)
+                    .is_some_and(|(s, _)| matches!(s, "active" | "hover" | "focus-visible"))
+            };
             if let Some(a) = expanded.iter().find(host) {
                 return err(
                     "lower-state-target",

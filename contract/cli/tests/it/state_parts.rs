@@ -554,17 +554,27 @@ fn a_host_state_on_a_run_is_refused() {
     let para = |part: &str| {
         format!("component App\n  state off = false\n  view\n    text testId=\"p\"\n      text \"a \"\n      text \"run\" disabled=off\n        {part}\n")
     };
-    for part in [":hover\n          background-color = \"#ff0000\"", ":focus-visible\n          opacity = 0.5", ":active\n          background-color = \"#ff0000\""] {
+    for part in [
+        ":hover\n          background-color = \"#ff0000\"",
+        ":focus-visible\n          opacity = 0.5",
+        ":active\n          background-color = \"#ff0000\"",
+    ] {
         assert_eq!(refused(&para(part)), "lower-state-target", "{part}");
     }
-    assert_eq!(refused(&para(":disabled\n          color = \"#888888\"")), "compiled");
+    assert_eq!(
+        refused(&para(":disabled\n          color = \"#888888\"")),
+        "compiled"
+    );
     // Under `time` too (a run of its fallback), from a class too, through a region.
     let timed = "component App\n  view\n    time datetime=0\n      text \"x\"\n        :hover\n          opacity = 0.5\n";
     assert_eq!(refused(timed), "lower-state-target");
     let classed = "style Glow\n  :hover\n    opacity = 0.5\n\ncomponent App\n  state on = true\n  view\n    text\n      if on\n        text \"x\" class=Glow\n";
     assert_eq!(refused(classed), "lower-state-target");
     // A paragraph itself takes one.
-    assert_eq!(refused("component App\n  view\n    text \"p\"\n      :hover\n        opacity = 0.5\n"), "compiled");
+    assert_eq!(
+        refused("component App\n  view\n    text \"p\"\n      :hover\n        opacity = 0.5\n"),
+        "compiled"
+    );
     // An SVG `tspan` in SVG `text` is no paragraph run.
     let svg = "component App\n  view\n    svg viewBox=\"0 0 10 10\"\n      text\n        tspan \"x\"\n          :hover\n            opacity = 0.5\n";
     assert_ne!(refused(svg), "lower-state-target");
