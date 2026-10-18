@@ -2,7 +2,8 @@
 // picture of the original app, in text, saying only what the pixels show. The regions are where the two pictures differ,
 // cell by cell, merged into boxes; each is named by the node under its centre, with the colours on each side where they
 // differ, and a hint where its content plainly sits elsewhere in the reference. A box whose edges both pictures show
-// is given at its measured size in each. A picture of the differences is written beside the capture.
+// is given at its measured size in each. A picture of the differences is written beside the capture, and one of the
+// regions alone, each cut from both pictures at their own resolution.
 //
 // Everything is measured on a grid of one cell a point, each cell the area mean of the pixels it covers (flattened on
 // white first). Two cells match when each lies within INK of the other's 3×3 neighbourhood, so anti-aliasing and
@@ -10,7 +11,7 @@
 import { MalformedOperation } from './agent-keys.mjs';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
-import { decodePng, encodePng, shrink } from './png.mjs';
+import { crop, decodePng, encodePng, shrink } from './png.mjs';
 import { scaledLines } from './agent-inspect.mjs';
 
 const INK = 40; // a channel difference (of 255) beyond the other image's neighbourhood that makes a cell differ
@@ -319,10 +320,11 @@ export function boxDiffs(A, B, result, nodes) {
 const hintText = ({ axis, d }, unit) => `its content sits ${Math.abs(d)} ${unit} ${axis === 'y' ? (d > 0 ? 'lower' : 'higher') : (d > 0 ? 'right' : 'left')} in the reference`;
 
 /** The text `compare` prints: a head line, a few lines a region, a line a measured box. */
-export function report(result, nodes, { reference, diff, unit = 'pt', boxes = [] }) {
+export function report(result, nodes, { reference, diff, close = null, unit = 'pt', boxes = [] }) {
   const pct = (v) => `${(Math.floor(v * 1000) / 10).toFixed(1)}%`, out = [];
   const left = [result.top ? `the top ${result.top} (status bar)` : '', result.bottom ? `the bottom ${result.bottom} (home indicator)` : ''].filter(Boolean).join(' and ');
-  out.push(`compare ${reference}: ${pct(result.match)} matches (${result.w}×${result.h} ${unit}${left ? `; ${left} not scored` : ''}); diff ${diff} (${PANELS.join(' | ')})`);
+  const n = result.regions.length, near = close && n ? `; up close, ${close} (${n === 1 ? 'region 1' : `a row a region, 1 to ${n}`})` : '';
+  out.push(`compare ${reference}: ${pct(result.match)} matches (${result.w}×${result.h} ${unit}${left ? `; ${left} not scored` : ''}); diff ${diff} (${PANELS.join(' | ')})${near}`);
   result.regions.forEach((r, i) => {
     const names = under(nodes, r.screen), { screen: sc, reference: rc } = r.colours;
     const colour = (c) => (c.ink ? `${c.ink} on ${c.fill}` : c.edges ? `${c.fill}, its edge's anti-aliasing ${c.blend} beside it` : c.fill ?? 'nothing');
@@ -386,6 +388,55 @@ export function diffImage(A, B, result) {
   return { width: W, height: H, data };
 }
 
+const CLOSE_WIDTH = 1600, CLOSE_HEIGHT = 2400; // the largest a close-up sheet is drawn, in pixels
+const PAD = 8; // the points around a region a close-up shows
+
+/** The regions up close: a row each, top to bottom, of the reference, the screen and the differences (the screen faded,
+ *  what differs in red, the region boxed in amber), each cut from its picture at its own resolution (`ref` and `png`,
+ *  decoded; `result` on the `w`×`h`-point grid) and drawn at one scale, at most a picture's own pixels a point. A band
+ *  of amber ticks above each row counts its region's number. Null when nothing differs. */
+export function closeUp(ref, png, result) {
+  const { w, h, mask, regions: found } = result;
+  if (!found.length) return null;
+  const boxes = found.map(({ screen: b }) => {
+    const x = Math.max(0, b.x - PAD), y = Math.max(0, b.y - PAD);
+    return { x, y, w: Math.min(w, b.x + b.w + PAD) - x, h: Math.min(h, b.y + b.h + PAD) - y, region: b };
+  });
+  const GAP = 4, BAND = 10, rs = ref.width / w, ss = png.width / w, widest = Math.max(...boxes.map((b) => b.w)), tall = boxes.reduce((sum, b) => sum + b.h, 0);
+  const k = Math.max(0.25, Math.min(rs, ss, (CLOSE_WIDTH - 2 * GAP) / (3 * widest), (CLOSE_HEIGHT - BAND * boxes.length) / tall));
+  const W = Math.round(3 * widest * k) + 2 * GAP;
+  const rows = boxes.map((b) => ({ ...b, pw: Math.max(1, Math.round(b.w * k)), ph: Math.max(1, Math.round(b.h * k)) }));
+  const H = rows.reduce((sum, r) => sum + BAND + r.ph, 0);
+  const data = new Uint8Array(W * H * 4).fill(255);
+  const put = (x, y, c) => { if (x < 0 || y < 0 || x >= W || y >= H) return; const i = (y * W + x) * 4; data[i] = c[0]; data[i + 1] = c[1]; data[i + 2] = c[2]; data[i + 3] = 255; };
+  // A box's pixels from a picture `s` pixels a point, at `pw`×`ph`, over white.
+  const cut = (img, s, b, pw, ph) => {
+    const x = Math.round(b.x * s), y = Math.round(b.y * s), cw = Math.min(img.width - x, Math.max(1, Math.round(b.w * s))), ch = Math.min(img.height - y, Math.max(1, Math.round(b.h * s)));
+    const piece = flatten(crop(img, x, y, cw, ch));
+    return pw <= cw && ph <= ch ? shrink(piece, pw, ph) : piece;
+  };
+  const amber = [240, 170, 0], grey = [128, 128, 128];
+  let top = 0;
+  rows.forEach((r, n) => {
+    for (let t = 0; t <= n; t++) for (let y = 2; y < BAND - 2; y++) { put(2 + t * 4, top + y, amber); put(3 + t * 4, top + y, amber); }
+    top += BAND;
+    const left = cut(ref, rs, r, r.pw, r.ph), mid = cut(png, ss, r, r.pw, r.ph), panel = Math.round(widest * k) + GAP;
+    for (let y = 0; y < r.ph; y++) for (let x = 0; x < r.pw; x++) {
+      const at = (img) => { const xx = Math.min(img.width - 1, Math.floor(x * img.width / r.pw)), yy = Math.min(img.height - 1, Math.floor(y * img.height / r.ph)), i = (yy * img.width + xx) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
+      const a = at(left), b = at(mid), cx = Math.min(w - 1, Math.floor(r.x + x / k)), cy = Math.min(h - 1, Math.floor(r.y + y / k));
+      const l = 155 + (0.2126 * b[0] + 0.7152 * b[1] + 0.0722 * b[2]) * 0.39;
+      put(x, top + y, a); put(panel + x, top + y, b);
+      put(2 * panel + x, top + y, mask[cy * w + cx] ? [230, 30, 30] : [l, l, l]);
+    }
+    for (let y = top - BAND; y < top + r.ph; y++) for (let g = 0; g < GAP; g++) { put(panel - GAP + g, y, grey); put(2 * panel - GAP + g, y, grey); }
+    const q = r.region, bx = 2 * panel + Math.round((q.x - r.x) * k), by = top + Math.round((q.y - r.y) * k), bw = Math.round(q.w * k), bh = Math.round(q.h * k);
+    for (let x = bx - 1; x <= bx + bw; x++) { put(x, by - 1, amber); put(x, by + bh, amber); }
+    for (let y = by - 1; y <= by + bh; y++) { put(bx - 1, y, amber); put(bx + bw, y, amber); }
+    top += r.ph;
+  });
+  return { width: W, height: H, data };
+}
+
 // ---- the operation ------------------------------------------------------------------------------------------------
 
 /** The reference against the screen's size in points: one shape (within 1%), and at least a pixel a point on each axis.
@@ -419,8 +470,8 @@ function captureNotes(shot) {
 
 /** `screenshot <png> … compare <reference.png>`: `take()` captures (the driver's screenshot), then the comparison against
  *  the reference, with the nodes from `layout` and `tree` (on the web read where the picture shows a transition under
- *  way); the diff picture is written beside the capture as `<png>.diff.png`. Replies the capture's reply with
- *  `compare`, `diff` and `text`. */
+ *  way); the diff picture is written beside the capture as `<png>.diff.png`, and its regions up close as
+ *  `<png>.regions.png` (`closeUp`). Replies the capture's reply with `compare`, `diff`, `close` and `text`. */
 export async function compareOp(s, referencePath, take) {
   let ref;
   try { ref = decodePng(readFileSync(referencePath)); } catch (e) { throw new MalformedOperation(`compare ${referencePath}: ${e.code === 'ENOENT' ? 'no such file' : e.message}`); }
@@ -448,14 +499,16 @@ export async function compareOp(s, referencePath, take) {
   const bottom = shot.window ? Math.ceil(shot.safeArea?.bottom ?? 0) : 0;
   if (shot.window && !shot.safeArea) notes.push('the host gave no safe area: only a status bar it named is left out');
   const A = grid(ref, w, h), B = grid(png, w, h), result = compareGrids(A, B, { top, bottom });
-  const diff = shot.screenshot.replace(/\.png$/i, '') + '.diff.png';
+  const diff = shot.screenshot.replace(/\.png$/i, '') + '.diff.png', near = closeUp(ref, png, result);
   writeFileSync(diff, encodePng(diffImage(A, B, result)));
-  let text = report(result, nodes, { reference: referencePath, diff, unit: s.host === 'web' ? 'px' : 'pt', boxes: boxDiffs(A, B, result, nodes) });
+  const close = near ? diff.replace(/\.diff\.png$/, '.regions.png') : null;
+  if (near) writeFileSync(close, encodePng(near));
+  let text = report(result, nodes, { reference: referencePath, diff, close, unit: s.host === 'web' ? 'px' : 'pt', boxes: boxDiffs(A, B, result, nodes) });
   if (notes.length) text += '\n' + notes.map((n) => `  capture: ${n}`).join('\n');
   // A floating sheet's content is drawn scaled by the platform, the reference's too: a box measured smaller is that.
   for (const line of scaledLines(layout)) text += `\n  note: ${line}`;
   const { mask, ...kept } = result;
-  return { ...shot, compare: { ...kept, reference: referencePath }, diff, text };
+  return { ...shot, compare: { ...kept, reference: referencePath }, diff, ...(close ? { close } : {}), text };
 }
 
 /** A drive that takes a plain `screenshot` while the app keeps reference pictures (a `ref/` or `reference/` folder in
