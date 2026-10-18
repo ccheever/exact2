@@ -3,8 +3,10 @@
 // forks and subagents; HandoffRow and HandoffEndpoint at 9c161462c9),
 // TimelineSystemDivider.tsx, packages/client-runtime/src/handoff.ts
 // (resolveHandoffEndpoints) and ProviderInstanceIcon.tsx (providerTextColor).
+import { subagentCard } from '../sidebar/subagent-card';
 import { arr, obj, str, type Activity, type Message, type Obj } from '../client/domain';
 import { triggerModelName } from '../composer/composer-controls-model';
+
 import { resolveProviderInstanceAcpRegistryIconUrl } from '../providers/acp-icons';
 import { instanceDisplayName } from '../sidebar/subagent-card';
 import { instanceInitials } from '../usage/usage-pooled-view';
@@ -26,7 +28,8 @@ function plainDetail(text: string): string {
   return text.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/`/g, '').replace(/^[ \t]*[-*][ \t]+/gm, '').replace(/\s+/g, ' ').trim();
 }
 /** What a lifecycle row reads beside its item: the parent's subagent records, the server's providers and the thread's runs. */
-export interface SubagentContext { agents: Obj[]; providers: Obj[]; runs?: Obj[] }
+export interface SubagentContext { agents: Obj[]; providers: Obj[]; runs?: Obj[]; threads?: Obj[] }
+
 const NO_CONTEXT: SubagentContext = { agents: [], providers: [] };
 
 interface HandoffEndpoint { instanceId: string; model?: string | undefined }
@@ -96,8 +99,12 @@ export function subagent(item: Obj, context: SubagentContext = NO_CONTEXT): Acti
   const timing = { status, startedAt: agent?.startedAt ?? item.startedAt, completedAt: agent?.completedAt ?? item.completedAt };
   const startedMs = workActive(status) && typeof timing.startedAt === 'string' ? Date.parse(timing.startedAt) : NaN;
   const elapsed = Number.isFinite(startedMs) ? null : subagentElapsedMs(timing, 0);
-  const driver = str(item.driver), provider = context.providers.find(candidate => candidate.instanceId === item.providerInstanceId);
-  return { id: str(item.id), label: subagentTitle(str(item.title, 'Subagent')), body: detail, icon: 'bot', output: elapsed === null ? '' : formatElapsedSeconds(elapsed / 1000),
+  const record = agent ? { ...item, ...agent } : item;
+  const driver = str(record.driver), provider = context.providers.find(candidate => candidate.instanceId === record.providerInstanceId);
+  const card = subagentCard({ title: str(item.title), model: typeof record.model === 'string' ? record.model : null, provider, providers: context.providers,
+    providerInstanceId: str(record.providerInstanceId), origin: str(record.origin), modelSelection: record.modelSelection ? obj(record.modelSelection) : undefined,
+    childThread: context.threads?.find(thread => thread.id === record.childThreadId), status });
+  return { modelLine: card.modelLine, effort: card.effort, speed: card.speed, speedLabel: card.speedLabel, id: str(item.id), label: subagentTitle(str(item.title, 'Subagent')), body: detail, icon: 'bot', output: elapsed === null ? '' : formatElapsedSeconds(elapsed / 1000),
     result: STATUS[status] ?? status, failed: status === 'failed', timestamp: str(item.startedAt ?? item.updatedAt),
     tone: status === 'failed' ? 'error' : status === 'completed' ? 'success' : settled || status === 'idle' ? 'muted' : 'info',
     ok: true, reasoning: false, expandable: false, detail: driver, status, targetId: str(item.childThreadId), answer: '',
