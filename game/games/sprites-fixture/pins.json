@@ -1,16 +1,18 @@
 {
   "ticks": {
-    "300": "0x04bd5b984fb15ee6"
+    "300": "0x4884240fd15afc36"
   },
   "saves": {
-    "continuation": "81af51c431c2fd9b0d27f1b9dfd76e49dda6aab431f405ba791fe31a8206320c"
+    "continuation": "bfe4bea33e73d634f6aed6726bdf56855630c1271aeb9fb50de6ba77b0f48978"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "bbea76faf0acf15ed30b329373387a042ecd54b6d3a9403484b110461f4147dc",
+  "inputs": "1f21cc7047936927601a9bb23a7444f3679c137d182cbc208b5078f6efc03aec",
+  "sourceInputs": "40ee4eff84a8fca3a9e0aef433bb2113b9d3672ac6af83a16e63e00673a58ee3",
   "game": "sprites-fixture",
   "generated": "bun game/prove.mjs sprites-fixture --repin --hosts 'linux,web'",
-  "at": "2c19c834853f9a169c70704b58f0ed255a8d7daa"
+  "at": "c488c06611505bc4388d5b0c6e8c32f45186ddca",
+  "reason": "Refresh the stale fixture baseline against the current SDK after complete native/web mode and profile agreement"
 }
