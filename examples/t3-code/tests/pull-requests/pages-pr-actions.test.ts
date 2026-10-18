@@ -576,6 +576,16 @@ describe('inline confirmation input', () => {
     header.call('primaryBlur', {}, scope, []);
     expect(local.at(-1)).toEqual(['pr-ui-disarm', 'pr7', 'primary|merge']);
   });
+  test('Escape belongs to the active confirmation, inside the menu while that menu owns modal shortcuts', () => {
+    const escape = contractComponent('pages-pr-actions.contract', 'PrdConfirmEscape');
+    const actions = { armedAction: 'close', armedControl: 'menu' };
+    expect(escape.drawn('aria-keyshortcuts="Escape"', {}, { actions, inMenu: true })).toBe(true);
+    expect(escape.drawn('aria-keyshortcuts="Escape"', {}, { actions, inMenu: false })).toBe(false);
+    actions.armedControl = 'primary';
+    expect(escape.drawn('aria-keyshortcuts="Escape"', {}, { actions, inMenu: false })).toBe(true);
+    actions.armedAction = '';
+    expect(escape.drawn('aria-keyshortcuts="Escape"', {}, { actions, inMenu: false })).toBe(false);
+  });
   test('a pointer on non-focusable content disarms, while the armed button keeps its confirmation', () => {
     const window = contractComponent('app-window.contract', 'T3Window');
     const sent: unknown[][] = [];

@@ -5,7 +5,7 @@
 // "pending reactions") and pullRequestReviewStore.test.ts ("pull request review drafts"; the store is
 // a plain object here, so `setState` is a fresh store).
 import { describe, expect, it } from 'bun:test';
-import { contractComponent, type Env } from '../support/contract-action-fixture';
+import { contractComponent, value, type Env } from '../support/contract-action-fixture';
 import type { Obj } from '../../src/client/domain';
 import {
   PULL_REQUEST_REACTION_ORDER, PullRequestReviewStore, applyPendingPullRequestReactions, canEditPullRequestChangeRequest, canEditPullRequestComment, pullRequestReactionEmoji,
@@ -304,7 +304,8 @@ describe('remark focus and clipped body editing', () => {
 describe('review summary guidance', () => {
   it('names the input that Submit needs for the chosen verdict', async () => {
     const prcCanSubmit = await contractFn('pages-pr-compose.contract', 'prcCanSubmit', ['verdict', 'summary', 'pending', 'required']);
-    const placeholder = await contractFn('pages-pr-compose.contract', 'prcSummaryPlaceholder', ['verdict', 'pending', 'required'], { prcCanSubmit });
+    const expression = (await Bun.file(appPath('pages-pr-compose.contract')).text()).match(/^fn prcSummaryPlaceholder\([^)]*\): string = (.+)$/m)![1]!;
+    const placeholder = (verdict: string, pending: number, required: boolean) => value(expression, { prcCanSubmit, verdict, pending, required });
     expect(placeholder('approve', 0, false)).toBe('Summarize your review (optional)');
     expect(placeholder('comment', 0, false)).toBe('Summarize your review or add line comments');
     expect(placeholder('comment', 1, false)).toBe('Summarize your review (optional)');
