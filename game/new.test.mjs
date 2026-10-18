@@ -814,7 +814,7 @@ fn without_the_art_the_world_cannot_save() {
       for (const output of ['assets', '.baked-assets.json']) assert.ok(!existsSync(resolve(app, output)), `${layout}: no ${output}`);
     };
     runAll('generated .shells/logic');
-    const formatted = spawnSync('cargo', ['fmt', '-p', 'model-game-logic', '--', '--check'], {cwd:resolve(app, '.shells'), env, encoding:'utf8'});
+    const formatted = spawnSync('rustfmt', ['--edition', '2021', '--check', ...['src/lib.rs', 'tests/sim.rs', 'tests/model.rs'].map(file => resolve(app, 'logic', file))], {cwd:resolve(app, '.shells'), env, encoding:'utf8'});
     assert.equal(formatted.status, 0, `the --assets scaffold is rustfmt-clean:\n${formatted.stdout}`);
     assert.match(readFileSync(resolve(app, '.shells/logic/Cargo.toml'), 'utf8'), /\[dev-dependencies\]\nexact-game-bake\.workspace = true/);
     writeFileSync(resolve(app, 'logic/Cargo.toml'), `[package]
