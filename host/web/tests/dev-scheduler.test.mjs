@@ -590,7 +590,7 @@ test('the JS dev loop rebuilds backend selection creation, edits and removal',as
   const {fetchOrigins}=await import('../../../scripts/agent-test.mjs');
   const root=mkdtempSync(resolve(import.meta.dir,'../../../target/dev-backend-')),app=join(root,'app');
   let child,log='';
-  const until=async(origin)=>{const end=Date.now()+60000;while(Date.now()<end){try{if(fetchOrigins(join(app,'target/web-dist')).includes(origin))return;}catch{}await new Promise(r=>setTimeout(r,25));}throw new Error(`backend ${origin} not served:\n${log.slice(-4000)}`);};
+  const until=async(origin)=>{const end=Date.now()+60000;while(Date.now()<end){try{if(/^http:\/\/127\.0\.0\.1:\d+\/$/m.test(log)&&fetchOrigins(join(app,'target/web-dist')).includes(origin))return;}catch{}await new Promise(r=>setTimeout(r,25));}throw new Error(`backend ${origin} not served:\n${log.slice(-4000)}`);};
   try {
     createApp(app);
     writeFileSync(join(app,'app.contract'),'component App\n  resource chosen = chosen() as shape string else empty()\n  view\n    text chosen\n');
@@ -628,3 +628,24 @@ test('the resident module watcher follows backend selection without other local 
     await new Promise(r=>setTimeout(r,250));assert.equal(changes,before);
   }finally{watcher?.close();rmSync(dir,{recursive:true,force:true});}
 },15000);
+
+test('dev cache requires every GPU artifact from the requested profile', async () => {
+  const start=source.indexOf('async function currentWebBuild()'),end=source.indexOf('\nif (app.manifest.game)',start);
+  const app={manifest:{game:{}},target:'/fixture/target',crate:kind=>`fixture-${kind}`};
+  const build={version:1,trust:'development',binary:{configuration:{flags:{EXACT_WEB_LINK:'all'}}}};
+  const products=profile=>['gpu','gpu-sky'].map(kind=>({path:resolve(app.target,'wasm32-unknown-unknown',profile,app.crate(kind).replaceAll('-','_')+'.wasm')}));
+  const cached=new Function('app','buildEnv','readFileSync','resolve','gpuModules',`
+    const producersOnly=false,dist='',graphPath='',builtAppMatches=async()=>true,pendingBuildInputs=()=>[];
+    ${source.slice(start,end)}
+    return currentWebBuild();
+  `);
+  for(const requested of ['gpu-dev','release']) {
+    const profile=requested==='gpu-dev'?'gpu-dev':'web';
+    for(const actual of ['gpu-dev','web']) {
+      build.products=products(actual);
+      assert.equal(await cached(app,{EXACT_GAME_PROOF_PROFILE:requested},()=>JSON.stringify(build),resolve,()=>[{name:'sky'}]),profile===actual);
+    }
+    build.products=products(profile).slice(0,1);
+    assert.equal(await cached(app,{EXACT_GAME_PROOF_PROFILE:requested},()=>JSON.stringify(build),resolve,()=>[{name:'sky'}]),false,'a missing secondary artifact is not a reusable build');
+  }
+});

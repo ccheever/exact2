@@ -123,8 +123,8 @@ async function currentWebBuild() {
   if (!(producersOnly ? existsSync(plan) : await builtAppMatches(dist, app))) return false;
   try {
     const build = JSON.parse(readFileSync(graphPath, 'utf8'));
-    // A bake in this run's look (its receipt names one only where it is not the default: look.mjs), of these sources.
     return build.version === 1 && build.trust === 'development' && build.binary?.configuration?.flags?.EXACT_WEB_LINK === 'all'
+      && (!app.manifest.game || ['gpu', ...gpuModules(app.manifest).map(({name}) => `gpu-${name}`)].every(kind => build.products?.some(p => p.path === resolve(app.target, 'wasm32-unknown-unknown', buildEnv.EXACT_GAME_PROOF_PROFILE === 'gpu-dev' ? 'gpu-dev' : 'web', app.crate(kind).replaceAll('-', '_') + '.wasm'))))
       && pendingBuildInputs(build).length === 0;
   } catch { return false; }
 }

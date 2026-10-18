@@ -5,6 +5,7 @@ import {createHash} from 'node:crypto';
 import {spawn, spawnSync} from 'node:child_process';
 import {tableOperation, watchTables} from '../../../game/app/tables.mjs';
 import {filesystem} from '../../../scripts/filesystem.mjs';
+import {pendingBuildInputs} from '../../../scripts/app.mjs';
 const source = readFileSync(new URL('../dev.mjs', import.meta.url), 'utf8');
 
 test('table publication counts the whole operation and refuses imported subprocess helpers', () => {
@@ -139,7 +140,7 @@ test('real game dev journals rejected edits and reloads tables after a gpu-dev p
   }
 }, 1_500_000);
 
-test('clean no-table game carries its world and tick across a gameplay Rust edit', async () => {
+test('no-table game carries its world across Rust edits after cold start and profile switches', async () => {
   const {createGame} = await import('../../../game/new.mjs');
   const {open} = await import('../../../scripts/agent.mjs');
   // The dev watcher excludes target/; generate the authored sources beside the games.
@@ -150,40 +151,61 @@ test('clean no-table game carries its world and tick across a gameplay Rust edit
   delete env.EXACT_GAME_PROOF_PROFILE;delete env.CARGO_TARGET_DIR;
   let child,drive,log='',passed=false;
   const until=async(read,ms=60000)=>{const end=Date.now()+ms;while(Date.now()<end){if(child?.exitCode!==null&&child?.exitCode!==undefined)throw Error('dev exited '+child.exitCode+':\n'+log);const value=await read();if(value)return value;await Bun.sleep(50);}throw Error('dev condition missing:\n'+log.slice(-4000));};
+  const stop=async()=>{
+    await drive?.close();drive=null;
+    if(child?.exitCode===null){const ended=new Promise(ok=>child.once('exit',ok));child.kill('SIGTERM');await ended;}
+  };
   try {
     createGame(app);
     expect(existsSync(resolve(app,'target'))).toBe(false);
-    const shipping=resolve(app,'target/wasm32-unknown-unknown/web/carry_game_gpu.d');
-    expect(existsSync(shipping)).toBe(false);
     process.env.EXACT_APP_DIR=app;
-    child=spawn(process.execPath,[resolve(import.meta.dir,'../../../game/dev.mjs'),app],{env,stdio:['ignore','pipe','pipe']});
-    for(const stream of [child.stdout,child.stderr])stream.on('data',bytes=>{log+=bytes;});
-    await until(()=>log.includes('plan ready'),1_200_000);
-    expect(existsSync(shipping)).toBe(false);
-    expect(existsSync(resolve(app,'target/wasm32-unknown-unknown/gpu-dev/carry_game_gpu.d'))).toBe(true);
-    const url=await until(()=>log.match(/http:\/\/127\.0\.0\.1:\d+/)?.[0]);expect(url).toBeTruthy();
-    drive=await open({host:'web',app:'carry-game',url:url+'/',size:[1280,720]});
-    await drive.tap('play');const world=drive.world('world');
-    await world.hold('KeyW',500);
-    const before=await world.snapshot(),position=await world.local_position('player');
-    expect(before.tick).toBeGreaterThan(0);expect(position[2]).toBeLessThan(0);
-    // Keep the driver clock, but accept the ordinary dev client's automatic GPU swaps.
-    await drive.carrier.evaluate("const url=new URL(location.href);url.searchParams.delete('agent');history.replaceState(null,'',url)");
-    const source=readFileSync(rust,'utf8'),offset=log.length;
-    writeFileSync(rust,source.replace('        w.character("player")', '        w.require_mut::<Character>("player").speed = 7.0;\n        w.character("player")'));
-    await until(()=>log.slice(offset).includes('· swapped in'),600000);
-    expect(log.slice(offset)).not.toContain('rust: rebuilt');
-    const after=await world.snapshot();
-    expect(after.tick).toBe(before.tick);expect(after.hash).toBe(before.hash);
-    expect(await world.local_position('player')).toEqual(position);
-    await world.run(9);expect((await world.get('player','Character')).speed).toBe(7);
-    expect(existsSync(shipping)).toBe(false);
+    let previousSpeed;
+    for (const [profile,speed] of [['gpu-dev',7],['web',8],['gpu-dev',9]]) {
+      const dependency=resolve(app,`target/wasm32-unknown-unknown/${profile}/carry_game_gpu.d`);
+      // Leave the previous receipt and artifacts intact, but remove the requested
+      // profile's dependency file so a cache mismatch cannot classify the edit.
+      rmSync(dependency,{force:true});expect(existsSync(dependency)).toBe(false);
+      if(profile==='web')env.EXACT_GAME_PROOF_PROFILE='release';else delete env.EXACT_GAME_PROOF_PROFILE;
+      const start=log.length;
+      child=spawn(process.execPath,[resolve(import.meta.dir,'../../../game/dev.mjs'),app],{env,stdio:['ignore','pipe','pipe']});
+      for(const stream of [child.stdout,child.stderr])stream.on('data',bytes=>{log+=bytes;});
+      await until(()=>log.slice(start).includes('plan ready'),1_200_000);
+      expect(existsSync(dependency)).toBe(true);
+      const receipt=JSON.parse(readFileSync(resolve(app,'dist/bake.json'),'utf8'));
+      expect(receipt.products.some(p=>p.path.endsWith(`/${profile}/carry_game_gpu.wasm`))).toBe(true);
+      if(previousSpeed===undefined)expect(existsSync(resolve(app,'target/wasm32-unknown-unknown/web/carry_game_gpu.d'))).toBe(false);
+      const url=await until(()=>log.slice(start).match(/http:\/\/127\.0\.0\.1:\d+/)?.[0]);expect(url).toBeTruthy();
+      drive=await open({host:'web',app:'carry-game',url:url+'/',size:[1280,720]});
+      await drive.tap('play');const world=drive.world('world');
+      await world.hold('KeyW',500);
+      const before=await world.snapshot(),position=await world.local_position('player');
+      expect(before.tick).toBeGreaterThan(0);expect(position[2]).toBeLessThan(0);
+      // Keep the driver clock, but accept the ordinary dev client's automatic GPU swaps.
+      await drive.carrier.evaluate("const url=new URL(location.href);url.searchParams.delete('agent');history.replaceState(null,'',url)");
+      const source=readFileSync(rust,'utf8'),offset=log.length;
+      writeFileSync(rust,previousSpeed===undefined
+        ? source.replace('        w.character("player")', `        w.require_mut::<Character>("player").speed = ${speed}.0;\n        w.character("player")`)
+        : source.replace(`.speed = ${previousSpeed}.0;`,`.speed = ${speed}.0;`));
+      await until(()=>log.slice(offset).includes('· swapped in'),600000);
+      expect(log.slice(offset)).not.toContain('rust: rebuilt');
+      const after=await world.snapshot();
+      expect(after.tick).toBe(before.tick);expect(after.hash).toBe(before.hash);
+      expect(await world.local_position('player')).toEqual(position);
+      await world.run(9);expect((await world.get('player','Character')).speed).toBe(speed);
+      previousSpeed=speed;
+      await stop();
+      // A side edit does not update the primary build receipt. Rebuild the primary
+      // in this session's profile before switching, to isolate profile reuse from freshness.
+      const built=spawnSync(process.execPath,[resolve(import.meta.dir,'../build.mjs'),'--wasm'],{
+        env:{...env,EXACT_WEB_DIST:resolve(app,'dist'),EXACT_WEB_LINK:'all',EXACT_UPDATE_TRUST:'development',EXACT_GAME_PROOF_PROFILE:profile==='web'?'release':'gpu-dev'},encoding:'utf8'});
+      log+=built.stdout+built.stderr;expect(built.status).toBe(0);
+      expect(pendingBuildInputs(JSON.parse(readFileSync(resolve(app,'dist/bake.json'),'utf8')))).toEqual([]);
+    }
     passed=true;
   } finally {
-    await drive?.close();
-    if(child?.exitCode===null){const ended=new Promise(ok=>child.once('exit',ok));child.kill('SIGTERM');await ended;}
+    await stop();
     writeFileSync(resolve(root,'dev.log'),log);
     if(oldApp===undefined)delete process.env.EXACT_APP_DIR;else process.env.EXACT_APP_DIR=oldApp;
     if(passed)rmSync(root,{recursive:true,force:true});else console.error(`dev carry evidence: ${root}`);
   }
-}, 2_000_000);
+}, 3_000_000);
