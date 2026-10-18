@@ -352,7 +352,7 @@ pub struct Input {
 }
 impl Input {
     /// Events produced by the preceding tick, in emission order for this type.
-    pub fn events<E: crate::Event>(&self) -> &[E] {
+    pub fn events<E: crate::TypedEvent>(&self) -> &[E] {
         self.events
             .0
             .get(E::NAME)

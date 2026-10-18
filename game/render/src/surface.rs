@@ -813,16 +813,10 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
         // its own Data decoder to distinguish state from tree/error/entity replies.
         let state = world_state(&reply);
         if state {
-            #[derive(Default, exact_game::Data)]
-            struct PerfRequest {
-                perf_reset: bool,
-                perf: bool,
-                span_since: u64,
-            }
-            let span_since = exact_game::json::from_str::<PerfRequest>(request)
+            let span_since = crate::perf::PerfRequest::parse(request)
                 .ok()
-                .map(|r| r.span_since);
-            if let Ok(r) = exact_game::json::from_str::<PerfRequest>(request) {
+                .and_then(|r| r.span_since);
+            if let Ok(r) = crate::perf::PerfRequest::parse(request) {
                 if r.perf || r.perf_reset {
                     sim.measure_spans(crate::perf::clock_ms, r.perf_reset);
                 }
@@ -855,6 +849,10 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
             reply.push_str(",\"tickSpans\":");
             reply.push_str(&sim.spans_json(span_since));
             reply.push('}');
+            let trace_events = crate::perf::PerfRequest::parse(request)
+                .ok()
+                .filter(|q| q.trace_export)
+                .map(|_| sim.trace_events_json());
             let work = self
                 .render
                 .as_ref()
@@ -900,6 +898,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
                     timing.poll(&renderer.device, &renderer.queue);
                 }
                 timing.append(&mut reply);
+            }
+            if let Some(events) = trace_events {
+                render::append_trace(&mut reply, events, self.gpu_timing.as_ref());
             }
             reply.push_str("}}");
         }

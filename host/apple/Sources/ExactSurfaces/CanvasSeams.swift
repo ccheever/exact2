@@ -442,7 +442,7 @@ extension CanvasesHost {
                 reply["nodes"] = nodes
             }
         case "state":
-            let world = worlds(["op": "state"])
+            let world = worlds(["op": "state", "trace_export": request["trace_export"] as? Bool ?? false])
             if !world.isEmpty { reply["world"] = world }
         case "logs":
             var world: [[String: Any]] = []

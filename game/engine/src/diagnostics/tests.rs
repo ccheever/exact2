@@ -41,8 +41,10 @@ struct Sample {
     perTick: f64,
     count: u64,
 }
+#[allow(non_snake_case)]
 #[derive(Default, crate::Data)]
 struct Report {
+    tickMs: Distribution,
     spans: Vec<Sample>,
 }
 #[test]
@@ -64,7 +66,11 @@ fn spans_are_exclusive_aggregate_per_tick_and_never_change_saves_or_hashes() {
     );
     assert!(find("outer").at.contains("diagnostics/tests.rs:"));
     assert_eq!(find("outer").count, 3);
-    assert_eq!(report.spans.iter().map(|s| s.perTick).sum::<f64>(), 10.);
+    assert_eq!(
+        report.spans.iter().map(|s| s.perTick).sum::<f64>(),
+        report.tickMs.mean
+    );
+    assert_eq!(report.tickMs.mean, 10.);
     let delta: Report = crate::json::from_str(&on.spans_json(Some(2))).unwrap();
     assert_eq!(delta.spans[0].count, 1);
     assert!(on.spans_json(Some(4)).contains("counters went back"));
@@ -116,4 +122,56 @@ fn hundred_thousand_entity_query_span() {
             println!("perf world: entities={count} exclusive={exclusive}: {text}");
         }
     }
+}
+
+#[test]
+fn ten_seconds_of_tick_spans_are_joined_to_submitted_frames() {
+    let mut sim = Sim::<Nested>::new(()).unwrap();
+    sim.measure_spans(now, true);
+    sim.advance(0., Clock::Seekable);
+    for tick in 1..=600 {
+        sim.advance(tick as f64 * 1000. / 60. + 0.001, Clock::Seekable);
+        sim.trace_frame();
+    }
+    #[derive(Default, crate::Data)]
+    struct Args {
+        tick: u64,
+        frame: u64,
+    }
+    #[derive(Default, crate::Data)]
+    struct Interval {
+        name: String,
+        ts: f64,
+        dur: f64,
+        args: Args,
+    }
+    let events = sim.trace_events_json();
+    let rows: Vec<Interval> = crate::json::from_str(&events).unwrap();
+    let ticks: Vec<_> = rows.iter().filter(|e| e.name == "tick").collect();
+    assert_eq!(ticks.len(), 600);
+    for tick in ticks {
+        let frame = rows
+            .iter()
+            .find(|e| e.name == "frame" && e.args.frame == tick.args.frame)
+            .unwrap();
+        assert!(frame.ts <= tick.ts && frame.ts + frame.dur >= tick.ts + tick.dur);
+        assert_eq!(tick.args.tick, tick.args.frame);
+    }
+    if let Ok(path) = std::env::var("EXACT_DIAGNOSTIC_TRACE") {
+        std::fs::write(path, format!("{{\"traceEvents\":{events}}}")).unwrap();
+    }
+    println!(
+        "trace export: 600 ticks under 600 submitted frames; {} intervals",
+        rows.len()
+    );
+}
+
+#[test]
+fn a_difference_from_zero_refuses_when_its_prefix_has_expired() {
+    let mut sim = Sim::<Nested>::new(()).unwrap();
+    sim.measure_spans(now, true);
+    sim.advance(0., Clock::Seekable);
+    sim.advance(300_000., Clock::Seekable);
+    assert!(sim.spans_json(Some(0)).contains("window expired"));
+    assert!(!sim.spans_json(None).contains("error"));
 }

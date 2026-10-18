@@ -220,7 +220,26 @@ pub fn save_trace<D: DataSource>(
     let wall = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis());
+    let worlds = read(r#"{"op":"state","trace_export":true}"#);
+    let events: Vec<Value> = worlds["world"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|w| {
+            let canvas = w["canvas"].as_u64().unwrap_or(0);
+            w["traceEvents"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .cloned()
+                .map(move |mut e| {
+                    e["pid"] = (canvas * 2 + e["pid"].as_u64().unwrap_or(0)).into();
+                    e
+                })
+        })
+        .collect();
     let trace = json!({
+        "traceEvents": events,
         "identity": { "host": "linux", "app": app, "trust": "development",
             "os": std::env::consts::OS, "arch": std::env::consts::ARCH },
         "proxies": { "period": "refresh: the display mode's refresh rate",

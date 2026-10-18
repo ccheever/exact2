@@ -25,7 +25,17 @@ impl Game for Editable {
 fn live_edits_are_stamped_saved_replayed_validated_and_refused_in_production() {
     let mut sim = Sim::<Editable>::new(()).unwrap();
     sim.advance(0., Clock::Seekable);
+    let before = sim.world().hash();
     sim.post("set player Tuning.speed 8");
+    assert_eq!(sim.world().hash(), before);
+    let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sim.assert_pin("{}")))
+        .unwrap_err();
+    assert!(refused
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| refused.downcast_ref::<&str>().copied())
+        .unwrap()
+        .contains("set development edit"));
     assert_eq!(sim.world().require::<Tuning>("player").speed, 4.);
     let queued = sim.save().unwrap();
     let mut replay = Sim::<Editable>::new(()).unwrap();
@@ -65,6 +75,10 @@ fn live_edits_are_stamped_saved_replayed_validated_and_refused_in_production() {
     production.advance(0., Clock::Seekable);
     production.advance(17., Clock::Seekable);
     assert_eq!(production.world().require::<Tuning>("player").speed, 4.);
+    let mut pristine = Sim::<Editable>::new(()).unwrap();
+    pristine.advance(0., Clock::Seekable);
+    pristine.advance(17., Clock::Seekable);
+    assert_eq!(production.world().hash(), pristine.world().hash());
     assert!(production
         .world()
         .journal()

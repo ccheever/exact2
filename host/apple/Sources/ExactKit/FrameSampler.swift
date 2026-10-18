@@ -261,7 +261,15 @@ extension ExactSession {
         let host = "macos", device = Host.current().localizedName ?? "Mac"
         #endif
         let bundle = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        let worlds = (raw(agent("{\"op\":\"state\",\"trace_export\":true}")) as? [String: Any])?["world"] as? [[String: Any]] ?? []
+        let events = worlds.flatMap { world -> [[String: Any]] in
+            let canvas = world["canvas"] as? Int ?? 0
+            return (world["traceEvents"] as? [[String: Any]] ?? []).map { row in
+                var row = row; row["pid"] = canvas * 2 + (row["pid"] as? Int ?? 0); return row
+            }
+        }
         let trace: [String: Any] = [
+            "traceEvents": events,
             "identity": ["host": host, "app": bundle.split(separator: ".").last.map(String.init) ?? bundle, "bundle": bundle, "trust": "development",
                          "os": ProcessInfo.processInfo.operatingSystemVersionString, "device": device,
                          "bootWall": ((Date().timeIntervalSince1970 - (CACurrentMediaTime() - ExactEnv.t0)) * 1000).rounded()],

@@ -1,4 +1,4 @@
-use crate::{bin, Actions, Data, DataError, Input, InputEvent, JournalEvent, Value, Vec2, World};
+use crate::{bin, Actions, Data, DataError, Event, Input, InputEvent, Value, Vec2, World};
 use crate::{Args, ArgumentKind, PointerPhase};
 use std::{collections::VecDeque, marker::PhantomData};
 
@@ -107,7 +107,7 @@ struct Saved {
     input: Input,
     queue: Vec<Queued>,
     world_us: i64,
-    journal: Vec<JournalEvent>,
+    journal: Vec<Event>,
     journal_next: u64,
     overflow_logged: bool,
     published: std::collections::BTreeMap<String, crate::values::Stored>,
@@ -922,6 +922,10 @@ impl<G: Game> Sim<G> {
                 self.overflow_logged = true;
             }
         }
+        if matches!(&e.event, InputEvent::Message { text, .. } if crate::world::edit::is_set(text))
+        {
+            self.world.set_seen.set(true);
+        }
         self.queue.insert(position, e);
     }
     fn flush_paused(&mut self, now: i64) {
@@ -1159,7 +1163,7 @@ impl<G: Game> Sim<G> {
             self.world.observe(&mut self.observations[0]);
         }
         while self.world.tick() < target {
-            self.world.spans.borrow_mut().begin();
+            self.world.spans.borrow_mut().begin(self.world.tick() + 1);
             self.world.begin_tick();
             self.input.clear_edges();
             self.world.deliver_events(&mut self.input);

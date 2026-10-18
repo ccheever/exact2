@@ -306,7 +306,7 @@ export function assertNoLiveEdits(worlds, journals = []) {
   const edited = worlds?.some(w => w.developmentEdits);
   const lines = journals.flatMap(j => j.lines ?? []);
   const line = lines.find(l => /(?:^| tick=\d+ )set(?:\s|$)/.test(l));
-  if (edited || line) throw new Error(`pin refused: journal contains a set development edit${line ? ': ' + line : ''}`);
+  if (edited || line) throw new Error(`pin refused: run contains a set development edit${line ? ': ' + line : ''}`);
 }
 
 export function pinRecorder(previous, app, check, collecting = false) {

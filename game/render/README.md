@@ -674,7 +674,9 @@ rings retain 16,384 values. Seekable renders, agent advances and timed binds mak
 no CPU frame perf clock calls unless tick spans are armed; samples do not enter hashes.
 `perf world:<surface>` arms exclusive tick spans, exposed in
 `state.world.perf.tickSpans`: name, source line, p50, p95, maximum and per-tick
-mean milliseconds. `tick.other` completes the tick. These rings also retain
+mean milliseconds. `tick.other` completes the tick. `tickSpans.tickMs` measures
+the same engine interval, before presentation; the exclusive per-tick means sum
+to its mean. Span distributions include zero for ticks before a name first appeared. These rings also retain
 16,384 ticks, including under the agent clock; `during` reads the added ticks. Armed perf also reads back, a few
 frames late and asynchronously, `perf.culled` (instances each view drew: `camera`,
 `shadows[0..3]`) and, where timestamps are granted, `world.gpuMs` rings for every
@@ -704,6 +706,15 @@ in the frame budget even though it is outside drawing.
 Capacity errors precede history swaps and propagate through the surface ABI;
 failed draws are not presented. Invalid viewports skip drawing and preserve the
 input viewport, while a finite seekable clock can still advance.
+
+Development trace exports include bounded Chrome `traceEvents` after `perf` arms
+measurement: CPU ticks and nested spans under their submitted frame, plus GPU pass
+intervals after asynchronous readback. Frame numbers join the two clocks; GPU timestamp
+values are a separate clock domain and are never placed on a fabricated CPU timeline.
+A GPU-less host reports no GPU intervals. Each clock retains at most 65,536 intervals;
+CPU rows report the dropped count. `bun scripts/agent.mjs trace <file>` summarizes them;
+Perfetto reads the same file. Arm before the session being captured, then use Save Trace,
+⌥⇧T or `SIGUSR1` as supported by the host.
 
 ## Residency across restore
 

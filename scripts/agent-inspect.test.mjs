@@ -42,3 +42,12 @@ test('a release build\'s first trace says its frames were not measured yet, and 
   expect(text).toContain(`frames not measured: ${frames.unmeasured}`);
   expect(text).not.toContain('presented 0');
 });
+
+test('state world events uses the world seam and an optional type filter', async () => {
+  const calls = [], s = {state: async (...args) => { calls.push(args); return {events:[]}; }};
+  await stateOp(s, ['world','events','Hit']);
+  expect(calls[0][0]).toBe('world');
+  expect(calls[0][4]).toEqual({world:true, events:true, event_type:'Hit'});
+  await stateOp(s, ['world','events']);
+  expect(calls[1][4]).toEqual({world:true, events:true});
+});

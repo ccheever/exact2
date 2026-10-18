@@ -1468,7 +1468,11 @@ impl<D: DataSource> Presenter<D> {
                     }
                 }
             }
-            Some("state") => r["world"] = self.worlds(json!({"op":"state"})).into(),
+            Some("state") => {
+                r["world"] = self
+                    .worlds(json!({"op":"state","trace_export":q["trace_export"]}))
+                    .into()
+            }
             Some("logs") => r["world"] = self.worlds(json!({"op":"logs","all":q["all"]})).into(),
             Some("screenshot")
                 if self.surfaces.canvases.values().any(|canvas| {

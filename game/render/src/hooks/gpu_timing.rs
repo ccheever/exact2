@@ -55,6 +55,7 @@ pub(crate) struct GpuTiming {
     bloom: Ring,
     period: f64,
     error: Option<String>,
+    trace: std::collections::VecDeque<(u64, usize, f64, f64)>,
 }
 
 fn ring() -> Ring {
@@ -112,6 +113,7 @@ impl GpuTiming {
             bloom: ring(),
             period: f64::from(queue.get_timestamp_period()) / 1_000_000.,
             error: None,
+            trace: std::collections::VecDeque::with_capacity(65536),
         })
     }
     /// Forget every sample; frames still in flight are read and discarded.
@@ -124,6 +126,7 @@ impl GpuTiming {
         self.envelope.arm(true);
         self.generation += 1;
         self.previous = None;
+        self.trace.clear();
     }
     pub fn poll(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         #[cfg(not(target_arch = "wasm32"))]
@@ -194,6 +197,15 @@ impl GpuTiming {
             let b = u64::from_ne_bytes(data[at + 8..at + 16].try_into().unwrap());
             if a > 0 && b >= a {
                 self.rings[pair].push((b - a) as f64 * self.period);
+                if self.trace.len() == 65536 {
+                    self.trace.pop_front();
+                }
+                self.trace.push_back((
+                    slot.frame,
+                    pair,
+                    a as f64 * self.period * 1000.,
+                    (b - a) as f64 * self.period * 1000.,
+                ));
                 if (4..=14).contains(&pair) {
                     let s = bloom.get_or_insert((a, b));
                     *s = (s.0.min(a), s.1.max(b));
@@ -225,8 +237,8 @@ impl GpuTiming {
     }
     /// A rendered frame was submitted; `timed`: the timestamp pairs it wrote
     /// into [`Self::query`]'s set, none when it was not sampled.
-    pub fn submitted(&mut self, queue: &wgpu::Queue, timed: u64) {
-        self.frames += 1;
+    pub fn submitted(&mut self, queue: &wgpu::Queue, timed: u64, frame: u64) {
+        self.frames = frame;
         if timed == 0 || self.error.is_some() {
             return;
         }
@@ -240,6 +252,18 @@ impl GpuTiming {
         slot.stage = Stage::Rendered;
         let done = slot.done.clone();
         queue.on_submitted_work_done(move || *done.lock().unwrap() = Some(Ok(())));
+    }
+    pub fn trace_json(&self) -> String {
+        use std::fmt::Write;
+        let mut out = String::from("[");
+        for (i, (frame, pair, ts, dur)) in self.trace.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            write!(out, "{{\"name\":{},\"cat\":\"world.gpu\",\"ph\":\"X\",\"pid\":1,\"tid\":1,\"ts\":{ts},\"dur\":{dur},\"args\":{{\"frame\":{frame},\"clock\":\"GPU timestamp (independent of CPU)\"}}}}", exact_game::json::to_string(&GPU_PASS_NAMES[*pair].to_owned()).unwrap()).unwrap();
+        }
+        out.push(']');
+        out
     }
     /// Every pass, by name; a pass that never ran (or that this device cannot
     /// time inside a pass or encoder) reports an empty ring. `bloom` spans its

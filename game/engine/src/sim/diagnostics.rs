@@ -10,7 +10,7 @@ impl<G: Game> Sim<G> {
     pub fn assert_pin(&self, pins: &str) {
         assert!(
             !self.world.set_seen.get(),
-            "pin refused: journal contains a set development edit"
+            "pin refused: run contains a set development edit"
         );
         let (game, tick, got) = (G::ID, self.world.tick(), self.world.hash());
         #[derive(Default, crate::Data)]
@@ -39,6 +39,14 @@ impl<G: Game> Sim<G> {
             "pin {tick} differs (expected {expected}, got {got}); if the change is intended: bun game/prove.mjs {game} --repin");
     }
 
+    /// Join completed tick spans to the frame the renderer just submitted.
+    pub fn trace_frame(&mut self) -> u64 {
+        self.world.spans.borrow_mut().frame()
+    }
+    /// Chrome trace-event JSON in the host CPU clock domain.
+    pub fn trace_events_json(&self) -> String {
+        self.world.spans.borrow().trace_json()
+    }
     /// Arm host-only tick measurements. The game receives no measurement reads.
     pub fn measure_spans(&mut self, clock: fn() -> f64, reset: bool) {
         self.world.spans.borrow_mut().arm(clock, reset);

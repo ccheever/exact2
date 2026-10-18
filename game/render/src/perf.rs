@@ -211,3 +211,34 @@ pub(crate) fn clock_ms() -> f64 {
         ORIGIN.with(|t| t.elapsed().as_secs_f64() * 1000.)
     }
 }
+
+#[derive(Default)]
+pub(crate) struct PerfRequest {
+    pub perf_reset: bool,
+    pub perf: bool,
+    pub span_since: Option<u64>,
+    pub trace_export: bool,
+}
+impl PerfRequest {
+    pub fn parse(text: &str) -> Result<Self, exact_game::DataError> {
+        use exact_game::{Data, Reader};
+        let mut r = exact_game::json::Decoder::new(text);
+        let mut q = Self::default();
+        r.begin_struct()?;
+        while let Some(field) = r.field()? {
+            match field.as_str() {
+                "perf_reset" => q.perf_reset.read(&mut r)?,
+                "perf" => q.perf.read(&mut r)?,
+                "trace_export" => q.trace_export.read(&mut r)?,
+                "span_since" => {
+                    let mut n = 0u64;
+                    n.read(&mut r)?;
+                    q.span_since = Some(n);
+                }
+                _ => r.skip()?,
+            }
+        }
+        r.finish()?;
+        Ok(q)
+    }
+}

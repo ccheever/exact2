@@ -810,7 +810,7 @@ const api = {
       if (summary?.world) node.world = summary.world;
     }
     if (request.op === "state") {
-      const world = worlds({ op: "state" });
+      const world = worlds({ op: "state", trace_export: request.trace_export === true });
       if (world.length) reply.world = [...(reply.world ?? []), ...world]; // another artifact's worlds too
     }
     if (request.op === "logs") {

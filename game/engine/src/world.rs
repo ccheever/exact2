@@ -157,6 +157,7 @@ struct State {
     free: Free,
     busy: RefCell<Vec<std::borrow::Cow<'static, str>>>,
 }
+type ComponentEdit = fn(&mut World, Entity, &str, &str) -> Result<(), DataError>;
 type StorageFactory = fn(&'static str, std::rc::Rc<std::cell::Cell<u64>>) -> Box<dyn Erased>;
 #[derive(Clone, Copy)]
 struct Registration {
@@ -167,7 +168,7 @@ struct Registration {
     ambient: bool,
     // A presentation component: outside saves, hashes and observation.
     presentation: bool,
-    edit: Option<fn(&mut World, Entity, &str, &str) -> Result<(), DataError>>,
+    edit: Option<ComponentEdit>,
 }
 
 #[derive(Clone, Copy)]
@@ -178,7 +179,7 @@ pub(crate) struct Attachments {
 
 /// One journal event. Reads never generate per-tick samples.
 #[derive(Clone, Debug, Default, Data)]
-pub struct JournalEvent {
+pub struct Event {
     /// Monotonically increasing journal cursor.
     pub index: u64,
     /// Simulation tick at the event.
@@ -240,7 +241,7 @@ pub struct World {
     pub(crate) leases: Leases,
     // Animation-owned derived data, populated only when animation is linked and used; never saved.
     pub(crate) animation_runtime: RefCell<Option<Box<dyn std::any::Any>>>,
-    journal: RefCell<VecDeque<JournalEvent>>,
+    journal: RefCell<VecDeque<Event>>,
     journal_next: std::cell::Cell<u64>,
     pub(crate) set_seen: std::cell::Cell<bool>,
     pub(crate) published_pending: std::cell::Cell<bool>,
@@ -1052,7 +1053,7 @@ impl World {
         }
         let index = self.journal_next.get();
         self.journal_next.set(index + 1);
-        j.push_back(JournalEvent {
+        j.push_back(Event {
             index,
             tick: self.tick(),
             seconds: self.seconds(),
@@ -1064,7 +1065,7 @@ impl World {
         });
     }
     /// Snapshot journal events; journal reads do not affect simulation state.
-    pub fn journal(&self) -> Vec<JournalEvent> {
+    pub fn journal(&self) -> Vec<Event> {
         self.journal.borrow().iter().cloned().collect()
     }
     /// Publish to the app and journal only changes to this key.

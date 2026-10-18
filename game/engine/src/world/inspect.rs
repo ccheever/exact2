@@ -198,7 +198,7 @@ impl World {
         out.push_str("]}");
         out
     }
-    pub(crate) fn restore_journal(&mut self, lines: Vec<JournalEvent>, next: u64) {
+    pub(crate) fn restore_journal(&mut self, lines: Vec<Event>, next: u64) {
         *self.journal.borrow_mut() = lines.into();
         self.journal_next.set(next);
     }

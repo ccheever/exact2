@@ -62,8 +62,8 @@ pub fn event(input: TokenStream) -> TokenStream {
             return Err("Event requires a named record".into());
         }
         let name = ty[1].to_string();
-        expand(input, Some("Event")).map(|mut s| {
-            s = s.replace(&format!("impl ::exact_game::Event for {name} {{"), &format!("impl ::exact_game::Event for {name} {{ const CAPACITY: ::core::primitive::usize = {bound}; const QUEUE_NAME: &'static ::core::primitive::str = ::core::concat!(\"events:\", ::core::stringify!({name}));")); s
+        expand(input, Some("TypedEvent")).map(|mut s| {
+            s = s.replace(&format!("impl ::exact_game::TypedEvent for {name} {{"), &format!("impl ::exact_game::TypedEvent for {name} {{ const CAPACITY: ::core::primitive::usize = {bound}; const QUEUE_NAME: &'static ::core::primitive::str = ::core::concat!(\"events:\", ::core::stringify!({name}));")); s
         })
     });
     match result {

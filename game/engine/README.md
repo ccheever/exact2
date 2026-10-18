@@ -153,7 +153,7 @@ publication accepts u8/u16/u32 and i8/i16/i32; larger integers can use the check
 record path. See the [HUD example](../README.md#publications-and-events).
 
 `#[derive(Default, Event)] struct Hit { target: Entity, damage: f32 }` declares
-a simulation event. Call `w.register_event::<Hit>()` in `Game::register` and
+a simulation event. The derive implements `TypedEvent`. Call `w.register_event::<Hit>()` in `Game::register` and
 `w.emit_event(Hit { .. })` in the tick. The next tick reads `input.events::<Hit>()`
 in emission order; every tick replaces that delivered batch, even when empty.
 `#[event(capacity = 32)]` overrides the default 256 emissions per type per tick.
@@ -187,7 +187,8 @@ string field can change; strings use JSON quotes. Unknown names, unknown fields,
 wrong types and non-finite values refuse by name without changing a component.
 The whole candidate is decoded and validated before replacement. Production bakes
 refuse `set` by name. Every attempt journals its command or refusal. A saved
-sticky diagnostic also records attempts after the journal ring turns over.
+sticky diagnostic records each admitted attempt, including before its tick and
+after the journal ring turns over.
 `prove.mjs` and `Sim::assert_pin` refuse a run carrying that diagnostic: put tuning
 that a pin should accept in the authored files. Arguments tune settings a save
 should not carry.

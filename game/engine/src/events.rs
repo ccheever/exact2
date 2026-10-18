@@ -3,7 +3,7 @@ use crate::{Data, DataError, Input, Reader, Resource, World, Writer};
 use std::{any::Any, collections::BTreeMap, sync::Arc};
 
 /// A registered record produced by a tick for the next tick.
-pub trait Event: Data + Send + Sync {
+pub trait TypedEvent: Data + Send + Sync {
     /// Agent-facing type spelling.
     const NAME: &'static str;
     /// Resource name, generated as `events:Type` by the derive.
@@ -13,12 +13,12 @@ pub trait Event: Data + Send + Sync {
 }
 #[derive(Default, Clone)]
 pub(crate) struct InputEvents(pub BTreeMap<&'static str, Arc<dyn Any + Send + Sync>>);
-struct Queue<E: Event> {
+struct Queue<E: TypedEvent> {
     pending: Vec<E>,
     delivered: Arc<Vec<E>>,
     tick: u64,
 }
-impl<E: Event> Default for Queue<E> {
+impl<E: TypedEvent> Default for Queue<E> {
     fn default() -> Self {
         Self {
             pending: Vec::new(),
@@ -27,10 +27,10 @@ impl<E: Event> Default for Queue<E> {
         }
     }
 }
-impl<E: Event> Resource for Queue<E> {
+impl<E: TypedEvent> Resource for Queue<E> {
     const NAME: &'static str = E::QUEUE_NAME;
 }
-impl<E: Event> Data for Queue<E> {
+impl<E: TypedEvent> Data for Queue<E> {
     fn write(&self, w: &mut dyn Writer) {
         w.begin_struct();
         w.field("pending");
@@ -72,7 +72,7 @@ pub(crate) struct Registration {
 }
 impl World {
     /// Register an event and its bounded, saved and hashed queue in `Game::register`.
-    pub fn register_event<E: Event>(&mut self) -> &mut Self {
+    pub fn register_event<E: TypedEvent>(&mut self) -> &mut Self {
         assert!(
             E::CAPACITY > 0 && E::CAPACITY <= 65536,
             "event {} capacity must be 1..65536",
@@ -111,7 +111,7 @@ impl World {
         self
     }
     /// Append a simulation event for the next tick; a refusal leaves its queue unchanged.
-    pub fn emit_event<E: Event>(&self, event: E) -> bool {
+    pub fn emit_event<E: TypedEvent>(&self, event: E) -> bool {
         self.sim_writes(format_args!("emitted event {}", E::NAME));
         let Some(queue) = self.try_resource::<Queue<E>>() else {
             self.log(format_args!(

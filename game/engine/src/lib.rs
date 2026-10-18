@@ -16,7 +16,7 @@ pub mod diagnostics;
 pub mod emitter;
 mod environment;
 mod events;
-pub use events::Event;
+pub use events::TypedEvent;
 mod input;
 pub mod math;
 pub mod motion;
@@ -67,7 +67,7 @@ pub use storage::{
 };
 pub use tween::Tween;
 pub use values::Published;
-pub use world::{Bundle, Component, Entity, JournalEvent, Resource, Target, World, WorldId};
+pub use world::{Bundle, Component, Entity, Event, Resource, Target, World, WorldId};
 
 pub mod audio;
 
