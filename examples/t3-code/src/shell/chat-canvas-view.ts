@@ -48,7 +48,7 @@ export type ChatCanvasView = {
   density: string;
   mini: ChatCanvasMini;
 };
-/** `wide`: the window's rule for the docked card (chat at least 984 pt); `popoverOpen`: the header's popover is open. */
+/** `wide`: the window's rule for the docked card (chat at least 1012 pt: the lane padding, 640, the 32 pt clearance, the 280 pt card and its 12 pt gap); `popoverOpen`: the header's popover is open. */
 export type ChatCanvasArgs = { width: number; viewportHeight: number; detailsInline: boolean; chatMax: number; overlaid: boolean; gesture: string; wide: boolean; popoverOpen: boolean };
 
 const NO_MINI: ChatCanvasMini = { show: false, key: '', x: 0, top: 0, width: 0, height: 0, radius: 12, pillInset: 8 };

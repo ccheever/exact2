@@ -1495,7 +1495,9 @@ component T3Code
     openModels()
     modelTarget = PickerTarget(id=`${row}:|${context}`, top=frame(`setting-${row}`).y, bottom=frame(`setting-${row}`).y + frame(`setting-${row}`).height, left=frame(`setting-${row}`).x)
   action chatLocal(op: string, id: string, value: string)
-    if op == "fold" or op == "group" or op == "attempt" or op == "tree-all" or op == "tree-dir"
+    // A disclosure toggled with the transcript at its end keeps the end in view while the rows re-measure (the list goes
+    // on following it); anywhere else the toggled row holds its place (MessagesTimeline's disclosurePinsEnd).
+    if (op == "fold" or op == "group" or op == "attempt" or op == "tree-all" or op == "tree-dir") and not (restAtEnd and restOwner == composerOwner)
       foldHold = true
     if op == "surface-close-others" or op == "surface-close-to-right" or op == "surface-close-all" or (op == "surface-close" and shell.panel.tabs.filter((tab) => tab.id == id and tab.closeTitle != "").length == 0) or (op == "surface-browser-float" and not shell.panel.browser.capture.floating) or op == "surface-session-float" or (op == "surface-files-search-key" and id == "sheet" and value == "Escape")
       rightPanelAt = ""
@@ -1530,14 +1532,14 @@ component T3Code
   state rightPanelAt = ""
   derive rightPanel = (rightPanelAt != "" and rightPanelAt == shell.panel.key) or shell.panel.launcher
   state detailsOpen = false
-  resource details = shellDetails(detailsShown, data.threadId, data.revision, conversationWidth >= 984, wallTime.epochAtZero + shellClock, floor(viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth), page.hasFocus and page.visibilityState == "visible") as shape ShellDetails
+  resource details = shellDetails(detailsShown, data.threadId, data.revision, conversationWidth >= 1012, wallTime.epochAtZero + shellClock, floor(viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth), page.hasFocus and page.visibilityState == "visible") as shape ShellDetails
   state canvasGestureValue = ""
   action canvasGesture(value: string)
     canvasGestureValue = value
     detailsOpen = detailsOpen and value == "" // a drag on the player is outside the details popover (Base UI's outside press; a press: T3Window outsidePressDown)
-  resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, conversationWidth >= 984 and data.projectId != "", data.look.chatMax, data.messages.length > 0 or data.threadId != "", canvasGestureValue, `${shell.panel.deviceMini.key}|${shell.panel.browserMini.key}`, shell.panel.deviceMini.show or shell.panel.browserMini.show, conversationWidth >= 984, detailsOpen) as shape ChatCanvasView
+  resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, conversationWidth >= 1012 and data.projectId != "", data.look.chatMax, data.messages.length > 0 or data.threadId != "", canvasGestureValue, `${shell.panel.deviceMini.key}|${shell.panel.browserMini.key}`, shell.panel.deviceMini.show or shell.panel.browserMini.show, conversationWidth >= 1012, detailsOpen) as shape ChatCanvasView
   state detailsEpoch = 0
-  derive detailsPopover = canvas.ready ? canvas.popover : conversationWidth < 984
+  derive detailsPopover = canvas.ready ? canvas.popover : conversationWidth < 1012
   derive detailsShown = detailsOpen and detailsPopover and detailsEpoch == canvas.popoverEpoch
   resource terminalDrawer = terminalDrawer(data.revision, viewport.height, wallTime.epochAtZero + elapsed) as shape TerminalDrawerView // terminal-drawer-view.ts
   state titleDialog = false

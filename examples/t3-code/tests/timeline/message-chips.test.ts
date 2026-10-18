@@ -65,10 +65,10 @@ describe('sent-message context chips', () => {
     expect(table.map(([href]) => [href, markdownLinkHref(href)])).toEqual(table);
     expect([markdownImageHref('a.png:3'), markdownImageHref('shots/a.png'), markdownImageHref('data:image/png;base64,AA'), markdownImageHref('#shot')]).toEqual(['', 't3-file:shots/a.png', '', '']);
   });
-  test('an assistant quote reads its quote cut at 64 characters and "View source" opens the cited thread', () => {
+  test('an assistant quote reads its quote cut at 64 characters; its popover holds the quote, and "Go to source" opens the cited thread', () => {
     const quote = 'q'.repeat(70);
     const chips = messageChips({ text: `see [Assistant quote](t3-citation://v1/env/thread-9/msg-2?text=${quote}&start=0&end=70&prefix=&suffix=)` }, '', []);
-    expect(chips.map(chip => [chip.kind, chip.label, chip.tip, chip.target, chip.detail])).toEqual([['citation', `${'q'.repeat(64)}…`, 'View source', 'thread-9', 'msg-2']]);
+    expect(chips.map(chip => [chip.kind, chip.label, chip.tip, chip.size, chip.target, chip.detail])).toEqual([['citation', `${'q'.repeat(64)}…`, 'q'.repeat(70), '', 'thread-9', 'msg-2']]);
   });
   test('formatAttachmentSize, middle truncation and path resolution follow the reference helpers', () => {
     expect([attachmentSize(0), attachmentSize(1025), attachmentSize(1024 * 1024)]).toEqual(['1 KB', '2 KB', '1.0 MB']);

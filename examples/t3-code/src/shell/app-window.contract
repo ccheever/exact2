@@ -571,6 +571,7 @@ component T3Window
   action citeEdit(value: string)
     citeDraft = value
     citeDraftSeq = chip.seq
+    editorOp("chip-cite-draft", `${chip.seq}`, value)
   // Save, Enter, and Command/Ctrl+Enter (`send`: then Send, submitCitationAndSend); the editor takes the focus after the chip.
   action citeSave(send: bool)
     if citeText.length <= 8000

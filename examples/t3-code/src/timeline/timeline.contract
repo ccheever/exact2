@@ -1,5 +1,5 @@
 // T3 MessagesTimeline rows (MIT, see LICENSE-T3), measured against the built
-// reference: a 736pt lane inside a 20pt scroll gutter, rows spaced by their own
+// reference: a 736pt lane inside a 3rem scroll gutter, rows spaced by their own
 // bottom padding, hover-revealed metadata that keeps its layout space.
 use ChatDocument from "./markdown.contract"
 use AnswerMarkdown from "./markdown.contract"
@@ -65,7 +65,7 @@ component TimelineRow
     // A user turn's box entering or leaving the transcript (ChatColumn turnSeen).
     seen: action
   view
-    column id=`row-${message.id}` hover=hoverPart(message.hoverKey, "") width="100%" padding-top=(message.first ? lead : 0) padding-left="1.25rem" padding-right="1.25rem" box-sizing="border-box" align-items="center"
+    column id=`row-${message.id}` hover=hoverPart(message.hoverKey, "") width="100%" padding-top=(message.first ? lead : 0) padding-left="3rem" padding-right="3rem" box-sizing="border-box" align-items="center"
       if message.first and (hasMore or historyError != "")
         HistoryControl(lane=lane, hasMore=hasMore, loading=historyLoading, error=historyError, busy=busy, load=earlier)
       column width="100%" max-width=lane min-width=0 box-sizing="border-box" padding-bottom=(message.last ? 0.75 * rem + tail : 0) margin-bottom=`${rowGap(message.kind, message.continues, message.expanded, message.actionsId != "", message.kind == "checkpoint" and message.attached, message.meta) / 16}rem`
