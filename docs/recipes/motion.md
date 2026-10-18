@@ -1,0 +1,65 @@
+# Recipe: motion
+
+Motion is CSS's: `transition` for a value that changes, `keyframes` and `animation` for an
+entrance or a loop, `-exact-exit-animation` for a node leaving, `-exact-layout-transition` for
+a box that moves or resizes.
+
+```contract
+keyframes rise
+  from opacity=0 translate="0px 8px"
+keyframes leave
+  to opacity=0 scale=0.96 animation-timing-function="ease-in"
+keyframes breathe
+  50% opacity=0.4
+
+style Row
+  -exact-layout-transition="320ms cubic-bezier(.32,.72,0,1)"
+  -exact-exit-animation="leave 200ms ease-in both"
+
+shape Media
+  prefersReducedMotion: bool
+
+component App
+  resource media = exactViewport() as shape Media
+  derive still = media.prefersReducedMotion
+  state items = ["Kick", "Snare", "Hat"]
+  state open = false
+  action toggle
+    open = not open
+  action remove(name: string)
+    items = items.filter(i => i != name)
+  view
+    column padding=16 gap=8
+      button press=toggle testId="toggle"
+        text "Details"
+      text "Shown" opacity=(open ? 1 : 0) translate=(open ? "0px 0px" : "0px -8px")
+        transition="opacity 200ms ease, translate -exact-spring(240, 26, 1)"
+      for name, i in items key=name
+        row class=Row gap=8 animation=(still ? "none" : `rise 300ms ${i * 60}ms both`)
+          text name flex=1
+          button press=remove(name) testId=`remove-${name}`
+            text "Remove"
+      text "Saving…" animation=(still ? "none" : "breathe 1.6s ease-in-out infinite")
+```
+
+- **What animates:** translate, scale, rotate, opacity, colours, `box-shadow`, SVG geometry and
+  a numeric `height`. A layout property (`width`, `margin`, `gap`, `top`) is refused, naming
+  `-exact-layout-transition`. A native `button` animates only opacity, translate, scale, rotate.
+- **`-exact-spring(stiffness, damping, mass)`** is a transition's timing, with no duration
+  (none: 100, 10, 1); an `animation` refuses it.
+- **Keyframes** take literals or the app's own `fn` on constants. `animation` is CSS's
+  shorthand, or its longhands.
+- **Exit:** `-exact-exit-animation` names keyframes and must end (`infinite` is refused). It
+  plays when an `if` arm turns false or a `for` row leaves: the node leaves layout at once,
+  inert, and the rest move by their layout transition. Not inside a screen being popped,
+  nor on Linux.
+- **Layout transition** is a transition without a property. It moves the box and resizes its
+  surface (background, border, shadow); children jump to their place, unscaled. With
+  `sharedElement=` a node flies from the old one's place (`apps/shared-elements`).
+- **One after another:** delays (`"a 200ms both, b 300ms 200ms both"`, the stagger above by
+  `i`). A state change when it ends is a gated task's `after(ms, action)`. A `sequence`
+  plays sounds and haptics on a beat; it is not motion.
+- **Reduced motion is the app's choice**, read from `exactViewport()` as above; drive it with
+  `prefer prefers-reduced-motion reduce`.
+- **Check it:** `clock settle` ends the motion; `screenshot .exact/m.png over 600 every 50`
+  films it as a contact sheet (`.apng` to play).
