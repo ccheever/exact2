@@ -225,6 +225,7 @@ assert!(w.query::<&Transform>().with::<Enemy>().one().unwrap().position.x < 10.0
 For a complete small game, start with [the template](new/logic/src/lib.rs) or
 [Beacons](games/beacons/logic/src/lib.rs). The [engine reference](engine/README.md)
 covers borrowing, registration, observation, saving and loading.
+[Game recipes](recipes/README.md) answer one task each with a runnable `Sim` fragment.
 
 ### Arguments, pause and restart
 

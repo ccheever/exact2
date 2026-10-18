@@ -23,6 +23,7 @@ mod placed;
 mod present;
 pub use node_offsets::{NodeName, NodeOffset, NodeOffsets};
 pub mod rig;
+pub mod recipes;
 mod rng;
 pub mod scene;
 mod sim;
