@@ -1680,6 +1680,7 @@ fn determine_container_main_size(
                         let style_preferred = item.size.main(constants.dir);
                         let style_max = item.max_size.main(constants.dir);
 
+                        // Columns retain the upstream basis clamps; rows apply Patch 51 below.
                         // The spec seems a bit unclear on this point (my initial reading was that the `.maybe_max(style_preferred)` should
                         // not be included here), however this matches both Chrome and Firefox as of 9th March 2023.
                         //
@@ -1687,7 +1688,7 @@ fn determine_container_main_size(
                         // Spec modification: https://www.w3.org/TR/css-flexbox-1/#change-2016-max-contribution
                         // Issue: https://github.com/w3c/csswg-drafts/issues/1435
                         // Gentest: padding_border_overrides_size_flex_basis_0.html
-                        let clamping_basis = Some(item.flex_basis).maybe_max(style_preferred);
+                        let clamping_basis = Some(item.flex_basis).maybe_max(style_preferred).filter(|_| !constants.is_row);
                         let flex_basis_min = clamping_basis.filter(|_| item.flex_shrink == 0.0);
                         let flex_basis_max = clamping_basis.filter(|_| item.flex_grow == 0.0);
 
@@ -1715,21 +1716,18 @@ fn determine_container_main_size(
                         let content_contribution = match (min_main_size, style_preferred, max_main_size) {
                             // If the clamping values are such that max <= min, then we can avoid the expensive step of computing the content size
                             // as we know that the clamping values will override it anyway
-                            (min, Some(pref), max) if max <= min || max <= pref => {
-                                clamp(pref) + item.margin.main_axis_sum(constants.dir)
-                            }
+                            (min, Some(pref), max) if max <= min || max <= pref => clamp(pref),
                             // EXACT PATCH 33: the clamps meet, so any size clamps to the answer.
-                            (min, _, max) if max <= min => clamp(min) + item.margin.main_axis_sum(constants.dir),
+                            (min, _, max) if max <= min => clamp(min),
 
                             // Else compute the min- or -max content size and apply the full formula for computing the
                             // min- or max- content contribution
                             // EXACT PATCH 33: clamped as the other contributions are, and
                             // floored by the padding and border the base size already was.
-                            _ if item.is_scroll_container() => {
+                            _ if !constants.is_row && item.is_scroll_container() => {
                                 let item_pb_main = item.padding.main_axis_sum(constants.dir)
                                     + item.border.main_axis_sum(constants.dir);
                                 item.flex_basis.maybe_clamp(style_min, style_max).max(item_pb_main)
-                                    + item.margin.main_axis_sum(constants.dir)
                             }
 
                             // If the item has a definite preferred main size then that is its content
@@ -1743,12 +1741,11 @@ fn determine_container_main_size(
                                 // Adding a (negative) margin first let `max(flex_basis)` and the
                                 // min/max clamp, both inner sizes, erase it.
                                 let inner = pref.max(item_pb_main);
-                                let inner = if constants.is_row {
+                                if constants.is_row {
                                     inner.maybe_clamp(style_min, style_max)
                                 } else {
                                     inner.max(item.flex_basis).maybe_clamp(style_min, style_max)
-                                };
-                                inner + item.margin.main_axis_sum(constants.dir)
+                                }
                             }
 
                             _ => {
@@ -1832,14 +1829,25 @@ fn determine_container_main_size(
                                 //
                                 // Ultimately, this was not found by reading the spec, but by trial and error fixing tests to align with Webkit/Firefox output.
                                 // (see the `flex_basis_unconstraint_row` and `flex_basis_uncontraint_column` generated tests which demonstrate this)
-                                let inner = if constants.is_row {
+                                if constants.is_row {
                                     content_main_size.maybe_clamp(style_min, style_max)
                                 } else {
                                     content_main_size.max(item.flex_basis).maybe_clamp(style_min, style_max)
-                                };
-                                inner + item.margin.main_axis_sum(constants.dir)
+                                }
                             }
                         };
+                        // EXACT PATCH 51: Chrome's row intrinsic sizing substitutes the
+                        // hypothetical border-box size when a definite flex base cannot
+                        // flex to the contribution. It already includes the automatic
+                        // minimum and min/max bounds. Add margins only after this test.
+                        // https://www.w3.org/TR/css-flexbox-1/#intrinsic-main-sizes
+                        let cannot_flex = (content_contribution > item.flex_basis && item.flex_grow == 0.0)
+                            || (content_contribution < item.flex_basis && item.flex_shrink == 0.0);
+                        let content_contribution = if constants.is_row && item.flex_basis_is_definite && cannot_flex {
+                            item.hypothetical_inner_size.main(dir)
+                        } else {
+                            content_contribution
+                        } + item.margin.main_axis_sum(dir);
                         item.content_flex_fraction = {
                             let diff = content_contribution - item.flex_basis;
                             if diff > 0.0 {
@@ -3693,6 +3701,58 @@ mod intrinsic_tests {
     use crate::prelude::*;
     use crate::tree::{LayoutPartialTreeExt, SizingMode};
     use crate::Overflow;
+
+    // Chrome 151.0.7922.34, 2026-10-18: intrinsic row widths use the
+    // hypothetical main size only when a definite basis cannot flex to the contribution.
+    #[test]
+    fn intrinsic_row_contributions_respect_definite_flex_bases() {
+        let mut failures = Vec::new();
+        for (name, width, basis, grow, shrink, minimum, maximum, content, expected) in [
+            ("non-growing", length(100.0), length(40.0), 0.0, 1.0, auto(), auto(), None, 40.0),
+            ("non-shrinking", length(100.0), length(40.0), 0.0, 0.0, auto(), auto(), None, 40.0),
+            ("grow", length(100.0), length(40.0), 1.0, 1.0, auto(), auto(), None, 100.0),
+            ("larger basis", length(30.0), length(140.0), 0.0, 1.0, auto(), auto(), None, 30.0),
+            ("automatic minimum", auto(), length(40.0), 0.0, 1.0, auto(), auto(), Some(100.0), 100.0),
+            ("minimum", length(100.0), length(40.0), 0.0, 1.0, length(70.0), auto(), None, 70.0),
+            ("maximum", length(100.0), length(40.0), 0.0, 1.0, auto(), length(30.0), None, 30.0),
+            ("non-shrinking maximum", length(30.0), length(140.0), 0.0, 0.0, auto(), length(70.0), None, 70.0),
+            ("percentage", length(100.0), percent(0.5), 0.0, 1.0, auto(), auto(), None, 100.0),
+            ("auto", length(100.0), auto(), 0.0, 1.0, auto(), auto(), None, 100.0),
+            ("content", length(100.0), Dimension::content(), 0.0, 1.0, auto(), auto(), Some(10.0), 100.0),
+            ("content non-shrinking", length(30.0), Dimension::content(), 0.0, 0.0, auto(), auto(), Some(100.0), 30.0),
+        ] {
+            let mut tree = TaffyTree::<()>::new();
+            let children: Vec<_> = content.into_iter().map(|width| tree.new_leaf(Style {
+                display: Display::Block,
+                size: Size { width: length(width), height: length(10.0) },
+                ..Default::default()
+            }).unwrap()).collect();
+            let item = tree.new_with_children(Style {
+                display: Display::Block,
+                size: Size { width, height: length(20.0) },
+                min_size: Size { width: minimum, height: auto() },
+                max_size: Size { width: maximum, height: auto() },
+                flex_basis: basis,
+                flex_grow: grow,
+                flex_shrink: shrink,
+                ..Default::default()
+            }, &children).unwrap();
+            let row = tree.new_with_children(Style::default(), &[item]).unwrap();
+            for width in [AvailableSpace::MinContent, AvailableSpace::MaxContent] {
+                for mode in [SizingMode::ContentSize, SizingMode::InherentSize] {
+                    tree.mark_dirty(row).unwrap();
+                    let size = tree.as_layout_tree().measure_child_size_both(
+                        row, Size::NONE, Size::NONE, Size { width, height: AvailableSpace::MaxContent },
+                        mode, Line::FALSE,
+                    );
+                    if size != (Size { width: expected, height: 20.0 }) {
+                        failures.push(format!("{name}; {width:?}; {mode:?}: {size:?}, Chrome {expected}×20"));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
 
     // Chrome 151.0.7922.34, 2026-10-18: stretch supplies the percentage basis
     // when it changes the ratio item's height; content growth alone does not.

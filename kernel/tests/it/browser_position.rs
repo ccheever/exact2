@@ -38,6 +38,10 @@
 //! width and height bounds, padding, wider content, intrinsic widths,
 //! wrapping, block and grid.
 //!
+//! `Chrome 151 intrinsic flex basis` uses that version and date for shrink-to-fit
+//! rows, a block wrapper, growth and shrink limits, automatic minima, bounds,
+//! indefinite bases, padding, borders, margins and overflow, with column and wrap controls.
+//!
 //! A fixture line is `name`, the root's declarations, the nodes (`id>parent>
 //! declarations>text`, joined by ` & `) and Chrome's frames (`id=x,y,w,h`),
 //! separated by tabs.

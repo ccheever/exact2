@@ -1526,6 +1526,40 @@ correction, including an 80×80 item where Chrome stretches it to 50×80. Six
 additional frames guard intrinsic measurement: omitting the minimum during
 setup narrowed wider-content columns from Chrome's 120px to 80px.
 
+## Patch 51: use a definite flex basis in a row's intrinsic contribution
+
+A row substitutes the item's hypothetical border-box main size when its
+intrinsic contribution exceeds the flex base and it cannot grow, or falls
+below the base and it cannot shrink. The used basis must be definite. This
+matches Chrome 151's
+[`ComputeMinMaxSizeOfRowContainer`](https://chromium.googlesource.com/chromium/src/+/refs/tags/151.0.7922.34/third_party/blink/renderer/core/layout/flex/flex_layout_algorithm.cc#2871)
+and [Flexbox §9.9.1](https://www.w3.org/TR/css-flexbox-1/#intrinsic-main-sizes).
+The hypothetical size already includes the automatic minimum and min/max
+bounds. Margins are added afterward (Patch 14). Rows no longer use the
+column basis clamps or scroll-container basis shortcut. Columns retain
+Patch 33's clamp ordering; wrapping min-content retains Patch 48's separate
+contribution path.
+
+An absolute box's fit-content width probes both intrinsic sizes through
+`common/absolute.rs` and `common/mod.rs`. A block wrapper forwards the same
+intrinsic query through `block.rs`. Neither needs a separate sizing fix.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+30 literal cases prefixed `Chrome 151 intrinsic flex basis`, measured in
+Chrome 151.0.7922.34 on 2026-10-18. They cover the absolute row and block
+wrapper, siblings, growth and shrink limits, automatic minima, bounds,
+percentage and auto bases, padding, borders, margins and overflow, with
+column, definite-width and wrapping controls. Before the patch, the first
+25 cases had 13 frame mismatches: the reported row was 100px wide
+instead of 40px, and 130px instead of 70px with its sibling.
+
+Taffy's `intrinsic_row_contributions_respect_definite_flex_bases` checks
+12 layouts under both intrinsic widths and both sizing modes. Chrome's
+`width:min-content` and `width:max-content` measurements supply the expected
+sizes, including `flex-basis:content` controls that the kernel does not
+expose. Before the patch, 16 queries differed. Run with
+`cargo test --manifest-path vendor/taffy/Cargo.toml --no-fail-fast`.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
