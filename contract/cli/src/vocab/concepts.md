@@ -282,7 +282,7 @@ component App
 
 More: docs/recipes/navigation-stack.md (a list, its detail, a create sheet, a delete alert)
 
-## confirm: ask before deleting
+## confirm: ask before what can't be undone (delete, close, cancel)
 names: confirmation, alert, alertdialog, delete-confirmation, Alert, showModal, prompt, rename, action sheet, action-sheet, actionSheet, ActionSheetIOS, showActionSheetWithOptions, UIAlertController
 
 A `dialog role="alertdialog"`: its `aria-label` the question, a `text` the message, each action
@@ -314,6 +314,9 @@ component App
           text "Cancel"
 ```
 
+- Ask first for what can't be undone: a detail screen's Delete, Close Poll, Cancel Event, a bulk
+  clear. A routine or recoverable step asks nothing: a row's swipe (`contract vocab swipe`), a
+  row removed from a form being edited.
 - Its rows are only text, actions and one Cancel; a form is a sheet (`contract vocab modal`).
   In tests, `clock settle` after it opens, then `tap "remove-confirm"`.
 - A prompt (rename, a name for a new list) is the same alert with an `input` row:
