@@ -37,10 +37,10 @@ mod width;
 
 pub(crate) use width::horizontal_flex;
 
-/// At most this many warnings from one compile, before the colours that
-/// stay one scheme: those name every site, each in a short line, since a
-/// repair of the first twenty would only show the next (rules/RULES.md,
-/// "Every check reports all failures in one run").
+/// At most this many warnings from one compile, before `tamber-unreachable`
+/// and the colours that stay one scheme: those name every site, briefly,
+/// since a repair of the first twenty would only show the next
+/// (rules/RULES.md, "Every check reports all failures in one run").
 pub const MAX_WARNINGS: usize = 20;
 
 /// Every warning the checked file earns, in source order of its checks.
@@ -160,9 +160,8 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     out.extend(parts::empty_state_in_list(checked));
     // @ref LLP 1116.021 D7 — a summary card in a grouped list's card.
     out.extend(parts::summary_card_in_list(checked));
-    // @ref LLP 1121 D8, D9 — a node's own state part it never meets; a control parameter a shipped host does not honour.
+    // @ref LLP 1121 D8 — a node's own state part it never meets.
     states::dead(&root.view, &mut out);
-    crate::control_roles::unreachable(&root.view, &checked.file.styles, &mut out);
     performance_now(root, &checked.file.fns, &mut out);
     // @ref LLP 1027.005 D6 — an identifying argument of the launch's own.
     launch::launch_identity(root, &checked.file.fns, &mut out);
@@ -192,6 +191,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
         }
     }
     out.truncate(MAX_WARNINGS);
+    crate::control_roles::unreachable(&root.view, &checked.file.styles, &mut out);
     one_scheme(
         root,
         &checked.file.styles,
