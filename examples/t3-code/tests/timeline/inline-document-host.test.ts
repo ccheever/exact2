@@ -34,8 +34,10 @@ test('read-only MCP calls use the source item and the Native ticket of the curre
 
 test('a mutating MCP call waits for approval and uses the approving answer ticket', async () => {
   const { runtime, calls } = fixture(false), before = ticket('before'), approving = ticket('approving');
+  runtime.fullscreen = true;
   runtime.host.receive(call);
   await drainDocumentRuntime(runtime, before, 100);
+  expect(runtime.fullscreen).toBe(false);
   expect(calls).toHaveLength(1);
   expect(runtime.permission?.text).toContain('Allow weather to run forecast?');
   const permission = runtime.permission!; runtime.permission = null; permission.settle(true);
