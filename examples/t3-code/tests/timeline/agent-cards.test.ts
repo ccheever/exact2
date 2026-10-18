@@ -69,3 +69,26 @@ test('REPL arguments preserve labels and values while highlighting only code', a
   expect(args[0]?.tokens).toEqual([]);
   expect(replArguments('other', { code: 'const answer = 42;' })).toEqual([]);
 });
+
+for (const changed of ['generation', 'environment', 'origin', 'all']) test(`tool image previews discard resources after ${changed} changes with the same thread id`, async () => {
+  const { opened } = await import('../support/composer-controls-fixture');
+  const { obj } = await import('../../src/client/domain');
+  const { toolImages, toolImageAction, toolImagePreview, toolImageUrls } = await import('../../src/timeline/tool-images');
+  const { client, native } = await opened(), original = native.later.bind(native), requests: unknown[] = [];
+  const thread = client.threadId, item = { id: 'capture', threadId: thread, type: 'dynamic_tool', output: { type: 'image', mimeType: 'image/png' } };
+  const row = JSON.stringify([thread, item.id]);
+  client.projection.visibleTurnItems = [{ sourceThreadId: thread, sourceItemId: item.id, position: 0, visibility: 'local', item }];
+  native.later = async input => {
+    const request = obj(input);
+    if (request.method === 'assets.createUrl') { requests.push(obj(request.payload).resource); return native.ok({ relativeUrl: '/tool-output.png' }); }
+    return original(input);
+  };
+  expect(toolImageAction(client, 'image-tool-open', toolImages(item)[0]!.id, row)).toBe(true);
+  expect(toolImagePreview(client)?.imagePreviewId).toBe(toolImages(item)[0]!.id);
+  if (changed === 'generation' || changed === 'all') client.generation++;
+  if (changed === 'environment' || changed === 'all') client.environmentId = 'other-environment';
+  if (changed === 'origin' || changed === 'all') client.origin = 'https://other.example';
+  client.projection.visibleTurnItems = [];
+  const preview = toolImagePreview(client), urls = await toolImageUrls(client, native, 0);
+  expect({ preview: preview !== null, urls: urls.length, requests }).toEqual({ preview: false, urls: 0, requests: [] });
+});

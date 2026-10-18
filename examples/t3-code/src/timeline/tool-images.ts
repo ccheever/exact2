@@ -13,12 +13,13 @@ export function toolImages(item: Obj): ToolImage[] {
     return { id, name, resource, source: encodeMediaSource({ kind: 'image', name, src: null, asset: { resource } }) };
   });
 }
-interface Preview { thread: string; row: string; images: ToolImage[]; index: number }
+interface Preview { owner: string; row: string; images: ToolImage[]; index: number }
 const previews = new WeakMap<T3Client, Preview>();
 const urls = new WeakMap<T3Client, Map<string, { url: string; at: number }>>();
+const owner = (client: T3Client) => JSON.stringify([client.generation, client.environmentId, client.origin, client.threadId]);
 function active(client: T3Client): Preview | undefined {
   const value = previews.get(client);
-  if (value?.thread === client.threadId) return value;
+  if (value?.owner === owner(client)) return value;
   previews.delete(client); return undefined;
 }
 function loadedImages(client: T3Client, rowId: string): ToolImage[] {
@@ -30,7 +31,7 @@ export function toolImageAction(client: T3Client, op: string, id: string, value:
   if (op === 'image-tool-open') {
     const images = loadedImages(client, value), index = images.findIndex(image => image.id === id);
     if (index < 0) throw new ClientError('That image is no longer available.');
-    previews.set(client, { thread: client.threadId, row: value, images, index }); return true;
+    previews.set(client, { owner: owner(client), row: value, images, index }); return true;
   }
   const preview = active(client);
   if (op === 'image-step' && preview) { preview.index = (preview.index + (value === 'previous' ? -1 : 1) + preview.images.length) % preview.images.length; return true; }
