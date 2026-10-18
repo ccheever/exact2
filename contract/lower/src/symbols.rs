@@ -93,16 +93,16 @@ fn constant(parts: &[TemplatePart]) -> Option<String> {
 /// role, and says which. The role is what the recipe, `contract vocab` and the refusal's list
 /// name, so the next edit finds it by search.
 ///
-/// `lower-symbol-platform`: an SF Symbol no shipped host but Apple's draws. The first use of a
-/// build says the whole advice and sets `repeats`; each later one is a line in it, which the
-/// caller keeps out of [`crate::MAX_WARNINGS`] (the euxy port's forty paragraphs filled the
-/// cap, so the warnings after them were never printed).
-pub(crate) fn aliases(e: &Expr, repeats: &mut Option<Vec<LowerError>>) -> Vec<LowerError> {
+/// `lower-symbol-platform`: an SF Symbol no shipped host but Apple's draws, pushed onto
+/// `platform`. The first use of a build says the whole advice and each later one is a line
+/// pointing at it; the caller keeps the group whole and out of [`crate::MAX_WARNINGS`] (the
+/// euxy port's forty paragraphs filled the cap, so the warnings after them were never printed).
+pub(crate) fn aliases(e: &Expr, platform: &mut Vec<LowerError>) -> Vec<LowerError> {
     match e {
         // A template of literals is linted as the literal it folds to.
         Expr::Template(parts, span) if constant(parts).is_some() => aliases(
             &Expr::Str(constant(parts).unwrap_or_default(), *span),
-            repeats,
+            platform,
         ),
         Expr::Str(s, span) => {
             let alias = |message| LowerError {
@@ -140,8 +140,8 @@ pub(crate) fn aliases(e: &Expr, repeats: &mut Option<Vec<LowerError>>) -> Vec<Lo
                 .map(|t| t.name.as_str())
                 .collect::<Vec<_>>()
                 .join(" and ");
-            if let Some(repeats) = repeats {
-                repeats.push(LowerError {
+            if !platform.is_empty() {
+                platform.push(LowerError {
                     id: "lower-symbol-platform",
                     message: match same {
                         Some((r, _)) => format!("symbol `sf/{sf}` is blank on {names} too: write `symbol:{r}`, the role, which draws on every host"),
@@ -151,7 +151,6 @@ pub(crate) fn aliases(e: &Expr, repeats: &mut Option<Vec<LowerError>>) -> Vec<Lo
                 });
                 return Vec::new();
             }
-            *repeats = Some(Vec::new());
             let role = same
                 .map(|(r, apple)| format!("The role `{r}` draws on every host (Apple's `{apple}`): write `symbol:{r}`. Or "))
                 .unwrap_or_default();
@@ -162,7 +161,7 @@ pub(crate) fn aliases(e: &Expr, repeats: &mut Option<Vec<LowerError>>) -> Vec<Lo
                         .map(|step| format!("not shipping {}? {step} removes it", t.name))
                 })
                 .collect();
-            vec![LowerError {
+            platform.push(LowerError {
                 id: "lower-symbol-platform",
                 message: format!(
                     "symbol `sf/{sf}` draws only on Apple, and the app ships {}, where it is blank. {role}{}eclare an icon token for them: in app.tamber's `icons` (a new app.tamber's first line is `tamber <name>`), `icon.{token} = icon(sf \"{sf}\", svg \"icons/{token}.svg\")`, with `assets/icons/{token}.svg` drawn as {} (a Material Symbols SVG is), and write `symbol:icon.{token}`{}",
@@ -172,11 +171,12 @@ pub(crate) fn aliases(e: &Expr, repeats: &mut Option<Vec<LowerError>>) -> Vec<Lo
                     if stop.is_empty() { String::new() } else { format!("; {}", stop.join("; ")) }
                 ),
                 span: *span,
-            }]
+            });
+            Vec::new()
         }
         Expr::Ternary(_, a, b, _) => {
-            let mut out = aliases(a, repeats);
-            out.extend(aliases(b, repeats));
+            let mut out = aliases(a, platform);
+            out.extend(aliases(b, platform));
             out
         }
         _ => Vec::new(),

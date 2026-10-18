@@ -296,13 +296,18 @@ fn the_platform_warning_names_what_ships_and_how_to_stop() {
 
 /// The euxy port's forty SF Symbols printed forty paragraphs and filled the
 /// cap, so the warnings after them were not printed: the later uses are a
-/// line each, outside the cap, and a later warning still prints.
+/// line each, and a later warning still prints. The group is outside the
+/// cap, the advice its lines point at too, after a full cap of warnings.
 #[test]
 fn later_platform_symbols_are_a_line_each_outside_the_cap() {
     let uses: String = (0..contract_lower::MAX_WARNINGS + 5)
         .map(|i| format!("      image \"symbol:sf/flag.{i}\"\n"))
         .collect();
     let view = format!("component App\n  view\n    column\n{uses}      image \"symbol:sf/pencil\"\n      image \"symbol:gearshape\"\n");
+    let aliases: String = (0..contract_lower::MAX_WARNINGS)
+        .map(|_| "      image \"symbol:gearshape\"\n")
+        .collect();
+    let late = view.replace("    column\n", &format!("    column\n{aliases}"));
     let path = app("repeats", "\"ios\": {}, \"web\": {}", "", &view);
     let (plan, warnings) = contract::compile_path_all_warned(&path, false);
     plan.unwrap_or_else(|e| panic!("{e:?}"));
@@ -333,6 +338,15 @@ fn later_platform_symbols_are_a_line_each_outside_the_cap() {
         warnings.iter().any(|w| w.id == "lower-symbol-alias"),
         "{warnings:?}"
     );
+    let path = app("repeats-late", "\"ios\": {}, \"web\": {}", "", &late);
+    let (plan, warnings) = contract::compile_path_all_warned(&path, false);
+    plan.unwrap_or_else(|e| panic!("{e:?}"));
+    let advice = warnings
+        .iter()
+        .filter(|w| w.id == "lower-symbol-platform")
+        .find(|w| w.message.contains("in app.tamber's `icons`"));
+    let line = 4 + contract_lower::MAX_WARNINGS as u32;
+    assert_eq!(advice.map(|w| w.span.line), Some(line), "{warnings:?}");
 }
 
 /// Review round 1: a nested template of literals folds too, and a template

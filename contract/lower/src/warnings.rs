@@ -37,7 +37,7 @@ mod width;
 
 pub(crate) use width::horizontal_flex;
 
-/// At most this many warnings from one compile. A blank SF Symbol's later uses,
+/// At most this many warnings from one compile. A blank SF Symbol's uses,
 /// `tamber-unreachable` and colours that stay one scheme follow, each site briefly: a repair
 /// of the first twenty would only show the next (rules/RULES.md, "Loop shape").
 pub const MAX_WARNINGS: usize = 20;
@@ -71,7 +71,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     // a root is a route.
     let mut stack: Vec<(&Node, bool, Option<&str>)> =
         root.view.iter().rev().map(|n| (n, false, None)).collect();
-    let (mut seen, mut symbol_repeats) = (BTreeSet::new(), None);
+    let (mut seen, mut platform) = (BTreeSet::new(), Vec::new());
     while let Some((node, in_root, back)) = stack.pop() {
         let (children, in_root, back): (Vec<&Node>, bool, Option<&str>) = match node {
             Node::Element {
@@ -86,7 +86,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
                 let fresh = seen.insert((span.source_id, span.line, span.col, span.end_col));
                 // @ref LLP 1116.007 D3.1 — a symbol by another spelling than its role.
                 if let (true, "image", Some(source)) = (fresh, tag.as_str(), positional.first()) {
-                    out.extend(crate::symbols::aliases(source, &mut symbol_repeats));
+                    out.extend(crate::symbols::aliases(source, &mut platform));
                 }
                 let button = (tag == "button")
                     .then(|| roles::unlabelled_button(attrs, children, span))
@@ -190,7 +190,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
         }
     }
     out.truncate(MAX_WARNINGS);
-    out.extend(symbol_repeats.into_iter().flatten());
+    out.extend(platform);
     crate::control_roles::unreachable(&root.view, &checked.file.styles, &mut out);
     one_scheme(
         root,
