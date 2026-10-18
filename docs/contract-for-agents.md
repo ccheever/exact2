@@ -1843,6 +1843,10 @@ the complete original URL percent-encoded in `u`; read it with
 navigation root with `navigate=`. At cold launch it is the initial location;
 when already running, each link fires one `navigate` event in arrival order.
 An app without `protocol_handlers` keeps ordinary URL-to-location behavior.
+For a packaged-only scheme, use
+`[{"protocol":"notes","url":"/open?u=%s","distribution_only":true}]`.
+Apple archives and `--distribution` builds register it; local builds omit both
+its scheme and template. `--bundle` or `--release` alone does not enable it.
 Web builds copy this key into the web app manifest; the browser decides which
 schemes it supports and whether the installed app is registered.
 
