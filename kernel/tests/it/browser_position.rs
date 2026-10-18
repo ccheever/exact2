@@ -196,6 +196,19 @@ fn cross_axis_auto_margins_match_chrome() {
     );
 }
 
+/// Chrome 151.0.7922.34, 2026-10-18: overflowing and fitting flex lines,
+/// reversed main axes, RTL, and grid/block controls.
+#[test]
+fn flex_distribution_fallbacks_match_chrome() {
+    check(
+        failures(
+            include_str!("fixtures/browser_flex_wrap_reverse.tsv"),
+            false,
+        ),
+        &[],
+    );
+}
+
 /// The row itself receives MinContent, without an absolute solver's later
 /// definite-width pass. Chrome's width:min-content wrapper gives these frames.
 #[test]

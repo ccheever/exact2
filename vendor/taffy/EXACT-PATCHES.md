@@ -1639,6 +1639,36 @@ already matched despite negative margins. Before the patch, 18 margin pairs
 differed. Run with `cargo test --manifest-path vendor/taffy/Cargo.toml
 --no-fail-fast`.
 
+## Patch 53: preserve flex-start in overflowing distribution fallbacks
+
+`apply_alignment_fallback` keeps `stretch` and `space-between` at unsafe
+`flex-start` when lines or items overflow. Implicit safety previously turned
+that into logical `start`, losing the reversal in `wrap-reverse` cross axes
+and reversed main axes. RTL column placement already handles its direction;
+its line offsets need no separate correction.
+
+This follows Chrome 151.0.7922.34, measured on 2026-10-18.
+[CSS Align §4.3](https://www.w3.org/TR/css-align-3/#distribution-values)
+specifies `flex-start` for `stretch`, but **safe** `flex-start` for
+`space-between`; Chrome uses the unsafe fallback for both in these cases.
+Explicit positional `safe`/`unsafe` alignment and the safe-center fallbacks
+of `space-around` and `space-evenly` are unchanged. Grid and block callers
+also match Chrome: without flex reversal, `start` and `flex-start` place
+content at the same edge, including RTL grids.
+
+**Held by** `browser_position::flex_distribution_fallbacks_match_chrome`:
+105 literal cases in `browser_flex_wrap_reverse.tsv` cover one and two
+lines, overflow and fitting lines, both axes, wrap directions, LTR/RTL,
+reversed main axes, positional/distribution controls and grid/block overflow.
+Before the patch, 40 frames differed. The two-line row changes from y=20,0
+to y=10,-10; the RTL column from x=-10,10 to x=0,20.
+
+Taffy's `distribution_fallback_preserves_flex_start_edge` failed on four
+reversed offsets before the patch. The accompanying safety and spacing
+test holds the other fallback behavior. Explicit content-alignment safety
+and `justify-content:stretch` are covered at the Taffy layer because the
+kernel's declaration vocabulary does not admit them.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
