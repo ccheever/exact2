@@ -45,7 +45,8 @@ impl Module {
     }
 
     /// Flush the open frame when `id` is in it: a call about that canvas
-    /// sees it submitted and presented, as it would have without batching.
+    /// sees it submitted and its present issued (on Android, perhaps still
+    /// queued on the canvas's acquiring thread), as without batching.
     pub(crate) fn settle(&mut self, id: u32) {
         if self.in_open_frame(id) {
             self.flush();
@@ -96,7 +97,7 @@ impl Module {
             }
             inst.held = None;
             config.alpha_mode = alpha;
-            target.configure(&gpu.device, config);
+            crate::swapchains(|| target.configure(&gpu.device, config));
         }
         let format = crate::view_format(config);
         inst.surface.prepare_assets(&gpu.device, &gpu.queue, format);
@@ -113,7 +114,7 @@ impl Module {
             inst.held = None;
             config.width = w;
             config.height = h;
-            target.configure(&gpu.device, config);
+            crate::swapchains(|| target.configure(&gpu.device, config));
         }
         use wgpu::CurrentSurfaceTexture as Current;
         // The drawable an incomplete frame was submitted into.
@@ -148,7 +149,7 @@ impl Module {
                 {
                     inst.acquire.reconfigure();
                 }
-                target.configure(&gpu.device, config);
+                crate::swapchains(|| target.configure(&gpu.device, config));
                 return Some(true);
             }
             // Nothing to draw into this frame; the inputs stay dirty.
@@ -330,9 +331,11 @@ impl Module {
     }
 
     /// Submit the open frame once, then present each canvas's drawable in
-    /// the order rendered. `false`, with the reason in [`Module::take_error`],
-    /// when a surface failed after its commands were submitted; nothing
-    /// open is `true`.
+    /// the order rendered; on Android, a canvas that asks for its next one
+    /// is presented on its acquiring thread instead, after this returns and
+    /// in no order with the others. `false`, with the reason in
+    /// [`Module::take_error`], when a surface failed after its commands were
+    /// submitted; nothing open is `true`.
     pub fn flush(&mut self) -> bool {
         self.check_device();
         self.reap();
@@ -383,6 +386,16 @@ impl Module {
         };
         let mut ok = true;
         for c in open.canvases {
+            // Android presents a canvas that asks for its next texture on its
+            // acquiring thread, just before it acquires that one. A canvas's
+            // first frame is presented here, before the module counts it seen.
+            #[cfg(target_os = "android")]
+            let mut later = None;
+            #[cfg(target_os = "android")]
+            let seen = self
+                .instances
+                .get(&c.id)
+                .is_some_and(|i| i.seen.load(Ordering::Acquire));
             if let Some(texture) = c.texture {
                 if rode {
                     // Scheduled by the submit. Letting the texture go tells
@@ -391,11 +404,22 @@ impl Module {
                     // commits a command buffer only to signal it.
                     drop(texture);
                 } else {
+                    #[cfg(target_os = "android")]
+                    if c.request && seen {
+                        later = Some(texture);
+                    } else {
+                        gpu.queue.present(texture);
+                    }
+                    #[cfg(not(target_os = "android"))]
                     gpu.queue.present(texture);
                 }
             }
             drop(c.failed);
             let Some(inst) = self.instances.get_mut(&c.id) else {
+                #[cfg(target_os = "android")]
+                if let Some(texture) = later {
+                    gpu.queue.present(texture);
+                }
                 continue;
             };
             #[cfg(target_os = "android")]
@@ -414,6 +438,21 @@ impl Module {
             // the presenter hears when it lands.
             #[cfg(not(target_arch = "wasm32"))]
             if c.request {
+                #[cfg(target_os = "android")]
+                match (later, &inst.presentation) {
+                    (Some(texture), Some(target)) => inst
+                        .acquire
+                        .present_then_request(target, &gpu.queue, texture),
+                    (later, target) => {
+                        if let Some(texture) = later {
+                            gpu.queue.present(texture);
+                        }
+                        if let Some(target) = target {
+                            inst.acquire.request_awaited(target);
+                        }
+                    }
+                }
+                #[cfg(not(target_os = "android"))]
                 if let Some(target) = &inst.presentation {
                     inst.acquire.request_awaited(target);
                 }
