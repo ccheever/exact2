@@ -243,7 +243,7 @@ export function providerPage(host: ProviderHost, selection: string, nowMs: numbe
   const latest = live.reduce((value, provider) => str(provider.checkedAt) > value ? str(provider.checkedAt) : value, '');
   const health = healthInterval(settings);
   return {
-    projectIds: scoped ? JSON.stringify(projectIds) : '', available: true, settingsWritable: providerSettingsWritable(host), enableWritable: scoped ? providerSettingsWritable(host) : providerWritable(host), writable: providerWritable(host), message: providerWritable(host) ? '' : "This session can view this environment's providers but can't change their settings.",
+    projectIds: scoped ? JSON.stringify(projectIds) : '', available: true, settingsWritable: providerSettingsWritable(host), enableWritable: scoped ? providerSettingsWritable(host) : providerWritable(host), writable: providerWritable(host), message: providerWritable(host) ? '' : "This session can view providers but cannot manage provider instances.",
     checked: live.length ? checkedLabel(latest, nowMs) : 'Not checked yet', selectedId: selected?.id || '',
     rows: displayRows.map((row, index) => {
       const provider = live.find(candidate => candidate.instanceId === row.id), status = rowStatus(row, provider);
