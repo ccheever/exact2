@@ -151,7 +151,9 @@ impl<D: DataSource> Bridge<D> {
             self.launch_facts.place = Some(place);
             0
         } else {
-            self.refuse("invalid launch place")
+            // The refusal alone: a reload primes a place while a live host
+            // runs, and its pending work is not this call's to pump (`emit`).
+            self.prepare_error("invalid launch place")
         }
     }
 

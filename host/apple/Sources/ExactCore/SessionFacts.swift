@@ -42,7 +42,7 @@ public struct SessionFacts {
     }
 
     package func prime(_ runtime: Runtime) throws {
-        guard seed < 1 << 32 else { throw HeadlessSession.Failure(description: "launch seed must be a whole number below 2^32") }
+        guard seed <= UInt64(UInt32.max) else { throw HeadlessSession.Failure(description: "launch seed must be a whole number below 2^32") }
         func accept(_ batch: Batch?) throws {
             if let error = batch?.error, error != "not booted" { throw HeadlessSession.Failure(description: error) }
         }
