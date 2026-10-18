@@ -247,6 +247,7 @@ final class T3Composer {
                     return T3ComposerText.HistoryEntry(id: id, prompt: prompt)
                 }
             }
+            if let literal = request["literal"] as? Bool { editor.styler.literal = literal }
             if let rich = request["richText"] as? Bool { editor.styler.richText = rich }
             if let local = request["localEnvironment"] as? Bool { editor.localEnvironment = local }
             if let contexts = request["contexts"] as? [String: String] { editor.styler.contexts = contexts }
