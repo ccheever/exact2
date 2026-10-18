@@ -2,7 +2,7 @@
 
 use std::{io::Write, path::Path, process::ExitCode};
 
-const USAGE: &str = "usage: contract build <file.contract> [-o <file.plan>] [--json] [--map (requires -o)] [--entry <kind>]";
+const USAGE: &str = "usage: contract build <file.contract> [-o <file.plan>] [--json] [--map (requires -o)] [--entry <kind> (requires -o; no --map)]";
 
 struct Options<'a> {
     input: &'a str,
@@ -37,7 +37,8 @@ fn options(args: &[String]) -> Option<Options<'_>> {
             _ => return None,
         }
     }
-    if (map || entry.is_some()) && output.is_none() {
+    // An entry plan has no source map yet: `--map` with `--entry` is refused.
+    if (map || entry.is_some()) && output.is_none() || (map && entry.is_some()) {
         return None;
     }
     Some(Options {
@@ -277,4 +278,25 @@ fn write_output(path: &str, bytes: &[u8]) -> Result<(), contract::CompileError> 
         let _ = std::fs::remove_file(&temporary);
     }
     result.map_err(refusal)
+}
+
+#[cfg(test)]
+mod options_tests {
+    use super::options;
+
+    #[test]
+    fn an_entry_takes_an_output_and_no_map() {
+        let args = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(options(&args(&["a.contract", "--entry", "card", "-o", "card.plan"])).is_some());
+        assert!(options(&args(&["a.contract", "--entry", "card"])).is_none());
+        assert!(options(&args(&[
+            "a.contract",
+            "--entry",
+            "card",
+            "--map",
+            "-o",
+            "card.plan"
+        ]))
+        .is_none());
+    }
 }
