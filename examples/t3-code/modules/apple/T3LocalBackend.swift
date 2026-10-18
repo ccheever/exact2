@@ -10,8 +10,8 @@
 // module is destroyed at quit), stop it: SIGTERM, SIGKILL after 5 s, at most 5 s. A pid file in
 // the app's data folder lets the next launch reap a server an app crash left behind.
 //
-// Real data and port 3773 are opt-in: only the packaged build (Contents/Resources/distribution.json
-// `{"flavor":"packaged"}`, written by the packaging step) uses `~/.t3` and scans from 3773. Every
+// Real data and port 3773 are opt-in: only the app's distribution-only t3code handler and
+// registered bundle scheme admit `~/.t3` and the scan from 3773. Every
 // other build starts nothing unless T3_LOCAL_HOME (an isolated folder) and T3_LOCAL_PORT
 // (16000-16999) are set. No UI here: TypeScript reads `localBackendStatus` and watches `t3.local`.
 import Foundation
@@ -28,11 +28,12 @@ enum T3LocalPolicy: Equatable {
     static let defaultPort = 3773
     static let laneRange = 16000...16999
 
-    /// `distribution.json` in the bundle's Resources marks the packaged build.
-    static func packaged(resources: URL?) -> Bool {
-        guard let resources, let data = try? Data(contentsOf: resources.appendingPathComponent("distribution.json")),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
-        return object["flavor"] as? String == "packaged"
+    /// The app's distribution-only handler is emitted for archives/--distribution, never --release alone.
+    static func packaged(info: [String: Any] = Bundle.main.infoDictionary ?? [:]) -> Bool {
+        let handlers = info["ExactProtocolHandlers"] as? [[String: Any]] ?? []
+        let types = info["CFBundleURLTypes"] as? [[String: Any]] ?? []
+        return handlers.contains { $0["protocol"] as? String == "t3code" && $0["url"] as? String == "/open?u=%s" }
+            && types.contains { ($0["CFBundleURLSchemes"] as? [String] ?? []).contains("t3code") }
     }
 
     /// Resolves `~`, `..` and symlinks (of the deepest part that exists).
@@ -238,10 +239,11 @@ final class T3LocalBackend: @unchecked Sendable {
     private var readyWaiters: [(String?) -> Void] = []
     private var waitEpoch = 0
 
-    // Seams: the process environment, the bundle's Resources, the child's environment, the spawner and
+    // Seams: the process environment, bundle resources/metadata, the child's environment, the spawner and
     // readiness prober, and the fatal startup alert (tests replace them; T3LocalFatal.swift).
     var environment: () -> [String: String] = { ProcessInfo.processInfo.environment }
     var resources: () -> URL? = { Bundle.main.resourceURL }
+    var bundleInfo: () -> [String: Any] = { Bundle.main.infoDictionary ?? [:] }
     var serverEnvironment: ([String: String]) -> [String: String] = { T3LocalShellEnvironment.serverEnvironment(base: $0, run: T3LocalShellEnvironment.runCommand) }
     var makeSpawner: () -> T3LocalSpawner = { T3LocalProcessSpawner() }
     var makeProber: () -> T3LocalProber = { T3LocalHTTPProber() }
@@ -311,7 +313,7 @@ final class T3LocalBackend: @unchecked Sendable {
     /// The desktop settings (T3DesktopSettings.swift): `<T3 home>/userdata/desktop-settings.json`,
     /// read once (`DesktopAppSettings.load`), then the one-time carry-over of the keys `t3-code.json` still has.
     private func loadSettings(dataRoot: URL) {
-        let policy = T3LocalPolicy.resolve(env: environment(), packaged: T3LocalPolicy.packaged(resources: resources()),
+        let policy = T3LocalPolicy.resolve(env: environment(), packaged: T3LocalPolicy.packaged(info: bundleInfo()),
                                            home: NSHomeDirectory(), accountHome: String(cString: getpwuid(getuid()).pointee.pw_dir))
         lock.lock(); self.dataRoot = dataRoot; self.policy = policy; lock.unlock()
         var home: URL?

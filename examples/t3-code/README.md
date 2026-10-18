@@ -74,8 +74,11 @@ starts it only with an isolated home and a lane port, never `~/.t3` or 3773:
 T3_LOCAL_HOME=/tmp/lane/t3-home T3_LOCAL_PORT=16437 bun host/apple/build.mjs t3-code-macos --bundle --run
 ```
 
-Without both variables its status is `refused` and nothing starts. Only the packaged build
-(`distribution.json` in its Resources) uses `~/.t3` and the port scan from 3773, as T3 Code does.
+Without both variables its status is `refused` and nothing starts. Only a distribution bundle with both the exact `t3code` `/open?u=%s` handler and its
+registered bundle scheme uses `~/.t3` and the port scan from 3773. The app manifest marks the
+handler `distribution_only`, so ordinary development and `--release` builds remain refused
+without their isolated variables. No `distribution.json` marker is required or accepted for
+home admission.
 An agent drive (`bun scripts/agent.mjs macos --size 1280x840 --storage <name> …`, with `EXACT_APP_DIR`
 and both variables set) runs the development binary, which carries no bundle resources and so
 no server: build the bundle, then point `EXACT_MAC_BIN` at its `Contents/MacOS/T3 Code (Exact)`
@@ -84,7 +87,7 @@ no server: build the bundle, then point `EXACT_MAC_BIN` at its `Contents/MacOS/T
 Safari's Web Inspector (exact2 #101): in a development build the app's own web views (the
 terminal, the browser surface, the rendered-HTML preview) are
 `isInspectable`, so Safari's Develop menu lists them. A release build's are not: the packaged
-build (that marker), a production-trust bake or a distributed bundle (`--distribution`, what
+build (that metadata), a legacy packaged marker retained for inspection compatibility, a production-trust bake or a distributed bundle (`--distribution`, what
 `exact release` signs), as main #309 decides for Exact's own `iframe` web views
 (`T3WebInspection.swift`; each web view writes a `t3.inspection:` line to stderr). There is no
 View › Toggle Developer Tools: an inspector for the app's own UI stays out of exact2 (#101).
@@ -96,8 +99,8 @@ launcher in `<T3 home>/bin/t3` and an owned link in a writable command directory
 removes only links written by T3 Code. Another `t3` earlier on PATH is preserved and reported.
 The launcher passes `T3CODE_CLI_PATH`, preserves an explicit `T3CODE_HOME`, and invokes the
 app's installed server executable. Development builds hide this row. Availability uses the
-app's distribution-only protocol-handler metadata; it does not change the local backend's
-separate `distribution.json` home/port policy described above.
+app's distribution-only handler and scheme metadata, shared with the local backend's
+home/port admission policy described above.
 
 The desktop bootstrap secret stays in native memory and the server's stdin envelope.
 Its HMAC credential changes every twelve hours, including a fresh exchange after suspend.

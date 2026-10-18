@@ -24,14 +24,6 @@ final class T3CliCommand {
         self.ensureRuntime = ensureRuntime
     }
 
-    /// The app's distribution-only handler is emitted for archives/--distribution, never --release alone.
-    static func packaged(info: [String: Any]) -> Bool {
-        let handlers = info["ExactProtocolHandlers"] as? [[String: Any]] ?? []
-        let types = info["CFBundleURLTypes"] as? [[String: Any]] ?? []
-        return handlers.contains { $0["protocol"] as? String == "t3code" && $0["url"] as? String == "/open?u=%s" }
-            && types.contains { ($0["CFBundleURLSchemes"] as? [String] ?? []).contains("t3code") }
-    }
-
     private static func word(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }
     var script: String {
         ["#!/bin/sh", "# \(Self.marker)", "export T3CODE_CLI_PATH=\(Self.word(launcher))",
@@ -128,7 +120,7 @@ final class T3CliCommand {
 extension T3LocalBackend {
     func cliCommand() -> T3CliCommand {
         let env = environment()
-        let supported = T3CliCommand.packaged(info: Bundle.main.infoDictionary ?? [:])
+        let supported = T3LocalPolicy.packaged(info: bundleInfo())
         let accountHome = NSHomeDirectory()
         let home = URL(fileURLWithPath: T3LocalShellEnvironment.trimmed(env["T3CODE_HOME"]) ?? "\(accountHome)/.t3", isDirectory: true)
         let runtime = T3LocalRuntime(home: home, bundleDir: resources()?.appendingPathComponent("t3-runtime", isDirectory: true))

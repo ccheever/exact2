@@ -124,12 +124,27 @@ final class LocalSwitchTests: XCTestCase {
         backend.detach(owner)
     }
 
+    func testALegacyMarkerAloneCannotAdmitADevelopmentBackend() {
+        let resources = scratch("legacy-resources"), home = scratch("unadmitted-home")
+        try! #"{"flavor":"packaged"}"#.write(to: resources.appendingPathComponent("distribution.json"), atomically: true, encoding: .utf8)
+        let backend = T3LocalBackend()
+        backend.environment = { ["T3CODE_HOME": home.path, "T3CODE_PORT": "16497", "PATH": "/usr/bin:/bin"] }
+        backend.bundleInfo = { [:] }
+        backend.resources = { resources }
+        backend.attach(owner, dataRoot: scratch("data"), changed: { _ in })
+        XCTAssertTrue(until(3) { backend.statusValue()["state"] as? String == "refused" })
+        XCTAssertEqual(backend.statusValue()["refused"] as? String, T3LocalPolicy.developmentMissing)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent("userdata").path))
+        backend.detach(owner)
+    }
+
     // MARK: handleFatalStartupError
 
     func testPortExhaustionIsFatalWithTheStageAndTheMessageThenQuits() {
         let resources = scratch("resources"), home = scratch("packaged-home")
-        try! #"{"flavor":"packaged"}"#.write(to: resources.appendingPathComponent("distribution.json"), atomically: true, encoding: .utf8)
         let backend = T3LocalBackend()
+        backend.bundleInfo = { ["ExactProtocolHandlers": [["protocol": "t3code", "url": "/open?u=%s"]],
+                               "CFBundleURLTypes": [["CFBundleURLSchemes": ["t3code"]]]] }
         backend.environment = { ["T3CODE_HOME": home.path, "PATH": "/usr/bin:/bin"] }
         backend.resources = { resources }
         backend.canListen = { _, _ in false }

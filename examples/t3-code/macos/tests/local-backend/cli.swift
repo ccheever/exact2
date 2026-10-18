@@ -22,11 +22,11 @@ final class LocalCliCommandTests: XCTestCase {
     func testDistributionHandlerIsRequiredAndReleaseOptimizationAloneDoesNotEnableTheCommand() {
         let handler: [String: Any] = ["protocol": "t3code", "url": "/open?u=%s"]
         let types: [[String: Any]] = [["CFBundleURLSchemes": ["t3code"]]]
-        XCTAssertTrue(T3CliCommand.packaged(info: ["ExactProtocolHandlers": [handler], "CFBundleURLTypes": types]))
-        XCTAssertFalse(T3CliCommand.packaged(info: [:]))
-        XCTAssertFalse(T3CliCommand.packaged(info: ["ExactProtocolHandlers": [handler]]))
-        XCTAssertFalse(T3CliCommand.packaged(info: ["CFBundleURLTypes": types, "ExactProtocolHandlers": [["protocol": "other", "url": "/open?u=%s"]]]))
-        XCTAssertFalse(T3CliCommand.packaged(info: ["ExactProtocolHandlers": [["protocol": "t3code", "url": "/other"]], "CFBundleURLTypes": types]))
+        XCTAssertTrue(T3LocalPolicy.packaged(info: ["ExactProtocolHandlers": [handler], "CFBundleURLTypes": types]))
+        XCTAssertFalse(T3LocalPolicy.packaged(info: [:]))
+        XCTAssertFalse(T3LocalPolicy.packaged(info: ["ExactProtocolHandlers": [handler]]))
+        XCTAssertFalse(T3LocalPolicy.packaged(info: ["CFBundleURLTypes": types, "ExactProtocolHandlers": [["protocol": "other", "url": "/open?u=%s"]]]))
+        XCTAssertFalse(T3LocalPolicy.packaged(info: ["ExactProtocolHandlers": [["protocol": "t3code", "url": "/other"]], "CFBundleURLTypes": types]))
     }
     func testInstallsOnPathAndOnlyRemovesOwnedLinks() throws {
         let command = fixture()
