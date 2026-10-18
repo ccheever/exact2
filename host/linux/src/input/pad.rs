@@ -24,26 +24,10 @@ fn ranges(d: &Device) -> [Option<(i32, i32)>; 8] {
             .then_some((info.minimum, info.maximum))
     })
 }
-/// Xbox drivers name the face buttons by letter: the device's driver
-/// (`/sys/class/input/eventN/device/device/driver`) is `xpad` or `xone…`, or
-/// its vendor is Microsoft's (0x045e, hid-microsoft).
+/// The pad's face-button layout, from its driver in sysfs and its vendor.
 fn layout(path: &Path, d: &Device) -> Layout {
-    let driver = path
-        .file_name()
-        .map(|event| {
-            Path::new("/sys/class/input")
-                .join(event)
-                .join("device/device/driver")
-        })
-        .and_then(|link| std::fs::read_link(link).ok())
-        .and_then(|target| target.file_name().map(|n| n.to_string_lossy().into_owned()));
-    let xbox = driver.is_some_and(|name| name == "xpad" || name.starts_with("xone"))
-        || d.input_id().vendor() == 0x045e;
-    if xbox {
-        Layout::Xbox
-    } else {
-        Layout::Positional
-    }
+    let driver = crate::gamepad::driver(Path::new("/sys"), path);
+    crate::gamepad::layout_for(driver.as_deref(), d.input_id().vendor())
 }
 /// A pad as it is when opened: its held buttons and its axes, so the first
 /// reading is the device's, not a centred default.

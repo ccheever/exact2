@@ -715,7 +715,7 @@ fn pads_follow_the_focus_and_release_the_canvas_they_leave() {
     let mut south = [0.; 17];
     south[0] = 1.;
     p.set_focus(Some(a), 0.);
-    p.hardware_pad(0, true, south, [0.; 4]);
+    p.hardware_pad(0, true, south, [0.; 4], 0.);
     let (to, _, event) = last_input(&p);
     assert_eq!(
         (to, pad(&event)),
@@ -741,21 +741,21 @@ fn pads_follow_the_focus_and_release_the_canvas_they_leave() {
         (json!("pad"), json!(false), json!(0.)),
         "a hears the pad go"
     );
-    p.hardware_pad(0, true, [0.; 17], [0.; 4]);
+    p.hardware_pad(0, true, [0.; 17], [0.; 4], 0.);
     let (to, _, event) = last_input(&p);
     assert_eq!(
         (to, pad(&event)),
         (id(&p, b), (json!("pad"), json!(true), json!(0.)))
     );
     // An editor takes the pads from every canvas; they wait for the next canvas.
-    p.hardware_pad(0, true, south, [0.; 4]);
+    p.hardware_pad(0, true, south, [0.; 4], 0.);
     p.set_focus(Some(editor), 0.);
     let (to, count, event) = last_input(&p);
     assert_eq!(
         (to, pad(&event)),
         (id(&p, b), (json!("pad"), json!(false), json!(0.)))
     );
-    p.hardware_pad(0, true, south, [0.5, 0., 0., 0.]);
+    p.hardware_pad(0, true, south, [0.5, 0., 0., 0.], 0.);
     assert_eq!(
         last_input(&p).1,
         count,
@@ -768,6 +768,49 @@ fn pads_follow_the_focus_and_release_the_canvas_they_leave() {
         (id(&p, a), (json!("pad"), json!(true), json!(1.)))
     );
     assert_eq!(event["axes"][0], json!(0.5));
+    done(p, path);
+}
+
+/// A buffered press and release keep the times the device reported them,
+/// and pads a host stopped reading are not replayed to the next canvas.
+#[test]
+fn pad_states_keep_their_report_times_and_forgotten_pads_are_not_replayed() {
+    let (mut p, path) = fixture();
+    let (a, b) = (find(&p, "a"), find(&p, "b"));
+    let previous = |p: &Presenter<()>| -> Value {
+        serde_json::from_str(unsafe {
+            std::ffi::CStr::from_ptr(p.surfaces.abis[""]
+                .symbol::<unsafe extern "C" fn() -> *const std::ffi::c_char>(
+                b"test_previous_input",
+            )())
+            .to_str()
+            .unwrap()
+        })
+        .unwrap()
+    };
+    let mut south = [0.; 17];
+    south[0] = 1.;
+    p.set_focus(Some(a), 0.);
+    p.hardware_pad(0, true, south, [0.; 4], 100.);
+    p.hardware_pad(0, true, [0.; 17], [0.; 4], 309.);
+    let (_, count, last) = last_input(&p);
+    assert_eq!(
+        (previous(&p)["at"].clone(), last["at"].clone()),
+        (json!(100.), json!(309.))
+    );
+    p.hardware_pad(0, true, south, [0.; 4], 400.);
+    p.forget_pads();
+    let (to, after, event) = last_input(&p);
+    assert_eq!(
+        (to, after, event["connected"].clone()),
+        (p.surfaces.canvases[&a].id, count + 2, json!(false))
+    );
+    p.set_focus(Some(b), 0.);
+    assert_eq!(
+        last_input(&p).1,
+        after,
+        "a forgotten pad is not replayed to b"
+    );
     done(p, path);
 }
 

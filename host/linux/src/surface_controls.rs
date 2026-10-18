@@ -289,7 +289,15 @@ impl<D: DataSource> Presenter<D> {
     /// A gamepad's state (LLP 1127.003 D2, D9) goes to the canvas that has
     /// the pads: the focus's canvas, or with no focus the first canvas that
     /// takes input; an editor's focus takes them from every canvas.
-    pub fn hardware_pad(&mut self, index: u8, connected: bool, buttons: [f32; 17], axes: [f32; 4]) {
+    /// `at` is when the device reported it, in the host's clock.
+    pub fn hardware_pad(
+        &mut self,
+        index: u8,
+        connected: bool,
+        buttons: [f32; 17],
+        axes: [f32; 4],
+        at: f64,
+    ) {
         let was = if connected {
             self.pads.readings.insert(index, (buttons, axes)).is_some()
         } else {
@@ -300,7 +308,7 @@ impl<D: DataSource> Presenter<D> {
             return self.move_pads(target, (!connected && was).then_some(index));
         }
         if let Some(view) = target.filter(|_| connected || was) {
-            self.send_pad(view, index, connected.then_some((buttons, axes)));
+            self.send_pad(view, index, connected.then_some((buttons, axes)), at);
         }
     }
     fn pad_target(&self) -> Option<u32> {
@@ -324,24 +332,32 @@ impl<D: DataSource> Presenter<D> {
     /// new one hears every connected pad as it is now.
     fn move_pads(&mut self, target: Option<u32>, gone: Option<u8>) {
         let readings: Vec<_> = self.pads.readings.iter().map(|(i, r)| (*i, *r)).collect();
+        let now = self.host.now();
         if let Some(old) = self.pads.owner.take() {
             for index in readings.iter().map(|(i, _)| *i).chain(gone) {
-                self.send_pad(old, index, None);
+                self.send_pad(old, index, None, now);
             }
         }
         self.pads.owner = target;
         if let Some(view) = target {
             for (index, reading) in readings {
-                self.send_pad(view, index, Some(reading));
+                self.send_pad(view, index, Some(reading), now);
             }
         }
     }
-    fn send_pad(&mut self, view: u32, index: u8, reading: Option<([f32; 17], [f32; 4])>) {
+    /// The pads' last readings are no longer known (a host stopped reading
+    /// them while unfocused): no canvas receives them again until each pad
+    /// reports itself.
+    pub fn forget_pads(&mut self) {
+        self.move_pads(None, None);
+        self.pads.readings.clear();
+    }
+    fn send_pad(&mut self, view: u32, index: u8, reading: Option<([f32; 17], [f32; 4])>, at: f64) {
         let (buttons, axes) = reading.unwrap_or_default();
         self.surfaces.input(
             view,
             json!({"t":"pad","index":index,"connected":reading.is_some(),"standard":true,
-            "buttons":buttons,"axes":axes,"at":self.host.now()}),
+            "buttons":buttons,"axes":axes,"at":at}),
         );
     }
     /// Route device keys through the same targeted path as agent keys.

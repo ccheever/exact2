@@ -31,7 +31,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
 
     /// A gamepad's state (`Pads.kt`): to the canvas a key would reach.
     pub fn pad(&mut self, index: u8, connected: bool, buttons: [f32; 17], axes: [f32; 4]) {
-        self.p.hardware_pad(index, connected, buttons, axes);
+        let now = self.now();
+        self.p.hardware_pad(index, connected, buttons, axes, now);
         self.force = true;
     }
 

@@ -45,6 +45,8 @@ pub enum InputEvent {
         connected: bool,
         /// Its buttons and axes.
         reading: PadReading,
+        /// How long before the read the device reported it, milliseconds.
+        age_ms: f32,
     },
     /// A keyboard edge. Translate US codes at dispatch, keeping the queue compact.
     Key {
@@ -180,17 +182,21 @@ impl Input {
         devices.chain(pads).map(|d| d.as_raw_fd()).collect()
     }
 
-    /// Each pad's changes since the last read: its connection first, then its
-    /// state after each batch that changed it.
+    /// Each pad's changes since the last read: its connection first, then
+    /// its state at each report that changed it, all pads' readings in the
+    /// order their devices reported them.
     fn read_pads(&mut self, out: &mut Vec<InputEvent>) {
+        use crate::gamepad::{change, chronological};
+        let epoch_ms = |t: std::time::SystemTime| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .map_or(0., |d| d.as_secs_f64() * 1000.)
+        };
+        let now = epoch_ms(std::time::SystemTime::now());
+        let mut readings = Vec::new();
         self.pads.retain_mut(|(d, index, state, announced)| {
             let index = *index;
             if !std::mem::replace(announced, true) {
-                out.push(InputEvent::Pad {
-                    index,
-                    connected: true,
-                    reading: state.reading,
-                });
+                readings.push((index, Some(state.reading), now));
             }
             let events = match d.fetch_events() {
                 Ok(events) => events,
@@ -203,33 +209,33 @@ impl Input {
                     return true
                 }
                 Err(_) => {
-                    out.push(InputEvent::Pad {
-                        index,
-                        connected: false,
-                        reading: PadReading::default(),
-                    });
+                    readings.push((index, None, now));
                     return false;
                 }
             };
-            // A reading at each report, so a press and release in one read are both seen.
-            use crate::gamepad::Change;
-            let changes = events.filter_map(|e| match e.destructure() {
-                EventSummary::Key(_, code, value) => Some(Change::Key(code.0, value)),
-                EventSummary::AbsoluteAxis(_, code, value) => Some(Change::Abs(code.0, value)),
-                EventSummary::Synchronization(_, SynchronizationCode::SYN_REPORT, _) => {
-                    Some(Change::Report)
-                }
-                _ => None,
-            });
-            for reading in state.events(changes) {
-                out.push(InputEvent::Pad {
-                    index,
-                    connected: true,
-                    reading,
-                });
+            let changes: Vec<_> = events
+                .filter_map(|e| {
+                    Some((
+                        change(e.event_type().0, e.code(), e.value())?,
+                        epoch_ms(e.timestamp()),
+                    ))
+                })
+                .collect();
+            for (reading, at) in state.events(changes) {
+                readings.push((index, Some(reading), at));
             }
             true
         });
+        // `None` is a disconnect, at its time like a reading.
+        chronological(&mut readings);
+        for (index, reading, at) in readings {
+            out.push(InputEvent::Pad {
+                index,
+                connected: reading.is_some(),
+                reading: reading.unwrap_or_default(),
+                age_ms: (now - at).max(0.) as f32,
+            });
+        }
     }
 
     /// Everything that arrived since the last read.

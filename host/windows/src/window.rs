@@ -561,8 +561,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
         }
         // Pads are polled while the window has focus (below: when it wakes for them).
         if self.focused {
+            let at = self.started.elapsed().as_secs_f64() * 1000.;
             self.pads.poll(|index, connected, buttons, axes| {
-                p.hardware_pad(index, connected, buttons, axes)
+                p.hardware_pad(index, connected, buttons, axes, at)
             });
         }
         if self.frame_limit.is_some() || p.wants_display_frames() || p.host().motion() {

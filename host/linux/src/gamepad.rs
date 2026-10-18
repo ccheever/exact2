@@ -41,6 +41,44 @@ pub enum Change {
     /// `SYN_REPORT`: the device's report is complete.
     Report,
 }
+/// An evdev event, by its type, code and value (linux/input-event-codes.h),
+/// as a pad's change: EV_KEY (1), EV_ABS (3), and EV_SYN (0) with
+/// SYN_REPORT (0); nothing else is a pad's.
+pub fn change(kind: u16, code: u16, value: i32) -> Option<Change> {
+    match (kind, code) {
+        (1, _) => Some(Change::Key(code, value)),
+        (3, _) => Some(Change::Abs(code, value)),
+        (0, 0) => Some(Change::Report),
+        _ => None,
+    }
+}
+/// Several pads' readings in the order they happened: by time, then by pad
+/// index, so a buffered read across devices is delivered chronologically.
+pub fn chronological<T>(readings: &mut [(u8, T, f64)]) {
+    readings.sort_by(|a, b| a.2.total_cmp(&b.2).then(a.0.cmp(&b.0)));
+}
+/// Xbox drivers name the face buttons by letter: the device's driver is `xpad`
+/// or `xone…`, or its vendor is Microsoft's (0x045e, hid-microsoft).
+pub fn layout_for(driver: Option<&str>, vendor: u16) -> Layout {
+    let xbox =
+        driver.is_some_and(|name| name == "xpad" || name.starts_with("xone")) || vendor == 0x045e;
+    if xbox {
+        Layout::Xbox
+    } else {
+        Layout::Positional
+    }
+}
+/// The driver of the input device at `device` (`/dev/input/eventN`), from
+/// `<sysfs>/class/input/eventN/device/device/driver`'s link.
+pub fn driver(sysfs: &std::path::Path, device: &std::path::Path) -> Option<String> {
+    let event = device.file_name()?;
+    let link = sysfs
+        .join("class/input")
+        .join(event)
+        .join("device/device/driver");
+    let target = std::fs::read_link(link).ok()?;
+    Some(target.file_name()?.to_string_lossy().into_owned())
+}
 
 /// The standard index of an evdev gamepad button.
 fn button(code: u16, layout: Layout) -> Option<usize> {
@@ -120,23 +158,28 @@ impl State {
             }
         }
     }
-    /// One fetched batch: a reading at each report that changed it, so a
-    /// press and release in one read are two readings, in order.
-    pub fn events(&mut self, changes: impl IntoIterator<Item = Change>) -> Vec<Reading> {
-        let (mut out, mut changed) = (Vec::new(), false);
-        for change in changes {
+    /// One fetched batch of changes, each with its event's time: a reading
+    /// at each report that changed it, at the report's time, so a press and
+    /// release in one read are two readings, as far apart as they happened.
+    pub fn events(
+        &mut self,
+        changes: impl IntoIterator<Item = (Change, f64)>,
+    ) -> Vec<(Reading, f64)> {
+        let (mut out, mut changed, mut last) = (Vec::new(), false, 0.);
+        for (change, at) in changes {
+            last = at;
             match change {
                 Change::Key(code, value) => changed |= self.key(code, value),
                 Change::Abs(code, value) => changed |= self.axis(code, value),
                 Change::Report => {
                     if std::mem::take(&mut changed) {
-                        out.push(self.reading);
+                        out.push((self.reading, at));
                     }
                 }
             }
         }
         if changed {
-            out.push(self.reading);
+            out.push((self.reading, last));
         }
         out
     }
@@ -219,23 +262,75 @@ mod tests {
         s.key(0x131, 1);
         assert_eq!((s.reading.buttons[0], s.reading.buttons[1]), (1., 1.));
     }
-    /// A press and its release in one read are two readings.
+    /// A press and its release in one read are two readings, at their
+    /// reports' times: raw (type, code, value) events, through `change`.
     #[test]
-    fn a_buffered_tap_is_a_press_then_a_release() {
+    fn a_buffered_press_and_release_keep_their_reports_times() {
         let mut s = device(Layout::Positional);
-        let readings = s.events([
-            Change::Key(0x130, 1),
-            Change::Report,
-            Change::Key(0x130, 0),
-            Change::Report,
-            Change::Abs(0x00, 128),
-            Change::Abs(0x00, 128),
-        ]);
-        let south: Vec<f32> = readings.iter().map(|r| r.buttons[0]).collect();
-        assert_eq!(south, [1., 0., 0.], "{readings:?}");
+        let raw = [
+            (1, 0x130, 1, 100.), // EV_KEY BTN_SOUTH down
+            (0, 0, 0, 100.),     // SYN_REPORT
+            (4, 4, 9, 150.),     // EV_MSC: not a pad's
+            (1, 0x130, 0, 309.), // up, 209 ms later
+            (0, 0, 0, 309.),
+            (3, 0x00, 128, 320.), // an axis with no report after it
+        ];
+        let changes: Vec<_> = raw
+            .iter()
+            .filter_map(|&(t, c, v, at)| Some((change(t, c, v)?, at)))
+            .collect();
+        let readings = s.events(changes);
+        let south: Vec<(f32, f64)> = readings.iter().map(|(r, at)| (r.buttons[0], *at)).collect();
+        assert_eq!(south, [(1., 100.), (0., 309.), (0., 320.)], "{readings:?}");
         assert!(
-            s.events([Change::Report]).is_empty(),
+            s.events([(Change::Report, 400.)]).is_empty(),
             "an empty report is no reading"
         );
+        assert_eq!(change(0, 1, 0), None, "SYN_CONFIG is no report");
+    }
+    #[test]
+    fn readings_from_several_pads_are_delivered_by_time_then_index() {
+        let r = Reading::default();
+        let mut readings = vec![(1, r, 120.), (0, r, 130.), (2, r, 110.), (0, r, 120.)];
+        chronological(&mut readings);
+        let order: Vec<(u8, f64)> = readings.iter().map(|(i, _, at)| (*i, *at)).collect();
+        assert_eq!(order, [(2, 110.), (0, 120.), (1, 120.), (0, 130.)]);
+    }
+    /// Xbox drivers are named in sysfs; a fake tree stands for it.
+    #[cfg(unix)]
+    #[test]
+    fn xbox_layout_by_driver_or_vendor() {
+        let root = std::env::temp_dir().join(format!("exact-sysfs-{}", std::process::id()));
+        for (event, name) in [
+            ("event3", "xpad"),
+            ("event4", "hid-playstation"),
+            ("event5", "xone_gip"),
+        ] {
+            let dir = root.join("class/input").join(event).join("device/device");
+            std::fs::create_dir_all(&dir).unwrap();
+            let _ = std::fs::remove_file(dir.join("driver"));
+            std::os::unix::fs::symlink(
+                format!("../../../../bus/usb/drivers/{name}"),
+                dir.join("driver"),
+            )
+            .unwrap();
+        }
+        let named =
+            |event: &str| driver(&root, std::path::Path::new(&format!("/dev/input/{event}")));
+        assert_eq!(named("event3").as_deref(), Some("xpad"));
+        assert_eq!(named("event9"), None);
+        assert_eq!(layout_for(named("event3").as_deref(), 0x0e6f), Layout::Xbox);
+        assert_eq!(layout_for(named("event5").as_deref(), 0x0e6f), Layout::Xbox);
+        assert_eq!(
+            layout_for(named("event4").as_deref(), 0x054c),
+            Layout::Positional
+        );
+        assert_eq!(
+            layout_for(Some("hid-generic"), 0x045e),
+            Layout::Xbox,
+            "Microsoft's vendor id"
+        );
+        assert_eq!(layout_for(None, 0x057e), Layout::Positional);
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }
