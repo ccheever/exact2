@@ -27,3 +27,6 @@ pub mod save_slot {}
 /// Inspect defaults before spawning a component.
 #[doc = include_str!("../../recipes/component-values.md")]
 pub mod component_values {}
+/// Familiar names and their shipped API spellings.
+#[doc = include_str!("../../names.md")]
+pub mod names {}

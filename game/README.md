@@ -228,6 +228,7 @@ covers borrowing, registration, observation, saving and loading.
 [Game recipes](recipes/README.md) answer one task each with a runnable `Sim` fragment.
 `bun exact.mjs game vocab <Component|verb>` in a generated game shows rustdoc,
 public fields, evaluated defaults and the recipe that uses them.
+[Familiar names](names.md) maps three.js, Unity and Godot, with LÖVE's current tick correspondence.
 
 ### Arguments, pause and restart
 
