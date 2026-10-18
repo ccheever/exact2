@@ -5,6 +5,18 @@ use garden_logic::garden::{now_ms, Census, Fruit, GardenClock, Plant, Schedule, 
 use garden_logic::shop::Shop;
 use garden_logic::{census_of, Garden, Options};
 
+#[test]
+fn initial_proof_pin() {
+    Sim::<Garden>::new(Options {
+        seed: 7,
+        // The real-host proof fixes its epoch at 2026-10-01T12:00:00Z.
+        epoch: 1_790_856_000_000.,
+        ..Options::default()
+    })
+    .unwrap()
+    .assert_pin(include_str!("../../pins.json"));
+}
+
 fn new(seed: u64) -> Sim<Garden> {
     Sim::<Garden>::new(Options {
         seed,
