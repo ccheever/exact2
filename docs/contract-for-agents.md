@@ -697,7 +697,10 @@ of its size or currency symbol: static columns need alignment, and updating
 headlines need stable digits.
 
 ```contract
-text balance font-variant-numeric="tabular-nums"
+component App
+  state balance = "$1,234.50"
+  view
+    text balance font-variant-numeric="tabular-nums"
 ```
 
 Apply it to numeric text, keeping the platform font. It makes digits equal-width
