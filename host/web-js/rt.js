@@ -17,7 +17,6 @@ let Media = null; export function useMedia(m) { Media = m; } // and media.js onl
 //   compiled ones; a source not ready keeps the value and asks again when it
 //   is; a later answer lands in its own commit, if its ticket is current;
 // - timers fire on a clock the host moves (`advance`), each at its own time.
-// ---------------------------------------------------------------- signals
 let Listener = null, Owner = null, Queue = [], FocusQueue = [], Flushing = false, Rev = 0;
 const CLEAN = 0, CHECK = 1, DIRTY = 2;
 function node(fn, v, effect) {
