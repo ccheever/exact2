@@ -10,10 +10,10 @@
     "linux",
     "web"
   ],
-  "inputs": "f8be8b85be09fc7f85bafc0d3e0154ca8c5d9b25a2e70307034873579c0decd9",
-  "sourceInputs": "b496794c8031dfef5b4a06159e655c1905486499300c0a078b16d4d9779a5537",
+  "inputs": "e0d90e5e9af733c2abc50a530440ffeaa5edb4414a80e4013948a79b024137cc",
+  "sourceInputs": "fb75783c450e9dfe1e1c79beee52fb4c9af33431b0f7a27a0e26627a53c997b2",
   "game": "asset-fixture",
   "generated": "bun game/prove.mjs asset-fixture --repin --hosts 'linux,web'",
-  "at": "04cccf3195442d5d665527b637d45a5cac5a5827",
-  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream"
+  "at": "a3ab3a5ce7fd77d371354532685708346bbb835b",
+  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream; MeshData.outline, MaterialData.rim and Node.posable extend saved model identities"
 }
