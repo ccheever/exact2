@@ -9,6 +9,7 @@ pub const TABLE_ASSET: &str = "exact-tables.json";
 pub struct Table {
     /// Authored JSON path, relative to the game directory.
     pub name: &'static str,
+    ty: fn() -> &'static str,
     decode: fn(&str) -> Result<TableValue, DataError>,
 }
 impl Table {
@@ -17,6 +18,7 @@ impl Table {
         Self {
             name,
             decode: decode::<T>,
+            ty: crate::data::type_name::<T>,
         }
     }
     /// Validate a complete record, including required fields.
@@ -34,7 +36,7 @@ fn decode<T: Data + Send + Sync>(text: &str) -> Result<TableValue, DataError> {
     let value: T = crate::json::from_complete_str(text)?;
     Ok(TableValue {
         value: Arc::new(value),
-        ty: std::any::type_name::<T>(),
+        ty: crate::data::type_name::<T>(),
     })
 }
 /// A decoded immutable version. Game reads borrow this allocation.
@@ -72,8 +74,37 @@ impl Data for Curve {
         self.0.write(w);
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-        let mut points = Vec::<(f32, f32)>::new();
-        points.read(r)?;
+        #[derive(Default)]
+        struct Point(f32, f32);
+        impl Data for Point {
+            fn write(&self, _: &mut dyn Writer) {
+                unreachable!()
+            }
+            fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+                r.begin_seq()?;
+                if !r.item()? {
+                    return Err(DataError::new(
+                        "curve point requires exactly two coordinates",
+                    ));
+                }
+                self.0.read(r)?;
+                if !r.item()? {
+                    return Err(DataError::new(
+                        "curve point requires exactly two coordinates",
+                    ));
+                }
+                self.1.read(r)?;
+                if r.item()? {
+                    return Err(DataError::new(
+                        "curve point requires exactly two coordinates",
+                    ));
+                }
+                Ok(())
+            }
+        }
+        let mut coordinates = Vec::<Point>::new();
+        coordinates.read(r)?;
+        let points: Vec<_> = coordinates.into_iter().map(|p| (p.0, p.1)).collect();
         for (i, &(x, y)) in points.iter().enumerate() {
             if !x.is_finite() || !y.is_finite() || (i > 0 && points[i - 1].0 >= x) {
                 return Err(DataError::new(
@@ -100,6 +131,7 @@ pub struct TableInput {
 pub(crate) struct TableValues(pub BTreeMap<String, String>);
 #[derive(Default, Clone, Data)]
 struct History {
+    types: BTreeMap<String, String>,
     active: BTreeMap<String, String>,
     inputs: Vec<TableInput>,
     pending: Vec<TableInput>,
@@ -115,7 +147,13 @@ impl TableStore {
     fn new(declarations: &'static [Table]) -> Self {
         Self {
             declarations,
-            history: History::default(),
+            history: History {
+                types: declarations
+                    .iter()
+                    .map(|table| (table.name.into(), (table.ty)().into()))
+                    .collect(),
+                ..History::default()
+            },
             active: BTreeMap::new(),
             versions: BTreeMap::new(),
         }
@@ -195,6 +233,15 @@ impl crate::World {
             .first()
             .map(|input| input.tick)
     }
+    pub(crate) fn pending_table_names(&self) -> String {
+        self.assets
+            .tables
+            .as_ref()
+            .and_then(|s| s.history.pending.first())
+            .map_or_else(String::new, |input| {
+                input.rows.keys().cloned().collect::<Vec<_>>().join(", ")
+            })
+    }
     pub(crate) fn activate_tables(&mut self) {
         let Some(current) = self.assets.tables.as_ref() else {
             return;
@@ -217,7 +264,7 @@ impl crate::World {
         {
             let input = store.history.pending.remove(0);
             self.log(format_args!(
-                "table swap at tick {}: {}; setup-only reads take effect at the next setup",
+                "table swap at tick {}: {}; tick reads take effect now; setup-only reads take effect at the next setup",
                 input.tick,
                 input.rows.keys().cloned().collect::<Vec<_>>().join(", ")
             ));
@@ -230,6 +277,11 @@ impl crate::World {
     pub(crate) fn setup_tables(&mut self) {
         if let Some(current) = &self.assets.tables {
             let mut store = (**current).clone();
+            // Restart is an admission boundary: setup uses the latest accepted transaction,
+            // even when the old world was paused or still awaiting other assets.
+            if let Some(input) = store.history.pending.last().cloned() {
+                store.activate(input.rows);
+            }
             store.history.inputs = vec![TableInput {
                 tick: 0,
                 rows: store.history.active.clone(),
@@ -296,6 +348,14 @@ impl crate::World {
         let mut history = History::default();
         history.read(r)?;
         for table in current.declarations {
+            if history.types.get(table.name) != current.history.types.get(table.name) {
+                return Err(DataError::new(format!(
+                    "restore refused: table type identity differs (saved {:?}, declared `{}`)",
+                    history.types.get(table.name),
+                    (table.ty)()
+                ))
+                .at(table.name));
+            }
             if history.active.get(table.name) != current.history.active.get(table.name) {
                 return Err(
                     DataError::new("restore refused: table identity differs").at(table.name)
@@ -361,13 +421,20 @@ impl<G: crate::Game> crate::Sim<G> {
             store.history.inputs.len().saturating_sub(1) + store.history.pending.len()
         })
     }
-    /// Recorded table inputs, including setup bytes, for a deterministic replay.
+    /// Recorded table inputs, including setup bytes and pending transactions, for replay.
     pub fn table_inputs(&self) -> Vec<TableInput> {
         self.world
             .assets
             .tables
             .as_ref()
-            .map_or_else(Vec::new, |s| s.history.inputs.clone())
+            .map_or_else(Vec::new, |s| {
+                s.history
+                    .inputs
+                    .iter()
+                    .chain(&s.history.pending)
+                    .cloned()
+                    .collect()
+            })
     }
     /// Replay retained transactions on their original ticks after delivering the setup version.
     pub fn replay_tables(&mut self, inputs: &[TableInput]) -> Result<(), DataError> {

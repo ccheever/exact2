@@ -103,6 +103,7 @@ fn cached_reads_and_whole_transactions_activate_only_on_a_tick() {
     assert!(deliver(&mut sim, bad).unwrap_err().contains("labels.json"));
     let mut missing = rows(12.0, "bad");
     missing.insert("weapons.json".into(), r#"{"recoil":[[0,0]]}"#.into());
+    assert!(json::from_complete_str::<Tuning>(&missing["weapons.json"]).is_err());
     let error = deliver(&mut sim, missing).unwrap_err();
     assert!(
         error.contains("speed") && error.contains("weapons.json"),
@@ -189,4 +190,163 @@ fn curve_rejects_bad_points_and_clamps_endpoints() {
     assert_eq!(curve.at(-1.0), 1.0);
     assert_eq!(curve.at(1.0), 3.0);
     assert_eq!(curve.at(3.0), 5.0);
+}
+
+#[derive(Default, Args)]
+struct Options {
+    #[live]
+    paused: bool,
+    #[restart]
+    restart: bool,
+}
+struct SetupTables;
+impl Game for SetupTables {
+    const ID: &'static str = "setup-tables";
+    const HZ: u32 = 1000;
+    const TABLES: &'static [asset::Table] = Tables::TABLES;
+    const ASSETS: &'static [&'static str] = &["barrier.model"];
+    type Args = Options;
+    fn setup(w: &mut World, _: &Options) {
+        let speed = w.table::<Tuning>("weapons.json").unwrap().speed;
+        w.spawn_named(
+            "player",
+            (Seen {
+                speed,
+                title: String::new(),
+            },),
+        );
+    }
+    fn tick(_: &mut World, _: &Input, _: &Options) {}
+    fn paused(args: &Options) -> bool {
+        args.paused
+    }
+}
+fn setup_delivery(s: &mut Sim<SetupTables>, speed: f32) {
+    s.asset(
+        asset::TABLE_ASSET,
+        Some(json::to_string(&rows(speed, "first")).unwrap().as_bytes()),
+    )
+    .unwrap();
+}
+#[test]
+fn restart_and_initial_barrier_admit_the_latest_pending_transaction() {
+    let mut s = Sim::<SetupTables>::new(Options::default()).unwrap();
+    setup_delivery(&mut s, 4.0);
+    setup_delivery(&mut s, 8.0);
+    assert!(s.is_loading());
+    s.asset(
+        "barrier.model",
+        Some(&bin::to_vec(&asset::Model::default())),
+    )
+    .unwrap();
+    assert_eq!(s.get::<Seen>("player").unwrap().speed, 8.0);
+    assert_eq!(s.table_inputs().len(), 1);
+    s.bind(&[Value::Bool(true), Value::Bool(false)], None)
+        .unwrap();
+    setup_delivery(&mut s, 12.0);
+    setup_delivery(&mut s, 16.0);
+    s.bind(&[Value::Bool(true), Value::Bool(true)], None)
+        .unwrap();
+    assert_eq!(s.get::<Seen>("player").unwrap().speed, 16.0);
+    assert_eq!(s.world().tick(), 0);
+    assert_eq!(s.table_inputs().len(), 1);
+}
+#[test]
+fn paused_table_delivery_settles_without_a_tick_and_resumes_on_the_first_tick() {
+    let mut s = Sim::<SetupTables>::new(Options::default()).unwrap();
+    setup_delivery(&mut s, 4.0);
+    s.asset(
+        "barrier.model",
+        Some(&bin::to_vec(&asset::Model::default())),
+    )
+    .unwrap();
+    s.bind(&[Value::Bool(true), Value::Bool(false)], None)
+        .unwrap();
+    let hash = s.world().hash();
+    setup_delivery(&mut s, 8.0);
+    assert!(s.quiescent());
+    let state = s.agent(r#"{"op":"clock","settle":true}"#);
+    assert!(
+        state.contains("awaiting resume") && state.contains("weapons.json"),
+        "{state}"
+    );
+    s.run(100.0);
+    assert_eq!(s.world().tick(), 0);
+    assert_eq!(s.world().hash(), hash);
+    s.bind(&[Value::Bool(false), Value::Bool(false)], None)
+        .unwrap();
+    s.run(1.0);
+    assert_eq!(s.world().tick(), 1);
+    assert_eq!(
+        s.world().table::<Tuning>("weapons.json").unwrap().speed,
+        8.0
+    );
+    // No component changes in tick: this isolates the table resource's hash contribution.
+    let mut old = Sim::<SetupTables>::new(Options::default()).unwrap();
+    setup_delivery(&mut old, 4.0);
+    old.asset(
+        "barrier.model",
+        Some(&bin::to_vec(&asset::Model::default())),
+    )
+    .unwrap();
+    old.run(1.0);
+    assert_ne!(s.world().hash(), old.world().hash());
+}
+#[test]
+fn restore_refuses_a_different_declared_type_even_with_identical_json() {
+    #[derive(Default, Data)]
+    struct Renamed {
+        speed: f32,
+        recoil: asset::Curve,
+    }
+    struct Changed;
+    impl Game for Changed {
+        const ID: &'static str = "tables";
+        const HZ: u32 = 1000;
+        const TABLES: &'static [asset::Table] = &[
+            asset::Table::of::<Renamed>("weapons.json"),
+            asset::Table::of::<Labels>("labels.json"),
+        ];
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            Tables::setup(w, &());
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let saved = sim(Paranoid::Off).save().unwrap();
+    let mut changed = Sim::<Changed>::new(()).unwrap();
+    changed
+        .asset(
+            asset::TABLE_ASSET,
+            Some(json::to_string(&rows(4.0, "first")).unwrap().as_bytes()),
+        )
+        .unwrap();
+    let before = changed.save().unwrap();
+    let error = changed.restore(&saved).unwrap_err().to_string();
+    for name in ["weapons.json", "Tuning", "Renamed", "type identity"] {
+        assert!(error.contains(name), "{error}");
+    }
+    assert_eq!(changed.save().unwrap(), before);
+}
+#[test]
+fn replay_export_includes_pending_transactions_and_curve_errors_name_the_point() {
+    let mut driven = sim(Paranoid::Off);
+    deliver(&mut driven, rows(8.0, "second")).unwrap();
+    let mut replay = sim(Paranoid::Off);
+    replay.replay_tables(&driven.table_inputs()).unwrap();
+    driven.run(1.0);
+    replay.run(1.0);
+    assert_eq!(driven.world().hash(), replay.world().hash());
+    for point in ["[0]", "[0,1,2]", "[]"] {
+        let mut bad = rows(8.0, "second");
+        bad.insert(
+            "weapons.json".into(),
+            format!(r#"{{"speed":8,"recoil":[{point},[1,2]]}}"#),
+        );
+        let error = deliver(&mut driven, bad).unwrap_err();
+        assert!(
+            error.contains("weapons.json.Tuning.recoil.0") && error.contains("exactly two"),
+            "{error}"
+        );
+    }
 }

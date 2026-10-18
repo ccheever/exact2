@@ -1150,7 +1150,7 @@ impl<G: Game> Sim<G> {
         self.check_epoch();
         let settled = !self.setup_pending
             && self.queue.is_empty()
-            && self.world.table_pending_tick().is_none()
+            && (G::paused(&self.args) || self.world.table_pending_tick().is_none())
             && (G::paused(&self.args) || self.world.quiescent());
         if settled {
             self.settle_delay.set(100);
@@ -1162,18 +1162,27 @@ impl<G: Game> Sim<G> {
             return vec!["loading".into()];
         }
         if G::paused(&self.args) {
-            return if self.queue.is_empty() {
-                vec!["paused".into()]
-            } else {
-                vec!["paused".into(), "input queued".into()]
-            };
+            let mut reasons = vec!["paused".into()];
+            if !self.queue.is_empty() {
+                reasons.push("input queued".into());
+            }
+            if self.world.table_pending_tick().is_some() {
+                reasons.push(format!(
+                    "table input awaiting resume: {}",
+                    self.world.pending_table_names()
+                ));
+            }
+            return reasons;
         }
         if quiescent {
             return vec![];
         }
         let mut reasons = self.world.changing();
         if self.world.table_pending_tick().is_some() {
-            reasons.push("table input queued".into());
+            reasons.push(format!(
+                "table input queued: {}",
+                self.world.pending_table_names()
+            ));
         }
         if !self.queue.is_empty() && reasons.len() < 8 {
             reasons.push("input queued".into());
