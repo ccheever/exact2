@@ -4,16 +4,16 @@
     "90": "0xf3f4dced8f1d65f5"
   },
   "saves": {
-    "continuation": "d5e52eceec3e30112e57f39edfc4f7cb2383087313556be91e679ba3bdabf3c0"
+    "continuation": "2fd4a239b89fffaf3b9e80d3d30c4502af454bdae19a39f288c2737bd7508868"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "d1638e289e6a9eb00a84f8325f5d8cd1bdab6d548f12a907596975bc3fbc06cf",
-  "sourceInputs": "72bc40aed02c4ce4aa22a401b70dd35a2a55af04de74729021e89cc8b7abf33f",
+  "inputs": "85cae94511234476b953339e04f058c9f41fcafce3d90c9c364bf36d2a57787d",
+  "sourceInputs": "8d182282fbd2dde281dde20db893accd54aca7786d564fbc2dac4f5c9a102f51",
   "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
-  "at": "5baea6f45a3cb8ef0a531788a6d7582a1dfcb577",
-  "reason": "8b6010398 and e1e96d477: active movement tables add the TableValues resource and retained typed inputs; f5ad281e8: EXGAME v5 world save magic"
+  "at": "e20726da10868d94532f8f0085cf099745e0df73",
+  "reason": "888b99e80: persist module-qualified table type identity in retained inputs; active table bytes and gameplay tick hashes are unchanged"
 }
