@@ -989,7 +989,8 @@ component T3Code
               settingsProjectKey = ""
               settingsProjectId = ""
               settingsCheckout = ""
-            restEditor = ""
+            if result.message != "task-webhook-keep"
+              restEditor = ""
             settingsRefresh = settingsRefresh + 1
           if pendingModal == "settings"
             settingsRefresh = settingsRefresh + 1

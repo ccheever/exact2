@@ -52,15 +52,18 @@ component ScriptRow
     open = e.newState == "open"
   view
     row height="2rem" align-items="center" border-radius="0.625rem" role="group" aria-label="Project scripts" testId="details-scripts" background-color=(hovered == "menu" or open ? "light-dark(#0000000e, #ffffff13)" : "#00000000")
-      box position="relative" flex=1 min-width=0 hover=hover("run")
-        button press=run aria-label=`Run ${details.scriptName}` testId="details-run-script" width="100%" min-width=0 height="2rem" padding-left="0.6875rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center"
-          box display="flex" flex-shrink=0
-            CnScriptIcon(icon=details.scriptIcon, size=16, color="light-dark(#71717b, #818181)")
-          text details.scriptName flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)"
-        TipBubble(label=`Run ${details.scriptName}`, side="top", align="center", offset=36, inset=0, shown=(hovered == "run"))
-      box width=1 height="1rem" flex-shrink=0 background-color="light-dark(#e4e4e7a6, #ffffff10)"
+      if details.scriptName != ""
+        box position="relative" flex=1 min-width=0 hover=hover("run")
+          button press=run aria-label=`Run ${details.scriptName}` testId="details-run-script" width="100%" min-width=0 height="2rem" padding-left="0.6875rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+            box display="flex" flex-shrink=0
+              CnScriptIcon(icon=details.scriptIcon, size=16, color="light-dark(#71717b, #818181)")
+            text details.scriptName flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)"
+          TipBubble(label=`Run ${details.scriptName}`, side="top", align="center", offset=36, inset=0, shown=(hovered == "run"))
+        box width=1 height="1rem" flex-shrink=0 background-color="light-dark(#e4e4e7a6, #ffffff10)"
       box position="relative" flex-shrink=0
-        button id="details-script-actions" popovertarget="details-scripts-menu" key=triggerKey hover=hover("menu") aria-label="Script actions" aria-haspopup="menu" aria-expanded=open testId="details-script-actions" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.625rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+        button id="details-script-actions" popovertarget="details-scripts-menu" key=triggerKey hover=hover("menu") aria-label="Script actions" flex=(details.scriptName == "" ? 1 : 0) aria-haspopup="menu" aria-expanded=open testId="details-script-actions" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.625rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+          if details.scriptName == ""
+            text "Actions" font-size="0.8125rem" color="light-dark(#71717b, #818181)"
           ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #818181)")
         ScriptMenu(details=details, items=menuItems, width=menuWidth, act=act, toggled=toggled)
 

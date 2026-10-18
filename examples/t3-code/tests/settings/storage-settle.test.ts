@@ -1,0 +1,97 @@
+import { expect, test } from 'bun:test';
+import { buildScript, decodeInput, parseProjectScripts, primaryScript, releaseClaimedRoles, scriptMenuLabel } from '../../src/settings/settings-b-actions';
+import { cardScripts } from '../../src/details/project-scripts';
+import { isWorkingThread, shellRuntime } from '../../src/sidebar/sidebar-model';
+import { effectiveWorktreeRules } from '../../src/client/domain';
+import { storagePatch } from '../../src/settings/settings-rest-commands';
+import { isProjectScopedSettingKey, planScopedSettingsPatch } from '../../src/settings/scoped-settings-plan';
+
+test('settle actions preserve independent setup roles and stay reachable without becoming a one-click action', () => {
+  const input = decodeInput('name=Clean&command=rm%20-rf%20build&setup=false&settle=true&wait=true');
+  const clean = buildScript('clean', input), both = { ...clean, runOnWorktreeCreate: true };
+  expect(clean).toMatchObject({ runOnSettle: true, runOnWorktreeCreate: false });
+  expect(clean.async).toBeUndefined();
+  expect(releaseClaimedRoles(both, input)).toMatchObject({ runOnSettle: false, runOnWorktreeCreate: true });
+  expect(releaseClaimedRoles(both, { ...input, runOnSettle: false, runOnWorktreeCreate: true })).toMatchObject({ runOnSettle: true, runOnWorktreeCreate: false });
+  expect(primaryScript([clean])).toBeUndefined();
+  expect(scriptMenuLabel(both)).toBe('Clean (setup, on settle)');
+  const view = cardScripts({ defaultProjectScripts: [clean], projectSettingsFolded: true }, { id: 'p' }, 'clean');
+  expect(view.scriptName).toBe('');
+  expect(view.scripts).toEqual([{ id: 'clean', label: 'Clean (on settle)', icon: 'play' }]);
+  expect(parseProjectScripts('{"scripts":[{"name":"Clean","command":"true","runOnSettle":true}]}').scripts[0]?.runOnSettle).toBe(true);
+  expect(parseProjectScripts('{"scripts":[{"name":"Clean","command":"true","runOnSettle":"yes"}]}').status).toBe('invalid');
+});
+
+test('a never-run thread held by a PR watch stays Working until the server removes its monitor', () => {
+  const thread = { latestRunId: null, activeProviderThreadId: null, status: 'idle', pendingBackgroundTasks: [{ kind: 'monitor', taskId: 'pull-request-watch:example', description: 'Watching pull request #12' }] };
+  expect(shellRuntime(thread)?.status).toBe('idle');
+  expect(isWorkingThread(thread)).toBe(true);
+  expect(shellRuntime({ ...thread, pendingBackgroundTasks: [] })).toBeNull();
+});
+
+test('settled retention accepts zero, keep rules survive edits, and off clears both retention rules', () => {
+  const settings = { storageCleanup: { worktreeKeepWhen: 'tracked-changes', worktreeSettledAfterDays: 0, worktreeAfterDays: 8 } };
+  expect(storagePatch(settings, '', 'worktreeSettledAfterDays', '0')).toEqual({ storageCleanup: { worktreeSettledAfterDays: 0 } });
+  expect(storagePatch(settings, '', 'worktreeAfterDays', '0')).toEqual({ storageCleanup: { worktreeAfterDays: 1 } });
+  expect(storagePatch(settings, '', 'worktreeKeepWhen', 'any-local-files')).toEqual({ storageCleanup: { worktreeKeepWhen: 'any-local-files' } });
+  expect(() => storagePatch(settings, '', 'worktreeKeepWhen', 'none')).toThrow('local changes');
+  expect(effectiveWorktreeRules(settings, {})).toMatchObject({ worktreeKeepWhen: 'tracked-changes', worktreeSettledAfterDays: 0 });
+  expect(effectiveWorktreeRules(settings, { worktreeCleanup: { mode: 'off' } })).toMatchObject({ worktreeAfterDays: null, worktreeSettledAfterDays: null });
+  expect(storagePatch(settings, '', 'worktreesDirectory', '  D:\\worktrees  ')).toEqual({ worktreesDirectory: 'D:\\worktrees' });
+  expect(() => storagePatch(settings, 'p', 'worktreesDirectory', '~/worktrees')).toThrow('environment');
+});
+
+test('keeping PR threads is a project setting and worktree location remains environment-wide', () => {
+  expect(isProjectScopedSettingKey('sidebarAutoSettleKeepPullRequests')).toBe(true);
+  expect(isProjectScopedSettingKey('worktreesDirectory')).toBe(false);
+  const plan = planScopedSettingsPatch({ kind: 'all', environmentIds: ['env'] }, [{ environmentId: 'env', label: 'Mac', connection: { phase: 'connected' }, serverConfig: { settings: {} } }], { sidebarAutoSettleKeepPullRequests: true, worktreesDirectory: '~/worktrees' });
+  expect(plan.serverWrites[0]?.patch).toEqual({ sidebarAutoSettleKeepPullRequests: true, worktreesDirectory: '~/worktrees' });
+});
+
+import { parseMaxDeliveryAge, webhookDraft, webhookSchedule, webhookAddress } from '../../src/settings/scheduled-webhook';
+import { editorDraft, taskInput } from '../../src/settings/scheduled-view';
+import { scheduleLabel, taskStatus } from '../../src/settings/scheduled-tasks';
+import { deliveriesPage } from '../../src/settings/scheduled-deliveries';
+import type { T3Client } from '../../src/client/client';
+import type { LiveEnvironment } from '../../src/client/live-streams';
+
+test('webhook age and signature validation preserve write-only existing secrets', () => {
+  expect(['', '0', '1', '1.5', '1440', '1441'].map(parseMaxDeliveryAge)).toEqual([null, undefined, 1, undefined, 1440, undefined]);
+  const existing = { schedule: { type: 'webhook', signature: { header: 'X-Signature', encoding: 'base64', prefix: '' }, maxDeliveryAgeMinutes: 45 }, webhook: { hasSecret: true } };
+  const draft = webhookDraft(existing);
+  expect(draft).toMatchObject({ signatureEnabled: true, signatureSecret: '', maxDeliveryAgeMinutes: '45', signaturePrefix: '' });
+  expect(webhookSchedule({ ...Object.fromEntries(Object.entries(draft).map(([key, value]) => [key, String(value)])), signatureSecret: '' }, existing)).toEqual({ type: 'webhook', maxDeliveryAgeMinutes: 45, signature: { header: 'X-Signature', encoding: 'base64', prefix: '' } });
+  expect(() => webhookSchedule({ signatureEnabled: 'true', signatureHeader: 'x-signature' })).toThrow('Signing secret is required');
+  expect(webhookSchedule({ signatureEnabled: 'true', signatureHeader: ' x-signature ', signatureSecret: ' secret ', signaturePrefix: 'sha256=' })).toMatchObject({ signature: { secret: 'secret', encoding: 'hex', header: 'x-signature' } });
+  expect(webhookSchedule({ signatureEnabled: 'false' }, existing).signature).toBeNull();
+  expect(() => webhookSchedule({ maxDeliveryAgeMinutes: '1441' })).toThrow('Invalid age limit');
+});
+
+test('the webhook editor round-trips its trigger and reports Listening instead of a next run', () => {
+  const task = { id: 't', title: 'Webhook', prompt: '{{body.issue.title}}', enabled: true, schedule: { type: 'webhook', signature: null }, projectId: 'p', workspaceStrategy: { type: 'root' }, modelSelection: { instanceId: 'codex', model: 'm' } };
+  const draft = editorDraft(task, 'p', 'codex:m');
+  expect(draft.scheduleMode).toBe('webhook');
+  const input = Object.fromEntries(Object.entries(draft).map(([key, value]) => [key, String(value)]));
+  expect(taskInput(input, task).schedule).toEqual({ type: 'webhook', signature: null, maxDeliveryAgeMinutes: null });
+  expect(scheduleLabel(task.schedule)).toBe('On webhook');
+  expect(taskStatus(task, 0)).toBe('On webhook · Listening');
+  expect(webhookAddress({ path: '/hooks/token', url: null }, 'http://127.0.0.1:16500')).toMatchObject({ address: 'http://127.0.0.1:16500/hooks/token', copyable: true, note: expect.stringContaining('Only this computer') });
+  expect(webhookAddress({ path: '/hooks/token', url: 'https://relay.example/hook' }, '')).toMatchObject({ address: 'https://relay.example/hook', note: '' });
+});
+
+test('deliveries load through their owner, retain the list, and expose the rendered prompt and redacted request', async () => {
+  const calls: unknown[] = [], client = {} as T3Client;
+  const environment = { environmentId: 'remote', key: 'remote-transport', request: async (method: string, payload: unknown) => {
+    calls.push([method, payload]);
+    return method.endsWith('listWebhookDeliveries') ? { deliveries: [{ id: 'd', outcome: 'rejected_signature', method: 'POST', receivedAt: '2026-10-18T00:00:00Z', missingFields: [] }] }
+      : { delivery: { id: 'd', outcome: 'accepted', signatureVerified: true, headers: { authorization: '[redacted]' }, body: '{"issue":12}', renderedPrompt: 'Review issue 12', missingFields: ['body.title'] } };
+  } } as unknown as LiveEnvironment;
+  const task = { id: 'task', title: 'Review' };
+  expect((await deliveriesPage(client, environment, task, '', 0, Date.parse('2026-10-18T00:01:00Z'))).items[0]).toMatchObject({ id: 'd', label: 'Bad signature', method: 'POST', age: '1m ago' });
+  const detail = await deliveriesPage(client, environment, task, 'd', 0, 0);
+  expect(detail.blocks).toContainEqual({ title: 'Prompt sent to the agent', value: 'Review issue 12' });
+  expect(detail.blocks).toContainEqual({ title: 'Headers', value: 'authorization: [redacted]' });
+  expect(detail.missing).toBe('Empty placeholders: body.title');
+  await deliveriesPage(client, environment, task, '', 0, 0);
+  expect(calls).toEqual([['scheduledTasks.listWebhookDeliveries', { id: 'task' }], ['scheduledTasks.getWebhookDelivery', { id: 'task', deliveryId: 'd' }]]);
+});

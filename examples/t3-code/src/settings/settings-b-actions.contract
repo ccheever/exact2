@@ -62,6 +62,7 @@ component ProjectActionEditor
   state recording = false
   state previewUrl = item.previewUrl
   state setup = item.setup
+  state settle = item.settle
   state wait = item.wait
   state autoOpen = item.autoOpen
   state confirming = false
@@ -86,13 +87,15 @@ component ProjectActionEditor
       keybinding = value
   action flipSetup
     setup = not setup
+  action flipSettle
+    settle = not settle
   action flipWait
     wait = setup ? not wait : wait
   action flipAuto
     autoOpen = previewUrl != "" ? not autoOpen : autoOpen
   action askDelete(on: bool)
     confirming = on
-  derive payload = `id=${encodeURIComponent(item.id)}&name=${encodeURIComponent(name)}&command=${encodeURIComponent(command)}&icon=${icon}&setup=${setup ? "true" : "false"}&wait=${wait ? "true" : "false"}&keybinding=${encodeURIComponent(keybinding)}&preview=${encodeURIComponent(previewUrl)}&auto=${autoOpen ? "true" : "false"}`
+  derive payload = `id=${encodeURIComponent(item.id)}&name=${encodeURIComponent(name)}&command=${encodeURIComponent(command)}&icon=${icon}&setup=${setup ? "true" : "false"}&settle=${settle ? "true" : "false"}&wait=${wait ? "true" : "false"}&keybinding=${encodeURIComponent(keybinding)}&preview=${encodeURIComponent(previewUrl)}&auto=${autoOpen ? "true" : "false"}`
   derive dialogTargets = [(busy ? "action-cancel" : "action-choose-icon"), "action-close"]
   derive dialogTargets2 = ["action-delete-cancel", (busy ? "action-delete-cancel" : "action-delete-confirm")]
   view
@@ -149,6 +152,7 @@ component ProjectActionEditor
             text "Open this URL in the in-app preview when this action runs." class=AeHint
           ActionSwitchRow(label="Run automatically on worktree creation", checked=setup, enabled=true, busy=busy, rowId="action-setup", flip=flipSetup)
           ActionSwitchRow(label="Wait for it to finish before the agent starts", checked=wait, enabled=setup, busy=busy, rowId="action-wait", flip=flipWait)
+          ActionSwitchRow(label="Run in the thread's worktree when the thread settles", checked=settle, enabled=true, busy=busy, rowId="action-settle", flip=flipSettle)
           ActionSwitchRow(label="Open preview automatically when this action runs", checked=autoOpen, enabled=(previewUrl != ""), busy=busy, rowId="action-auto-preview", flip=flipAuto)
           if error != ""
             text error font-size="0.875rem" line-height="1.25rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId="action-error"

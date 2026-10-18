@@ -11,6 +11,8 @@ import { taskInput } from './scheduled-view';
 import { currentTasks, liveEnvironment, type LiveEnvironment } from '../client/live-streams';
 import { matchesScheduledTaskScope } from './scheduled-tasks';
 import { pushToast } from '../shell/toast';
+import { fleet } from '../connections/settings-b-fleet';
+import { webhookAddress } from './scheduled-webhook';
 import { letGo } from '../client/let-go';
 
 function environmentFor(client: T3Client, native: Native, environmentId: string): LiveEnvironment {
@@ -40,6 +42,17 @@ export async function scheduledTaskCommand(client: T3Client, native: Native, sco
     return '';
   }
   if (!task) throw new ClientError('This scheduled task no longer exists.');
+  if (input.action === 'copy-webhook') {
+    const endpoint = webhookAddress(task.webhook ? obj(task.webhook) : undefined, environment.focused ? client.origin : str(fleet.entries.get(environment.key)?.origin));
+    if (!endpoint.copyable) throw new ClientError('This webhook URL is not available yet.');
+    await native.later({ op: 'copyText', text: endpoint.address });
+    return 'task-webhook-keep';
+  }
+  if (input.action === 'rotate-webhook') {
+    if (obj(task.schedule).type !== 'webhook') throw new ClientError('This task no longer uses a webhook.');
+    await environment.request('scheduledTasks.rotateWebhookToken', { id: str(task.id) }, true);
+    return 'task-webhook-keep';
+  }
   if (input.action === 'toggle') await environment.request('scheduledTasks.setEnabled', { id: str(task.id), enabled: input.enabled === 'true' }, true);
   else if (input.action === 'delete') await environment.request('scheduledTasks.delete', { id: str(task.id) }, true);
   else if (input.action === 'run') await environment.request('scheduledTasks.runNow', { id: str(task.id) }, true);

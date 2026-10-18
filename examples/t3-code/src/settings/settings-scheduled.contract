@@ -28,6 +28,7 @@ use DialogOpenFocus from "../shared/dialog-trap.contract"
 use RefPageScroll from "../composer/ref-paging.contract"
 
 shape TaskRowView
+  webhook: bool
   id: string
   environmentId: string
   title: string
@@ -44,6 +45,16 @@ shape TaskDraftView
   title: string
   prompt: string
   enabled: bool
+  signatureEnabled: bool
+  signatureHeader: string
+  signatureEncoding: string
+  signaturePrefix: string
+  signatureSecret: string
+  maxDeliveryAgeMinutes: string
+  hasSecret: bool
+  address: string
+  copyable: bool
+  note: string
   scheduleMode: string
   intervalMinutes: string
   timeOfDay: string
@@ -93,7 +104,30 @@ shape TaskSectionView
   description: string
   linkMissing: bool
   tasks: TaskRowView[]
+shape DeliveryItem
+  id: string
+  label: string
+  method: string
+  age: string
+  missing: string
+shape DeliveryBlock
+  title: string
+  value: string
+shape WebhookDeliveries
+  open: bool
+  title: string
+  selected: string
+  error: string
+  empty: bool
+  items: DeliveryItem[]
+  blocks: DeliveryBlock[]
+  outcome: string
+  method: string
+  age: string
+  verified: bool
+  missing: string
 shape ScheduledPage
+  deliveries: WebhookDeliveries
   available: bool
   writable: bool
   error: string
@@ -175,7 +209,7 @@ component TaskRow
     open: action
     rest: action
   derive target = `id=${encodeURIComponent(item.id)}&environmentId=${encodeURIComponent(item.environmentId)}`
-  derive menuItems = [KmItem(id=`task-edit-${item.id}`, label="Edit"), KmItem(id=`task-run-${item.id}`, label="Run now"), KmItem(id=`task-delete-${item.id}`, label="Delete")]
+  derive menuItems = [KmItem(id=`task-edit-${item.id}`, label="Edit"), KmItem(id=`task-run-${item.id}`, label=(item.webhook ? "Deliveries" : "Run now")), KmItem(id=`task-delete-${item.id}`, label="Delete")]
   action triggerKey(k: string, e: KeyboardEvent)
     if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
       preventDefault()
@@ -203,7 +237,10 @@ component TaskRow
             LucideEllipsis(size=16, color="light-dark(#27272a, #f5f5f5)")
           SkPopup(menuId=`task-menu-${item.id}`, invoker=`task-actions-${item.environmentId}|${item.id}`, label=`Actions for ${item.title}`, width=160, list=false, endAlign=28, items=menuItems, keyed=0)
             TaskMenuItem(keysId=`task-menu-${item.id}-keys`, label="Edit", icon="edit", menuId=`task-menu-${item.id}`, itemId=`task-edit-${item.id}`, destructive=false, choose=open("task", `${item.environmentId}|${item.id}`, item.title))
-            TaskMenuItem(keysId=`task-menu-${item.id}-keys`, label="Run now", icon="run", menuId=`task-menu-${item.id}`, itemId=`task-run-${item.id}`, destructive=false, choose=rest("task", `action=run&${target}`))
+            if item.webhook
+              TaskMenuItem(keysId=`task-menu-${item.id}-keys`, label="Deliveries", icon="edit", menuId=`task-menu-${item.id}`, itemId=`task-run-${item.id}`, destructive=false, choose=open("task-deliveries", `${item.environmentId}|${item.id}`, item.title))
+            else
+              TaskMenuItem(keysId=`task-menu-${item.id}-keys`, label="Run now", icon="run", menuId=`task-menu-${item.id}`, itemId=`task-run-${item.id}`, destructive=false, choose=rest("task", `action=run&${target}`))
             box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
             TaskMenuItem(keysId=`task-menu-${item.id}-keys`, label="Delete", icon="delete", menuId=`task-menu-${item.id}`, itemId=`task-delete-${item.id}`, destructive=false, choose=rest("task", `action=delete&${target}`))
 
@@ -281,6 +318,15 @@ component ScheduledEditor
   state title = draft.title
   state prompt = draft.prompt
   state enabled = draft.enabled
+  state confirmRotate = false
+  action askRotate(on: bool)
+    confirmRotate = on
+  state signatureEnabled = draft.signatureEnabled
+  state signatureHeader = draft.signatureHeader
+  state signatureEncoding = draft.signatureEncoding
+  state signaturePrefix = draft.signaturePrefix
+  state signatureSecret = ""
+  state maxDeliveryAgeMinutes = draft.maxDeliveryAgeMinutes
   state scheduleMode = draft.scheduleMode
   state intervalMinutes = draft.intervalMinutes
   state timeOfDay = draft.timeOfDay
@@ -306,6 +352,14 @@ component ScheduledEditor
   // switch (chooseProject).
   derive baseLocal = data.branches.filter((group) => group.projectId == chosenProject and (group.refs.filter((ref) => ref.value == baseRef and not ref.remote).length > 0 or group.selected.filter((ref) => ref.value == baseRef and not ref.remote).length > 0)).length > 0
   action setText(field: string, value: string)
+    if field == "signatureHeader"
+      signatureHeader = value
+    if field == "signaturePrefix"
+      signaturePrefix = value
+    if field == "signatureSecret"
+      signatureSecret = value
+    if field == "maxDeliveryAgeMinutes"
+      maxDeliveryAgeMinutes = value
     if field == "refs"
       refQuery = value
       lookupBase(taskPicker(draft.key, chosenProject, baseRef, value))
@@ -331,6 +385,8 @@ component ScheduledEditor
       refQuery = ""
       lookupBase(taskPicker(draft.key, chosenProject, baseRef, ""))
   action choose(field: string, value: string)
+    if field == "encoding"
+      signatureEncoding = value
     if field == "workspace"
       workspaceMode = value
     if field == "branch"
@@ -339,6 +395,8 @@ component ScheduledEditor
       lookupBase(taskPicker(draft.key, chosenProject, value, ""))
     if field == "schedule"
       scheduleMode = value
+      if value == "webhook" and prompt.trim() == ""
+        prompt = "Handle this webhook:\n{{body}}"
     // Runs on: the reference's onValueChange (a new task only; the trigger is disabled for an existing one).
     if field == "environment" and value != draft.environmentId
       projectId = ""
@@ -348,6 +406,8 @@ component ScheduledEditor
       refQuery = ""
       runsOn(`new|${value}`, "")
   action toggle(field: string)
+    if field == "signature"
+      signatureEnabled = not signatureEnabled
     if field == "enabled"
       enabled = not enabled
     if field == "origin"
@@ -472,6 +532,46 @@ component ScheduledEditor
                     text "At a time" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(scheduleMode == "fixed" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
                   button press=choose("schedule", "interval") aria-checked=(scheduleMode == "interval") testId="task-schedule-interval" height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=0 background-color=(scheduleMode == "interval" ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(scheduleMode == "interval" ? "0 1px 2px #0000000d" : "none")
                     text "Every interval" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(scheduleMode == "interval" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+                  button press=choose("schedule", "webhook") aria-checked=(scheduleMode == "webhook") testId="task-schedule-webhook" class=TkOutline
+                    text "On webhook" font-size="0.875rem"
+              if scheduleMode == "webhook"
+                column gap="0.75rem"
+                  if draft.address != ""
+                    input value=draft.address readonly=true aria-label="Webhook URL" class=TkField testId="task-webhook-url"
+                  if draft.address != ""
+                    row gap="0.5rem"
+                      button press=rest("task", `action=copy-webhook&id=${encodeURIComponent(draft.id)}&environmentId=${encodeURIComponent(draft.environmentId)}`) disabled=(busy or not draft.copyable) class=TkOutline testId="task-webhook-copy"
+                        text "Copy"
+                      button press=askRotate(true) disabled=busy class=TkOutline testId="task-webhook-rotate"
+                        text "Rotate"
+                  if confirmRotate
+                    column role="alertdialog" aria-label="Rotate this webhook URL?" gap="0.5rem"
+                      text "Rotate this webhook URL? The current URL stops working." font-size="0.875rem"
+                      row gap="0.5rem"
+                        button press=askRotate(false) class=TkOutline
+                          text "Cancel"
+                        button press=rest("task", `action=rotate-webhook&id=${encodeURIComponent(draft.id)}&environmentId=${encodeURIComponent(draft.environmentId)}`) disabled=busy class=TkOutline testId="task-webhook-rotate-confirm"
+                          text "Rotate"
+                  text draft.note font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+                  text "Each request runs the prompt. Use {{body.path}}, {{headers.name}}, {{query.name}}, {{body}} or {{request}} in the prompt; only what it names reaches the agent." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+                  column gap="0.375rem"
+                    text "Skip requests older than" class=TkLabel
+                    input value=maxDeliveryAgeMinutes input=setText("maxDeliveryAgeMinutes") placeholder="Run every request" aria-label="Skip requests older than, minutes" disabled=busy class=TkField testId="task-webhook-max-age"
+                  row align-items="center" justify-content="space-between" gap="1rem"
+                    column gap="0.25rem" flex=1
+                      text "Require signature" class=TkLabel
+                      text "Reject requests without a valid HMAC-SHA256 signature of the body." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+                    SettingsSwitch(checked=signatureEnabled, label="Require signature", disabled=busy, switchId="task-webhook-signature", toggle=toggle("signature"))
+                  if signatureEnabled
+                    column gap="0.5rem"
+                      input value=signatureHeader input=setText("signatureHeader") aria-label="Header" placeholder="Header" class=TkField disabled=busy testId="task-webhook-header"
+                      input value=signaturePrefix input=setText("signaturePrefix") aria-label="Prefix" placeholder="None" class=TkField disabled=busy testId="task-webhook-prefix"
+                      row gap="0.5rem"
+                        button press=choose("encoding", "hex") aria-pressed=(signatureEncoding == "hex") class=TkOutline
+                          text "hex"
+                        button press=choose("encoding", "base64") aria-pressed=(signatureEncoding == "base64") class=TkOutline
+                          text "base64"
+                      input type="password" value=signatureSecret input=setText("signatureSecret") aria-label="Secret" placeholder=(draft.hasSecret ? "Unchanged" : "Shared secret") class=TkField disabled=busy testId="task-webhook-secret" autocorrect="off"
               if scheduleMode == "fixed"
                 row align-items="center" gap="0.75rem" flex-wrap="wrap"
                   row align-items="center" gap="0.5rem"
@@ -499,7 +599,7 @@ component ScheduledEditor
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
           button press=close disabled=busy testId="cancel-scheduled-task" class=TkOutline
             text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-          button press=rest("task", `action=save&id=${encodeURIComponent(draft.id)}&environmentId=${encodeURIComponent(draft.environmentId)}&title=${encodeURIComponent(title)}&prompt=${encodeURIComponent(prompt)}&enabled=${enabled}&scheduleMode=${scheduleMode}&intervalMinutes=${encodeURIComponent(intervalMinutes)}&timeOfDay=${encodeURIComponent(timeOfDay)}&sunday=${sunday}&monday=${monday}&tuesday=${tuesday}&wednesday=${wednesday}&thursday=${thursday}&friday=${friday}&saturday=${saturday}&projectId=${encodeURIComponent(chosenProject)}&threadId=${encodeURIComponent(draft.threadId)}&workspaceMode=${workspaceMode}&baseRef=${encodeURIComponent(baseRef)}&startFromOrigin=${startFromOrigin}&path=${encodeURIComponent(path)}&modelKey=${encodeURIComponent(modelKey)}`) disabled=(busy or draft.missing or not data.available) testId="save-scheduled-task" display="flex" flex-direction="row" align-items="center" justify-content="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or draft.missing or not data.available ? 0.64 : 1) data-focus-stop=((busy or draft.missing or not data.available) ? "" : "enabled")
+          button press=rest("task", `action=save&id=${encodeURIComponent(draft.id)}&environmentId=${encodeURIComponent(draft.environmentId)}&title=${encodeURIComponent(title)}&prompt=${encodeURIComponent(prompt)}&enabled=${enabled}&scheduleMode=${scheduleMode}&signatureEnabled=${signatureEnabled}&signatureHeader=${encodeURIComponent(signatureHeader)}&signatureEncoding=${signatureEncoding}&signaturePrefix=${encodeURIComponent(signaturePrefix)}&signatureSecret=${encodeURIComponent(signatureSecret)}&maxDeliveryAgeMinutes=${encodeURIComponent(maxDeliveryAgeMinutes)}&intervalMinutes=${encodeURIComponent(intervalMinutes)}&timeOfDay=${encodeURIComponent(timeOfDay)}&sunday=${sunday}&monday=${monday}&tuesday=${tuesday}&wednesday=${wednesday}&thursday=${thursday}&friday=${friday}&saturday=${saturday}&projectId=${encodeURIComponent(chosenProject)}&threadId=${encodeURIComponent(draft.threadId)}&workspaceMode=${workspaceMode}&baseRef=${encodeURIComponent(baseRef)}&startFromOrigin=${startFromOrigin}&path=${encodeURIComponent(path)}&modelKey=${encodeURIComponent(modelKey)}`) disabled=(busy or draft.missing or not data.available) testId="save-scheduled-task" display="flex" flex-direction="row" align-items="center" justify-content="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or draft.missing or not data.available ? 0.64 : 1) data-focus-stop=((busy or draft.missing or not data.available) ? "" : "enabled")
             text (draft.id == "" ? "Create task" : "Save task") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
         // DialogPopup's X, after the footer (Base UI renders it last; it is placed at the top right).
         button id="close-scheduled-task" press=close disabled=busy aria-label="Close" aria-keyshortcuts="Escape" testId="close-scheduled-task" width="2rem" height="2rem" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" position="absolute" top="0.5rem" right="0.5rem" title="" data-focus-stop=(busy ? "" : "enabled")

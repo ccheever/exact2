@@ -119,6 +119,7 @@ type StorageRuleView = { key: string; label: string; description: string; enable
 const storageDefinitions = [
   ['worktreeOnDelete', 'Delete worktrees with deleted threads', 'Remove unused worktrees when active or archived threads are deleted. Worktrees with local changes are kept.', false],
   ['worktreeAfterDays', 'Delete inactive worktrees', 'Remove worktrees after their threads have been inactive for this many days. Branches and thread history are kept.', true],
+  ['worktreeSettledAfterDays', 'Delete settled worktrees', 'Remove worktrees this many days after their thread settles. Set 0 days to remove them at the next cleanup. Branches and thread history are kept.', true],
   ['worktreeOnMerge', 'Delete merged worktrees', 'Remove worktrees whose pull request is merged and whose commits are included in the default branch.', false],
   ['worktreeUnchanged', 'Delete unchanged worktrees', 'Remove worktrees with no commits beyond the default branch.', false],
   ['browserArtifactsAfterDays', 'Delete old browser artifacts', 'Delete saved browser captures after this many days. Older capture links will no longer open.', true],
@@ -126,7 +127,8 @@ const storageDefinitions = [
 ] as const;
 export async function storageSettings(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean) {
   const modeLabels: Record<string, string> = { inherit: 'Inherit', off: 'Off', custom: 'Custom' };
-  const empty = { available: false, project: projectId !== '', error: '', notice: '', mode: 'inherit', modeLabel: 'Inherit', modeDescription: '', scope: `${environmentId}:${projectId}`, modes: [] as { value: string; label: string; selected: boolean }[], worktrees: [] as StorageRuleView[], artifacts: [] as StorageRuleView[] };
+  const empty = { directory: '', directorySupported: false, keepSupported: false, keepValue: '', keepDescription: '', keepOptions: [] as { value: string; label: string; selected: boolean }[],
+    available: false, project: projectId !== '', error: '', notice: '', mode: 'inherit', modeLabel: 'Inherit', modeDescription: '', scope: `${environmentId}:${projectId}`, modes: [] as { value: string; label: string; selected: boolean }[], worktrees: [] as StorageRuleView[], artifacts: [] as StorageRuleView[] };
   if (!active) return empty;
   try {
     if (!native?.available || !client.ready || (environmentId !== "" && environmentId !== client.environmentId) || (projectId && !client.shell.projects.some(project => project.id === projectId))) throw new Error('This scope is unavailable. Choose a connected environment and existing checkout.');
@@ -140,12 +142,16 @@ export async function storageSettings(client: T3Client, native: Native | null | 
     const mode = projectId ? str(obj(override.worktreeCleanup).mode, 'inherit') : 'inherit';
     const rules = { ...obj(settings.storageCleanup), ...effectiveWorktreeRules(settings, override) };
     const view = (definitions: (typeof storageDefinitions)[number][], first: boolean) => definitions.map(([key, label, description, retention], index) => ({ key, label, description, retention, first: first && index === 0, enabled: retention ? typeof rules[key] === 'number' : rules[key] === true, days: typeof rules[key] === 'number' ? String(rules[key]) : '8',
-      decrease: String(Math.max(1, num(rules[key], 8) - 1)), increase: String(Math.min(3650, num(rules[key], 8) + 1)) }));
+      decrease: String(Math.max(key === 'worktreeSettledAfterDays' ? 0 : 1, num(rules[key], 8) - 1)), increase: String(Math.min(3650, num(rules[key], 8) + 1)) }));
     const showRules = !projectId || mode === 'custom';
-    return { ...empty, available: true, mode, modeLabel: modeLabels[mode] || 'Inherit',
+    const keep = str(rules.worktreeKeepWhen, 'uncommitted-changes');
+    return { ...empty, available: true, directory: str(settings.worktreesDirectory), directorySupported: !projectId && capabilities.worktreesDirectory === true, keepSupported: showRules && capabilities.storageCleanupRun === true, keepValue: keep,
+      keepDescription: keep === 'any-local-files' ? 'Includes ignored files, except node_modules.' : keep === 'tracked-changes' ? 'Deletes untracked and ignored files, including .env.' : 'Keeps edits and untracked files. Deletes ignored files, including .env.',
+      keepOptions: [['any-local-files', 'Any local files'], ['uncommitted-changes', 'Uncommitted changes'], ['tracked-changes', 'Edited tracked files']].map(([value, label]) => ({ value, label, selected: value === keep })),
+      mode, modeLabel: modeLabels[mode] || 'Inherit',
       modeDescription: mode === 'off' ? "Keep this project's worktrees until you delete them manually." : mode === 'custom' ? 'Use these rules for this project.' : "Use each machine's worktree cleanup settings.",
       modes: ['inherit', 'off', 'custom'].map(value => ({ value, label: modeLabels[value], selected: value === mode })),
-      worktrees: showRules ? view(storageDefinitions.slice(0, 4), !projectId) : [],
-      artifacts: projectId ? [] : view(storageDefinitions.slice(4), true) };
+      worktrees: showRules ? view(storageDefinitions.slice(0, 5).filter(([key]) => key !== 'worktreeSettledAfterDays' || capabilities.settledWorktreeCleanup === true), !projectId) : [],
+      artifacts: projectId ? [] : view(storageDefinitions.slice(5), true) };
   } catch(error) { return { ...empty, error: errorMessage(error) }; }
 }

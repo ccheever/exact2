@@ -8,7 +8,7 @@ import { listProjectOverrides, persistScopedSettingsPatch, planProjectOverridesC
 import { resolveSettingsScope, type ResolvedSettingsScope, type ScopeGroup } from '../../src/settings/settings-scope';
 
 const DEFAULT_SERVER_SETTINGS: Obj = {
-  worktreeCleanup: null, storageCleanup: { worktreeAfterDays: null, worktreeOnMerge: false, worktreeOnDelete: false, worktreeUnchanged: false, browserArtifactsAfterDays: null },
+  worktreeCleanup: null, storageCleanup: { worktreeKeepWhen: 'uncommitted-changes', worktreeSettledAfterDays: null, worktreeAfterDays: null, worktreeOnMerge: false, worktreeOnDelete: false, worktreeUnchanged: false, browserArtifactsAfterDays: null },
   enableProviderUpdateChecks: true, enableAgentBrowserAccess: true, enableAgentDeviceAccess: false, enableDeviceSupport: false, defaultAutoPull: false, deviceHosts: [],
   sidebarAutoSettleOnMerge: true, defaultModelSelection: null, defaultThreadEnvMode: null, projectSettingsOverrides: {},
   sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true },
@@ -69,13 +69,13 @@ describe('scoped settings targets', () => {
 
 describe('scoped settings writes', () => {
   it("edits the effective machine policy without changing other machines' rules", () => {
-    const custom = environment('Laptop', { settings: { worktreeCleanup: { mode: 'custom', rules: { worktreeAfterDays: 12, worktreeOnDelete: true, worktreeOnMerge: true, worktreeUnchanged: false } } } });
+    const custom = environment('Laptop', { settings: { worktreeCleanup: { mode: 'custom', rules: { worktreeKeepWhen: 'uncommitted-changes', worktreeSettledAfterDays: null, worktreeAfterDays: 12, worktreeOnDelete: true, worktreeOnMerge: true, worktreeUnchanged: false } } } });
     const disabled = environment('Server', { settings: { worktreeCleanup: { mode: 'off' } } });
     const targets = [custom, disabled];
     const plan = planScopedSettingsPatch(all, targets, { storageCleanup: { worktreeOnDelete: false } });
     const policies = plan.serverWrites.map((write, index) => resolveWorktreeCleanup(applyServerSettingsPatch(targets[index]!.serverConfig!.settings, write.patch), null));
-    expect(policies).toEqual([{ worktreeAfterDays: 12, worktreeOnDelete: false, worktreeOnMerge: true, worktreeUnchanged: false },
-      { worktreeAfterDays: null, worktreeOnDelete: false, worktreeOnMerge: false, worktreeUnchanged: false }]);
+    expect(policies).toEqual([{ worktreeKeepWhen: 'uncommitted-changes', worktreeSettledAfterDays: null, worktreeAfterDays: 12, worktreeOnDelete: false, worktreeOnMerge: true, worktreeUnchanged: false },
+      { worktreeKeepWhen: 'uncommitted-changes', worktreeSettledAfterDays: null, worktreeAfterDays: null, worktreeOnDelete: false, worktreeOnMerge: false, worktreeUnchanged: false }]);
   });
   it('isolates a formerly shared server preference to the named environment', async () => {
     const persistServer = success(), persistClient = mock(() => {});
@@ -108,11 +108,11 @@ describe('scoped settings writes', () => {
   it("keeps each project's other cleanup rules when changing one rule across machines", () => {
     const machine = environment('Laptop', { settings: { storageCleanup: { ...(DEFAULT_SERVER_SETTINGS.storageCleanup as Obj), worktreeAfterDays: 30 } } });
     const customized = environment('Server', { settings: { projectSettingsOverrides: { [projectId]: { defaultAutoPull: true,
-      worktreeCleanup: { mode: 'custom', rules: { worktreeAfterDays: 8, worktreeOnDelete: false, worktreeOnMerge: true, worktreeUnchanged: false } } } } } });
-    const plan = planScopedSettingsPatch(project, [machine, customized], { worktreeCleanup: { mode: 'custom', rules: { worktreeOnDelete: true } } });
+      worktreeCleanup: { mode: 'custom', rules: { worktreeKeepWhen: 'uncommitted-changes', worktreeSettledAfterDays: null, worktreeAfterDays: 8, worktreeOnDelete: false, worktreeOnMerge: true, worktreeUnchanged: false } } } } } });
+    const plan = planScopedSettingsPatch(project, [machine, customized], { worktreeCleanup: { mode: 'custom', rules: { worktreeKeepWhen: 'uncommitted-changes', worktreeSettledAfterDays: null, worktreeOnDelete: true } } });
     expect(plan.serverWrites.map(write => write.patch.projectSettingsOverrides)).toEqual([
-      { [projectId]: { defaultAutoPull: true, worktreeCleanup: { mode: 'custom', rules: { worktreeAfterDays: 8, worktreeOnDelete: true, worktreeOnMerge: true, worktreeUnchanged: false } } } },
-      { [laptopProjectId]: { worktreeCleanup: { mode: 'custom', rules: { worktreeAfterDays: 30, worktreeOnDelete: true, worktreeOnMerge: false, worktreeUnchanged: false } } } },
+      { [projectId]: { defaultAutoPull: true, worktreeCleanup: { mode: 'custom', rules: { worktreeKeepWhen: 'uncommitted-changes', worktreeSettledAfterDays: null, worktreeAfterDays: 8, worktreeOnDelete: true, worktreeOnMerge: true, worktreeUnchanged: false } } } },
+      { [laptopProjectId]: { worktreeCleanup: { mode: 'custom', rules: { worktreeKeepWhen: 'uncommitted-changes', worktreeSettledAfterDays: null, worktreeAfterDays: 30, worktreeOnDelete: true, worktreeOnMerge: false, worktreeUnchanged: false } } } },
     ]);
     expect(planScopedSettingsClear(checkout, [customized], ['worktreeCleanup']).serverWrites[0]?.patch).toEqual({ projectSettingsOverrides: { [projectId]: { defaultAutoPull: true } } });
     expect(planScopedSettingsPatch(project, [machine, customized], { storageCleanup: { browserArtifactsAfterDays: 8 } }).serverWrites).toEqual([]);

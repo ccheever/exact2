@@ -30,6 +30,12 @@ shape StoragePage
   modeDescription: string
   scope: string
   modes: SelectOption[]
+  directory: string
+  directorySupported: bool
+  keepSupported: bool
+  keepValue: string
+  keepDescription: string
+  keepOptions: SelectOption[]
   worktrees: StorageRuleView[]
   artifacts: StorageRuleView[]
 
@@ -50,12 +56,18 @@ component StoragePanel
         text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="storage-error" padding-left="1rem"
       if data.available
         SettingsSection(title="Worktrees", sectionId="storage-worktrees")
+          if data.directorySupported
+            SettingsRow(title="Worktree location", description="Folder where new worktrees are created, on any drive, such as D:\\worktrees or ~/worktrees. Existing worktrees stay where they are. Leave empty to use the T3 home folder.", first=true, rowId="storage-directory-row")
+              StorageDirectory(value=data.directory, busy=busy, rest=rest, restInput=restInput)
           if data.project
             SettingsRow(title="Automatic worktree cleanup", description=data.modeDescription, first=true, rowId="storage-row-mode")
               SettingsSelect(selectId="storage-mode", label="Automatic worktree cleanup", valueLabel=data.modeLabel, empty=false, value="", width=160, disabled=busy, options=data.modes, choose=restInput("storage", "key=mode&value="))
           for rule in data.worktrees key=`${data.scope}:${rule.key}:${rule.days}:${rule.enabled}`
             SettingsRow(title=rule.label, description=rule.description, first=rule.first, rowId=`storage-row-${rule.key}`)
               StorageControl(rule=rule, busy=busy, rest=rest, restInput=restInput)
+          if data.keepSupported
+            SettingsRow(title="Keep worktrees with local changes", description=data.keepDescription, first=false, rowId="storage-keep-when")
+              SettingsSelect(selectId="storage-worktree-keep-when", label="Keep worktrees with local changes", valueLabel=data.keepOptions.filter((option) => option.value == data.keepValue).map((option) => option.label).join(""), empty=false, value=data.keepValue, width=176, disabled=busy, options=data.keepOptions, choose=restInput("storage", "key=worktreeKeepWhen&value="))
         if data.artifacts.length > 0
           SettingsSection(title="Artifacts and logs", sectionId="storage-artifacts")
             for rule in data.artifacts key=`${data.scope}:${rule.key}:${rule.days}:${rule.enabled}`
@@ -87,3 +99,19 @@ component StorageControl
       if rule.retention and not rule.enabled
         text "Off" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
       SettingsSwitch(checked=rule.enabled, label=rule.label, disabled=busy, switchId=`storage-toggle-${rule.key}`, toggle=rest("storage", `key=${rule.key}&value=${rule.retention ? (rule.enabled ? "null" : "8") : (rule.enabled ? "false" : "true")}`))
+
+component StorageDirectory
+  props
+    value: string
+    busy: bool
+    rest: action
+    restInput: action
+  state draft = value
+  action edit(next: string)
+    draft = next
+  view
+    row align-items="center" gap="0.5rem"
+      input value=draft input=edit change=restInput("storage", "key=worktreesDirectory&value=") placeholder="Default" aria-label="Worktree location" disabled=busy testId="storage-worktrees-directory" width="15rem" height="1.75rem" padding-left="0.5rem" border-radius="0.5rem" font-size="0.875rem" autocorrect="off"
+      if value != ""
+        button press=rest("storage", "key=worktreesDirectory&value=") disabled=busy aria-label="Reset worktree location" testId="storage-reset-directory"
+          text "Reset" font-size="0.75rem"

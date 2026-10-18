@@ -77,7 +77,7 @@ export function confirmCopy(message: string): { title: string; description: stri
   return { title: 'Confirm action', description: message.trim() };
 }
 
-const blankAction = { id: '', first: false, name: '', command: '', icon: 'play', setup: false, wait: false, preview: false, previewUrl: '', autoOpen: false, keybinding: '', shortcut: '' };
+const blankAction = { id: '', first: false, name: '', command: '', icon: 'play', setup: false, settle: false, wait: false, preview: false, previewUrl: '', autoOpen: false, keybinding: '', shortcut: '' };
 /** The Actions section: ProjectActionsSettings for the scope's checkouts. */
 async function actionsSection(client: T3Client, native: Native | null | undefined, projectKey: string, checkout: string, page: ReturnType<typeof projectsPage>) {
   const group = page.selected ? settingsGroups(client).find(candidate => candidate.key === projectKey) : undefined;
@@ -95,11 +95,11 @@ async function actionsSection(client: T3Client, native: Native | null | undefine
   const own = resolveScripts(settings, local[0]!);
   return { ...empty, actionScope: members.map(member => str(member.id)).join(','), actionsMixed: listed.actionsMixed, t3Invalid: listed.t3Invalid,
     actionsWritable: view.writable && obj(obj(view.config.environment).capabilities).projectSettingsOverrides === true,
-    actions: listed.actions.map(action => { const edit = obj(JSON.parse(action.edit)); return { id: action.id, first: action.first, name: action.name, command: action.command, icon: action.icon, setup: action.setup,
+    actions: listed.actions.map(action => { const edit = obj(JSON.parse(action.edit)); return { id: action.id, first: action.first, name: action.name, command: action.command, icon: action.icon, setup: action.setup, settle: action.settle,
       wait: edit.waitForSetup === true, preview: action.preview, previewUrl: str(edit.previewUrl), autoOpen: edit.autoOpenPreview === true, keybinding: str(edit.keybinding), shortcut: action.shortcut }; }),
     importable: listed.importable.map(entry => { const raw = obj(JSON.parse(entry.payload));
       return { key: entry.key, name: entry.name, command: entry.command, icon: entry.icon,
-        payload: new URLSearchParams({ name: str(raw.name), command: str(raw.command), icon: str(raw.icon), setup: String(raw.runOnWorktreeCreate === true), wait: String(raw.waitForSetup === true), keybinding: '', preview: str(raw.previewUrl), auto: String(raw.autoOpenPreview === true) }).toString() }; }),
+        payload: new URLSearchParams({ name: str(raw.name), command: str(raw.command), icon: str(raw.icon), setup: String(raw.runOnWorktreeCreate === true), settle: String(raw.runOnSettle === true), wait: String(raw.waitForSetup === true), keybinding: '', preview: str(raw.previewUrl), auto: String(raw.autoOpenPreview === true) }).toString() }; }),
     actionsRow: { ...empty.actionsRow, summary: overridden ? 'Overridden for this project' : `Inherited from ${environment}`, state: overridden ? 'overridden' : 'inherited',
       layers: [{ key: 'project', label: 'Project', value: overridden ? count(own) : 'Inherits', effective: overridden, set: overridden },
         { key: 'environment', label: 'Environment', value: arr(settings.defaultProjectScripts).length ? count(arr(settings.defaultProjectScripts)) : 'Inherits', effective: !overridden && arr(settings.defaultProjectScripts).length > 0, set: arr(settings.defaultProjectScripts).length > 0 },

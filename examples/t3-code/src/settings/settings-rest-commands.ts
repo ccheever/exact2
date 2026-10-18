@@ -5,7 +5,7 @@
 import { toggleRemovalPick } from '../appearance/settings-a-collections';
 import type { T3Client } from '../client/client';
 import { ClientError, type Files, type Native } from '../client/protocol';
-import { applyShell, arr, initialShell, obj, str, type Json, type Obj } from '../client/domain';
+import { applyShell, arr, effectiveWorktreeRules, initialShell, obj, str, type Json, type Obj } from '../client/domain';
 import { shortcutInput, whenExpression, validShortcut, validWhen } from './keybinding-settings';
 import { rowId } from './keybinding-view';
 import { scheduledTaskCommand } from './scheduled-tasks-commands';
@@ -58,17 +58,12 @@ async function currentScope(client: T3Client, access: Access, scope: string) {
   return { environmentId, projectId, shell };
 }
 
-const worktreeKeys = ['worktreeOnDelete', 'worktreeAfterDays', 'worktreeOnMerge', 'worktreeUnchanged'];
-const retentionKeys = ['worktreeAfterDays', 'browserArtifactsAfterDays', 'logsAfterDays'];
+const worktreeKeys = ['worktreeKeepWhen', 'worktreeSettledAfterDays', 'worktreeOnDelete', 'worktreeAfterDays', 'worktreeOnMerge', 'worktreeUnchanged'];
+const retentionKeys = ['worktreeSettledAfterDays', 'worktreeAfterDays', 'browserArtifactsAfterDays', 'logsAfterDays'];
 
 /** resolveWorktreeCleanup from packages/shared/projectSettings.ts. */
 export function resolveWorktreeCleanup(settings: Obj, projectId: string): Obj {
-  const override = projectId ? obj(obj(settings.projectSettingsOverrides)[projectId]) : {};
-  const policy = obj(override.worktreeCleanup ?? settings.worktreeCleanup);
-  if (policy.mode === 'custom') return { ...obj(policy.rules) };
-  if (policy.mode === 'off') return { worktreeAfterDays: null, worktreeOnMerge: false, worktreeOnDelete: false, worktreeUnchanged: false };
-  const cleanup = obj(settings.storageCleanup);
-  return { worktreeAfterDays: cleanup.worktreeAfterDays ?? null, worktreeOnMerge: cleanup.worktreeOnMerge === true, worktreeOnDelete: cleanup.worktreeOnDelete === true, worktreeUnchanged: cleanup.worktreeUnchanged === true };
+  return effectiveWorktreeRules(settings, projectId ? obj(obj(settings.projectSettingsOverrides)[projectId]) : {});
 }
 
 /** StorageSettings.tsx writes, through planScopedSettingsPatch / planScopedSettingsClear. */
@@ -82,12 +77,19 @@ export function storagePatch(settings: Obj, projectId: string, key: string, raw:
     else current.worktreeCleanup = raw === 'off' ? { mode: 'off' } : { mode: 'custom', rules: resolveWorktreeCleanup(settings, projectId) };
     return { projectSettingsOverrides: { [projectId]: Object.keys(current).length ? current : null } };
   }
-  if (retentionKeys.includes(key)) {
+  if (key === 'worktreesDirectory') {
+    if (projectId) throw new ClientError('Worktree location belongs to the environment.');
+    return { worktreesDirectory: raw.trim() };
+  }
+  if (key === 'worktreeKeepWhen') {
+    if (!['any-local-files', 'uncommitted-changes', 'tracked-changes'].includes(raw)) throw new ClientError('Choose which local changes keep a worktree.');
+    value = raw;
+  } else if (retentionKeys.includes(key)) {
     if (raw === 'null') value = null;
     else {
       const days = Number(raw);
       if (!/^\s*\d+(\.\d+)?\s*$/.test(raw) || !Number.isFinite(days)) throw new ClientError('Enter a number of days.');
-      value = Math.min(3650, Math.max(1, Math.round(days)));
+      value = Math.min(3650, Math.max(key === 'worktreeSettledAfterDays' ? 0 : 1, Math.round(days)));
     }
   } else if (['worktreeOnDelete', 'worktreeOnMerge', 'worktreeUnchanged'].includes(key)) {
     if (raw !== 'true' && raw !== 'false') throw new ClientError('Choose On or Off.');

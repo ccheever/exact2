@@ -6,20 +6,20 @@
 // comparison and a missing `projectSettingsOverrides` reads as `{}`; a model override's
 // provider guard applies only when the settings name that provider (the clone's settings
 // may come from older servers without `providerInstances`).
-import { obj, type Json, type Obj } from '../client/domain';
+import { effectiveWorktreeRules, obj, type Json, type Obj } from '../client/domain';
 import type { ResolvedSettingsScope, ScopeMember } from './settings-scope';
 
 export const PROJECT_SCOPED_SERVER_SETTING_KEYS = ['worktreeCleanup', 'defaultModelSelection', 'defaultRuntimeMode', 'defaultThreadEnvMode', 'newWorktreesStartFromOrigin',
   'worktreeSubmodules', 'defaultAutoPull', 'defaultProjectScripts', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'textGenerationModelSelection',
   'sourceControlWriterModelSelection', 'sourceControlWritingStyle', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod',
-  'sidebarAutoSettleOnMerge', 'sidebarAutoSettleAfterDays', 'continueThreadsAfterServerUpdate', 'responseStreamingMode'] as const;
+  'sidebarAutoSettleOnMerge', 'sidebarAutoSettleAfterDays', 'sidebarAutoSettleKeepPullRequests', 'continueThreadsAfterServerUpdate', 'responseStreamingMode'] as const;
 const NULLABLE_PROJECT_SETTINGS_OVERRIDES = new Set(['defaultModelSelection', 'sourceControlWriterModelSelection', 'pullRequestMergeMethod', 'sidebarAutoSettleAfterDays']);
 export const PROJECT_FILE_BACKED_SETTINGS: Record<string, { field: string; builtIn: string }> = {
   defaultThreadEnvMode: { field: 'defaultThreadEnvMode', builtIn: 'local' }, worktreeSubmodules: { field: 'worktreeSubmodules', builtIn: 'recursive' } };
-const SERVER_KEYS = new Set(['worktreeCleanup', 'storageCleanup', 'responseStreamingMode', 'enableProviderUpdateChecks', 'continueThreadsAfterServerUpdate', 'enableAgentBrowserAccess',
+const SERVER_KEYS = new Set(['worktreesDirectory', 'worktreeCleanup', 'storageCleanup', 'responseStreamingMode', 'enableProviderUpdateChecks', 'continueThreadsAfterServerUpdate', 'enableAgentBrowserAccess',
   'projectAgentBrowserAccessOverrides', 'defaultAutoPull', 'defaultProjectScripts', 'projectScriptOverrides', 'projectAutoPullOverrides', 'defaultModelSelection', 'defaultRuntimeMode',
   'projectSettingsOverrides', 'projectSettingsFolded', 'enableAgentDeviceAccess', 'enableDeviceSupport', 'deviceOnboardingCompleted', 'deviceHosts', 'sidebarAutoSettleAfterDays',
-  'snoozeLimitedThreads', 'autoResumeLimitedThreads', 'sidebarAutoSettleOnMerge', 'backgroundActivity', 'automaticGitFetchInterval', 'providerHealthRefreshInterval',
+  'snoozeLimitedThreads', 'autoResumeLimitedThreads', 'sidebarAutoSettleOnMerge', 'sidebarAutoSettleKeepPullRequests', 'backgroundActivity', 'automaticGitFetchInterval', 'providerHealthRefreshInterval',
   'backgroundActivityProfile', 'defaultTheme', 'defaultThemeSetAt', 'environmentIcon', 'defaultThreadEnvMode', 'newWorktreesStartFromOrigin', 'worktreeSubmodules',
   'addProjectBaseDirectory', 'textGenerationModelSelection', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'sourceControlWritingStyle',
   'sourceControlWriterModelSelection', 'pullRequestMergeMethod', 'providers', 'providerInstances', 'observability', 'bitbucket', 'sourceControlHosts', 'usageLimitSources',
@@ -99,12 +99,7 @@ export function clearProjectSettingsOverrides(settings: Obj, projectId: string, 
 
 /** Worktree rules are project-scoped; artifact and log retention stays environment-wide. */
 export function resolveWorktreeCleanup(settings: Obj, projectId: string | null): Obj {
-  const policy = obj(resolveProjectSettings(settings, projectId).settings.worktreeCleanup);
-  if (policy.mode === 'custom') return obj(policy.rules);
-  if (policy.mode === 'off') return { worktreeAfterDays: null, worktreeOnMerge: false, worktreeOnDelete: false, worktreeUnchanged: false };
-  const storage = obj(settings.storageCleanup);
-  return { worktreeAfterDays: storage.worktreeAfterDays ?? null, worktreeOnMerge: storage.worktreeOnMerge ?? false, worktreeOnDelete: storage.worktreeOnDelete ?? false,
-    worktreeUnchanged: storage.worktreeUnchanged ?? false };
+  return effectiveWorktreeRules(resolveProjectSettings(settings, projectId).settings, {});
 }
 
 // ── scopedSettings.ts ─────────────────────────────────────────────────────
