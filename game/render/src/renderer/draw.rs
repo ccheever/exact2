@@ -151,6 +151,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             self.quads.disarm();
         }
         self.quads.observed = self.probe.is_some().then(Vec::new);
+        if let Some(probe) = &mut self.probe {
+            probe.alpha = frame.alpha.clamp(0., 1.);
+        }
         self.quads
             .frame::<ASSETS>(frame, &self.models.textures, !self.cull.keep_all);
         self.select_levels(frame);
@@ -164,12 +167,15 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.soft_retained |= soft;
         // A look frame counts its particle draws, which read the scene's depth
         // in a translucent pass of their own, as soft particles do
-        // (quad_coverage.rs). A scene copy draws them over depth it writes.
+        // (quad_coverage.rs), on the path the live frame takes: into the HDR
+        // image, or a direct frame's target. A scene copy draws them over depth
+        // it writes.
         let particles = self.probe.is_some() && self.quads.particles_drawn();
         let counting = particles && !needs.contains(crate::Needs::SCENE_COPY);
-        let direct = self.direct_frame::<H>(frame, soft || counting);
+        let direct = self.direct_frame::<H>(frame, soft);
         // A direct frame leaves the HDR attachments as they are, unused.
         let scene_copy = if direct {
+            self.prepare_direct(target.texture().size(), counting);
             false
         } else {
             self.prepare_targets(
@@ -186,9 +192,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             self.depth_split(),
         );
         let uncounted = if counting {
-            self.quads
-                .begin_count(&self.device, &self.targets.depth)
-                .err()
+            let depth = match &self.look_direct {
+                Some(d) if direct => &d.depth,
+                _ => &self.targets.depth,
+            };
+            self.quads.begin_count(&self.device, depth, direct).err()
         } else {
             particles.then_some("a scene copy draws translucency over depth it writes")
         };
@@ -242,9 +250,6 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.prepare_cull(frame, cascades.as_ref(), hooks.materials(), size);
         self.probe_size();
         self.prepare_shadow_cache(cascades.as_ref(), frame, hooks.materials());
-        if direct {
-            self.prepare_direct(target.texture().size());
-        }
         let lean = self.lights.info[0] == 0. && frame.fill.is_none() && self.grids == 0;
         let early = self.pipelines.early;
         let e = &frame.environment;
@@ -334,7 +339,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         state.draws += self.encode_depth_prepass(encoder, frame, state.size, state.direct);
         self.encode_forward(encoder, target, &mut state, frame, hooks, &view)?;
         if self.quads.split() {
-            self.encode_translucent(encoder, &mut state, frame);
+            self.encode_translucent(encoder, target, &mut state, frame);
         }
         if scene_copy {
             self.encode_surface(encoder, &mut state, frame, hooks, &view)?;
@@ -406,14 +411,20 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     && self.pipelines.format().is_srgb()))
     }
 
-    /// A direct frame's attachments at the target's size, and its quad pipelines.
-    fn prepare_direct(&mut self, extent: wgpu::Extent3d) {
+    /// A direct frame's attachments at the target's size, and its quad
+    /// pipelines; `retained`, a look frame's that counts particles, which keeps
+    /// its own so the live frame's stay transient.
+    fn prepare_direct(&mut self, extent: wgpu::Extent3d, retained: bool) {
         let format = self.pipelines.format();
-        let retained = false;
-        if self
-            .direct_targets
+        self.direct_retained = retained;
+        let slot = if retained {
+            &mut self.look_direct
+        } else {
+            &mut self.direct_targets
+        };
+        if slot
             .as_ref()
-            .is_none_or(|t| t.format != format || t.size != extent || t.retained != retained)
+            .is_none_or(|t| t.format != format || t.size != extent)
         {
             let targets = crate::buffers::DirectTargets::new(
                 &self.device,
@@ -423,10 +434,20 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 retained,
             );
             self.texture_creations += targets.textures();
-            self.direct_targets = Some(targets);
+            *slot = Some(targets);
         }
         self.quads.prepare_direct(&self.device);
         self.direct_frames += 1;
+    }
+
+    /// This direct frame's attachments (`prepare_direct`).
+    pub(super) fn direct_attachments(&self) -> &crate::buffers::DirectTargets {
+        let slot = if self.direct_retained {
+            &self.look_direct
+        } else {
+            &self.direct_targets
+        };
+        slot.as_ref().unwrap()
     }
 
     fn upload_overrides(&mut self, frame: &FrameInput<'_>) {
@@ -663,7 +684,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
         let (poses, indices) = (&self.models.poses, &self.models.pose_indices);
         let words = &self.attachment_words;
-        self.levels.select(|e| {
+        let distance = |e: &crate::lod::Lod| {
             let position = attachment_matrix(words, e.slot).map_or_else(
                 || {
                     let history = poses[indices[e.record as usize]];
@@ -672,7 +693,19 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 |m| m.w_axis.truncate(),
             );
             position.distance(frame.camera_position)
-        });
+        };
+        self.levels.select(distance);
+        if let Some(probe) = &mut self.probe {
+            let levels = &self.levels;
+            probe.lods = (levels.entries.iter().zip(levels.selected()))
+                .map(|(e, &level)| super::probe::LodFact {
+                    slot: e.slot,
+                    hidden: level == Some(crate::lod::HIDDEN),
+                    distance: distance(e),
+                    hide: e.hide,
+                })
+                .collect();
+        }
         if self.levels.changed {
             if let Some(skinning) = &mut self.models.skinning {
                 skinning.activate(&self.queue, &self.levels.hidden);
@@ -840,7 +873,7 @@ mod tests {
             assert_eq!(draw(&mut renderer), frames);
             assert_eq!(renderer.targets.size, (64, 64));
             let direct = renderer.direct_targets.as_ref().unwrap();
-            assert!(direct.color.is_none() && !direct.retained);
+            assert!(direct.color.is_none() && renderer.look_direct.is_none());
             assert_eq!((direct.size.width, direct.size.height), (1080, 2340));
         }
         renderer.set_direct(false);

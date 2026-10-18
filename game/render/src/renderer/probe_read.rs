@@ -77,23 +77,45 @@ pub(crate) struct Facts {
     pub counted: Vec<usize>,
     /// Why the particle draws went uncounted, if they did.
     pub uncounted: Option<&'static str>,
-    /// What the quads did with each sprite and emitter (`Quads::observed`).
-    pub quads: Vec<(exact_game::Entity, crate::quads::QuadFact)>,
-    /// Each rigid model record's box in its entity's space (`model_boxes`).
-    pub model_boxes: Vec<(u32, crate::look_bounds::Aabb)>,
-    /// Each skinned record, whose box the frame's palette gives (`look::model_boxes`).
+    /// What the quads did with each sprite and emitter (`Quads::observed`),
+    /// and the matrix they placed it at.
+    pub quads: Vec<(exact_game::Entity, crate::quads::QuadFact, glam::Mat4)>,
+    /// Each model record's box in its entity's space (`model_boxes`); `None`
+    /// for a skinned one, whose box the frame's palette gives (`look::model_boxes`).
+    pub model_boxes: Vec<Option<crate::look_bounds::Aabb>>,
     pub skins: Vec<SkinFact>,
     /// Each blended model instance's slot and whether the CPU cull kept it:
     /// they draw one by one in depth order, outside the draw groups.
     pub blended: Vec<(u32, bool)>,
+    /// The frame's tick interpolation fraction and attachment matrices (16
+    /// floats a slot), which place each slot with its rows (`FramePoses`).
+    pub alpha: f32,
+    pub attachments: Vec<f32>,
+    /// Bytes of each transform history the readback copies: a frame read for
+    /// its bounds, which places what the cull's account leaves out.
+    pub poses: [u64; 2],
+    /// Each `ModelLod` entity's level this frame.
+    pub lods: Vec<LodFact>,
 }
 
-/// A skinned model record: its entity, its joints' span of the skin palette,
+/// One `ModelLod` entity in the frame's level selection: its slot, whether it
+/// drew no level (beyond its hide distance, with the selection's hysteresis),
+/// the distance the selection measured from where it is drawn, and its hide
+/// distance.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LodFact {
+    pub slot: u32,
+    pub hidden: bool,
+    pub distance: f32,
+    pub hide: f32,
+}
+
+/// A skinned model record: its index, its joints' span of the skin palette,
 /// its mesh's sphere in bind space and its node's local matrix (the words the
 /// cull reads, `renderer/culling.rs`).
 #[derive(Clone, Debug)]
 pub(crate) struct SkinFact {
-    pub transform: u32,
+    pub record: u32,
     pub palette: u32,
     pub joints: u32,
     pub centre: glam::Vec3,
@@ -125,6 +147,8 @@ enum Part {
     Cull,
     Shadow(u32),
     Palette,
+    /// The previous tick's transform rows (`false`) or the current tick's.
+    Poses(bool),
 }
 
 /// A look frame's readback, read.
@@ -151,6 +175,9 @@ pub(crate) struct Reading {
     pub shadow_texels: Vec<u32>,
     /// The frame's skin palette, column-major matrices, when a record is skinned.
     pub palette: Vec<f32>,
+    /// The previous and current tick's transform rows, for a frame read for its bounds.
+    pub prev: Vec<f32>,
+    pub curr: Vec<f32>,
 }
 
 impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
@@ -209,20 +236,31 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     Some((*self.slot_list.get(slot as usize)?, !depth.is_nan()))
                 })
                 .collect(),
+            alpha: self.probe.as_ref().map_or(0., |p| p.alpha),
+            attachments: self.attachment_words.clone(),
+            poses: if self.probe.as_ref().is_some_and(|p| !p.pixels) {
+                [1 - self.current, self.current].map(|i| self.transforms[i].live)
+            } else {
+                [0; 2]
+            },
+            lods: self
+                .probe
+                .as_mut()
+                .map_or_else(Vec::new, |p| std::mem::take(&mut p.lods)),
         }
     }
 
-    /// Each rigid model record's mesh box in its entity's space, by entity index.
-    pub(crate) fn model_boxes(&self) -> Vec<(u32, crate::look_bounds::Aabb)> {
+    /// Each model record's mesh box in its entity's space; `None` for a
+    /// skinned record.
+    pub(crate) fn model_boxes(&self) -> Vec<Option<crate::look_bounds::Aabb>> {
         if !ASSETS {
             return Vec::new();
         }
         (self.models.records.iter())
-            .filter(|r| r.skin.is_none())
-            .filter_map(|r| {
-                let mesh = self.meshes.get(r.geometry.0)?;
+            .map(|r| {
+                let mesh = self.meshes.get(r.geometry.0).filter(|_| r.skin.is_none())?;
                 let local = (mesh.center - mesh.half, mesh.center + mesh.half);
-                Some((r.transform, crate::look_bounds::transformed(r.local, local)))
+                Some(crate::look_bounds::transformed(r.local, local))
             })
             .collect()
     }
@@ -231,20 +269,25 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let Some(skinning) = self.models.skinning.as_ref().filter(|_| ASSETS) else {
             return Vec::new();
         };
-        (self.models.records.iter().zip(&skinning.offsets))
-            .filter_map(|(r, &palette)| {
-                let skin = r.skin?;
-                let mesh = self.meshes.get(r.geometry.0)?;
-                Some(SkinFact {
-                    transform: r.transform,
-                    palette: palette & 0x7fff_ffff,
-                    joints: skinning.joints(skin),
-                    centre: mesh.center,
-                    radius: mesh.half.length(),
-                    local: r.local,
-                })
+        (self
+            .models
+            .records
+            .iter()
+            .zip(&skinning.offsets)
+            .enumerate())
+        .filter_map(|(record, (r, &palette))| {
+            let skin = r.skin?;
+            let mesh = self.meshes.get(r.geometry.0)?;
+            Some(SkinFact {
+                record: record as u32,
+                palette: palette & 0x7fff_ffff,
+                joints: skinning.joints(skin),
+                centre: mesh.center,
+                radius: mesh.half.length(),
+                local: r.local,
             })
-            .collect()
+        })
+        .collect()
     }
 
     /// Copy what the look frame reads back: `target`'s pixels unless the
@@ -329,6 +372,16 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 palette.size(),
                 "game look skin palette",
             );
+        }
+        for (current, bytes) in [false, true].into_iter().zip(facts.poses) {
+            let rows = &self.transforms[if current {
+                self.current
+            } else {
+                1 - self.current
+            }];
+            if bytes > 0 {
+                copy(Part::Poses(current), &rows.raw, bytes, "game look poses");
+            }
         }
         if let Some((texels, n)) = probe.as_ref().and_then(|p| p.shadow.as_ref()) {
             copy(
@@ -491,6 +544,14 @@ impl Readback {
                     out.shadow_texels = words().into_iter().take(n as usize).collect()
                 }
                 Part::Palette => out.palette = words().into_iter().map(f32::from_bits).collect(),
+                Part::Poses(current) => {
+                    let rows = words().into_iter().map(f32::from_bits).collect();
+                    *if current {
+                        &mut out.curr
+                    } else {
+                        &mut out.prev
+                    } = rows;
+                }
             }
             drop(data);
             buffer.unmap();

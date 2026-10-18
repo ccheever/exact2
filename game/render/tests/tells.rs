@@ -264,6 +264,72 @@ fn each_defect_trips_its_tell_and_its_correction_trips_none() {
     }
 }
 
+/// The lit scene, whose ground and crate move 60 m off after tick 45, beyond
+/// shadows that then reach 5 m: the same renderer's look frames before and after.
+struct Clearing;
+impl Game for Clearing {
+    const ID: &'static str = "Clearing";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        scene::<2>(w, false);
+    }
+    fn tick(w: &mut World, _: &Input, _: &()) {
+        if w.tick() >= 45 {
+            w.insert_resource(Shadows {
+                distance: 5.,
+                ..Shadows::default()
+            });
+            for (name, y) in [("ground", 0.), ("crate", 0.5)] {
+                w.require_mut::<Transform>(name).position = Vec3::new(0., y, -60.);
+            }
+        }
+    }
+}
+
+#[test]
+fn a_casterless_look_after_a_lit_one_counts_no_texels() {
+    let Some(gpu) = test_device::device_or_skip(fixture::device()) else {
+        return;
+    };
+    for drawing in [Some(&gpu), None] {
+        let mut s = WorldSurface::<Clearing>::default();
+        s.bind(&[], None).unwrap();
+        let look = |s: &mut WorldSurface<Clearing>, now: u32| {
+            if let Some(gpu) = drawing {
+                let frame = Frame {
+                    width: SIZE.0,
+                    height: SIZE.1,
+                    scale: 1.,
+                    now_ms: f64::from(now),
+                    seekable: true,
+                    period_ms: 0.,
+                    children_generation: 0,
+                    shader_generation: 0,
+                    headroom: 1.,
+                };
+                fixture::render(gpu, s, &frame).unwrap();
+            }
+            s.agent(&format!(r#"{{"op":"clock","now":{now}}}"#))
+                .unwrap();
+            let request = format!(
+                r#"{{"op":"state","look":true,"now":{now},"width":{},"height":{}}}"#,
+                SIZE.0, SIZE.1
+            );
+            let reply: serde_json::Value =
+                serde_json::from_str(&s.agent(&request).unwrap()).unwrap();
+            reply["look"].clone()
+        };
+        look(&mut s, 0);
+        let lit = look(&mut s, 500);
+        assert_eq!(lit["tells"], serde_json::json!([]), "{lit}");
+        assert!(lit["sunTexels"].as_u64() > Some(0), "{lit}");
+        // The look renderer and its counter are the same; the count is this frame's.
+        let bare = look(&mut s, 1500);
+        assert_eq!(bare["sunTexels"], 0, "{bare}");
+        assert_eq!(bare["tells"][0]["name"], "no-shadow-casters", "{bare}");
+    }
+}
+
 fn field(reply: &str, key: &str) -> serde_json::Value {
     let value: serde_json::Value = serde_json::from_str(reply).unwrap();
     value[key].clone()

@@ -935,6 +935,11 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
     ) -> Option<&mut crate::renderer::RendererWithAssets<ASSETS>> {
         self.render.as_mut().map(|(renderer, _)| renderer)
     }
+    /// The bound world and the tick fraction a frame drawn now would take.
+    pub(crate) fn world_for_test(&self) -> (&exact_game::World, f32) {
+        let sim = self.sim.as_ref().unwrap();
+        (sim.world(), sim.alpha())
+    }
 }
 
 #[cfg(test)]

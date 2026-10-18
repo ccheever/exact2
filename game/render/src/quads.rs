@@ -59,6 +59,14 @@ pub(crate) struct Item<T> {
     pub value: T,
     revision: u64,
 }
+/// The pipeline a quad draw bound (`Quads::bind`): `8 × direct +` its kind's
+/// index (a particle's `4 × soft + 2 × textured + additive`, a sprite's alpha
+/// mode, 4 for a placed child), and whether it writes depth.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct QuadPipeline {
+    pub variant: usize,
+    pub depth: bool,
+}
 struct Quad {
     words: [f32; 20],
 }
@@ -143,8 +151,9 @@ pub(crate) struct Quads {
     child_textures: BTreeMap<u16, (wgpu::TextureView, wgpu::BindGroup)>,
     #[cfg(not(target_arch = "wasm32"))]
     child_pipeline: Option<wgpu::RenderPipeline>,
-    /// While a look frame is armed: what `frame` did with each sprite and emitter.
-    pub observed: Option<Vec<(Entity, QuadFact)>>,
+    /// While a look frame is armed: what `frame` did with each sprite and
+    /// emitter, and the matrix it placed it at.
+    pub observed: Option<Vec<(Entity, QuadFact, glam::Mat4)>>,
     counting: Option<coverage::Counting>,
     counted: coverage::CountPipelines,
 }
@@ -745,7 +754,7 @@ impl Quads {
                 // Skipped particles still charge the world budget in entity order.
                 left -= e.live(self.hz, f.alpha).min(left);
                 if let Some(seen) = &mut self.observed {
-                    seen.push((item.entity, QuadFact::Culled));
+                    seen.push((item.entity, QuadFact::Culled, t));
                 }
                 continue;
             }
@@ -815,38 +824,38 @@ impl Quads {
             });
             if let Some(seen) = &mut self.observed {
                 let drawn = (self.particle_data.len() - before) as u32;
-                seen.push((item.entity, QuadFact::Drawn(drawn)));
+                seen.push((item.entity, QuadFact::Drawn(drawn), t));
             }
         }
         if ASSETS {
             for (index, item) in self.sprites.iter().enumerate() {
                 let s = &item.value;
+                let t = f.displayed_matrix(
+                    item.entity,
+                    crate::world::scene::interpolate(item.poses, f.alpha),
+                );
                 let Some(texture) = textures
                     .get(&s.texture)
                     .filter(|texture| texture.active && texture.sprite_bind.is_some())
                 else {
                     if let Some(seen) = &mut self.observed {
-                        seen.push((item.entity, QuadFact::Pending(s.texture.clone())));
+                        seen.push((item.entity, QuadFact::Pending(s.texture.clone()), t));
                     }
                     continue;
                 };
                 let size = texture.size;
-                let t = f.displayed_matrix(
-                    item.entity,
-                    crate::world::scene::interpolate(item.poses, f.alpha),
-                );
                 let x = right * (s.size.x * t.x_axis.truncate().length());
                 let y = up * (s.size.y * t.y_axis.truncate().length());
                 let center = t.w_axis.truncate() + x * (0.5 - s.anchor.x) + y * (0.5 - s.anchor.y);
                 let radius = 0.5 * (x.length_squared() + y.length_squared()).sqrt();
                 if cull && !crate::cull::sphere_visible(&camera, center, radius) {
                     if let Some(seen) = &mut self.observed {
-                        seen.push((item.entity, QuadFact::Culled));
+                        seen.push((item.entity, QuadFact::Culled, t));
                     }
                     continue;
                 }
                 if let Some(seen) = &mut self.observed {
-                    seen.push((item.entity, QuadFact::Drawn(1)));
+                    seen.push((item.entity, QuadFact::Drawn(1), t));
                 }
                 let [fx, fy, fw, fh] = s.frame.map(f32::from);
                 let mut uv = if fw == 0. || fh == 0. {
@@ -952,16 +961,17 @@ impl Quads {
             arena.buffer.write(q, 0, bytes(&arena.words));
         }
     }
-    /// `direct`: into the target on a direct frame, after `prepare_direct`.
-    /// Draw `index` of this frame's list (while counting, a particle draw
-    /// through its probe variant, `quad_coverage.rs`).
-    pub fn draw<'a, const ASSETS: bool>(
+    /// Bind draw `index` of this frame's list, into the target on a `direct`
+    /// frame (after `prepare_direct`); while counting, a particle draw binds
+    /// the probe variant of its pipeline (`quad_coverage.rs`). Returns the
+    /// pipeline bound, which `submit` then draws with.
+    pub fn bind<'a, const ASSETS: bool>(
         &'a self,
         pass: &mut wgpu::RenderPass<'a>,
         index: usize,
         textures: &'a BTreeMap<String, crate::models::Texture>,
         direct: bool,
-    ) {
+    ) -> QuadPipeline {
         let draw = &self.draws[index];
         fn pick<'a, T>(direct: bool, hdr: &'a Option<T>, twin: &'a Option<T>) -> &'a T {
             if direct { twin } else { hdr }
@@ -969,7 +979,7 @@ impl Quads {
                 .expect("quad pipelines prepare before drawing")
         }
         pass.set_bind_group(0, &self.bind, &[]);
-        match draw.kind {
+        let local = match draw.kind {
             Kind::Particle(additive, look, soft) => {
                 let soft = match (&self.soft_bind, &self.soft_pipelines) {
                     (Some((_, bind)), Some(pipelines)) if soft && self.soft_active => {
@@ -996,7 +1006,8 @@ impl Quads {
                     pass.set_pipeline(&pipelines[usize::from(additive)]);
                     pass.set_bind_group(1, texture.sprite_bind.as_ref().unwrap(), &[]);
                 }
-                self.bind_count(pass, index, soft.is_some(), look != NO_LOOK, additive);
+                let (soft, textured) = (soft.is_some(), look != NO_LOOK);
+                self.bind_count(pass, index, direct, soft, textured, additive);
                 pass.set_vertex_buffer(
                     0,
                     self.particle_arena
@@ -1006,6 +1017,7 @@ impl Quads {
                         .raw
                         .slice(..),
                 );
+                4 * usize::from(soft) + 2 * usize::from(textured) + usize::from(additive)
             }
             Kind::Sprite(i) if ASSETS => {
                 let s = &self.sprites[i].value;
@@ -1019,6 +1031,7 @@ impl Quads {
                 pass.set_pipeline(&pipelines[variant]);
                 pass.set_bind_group(1, textures[&s.texture].sprite_bind.as_ref().unwrap(), &[]);
                 pass.set_vertex_buffer(0, self.sprite_arena.as_ref().unwrap().buffer.raw.slice(..));
+                variant
             }
             #[cfg(not(target_arch = "wasm32"))]
             Kind::Child(i) => {
@@ -1029,10 +1042,18 @@ impl Quads {
                 });
                 pass.set_bind_group(1, &self.child_textures[&i].1, &[]);
                 pass.set_vertex_buffer(0, self.sprite_arena.as_ref().unwrap().buffer.raw.slice(..));
+                4
             }
             Kind::Model(..) | Kind::Sprite(_) => unreachable!(),
+        };
+        QuadPipeline {
+            variant: 8 * usize::from(direct) + local,
+            depth: matches!(draw.kind, Kind::Sprite(_)) && local < 2,
         }
-        pass.draw(0..6, draw.range.clone());
+    }
+    /// Draw `index`, as `bind` bound it.
+    pub fn submit(&self, pass: &mut wgpu::RenderPass<'_>, index: usize) {
+        pass.draw(0..6, self.draws[index].range.clone());
     }
     pub fn opaque(&self, draw: &Draw) -> bool {
         matches!(draw.kind,Kind::Sprite(i) if self.sprites[i].value.alpha!=AlphaMode::Blend)

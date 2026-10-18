@@ -281,8 +281,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             .environment
             .background
             .map_or(frame.environment.horizon, |c| c.0);
-        // A direct frame draws into the target, through its own MSAA attachment at 4x.
-        let direct = state.direct.then(|| self.direct_targets.as_ref().unwrap());
+        // A direct frame draws into the target, through its own MSAA attachment at
+        // 4x, which resolves into the target after the frame's last pass.
+        let direct = state.direct.then(|| self.direct_attachments());
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("game forward"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -296,17 +297,17 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     },
                     |d| d.color.as_ref().unwrap_or(target),
                 ),
-                resolve_target: if self.targets.samples == 1 {
+                resolve_target: if self.targets.samples == 1 || split {
                     None
                 } else if direct.is_some() {
                     Some(target)
                 } else {
-                    (!split).then(|| {
+                    Some(
                         self.hook_targets
                             .as_ref()
                             .and_then(|t| t.scene())
-                            .map_or(&self.targets.resolved, |scene| scene.color)
-                    })
+                            .map_or(&self.targets.resolved, |scene| scene.color),
+                    )
                 },
                 depth_slice: None,
                 ops: wgpu::Operations {
@@ -415,9 +416,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         for (index, _) in
             (self.quads.draws.iter().enumerate()).filter(|(_, d)| self.quads.opaque(d))
         {
-            let began = self.probe_begin(&mut pass, || self.quads.record(index));
-            self.quads
-                .draw::<ASSETS>(&mut pass, index, &self.models.textures, state.direct);
+            let pipeline =
+                (self.quads).bind::<ASSETS>(&mut pass, index, &self.models.textures, state.direct);
+            let began = self.probe_begin(&mut pass, || self.quads.record(index, pipeline));
+            self.quads.submit(&mut pass, index);
             Probe::end(&mut pass, began);
             state.draws += 1;
         }
@@ -487,18 +489,25 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     }
 
     /// Translucency over the opaque pass's stored colour, its depth read-only and
-    /// sampled by soft particles.
+    /// sampled by soft particles and a look frame's particle counts: the HDR
+    /// image, or a direct frame's target (`direct_attachments`).
     pub(super) fn encode_translucent(
         &self,
         encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
         state: &mut Resolved,
         frame: &FrameInput<'_>,
     ) {
+        let direct = state.direct.then(|| self.direct_attachments());
+        let (color, depth) = direct.map_or((&self.targets.color, &self.targets.depth), |d| {
+            (d.color.as_ref().unwrap_or(target), &d.depth)
+        });
+        let resolved = direct.map_or(&self.targets.resolved, |_| target);
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("game translucent"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &self.targets.color,
-                resolve_target: (self.targets.samples > 1).then_some(&self.targets.resolved),
+                view: color,
+                resolve_target: (self.targets.samples > 1).then_some(resolved),
                 depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
@@ -510,7 +519,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &self.targets.depth,
+                view: depth,
                 depth_ops: None,
                 stencil_ops: None,
             }),
@@ -762,9 +771,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, slot..slot + 1);
                 Probe::end(pass, began);
             } else {
-                let began = self.probe_begin(pass, || self.quads.record(index));
-                self.quads
-                    .draw::<ASSETS>(pass, index, &self.models.textures, state.direct);
+                let pipeline =
+                    (self.quads).bind::<ASSETS>(pass, index, &self.models.textures, state.direct);
+                let began = self.probe_begin(pass, || self.quads.record(index, pipeline));
+                self.quads.submit(pass, index);
                 Probe::end(pass, began);
             }
             draws += 1;

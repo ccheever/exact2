@@ -237,11 +237,11 @@ pub(crate) fn account(facts: &Facts, read: &Reading, g: usize, local: u32) -> Op
         level: w[5] & 2 != 0,
     })
 }
-/// Each model record's box in its entity's space: the rigid ones' meshes,
-/// and each skinned one deformed by the frame's palette, as the cull bounds it
+/// Each model record's box in its entity's space: a rigid one's mesh, and a
+/// skinned one deformed by the frame's palette, as the cull bounds it
 /// (cull.wgsl `local_sphere`: the union of every joint's transformed mesh
 /// sphere, under the node's local matrix).
-pub(crate) fn model_boxes(facts: &Facts, read: &Reading) -> Vec<(u32, Aabb)> {
+pub(crate) fn model_boxes(facts: &Facts, read: &Reading) -> Vec<Option<Aabb>> {
     // The bound on a linear map's stretch the cull uses: its 3×3 Frobenius norm.
     let norm = |m: &glam::Mat4| {
         (m.x_axis.truncate().length_squared()
@@ -249,32 +249,34 @@ pub(crate) fn model_boxes(facts: &Facts, read: &Reading) -> Vec<(u32, Aabb)> {
             + m.z_axis.truncate().length_squared())
         .sqrt()
     };
-    let skinned = facts.skins.iter().filter_map(|s| {
+    let mut boxes = facts.model_boxes.clone();
+    for s in &facts.skins {
         let (mut lo, mut hi) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
         for j in s.palette..s.palette + s.joints {
             let at = j as usize * 16;
-            let joint = glam::Mat4::from_cols_slice(read.palette.get(at..at + 16)?);
+            let Some(words) = read.palette.get(at..at + 16) else {
+                continue;
+            };
+            let joint = glam::Mat4::from_cols_slice(words);
             let (c, r) = (joint.transform_point3(s.centre), s.radius * norm(&joint));
             lo = lo.min(c - Vec3::splat(r));
             hi = hi.max(c + Vec3::splat(r));
         }
         let centre = s.local.transform_point3((lo + hi) * 0.5);
         let r = (hi - lo).length() * 0.5 * norm(&s.local);
-        (r.is_finite() && s.joints > 0).then(|| {
-            (
-                s.transform,
-                (centre - Vec3::splat(r), centre + Vec3::splat(r)),
-            )
-        })
-    });
-    facts.model_boxes.iter().cloned().chain(skinned).collect()
+        if let Some(b) = boxes.get_mut(s.record as usize) {
+            *b = (r.is_finite() && s.joints > 0)
+                .then(|| (centre - Vec3::splat(r), centre + Vec3::splat(r)));
+        }
+    }
+    boxes
 }
 
-/// The box around every item's sphere in the cull's account, or `None`
-/// without one (a direct frame, no culled group).
+/// The box around every item's sphere in the cull's account (kept-whole
+/// groups' included), or `None` without one (a direct frame, no group).
 pub(crate) fn culled_bounds(facts: &Facts, read: &Reading) -> Option<Aabb> {
     let mut out: Option<Aabb> = None;
-    for (g, fact) in facts.groups.iter().enumerate().filter(|(_, f)| !f.keep_all) {
+    for (g, fact) in facts.groups.iter().enumerate() {
         for local in 0..fact.range.len() as u32 {
             let Some(a) = account(facts, read, g, local) else {
                 continue;
@@ -542,12 +544,10 @@ fn writes(r: &Record) -> &'static str {
 /// `state world:<entity> visible`: one word, and the reason, from what the
 /// frame's renderer did: the quads' decision for a sprite or an emitter, the
 /// GPU cull's lists for a mesh.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn visible(
     w: &World,
     entity: Entity,
     pending: impl Fn(&str) -> bool,
-    camera: Vec3,
     facts: &Facts,
     read: &Reading,
 ) -> (String, String) {
@@ -598,24 +598,15 @@ pub(crate) fn visible(
             );
         }
     }
-    let position = Vec3::from(drawn.pose.translation);
-    let distance = position.distance(camera);
-    let lod = matches!(mesh, Some(Mesh::Asset(_)))
-        .then(|| w.get::<exact_game::ModelLod>(entity))
-        .flatten();
-    if let Some(lod) = lod {
-        if lod.hide.is_some_and(|hide| distance > hide) {
-            return (
-                format!("lod-hidden {distance:.0} m"),
-                format!(
-                    "ModelLod hides it beyond {} m",
-                    lod.hide.unwrap_or_default()
-                ),
-            );
-        }
+    // The frame's level selection, from where it drew the entity.
+    let index = entity.index();
+    if let Some(lod) = (facts.lods.iter()).find(|l| l.slot == index && l.hidden) {
+        return (
+            format!("lod-hidden {:.0} m", lod.distance),
+            format!("ModelLod hides it beyond {} m", lod.hide),
+        );
     }
     // An entity's slots: its own (primitives) and its model records'.
-    let index = entity.index();
     let slots: Vec<u32> = std::iter::once(index)
         .chain(
             (facts.record_slots.iter().enumerate())
@@ -720,8 +711,8 @@ fn quad_word(facts: &Facts, entity: Entity) -> (String, String) {
     match facts
         .quads
         .iter()
-        .find(|(e, _)| *e == entity)
-        .map(|(_, f)| f)
+        .find(|(e, ..)| *e == entity)
+        .map(|(_, f, _)| f)
     {
         Some(QuadFact::Pending(texture)) => (
             format!("asset-pending {texture}"),
@@ -973,3 +964,7 @@ mod tests {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "look_tests.rs"]
 mod surface_tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "look_frame_tests.rs"]
+mod frame_tests;

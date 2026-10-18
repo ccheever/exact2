@@ -135,6 +135,11 @@ impl Levels {
         }
         self.changed = true;
     }
+    /// Each entry's level drawn this frame (`HIDDEN` beyond its hide distance;
+    /// none before its first frame).
+    pub fn selected(&self) -> &[Option<u8>] {
+        &self.selected
+    }
     /// Choose every entity's level from its distance (`distance(entry)`) and
     /// mark the records of other levels hidden.
     pub fn select(&mut self, distance: impl Fn(&Lod) -> f32) {

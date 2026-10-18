@@ -4,14 +4,18 @@
 //! The counts come from the particle draws themselves. While a look frame is
 //! armed, each particle draw uses the probe variant of its own pipeline
 //! (`shaders/count.wgsl`): the same vertex path, the same dot shape, texture
-//! alpha and soft fade, blended into the frame as ever, and each fragment in
-//! front of the scene that moves an 8-bit pixel (alpha at least 1/255) added
-//! to its draw's counter in a storage buffer. A particle draw that is not
-//! submitted, or whose fragments are all transparent, counts nothing. The
-//! shader reads the scene's depth, so the frame draws its translucency in its
-//! own pass, as soft particles do. A live frame makes no such pipeline and
-//! binds none. GL has no fragment storage writes: there the counts are
-//! unmeasured.
+//! alpha and soft fade, blended into the same target as ever (the HDR image,
+//! or a direct frame's target), and each fragment that contributes to the
+//! frame added to its draw's counter in a storage buffer. A fragment
+//! contributes when its contribution is above zero (alpha, times the brightest
+//! channel for an additive draw) and it is in front of the scene's depth at one
+//! of the samples it covers; the depth compared is the pixel centre's, and a
+//! contribution too small to change an 8-bit pixel still counts. A particle
+//! draw that is not submitted, or whose fragments are all transparent, counts
+//! nothing. The shader reads the scene's depth, so the frame draws its
+//! translucency in a pass of its own over the same attachments, as soft
+//! particles do. A live frame makes no such pipeline and binds none. GL has no
+//! fragment storage writes: there the counts are unmeasured.
 use super::*;
 
 /// What a look frame's quads did with one sprite or emitter.
@@ -36,11 +40,11 @@ pub(super) struct Counting {
 }
 
 /// The probe variants of the particle pipelines, made on first use: index
-/// `4 * soft + 2 * textured + additive`.
+/// `8 * direct + 4 * soft + 2 * textured + additive`.
 #[derive(Default)]
 pub(super) struct CountPipelines {
     layout: Option<wgpu::BindGroupLayout>,
-    pipelines: [Option<wgpu::RenderPipeline>; 8],
+    pipelines: [Option<wgpu::RenderPipeline>; 16],
 }
 
 /// One counter word per draw, each draw's slot at a dynamic uniform offset.
@@ -78,45 +82,30 @@ impl Quads {
         }
     }
 
-    /// Draw `index`'s probe record: its run of quads, its pipeline variant
-    /// (`4 × soft + 2 × textured + additive` for particles, the alpha mode for
-    /// sprites) and whether it writes depth.
-    pub(crate) fn record(&self, index: usize) -> crate::renderer::probe::Drew {
-        let draw = &self.draws[index];
-        let (variant, depth) = match draw.kind {
-            Kind::Particle(additive, look, soft) => (
-                4 * usize::from(soft) + 2 * usize::from(look != NO_LOOK) + usize::from(additive),
-                false,
-            ),
-            Kind::Sprite(i) => {
-                let alpha = self
-                    .sprites
-                    .get(i)
-                    .map_or(AlphaMode::Blend, |s| s.value.alpha);
-                let variant = match alpha {
-                    AlphaMode::Opaque => 0,
-                    AlphaMode::Mask => 1,
-                    AlphaMode::Blend => 2,
-                };
-                (variant, variant < 2)
-            }
-            _ => (0, false),
-        };
+    /// Draw `index`'s probe record: its run of quads and the pipeline `bind`
+    /// bound for it.
+    pub(crate) fn record(
+        &self,
+        index: usize,
+        pipeline: QuadPipeline,
+    ) -> crate::renderer::probe::Drew {
         crate::renderer::probe::Drew::Quads {
             draw: index,
-            count: draw.range.len() as u32,
-            variant,
-            depth,
+            count: self.draws[index].range.len() as u32,
+            variant: pipeline.variant,
+            depth: pipeline.depth,
         }
     }
 
     /// Arm this frame's particle counting over `depth`, the scene's depth the
-    /// split translucent pass reads, after `prepare` and `order`. `Err` names
+    /// split translucent pass reads, after `prepare` and `order`; a `direct`
+    /// frame's count pipelines draw into its target as its own do. `Err` names
     /// why the device cannot count.
     pub(crate) fn begin_count(
         &mut self,
         d: &wgpu::Device,
         depth: &wgpu::TextureView,
+        direct: bool,
     ) -> Result<(), &'static str> {
         if !counts(d) {
             return Err("this backend's fragment shaders cannot write storage");
@@ -133,7 +122,7 @@ impl Quads {
                 unreachable!()
             };
             let soft = soft && self.soft_active;
-            self.count_pipeline(d, soft, look != NO_LOOK, additive);
+            self.count_pipeline(d, direct, soft, look != NO_LOOK, additive);
         }
         let mut slots = vec![None; self.draws.len()];
         for (k, &i) in draws.iter().enumerate() {
@@ -222,11 +211,12 @@ impl Quads {
     }
 
     /// While counting: quad draw `index`'s probe variant, and its counter slot
-    /// bound as group 3 (`Quads::draw`, after its own groups).
+    /// bound as group 3 (`Quads::bind`, after its own groups).
     pub(super) fn bind_count<'a>(
         &'a self,
         pass: &mut wgpu::RenderPass<'a>,
         index: usize,
+        direct: bool,
         soft: bool,
         textured: bool,
         additive: bool,
@@ -237,13 +227,20 @@ impl Quads {
         let Some(slot) = counting.slots.get(index).copied().flatten() else {
             return;
         };
-        let variant = 4 * usize::from(soft) + 2 * usize::from(textured) + usize::from(additive);
+        let variant = count_variant(direct, soft, textured, additive);
         pass.set_pipeline(self.counted.pipelines[variant].as_ref().unwrap());
         pass.set_bind_group(3, &counting.bind, &[(u64::from(slot) * STRIDE) as u32]);
     }
 
-    fn count_pipeline(&mut self, d: &wgpu::Device, soft: bool, textured: bool, additive: bool) {
-        let variant = 4 * usize::from(soft) + 2 * usize::from(textured) + usize::from(additive);
+    fn count_pipeline(
+        &mut self,
+        d: &wgpu::Device,
+        direct: bool,
+        soft: bool,
+        textured: bool,
+        additive: bool,
+    ) {
+        let variant = count_variant(direct, soft, textured, additive);
         if self.counted.pipelines[variant].is_some() {
             return;
         }
@@ -272,9 +269,16 @@ impl Quads {
             &[Some(&self.layout), texture, soft_layout, Some(&*layout)],
             usize::from(additive) + 2,
             entry,
-            (samples, None),
+            (samples, direct.then_some(self.format)),
         ));
     }
+}
+
+fn count_variant(direct: bool, soft: bool, textured: bool, additive: bool) -> usize {
+    8 * usize::from(direct)
+        + 4 * usize::from(soft)
+        + 2 * usize::from(textured)
+        + usize::from(additive)
 }
 
 /// The probe variants' counter group, as build.rs reflected it from the

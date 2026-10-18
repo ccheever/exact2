@@ -107,8 +107,11 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     // This frame's visible environment map is resident.
     pub(crate) sky_ready: bool,
     pub(crate) targets: Targets,
-    // A direct frame's attachments (`encode_hooked`), made at its target's size.
+    // A direct frame's attachments (`encode_hooked`), made at its target's size;
+    // a look frame that counts particles keeps its own, retained between passes.
     pub(crate) direct_targets: Option<crate::buffers::DirectTargets>,
+    look_direct: Option<crate::buffers::DirectTargets>,
+    direct_retained: bool,
     // Frames may draw direct: at one sample everywhere, where the picture is the
     // tone pass's; at four on phones and tablets, whose tiling GPUs it is for.
     // Elsewhere four would move MSAA edges (each sample is tonemapped before the
@@ -129,6 +132,8 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     pub(crate) probe: Option<probe::Probe>,
     /// Records the probe has built: an unarmed frame builds none (tests).
     pub(crate) probe_built: std::cell::Cell<u64>,
+    // The look frames' shadow-texel pipeline, its layout and its counter.
+    shadow_texels: Option<(wgpu::ComputePipeline, wgpu::BindGroupLayout, wgpu::Buffer)>,
 }
 
 // Use the uploaded affine records and the same presence test as transform.wgsl.
@@ -397,6 +402,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             sky_ready: false,
             targets,
             direct_targets: None,
+            look_direct: None,
+            direct_retained: false,
             allow_direct: samples == 1 || cfg!(any(target_os = "android", target_os = "ios")),
             direct_frames: 0,
             shadows: None,
@@ -409,6 +416,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             hook_metrics: None,
             probe: None,
             probe_built: Default::default(),
+            shadow_texels: None,
             counts: Stats {
                 draws: 1,
                 triangles: 1,

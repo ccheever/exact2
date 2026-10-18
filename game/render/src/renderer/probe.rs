@@ -23,7 +23,7 @@ use std::cell::{Cell, RefCell};
 mod read;
 #[cfg(test)]
 pub(crate) use read::GroupFact;
-pub(crate) use read::{Facts, Readback, Reading};
+pub(crate) use read::{Facts, LodFact, Readback, Reading};
 
 /// WebGPU's largest query set.
 const MAX_QUERIES: u32 = 4096;
@@ -133,6 +133,10 @@ pub(crate) struct Probe {
     pub shadow: Option<(wgpu::Buffer, u32)>,
     /// Pixels to read back: false for a frame read only for its bounds.
     pub pixels: bool,
+    /// The frame's tick interpolation fraction, as its shaders take it.
+    pub alpha: f32,
+    /// Each `ModelLod` entity's level this frame (`select_levels`).
+    pub lods: Vec<LodFact>,
 }
 
 impl Probe {
@@ -149,6 +153,8 @@ impl Probe {
             cull: None,
             shadow: None,
             pixels,
+            alpha: 0.,
+            lods: Vec::new(),
         }
     }
     /// Room for `draws` queried draws, once the frame's draws are prepared (at
@@ -261,41 +267,47 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     }
     /// After the frame's passes: on the GPU, the texels each sun cascade's
     /// pass wrote nearer than the maps' clear depth (`shaders/shadow_count.wgsl`),
-    /// one word a cascade. `None` without a shadowed sun.
+    /// one word a cascade, in a counter the renderer keeps and zeroes first.
+    /// `None` without a shadowed sun.
     pub(crate) fn encode_shadow_texels(
-        &self,
+        &mut self,
         encoder: &mut wgpu::CommandEncoder,
     ) -> Option<(wgpu::Buffer, u32)> {
         use shadow_count_interface::shadow_count as count;
         let shadows = self.shadows.as_ref().filter(|s| s.count > 0)?;
         let d = &self.device;
-        let layout = d.create_bind_group_layout(&count::GROUP_0);
-        let pipeline = d.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("game look shadow texels"),
-            layout: Some(&d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let (pipeline, layout, written) = self.shadow_texels.get_or_insert_with(|| {
+            let layout = d.create_bind_group_layout(&count::GROUP_0);
+            let pipeline = d.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("game look shadow texels"),
-                bind_group_layouts: &[Some(&layout)],
-                immediate_size: 0,
-            })),
-            module: &d.create_shader_module(wgpu::ShaderModuleDescriptor {
+                layout: Some(&d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("game look shadow texels"),
+                    bind_group_layouts: &[Some(&layout)],
+                    immediate_size: 0,
+                })),
+                module: &d.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("game look shadow texels"),
+                    source: wgpu::ShaderSource::Wgsl(
+                        include_str!("../shaders/shadow_count.wgsl").into(),
+                    ),
+                }),
+                entry_point: Some(count::entry::COUNT),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+            let written = d.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("game look shadow texels"),
-                source: wgpu::ShaderSource::Wgsl(
-                    include_str!("../shaders/shadow_count.wgsl").into(),
-                ),
-            }),
-            entry_point: Some(count::entry::COUNT),
-            compilation_options: Default::default(),
-            cache: None,
-        });
-        let written = d.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("game look shadow texels"),
-            size: u64::from(shadows.count) * 4,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
+                size: crate::shadows::MAX_CASCADES as u64 * 4,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_SRC
+                    | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            (pipeline, layout, written)
         });
         let bind = d.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("game look shadow texels"),
-            layout: &layout,
+            layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: count::CASCADES.binding,
@@ -307,13 +319,15 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 },
             ],
         });
+        // The shader only adds: the last look frame's counts must not remain.
+        encoder.clear_buffer(written, 0, None);
         let mut pass = encoder.begin_compute_pass(&Default::default());
-        pass.set_pipeline(&pipeline);
+        pass.set_pipeline(pipeline);
         pass.set_bind_group(0, &bind, &[]);
         let side = shadows.resolution.div_ceil(8);
         pass.dispatch_workgroups(side, side, shadows.count);
         drop(pass);
-        Some((written, shadows.count))
+        Some((written.clone(), shadows.count))
     }
     /// The pipeline variant of the next group or local draw recorded.
     pub(crate) fn probe_variant(&self, variant: usize) {

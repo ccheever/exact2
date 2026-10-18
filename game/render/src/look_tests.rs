@@ -238,7 +238,8 @@ fn a_failed_look_leaves_no_probe_state_for_the_next_frame() {
     for ms in [0., 20., 40., 60.] {
         fixture::render(&gpu, &mut s, &frame(ms)).unwrap();
     }
-    // The sparks are drawn: a look frame counts them, after which its hook fails.
+    // The sparks are drawn: a look frame arms their counting, then its hook's
+    // compute stage fails.
     FAIL.store(true, std::sync::atomic::Ordering::SeqCst);
     let reply = s
         .agent(r#"{"op":"state","look":true,"width":320,"height":180}"#)
@@ -325,4 +326,81 @@ fn skinned_bounds_follow_the_palette_on_the_blended_and_direct_routes() {
             value["bounds"]
         );
     }
+}
+
+/// Sparks that fade softly into the ground.
+struct SoftSparks;
+impl Game for SoftSparks {
+    const ID: &'static str = "look-soft-sparks";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn((
+            Transform::at(0., 2., 8.).looking_at(Vec3::ZERO, Vec3::Y),
+            Camera::default(),
+        ));
+        w.spawn((
+            Transform::default(),
+            Mesh::plane(20., 20.),
+            Material::hex("#5d7a52"),
+        ));
+        let sparks = w.spawn((
+            Transform::at(0., 0.5, 0.),
+            Emitter::sparks().rate(400.).lifetime(2.),
+        ));
+        w.insert(
+            sparks,
+            ParticleLook {
+                soft: 0.5,
+                ..Default::default()
+            },
+        );
+    }
+    fn tick(w: &mut World, _: &Input, _: &()) {
+        emitter::step(w);
+    }
+}
+/// Hooks that copy the scene, whose continuation draws particles hard.
+#[derive(Default)]
+struct Copying;
+impl crate::Hooks for Copying {
+    fn needs(&self) -> crate::Needs {
+        crate::Needs::SCENE_COPY
+    }
+}
+
+/// The variant the listing names for the soft sparks' draw, and the listing.
+fn soft_sparks_variant<H: crate::Hooks + Default>() -> Option<(u64, String)> {
+    let gpu = fixture::device_or_skip(fixture::device())?;
+    let mut s = WorldSurface::<SoftSparks, (), false, H>::default();
+    s.bind(&[], None).unwrap();
+    for ms in [0., 20., 40., 60.] {
+        fixture::render(&gpu, &mut s, &frame(ms)).unwrap();
+    }
+    let reply = s
+        .agent(r#"{"op":"state","draws":true,"width":320,"height":180}"#)
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+    let draws = value["draws"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{reply}"));
+    let sparks = draws.iter().find(|d| {
+        d["draw"]
+            .as_str()
+            .is_some_and(|b| b.starts_with("particle dots"))
+    });
+    let variant = sparks.unwrap_or_else(|| panic!("{reply}"))["variant"].as_u64();
+    Some((variant.unwrap_or_else(|| panic!("{reply}")), reply))
+}
+
+#[test]
+fn a_quad_record_names_the_pipeline_its_draw_bound() {
+    // Soft additive dots (4 × soft + additive) in a frame whose translucent
+    // pass reads the depth.
+    let Some((soft, reply)) = soft_sparks_variant::<()>() else {
+        return;
+    };
+    assert_eq!(soft, 5, "{reply}");
+    // Under a scene copy the same authored batch draws hard.
+    let (copied, reply) = soft_sparks_variant::<Copying>().unwrap();
+    assert_eq!(copied, 1, "{reply}");
 }

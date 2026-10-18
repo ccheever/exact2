@@ -1,92 +1,155 @@
-//! What each drawn entity displays, as a world-space box (LLP 1127.000 D3, D4):
-//! what an orbit or plan look frame frames, and the extent `visible` tests
-//! against the view. Primitives by their dimensions, models by their meshes'
-//! boxes as the renderer holds them, sprites by their quad about the anchor,
-//! emitters by the reach their particles' own cull uses (`quads::emitter_reach`).
+//! What a look frame drew outside the cull's account, as a world-space box
+//! (LLP 1127.000 D3): what an orbit or plan look frame frames besides the
+//! cull's spheres. Each item is placed where the frame drew it: its two ticks'
+//! rows at the frame's alpha, or its attachment matrix (`FramePoses`, as
+//! `transform.wgsl` and `model_vertex.wgsl` place it); and only what the
+//! renderer drew is counted: the slots of its draw groups and blended models,
+//! and the sprites and emitters its quads derived, at the matrix they used.
+//! Primitives by their dimensions, model records by their meshes' boxes (or
+//! their skin palette's), sprites by their quad about the anchor, emitters by
+//! the reach their particles' own cull uses (`quads::emitter_reach`).
+use crate::quads::QuadFact;
+use crate::renderer::probe::{Facts, Reading};
 use exact_game::{Emitter, Entity, Mesh, Sprite, Vec3, World};
 use glam::Mat4;
 
 /// A box, `lo` to `hi`.
 pub(crate) type Aabb = (Vec3, Vec3);
 
-/// The box of what `e` displays, or `None` when it is not drawn or displays nothing.
-/// `models` holds each model record's box in its entity's space, by entity index
-/// (`Renderer::model_boxes`).
-pub(crate) fn displayed(w: &World, e: Entity, models: &[(u32, Aabb)]) -> Option<Aabb> {
-    let pose = Mat4::from(w.drawn(e)?.pose);
-    let mut out: Option<Aabb> = None;
-    let mut grow = |b: Aabb| {
-        out = Some(out.map_or(b, |(lo, hi)| (lo.min(b.0), hi.max(b.1))));
-    };
-    let origin = pose.w_axis.truncate();
-    if let Some(mesh) = w.get::<Mesh>(e) {
-        if let Mesh::Asset(_) = &*mesh {
-            for (_, b) in models.iter().filter(|(t, _)| *t == e.index()) {
-                grow(transformed(pose, *b));
+/// Where the frame drew each transform slot.
+pub(crate) struct FramePoses<'a> {
+    pub alpha: f32,
+    /// The previous and current tick's rows, ten floats a slot.
+    pub prev: &'a [f32],
+    pub curr: &'a [f32],
+    /// Each attached slot's matrix, sixteen floats a slot (`attachment_words`).
+    pub attachments: &'a [f32],
+}
+
+impl FramePoses<'_> {
+    /// Slot `slot`'s matrix this frame: its attachment's, else its rows
+    /// interpolated as the shaders do (position and scale linearly, rotation by
+    /// the shortest normalized lerp); a primitive's scale is absolute.
+    pub fn matrix(&self, slot: u32, primitive: bool) -> Option<Mat4> {
+        let at = slot as usize * 16;
+        if let Some(m) = self.attachments.get(at..at + 16) {
+            if m[15] == 1. {
+                return Some(Mat4::from_cols_slice(m));
             }
+        }
+        let at = slot as usize * 10;
+        let (p, c) = (self.prev.get(at..at + 10)?, self.curr.get(at..at + 10)?);
+        let v3 = |r: &[f32], i: usize| Vec3::new(r[i], r[i + 1], r[i + 2]);
+        let q = |r: &[f32]| glam::Vec4::new(r[3], r[4], r[5], r[6]);
+        let t = self.alpha.clamp(0., 1.);
+        let (q0, q1) = (q(p), q(c));
+        let q1 = if q0.dot(q1) < 0. { -q1 } else { q1 };
+        let rotation = glam::Quat::from_vec4(q0.lerp(q1, t).try_normalize()?);
+        let scale = |r: &[f32]| {
+            let s = v3(r, 7);
+            if primitive {
+                s.abs()
+            } else {
+                s
+            }
+        };
+        let m = Mat4::from_scale_rotation_translation(
+            scale(p).lerp(scale(c), t),
+            rotation,
+            v3(p, 0).lerp(v3(c, 0), t),
+        );
+        m.is_finite().then_some(m)
+    }
+}
+
+/// The box around what the frame drew outside the cull's account: blended
+/// model records, sprites and emitters, and when `all` (a direct frame, with
+/// no account) every draw group's slots too. `records` holds each model
+/// record's box in its entity's space (`look::model_boxes`).
+pub(crate) fn drawn_box(
+    w: &World,
+    facts: &Facts,
+    read: &Reading,
+    records: &[Option<Aabb>],
+    all: bool,
+) -> Option<Aabb> {
+    let poses = FramePoses {
+        alpha: facts.alpha,
+        prev: &read.prev,
+        curr: &read.curr,
+        attachments: &facts.attachments,
+    };
+    let mut out: Option<Aabb> = None;
+    let mut grow = |b: Option<Aabb>| {
+        if let Some(b) = b.filter(|(lo, hi)| lo.is_finite() && hi.is_finite()) {
+            out = Some(out.map_or(b, |(lo, hi)| (lo.min(b.0), hi.max(b.1))));
+        }
+    };
+    let grouped = (facts.groups.iter().filter(|_| all))
+        .flat_map(|g| &facts.slot_list[g.range.start as usize..g.range.end as usize]);
+    let slots: Vec<u32> = (facts.blended.iter().map(|(slot, _)| *slot))
+        .chain(grouped.copied())
+        .collect();
+    // A primitive's slot is its entity's index; its dimensions are its Mesh's.
+    let primitives: std::collections::BTreeMap<u32, Entity> =
+        if slots.iter().any(|&s| s < crate::RENDER_SLOT_BASE) {
+            (w.query::<&Mesh>().iter())
+                .map(|(e, _)| (e.index(), e))
+                .collect()
         } else {
-            let half = primitive_half(&mesh);
-            grow(transformed(pose, (-half, half)));
+            Default::default()
+        };
+    for slot in slots {
+        match slot.checked_sub(crate::RENDER_SLOT_BASE) {
+            Some(record) => {
+                let transform = facts.record_slots.get(record as usize).copied();
+                let local = records.get(record as usize).copied().flatten();
+                let pose = transform.and_then(|t| poses.matrix(t, false));
+                grow(local.zip(pose).map(|(b, m)| transformed(m, b)));
+            }
+            None => {
+                let mesh = primitives.get(&slot).and_then(|&e| w.get::<Mesh>(e));
+                let half = mesh.map(|m| primitive_half(&m));
+                let pose = poses.matrix(slot, true);
+                grow(half.zip(pose).map(|(h, m)| transformed(m, (-h, h))));
+            }
         }
     }
-    if let Some(s) = w.get::<Sprite>(e) {
-        // A camera-facing quad turns about its anchor: the ball through its
-        // farthest corner holds it from every view.
-        let scale = Vec3::new(pose.x_axis.length(), pose.y_axis.length(), 0.);
-        let corner = glam::Vec2::new(
-            (s.anchor.x - 0.5).abs() + 0.5,
-            (s.anchor.y - 0.5).abs() + 0.5,
-        ) * glam::Vec2::new(s.size.x * scale.x, s.size.y * scale.y);
-        grow(ball(origin, corner.length()));
-    }
-    if let Some(emitter) = w.get::<Emitter>(e) {
-        let reach = crate::quads::emitter_reach(&emitter, &pose);
-        grow(ball(origin, reach));
-        // World-space particles stay where they were born.
-        for (_, born) in &emitter.origins {
-            grow(ball(Vec3::from(born.translation), reach));
+    for (e, fact, pose) in &facts.quads {
+        if matches!(fact, QuadFact::Pending(_)) {
+            continue;
+        }
+        if let Some(s) = w.get::<Sprite>(*e) {
+            grow(Some(sprite_box(&s, pose)));
+        }
+        if let Some(emitter) = w.get::<Emitter>(*e) {
+            grow(Some(emitter_box(&emitter, pose)));
         }
     }
     out
 }
 
-/// The drawn scene's centre and radius: the box around every drawn entity's
-/// displayed geometry.
-#[cfg(test)]
-pub(crate) fn scene(w: &World, models: &[(u32, Aabb)]) -> (Vec3, f32) {
-    centre_radius(scene_box(w, models))
+/// A camera-facing quad turns about its anchor: the ball through its farthest
+/// corner holds it from every view.
+fn sprite_box(s: &Sprite, pose: &Mat4) -> Aabb {
+    let scale = Vec3::new(pose.x_axis.length(), pose.y_axis.length(), 0.);
+    let corner = glam::Vec2::new(
+        (s.anchor.x - 0.5).abs() + 0.5,
+        (s.anchor.y - 0.5).abs() + 0.5,
+    ) * glam::Vec2::new(s.size.x * scale.x, s.size.y * scale.y);
+    ball(pose.w_axis.truncate(), corner.length())
 }
 
-/// The box around every drawn entity's displayed geometry.
-pub(crate) fn scene_box(w: &World, models: &[(u32, Aabb)]) -> Option<Aabb> {
-    let mut all: Option<Aabb> = None;
-    let mut grow = |e: Entity| {
-        if let Some(b) = displayed(w, e, models) {
-            all = Some(all.map_or(b, |(lo, hi)| (lo.min(b.0), hi.max(b.1))));
-        }
-    };
-    w.query::<&Mesh>().iter().for_each(|(e, _)| grow(e));
-    w.query::<&Sprite>().iter().for_each(|(e, _)| grow(e));
-    w.query::<&Emitter>().iter().for_each(|(e, _)| grow(e));
-    all
-}
-
-/// The box around what the cull's account leaves out: sprites and emitters,
-/// and the meshes whose slots `outside` names (blended models, kept-whole
-/// groups), by entity index (a primitive's slot, a model record's transform).
-pub(crate) fn unculled_box(w: &World, models: &[(u32, Aabb)], outside: &[u32]) -> Option<Aabb> {
-    let mut all: Option<Aabb> = None;
-    let mut grow = |e: Entity| {
-        if let Some(b) = displayed(w, e, models) {
-            all = Some(all.map_or(b, |(lo, hi)| (lo.min(b.0), hi.max(b.1))));
-        }
-    };
-    (w.query::<&Mesh>().iter())
-        .filter(|(e, _)| outside.contains(&e.index()))
-        .for_each(|(e, _)| grow(e));
-    w.query::<&Sprite>().iter().for_each(|(e, _)| grow(e));
-    w.query::<&Emitter>().iter().for_each(|(e, _)| grow(e));
-    all
+/// An emitter's particles within their reach of it, and of every world-space
+/// particle's birthplace, where they stay.
+fn emitter_box(emitter: &Emitter, pose: &Mat4) -> Aabb {
+    let reach = crate::quads::emitter_reach(emitter, pose);
+    let (mut lo, mut hi) = ball(pose.w_axis.truncate(), reach);
+    for (_, born) in &emitter.origins {
+        let b = ball(Vec3::from(born.translation), reach);
+        (lo, hi) = (lo.min(b.0), hi.max(b.1));
+    }
+    (lo, hi)
 }
 
 /// A box's centre and radius (at least a metre); the origin's metre without one.
@@ -133,34 +196,56 @@ pub(crate) fn transformed(m: Mat4, (lo, hi): Aabb) -> Aabb {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use exact_game::{Transform, Vec2};
+    use exact_game::{Quat, Vec2};
 
     #[test]
-    fn bounds_hold_a_large_plane_a_model_and_an_anchored_sprite() {
-        let mut w = World::new(60, 1);
-        // One 200 m plane: its origin alone would give a radius of 1.
-        w.spawn((Transform::default(), Mesh::plane(200., 200.)));
-        let (centre, radius) = scene(&w, &[]);
-        assert!(centre.length() < 1e-3 && radius > 140., "{centre} {radius}");
+    fn frame_poses_interpolate_rows_and_take_attachments_whole() {
+        let row = |x: f32, angle: f32, scale: Vec3| {
+            let q = Quat::from_rotation_y(angle);
+            [x, 0., 0., q.x, q.y, q.z, q.w, scale.x, scale.y, scale.z]
+        };
+        let prev = row(0., 0., Vec3::ONE);
+        let curr = row(100., 1., Vec3::new(3., 3., -1.));
+        let mut attachments = vec![0.; 32];
+        let joint = Mat4::from_translation(Vec3::new(5., 6., 7.));
+        attachments[16..].copy_from_slice(&joint.to_cols_array());
+        let poses = FramePoses {
+            alpha: 0.25,
+            prev: &[prev, prev].concat(),
+            curr: &[curr, curr].concat(),
+            attachments: &attachments,
+        };
+        let m = poses.matrix(0, false).unwrap();
+        assert!((m.w_axis.x - 25.).abs() < 1e-4, "{m}");
+        let x = m.x_axis.truncate();
+        assert!((x.length() - 1.5).abs() < 1e-4, "{x}");
+        assert!(((-x.z).atan2(x.x) - 0.25).abs() < 0.02, "{x}");
+        // A model's scale keeps its sign; a primitive draws its magnitude.
+        assert!((m.z_axis.truncate().length() - 0.5).abs() < 1e-4, "{m}");
+        let p = poses.matrix(0, true).unwrap();
+        assert!((p.z_axis.truncate().length() - 1.).abs() < 1e-4, "{p}");
+        assert_eq!(poses.matrix(1, false), Some(joint));
+        assert_eq!(poses.matrix(2, false), None);
+    }
 
-        let mut w = World::new(60, 1);
-        let model = w.spawn((Transform::at(10., 0., 0.), Mesh::asset("tower.model")));
-        let tower = (Vec3::new(-1., 0., -1.), Vec3::new(1., 30., 1.));
-        let b = displayed(&w, model, &[(model.index(), tower)]).unwrap();
-        assert!(
-            (b.1.y - 30.).abs() < 1e-4 && (b.0.x - 9.).abs() < 1e-4,
-            "{b:?}"
-        );
-
-        let mut w = World::new(60, 1);
-        let sprite = w.spawn((
-            Transform::default(),
-            Sprite {
-                anchor: Vec2::ZERO,
-                ..Sprite::new("wide.tex", [30., 2.])
-            },
-        ));
-        let (lo, hi) = displayed(&w, sprite, &[]).unwrap();
+    #[test]
+    fn a_sprite_is_held_from_every_view_and_an_emitter_by_its_reach() {
+        let sprite = Sprite {
+            anchor: Vec2::ZERO,
+            ..Sprite::new("wide.tex", [30., 2.])
+        };
+        let (lo, hi) = sprite_box(&sprite, &Mat4::IDENTITY);
         assert!(hi.x >= 30. && lo.x <= -30., "{lo} {hi}");
+        let emitter = Emitter::sparks();
+        let at = Mat4::from_translation(Vec3::new(10., 0., 0.));
+        let (lo, hi) = emitter_box(&emitter, &at);
+        assert!(
+            lo.x < 10. && ((lo + hi).x / 2. - 10.).abs() < 1e-4,
+            "{lo} {hi}"
+        );
+        let plane = primitive_half(&Mesh::plane(200., 200.));
+        let (lo, hi) = transformed(Mat4::IDENTITY, (-plane, plane));
+        let (centre, radius) = centre_radius(Some((lo, hi)));
+        assert!(centre.length() < 1e-3 && radius > 140., "{centre} {radius}");
     }
 }

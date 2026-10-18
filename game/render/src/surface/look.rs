@@ -66,7 +66,6 @@ struct Pending {
     facts: Facts,
     records: Vec<Record>,
     labels: Vec<String>,
-    camera: glam::Vec3,
     /// The frame's size in points, for the picture's reply, and its scale.
     points: (f32, f32),
     scale: f32,
@@ -237,33 +236,19 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
     }
 
     /// The scene's centre and radius from a camera frame: the box around the
-    /// cull's sphere of every culled item (swept between ticks, skinned) and
-    /// the displayed geometry of what the cull does not account for
-    /// (`look_bounds`); in a direct frame, the displayed geometry of all.
+    /// cull's sphere of every item it accounts for (swept between ticks,
+    /// attached, skinned) and what else the frame drew, where it drew it
+    /// (`look_bounds`); in a direct frame, everything the frame drew.
     fn scene_bounds(&mut self, p: Pending) -> Result<(glam::Vec3, f32), Refusal> {
         let bytes = p.readback.bytes;
         let read = p.readback.read()?;
         self.perf.look.0 += 1;
         self.perf.look.1 += bytes;
         let sim = (self.sim.as_ref()).ok_or("the world has not been bound".to_string())?;
-        let (w, f) = (sim.world(), &p.facts);
+        let f = &p.facts;
         let gpu = crate::look::culled_bounds(f, &read);
-        let models = crate::look::model_boxes(f, &read);
-        let cpu = if gpu.is_some() {
-            let entity = |slot: u32| {
-                let record = slot.checked_sub(crate::RENDER_SLOT_BASE);
-                record.map_or(Some(slot), |r| f.record_slots.get(r as usize).copied())
-            };
-            let kept_whole = (f.groups.iter().filter(|g| g.keep_all))
-                .flat_map(|g| f.slot_list[g.range.start as usize..g.range.end as usize].iter());
-            let outside: Vec<u32> = (f.blended.iter().map(|(slot, _)| slot))
-                .chain(kept_whole)
-                .filter_map(|&slot| entity(slot))
-                .collect();
-            crate::look_bounds::unculled_box(w, &models, &outside)
-        } else {
-            crate::look_bounds::scene_box(w, &models)
-        };
+        let records = crate::look::model_boxes(f, &read);
+        let cpu = crate::look_bounds::drawn_box(sim.world(), f, &read, &records, f.direct);
         let all = match (cpu, gpu) {
             (Some(a), Some(b)) => Some((a.0.min(b.0), a.1.max(b.1))),
             (a, b) => a.or(b),
@@ -349,7 +334,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             std::mem::swap(&mut self.format, &mut self.look.stash_format);
             (self.dirty, self.device, self.ready_work, self.assets_dirty) = saved;
         }
-        let (readback, facts, records, labels, camera) = drawn?;
+        let (readback, facts, records, labels) = drawn?;
         Ok(Pending {
             ask,
             tick,
@@ -359,7 +344,6 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             facts,
             records,
             labels,
-            camera,
             points,
             scale,
             whole: true,
@@ -379,7 +363,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         view: View,
         bounds: Option<(glam::Vec3, f32)>,
         pixels: bool,
-    ) -> Result<(Readback, Facts, Vec<Record>, Vec<String>, glam::Vec3), Refusal> {
+    ) -> Result<(Readback, Facts, Vec<Record>, Vec<String>), Refusal> {
         if !self.storage_fits(device) {
             return Err(self.error.clone().map_or_else(String::new, |e| e.0).into());
         }
@@ -462,7 +446,6 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         if let Some(bounds) = bounds.filter(|_| view != View::Camera) {
             view.apply(&mut input, glam::Vec2::new(points.0, points.1), bounds);
         }
-        let camera = input.camera_position;
         let (width, height) = frame.pixels();
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("game look frame"),
@@ -506,7 +489,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         queue.submit([encoder.finish()]);
         renderer.submitted();
         readback.map();
-        Ok((readback, facts, records, labels, camera))
+        Ok((readback, facts, records, labels))
     }
 
     fn finish_look(&mut self, p: Pending) -> Result<String, Refusal> {
@@ -578,7 +561,6 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                     w,
                     entity,
                     |model| !sim.model_prepared(model),
-                    p.camera,
                     &p.facts,
                     &read,
                 );
