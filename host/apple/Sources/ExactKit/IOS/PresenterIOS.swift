@@ -309,12 +309,12 @@ package final class Presenter {
             if self.keyboardPolicy == "resizes-content" {
                 self.onKeyboardResize?()
             } else if self.keyboardPolicy == "overlays-content" {
-                let frame = parent.convert(self.viewport.frame, to: window)
+                let frame = parent.convert(self.pageFrame, to: window)
                 let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
                 self.keyboardInset = overlap
                 self.keyboardToolbars.ride(overlap: overlap)
             } else {
-                let frame = parent.convert(self.viewport.frame, to: window)
+                let frame = parent.convert(self.pageFrame, to: window)
                 let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
                 self.setKeyboardInset(overlap)
             }
@@ -340,8 +340,9 @@ package final class Presenter {
         viewport.verticalScrollIndicatorInsets = indicators
     }
 
-    /// The viewport's size in points: what the kernel lays out under.
-    var viewportSize: CGSize { viewport.bounds.size }
+    /// The viewport's size in points: what the kernel lays out under, the
+    /// page's area (`pageMargins`, PageEdgesIOS.swift).
+    var viewportSize: CGSize { viewport.pageSize }
     /// The first root's frame size, zero before the first batch.
     var rootSize: CGSize { root.subviews.first?.frame.size ?? .zero }
 
@@ -401,15 +402,19 @@ package final class Presenter {
         videoVisibility?.reset()
     }
 
-    /// Size the document to its roots, never smaller than the viewport.
+    /// Size the document to its roots, never smaller than the page's area,
+    /// at the area's origin inside the viewport's page margins.
     func fitDocument() {
-        var size = viewport.bounds.size
+        let m = pageMargins
+        var size = viewportSize
         for r in root.subviews {
             size.width = max(size.width, r.frame.maxX)
             size.height = max(size.height, r.frame.maxY)
         }
-        if root.frame.size != size { root.frame = CGRect(origin: .zero, size: size) }
-        if viewport.contentSize != size { viewport.contentSize = size }
+        let frame = CGRect(origin: CGPoint(x: m.left, y: m.top), size: size)
+        if root.frame != frame { root.frame = frame }
+        let content = CGSize(width: size.width + m.left + m.right, height: size.height + m.top + m.bottom)
+        if viewport.contentSize != content { viewport.contentSize = content }
     }
     var onPress, onClose: ((UInt32) -> Void)?
     var onChange: ((UInt32, String) -> Void)?
@@ -988,7 +993,7 @@ package final class Presenter {
         flats.flush()
         // A view the flush promoted and mounted may have moved its children.
         while !gridMoved.isEmpty { regridMoved(); flats.flush() }
-        fitDocument()
+        fitDocument(); reachPageEdges()
         paintCanvas()
         let first = root.subviews.first as? NodeView
         interactiveWidget = first?.props["interactiveWidget"]
@@ -1254,7 +1259,7 @@ package final class Presenter {
             let anchor = contextAnchors[preview.id]!
             let sourceBox = (anchor.port ?? viewport).convert(anchor.box, to: parent)
             let content = preview.convert(preview.bounds, to: parent)
-            let port = vp.convert(vp.bounds, to: parent)
+            let port = vp.convert(vp === viewport ? vp.bounds.inset(by: pageMargins) : vp.bounds, to: parent)
             // Public UIKit target-preview fixture, iPhone 17 / iOS 26.5.
             let scale = preview.props["contextMagnify"] == "false" ? 1 : min(1.15, 1 + 26 / max(content.width, content.height))
             let extra = content.height * (scale - 1)

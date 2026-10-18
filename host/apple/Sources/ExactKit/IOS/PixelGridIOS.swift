@@ -125,7 +125,7 @@ extension Presenter {
         v.transform = .identity
         v.frame = place.drawn
         v.textRasterGeometryChanged()
-        v.scroll?.frame = v.bounds
+        v.scroll?.frame = v.scrollFrame
         if v.fieldWaits, rect.width > 0 || rect.height > 0 { v.makeWaitingField() } // its box laid out (MenuHost.waitingFields)
         v.layoutField()
         v.layoutTextArea()

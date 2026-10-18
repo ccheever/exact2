@@ -291,6 +291,16 @@ public final class ExactView: UIView {
     /// web's rule) — and, once booted, tell the kernel about new insets or a
     /// new size. Called inside the keyboard's animation block, so the frames
     /// the batch sets animate with the keyboard (LLP 1008 §9).
+    /// The viewport's bands past the page's area (LLP 1130 D1); the document
+    /// moves inside them and keeps its offset, as the area does.
+    private func setPageMargins(_ margins: UIEdgeInsets) {
+        let presenter = session.presenter
+        guard presenter.pageMargins != margins else { return }
+        presenter.pageMargins = margins
+        presenter.fitDocument()
+        presenter.reachPageEdges()
+    }
+
     func fit() {
         let presenter = session.presenter
         // A native callback served for the owner cannot resize the runtime
@@ -367,6 +377,18 @@ public final class ExactView: UIView {
             }
         }
         guard frame.width > 0, frame.height > 0 else { return }
+        // A page with no container keeps its area (`frame`) and is drawn in a
+        // viewport that takes the whole view, past the status bar and the
+        // home indicator, which its content scrolls under (LLP 1130 D1); not
+        // past keys that end the area (`resizes-content`), nor on tvOS,
+        // whose safe area is the overscan margin.
+        var physical = frame
+        #if os(iOS)
+        if !whole {
+            let bottom = frame.maxY < bounds.inset(by: safe).maxY - 0.5 ? frame.maxY : bounds.maxY
+            physical = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: bottom - bounds.minY)
+        }
+        #endif
         // Display changes can leave logical bounds unchanged. Update resources
         // independently of the resize commit, from this view's local traits.
         // The raster budget follows this view's own bounds — the panel it
@@ -382,7 +404,7 @@ public final class ExactView: UIView {
             session.tellDisplayScale() // a hairline is one device pixel of this display (LLP 1115.000 D10.3)
             session.presenter.regridAll()
         }
-        var size = frame.size
+        var size = frame.size // the page's area, whatever the viewport's frame
         // LLP 1075.003 §9.11: the window, the document's frame before the
         // keyboard trims it, which the viewport units and segments read
         let screenFrame = whole ? bounds : bounds.inset(by: safe)
@@ -402,9 +424,12 @@ public final class ExactView: UIView {
             presenter.viewport.bounds = CGRect(origin: .zero, size: size)
             presenter.viewport.center = CGPoint(x: frame.midX, y: frame.midY)
             insets = .zero
+            setPageMargins(.zero)
         } else {
             presenter.viewport.transform = .identity
-            if presenter.viewport.frame != frame { presenter.viewport.frame = frame }
+            if presenter.viewport.frame != physical { presenter.viewport.frame = physical }
+            setPageMargins(UIEdgeInsets(top: frame.minY - physical.minY, left: frame.minX - physical.minX,
+                                        bottom: physical.maxY - frame.maxY, right: physical.maxX - frame.maxX))
             // UIKit's layout regions from the viewport (LLP 1123 D10), or,
             // without `cover`, from its safe area, as `env()` is zero then
             // even where a native container takes the whole view; none under
