@@ -23,6 +23,9 @@
 //     or after 25 s with none (at once with `wait: false`): for a client whose `fetch` reads a body whole, as a JS-target
 //     data module's does. A number this run did not give, or one older than
 //     the events kept, is `missed`: no events, and the files to start from.
+//     Each answer has the held proposals' revision (`held`, tamber/1.12),
+//     and the proposals unless the request named that revision (`"held": r`
+//     with this run's epoch).
 // - The wire's own requests (LLP 1122 D9, D10), beside the server's:
 //   - `commit` `{client, message?}`: the files this session wrote, committed
 //     to git as scripts/tamber-commit.mjs guards it; never pushed.
@@ -501,6 +504,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (url.pathname === '/__tamber/events') {
       const after = request?.after ?? seq;
       if (!Number.isSafeInteger(after) || after < 0) { json(res, 400, { error: { message: '`after` is a sequence number' } }); return true; }
+      if (request?.held !== undefined && (!Number.isSafeInteger(request.held) || request.held < 0)) { json(res, 400, { error: { message: '`held` is the held list\'s revision, a whole number' } }); return true; }
       // `{client}`: present while this poll is open, and for 35 s after.
       const client = typeof request?.client === 'string' && request.client ? request.client : null;
       attend(client, 1);
@@ -514,7 +518,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         // started: the client missed some, and reads again.
         const missed = (request?.epoch !== undefined && request.epoch !== epoch) || after > seq || after < seq && (events[0]?.seq ?? seq + 1) > after + 1;
         // Missed: no events to apply, the files to start again from.
-        json(res, 200, { events: missed ? [] : since, seq, epoch, missed, files: Object.fromEntries(known), proposals: held() });
+        // The held list, unless the client named its revision in this run (1.12).
+        const has = request?.held === heldRevision && request?.epoch === epoch;
+        json(res, 200, { events: missed ? [] : since, seq, epoch, missed, files: Object.fromEntries(known), held: heldRevision, ...(has ? {} : { proposals: held() }) });
       };
       // The design server gone: what is kept after `after` (its `down`
       // among it), else an error, which a following client retries slowly,
@@ -750,8 +756,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // (an undo's redo lost). A server that exits fails it at once.
     return ask(request, { wait: 0, done: announce });
   }
+  // The held list's revision (tamber/1.12): moved by every change to it,
+  // so a long poll that names the one it has is answered without the list.
   const proposals = new Map();
-  const forget = (id, why) => { proposals.delete(id); send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, ...why }); };
+  let heldRevision = 0;
+  const forget = (id, why) => { proposals.delete(id); heldRevision++; send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, ...why }); };
   const expire = () => { for (const [id, p] of proposals) if (p.expires < Date.now()) forget(id, { client: null, reason: 'expired' }); };
   const expiry = setInterval(expire, 30_000);
   expiry.unref?.();
@@ -759,7 +768,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
    * within the cap. */
   const restore = (id, p) => {
     if (p.expires <= Date.now()) { send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: null, reason: 'expired' }); return; }
-    proposals.set(id, p);
+    proposals.set(id, p); heldRevision++;
     while (proposals.size > HELD) forget(proposals.keys().next().value, { client: null, reason: 'too many held' });
     send({ event: 'proposal', seq: ++seq, epoch, ...p.shown });
   };
@@ -803,7 +812,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const expires = Date.now() + HOLD_MS;
     // The operations by index, as `accept`'s items name them.
     const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), ops: ops.map((op, index) => ({ index, op })), ...(replaces ? { replaces } : {}), ...(review ? { review } : {}) };
-    proposals.set(id, { client, ops, base, guards, expires, shown });
+    proposals.set(id, { client, ops, base, guards, expires, shown }); heldRevision++;
     // At most 64 held: the oldest goes.
     while (proposals.size > HELD) forget(proposals.keys().next().value, { client: null, reason: 'too many held' });
     send({ event: 'proposal', seq: ++seq, epoch, ...shown });
@@ -823,7 +832,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // Taken out before anything waits: a second accept or a drop meanwhile
     // finds nothing. Every way out is announced: accepted, replaced, or
     // held again.
-    proposals.delete(id);
+    proposals.delete(id); heldRevision++;
     // The review rides along, its offers' items renumbered to the
     // operations kept.
     // A revert is planned from git on the files as they were: moved since,

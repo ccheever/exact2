@@ -69,7 +69,7 @@ mod scrub;
 mod walk;
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.11";
+pub const PROTOCOL: &str = "tamber/1.12";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;

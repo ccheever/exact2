@@ -294,6 +294,9 @@ const post = async request => {
   return { status: res.status, ...(await res.json()) };
 };
 
+/** The long poll's answer. */
+const poll = async request => (await fetch(`${origin}/__tamber/events`, { method: 'POST', headers, body: JSON.stringify(request) })).json();
+
 /** The change stream's events as they come. */
 async function subscribe() {
   const res = await fetch(`${origin}/__tamber/subscribe`, { method: 'POST', headers });
@@ -754,7 +757,7 @@ for (const [loop, flags] of [['the JS loop', []]]) {
     const { base, stop } = await devLoop(flags);
     try {
       const hello = await helloOf(base);
-      expect(hello.protocol).toBe('tamber/1.11');
+      expect(hello.protocol).toBe('tamber/1.12');
       expect(Object.keys(hello.files)).toContain('app.tamber');
       // The loop's own origin, which the design tool frames, and the page's
       // header that lets only the tool (and itself) frame it.
@@ -871,21 +874,38 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   expect(held.status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('#1b1b1b');
   await stream.until(e => e.some(x => x.event === 'proposal' && x.proposal === held.ok.proposal));
+  // The long poll's held revision (tamber/1.12): a poll that names it gets
+  // no list while it is unchanged; another run's epoch, or a change, the list.
+  const at = await poll({ after: 0, wait: false, client: 'tool' });
+  expect(at.proposals.map(p => p.proposal)).toContain(held.ok.proposal);
+  const same = await poll({ after: at.seq, epoch: at.epoch, wait: false, client: 'tool', held: at.held });
+  expect([same.held, same.proposals]).toEqual([at.held, undefined]);
+  expect((await fetch(`${origin}/__tamber/events`, { method: 'POST', headers, body: JSON.stringify({ after: at.seq, epoch: at.epoch, wait: false, held: String(at.held) }) })).status).toBe(400);
+  expect((await poll({ after: at.seq, epoch: 'another', wait: false, client: 'tool', held: at.held })).proposals).toEqual(at.proposals);
   const taken = await post({ method: 'accept', client: 'person', proposal: held.ok.proposal });
   expect(taken.status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('ink = #1b1b1b');
   await stream.until(e => e.some(x => x.client === 'agent' && x.acceptedBy === 'person'));
   await stream.until(e => e.some(x => x.event === 'proposal-dropped' && x.proposal === held.ok.proposal && x.reason === 'accepted'));
   expect((await post({ method: 'accept', client: 'person', proposal: held.ok.proposal })).status).toBe(404);
+  const moved = await poll({ after: same.seq, epoch: at.epoch, wait: false, client: 'tool', held: at.held });
+  expect(moved.held).not.toBe(at.held);
+  expect(moved.proposals.map(p => p.proposal)).not.toContain(held.ok.proposal);
   // Stale: the file moves after review; the accept gives a new diff to accept.
   const second = await post({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'edge', value: '#1c1c1c' }] });
   writeFileSync(join(dir, 'app.tamber'), readFileSync(join(dir, 'app.tamber'), 'utf8').replace('#1b1b1b', '#1d1d1d'));
   await stream.until(e => e.at(-1)?.client === null && e.at(-1)?.edited.includes('app.tamber'));
+  const pending = await poll({ after: 0, wait: false, client: 'tool' });
   const stale = await post({ method: 'accept', client: 'person', proposal: second.ok.proposal });
   expect(stale.ok.recomputed).toBe(true);
   expect(stale.ok.proposal).not.toBe(second.ok.proposal);
   await stream.until(e => e.some(x => x.event === 'proposal-dropped' && x.proposal === second.ok.proposal && x.reason === 'replaced' && x.replacedBy === stale.ok.proposal));
   expect(stream.events.find(x => x.event === 'proposal' && x.proposal === stale.ok.proposal).replaces).toBe(second.ok.proposal);
+  // A recompute (dropped, held again as another) moves the revision too.
+  const recomputed = await poll({ after: pending.seq, epoch: pending.epoch, wait: false, client: 'tool', held: pending.held });
+  expect(recomputed.held).not.toBe(pending.held);
+  expect(recomputed.proposals.map(p => p.proposal)).toEqual(expect.arrayContaining([stale.ok.proposal]));
+  expect(recomputed.proposals.map(p => p.proposal)).not.toContain(second.ok.proposal);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('#1c1c1c');
   expect((await post({ method: 'accept', client: 'person', proposal: stale.ok.proposal })).status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('edge = #1c1c1c');
@@ -913,7 +933,12 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   expect(part.ok.diff).toContain('#1f1f1f');
   expect(part.ok.diff).not.toContain('#1e1e1e');
   expect((await post({ method: 'drop', proposal: part.ok.proposal })).status).toBe(400);
+  const listed = await poll({ after: 0, wait: false, client: 'tool' });
   expect((await post({ method: 'drop', client: 'person', proposal: part.ok.proposal })).status).toBe(200);
+  // A drop moves the held revision: the list comes again, without it.
+  const dropped = await poll({ after: listed.seq, epoch: listed.epoch, wait: false, client: 'tool', held: listed.held });
+  expect(dropped.held).not.toBe(listed.held);
+  expect(dropped.proposals.map(p => p.proposal)).not.toContain(part.ok.proposal);
   await stream.until(e => e.some(x => x.event === 'proposal-dropped' && x.proposal === part.ok.proposal && x.client === 'person'));
   stream.close();
 }, 30_000);
