@@ -173,6 +173,7 @@ impl World {
         self.followed.set(false);
         self.emitted.set(false);
         self.state.busy.get_mut().clear();
+        self.interpolation_origins.clear();
         for e in self.fresh.drain(..) {
             self.state.slots[e.index as usize].fresh = false;
         }

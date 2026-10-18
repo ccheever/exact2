@@ -252,6 +252,7 @@ pub struct World {
     pub(crate) messages: RefCell<Vec<String>>,
     pub(crate) hierarchy: crate::scene::Hierarchy,
     fresh: Vec<Entity>,
+    pub(crate) interpolation_origins: BTreeMap<Entity, crate::Transform>,
     entities_revision: u64,
     pub(crate) presentation_generation: u64,
 }
@@ -310,6 +311,7 @@ impl World {
             messages: RefCell::new(Vec::new()),
             hierarchy: crate::scene::Hierarchy::default(),
             fresh: vec![],
+            interpolation_origins: BTreeMap::new(),
             entities_revision: 0,
             presentation_generation: 0,
         };
@@ -480,6 +482,13 @@ impl World {
             Some(slot) if slot.alive && slot.generation == e.generation => slot.fresh,
             _ => self.fresh.contains(&e),
         }
+    }
+    /// A supplied local interpolation start for this tick; renderer history only.
+    /// Cleared with freshness, excluded from saves, and keyed by incarnation.
+    pub fn interpolation_origin(&self, e: Entity) -> Option<crate::Transform> {
+        self.contains(e)
+            .then(|| self.interpolation_origins.get(&e).copied())
+            .flatten()
     }
     pub(crate) fn mark_fresh(&mut self, e: Entity) {
         let slot = &mut self.state.slots[e.index as usize];
