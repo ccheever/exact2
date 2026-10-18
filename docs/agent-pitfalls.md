@@ -1428,6 +1428,14 @@ screen, 2026-10-16.)
   for it): a delivered model carries no save identity. (Skirmish's art trials, LLP
   1046.012 F5, 2026-10-07.)
 
+- **`exact setup` keeps reporting `MISSING wasm-bindgen` after installing it, and `test web`
+  fails with "wasm-bindgen not on PATH".** Cause: setup installs it with `cargo install`,
+  whose binaries land in `~/.cargo/bin`, and then looks for it on PATH; a rustup from
+  Homebrew puts only `/opt/homebrew/opt/rustup/bin` there, so the install succeeds and the
+  check never sees it. Fix: put `~/.cargo/bin` on PATH (`.zprofile`), or symlink
+  `~/.cargo/bin/wasm-bindgen` beside `cargo`. **Candidate diagnostic:** setup could check
+  `~/.cargo/bin` and say the PATH is the problem. (Fishslop bench setup, 2026-10-17.)
+
 ## Access hatches
 
 - **A native view's frame ticket left on costs CPU on a still screen.** A

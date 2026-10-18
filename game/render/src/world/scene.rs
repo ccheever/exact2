@@ -770,7 +770,7 @@ impl Attachments {
         _models_changed: bool,
     ) {
         self.node_offsets.update(w, initial);
-        self.assignments.update(w);
+        self.assignments.update(w, initial);
         if initial {
             self.owners.clear();
         }
@@ -824,7 +824,7 @@ impl Attachments {
                 (self.assignments.revision(e), digest),
                 sampled.is_some(),
                 initial || exact_game::animation::socket_stale(w, e) || snap(w, e, parent_changed),
-                self.node_offsets.pair(e, false),
+                self.node_offsets.pair(e, false)[1],
             );
             if owner.priming.capturing() {
                 for (i, node) in model.nodes.iter().enumerate() {
@@ -964,7 +964,10 @@ impl Attachments {
             }
 
             let owner = self.owners.get_mut(&target).expect("resolved owner");
-            let rows = owner.priming.rows(self.node_offsets.pair(target, false));
+            let rows = owner
+                .priming
+                .rows(self.node_offsets.pair(target, false))
+                .map(|r| *r);
             for (pair, i) in item
                 .chain
                 .iter_mut()
