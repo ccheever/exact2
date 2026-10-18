@@ -62,6 +62,7 @@ component ThreadDetailsPanel
     still: bool
     // A command is in flight (the window's gate): Lineage's Stop spins on the row it stops.
     busy: bool
+    stopping: string
   view
     box position="absolute" left=0 top=0 right=0 bottom=(0 - below) z-index=35 testId="thread-details-layer"
       // A git dialog or the Merge confirmation the card opened stands over it and takes Escape (Base UI closes the
@@ -69,7 +70,7 @@ component ThreadDetailsPanel
       // popovers, which take Escape themselves.
       button press=act("toggle", "", "") aria-label="Close thread details" aria-keyshortcuts=(details.git.dialog != "" or details.prRows.merge.open ? "" : "Escape") testId="thread-details-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" title=""
       column position="absolute" top="3.75rem" right=right width="16.5rem" max-height=maxHeight box-sizing="border-box" border-radius="1.375rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" overflow="hidden" role="dialog" aria-label="Thread details" testId="thread-details"
-        DetailsBody(details=details, density=density, inline=false, maxHeight=maxHeight, act=act, local=local, still=still, busy=busy)
+        DetailsBody(details=details, density=density, inline=false, maxHeight=maxHeight, act=act, local=local, still=still, busy=busy, stopping=stopping)
 
 // The inline presentation: an aside pinned 12pt from the canvas's top right, as tall as its content.
 component ThreadDetailsInline
@@ -83,9 +84,10 @@ component ThreadDetailsInline
     // prefers-reduced-motion: the running automation's dot stays still.
     still: bool
     busy: bool
+    stopping: string
   view
     column position="absolute" top="4rem" right="0.75rem" width="17.5rem" max-height=maxHeight z-index=20 box-sizing="border-box" border-radius="1.375rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" overflow="hidden" role="complementary" aria-label="Thread details" testId="thread-details-inline"
-      DetailsBody(details=details, density=density, inline=true, maxHeight=maxHeight, act=act, local=local, still=still, busy=busy)
+      DetailsBody(details=details, density=density, inline=true, maxHeight=maxHeight, act=act, local=local, still=still, busy=busy, stopping=stopping)
 
 // ThreadDetailsPanel's rows by density: `full` everything; `compact` without the Run on and workspace rows,
 // Automations and Lineage, Version Control unseparated and the Git action group only while an action runs or just
@@ -106,6 +108,7 @@ component DetailsBody
     // prefers-reduced-motion: the running automation's dot stays still.
     still: bool
     busy: bool
+    stopping: string
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
@@ -187,7 +190,7 @@ component DetailsBody
               // rows do not fold away the workspace and Version Control rows.
               column width="100%" hatch="t3-frame" data-frame="details-lineage"
                 DetailsSection(title=details.lineageTitle, separated=true, heading=true)
-                  LineageGroups(details=details, busy=busy, act=act)
+                  LineageGroups(details=details, busy=busy, stopping=stopping, act=act)
 
 // ThreadDetailsSection: px-2 pt-2 pb-2.5, a hairline above all but the first; the
 // heading row is hidden for Workspace and Version Control (upstream 429c625a85).
@@ -211,14 +214,9 @@ component LineageGroups
   props
     details: ShellDetails
     busy: bool
+    stopping: string
     act: action
   state hovered = ""
-  // The subagent whose Stop was pressed; its glyph spins while that command runs.
-  state stopping = ""
-  task stopFinished when stopping != "" and not busy
-    after(1, clearStop)
-  action clearStop
-    stopping = ""
   // The row holding the keyboard focus shows its Stop as a hovered one does (group-focus-within).
   state focused = ""
   action focusRow(id: string, on: bool)
@@ -237,7 +235,6 @@ component LineageGroups
     previousOpen = not previousOpen
   action stop(id: string)
     if not busy
-      stopping = id
       act("shell:stop-subagent", id, "")
   derive relatedCount = details.lineage.filter((r) => r.group == "related").length
   derive activeCount = details.lineage.filter((r) => r.group == "active").length
