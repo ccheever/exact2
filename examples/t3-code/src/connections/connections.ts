@@ -541,7 +541,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
     if (!targets.length) throw new ClientError('No saved environment can update itself right now.');
     // Each through the shared single-flight update (server-update.ts), its failure named by its label.
     await Promise.all(targets.map(target => updateEnvironment(updateTargetFromConfig(target.config, target.key, target.environmentId, target.label),
-      nativeUpdateDeps(native, client ?? null), `${target.label} update failed`)));
+      nativeUpdateDeps(native, client ?? null))));
     return { status: null, generation: -1 };
   }
   if (op === 'local-environment') {

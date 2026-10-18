@@ -544,7 +544,7 @@ describe('every modal dialog gives focus back through a surviving observer or it
   const shared: Record<string, string[]> = {
     'app-settings.contract': ['project-remove', 'project-remove-member', 'archive-delete', 'signal-kill', 'archive-context-delete', 'theme-remove', 'update-install'],
     'legacy-sidebar.contract': ['legacy-remove-project', 'legacy-archive-many'],
-    'app-overlays.contract': ['server-update-confirm', 'app-confirm'],
+    'app-overlays.contract': ['server-update-confirm', 'update-everything-confirm', 'app-confirm'],
     'providers-wizard.contract': ['wizard-sign-out-confirm'],
     'settings-appearance-import.contract': ['theme-update'],
   };

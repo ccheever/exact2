@@ -165,9 +165,10 @@ describe("a reply's pull request link over the open thread", () => {
   test('Unlink where the open thread links it, Link where it could, nothing otherwise', () => {
     expect(chatLinkThreadAction(linking({ threadId: 't2' }).client, PR7)).toBe('unlink-from-thread');
     expect(chatLinkThreadAction(linking({ threadId: 't1' }).client, PR7)).toBe('link-to-thread');
-    // Not a pull request, a pull request on a host no project is on, no thread open, a server that cannot link.
+    // Multiple-link servers use the parsed URL, including repositories absent from the project list.
+    expect(chatLinkThreadAction(linking().client, 'https://gitlab.com/other/repo/-/merge_requests/7')).toBe('link-to-thread');
+    // Not a pull request, no thread open, a server that cannot link.
     expect(chatLinkThreadAction(linking().client, 'https://example.com/docs')).toBeUndefined();
-    expect(chatLinkThreadAction(linking().client, 'https://gitlab.com/other/repo/-/merge_requests/7')).toBeUndefined();
     expect(chatLinkThreadAction(linking({ threadId: '' }).client, PR7)).toBeUndefined();
     const unsupported = { config: { environment: { label: 'Lane A', capabilities: { pullRequests: true } }, settings: {} } };
     expect(chatLinkThreadAction(linking({ threadId: 't2', ...unsupported }).client, PR7)).toBeUndefined();
@@ -191,6 +192,11 @@ describe("a reply's pull request link over the open thread", () => {
     await chatExternalLinkMenu(other.client, other.native, files, PR7);
     expect(other.menus[0]![0]).toBe('Link to thread');
     expect(other.dispatched).toEqual([{ type: 'thread.pull-request.link', commandId: 'command-1', threadId: 't1', host: 'github.com', repository: 'lane/sandbox', number: 7, url: PR7, source: 'manual' }]);
+    const foreign = linking({ threadId: 't1' });
+    foreign.choose('link-to-thread');
+    const mergeRequest = 'https://gitlab.com/other/repo/-/merge_requests/7';
+    await chatExternalLinkMenu(foreign.client, foreign.native, files, mergeRequest);
+    expect(foreign.dispatched).toEqual([{ type: 'thread.pull-request.link', commandId: 'command-1', threadId: 't1', host: 'gitlab.com', repository: 'other/repo', number: 7, url: mergeRequest, source: 'manual' }]);
     // Without the data module's storage (no dispatch path) the menu has no thread action.
     const bare = linking({ threadId: 't2' });
     await chatExternalLinkMenu(bare.client, bare.native, undefined, PR7);
