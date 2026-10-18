@@ -494,7 +494,7 @@ export function readyCheckpoint(state: ThreadState | null): number | null {
   return latest;
 }
 
-// Reference projectSettings.resolveWorktreeCleanup: off clears every rule,
+// T3 Code 9c161462c9 projectSettings.resolveWorktreeCleanup: off clears every rule,
 // custom owns a complete rule object, otherwise inherit environment retention.
 export function effectiveWorktreeRules(settings: Obj, override: Obj): Obj {
   const policy = obj(override.worktreeCleanup ?? settings.worktreeCleanup);

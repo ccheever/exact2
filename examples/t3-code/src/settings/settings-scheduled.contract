@@ -1,4 +1,4 @@
-// Settings → Scheduled tasks (reference ScheduledTasksSettings.tsx): a plain
+// Settings → Scheduled tasks (T3 Code 9c161462c9 ScheduledTasksSettings.tsx): a plain
 // section with "New task", one row per task (switch and Edit/Run now/Delete
 // menu), and the editor dialog with every field of ScheduledTaskEditorDialog.
 use SelectOption from "./settings-kit.contract"

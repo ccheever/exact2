@@ -1,5 +1,5 @@
 // Settings shell + General route data.
-// Reference: apps/web/src/components/settings/{SettingsPanels,ProjectDefaultsSettings,
+// Reference: T3 Code 9c161462c9 apps/web/src/components/settings/{SettingsPanels,ProjectDefaultsSettings,
 // settingsLayout,SettingsScopeSentence,settingsScope,scopedSettings}.tsx and
 // packages/shared/src/projectSettings.ts. Server rows read and write the connected
 // environment's ServerSettings (server.updateSettings); device rows are the

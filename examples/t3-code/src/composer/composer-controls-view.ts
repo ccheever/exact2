@@ -177,7 +177,7 @@ export function presentBackgroundWork(tasks: Obj[]): { title: string; descriptio
   const segments = (list: typeof items) => list.map((item, index) => ({ key: `${index}:${item.label}`, label: item.label, threadId: item.child, last: index === list.length - 1 }));
   if (items.length === 1) {
     const only = items[0]!, noun = only.meta.singular, named = only.label !== noun;
-    const title = waiting ? (named ? `Waiting on ${noun} ${only.label}` : `Waiting on a ${noun}`) : named ? `Running: ${only.label}` : `Running a ${noun}`;
+    const title = waiting ? (named ? `${only.kind === 'monitor' ? '' : `Waiting on ${noun} `}${only.label}` : `Waiting on a ${noun}`) : named ? `Running: ${only.label}` : `Running a ${noun}`;
     // A single named item is already in the title.
     return { title, description: only.child ? only.label : '', waiting, segments: only.child ? segments(items) : [] };
   }

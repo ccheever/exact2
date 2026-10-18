@@ -117,3 +117,20 @@ test('database reclaim notices require a GiB without incremental vacuum and pers
   expect(databaseNotice(status, 'mac', 'Mac', dismissed).show).toBe(false);
   expect(databaseNotice(status, 'remote', 'Remote', dismissed).show).toBe(true);
 });
+
+
+import { composerCommand } from '../../src/composer/composer-controls-commands';
+import { presentBackgroundWork } from '../../src/composer/composer-controls-view';
+import type { Files, Native } from '../../src/client/protocol';
+
+test('Stop ends visible PR watches even when a thread has never run', async () => {
+  const commands: unknown[] = []; let ids = 0;
+  const client = { threadId: 'thread', thread: {}, projection: { runs: [], thread: { pullRequests: [
+    { host: 'github.com', repository: 'org/repo', number: 12, watch: {} },
+    { host: 'github.com', repository: 'org/repo', number: 13, watch: {}, source: 'stack-dismissed' },
+    { host: 'github.com', repository: 'org/repo', number: 14 },
+  ] } }, restAccess: () => ({ ids: async () => [`command-${++ids}`], dispatch: async (_storage: Files, payload: unknown) => { commands.push(payload); } }) } as unknown as T3Client;
+  await composerCommand(client, {} as Native, {} as Files, 'stop-background', '', '');
+  expect(commands).toEqual([{ type: 'thread.pull-request.watch', commandId: 'command-1', threadId: 'thread', host: 'github.com', repository: 'org/repo', number: 12, watching: false }]);
+  expect(presentBackgroundWork([{ kind: 'monitor', description: 'Watching pull request #12' }])?.title).toBe('Watching pull request #12');
+});

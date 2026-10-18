@@ -1,4 +1,4 @@
-// Settings → Storage (reference StorageSettings.tsx): Worktrees and Artifacts
+// Settings → Storage (T3 Code 9c161462c9 StorageSettings.tsx): Worktrees and Artifacts
 // and logs at an environment scope; the project's cleanup mode and, when it is
 // Custom, its own worktree rules at a project scope.
 use SettingsSection from "./settings-kit.contract"
