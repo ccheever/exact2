@@ -470,6 +470,16 @@ screen, 2026-10-16.)
   every platform and the agent can drive and compare. A native view is per-platform code to
   write and debug, and one added at launch slows it: keep it for platform APIs (video, maps).
 
+- **A costly answer one screen shows is asked for at launch and on every edit.** euxy's
+  share card, `resource share = shareInfo(pattern)`, encoded a QR code in the data module
+  when the app launched and again each time a step changed, though only the share screen
+  reads it. Cause: a root `resource` is asked for at launch and again whenever an argument
+  changes, as a React component's `useMemo` would recompute on render. Fix: give it state
+  the screen sets when it opens, `state sharing: option<Pattern> = none` and
+  `resource share = shareInfo(sharing) as shape ShareInfo`, with the source answering empty
+  for `none` (`null` in app.ts); the screen shows its card only when not `pending(share)`,
+  since the last pattern's answer stays until the new one lands.
+
 - **Compare each screen with its reference, not by eye:** `"screenshot .exact/x.png compare
   ref/x.png"` names each differing region's node and source line, a box's size measured in
   both pictures, and a wrong colour ([iOS driving](recipes/ios-driving.md)).
