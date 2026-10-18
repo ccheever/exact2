@@ -9,7 +9,7 @@ import { arr } from '../../src/client/domain';
 import { toasts } from '../../src/shell/toast';
 import { checksList, describeChecks, summarizeChecks, resolveConflictsPrompt, fixChecksPrompt, handoffPrompt, readableFailure, actionPayload, preparePayload, trailingAction, prCard, rowAction, allowedMergeMethods, selectedMergeMethod } from '../../src/details/pr-row-logic';
 import { readDetail, performAction, askMerge, mergeAsk, confirmMerge, startHandoff, prState, forgetDetails } from '../../src/details/pr-row-actions';
-import { checksTail, rowGeometry } from '../../src/details/pr-row';
+import { checksTail, checksTrigger, checksTriggerLeft, rowGeometry } from '../../src/details/pr-row';
 import { prRowsView, prRowCommand, prRowLocal, prTabIcon } from '../../src/panel/pr-surface';
 
 type Call = { method: string; payload: Record<string, unknown>; write?: boolean };
@@ -60,11 +60,11 @@ describe('the row\'s one action (resolveThreadPanelPullRequestAction, trailingAc
     expect(allowedMergeMethods(detail({ mergeCapabilities: { merge: false, squash: true, rebase: true } }))).toEqual(['squash', 'rebase']);
     expect(selectedMergeMethod(['squash', 'rebase'], 'merge')).toBe('squash');
   });
-  test('labels, pending labels, tones and the measured widths', () => {
-    expect(trailingAction('resolve', { handoff: '', actionPending: false, method: 'merge' })).toEqual({ action: 'resolve', label: 'Resolve', tooltip: 'Check the branch out and resolve the conflicts in a new thread', destructive: true, suffix: true, width: 92.3 });
-    expect(trailingAction('fix', { handoff: 'findings', actionPending: false, method: 'merge' })).toMatchObject({ label: 'Preparing...', width: 116.2, destructive: true });
+  test('labels, pending labels and tones', () => {
+    expect(trailingAction('resolve', { handoff: '', actionPending: false, method: 'merge' })).toEqual({ action: 'resolve', label: 'Resolve', tooltip: 'Check the branch out and resolve the conflicts in a new thread', destructive: true, suffix: true });
+    expect(trailingAction('fix', { handoff: 'findings', actionPending: false, method: 'merge' })).toMatchObject({ label: 'Preparing...', destructive: true });
     expect(trailingAction('merge', { handoff: '', actionPending: true, method: 'squash' })).toMatchObject({ label: 'Merging...', tooltip: 'Merge this pull request (squash)', destructive: false, suffix: false });
-    expect(trailingAction('ready', { handoff: '', actionPending: false, method: 'merge' })).toMatchObject({ label: 'Ready', width: 60.4 });
+    expect(trailingAction('ready', { handoff: '', actionPending: false, method: 'merge' })).toMatchObject({ label: 'Ready' });
     expect(trailingAction('', { handoff: '', actionPending: false, method: 'merge' })).toBeNull();
   });
 });
@@ -88,10 +88,15 @@ describe('the checks (describePullRequestChecks, summarizePullRequestChecks, Che
   test('the popover lands end-aligned through its tail unless it fits start-aligned', () => {
     const inline = rowGeometry(true, 0);
     expect(inline).toEqual({ rowWidth: 262, rowRight: 21 });
-    // #104 at 1280: the trigger ends 83.3pt from the window's right edge (21 + the 1pt hairline + Merge 61.3).
-    expect(checksTail(inline.rowRight + 61.3 + 1, '')).toBe(83.3);
+    // #104 at 1280: the checks sit on the second line after the number, 36 + 29.9 + 6 pt in; the 26pt trigger
+    // ends 185.1pt from the window's right edge, so the 320pt popup would cross it start-aligned.
+    expect(checksTriggerLeft(104)).toBeCloseTo(71.94, 2);
+    expect(checksTail(inline.rowRight + inline.rowWidth - checksTriggerLeft(104) - checksTrigger(''), '')).toBe(185.1);
+    // A count widens the trigger: "1 failed" (4pt gap and its 12pt text).
+    expect(checksTrigger('1 failed')).toBeCloseTo(26 + 4 + 41.71, 1);
     expect(checksTail(rowGeometry(false, 0).rowRight, '2/3')).toBe(22);
-    expect(checksTail(rowGeometry(true, 420).rowRight, '')).toBe(0);
+    // An open right panel leaves room for it start-aligned: no tail.
+    expect(checksTail(rowGeometry(true, 420).rowRight + 150, '')).toBe(0);
   });
 });
 
@@ -225,9 +230,21 @@ describe('the split row, its card and the tab icon', () => {
     const view = await prRowsView(client, native, { status: null, threadId: 't1', now: 1, projectId: 'p1', rightGap: 0, inline: true });
     const row = view.rows[0]!;
     expect(row).toMatchObject({ split: true, label: '#104: Update README badges', checks: 'passing', checksCount: '', checksAria: 'Open checks: All checks passed', action: 'merge', actionLabel: 'Merge', actionTooltip: 'Merge this pull request (merge)', actionDisabled: false });
-    expect(row.extra).toMatchObject({ tail: 83.3, method: 'merge', checksTitle: 'All checks have passed', checksSummary: 'All checks passed', collapsible: false, actionWidth: 61.3 });
+    expect(row.extra).toMatchObject({ tail: 185.1, method: 'merge', checksTitle: 'All checks have passed', checksSummary: 'All checks passed', collapsible: false });
     expect(row.extra.card).toMatchObject({ show: true, title: 'Update README badges', number: '#104', stateLabel: 'Open', branches: 'main ← feature/clean', checksShown: true, checksStatus: 'success', checksText: 'All checks passed', files: '3 files', additions: '+24', deletions: '-6', conflictText: '', flipped: false });
     expect(view.merge.open).toBe(false);
+  });
+  test('failing checks read as a count on the second line; running ones as running/total', async () => {
+    const { client, replies } = fakeClient();
+    const failing = [check('build', 'success'), check('test', 'failure'), check('lint', 'cancelled')];
+    replies['pullRequests.detail'] = () => detail({ checks: failing }); replies['pullRequests.checks'] = () => ({ state: 'open', checks: failing });
+    const failed = (await prRowsView(client, native, { status: null, threadId: 't1', now: 1, projectId: 'p1', rightGap: 0, inline: true })).rows[0]!;
+    expect(failed).toMatchObject({ checks: 'failing', checksCount: '2 failed', action: 'fix', actionLabel: 'Fix' });
+    forgetDetails(client);
+    const running = [check('build', 'pending'), check('test', 'failure'), check('lint', 'success')];
+    replies['pullRequests.detail'] = () => detail({ checks: running }); replies['pullRequests.checks'] = () => ({ state: 'open', checks: running });
+    expect((await prRowsView(client, native, { status: null, threadId: 't1', now: 2, projectId: 'p1', rightGap: 0, inline: true })).rows[0]!.checksCount).toBe('1/3');
+    forgetDetails(client);
   });
   test('a hand-off draft shows its branch\'s pull request, as the reference card does after Resolve', async () => {
     const { client, replies } = fakeClient();
