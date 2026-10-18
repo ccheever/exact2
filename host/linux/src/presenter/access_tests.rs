@@ -296,6 +296,47 @@ fn statement(p: &mut Presenter<Data>) -> Told {
     told(&p.reader_access(1.0, false).expect("a statement"))
 }
 
+fn assert_library_clipping(p: &mut Presenter<Data>, nodes: &[Node]) {
+    let list = nodes
+        .iter()
+        .find(|n| n.view == id(p, "library-list"))
+        .unwrap();
+    let (left, top, width, height) = p.rect_of(list.view).unwrap();
+    let bottom = top + height;
+    let origin = p.chrome().frame;
+    // Paint boxes are in page coordinates; accessibility adds the window origin.
+    assert_eq!(
+        list.rect,
+        [left + origin[0], top + origin[1], width, height]
+    );
+    let access_bottom = list.rect[1] + list.rect[3];
+    assert_eq!(access_bottom, WINDOW.size.1 - 104.0);
+    let mut clipped = 0;
+    let mut hidden = 0;
+    for book in 1..=12 {
+        let view = id(p, &format!("book-seed-{book}"));
+        let (_, y, _, height) = p.rect_of(view).unwrap();
+        let exposed = nodes.iter().find(|n| n.view == view);
+        let shown_top = y.max(top);
+        let shown_bottom = (y + height).min(bottom);
+        if shown_bottom <= shown_top {
+            assert!(exposed.is_none(), "Book {book} is outside the list");
+            hidden += 1;
+        } else {
+            let row = exposed.expect("the intersecting row is exposed");
+            assert_eq!(row.rect[1], shown_top + origin[1]);
+            assert_eq!(row.rect[3], shown_bottom - shown_top);
+            if y + height > bottom {
+                assert_eq!(row.rect[1] + row.rect[3], access_bottom);
+                assert!(row.rect[3] > 0.0 && row.rect[3] < height);
+                clipped += 1;
+            }
+        }
+    }
+    assert_eq!(clipped, 1, "one row crosses the list's bottom edge");
+    assert!(hidden > 0, "the fixture has rows below the list");
+}
+
 #[test]
 fn shelfs_library_is_read_bar_then_page_then_navigation_bar() {
     let _hosting = hosting();
@@ -346,28 +387,7 @@ fn shelfs_library_is_read_bar_then_page_then_navigation_bar() {
         (meter.role, meter.range),
         (role::PROGRESS, [0.0, 100.0, 44.0])
     );
-    // Rows past the navigation bar are not there, and the row it cuts shows
-    // only what is above it.
-    let bottom = list.rect[1] + list.rect[3];
-    assert_eq!(bottom, WINDOW.size.1 - 104.0);
-    let mut clipped = 0;
-    let mut hidden = 0;
-    for book in 1..=12 {
-        let view = id(&p, &format!("book-seed-{book}"));
-        let (_, y, _, height) = p.rect_of(view).unwrap();
-        let exposed = nodes.iter().find(|n| n.view == view);
-        if y >= bottom {
-            assert!(exposed.is_none(), "Book {book} is below the list");
-            hidden += 1;
-        } else if y + height > bottom {
-            let cut = exposed.expect("the intersecting row is exposed");
-            assert_eq!(cut.rect[1] + cut.rect[3], bottom);
-            assert!(cut.rect[3] > 0.0 && cut.rect[3] < height);
-            clipped += 1;
-        }
-    }
-    assert_eq!(clipped, 1, "one row crosses the list's bottom edge");
-    assert!(hidden > 0, "the fixture has rows below the list");
+    assert_library_clipping(&mut p, &nodes);
     // The navigation bar last: a tablist of three, the first selected.
     let tail = &nodes[nodes.len() - 4..];
     assert_eq!(
@@ -390,6 +410,12 @@ fn shelfs_library_is_read_bar_then_page_then_navigation_bar() {
         assert!(node.rect[1] + node.rect[3] <= 916.0, "{node:?}");
         assert_eq!(nodes.iter().filter(|n| n.id == node.id).count(), 1);
         assert!(node.parent == 0 || nodes.iter().any(|n| n.id == node.parent));
+    }
+    for offset in [32.0, 128.0] {
+        p.scroll_to(id(&p, "library-list"), (0.0, offset)).unwrap();
+        settle(&mut p);
+        let scrolled = read(&mut p);
+        assert_library_clipping(&mut p, &scrolled);
     }
 }
 

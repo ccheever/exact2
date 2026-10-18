@@ -51,7 +51,7 @@ At 07fdd0ff4, on the fleet. Both machines ran the pinned Rust (1.97.0) and Bun
   colour emoji face installed; this box has none, so it fails there. It passes
   with `fonts-noto-color-emoji` named through a private `FONTCONFIG_FILE`. The
   Linux app crates have no tests (`test = false`).
-  Resolved 2026-10-18: the emoji, Shelf accessibility and neutral-tabs tests use fixture fonts and font-independent clipping/background assertions.
+  Resolved 2026-10-18: the emoji, Shelf accessibility and neutral-tabs tests use fixture fonts; Shelf checks row intersections in page coordinates and accessibility bounds in window coordinates, and neutral tabs sample background above the label.
 - `cargo build --profile host-dev -p caltrain-linux`, then
   `bun scripts/smoke.mjs linux`: ok in 52 s (boot 32 ms, canvas readback
   0.00% off its reference, motion, deck, precedence, 3/3 Contract tests).
