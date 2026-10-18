@@ -8,11 +8,11 @@ import { STANDARD } from '../../src/appearance/settings-appearance-editor';
 const ticket = (name: string) => ({ available: true, name }) as unknown as Native;
 function fixture(readOnly: boolean) {
   const client = new T3Client(); client.threadId = 'conversation';
-  const calls: { native: Native; method: string; payload: unknown }[] = [], sent: unknown[] = [];
+  const calls: { native: Native; method: string; payload: unknown; write: boolean }[] = [], sent: unknown[] = [];
   let owned = true;
   let replied!: () => void;
   const reply = new Promise<void>(resolve => { replied = resolve; });
-  client.rpc = async (native, method, payload) => { calls.push({ native, method, payload }); return method === 'mcpApps.toolInfo' ? { callable: true, readOnly } : { content: [{ type: 'text', text: 'done' }] }; };
+  client.rpc = async (native, method, payload, write = false) => { calls.push({ native, method, payload, write }); return method === 'mcpApps.toolInfo' ? { callable: true, readOnly } : { content: [{ type: 'text', text: 'done' }] }; };
   const runtime = makeDocumentRuntime(client, { app: { attachmentId: 'a', server: 'weather', tool: 'forecast', resourceUri: 'ui://weather' }, sourceThreadId: 'source', conversationThreadId: 'conversation', itemId: 'item',
     post: value => { sent.push(value); replied(); }, theme: () => htmlRenderTheme(STANDARD.dark, 'dark'), owned: () => owned, width: () => 728, viewportHeight: () => 500, canExpand: () => true, height: () => {} });
   return { runtime, calls, sent, reply, leave: () => { owned = false; disposeDocumentRuntime(runtime); } };
@@ -26,6 +26,7 @@ test('read-only MCP calls use the source item and the Native ticket of the curre
   await drainDocumentRuntime(runtime, native, 100);
   expect(calls.map(value => value.method)).toEqual(['mcpApps.toolInfo', 'mcpApps.callTool']);
   expect(calls.every(value => value.native === native)).toBe(true);
+  expect(calls[1]?.write).toBe(false);
   expect(calls[1]?.payload).toEqual({ threadId: 'source', itemId: 'item', name: 'forecast', arguments: { city: 'Oslo' } });
   await reply;
   expect(sent).toContainEqual({ jsonrpc: '2.0', id: 3, result: { content: [{ type: 'text', text: 'done' }] } });
@@ -41,6 +42,7 @@ test('a mutating MCP call waits for approval and uses the approving answer ticke
   await drainDocumentRuntime(runtime, approving, 101);
   expect(calls).toHaveLength(2);
   expect(calls[1]?.native).toBe(approving);
+  expect(calls[1]?.write).toBe(true);
 });
 
 test('declining or leaving a document never runs its queued mutating tool', async () => {
