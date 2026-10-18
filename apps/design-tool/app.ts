@@ -492,8 +492,11 @@ let lastFiles: Record<string, string> = {};
 // Each file change the poll has seen, and each fresh start of it: what a
 // design read follows (with the digests), not every event's `seq`.
 let fileChanges = 0;
-// Commits told (with fileChanges, what a commit's dry run follows).
+// Commits told (with fileChanges, what moves while a scrub is open).
 let commitsTold = 0;
+// The scrubs open on the server, any client's, as its events tell them:
+// while one is, a build's status or a frame re-reads nothing.
+const scrubsOpen = new Set<string>();
 const digestKey = (files: Record<string, string> = {}) => JSON.stringify(Object.keys(files).sort().map(f => [f, files[f]]));
 // Each read's stored values, axes and columns, by `<file>|<its digest>`; a few.
 const reads = new Map<string, { stored: Map<string, Stored[][]>; axes: Axis[]; columns: Column[] }>();
@@ -1073,7 +1076,7 @@ const sources: Sources = {
     if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
     const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client, ...(heldAt.epoch === epoch ? { held: heldAt.revision } : {}) } : { after: 0, wait: false, client }, 40000);
     answers += 1;
-    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, writes: `${fileChanges} ${commitsTold}`, plans: [...new Set([...buildsNow.values()].map(b => b.plan ?? ''))].sort().join(' '), recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
+    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${fileChanges} ${commitsTold}` : `answer ${answers}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
     if (error) return { ok: false, error, missed: false, ...state() };
     if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
     const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; held?: number; proposals?: any[] };
@@ -1122,7 +1125,7 @@ const sources: Sources = {
     // Where the changes start from: the files as the poll has them when it
     // starts again (the first answer, a gap it says it missed, a new run).
     const anew = !epoch || r.missed || (place.epoch && r.epoch !== place.epoch);
-    if (anew) { lastFiles = (r as { files?: Record<string, string> }).files ?? {}; fileChanges += 1; if (r.missed) mine.length = 0; }
+    if (anew) { lastFiles = (r as { files?: Record<string, string> }).files ?? {}; fileChanges += 1; if (r.missed) mine.length = 0; scrubsOpen.clear(); }
     // A gap in this run: said in the list, which is no longer complete.
     if (epoch && r.missed && r.epoch === place.epoch) {
       changeset.unshift({ seq: Number(r.seq ?? 0), who: '', acceptedBy: '', write: 0, changed: [], files: [], before: {}, after: {}, mine: false, diff: '', values: new Map(), committed: false, gap: true });
@@ -1130,6 +1133,7 @@ const sources: Sources = {
     if (epoch && !r.missed) for (const e of (r.events ?? []) as any[]) noted(e);
     // The builds, as their events tell them.
     for (const e of (r.events ?? []) as any[]) {
+      if (e.event === 'scrub') { if (e.reason === 'opened') scrubsOpen.add(String(e.scrub)); else scrubsOpen.delete(String(e.scrub)); if (scrubsOpen.size > 64) scrubsOpen.delete(scrubsOpen.values().next().value!); }
       // Each as it comes, so a reload told in one answer still ends a
       // selection (a build that went keeps its inspect mode at the server,
       // which tells it again when it is back).
@@ -1243,8 +1247,8 @@ const sources: Sources = {
     // What a commit would take now (a dry run, of the run the poll is on),
     // so Commit is on when there is something, writes from before the tool
     // opened among them, a refusal to say, or no answer (it says why when
-    // pressed). Read again when a poll answer moves the files or tells a
-    // commit (not for a build's status or a scrub's frame).
+    // pressed). Read again with each poll answer (while a scrub is open,
+    // only when the files move or a commit is told).
     const dry = await call('/__tamber', { method: 'commit', client, dry: true }, 15000, heldToken || undefined);
     const refused = ((dry.reply.error as { refused?: unknown[] } | undefined)?.refused ?? []).length;
     const nothing = /nothing to commit|written nothing/.test(dry.error);
