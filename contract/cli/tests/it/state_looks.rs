@@ -200,6 +200,14 @@ fn a_nodes_layout_says_its_looks_rows_and_their_tokens() {
     assert_eq!(hover["opacity"]["value"], 0.5, "{hover}");
     assert!(hover["opacity"].get("token").is_none(), "a literal reads no token: {hover}");
     assert!(node["looks"].get("focus_visible").is_none(), "only the states it has");
+    // A look's clear (`unset`) is said, not dropped.
+    let cleared = VIEW.replace("        border-color = \"ink\"\n", "        border-color = \"ink\"\n        opacity = \"unset\"\n");
+    let path = app("looks-unset", &[("app.tamber", DESIGN), ("app.contract", &cleared)]);
+    let r2 = booted(contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}")));
+    let k2 = r2.kernel();
+    let id2 = k2.node_by_key(k2.find_by_test_id("card")[0]).unwrap().id;
+    let node2: serde_json::Value = serde_json::from_str(&exact_runner::agent::node(&r2, id2)).unwrap();
+    assert_eq!(node2["looks"]["hover"]["opacity"], serde_json::json!({"value": "unset"}), "{node2}");
     // The press's rows are the node's own, with their token as before.
     assert_eq!(node["style"]["press_background_color"]["token"]["names"], serde_json::json!(["accent.soft"]));
 }

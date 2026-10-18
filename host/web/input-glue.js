@@ -375,7 +375,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   globalThis.exact.heldOf = (el, ask = null) => {
     if (!held || (held.el !== el && held.asked !== el)) return null;
     el = held.el;
-    const view = el.dataset?.view != null ? Number(el.dataset.view) : globalThis.$exactViewId?.(el) ?? null;
+    // (The wasm page numbers its elements `data-view`; the JS target its own way, a link's `data-view` an empty marker.)
+    const view = /^\d+$/.test(el.dataset?.view ?? "") ? Number(el.dataset.view) : globalThis.$exactViewId?.(el) ?? null;
     const node = ask && view != null ? ask({ op: "node", id: view, plan: true }) : null;
     if (node && !node.error) {
       const own = held.state === "active" ? Object.fromEntries(Object.entries(node.style ?? {}).filter(([name]) => Object.values(WIRE).includes(name)))
@@ -395,7 +396,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       }
     }
     // A row a token or a role writes (`var(…)`, `light-dark(…)`) says the value it resolves to here, and the token
-    // where modes.js names it; one it can't name leaves the answer `provenance: "incomplete"`.
+    // where modes.js names it; a token reference (`var(--x-…)`) it can't name leaves the answer
+    // `provenance: "incomplete"` (a literal pair or a host's own property names none to miss).
     let incomplete = false;
     const cs = getComputedStyle(el);
     for (const row of rows) {
@@ -403,11 +405,15 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       delete row.prop;
       if (!/\b(var|light-dark)\(/.test(row.value)) continue;
       row.computed = cs.getPropertyValue(prop).trim();
+      const refs = new Set([...row.value.matchAll(/var\((--x-[\w-]+)/g)].map(m => m[1])).size;
       const token = globalThis.exact.modes?.token?.(el, prop, row.value);
-      if (token) row.token = token; else incomplete = true;
+      if (token) row.token = token;
+      if (refs > (token?.names?.length ?? 0)) incomplete = true;
     }
     const site = el.dataset?.site != null ? Number(el.dataset.site) : null;
-    const answer = { held: { state: held.state, node: view, site, rows, ...(incomplete ? { provenance: "incomplete" } : {}) } };
+    // (Its instance path is the inspect table's, where the page has one: `exact.instanceOf`, inspect-dev.js.)
+    const instance = site != null ? globalThis.exact.instanceOf?.(el) ?? null : null;
+    const answer = { held: { state: held.state, node: view, site, ...(instance ? { instance } : {}), rows, ...(incomplete ? { provenance: "incomplete" } : {}) } };
     // (The element, unsaid in JSON: a host that numbers its views another way names it from this.)
     Object.defineProperty(answer.held, "el", { value: el, enumerable: false });
     return answer;

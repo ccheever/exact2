@@ -223,15 +223,17 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   const node = map.nodes[selected.site];
   if (!node) return { ...base, source: null, rows: rows.map(({ unread, ...r }) => ({ ...r, editable: { rung: null, reason: 'the site is not in the source map' } })), readOnly: 'the site is not in the source map' };
   const bound = new Map((node.bindings ?? []).map(b => [b.row, b]));
-  // An `:active` row is written in its part (LLP 1121 D8): its file counts too.
-  const files = [...new Set([node.file, ...(node.chain ?? []).map(c => c.file), ...(node.bindings ?? []).flatMap(b => b.at ? [b.at.file] : [])])];
+  // The node a state is held on, named on this one inside it (stage 9 E): its rows' places are its own.
+  const owner = base.held && Number.isSafeInteger(base.held.site) ? map.nodes[base.held.site] ?? null : node;
+  // An `:active` row is written in its part (LLP 1121 D8): its file counts too, and the held node's.
+  const placed = n => n ? [n.file, ...(n.chain ?? []).map(c => c.file), ...(n.bindings ?? []).flatMap(b => b.at ? [b.at.file] : [])] : [];
+  const files = [...new Set([...placed(node), ...(owner !== node ? placed(owner) : [])])];
   const readOnly = files.map(f => moved(map, f, read)).find(Boolean) || designMoved(map, build, served, design, read) || null;
   const source = { file: node.file, line: node.line, col: node.col, end_col: node.end_col, component: node.component, chain: node.chain ?? [] };
   // What is held (LLP 1122 D8): each row where it is written: an `:active` row lowered to the press paint at its
   // part's place (the map's `at`), a state look's at its node, with the state. Its node is the one it is held on
   // (the press it resolved to, named on a node inside it: stage 9 E), its site's map node.
   if (base.held) {
-    const owner = Number.isSafeInteger(base.held.site) ? map.nodes[base.held.site] ?? null : node;
     const ownerBound = owner === node ? bound : new Map((owner?.bindings ?? []).map(b => [b.row, b]));
     const ownerSource = owner === node ? source : owner && { file: owner.file, line: owner.line, col: owner.col, end_col: owner.end_col, component: owner.component, chain: owner.chain ?? [] };
     base.held = { ...base.held, rows: (base.held.rows ?? []).map(r => {

@@ -101,6 +101,11 @@ test('an `:active` row lowered to the press paint is joined at its part, read-on
     const named = join({ id: 'web-1' }, label, inner);
     expect(named.held.rows.map(r => [r.name, r.row, r.source?.line, r.token?.names])).toEqual([['background-color', 'press_background_color', 9, ['accent.soft']]]);
     expect(named.source.line).toBe(12);
+    // The held node's own file is checked too: one moved since makes the selection read-only.
+    const style = joinPath(dir, 'style.contract');
+    writeFileSync(style, 'style now');
+    const split = { ...inner, sources: [...inner.sources, { file: style, sha256: sha('style then') }], nodes: [{ ...inner.nodes[0], file: style }, inner.nodes[1]] };
+    expect(join({ id: 'web-1' }, label, split).readOnly).toContain('style.contract');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

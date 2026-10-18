@@ -32,6 +32,7 @@ const page = sheet + `<style id="exact-looks">${rules}</style>
     <span id="label">c</span>
   </div>
   <div id="plain" style="width:50px;height:50px">p</div>
+  <a id="lnk" data-view="" data-exact-on="press" href="#x" style="--exact-press-background-color:rgba(0,0,255,1);display:block;width:40px;height:20px">l</a>
 </div>
 <script type="module">
   import { createInputHandlers } from './input-glue.js';
@@ -85,6 +86,11 @@ check('a held state is the real one, until real input, its disabling or its goin
     expect(asked.held).toEqual({ state: 'active', node: 3, site: 4, instance: [], rows: [{ name: 'press_background_color', value: '#0000ff', token: { names: ['ink'], text: 'ink', modes: '', implied: false } }] });
     // The element it was named on answers too, with the press's rows.
     expect((await evaluate('exact.heldOf(document.getElementById("label"))')).held.rows).toEqual([{ name: 'press_background_color', value: 'rgba(0,0,255,1)' }]);
+    // A JS link's `data-view` is an empty marker: no node 0 (the runtime names it, as the agent does).
+    expect((await hold('lnk', 'active')).held).toBe('active');
+    expect((await evaluate('exact.heldOf(document.getElementById("lnk"))')).held.node).toBe(null);
+    await hold('label', 'active');
+    await evaluate('dropped.splice(0)');
     // A node no press reaches holds none, said why.
     expect((await hold('plain', 'active')).reason).toBe('gone');
     expect(await dropped()).toEqual(['replaced']);

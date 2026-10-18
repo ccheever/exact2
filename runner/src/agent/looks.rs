@@ -27,13 +27,21 @@ pub(super) fn write<D: DataSource>(runner: &Runner<D>, node: &NodeRef<'_>, s: &m
         );
         s.push_str(":{");
         let mut first = true;
-        for row in StyleId::ALL.into_iter().filter(|r| props.mask.has(*r)) {
+        // (A row the look clears, `unset`, is written with no value: said so.)
+        let rows = StyleId::ALL
+            .into_iter()
+            .filter(|r| props.mask.union(props.written).has(*r));
+        for row in rows {
             if !first {
                 s.push(',');
             }
             first = false;
             quote(row.name(), s);
             s.push_str(":{\"value\":");
+            if !props.mask.has(row) {
+                s.push_str("\"unset\"}");
+                continue;
+            }
             row::row_json(row, props.get(row), s);
             if let Some((names, text, modes, implied)) = runner.look_token(node.id, *state, row) {
                 token_fields(&names, &text, &modes, implied, s);
