@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46 and 47 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47 and 48 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1388,6 +1388,59 @@ one line; 0.125px gaps still force wrapping. These use the same Chrome version,
 date and wrapper. Sixteen further measurements cover the maximum in both sizing
 and wrapping modes. Without the fit tolerance, the 0.1px cases had eight frame
 mismatches and eight measurements with 60px height instead of 30px.
+
+## Patch 48: measure a wrapping row's min-content contributions
+
+`determine_container_main_size` takes the largest outer intrinsic contribution
+of a wrapping row's items. It measures each item under `MinContent` with its
+preferred width and min/max constraints, including when `min-width:0` or hidden
+overflow makes the automatic minimum zero. Margins are added after sizing the
+border box. Columns, nowrap rows and balanced wrapping retain their paths.
+
+Chrome 151 applies neither flex-basis clamp in this calculation, unlike the
+algorithm in [CSS Flexbox §9.9.1.3](https://www.w3.org/TR/css-flexbox-1/#intrinsic-sizes).
+A 60px basis contributes 100px for 100px-wide contents and 20px for 20px-wide
+contents, even with `flex-grow:0;flex-shrink:0`. An authored `width:60px`
+contributes 60px in both cases. `InherentSize` measures these preferred widths
+and bounds through the item's own layout algorithm, without substituting its
+flex basis or suppressing a scroll container's contents.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+28 literal cases measured in Chrome 151.0.7922.34 on 2026-10-18, with full
+container, item and content frames. They cover both row directions, zero and
+automatic minima, hidden overflow, growable and shrinkable items, preferred
+widths, narrower contents, item bounds, padding, borders, positive and negative
+margins, and nowrap. Float wrappers in an 80px offer give the same frames.
+Before this patch the new cases had 56 frame mismatches. The reported absolute
+row is now 100×300 with 60×100 items; reversed items start at x=40.
+
+Taffy's `wrapping_min_content_width_uses_contents_independently_of_flex_basis`
+holds 18 direct `MinContent` layouts and 36 size measurements in both sizing
+modes, against rows in `width:min-content` wrappers measured in the same Chrome
+version. These include the 20px contribution that shrink-to-fit's available-width
+floor hides, and the resulting overflow or shrinking of the 60px items.
+
+`compute_preliminary` also lays out again at the resolved min-content width
+before measuring height or placing items. This refreshes content-dependent flex
+bases, percentage sizes and descendant wrapping under the known width. Taffy's
+`min_content_rows_wrap_at_their_resolved_width` holds eight further layouts and
+16 measurements: 200px contents whose three 60px bases fit on one line, zero
+bases, and 90px/400px container maxima, in both row directions. Without this
+step, six layouts and twelve measurements had incorrect heights; twelve item
+frames also differed from Chrome.
+
+`min_content_rows_remeasure_content_dependent_bases` in the kernel and Taffy
+holds ten further Chrome cases, measured with the same version and date: a
+100px item followed by two nested wrapping rows, each containing two 40px
+boxes. Their auto bases measure 40px under `MinContent` and 80px at the resolved
+width. The outer row is 100×300 with 80×100 nested items. Recollecting lines
+with the earlier bases incorrectly merged the last two items into one line.
+The cases include block wrappers, 60px item maxima, 50% preferred widths, a
+definite 40px basis control, and both row directions. Literal frames in
+`browser_position.tsv` hold the absolute shrink-to-fit path and direct
+`MinContent` root layouts; Taffy also checks both sizing modes. Before refreshing
+layout at the known width, these direct requests had 57 kernel frame mismatches
+and 34 Taffy size/frame mismatches. All absolute cases already agreed with Chrome.
 
 ## Cargo workspace boundary
 
