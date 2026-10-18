@@ -1049,7 +1049,12 @@ package final class TextEngine {
                 line = oldLine
             } else { line = TextEngine.inkedSoftHyphen(CTTypesetterCreateLine(typesetter, range), source: shape.attributed, range: range) }
             var clamps = false
-            if spec.lineClamp > 0 && lines.count + 1 == spec.lineClamp && start + count < length {
+            // A word too long for its line keeps its width in layout, as CSS
+            // measures it; only what is drawn ends in "…".
+            var natural: CGFloat?
+            if spec.lineClamp > 0 && lines.count + 1 == spec.lineClamp
+                && Self.clampsLast(line, start: start, count: count, length: length, width: limit) {
+                if start + count == length { natural = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) }
                 line = ellipsizedLine(spec, range: NSRange(location: start, length: count), width: limit) ?? line
                 clampedRange = range
                 clamps = true
@@ -1058,7 +1063,8 @@ package final class TextEngine {
             // The natural width, the first line's indent in it: justification
             // fills the box, never sizes it.
             let indent = insets.at(start).width
-            let w = max(0, CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading)) + indent)
+            let drawn = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+            let w = max(0, (natural ?? drawn) + indent)
             if spec.align == 3, !clamps, width.isFinite {
                 line = TextEngine.justified(line, source: shape.attributed, range: range, width: limit - Double(indent))
             }
@@ -1152,6 +1158,16 @@ package final class TextEngine {
         let at = max(range.location, min(NSMaxRange(range), source.length) - 1)
         let token = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: source.attributes(at: at, effectiveRange: nil)))
         return CTLineCreateTruncatedLine(line, width, .end, token)
+    }
+
+    /// Whether a `line-clamp`'s last line, `line` broken from `start` with
+    /// `count` of `length` characters, ends in "…": when text follows it, as
+    /// CSS clamps; and when it is wider than `width` though nothing follows (a
+    /// word longer than the line), which CSS leaves to overflow but UILabel's
+    /// `.byTruncatingTail` truncates, as an author asking for an ellipsis means.
+    package static func clampsLast(_ line: CTLine, start: Int, count: Int, length: Int, width: Double) -> Bool {
+        start + count < length || (width < Double.greatestFiniteMagnitude
+            && CTLineGetTypographicBounds(line, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(line) > width + 0.5)
     }
 
     package func ellipsizedLine(_ spec: Spec, range: NSRange, width: Double, source: NSAttributedString? = nil) -> CTLine? {
