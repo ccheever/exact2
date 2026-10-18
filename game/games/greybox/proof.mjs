@@ -79,9 +79,9 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   check('typed surface record → HUD text', node(hud, 'hud-beacons')?.props?.text === 'Beacons 1 / 1', node(hud, 'hud-beacons'));
   await s.state();
   const logs = await s.logs();
-  check('world journal carries beacon-1 lit', logs?.world?.some(w => w.lines.some(line => line.includes('beacon-1 lit'))), logs?.world);
+  check('world journal carries beacon-1 lit', logs?.world?.some(w => w.lines?.some(line => line.includes('beacon-1 lit'))), logs?.world);
   for (const sound of ['sfx footstep at player ', 'sfx chime at beacon-1 ', 'loop wind on ']) {
-    check(`world journal carries ${sound.trim()}`, logs?.world?.some(w => w.lines.some(line => line.includes(sound))));
+    check(`world journal carries ${sound.trim()}`, logs?.world?.some(w => w.lines?.some(line => line.includes(sound))));
   }
   const audio = (await s.state()).world[0].audio;
   check('state.world.audio reports camera wind and finite voices', Array.isArray(audio?.voices)
@@ -188,7 +188,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   await session.world('world').run(100);
   check('unrelated operations keep working after a refused restore', (await session.state()).world[0].tick === 6);
   const refusedLogs = await session.logs();
-  check('restore refusal is in the canvas journal', refusedLogs.world?.some(w=>w.lines.some(line=>line.includes('restore refused'))), refusedLogs.world);
+  check('restore refusal is in the canvas journal', refusedLogs.world?.some(w=>w.lines?.some(line=>line.includes('restore refused'))), refusedLogs.world);
 
   if (host === 'web' && process.env.EXACT_AUDIO_PROBE === '1') {
     await session.close(); session = null;
