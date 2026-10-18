@@ -111,6 +111,46 @@ pub(crate) struct Labels {
     painted: HashSet<ViewId>,
     /// The latest paint's clock, ms.
     now: f64,
+    /// Where the latest paint put each field's texts, and this paint's.
+    texts: HashMap<ViewId, FieldTexts>,
+    walking: HashMap<ViewId, FieldTexts>,
+}
+
+/// Where a field's label and value were painted, in the viewport's points,
+/// for an inspector (the Material oracle's specimen door): what a text
+/// node's box is to any other text. A value the shell's own field shows
+/// (LLP 1115.001 D8) is that field's, not here.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FieldTexts {
+    /// The label, resting or floated.
+    pub label: Option<FieldText>,
+    /// The value, where the field painted one.
+    pub value: Option<FieldText>,
+}
+
+/// One painted line: its box (x, y, width, height) and its baseline.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FieldText {
+    /// The paragraph's box.
+    pub rect: Rect4,
+    /// Its first baseline.
+    pub baseline: f32,
+}
+
+impl FieldText {
+    pub(super) fn painted(
+        paragraph: &crate::text::Paragraph,
+        at: (f32, f32),
+        ts: Transform,
+    ) -> Self {
+        let rect = (at.0, at.1, paragraph.width, paragraph.height);
+        let mut base = tiny_skia::Point::from_xy(at.0, at.1 + paragraph.first_baseline);
+        ts.map_point(&mut base);
+        Self {
+            rect: super::bbox(ts, rect),
+            baseline: base.y,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -174,6 +214,17 @@ impl Labels {
     pub(super) fn painted(&mut self) {
         let painted = std::mem::take(&mut self.painted);
         self.at.retain(|id, _| painted.contains(id));
+        self.texts = std::mem::take(&mut self.walking);
+    }
+
+    /// Where the latest paint put `id`'s label and value.
+    pub(crate) fn texts(&self, id: ViewId) -> Option<FieldTexts> {
+        self.texts.get(&id).copied()
+    }
+
+    /// The walk painted `id`'s value.
+    pub(super) fn value(&mut self, id: ViewId, text: FieldText) {
+        self.walking.entry(id).or_default().value = Some(text);
     }
 }
 
@@ -291,6 +342,8 @@ impl super::Painter {
             None if focused => super::control::ring(node, dark),
             None => resting_label(dark),
         };
+        let painted = FieldText::painted(&paragraph, (ox, oy), ts);
+        self.labels.walking.entry(node.id).or_default().label = Some(painted);
         self.backend.push_clip(
             &Shape::rect((x + inset(), y, (w - 2.0 * inset()).max(0.0), h)),
             ts,
@@ -360,6 +413,8 @@ impl super::Painter {
         } else {
             (x + inset, y, room, h)
         };
+        let painted = FieldText::painted(&paragraph, (ox, oy), ts);
+        self.labels.value(node.id, painted);
         self.backend.push_clip(&Shape::rect(clip), ts);
         self.backend.text(
             &mut self.text.borrow_mut(),

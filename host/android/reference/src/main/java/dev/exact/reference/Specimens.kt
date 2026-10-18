@@ -89,6 +89,10 @@ private fun Inline(id: String) {
             colors = TextFieldDefaults.colors(unfocusedLabelColor = MaterialTheme.colorScheme.tertiary),
         )
         "defect-label-missing" -> Field("Moby-Dick", label = null)
+        "defect-value-colour" -> Field(
+            "Moby-Dick",
+            colors = TextFieldDefaults.colors(unfocusedTextColor = MaterialTheme.colorScheme.tertiary),
+        )
         else -> error("no specimen $id")
     }
 }
