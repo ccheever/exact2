@@ -189,7 +189,7 @@ describe('citation effects through the actual field bridge', () => {
     const session = composerSourceSession(client);
     session.observe(owner, value);
     const chip = session.chips[0];
-    const press = chip ? composerChipOpen(client, { ...observation, ...chip, surface: 'composer', comment: true, frame: { unavailable: false, x: 10, y: 20, width: 80, height: 18 } }) : null;
+    const press = chip ? composerChipOpen(client, { ...observation, ...chip, surface: 'composer', comment: chip.kind === 'citation', frame: { unavailable: false, x: 10, y: 20, width: 80, height: 18 } }) : null;
     return { client, owner, observation, resource, native, session, press };
   }
   test('save-and-send completes once through ACK after original input, while later typing prevents send', async () => {

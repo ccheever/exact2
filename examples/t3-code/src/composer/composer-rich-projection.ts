@@ -15,13 +15,14 @@ export type ComposerRichInput = {
   skills: Readonly<Record<string, string>>;
   literalRanges: readonly ComposerRange[];
   chips?: readonly ComposerChip[];
+  chipFaces?: readonly { kind: string; label: string; suffix: string }[];
 };
 
 /** One source signature owns both body tokens and header ranges. A late answer
  *  carries that signature back to Contract instead of mutating a newer draft. */
 export function composerRichProjection(input: ComposerRichInput): ComposerRichProjection {
   const chips = input.literal ? [] : [...input.chips ?? composerChips(input.value)];
-  const parsed = composerMarkdown(input.value, { styling: input.styling && !input.literal, atoms: chipDecorations(chips, input.skills), literal: input.literalRanges });
+  const parsed = composerMarkdown(input.value, { styling: input.styling && !input.literal, atoms: chipDecorations(chips, input.skills, input.chipFaces), literal: input.literalRanges });
   const headers: ComposerCodeHeader[] = [];
   for (const block of parsed.blocks) {
     if (block.kind !== 'code') continue;

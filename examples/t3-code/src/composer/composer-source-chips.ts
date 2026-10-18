@@ -73,10 +73,14 @@ export function reconcileComposerChips(previous: string, value: string, current:
 const CHIP_STYLES: Readonly<Record<string, string>> = {
   mention: 'mention', skill: 'skill', citation: 'citation', thread: 'thread', 'review-comment': 'review-comment',
   terminal: 'terminal', image: 'image', file: 'file', folder: 'file', video: 'video', 'preview-annotation': 'preview-annotation',
+  'pull-request': 'pull-request', 'pr-open': 'terminal', 'pr-draft': 'pr-draft', 'pr-merged': 'review-comment', 'pr-closed': 'image', invalid: 'invalid',
 };
-export function chipDecorations(chips: readonly ComposerChip[], labels: Readonly<Record<string, string>> = {}): ComposerAtom[] {
-  return chips.map(chip => ({ name: `cmp-chip-${CHIP_STYLES[chip.kind === 'context' ? chip.contextKind : chip.kind] ?? 'neutral'}`, start: chip.start, end: chip.end,
-    label: chip.kind === 'skill' ? labels[chip.name] ?? chip.label : chip.label }));
+export function chipDecorations(chips: readonly ComposerChip[], labels: Readonly<Record<string, string>> = {}, faces?: readonly { kind: string; label: string; suffix: string }[]): ComposerAtom[] {
+  return chips.map((chip, index) => {
+    const face = faces?.[index], kind = face?.kind ?? (chip.kind === 'context' ? chip.contextKind : chip.kind);
+    return { name: `cmp-chip-${CHIP_STYLES[kind] ?? 'neutral'}`, start: chip.start, end: chip.end,
+      label: face ? face.label + (face.suffix ? ` ${face.suffix}` : '') : chip.kind === 'skill' ? labels[chip.name] ?? chip.label : chip.label };
+  });
 }
 
 export function composerTrigger(value: string, cursor: number, chips = composerChips(value), styling = true): ComposerTrigger | null {

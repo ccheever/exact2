@@ -22,6 +22,9 @@ decoration cmp-list-depth6 padding-left="8.75rem"
 decoration cmp-list-depth7 padding-left="10rem"
 decoration cmp-list-depth8 padding-left="11.25rem"
 decoration cmp-chip-neutral color="light-dark(#27272a, #f5f5f5)" background-color="#f4f4f566" font-size="0.86em" border-radius="0.5em"
+decoration cmp-chip-invalid color="light-dark(#fb2c36, #fb414a)" background-color="#fb2c3614" font-size="0.86em" border-radius="0.5em"
+decoration cmp-chip-pull-request color="light-dark(#35394f, #d5daf4)" background-color="#7079e41c" font-size="0.86em" border-radius="0.5em"
+decoration cmp-chip-pr-draft color="light-dark(#393a3f, #dadcdf)" background-color="#7f87931c" font-size="0.86em" border-radius="0.5em"
 decoration cmp-chip-thread color="light-dark(#2a3f40, #c9e2df)" background-color="#009c961c" font-size="0.86em" border-radius="0.5em"
 decoration cmp-chip-mention color="light-dark(#2c3e45, #cbe0e6)" background-color="#0096af1c" font-size="0.86em" border-radius="0.5em"
 decoration cmp-chip-file color="light-dark(#2b3d4b, #cadfed)" background-color="#0090cd1c" font-size="0.86em" border-radius="0.5em"
@@ -111,6 +114,19 @@ shape ComposerSourceChip
   image: bool
   comment: string
   quote: string
+  face: ComposerChipFace
+
+shape ComposerChipFace
+  kind: string
+  label: string
+  suffix: string
+  icon: string
+  fileToken: string
+  imageId: string
+  available: bool
+  interactive: bool
+  comment: bool
+  tip: string
 
 shape ComposerSourceBlock
   kind: string

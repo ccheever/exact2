@@ -103,6 +103,24 @@ describe('root composer projection source', () => {
       start: value.length, end: value.length, composing: false, mode: 'rich', kind: 'key', key: 'Enter', shift: false, command: false }))
       .toMatchObject({ kind: 'edit', text: '```ts\n```' });
   });
+  test('product faces own the same atom label and state palette on composer and preview', () => {
+    const client = new T3Client(), value = '$frontend-design ';
+    client.providerId = 'codex';
+    client.config.providers = [{ instanceId: 'codex', skills: [{ name: 'frontend-design', displayName: 'Custom Workspace Skill' }] }];
+    const active = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'thread', value });
+    const preview = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'preview', value, surface: 'preview' });
+    expect(active.decorations.atoms[0]?.label).toBe('Custom Workspace Skill');
+    expect(active.chips[0]?.face.label).toBe('Custom Workspace Skill');
+    expect(preview.decorations.atoms[0]?.label).toBe('Frontend Design');
+    expect(preview.chips[0]?.face.label).toBe('Frontend Design');
+    const refs = '[PR #7](t3-context://v1/review-comment/review-comment_p) [gone](t3-context://v1/terminal/terminal_missing) [old](t3-context://v1/terminal/terminal_old)';
+    client.local.reviewComments = { 'review-comment_p': { kind: 'review-comment', contextId: 'review-comment_p', pullRequest: { state: 'merged', number: 7 } } };
+    client.local.terminalContexts = { terminal_old: { kind: 'terminal', contextId: 'terminal_old', text: '' } };
+    const contexts = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'thread', value: refs });
+    expect(contexts.chips.map(chip => chip.face.kind)).toEqual(['pr-merged', 'neutral', 'invalid']);
+    expect(contexts.decorations.atoms.map(atom => atom.name)).toEqual(['cmp-chip-review-comment', 'cmp-chip-neutral', 'cmp-chip-invalid']);
+    expect(contexts.decorations.atoms.map(atom => atom.label)).toEqual(contexts.chips.map(chip => chip.face.label + (chip.face.suffix ? ` ${chip.face.suffix}` : '')));
+  });
   test('projects the live controlled value independently of persisted draft timing', () => {
     const client = new T3Client(), value = '**live** $frontend-design ';
     const view = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'thread:question', value });
@@ -110,7 +128,7 @@ describe('root composer projection source', () => {
     expect(view.value).toBe(value);
     expect(view.decorations.value).toBe(value);
     expect(view.decorations.spans.map(span => value.slice(span.start, span.end))).toEqual(['live']);
-    expect(view.chips[0]).toEqual({
+    expect(view.chips[0]).toMatchObject({
       kind: 'skill', start: 9, end: 25, source: '$frontend-design', label: 'frontend-design', name: 'frontend-design',
       path: '', contextKind: '', contextId: '', image: false, href: '', comment: '', quote: '',
     });
