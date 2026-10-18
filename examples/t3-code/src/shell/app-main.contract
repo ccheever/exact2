@@ -298,7 +298,7 @@ component ChatColumn
       // (app-window.contract outsidePressDown): Base UI's outside press. Over a right panel sheet
       // (a narrow window) it is the window's (app-overlays.contract WindowOverlays), above the sheet.
       if detailsOpen and not (narrowDiff and (rightPanel or data.diffOpen))
-        ThreadDetailsPanel(details=details, density=canvas.density, right=13, below=(canvas.ready ? max(0, viewport.height - 52 - canvas.containerHeight) : 0), maxHeight=(viewport.height - 104), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
+        ThreadDetailsPanel(details=details, density=canvas.density, right=13, below=(canvas.ready ? max(0, viewport.height - 52 - canvas.containerHeight) : 0), maxHeight=(viewport.height - 104), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion, busy=commandPending)
       // A device floated over the chat (device-workspace.contract), in the canvas's frame.
       if shell.panel.deviceMini.show and canvas.mini.show and canvas.mini.key == shell.panel.deviceMini.key
         DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture, outside=detailsOutside)
@@ -313,7 +313,7 @@ component ChatColumn
       // resolveThreadDetailsCardLayout: the card folds to the height above a player resized into it, and becomes the header's
       // popover when no readable height (160pt) is left; its rows fold to the canvas's density (ThreadDetailsCard).
       if details.inline and canvas.cardShown
-        ThreadDetailsInline(details=details, density=canvas.density, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
+        ThreadDetailsInline(details=details, density=canvas.density, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion, busy=commandPending)
 
 // The right panel beside the chat on a wide window: the diff, or the surface chooser.
 component RightPanels

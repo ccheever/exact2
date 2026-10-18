@@ -187,7 +187,7 @@ component WindowOverlays
     if paletteOpen
       CommandPalette(view=palette, query=paletteQuery, highlight=paletteHighlight, scroll=paletteScroll, busy=paletteBusy, viewport=viewport, scheme=scheme, edit=paletteEdit, onKey=paletteKey, run=paletteRun, hover=paletteHover, close=paletteClose, back=paletteKey("Back"), flag=paletteFlag)
     if detailsSheet
-      ThreadDetailsPanel(details=details, density=detailsDensity, right=13, below=0, maxHeight=(viewport.height - 104), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
+      ThreadDetailsPanel(details=details, density=detailsDensity, right=13, below=0, maxHeight=(viewport.height - 104), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion, busy=commandPending)
     GitLayers(details=details, windowHeight=viewport.height, act=detailsAct, local=chatLocal)
     PrRowLayers(details=details, scheme=scheme, act=detailsAct, local=chatLocal) // the Merge AlertDialog
     PrActionLayers(actions=prDetail.actions, ref=prDetail.ref, dark=(scheme == "dark"), act=prAct, local=chatLocal) // the panel's confirmations
