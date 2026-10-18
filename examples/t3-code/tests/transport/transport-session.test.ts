@@ -50,6 +50,27 @@ describe('pairing (authorization/remote.ts, resolver.ts)', () => {
     expect(session.flowRunning).toBe(-1);
   });
 
+  test('a connect whose answer is let go rejects as let go, and the attempt starts again in the slot\'s answer', async () => {
+    const server = new FakeServer(ORIGIN), drive = new Drive(server);
+    const letGo = Object.assign(new Error('the answer was let go before this reply; the request may already have been sent'), { name: 'FetchError', kind: 'Aborted' });
+    let refuse: (error: unknown) => void = () => {};
+    drive.holds['/api/auth/session'] = new Promise<void>((_resolve, reject) => { refuse = reject; });
+    let outcome: unknown = null;
+    void drive.bridge.later({ op: 'connect', origin: ORIGIN, credential: 'code-1' }).then(() => { outcome = 'replied'; }, error => { outcome = error; });
+    const session = drive.transport.focused, first = session.attempt;
+    for (let round = 0; round < 10; round++) await new Promise(resolve => setTimeout(resolve, 0));
+    delete drive.holds['/api/auth/session'];
+    refuse(letGo);
+    for (let round = 0; round < 10 && outcome === null; round++) await new Promise(resolve => setTimeout(resolve, 0));
+    expect(outcome).toBe(letGo);
+    expect(session.attempt).toBeGreaterThan(first);
+    expect(session.establishing).toBe(true);
+    await drive.settle();
+    expect(value(await drive.op({ op: 'status' })).state).toBe('connected');
+    // The code was exchanged once; the second attempt used the token it saved.
+    expect(server.requests.filter(request => request.path === '/oauth/token').length).toBe(1);
+  });
+
   test('a refused code saves nothing and names the reference error', async () => {
     const drive = new Drive(new FakeServer(ORIGIN));
     const reply = await drive.op(pairing(ORIGIN, 'wrong'));
@@ -201,6 +222,8 @@ describe('liveness and the reconnect ladder (supervisor.ts)', () => {
     let status = value(await drive.op({ op: 'status' }));
     expect(status.state).toBe('reconnecting');
     expect(String(status.message)).toContain('Reconnecting in 2s…');
+    // The ladder's wait runs the tick at its slower cadence, not every frame.
+    expect(drive.transport.focused.establishing).toBe(false);
     server.up = true;
     await drive.advance(2_500);
     status = value(await drive.op({ op: 'status' }));

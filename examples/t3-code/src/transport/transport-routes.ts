@@ -9,7 +9,7 @@
 // reads the token of the route it was learned over (`credential`); the token goes out only after the
 // address answered as this environment. Checks run in the answer that connects (it may fetch); the
 // 60 s cadence is the transport's tick.
-import { TransportFailure, origin as parseOrigin, path, trimmed } from './transport-wire';
+import { TransportFailure, letGoAbort, origin as parseOrigin, path, trimmed } from './transport-wire';
 import type { Catalog, Entry } from './transport-catalog';
 
 export interface HttpReply { status: number; text: string }
@@ -114,7 +114,13 @@ export class RouteState {
     if (at > 0) this.order.unshift(...this.order.splice(at, 1));
     this.switchingTo = this.preferred; this.preferred = null;
     if (this.order.length <= 1) { this.results = [Promise.resolve('unchecked')]; return; }
-    this.results = this.order.map(route => direct(route) ? this.check(route) : Promise.resolve<Check>('unchecked'));
+    // A check rejects only when its answer was let go; `next` passes that on, and the checks it never reaches are handled here.
+    this.results = this.order.map(route => {
+      if (!direct(route)) return Promise.resolve<Check>('unchecked');
+      const checked = this.check(route);
+      checked.catch(() => undefined);
+      return checked;
+    });
   }
 
   /** The next route worth trying, in order; silent routes go last, since a check is not proof. null when none is left. */
@@ -174,7 +180,7 @@ export class RouteState {
       const body = json(reply) as Record<string, unknown> | null | undefined;
       const ok = reply.status >= 200 && reply.status < 300 && typeof body?.environmentId === 'string' && (!expected || body.environmentId === expected);
       return ok ? 'answered' : 'silent';
-    } catch { return 'silent'; }
+    } catch (error) { if (letGoAbort(error)) throw error; return 'silent'; }
   }
 
   /** preflight: the route answers as this environment and accepts this client's token, without a socket. */
@@ -187,7 +193,7 @@ export class RouteState {
     try {
       const reply = await this.http(url, { headers: { Accept: 'application/json', Authorization: `Bearer ${token}` }, timeoutMs: CHECK_TIMEOUT_MS * 2 });
       return reply.status >= 200 && reply.status < 300 && (json(reply) as Record<string, unknown> | null | undefined)?.authenticated === true;
-    } catch { return false; }
+    } catch (error) { if (letGoAbort(error)) throw error; return false; }
   }
 
   /**

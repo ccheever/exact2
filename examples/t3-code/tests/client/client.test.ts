@@ -359,7 +359,7 @@ describe('answer cancellation', () => {
   test('a reconnect synchronizes once: the reset the inbox reports at the new generation\'s start lost nothing of it', async () => {
     const { client, native, disk } = await opened();
     expect(client.thread).not.toBeNull();
-    // T3Transport.start: a new generation empties the inbox (floor = latest); its first read from 0 says reset.
+    // Session.start: a new generation empties the inbox (floor = latest); its first read from 0 says reset.
     const floor = native.eventSequence, original = native.later.bind(native);
     native.generation++; native.subscriptions = {};
     native.later = async input => {

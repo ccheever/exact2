@@ -20,7 +20,7 @@ const READS = ['server.getConfig', 'server.getSettings', 'device.list'];
 /** The lane server's device service behind the fake transport: inspect publishes to every device-state stream. */
 class DeviceServer extends Backend {
   deviceRevision = 0;
-  /** A watched topic changed: the transport appended to its inbox (T3Transport `changed("t3.events")`). */
+  /** A watched topic changed: the transport appended to its inbox (transport-session.ts, which bumps the snapshot's news). */
   woke = false;
   hub: Obj = { requiredVersion: '0.4.0', installedVersions: ['0.3.0'] };
   deviceState(): Obj {

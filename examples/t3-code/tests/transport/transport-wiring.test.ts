@@ -3,7 +3,7 @@
 // reply is in flight, and the grants a server named at run time needs.
 import { describe, test, expect } from 'bun:test';
 import { appPath } from '../support/app-files';
-import { SESSION_SLOTS } from '../../src/transport/transport';
+import { SESSION_SLOTS, Transport } from '../../src/transport/transport';
 import { UPDATE_SLOTS } from '../../src/transport/transport-outdated';
 import { answer, grants } from '../../app';
 
@@ -47,5 +47,26 @@ describe('app.ts', () => {
     expect(typeof (table as { then?: unknown }).then).toBe('undefined');
     expect(table).toMatchObject({ s0: { key: 'focused' }, live: false });
     expect(answer('transportDeliver', [0], null, { fs: {} } as never, null)).toMatchObject({ news: expect.any(Number), fleet: expect.any(Number) });
+  });
+
+  test("a topic watched after the answer replied is taken up by that source's next answer", () => {
+    // exact2 refuses a watch once the answer has replied, as code resumed by a delivered reply runs then.
+    let replied = true;
+    const watched: string[] = [];
+    const module = { available: true, watch(topic: string) { if (replied) throw new Error('native.watch outside an answer'); watched.push(topic); }, later: async () => ({}) };
+    const transport = new Transport();
+    transport.wrap(module, 'snapshot')!.watch('t3.local');
+    expect(watched).toEqual([]);
+    replied = false;
+    transport.wrap(module, 'snapshot');
+    transport.wrap(module, 'editor');
+    expect(watched).toEqual(['t3.local']);
+  });
+
+  test("a module call of a let-go answer rejects as exact2 rejected it, so the client reads it as superseded", async () => {
+    const letGo = Object.assign(new Error('the answer was let go before this reply; the request may already have been sent'), { name: 'FetchError', kind: 'Aborted' });
+    const module = { available: true, watch() {}, later: async () => { throw letGo; } };
+    const bridge = new Transport().wrap(module, 'snapshot')!;
+    expect(await bridge.later({ op: 'status' }).catch(error => error)).toBe(letGo);
   });
 });

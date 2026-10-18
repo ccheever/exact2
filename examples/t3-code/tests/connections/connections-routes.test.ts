@@ -1,5 +1,5 @@
 // The routes under a saved environment's row (connection-routes-ops.ts,
-// connections.ts), against a native stand-in that keeps T3SavedEnvironments' shape.
+// connections.ts), against a stand-in that keeps the catalog's shape (transport-catalog.ts).
 import { describe, expect, test } from 'bun:test';
 import type { Native } from '../../src/client/protocol';
 import { connectionsProjection, runConnectionOp, type ConnectionHost } from '../../src/connections/connections';

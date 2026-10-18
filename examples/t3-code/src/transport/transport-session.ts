@@ -22,7 +22,7 @@ import { credentialOrigins, type Catalog, type Route } from './transport-catalog
 import {
   TransportFailure, MAXIMUM_BYTES, PING_INTERVAL_MS, PONG_TIMEOUT_MS, QUICK_PROBE_MS, FOREGROUND_PROBE_MS, SOCKET_OPEN_TIMEOUT_MS,
   BACKOFF_RESET_AFTER_MS, compatibility, credential as parseCredential, decode, encode, exchangeForm, failure as wireFailure, failureMessage,
-  identifier, origin as parseOrigin, path as onOrigin, request as wireRequest, retriesStream, retryDelayMs, streamRetryMs, trimmed, utf8Length,
+  identifier, letGoAbort, origin as parseOrigin, path as onOrigin, request as wireRequest, retriesStream, retryDelayMs, streamRetryMs, trimmed, utf8Length,
   type Frame,
 } from './transport-wire';
 import type { ActivityReporter } from './transport-activity';
@@ -187,7 +187,10 @@ export class Session {
         case 'prDiff': return await this.pullRequestDiff(request);
         default: throw this.argument('Unknown native operation.');
       }
-    } catch (error) { return this.bad(this.failure(error)); }
+    } catch (error) {
+      if (letGoAbort(error)) throw error;
+      return this.bad(this.failure(error));
+    }
   }
 
   destroy(): void {
@@ -290,8 +293,13 @@ export class Session {
   wantsFlow(attempt: number): boolean {
     return this.alive && this.wantsConnection && attempt === this.connectAttempt && this.flowRunning !== attempt && !this.url && this.state !== 'connected';
   }
-  /** A connection is being made: a flow runs, or its socket has a URL and has not opened. The tick runs fast meanwhile. */
-  get establishing(): boolean { return this.flowRunning >= 0 || (!!this.url && this.state !== 'connected'); }
+  /**
+   * A connection is being made: a flow runs, its socket has a URL and has not opened, or an attempt waits for the
+   * slot's answer to run its flow (one started again after its answer was let go). The tick runs fast meanwhile.
+   */
+  get establishing(): boolean {
+    return this.flowRunning >= 0 || (!!this.url && this.state !== 'connected') || (this.attempt === this.connectAttempt && this.reconnectAt === null && this.wantsFlow(this.attempt));
+  }
 
   /**
    * The HTTP steps of one attempt, in the answer the transport asks for it: the route walk, the descriptor, the
@@ -301,7 +309,12 @@ export class Session {
   async connectFlow(attempt: number): Promise<string> {
     if (!this.wantsFlow(attempt)) return '';
     this.flowRunning = attempt;
-    const flow = this.flowPromise = this.runFlow(attempt).finally(() => {
+    const flow = this.flowPromise = this.runFlow(attempt).catch(error => {
+      // The answer it ran in was let go: the attempt starts again, in the slot's answer (with the saved token
+      // once a pairing code has been exchanged: a code is good for one exchange).
+      if (letGoAbort(error) && attempt === this.connectAttempt && this.wantsConnection && this.alive) this.start(this.token ? '' : this.pendingCredential);
+      throw error;
+    }).finally(() => {
       if (this.flowRunning === attempt) { this.flowRunning = -1; this.flowPromise = null; }
     });
     return flow;
@@ -340,6 +353,7 @@ export class Session {
         this.url = url; this.openDeadline = this.hooks.now() + SOCKET_OPEN_TIMEOUT_MS;
         return url;
       } catch (error) {
+        if (letGoAbort(error)) throw error;
         if (attempt !== this.connectAttempt || epoch !== this.generation) return '';
         const problem = this.failure(error);
         // connectOverRoutes: a route that fails moves on to the next; an incompatible server is the same on every route.
@@ -407,6 +421,7 @@ export class Session {
     let reply: HttpReply;
     try { reply = await this.hooks.http(url, { method: options.method ?? 'GET', headers, body: options.body, timeoutMs: options.long ? 60_000 : 30_000, signal: this.abort?.signal, maxBytes: options.large ? MAXIMUM_BYTES : undefined }); }
     catch (error) {
+      if (letGoAbort(error)) throw error;
       if (!this.alive || this.generation !== options.epoch) throw new TransportFailure('Replaced', 'The connection changed during the request.');
       throw new TransportFailure('Network', this.clean(error instanceof Error ? error.message : String(error)));
     }

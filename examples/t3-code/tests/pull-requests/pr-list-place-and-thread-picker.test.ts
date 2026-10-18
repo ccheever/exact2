@@ -25,9 +25,9 @@ const rows = Array.from({ length: 30 }, (_, index) => ({ projectId: 'p-gh', host
   title: `Change ${144 - index}`, state: 'open', isDraft: false, author: { login: 'owner' }, updatedAt: '2026-10-13T11:00:00Z', additions: 1, deletions: 0 }));
 
 /**
- * T3Transport as the fleet sees one background environment (the GitHub lane added from Settings › Connections): its
- * status, the bootstrap, and the inbox. `foreground()` is T3Transport.applicationActive: a `_retryDue` on the shell
- * stream, as macos/tests/transport/reconnect.swift proves the transport appends when the app becomes active.
+ * The transport as the fleet sees one background environment (the GitHub lane added from Settings › Connections): its
+ * status, the bootstrap, and the inbox. `foreground()` is the window's return (transportSignal "foreground"): a `_retryDue` on the shell
+ * stream, as the transport appends when the app becomes active (tests/transport/transport-session.test.ts).
  */
 function backgroundTransport() {
   let serial = 0, seq = 0, generation = 1;

@@ -31,6 +31,7 @@ import { findProjectByPath, inferProjectTitleFromPath } from '../shared/project-
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
 import { settle } from '../client/command-waits';
 import { letGo } from '../client/let-go';
+import { randomBytes } from '../transport/transport-wire'; // drawn ahead: code resumed by a server reply may not draw
 
 // ── The protocol (packages/contracts/src/desktopAppActivation.ts) ─────────
 export const DESKTOP_APP_ACTIVATION_PROTOCOL_VERSION = 1;
@@ -144,7 +145,7 @@ export const PROJECT_WAIT_MS = 10_000, PROJECT_POLL_MS = 500;
 type WindowState = { token: string; reported: boolean | null; seenOpened: string; seenRequest: string; serial: number; target: string };
 const windows = new WeakMap<object, WindowState>();
 /** This client's page token (Math.random is unavailable in data sources). */
-const pageToken = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), byte => byte.toString(16).padStart(2, '0')).join('');
+const pageToken = () => Array.from(randomBytes(8), byte => byte.toString(16).padStart(2, '0')).join('');
 function windowOf(client: object): WindowState {
   let state = windows.get(client);
   if (!state) windows.set(client, state = { token: pageToken(), reported: null, seenOpened: '', seenRequest: '', serial: 0, target: '' });

@@ -36,6 +36,7 @@ import { terminalLinkAction } from './terminal-integrations';
 import { subscriptionSerial } from '../details/shell-vcs';
 import { setCloseThreadTerminals } from '../sidebar/worktree-cleanup';
 import { commandShortcut } from '../shell/shell';
+import { uuid } from '../transport/transport-wire'; // drawn ahead: code resumed by a server reply may not draw
 import { terminalCloseConfirmMessage } from './terminal-close';
 import { surfaceStore } from '../panel/panel-surfaces';
 import {
@@ -380,7 +381,7 @@ export async function handleTerminalMessage(client: T3Client, native: Native, me
   if (!ref || str(message.threadId) !== ref.threadId) return true;
   const selected = str(message.terminalId);
   const summary = knownSessions(client, ref).find(session => session.target.terminalId === selected)?.state.summary;
-  await insertContext(client, native, 'terminal', JSON.stringify({ id: crypto.randomUUID(), threadId: ref.threadId, terminalId: selected,
+  await insertContext(client, native, 'terminal', JSON.stringify({ id: uuid(), threadId: ref.threadId, terminalId: selected,
     terminalLabel: resolveTerminalSessionLabel(selected, summary), text: str(message.text), lineStart: Number(message.lineStart) || 1, lineEnd: Number(message.lineEnd) || 1, createdAt: new Date(composerNow(client)).toISOString() }));
   return true;
 }

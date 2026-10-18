@@ -8,6 +8,15 @@
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type Frame = Record<string, unknown>;
 
+/**
+ * exact2's rejection of a fetch whose answer it let go (a resource asked again, a newer send): passed on as it is,
+ * as the native bridge's call would have been rejected, so the client reads it as superseded (client/let-go.ts).
+ */
+export function letGoAbort(error: unknown): boolean {
+  const fields = error !== null && typeof error === 'object' ? error as { name?: unknown; kind?: unknown } : {};
+  return fields.name === 'FetchError' && fields.kind === 'Aborted';
+}
+
 /** A failure as the native bridge reported it (`{kind, message, uncertain, reason, detail}`). */
 export class TransportFailure extends Error {
   constructor(readonly kind: string, message: string, readonly uncertain = false, readonly reason = '', readonly detail = '') {
@@ -268,12 +277,40 @@ export function streamRetryMs(retries: number): number {
 /** Errors a resubscribe cannot fix: they wait for the next session. */
 export const retriesStream = (kind: string) => kind !== 'EnvironmentAuthorizationError';
 
-/** A uniform number in [0, 1) from the platform's generator (inside an answer). */
-export function random(): number {
-  const bytes = new Uint32Array(1);
-  crypto.getRandomValues(bytes);
-  return bytes[0]! / 2 ** 32;
+// Random bytes drawn ahead. exact2 lets only an answer still in flight draw from `crypto`, and code that
+// awaited a server reply resumes in the delivering answer after that answer has replied (transport.ts), so
+// the transport's answers top this pool up as they start and every draw takes from it first.
+let pool = new Uint8Array(0), used = 0;
+const POOL_LOW = 512, POOL_DRAW = 2048;
+
+/** Tops the pool up; a no-op where no answer is in flight to draw. */
+export function refillRandom(): void {
+  if (pool.length - used >= POOL_LOW) return;
+  let fresh: Uint8Array;
+  try { fresh = crypto.getRandomValues(new Uint8Array(POOL_DRAW)); } catch { return; }
+  const rest = pool.subarray(used), next = new Uint8Array(rest.length + fresh.length);
+  next.set(rest); next.set(fresh, rest.length);
+  pool = next; used = 0;
 }
 
-/** A lowercase UUID, for ids the server keys requests by. */
-export const uuid = () => crypto.randomUUID().toLowerCase();
+/** `n` random bytes: from the pool, else from `crypto` (which refuses outside an answer). */
+export function randomBytes(n: number): Uint8Array {
+  if (pool.length - used < n) refillRandom();
+  if (pool.length - used < n) return crypto.getRandomValues(new Uint8Array(n));
+  const out = pool.slice(used, used + n);
+  used += n;
+  return out;
+}
+
+/** A uniform number in [0, 1). */
+export function random(): number {
+  const [a, b, c, d] = randomBytes(4);
+  return ((a! << 24 >>> 0) + (b! << 16) + (c! << 8) + d!) / 2 ** 32;
+}
+
+/** A lowercase v4 UUID, for ids the server keys requests by. */
+export function uuid(): string {
+  const bytes = randomBytes(16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40; bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  return Array.from(bytes, (byte, index) => `${[4, 6, 8, 10].includes(index) ? '-' : ''}${byte.toString(16).padStart(2, '0')}`).join('');
+}

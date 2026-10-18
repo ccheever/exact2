@@ -32,7 +32,7 @@ const sample = (n: number): Obj => ({ readAt: READ_AT, sampleIntervalMs: 1000, p
 /**
  * The server behind the fake transport: subscribeResourceTelemetry sends the current sample first, as the
  * server's stream does; a diagnostics read replies `latency` turns after the transport sent it; a shared read
- * (T3Transport `share`) joins an identical one still pending and sends nothing.
+ * (the transport's shared read, transport-session.ts) joins an identical one still pending and sends nothing.
  */
 class DiagnosticsServer extends Backend {
   woke = false;

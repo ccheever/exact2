@@ -23,7 +23,7 @@ import { Session, type SocketEvent, type SocketHandle, type Reply } from './tran
 import { Catalog, type SecretStore } from './transport-catalog';
 import { ActivityReporter } from './transport-activity';
 import { OutdatedHosts, UPDATE_SLOTS } from './transport-outdated';
-import { TransportFailure, random as platformRandom, uuid as platformUuid } from './transport-wire';
+import { TransportFailure, letGoAbort, random as platformRandom, refillRandom, uuid as platformUuid } from './transport-wire';
 import type { Http, HttpReply } from './transport-routes';
 
 type Obj = Record<string, unknown>;
@@ -63,6 +63,9 @@ export const fetchHttp: Http = async (url, init) => {
   return reply;
 };
 
+/** A module call's failure read as no reply, except a let-go answer's, which goes on up (client/let-go.ts). */
+const passLetGo = (error: unknown): null => { if (letGoAbort(error)) throw error; return null; };
+
 export interface TransportHost { http: Http; random(): number; uuid(): string }
 export const platformHost: TransportHost = { http: fetchHttp, random: platformRandom, uuid: platformUuid };
 
@@ -83,6 +86,8 @@ export class Transport {
   /** The app's module: the embedded server's bearer, the presentation a status adds, and the module's links. */
   private module: Bridge | null = null;
   private linkSignature = '';
+  /** The module topics each client source watched (see `wrap`). */
+  private watched = new Map<string, Set<string>>();
 
   constructor(private readonly host: TransportHost = platformHost) {
     this.catalog = new Catalog(() => this.store);
@@ -103,7 +108,7 @@ export class Transport {
       catalog: this.catalog, http: this.host.http, now: () => this.clock, wall: now => this.wall(now),
       random: () => this.host.random(), uuid: () => this.host.uuid(),
       primaryBearer: async () => {
-        const reply = obj(await this.module?.later({ op: 'localBearer' }).catch(() => null));
+        const reply = obj(await this.module?.later({ op: 'localBearer' }).catch(passLetGo));
         return reply.ok === true ? str(obj(reply.value).token) : '';
       },
       activity: this.activity,
@@ -124,6 +129,7 @@ export class Transport {
 
   /** A session's socket (a stream resource); its mapper hands each event to the session. */
   socket(slot: number, url: string): unknown {
+    refillRandom();
     if (!url) return { state: 'idle', seq: this.seq };
     return fetch(url, { exactStream: (event: SocketEvent, handle?: SocketHandle) => {
       try { this.sessionAt(slot)?.socketEvent(url, event, handle); } catch { /* the session keeps its state */ }
@@ -134,9 +140,10 @@ export class Transport {
   /** The HTTP steps of a slot's attempt, or the better-route check it was asked for. */
   async connect(slot: number, key: string, attempt: number, check: number, module: Bridge | null | undefined): Promise<{ attempt: number; seq: number }> {
     if (module?.available) this.module = module;
+    refillRandom();
     const session = this.sessionAt(slot);
     if (!session || !key || (slot === 0 ? key !== FOCUSED : session.key !== key)) return { attempt, seq: this.seq };
-    if (session.wantsFlow(attempt)) await session.connectFlow(attempt);
+    if (session.wantsFlow(attempt)) await session.connectFlow(attempt).catch(() => '');
     else if (session.flowRunning === attempt) await session.joinFlow(attempt);
     else if (check > 0) await session.checkRoutes(check).catch(() => undefined);
     return { attempt, seq: this.seq };
@@ -157,6 +164,7 @@ export class Transport {
 
   /** Resolves the replies that came in, in this answer, and reports what changed. */
   deliver(): { news: number; fleet: number } {
+    refillRandom();
     for (let rounds = 0; this.queue.length && rounds < 64; rounds++) {
       for (const work of this.queue.splice(0)) { try { work(); } catch { /* one reply's failure is its own */ } }
     }
@@ -169,6 +177,7 @@ export class Transport {
    * network going away or coming back.
    */
   pump(now: number, reason = ''): Table {
+    refillRandom();
     if (Number.isFinite(now) && now > 0) this.clock = now;
     for (const session of this.sessions) {
       if (reason === 'foreground') session.foreground();
@@ -201,11 +210,23 @@ export class Transport {
 
   // MARK: The bridge
 
-  /** The bridge an answer hands the client: this transport's ops, and the module's for the rest. */
-  wrap<T extends Bridge>(module: T | null | undefined): T | Bridge | null | undefined {
+  /**
+   * The bridge an answer of `source` hands the client: this transport's ops, and the module's for the rest.
+   * exact2 takes a topic only from an answer still in flight, and code that awaited a reply resumes in the
+   * delivering answer, which has replied; so a topic is remembered for its source and watched again at the
+   * start of that source's next answer, which is when a native reply would have let the old one watch it.
+   */
+  wrap<T extends Bridge>(module: T | null | undefined, source = ''): T | Bridge | null | undefined {
     if (!module?.available) return module;
     this.module = module;
-    return { available: true, watch: topic => module.watch(topic), later: request => this.later(module, request) };
+    const topics = this.watched.get(source) ?? new Set<string>();
+    for (const topic of topics) module.watch(topic);
+    const watch = (topic: string) => {
+      if (!topics.size) this.watched.set(source, topics);
+      topics.add(topic);
+      try { module.watch(topic); } catch { /* resumed after its answer replied: the next answer watches it */ }
+    };
+    return { available: true, watch, later: request => this.later(module, request) };
   }
 
   async later(module: Bridge, request: unknown): Promise<unknown> {
@@ -223,7 +244,7 @@ export class Transport {
   /** The focused status, with the presentation the module adds; the module's links follow the connected sessions. */
   private async status(module: Bridge, request: Obj): Promise<Reply> {
     const reply = await this.focused.perform(request);
-    const presented = obj(await module.later({ op: 'status' }).catch(() => null));
+    const presented = obj(await module.later({ op: 'status' }).catch(passLetGo));
     const facts = obj(presented.value);
     const at = Number(facts.activityLastInteraction);
     if (Number.isFinite(at) && at > 0) this.activity.interaction(at, this.clock);
@@ -243,7 +264,7 @@ export class Transport {
     const focused = this.focused.state === 'connected' ? str(this.focused.descriptor.environmentId) : '';
     const signature = JSON.stringify([focused, routes]);
     if (signature === this.linkSignature) return;
-    const reply = obj(await module.later({ op: 'links', focused, routes }).catch(() => null));
+    const reply = obj(await module.later({ op: 'links', focused, routes }).catch(passLetGo));
     if (reply.ok === true) this.linkSignature = signature;
   }
 

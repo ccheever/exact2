@@ -1,9 +1,7 @@
 // Matching the reference, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3).
 // A learned route's write goes to its own environment's transport, which checks it at once with the token it
 // borrows (supervisor.ts learnRoutesFrom → requestBetterRouteCheck), and one environment's failed write leaves the others
-// to learn; the walk and the switch are the AppKit tests
-// `testALearnedPlainHttpLanRouteConnectsWithTheTokenItBorrows` and `testALearnedRouteAboveTheOneInUseTakesOverAtOnce`
-// (macos/tests/transport/routes.swift).
+// to learn; the walk and the switch are tests/transport/transport-fleet.test.ts's routes.
 // After a Network access change failed (or any of the section's dialogs closed), no other Settings page opens
 // that dialog again (ConnectionsSettings.tsx closes it for good): the page's closed view keeps the dialogs' serials, checked
 // by running NetworkDialogs' own open rules from the contract over the views the pages answer.
@@ -138,7 +136,7 @@ describe('a learned route is written to its own environment’s transport', () =
     const native: Native = { available: true, watch() {}, async later(input) {
       const request = input as Obj; calls.push(request);
       if (request.op === 'status') return { ok: true, generation: 1, value: { activeRouteId: A } };
-      // A fleet transport stopped since the pass read its status (T3Fleet.perform).
+      // A fleet transport stopped since the pass read its status (transport.ts fleetOp).
       if (stopped && request.fleet === stopped) return { ok: false, generation: 1, error: { kind: 'Disconnected', message: 'That environment is not connected.', uncertain: false } };
       if (request.op === 'setRoutes') {
         saved.find(item => item.environmentId === request.environmentId)!.routes = request.routes;

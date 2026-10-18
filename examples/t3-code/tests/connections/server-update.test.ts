@@ -2,7 +2,7 @@
 // packages/client-runtime/src/state/server.test.ts ("server state projection" update cases,
 // "update restart reconnect nudges") and apps/web/src/components/ServerUpdateAction.test.tsx
 // (the single-environment ServerUpdateAction cases and ServerUpdateProgress). The update runs
-// as a T3Fleet job here, so "the shared update flow" is the job table plus announceServerUpdates.
+// as an outdated-hosts job here (transport-outdated.ts), so "the shared update flow" is the job table plus announceServerUpdates.
 import { beforeEach, describe, expect, it } from 'bun:test';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';

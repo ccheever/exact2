@@ -14,7 +14,7 @@ const MISSING = 'Paste a pairing link or token from this T3 server.';
 const host: ConnectionHost = { connection: 'connected', origin: 'http://127.0.0.1:16210', environmentId: 'env-a', statusMessage: 'Connected.', scopes: [],
   config: { environment: { label: 'This Mac', platform: { machine: 'laptop' } } } };
 
-/** T3Fleet: a background transport keeps its failed state until it is stopped; a new one reads the Keychain when it connects. */
+/** A background session keeps its failed state until it is stopped; a new one reads the saved token when it connects (transport.ts). */
 class Transports implements Native {
   available = true; calls: Obj[] = [];
   saved: Obj[] = [{ origin: REMOTE, environmentId: 'env-b', label: 'Lane Third', machine: 'laptop', enabled: true }];

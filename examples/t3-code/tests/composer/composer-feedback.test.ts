@@ -15,7 +15,7 @@ import { contextLink, contextId } from '../../src/composer/composer-editor-menu'
 type Reply = { ok: true; value: Obj } | { ok: false; error: Obj };
 /**
  * The fake backend with `provider.uploadFeedback` answered by the test: the request is detached
- * (T3Transport files its reply in the inbox under `deliver`), so `reply` emits it and the next
+ * (the transport files its reply in the inbox under `deliver`), so `reply` emits it and the next
  * refresh drains it.
  */
 class FeedbackFake extends Fake {

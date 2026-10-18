@@ -27,6 +27,7 @@ import { importBrowserCookies, listBrowserImportSources, sourcePathContext, type
 import { safariPermissionCheck } from './browser-import-safari';
 import type { BrowserImportPathContext } from './browser-import-sources';
 import { applyBrowserDefault, browserDefaultsView, type BrowserDefaultsView } from './browser-defaults';
+import { uuid } from '../transport/transport-wire'; // drawn ahead: code resumed by a server reply may not draw
 
 type Wizard = {
   source: BrowserImportSource; environmentId: string; environmentName: string; step: WizardStep; sourceProfileDirectory: string;
@@ -122,7 +123,7 @@ export function createBrowserProfile(client: T3Client, baseName: string): Browse
   const taken = new Set(resolveBrowserProfiles(prefs.browserProfiles).map(profile => profile.name));
   let name = baseName;
   for (let index = 2; taken.has(name); index += 1) name = `${baseName} ${index}`;
-  const profile: BrowserProfile = { id: `profile-${crypto.randomUUID()}`, name, kind: 'persistent' };
+  const profile: BrowserProfile = { id: `profile-${uuid()}`, name, kind: 'persistent' };
   prefs.browserProfiles = [...prefs.browserProfiles, profile];
   return profile;
 }
@@ -210,7 +211,7 @@ function openWizard(client: T3Client, sourceId: string): void {
     source, environmentId: str(primary.environmentId), environmentName: primaryEnvironmentLabel(str(primary.label)), step: initialWizardStep(source),
     sourceProfileDirectory: source.profiles[0]?.directory ?? '', target: initialTargetSelection(canCreateProfile(client), targetProfiles(client)), targetError: '',
     // Stable across retries, so a keychain re-approval lands in one profile, not a new one each time.
-    newProfileId: `profile-${crypto.randomUUID()}`, opening: false, openingError: '', fdaGranted: false,
+    newProfileId: `profile-${uuid()}`, opening: false, openingError: '', fdaGranted: false,
   };
   wizardMounts(state.wizard);
 }

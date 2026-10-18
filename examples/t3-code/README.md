@@ -1,10 +1,10 @@
 # T3 Code for Exact on macOS
 
 A macOS client for [T3 Code](https://github.com/pingdotgg/t3code) servers, written with Exact.
-Contract draws the interface; TypeScript owns the client state and projections; an app-local
-Swift module (`modules/apple/`) handles HTTP, WebSocket RPC, Keychain credentials, the
-composer's text view, the terminal and browser web views, menus, notifications and window
-chrome. Provider execution, workspaces, Git and conversation history stay on the T3 server.
+Contract draws the interface; TypeScript owns the client state, the projections and the server
+connections (HTTP, WebSocket RPC, the saved environments and their credentials); an app-local
+Swift module (`modules/apple/`) handles the composer's text view, the terminal and browser web
+views, menus, notifications and window chrome. Provider execution, workspaces, Git and conversation history stay on the T3 server.
 The app carries the official T3 server release (the CLI archive of the release built from the
 reference pin, unmodified; `server-runtime/runtime-pin.json`) and runs it as its own local
 server, "This machine". It does not modify T3 Code.
@@ -262,16 +262,17 @@ menu is a window-level popup, placed from the trigger's drawn frame (`T3Measure.
 that Escape and an outside press close (`table-menu.*`). A global hotkey of another
 app (a launcher holding ⌘1, say) never reaches the window.
 
-Credentials stay in Keychain, scoped to the server origin and environment. The Swift
-module atomically saves the versioned `t3-code.json` preference file (selections,
+Saved environments and their credentials are one kept secret, `t3-catalog` (granted by `secret.keep
+t3-catalog`, kept in the Keychain on macOS; `transport-catalog.ts`), each token scoped to the server
+origin and environment. The Swift module atomically saves the versioned `t3-code.json` preference file (selections,
 drafts, sidebar and page preferences, dismissed notices, pending operation identities)
 under Exact's app data directory. **Disconnect** keeps the credential; **Forget**
 removes it. The embedded server is the primary environment, "This machine"
 (`local-primary.ts`): the client connects to it with the
-bearer the server issued at start (memory only, never Keychain), never saves it and never
+bearer the server issued at start (memory only, never kept), never saves it and never
 remembers its origin (its port can change every launch; the transport keeps a focus token
 `primary` beside `t3.server.origin`). On launch the client reconnects by itself: to the primary
-when it was the last focus, else to the last switched-on saved environment with its Keychain
+when it was the last focus, else to the last switched-on saved environment with its saved
 credential, else to the primary while the Local environment switch is on (`relaunch-reconnect.ts`);
 while the server starts, the window shows the connecting state (the host opens the first window
 before the server is ready, exact2 #117). The window keeps its frame across launches
@@ -368,11 +369,28 @@ These it does not use, because on macOS they do not do what the reference does:
 
 Differences that belong to the app:
 
-- The server connections stay in `T3Transport.swift`, `T3Fleet.swift` and `T3DeviceClient.swift`,
-  not the data module. Main now lets a data module do what they do: a `net.websocket ws:`/`wss:`
-  line admits servers chosen at run time (#703), and a stream's mapper answers each frame (an
-  Ack, a Pong) in the commit that settles it (#705, LLP 1016.000 D7). Moving the transport would
-  change nothing someone using the app sees, so it stays native.
+- The server connections are the data module's (`src/transport/`). Each environment's socket is a
+  stream resource, admitted by `net.websocket ws:` and `wss:` since servers are named at run time
+  (#703), whose mapper answers Pings and acknowledges chunks in the frame's own commit (#705, LLP
+  1016.000 D7); HTTP goes through `fetch` (`net.fetch http:` and `https:`). A data module sends only
+  from a mutation or that mapper and has no timers, so a mutation the window runs, the tick, sends
+  queued requests and keeps the deadlines, Pings, probes and reconnect ladder: every 16 ms while an
+  answer waits on a reply, every second while connected. A connect replies once the socket's URL is
+  in, not once the socket opens, since an answer may await only what this module's fetch, storage or
+  open stream settles.
+- The terminal's attach stream, the Browser's automation replies and the device hub's tickets keep
+  a second, module-owned socket per environment (`T3Link.swift`), which the transport's `links` op
+  tells the routes and bearers of the environments it has connected: the terminal's bytes go
+  straight to its web view instead of through a commit each. The global pointer and key monitor
+  that dates the last interaction stays native too (`T3ActivityInput.swift`); the activity reporter
+  is TypeScript.
+- Under the agent driver, a clock step that has a timer due first waits for every answer in flight,
+  up to 20 s, and an answer that awaits a server reply needs the tick, a timer, to send its request.
+  So a drive's first clock step after launch, and one taken while such an answer waits, takes about
+  20 s of real time; the app itself runs its timers on the wall clock. Under the agent the transport's
+  ids also come from the driver's repeatable random stream, so drives of one persistent server use a
+  different `--seed` each launch, or the server takes a repeated command id for the command it
+  already ran and does nothing.
 - The Browser surface is WebKit, not Chromium (#100 was closed as not planned). It has no
   "Open DevTools" item, and pages get no Notification API or geolocation.
 - The host opens the first window before the embedded server is ready (#117 was closed as not
@@ -815,7 +833,9 @@ environment's fields) and lays out the components of `app-main.contract`,
 `app-settings.contract` and `app-overlays.contract` beside it; each takes the root names it reads as
 props of the same names, and an action that writes both sets the window's half and calls the
 root's (`…Root`). `src/client/client.ts`, `protocol.ts`, `domain.ts` and `presentation.ts` own the
-data source, commands and event projection. A labelled `button` or `link` that may mount no text says `title=""`: since
+data source, commands and event projection; `src/transport/` owns the server connections (the
+sessions, routes, saved-environment catalog, activity reporter and outdated hosts' update jobs, and
+`transport.contract`, the slots app.contract gives them). A labelled `button` or `link` that may mount no text says `title=""`: since
 LLP 1115 the Mac host shows the `aria-label` of a button whose mounted, not `aria-hidden` children
 give no text as its help tag, and the reference shows only its own tips (`help-tags.test.ts`
 applies the host's rule to the view tree). `modules/apple/` is the native module; `macos/` holds the bake adapter crate (`t3-code-macos`)
@@ -826,7 +846,7 @@ Shiki comparison. T3's MIT notice is retained in `LICENSE-T3`.
 Exact asks an answer again when a topic it watches changes. Since exact2 #183 a change
 that arrives while the snapshot read is in flight lets that read's reply land and then asks
 once more, so the topics go straight to Exact (the app's read gate is gone). An answer Exact
-replaces for new arguments still never receives its pending native replies, so each
+replaces for new arguments is let go with its replies unread, so each
 WebSocket RPC carries a trace id the transport lists while it is pending, and "Some requests
 are slow" counts only requests the server has not answered.
 The transport follows the reference's reconnect policy (jittered 1 s·2ⁿ⁺¹ ladder capped at
@@ -902,10 +922,7 @@ target/t3-tests/timeline-keyboard-tests
 `assets/`); `T3_TERMINAL_SCALE=1` adds the 1/4/11/44-view cost table, and
 `bun examples/t3-code/terminal-host/verify-vendor.mjs` checks the vendored binaries.
 `mermaid` needs `T3_SERVER` set to a running T3 server's origin (it loads that server's
-Mermaid build into an offscreen web view). The live transport tests skip unless
-`T3_TRANSPORT_PAIRING_FILE` points at a fresh disposable pairing JSON file and
-`T3_TRANSPORT_ORIGIN` names its server; `reconnect.swift` serves its own loopback WebSocket peer
-for the reconnect policy, stream retries and outdated-host updates. The SSH tests read
+Mermaid build into an offscreen web view). The SSH tests read
 a temporary home, never `~/.ssh`; the live tunnel test skips unless `T3_SSH_COMMAND`
 names an ssh test double, and agent runs of the app read hosts only from `T3_SSH_HOME`.
 `macos/tests/ssh/fake-ssh.sh` is that double (its header lists the variables): the password
