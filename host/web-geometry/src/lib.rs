@@ -21,7 +21,31 @@ pub static PAGE: GeometryLinks = GeometryLinks::new(
     page_point,
     page_points,
     page_shown,
-);
+)
+.with_range_frame(page_range_frame);
+
+#[cfg(target_arch = "wasm32")]
+fn page_range_frame(
+    _: &Kernel,
+    _: &Scrolled,
+    view: ViewId,
+    start: f64,
+    end: f64,
+) -> GeometryAnswer {
+    #[link(wasm_import_module = "exact_geometry")]
+    extern "C" {
+        fn range(view: u32, start: u32, end: u32, out: *mut f64) -> u32;
+    }
+    let mut out = [0.0; 4];
+    // SAFETY: the synchronous page reader writes four f64 values to this buffer.
+    let flags = unsafe { range(view, start as u32, end as u32, out.as_mut_ptr()) };
+    answer(flags, out)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn page_range_frame(_: &Kernel, _: &Scrolled, _: ViewId, _: f64, _: f64) -> GeometryAnswer {
+    GeometryAnswer::UNAVAILABLE
+}
 
 #[cfg(target_arch = "wasm32")]
 fn page_shown(_: &Kernel, _: &Scrolled, view: ViewId, first: bool) -> bool {
