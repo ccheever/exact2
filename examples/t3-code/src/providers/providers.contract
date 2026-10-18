@@ -10,6 +10,7 @@ use PvIconButton from "../settings/providers-kit.contract"
 use PvMicro from "../settings/providers-kit.contract"
 use PvIcon from "./provider-icons.contract"
 use CnTooltip from "../settings/settings-b-kit.contract"
+use Tip from "../shell/shell-tip.contract"
 use ProviderAccentPicker from "./settings-b-accent.contract"
 use DriverMark from "./provider-icons-kit.contract"
 use ProviderSetupView from "./providers-setup.contract"
@@ -64,7 +65,13 @@ shape ProviderModelRow
   editing: bool
 shape ProviderBlockKey
   key: string
+shape ProviderCommandArgument
+  key: string
+  index: number
+  value: string
 shape ProviderEditorData
+  localAcp: bool
+  commandArgs: ProviderCommandArgument[]
   id: string
   key: string
   setup: ProviderSetupView
@@ -104,6 +111,7 @@ shape ProviderEditorData
   modelPlaceholder: string
   canAddModel: bool
 shape ProviderRow
+  projectOverride: bool
   id: string
   first: bool
   name: string
@@ -123,6 +131,9 @@ shape ProviderHub
   label: string
   description: string
 shape ProviderPage
+  settingsWritable: bool
+  enableWritable: bool
+  projectIds: string
   available: bool
   writable: bool
   message: string
@@ -175,14 +186,21 @@ component ProvidersPanel
           text page.message font-size="0.875rem" line-height="1.25rem" padding="2rem" color="light-dark(#71717b, #818181)" testId="providers-unavailable"
       else
         column width="100%" gap="0.625rem"
-          PvSectionTitle(title="Providers")
-            if page.updateAll.show
-              ProviderUpdatesAllButton(updateAll=page.updateAll, op=op)
-            button press=op("provider-refresh", "", "", "", true) class=PvGhost disabled=busy aria-label="Refresh provider status" testId="refresh-providers"
-              PvIcon(name="refresh", size=14, color="light-dark(#71717b, #818181)")
-              text (busy ? "Refreshing providers" : page.checked) font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
-            button press=ui("open", "add") class=PvIconButton aria-label="Add provider" disabled=(busy or not page.writable) testId="add-provider" id="add-provider" title=""
-              PvIcon(name="plus", size=14, color="light-dark(#71717b, #818181)")
+          // SettingsSection's title row: Add provider sits right after the title (titleAction); the updates and refresh
+          // controls stay at the end (headerAction).
+          row min-height="1.75rem" padding-left="1rem" padding-right="1rem" gap="1rem" align-items="flex-start" justify-content="space-between" box-sizing="border-box" width="100%"
+            row min-height="1.75rem" gap="0.25rem" align-items="center" min-width=0
+              text "Providers" font-size="0.875rem" line-height="1.25rem" font-weight=400 color="light-dark(#27272ab3, #f5f5f5b3)" role="heading" aria-level=2
+              if page.writable
+                Tip(label="Add provider", side="top", align="center", offset=28)
+                  button press=ui("open", "add") class=PvIconButton aria-label="Add provider" disabled=busy testId="add-provider" id="add-provider" title=""
+                    PvIcon(name="plus", size=14, color="light-dark(#71717b, #818181)")
+            row min-height="1.75rem" min-width="1.75rem" gap="0.5rem" align-items="center" justify-content="flex-end"
+              if page.updateAll.show
+                ProviderUpdatesAllButton(updateAll=page.updateAll, op=op)
+              button press=op("provider-refresh", "", "", "", true) class=PvGhost disabled=busy aria-label="Refresh provider status" testId="refresh-providers"
+                PvIcon(name="refresh", size=14, color="light-dark(#71717b, #818181)")
+                text (busy ? "Refreshing providers" : page.checked) font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
           if not page.writable
             PvGroup()
               PvRow(title="Limited permissions", description=page.message, status="", policy="", wide=(width - 34 >= 512), divided=false)
@@ -212,13 +230,19 @@ component ProvidersPanel
                               box height="1.0625rem" display="flex" align-items="center" flex-shrink=0
                                 box width="0.375rem" height="0.375rem" border-radius="624.9375rem" background-color=(row.dot == "error" ? "light-dark(#e7000b, #ff6467)" : "#fe9a00")
                             text row.status font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" line-clamp=2 text-align="left" testId=`provider-list-status-${row.id}`
-                      box height="1.25rem" display="flex" align-items="center" flex-shrink=0
-                        button press=op("provider-enabled", row.id, "", (row.enabled ? "false" : "true"), true) role="switch" aria-checked=row.enabled aria-label=`Enable ${row.name}` disabled=(busy or not page.writable) testId=`provider-enable-${row.id}` width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(row.enabled ? "flex-end" : "flex-start") flex-shrink=0 background-color=(row.enabled ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
+                      row height="1.25rem" display="flex" align-items="center" gap="0.25rem" flex-shrink=0
+                        if row.projectOverride
+                          button press=op("provider-enabled", row.id, "", "inherit", true) aria-label=`Reset ${row.name} to environment setting` disabled=(busy or not page.enableWritable) testId=`provider-inherit-${row.id}` class=PvIconButton width="1.25rem" height="1.25rem" title="Use environment setting"
+                            PvIcon(name="undo", size=12, color="light-dark(#71717b, #818181)")
+                        button press=op("provider-enabled", row.id, "", (row.enabled ? "false" : "true"), true) role="switch" aria-checked=row.enabled aria-label=`Enable ${row.name}` disabled=(busy or not page.enableWritable) testId=`provider-enable-${row.id}` width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(row.enabled ? "flex-end" : "flex-start") flex-shrink=0 background-color=(row.enabled ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
                           box width="0.875rem" height="0.875rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
+                  // The list's last row opens the same wizard.
+                  if page.writable
+                    AddProviderRow(divided=(page.rows.length > 0), busy=busy, open=ui("open", "add"))
               scroll flex-grow=1 flex-shrink=1 flex-basis=(wide ? "0%" : "auto") min-width=0 width=(wide ? "auto" : "100%") height=(wide ? "100%" : "auto") testId="provider-editor-scroll"
                 column width="100%" padding="1rem" gap="1.5rem" box-sizing="border-box"
                   for editor in page.editors key=editor.key
-                    ProviderEditor(editor=editor, scheme=scheme, rowWide=((wide ? width - 275 : width - 2) - 66 >= 512), busy=busy, setupBusy=setupBusy, writable=page.writable, error=error, op=op, accent=accent, ui=ui, modelAdding=modelAdding)
+                    ProviderEditor(editor=editor, scheme=scheme, rowWide=((wide ? width - 275 : width - 2) - 66 >= 512), busy=busy, setupBusy=setupBusy, writable=page.writable, settingsWritable=page.settingsWritable, error=error, op=op, accent=accent, ui=ui, modelAdding=modelAdding)
                   if page.editors.length == 0
                     text page.emptyEditor font-size="0.875rem" line-height="1.25rem" padding="0.5rem" color="light-dark(#71717b, #818181)"
         column width="100%" gap="0.625rem"
@@ -230,7 +254,7 @@ component ProvidersPanel
           PvGroup()
             if page.macos
               PvRow(title="Cursor account usage", description="Read your existing Cursor CLI login from macOS Keychain to show account history and monthly limits. macOS may ask you to allow access.", status="", policy="", wide=(width - 34 >= 512), divided=false)
-                button press=op("provider-cursor-usage", "", "", (page.cursorUsage ? "false" : "true"), true) role="switch" aria-checked=page.cursorUsage aria-label="Cursor account usage" disabled=(busy or not page.writable) testId="cursor-account-usage" width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(page.cursorUsage ? "flex-end" : "flex-start") background-color=(page.cursorUsage ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
+                button press=op("provider-cursor-usage", "", "", (page.cursorUsage ? "false" : "true"), true) role="switch" aria-checked=page.cursorUsage aria-label="Cursor account usage" disabled=(busy or not page.settingsWritable) testId="cursor-account-usage" width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(page.cursorUsage ? "flex-end" : "flex-start") background-color=(page.cursorUsage ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
                   box width="0.875rem" height="0.875rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
             if page.hubs.length == 0
               PvRow(title="No hubs configured.", description="", status="", policy="", wide=(width - 34 >= 512), divided=page.macos)
@@ -244,14 +268,14 @@ component ProvidersPanel
           PvGroup()
             PvRow(title="Health check interval", description="Refresh provider status, versions, and models in the background. Set to 0 to disable.", status="", policy="This interval is configured here, then the shared Background activity policy decides whether provider probes may run when the timer fires. Custom intervals appear as Advanced in General settings.", wide=(width - 34 >= 512), divided=false)
               if page.healthCustom
-                button press=op("provider-health", "", "", "reset", true) class=PvMicro aria-label="Reset provider health check interval to default" disabled=(busy or not page.writable) testId="reset-provider-health" title=""
+                button press=op("provider-health", "", "", "reset", true) class=PvMicro aria-label="Reset provider health check interval to default" disabled=(busy or not page.settingsWritable) testId="reset-provider-health" title=""
                   PvIcon(name="undo", size=12, color="light-dark(#71717b, #818181)")
-              row gap="0.5rem" align-items="center" flex-shrink=0 opacity=(page.writable ? 1 : 0.5)
+              row gap="0.5rem" align-items="center" flex-shrink=0 opacity=(page.settingsWritable ? 1 : 0.5)
                 row width="8rem" height="1.75rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" align-items="center" role="group"
-                  button press=op("provider-health", "", "", page.healthDown, true) class=PvMicro width="2.125rem" height="1.625rem" aria-label="Decrease provider health check interval" disabled=(busy or not page.writable) testId="health-decrease" title=""
+                  button press=op("provider-health", "", "", page.healthDown, true) class=PvMicro width="2.125rem" height="1.625rem" aria-label="Decrease provider health check interval" disabled=(busy or not page.settingsWritable) testId="health-decrease" title=""
                     PvIcon(name="minus", size=14, color="light-dark(#71717b, #818181)")
-                  input value=health input=editHealth submit=op("provider-health", "", "", health, healthEdited) blur=op("provider-health", "", "", health, healthEdited) aria-label="Provider health check interval in seconds" disabled=(busy or not page.writable) testId="health-interval" flex=1 min-width=0 height="1.125rem" padding=0 border-width=0 background-color="#00000000" text-align="center" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
-                  button press=op("provider-health", "", "", page.healthUp, true) class=PvMicro width="2.125rem" height="1.625rem" aria-label="Increase provider health check interval" disabled=(busy or not page.writable) testId="health-increase" title=""
+                  input value=health input=editHealth submit=op("provider-health", "", "", health, healthEdited) blur=op("provider-health", "", "", health, healthEdited) aria-label="Provider health check interval in seconds" disabled=(busy or not page.settingsWritable) testId="health-interval" flex=1 min-width=0 height="1.125rem" padding=0 border-width=0 background-color="#00000000" text-align="center" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
+                  button press=op("provider-health", "", "", page.healthUp, true) class=PvMicro width="2.125rem" height="1.625rem" aria-label="Increase provider health check interval" disabled=(busy or not page.settingsWritable) testId="health-increase" title=""
                     PvIcon(name="plus", size=14, color="light-dark(#71717b, #818181)")
                 text "seconds" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
 
@@ -259,6 +283,7 @@ component ProvidersPanel
 // drafts are row state: they reset whenever the instance's saved value changes.
 component ProviderEditor
   props
+    settingsWritable: bool
     scheme: string
     editor: ProviderEditorData
     rowWide: bool
@@ -322,6 +347,15 @@ component ProviderEditor
               PvRow(title="Driver", description=`This instance uses ${editor.driver}, which is not available in this build. Its configuration is preserved.`, status="", policy="", wide=rowWide, divided=false)
             for field in editor.fields key=field.rowKey
               ProviderConfigField(field=field, instance=editor.id, first=field.first, wide=rowWide, writable=writable, op=op)
+            if editor.localAcp
+              column padding="1rem" gap="0.5rem"
+                row align-items="center" justify-content="space-between"
+                  text "Arguments" font-size="0.875rem" font-weight=500
+                  button press=op("provider-argument-add", editor.id, "", "", true) disabled=(busy or not writable) class=PvOutline testId="provider-add-argument"
+                    text "Add argument" font-size="0.8125rem"
+                text "One literal argument per row, in launch order." font-size="0.75rem" color="light-dark(#71717b, #818181)"
+                for arg in editor.commandArgs key=arg.key
+                  ProviderCommandArgumentRow(arg=arg, instance=editor.id, writable=(writable and not busy), op=op)
       column width="100%" gap="0.625rem" opacity=(writable ? 1 : 0.5)
         PvSectionTitle(title="Environment")
         PvGroup()
@@ -345,7 +379,7 @@ component ProviderEditor
             AcpManagement(acp=acp, wide=rowWide, op=op, ui=ui)
       if editor.known
         for block in editor.modelBlocks key=block.key
-          ProviderModels(editor=editor, busy=busy, writable=writable, op=op, ui=ui, blockKey=block.key, adding=(modelAdding == block.key))
+          ProviderModels(editor=editor, busy=busy, writable=writable, settingsWritable=settingsWritable, op=op, ui=ui, blockKey=block.key, adding=(modelAdding == block.key))
 
 // The Display name row: name draft and accent color, reset whenever either saves.
 component ProviderNameRow
@@ -408,6 +442,12 @@ component ProviderConfigField
           for option in field.options key=option.value
             button press=op("provider-field", instance, field.key, option.value, true) role="radio" aria-checked=option.selected class=PvOutline height="1.75rem" disabled=(not writable) background-color=(option.selected ? "light-dark(#1b4ed814, #346bf126)" : "light-dark(#ffffff, #ffffff08)") testId=`provider-field-${field.key}-${option.value}`
               text option.label font-size="0.8125rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+      else if field.control == "password"
+        row width=(wide ? "14rem" : "100%") gap="0.5rem" align-items="center"
+          input value=value input=edit blur=op("provider-field", instance, field.key, value, edited) submit=op("provider-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type="password" autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 disabled=(not writable) testId=`provider-field-${field.key}`
+          if field.clearable
+            button press=op("provider-field", instance, field.key, "", true) class=PvIconButton width="1.75rem" height="1.75rem" aria-label=`Clear ${field.label}` disabled=(not writable) testId=`clear-provider-field-${field.key}` title=""
+              PvIcon(name="x", size=14, color="light-dark(#e7000b, #ff6467)")
       else
         input value=value input=edit blur=op("provider-field", instance, field.key, value, edited) submit=op("provider-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type=(field.control == "password" ? "password" : "text") autocorrect="off" spellcheck="false" class=PvField width=(wide ? "14rem" : "auto") flex-grow=(wide ? 0 : 1) flex-shrink=(wide ? 0 : 1) min-width=0 disabled=(not writable) testId=`provider-field-${field.key}`
 
@@ -468,6 +508,7 @@ component ProviderVariableRow
 // editor (providers-upkeep.contract) under the row its pencil opened.
 component ProviderModels
   props
+    settingsWritable: bool
     editor: ProviderEditorData
     busy: bool
     writable: bool
@@ -493,15 +534,15 @@ component ProviderModels
       preventDefault()
       cancelAdd()
   view
-    column width="100%" gap="0.625rem" opacity=(writable ? 1 : 0.5)
+    column width="100%" gap="0.625rem" opacity=(writable or settingsWritable ? 1 : 0.5)
       PvSectionTitle(title="Models")
       PvGroup()
         column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem"
-          text "Favorites, visibility, and ordering are saved on this device. Custom models are saved on the selected environment." font-size="0.75rem" line-height="1rem" margin-bottom="0.75rem" color="light-dark(#71717b, #818181)"
+          text "Favorites, visibility, ordering, and custom models are saved on the selected environment." font-size="0.75rem" line-height="1rem" margin-bottom="0.75rem" color="light-dark(#71717b, #818181)"
           row width="100%" gap="0.5rem" align-items="center" justify-content="space-between" flex-wrap="wrap"
             row gap="0.5rem" align-items="center"
               if editor.bulkLabel != ""
-                button press=op("provider-model-bulk", editor.id, "", "", true) class=PvGhost disabled=busy testId="provider-model-bulk"
+                button press=op("provider-model-bulk", editor.id, "", "", true) class=PvGhost disabled=(busy or not settingsWritable) testId="provider-model-bulk"
                   text editor.bulkLabel font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
               text editor.modelSummary font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="provider-model-count"
             if editor.canAddModel and not adding
@@ -515,7 +556,7 @@ component ProviderModels
               column width="100%"
                 if model.groupLabel != ""
                   text model.groupLabel font-size="0.6875rem" line-height="1rem" padding-bottom="0.375rem" padding-top=(model.firstGroup ? "0.25rem" : "1.25rem") color="light-dark(#71717b, #818181)"
-                ProviderModelLine(model=model, instanceId=editor.id, busy=busy, writable=writable, op=op)
+                ProviderModelLine(model=model, instanceId=editor.id, busy=busy, writable=writable, settingsWritable=settingsWritable, op=op)
                 if model.editing
                   for custom in editor.upkeep.modelEditor key=custom.key
                     CustomModelEditor(editor=custom, op=op)
@@ -532,6 +573,7 @@ component ProviderModels
 // move arrows (not for hidden rows), custom edit/remove, and the picker switch.
 component ProviderModelLine
   props
+    settingsWritable: bool
     model: ProviderModelRow
     instanceId: string
     busy: bool
@@ -546,7 +588,7 @@ component ProviderModelLine
   view
     row width="100%" height="1.75rem" gap="0.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" align-items="center" border-radius="0.5rem" opacity=(model.hidden ? 0.5 : 1) background-color=(over ? "light-dark(#f4f4f54d, #ffffff08)" : "#00000000") hover=hoverRow testId=`provider-model-${model.slug}`
       box position="relative" hover=hover("star")
-        button press=op("favorite-model", instanceId, model.slug, "", true) class=PvMicro aria-label=`${model.favorite ? "Remove" : "Add"} ${model.name} ${model.favorite ? "from" : "to"} favorites` testId=`provider-model-favorite-${model.slug}` title=""
+        button press=op("favorite-model", instanceId, model.slug, "", true) class=PvMicro disabled=(busy or not settingsWritable) aria-label=`${model.favorite ? "Remove" : "Add"} ${model.name} ${model.favorite ? "from" : "to"} favorites` testId=`provider-model-favorite-${model.slug}` title=""
           PvIcon(name=(model.favorite ? "star-filled" : "star"), size=12, color=(model.favorite ? "#fe9a00" : "light-dark(#71717b, #818181)"))
         if tip == "star"
           CnTooltip(tip=(model.favorite ? "Remove from favorites" : "Add to favorites"), tipId=`provider-model-star-tip-${model.slug}`, above=24)
@@ -560,28 +602,57 @@ component ProviderModelLine
       row gap="0.125rem" align-items="center" justify-content="flex-end" flex-shrink=0 min-width="5.5rem"
         if model.moves
           box position="relative" hover=hover("up")
-            button press=op("provider-model-move", instanceId, model.slug, "up", true) class=PvMicro disabled=(busy or not model.canUp) opacity=(model.canUp ? 1 : 0.64) aria-label=`Move ${model.name} up` testId=`provider-model-up-${model.slug}` title=""
+            button press=op("provider-model-move", instanceId, model.slug, "up", true) class=PvMicro disabled=(busy or not settingsWritable or not model.canUp) opacity=(model.canUp ? 1 : 0.64) aria-label=`Move ${model.name} up` testId=`provider-model-up-${model.slug}` title=""
               PvIcon(name="arrow-up", size=12, color="light-dark(#71717b, #818181)")
             if tip == "up"
               CnTooltip(tip="Move up", tipId=`provider-model-up-tip-${model.slug}`, above=24)
           box position="relative" hover=hover("down")
-            button press=op("provider-model-move", instanceId, model.slug, "down", true) class=PvMicro disabled=(busy or not model.canDown) opacity=(model.canDown ? 1 : 0.64) aria-label=`Move ${model.name} down` testId=`provider-model-down-${model.slug}` title=""
+            button press=op("provider-model-move", instanceId, model.slug, "down", true) class=PvMicro disabled=(busy or not settingsWritable or not model.canDown) opacity=(model.canDown ? 1 : 0.64) aria-label=`Move ${model.name} down` testId=`provider-model-down-${model.slug}` title=""
               PvIcon(name="arrow-down", size=12, color="light-dark(#71717b, #818181)")
             if tip == "down"
               CnTooltip(tip="Move down", tipId=`provider-model-down-tip-${model.slug}`, above=24)
+        box position="relative" hover=hover("edit")
+          button press=op("upkeep:cm-open", instanceId, model.slug, "", true) class=PvMicro aria-label=`Edit ${model.slug}` aria-expanded=model.editing disabled=(not writable) testId=`provider-model-edit-${model.slug}` title=""
+            PvIcon(name="pencil", size=12, color="light-dark(#71717b, #818181)")
+          if tip == "edit"
+            CnTooltip(tip="Edit name and options", tipId=`provider-model-edit-tip-${model.slug}`, above=24)
         if model.custom
-          box position="relative" hover=hover("edit")
-            button press=op("upkeep:cm-open", instanceId, model.slug, "", true) class=PvMicro aria-label=`Edit ${model.slug}` aria-expanded=model.editing disabled=(not writable) testId=`provider-model-edit-${model.slug}` title=""
-              PvIcon(name="pencil", size=12, color="light-dark(#71717b, #818181)")
-            if tip == "edit"
-              CnTooltip(tip="Edit name and options", tipId=`provider-model-edit-tip-${model.slug}`, above=24)
           box position="relative" hover=hover("remove")
             button press=op("provider-model-remove", instanceId, model.slug, "", true) class=PvMicro aria-label=`Remove ${model.slug}` disabled=(busy or not writable) testId=`provider-model-remove-${model.slug}` title=""
               PvIcon(name="x", size=12, color="light-dark(#71717b, #818181)")
             if tip == "remove"
               CnTooltip(tip="Remove custom model", tipId=`provider-model-remove-tip-${model.slug}`, above=24)
       box position="relative" hover=hover("switch")
-        button press=op("provider-model-hide", instanceId, model.slug, (model.hidden ? "false" : "true"), true) role="switch" aria-checked=(not model.hidden) aria-label=`Show ${model.name} in the model picker` disabled=(busy or model.custom) testId=`provider-model-visible-${model.slug}` width="1.625rem" height="1rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(model.hidden ? "flex-start" : "flex-end") flex-shrink=0 opacity=(model.custom ? 0.64 : 1) background-color=(model.hidden ? "light-dark(#d4d4d8, #ffffff14)" : "light-dark(#1b4ed8, #346bf1)") title=""
+        button press=op("provider-model-hide", instanceId, model.slug, (model.hidden ? "false" : "true"), true) role="switch" aria-checked=(not model.hidden) aria-label=`Show ${model.name} in the model picker` disabled=(busy or not settingsWritable or model.custom) testId=`provider-model-visible-${model.slug}` width="1.625rem" height="1rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(model.hidden ? "flex-start" : "flex-end") flex-shrink=0 opacity=(model.custom ? 0.64 : 1) background-color=(model.hidden ? "light-dark(#d4d4d8, #ffffff14)" : "light-dark(#1b4ed8, #346bf1)") title=""
           box width="0.75rem" height="0.75rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
         if tip == "switch"
           CnTooltip(tip=model.pickerTip, tipId=`provider-model-switch-tip-${model.slug}`, above=20)
+
+component ProviderCommandArgumentRow
+  props
+    arg: ProviderCommandArgument
+    instance: string
+    writable: bool
+    op: action
+  state value = arg.value
+  action edit(text: string)
+    value = text
+  view
+    row gap="0.5rem"
+      input value=value input=edit blur=op("provider-argument-value", instance, `${arg.index}`, value, true) submit=op("provider-argument-value", instance, `${arg.index}`, value, true) disabled=(not writable) aria-label=`Argument ${arg.index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 testId=`provider-argument-${arg.index}`
+      button press=op("provider-argument-remove", instance, `${arg.index}`, "", true) disabled=(not writable) class=PvIconButton aria-label=`Remove argument ${arg.index + 1}` title=""
+        PvIcon(name="x", size=12, color="light-dark(#71717b, #818181)")
+
+// ProviderSettingsPanel's list row "Add provider": muted until hovered (hover:bg-muted/25 hover:text-foreground).
+component AddProviderRow
+  props
+    divided: bool
+    busy: bool
+    open: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=open hover=hover disabled=busy testId="add-provider-row" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.75rem" width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" border-width=0 border-top-style="solid" border-top-width=(divided ? 1 : 0) border-color="light-dark(#e3e3e780, #ffffff08)" background-color=(over ? "light-dark(#f4f4f540, #ffffff0a)" : "#00000000") title=""
+      PvIcon(name="plus", size=16, color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+      text "Add provider" font-size="0.875rem" line-height="1.25rem" text-align="left" color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")

@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3), under their own names:
 // apps/web/src/components/preview/openPreviewSession.test.ts (4 of 4, with the unread-settings retry's
 // "session" row; its "link" row is browser-links.ts's openUrlInPreview), addBrowserSurface.test.ts (2) and closePreviewSession.test.ts (2). The
@@ -11,15 +12,20 @@
 import { describe, expect, it } from 'bun:test';
 import {
   DEFAULT_BROWSER_PROFILE_ID, addBrowserSurface, browserHost, browserLocal, browserTabFavicon, browserTabTitle, browserView,
-  buildReportInput, closePreviewSession, installBrowserCleanup, listPreviewSessions, liveSessions, openBrowserIn, openPreviewSession, projectDesktopState,
+  revealServerSessions, effectiveNav, buildReportInput, closePreviewSession, installBrowserCleanup, listPreviewSessions, liveSessions, openBrowserIn, openPreviewSession, projectDesktopState, browserPrepare,
   reconcileBrowserSurfaces, syncNativeSessions, type NativeTab, type Rpc,
 } from '../../src/browser/browser-surface';
 import { PreviewStateStore, previewRuntimeTabId, type PreviewSessionSnapshot } from '../../src/browser/browser-state';
 import { BrowserSettingsReadError, resolveBrowserDefaults } from '../../src/browser/browser-profiles';
 import { panelState, panelView, surfaceLocal, surfaceStore, panelKey, type PanelState } from '../../src/panel/panel-surfaces';
 import type { T3Client } from '../../src/client/client';
+import { floatingTabOf } from '../../src/browser/browser-capture';
+import { miniStoreOf, deviceThreadId } from '../../src/device/device-session';
 import { ClientError, type Native } from '../../src/client/protocol';
 import type { Obj } from '../../src/client/domain';
+import { serverStreamSource, serverStreamInput, serverStreamFrame } from '../../src/browser/server-browser-runtime';
+import type { SocketEvent, SocketHandle } from '../../src/transport/transport-session';
+import { adoptAppFiles } from '../../src/media/save-file';
 
 const threadRef = { environmentId: 'local', threadId: 'thread-1' };
 const FILL = { _tag: 'fill' };
@@ -35,6 +41,7 @@ type Call = { method: string; payload: Obj };
 function fakeClient(answer: (method: string, payload: Obj) => Obj | Promise<Obj>, extra: Obj = {}) {
   const calls: Call[] = [], native: Call[] = [];
   const client = {
+    scopes: AUTH_STANDARD_CLIENT_SCOPES,
     environmentId: 'local', threadId: 'thread-1', projectId: 'p1', generation: 1, connection: 'connected', ready: true, available: true, diffOpen: false,
     draftKey: 'local:thread-1', presentation: {} as Obj, config: { environment: { capabilities: {} } }, shell: { threads: [{ id: 'thread-1', projectId: 'p1' }], projects: [{ id: 'p1', workspaceRoot: '/p' }] },
     local: { clientSettings: {}, deviceSettings: {}, composerControls: false },
@@ -218,15 +225,20 @@ describe('the chrome row and the native host', () => {
     expect(browserView(client, surface)).toMatchObject({ failed: true, live: false, failHost: 'localhost:16699', failMessage: 'Connection refused', failLabel: 'ERR_CONNECTION_REFUSED' });
   });
 
-  it('handleSubmitUrl: a good address loads in the tab web view; one the rules refuse does nothing', async () => {
+  it('handleSubmitUrl: a good address loads in the tab web view, other text searches for it; one the rules refuse does nothing', async () => {
     const { client, native } = fakeClient(() => ({}));
     const state = emptyPanel();
     opened(client, state, idle('tab-1'));
     await browserLocal(client, module, state, 'navigate', 'tab-1', 'localhost:16651');
     await browserLocal(client, module, state, 'navigate', 'tab-1', 'ftp://example.com');
     await browserLocal(client, module, state, 'navigate', 'tab-1', '   ');
-    expect(native.map(call => call.payload)).toEqual([{ op: 'browserNavigate', tab: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1'), url: 'http://localhost:16651/', profile: 'default', environment: 'local' }]);
-    expect(browserHost(client).store.read(threadRef).recentlySeenUrls).toEqual(['http://localhost:16651/']);
+    await browserLocal(client, module, state, 'navigate', 'tab-1', 'how to center a div');
+    const tab = previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1'), search = 'https://duckduckgo.com/?q=how%20to%20center%20a%20div';
+    expect(native.map(call => call.payload)).toEqual([
+      { op: 'browserNavigate', tab, url: 'http://localhost:16651/', profile: 'default', environment: 'local' },
+      { op: 'browserNavigate', tab, url: search, profile: 'default', environment: 'local' },
+    ]);
+    expect(browserHost(client).store.read(threadRef).recentlySeenUrls).toEqual([search, 'http://localhost:16651/']);
   });
 
   it('Back, Forward, Refresh and Hard reload go to the tab web view; Open in system browser opens its URL', async () => {
@@ -371,4 +383,60 @@ describe('desktopTabLifetime (through the panel)', () => {
     expect(synced().at(-1)).toEqual([]);
     expect(panelState(client).surfaces).toEqual([]);
   });
+});
+
+it('a server runtime keeps server navigation and never creates or reports a local web view', () => {
+  const { client } = fakeClient(() => ({}));
+  const server = { ...snapshot, runtime: 'server' as const };
+  browserHost(client).store.applyServerSnapshot(threadRef, server);
+  const id = previewRuntimeTabId(threadRef, null, server.tabId);
+  client.presentation = { browserTabs: { [id]: nativeTab({ url: 'https://stale-local.example' }) } };
+  expect(liveSessions(client)).toEqual([]);
+  expect(effectiveNav(client, threadRef, server.tabId)).toMatchObject({ tab: null, nav: server.navStatus });
+});
+
+it('a read-only server viewer lists and prepares the stream without desktop effects or input grants', async () => {
+  const tab = { ...snapshot, runtime: 'server' as const }, transport: Obj[] = [], removed: string[] = [];
+  adoptAppFiles({ fs: { readFile: async () => new ArrayBuffer(0), writeFile: async () => {}, mkdir: async () => {}, rm: async (path: string) => { removed.push(path); } } });
+  const { client, calls, native } = fakeClient(() => ({ sessions: [tab], serverEpoch: 'epoch-1', revision: 1 }), {
+    scopes: ['orchestration:read'], ids: async () => ['reader-frame-store'],
+    call: async (_native: Native, request: Obj) => { transport.push(request); return { wsBase: 'ws://fixture/api/preview-stream', ticket: 'reader-ticket' }; },
+  });
+  const state = emptyPanel(), surface = openBrowserIn(state, tab.tabId, 'local:thread-1');
+  await browserPrepare(client, module, state);
+  expect(calls.map(call => call.method)).toEqual(['preview.list']);
+  expect(transport).toEqual([{ op: 'previewStreamAccess' }]); expect(native).toEqual([]);
+  const view = browserView(client, surface), sent: string[] = [];
+  expect(new URL(view.streamUrl).searchParams.get('wsTicket')).toBe('reader-ticket');
+  const socket: SocketHandle = { readyState: 1, bufferedAmount: 0, send: value => sent.push(value), close() {} };
+  const fetchBefore = globalThis.fetch;
+  try {
+    globalThis.fetch = ((_url: unknown, options: unknown) => {
+      const event = (options as { exactStream: (event: SocketEvent, socket: SocketHandle) => unknown }).exactStream;
+      event({ type: 'message', data: JSON.stringify({ type: 'control', canOperate: false, controller: 'you', generation: 1, dialog: null }) }, socket);
+      event({ type: 'message', data: new Uint8Array([255, 216, 255, 217]).buffer }, socket);
+      return Promise.resolve(new Response());
+    }) as typeof fetch;
+    serverStreamSource(client, view.runtimeId, view.streamUrl);
+  } finally { globalThis.fetch = fetchBefore; }
+  expect(serverStreamFrame(client, view.runtimeId)).toMatchObject({ canOperate: false, controlled: false, label: 'Read-only', decoding: true });
+  for (const kind of ['takeControl', 'mouse', 'wheel', 'key', 'text']) serverStreamInput(client, view.runtimeId, kind, { key: 'x', text: 'x', buttons: 1, phase: 'down', x: 10, y: 10, width: 100, height: 100 });
+  expect(sent).toEqual(['{"type":"ack"}']);
+  client.scopes = []; await browserPrepare(client, module, state);
+  expect(browserView(client, surface).streamUrl).toBe('');
+  expect(removed).toEqual(['app:/tmp/browser-frames/reader-frame-store']);
+});
+
+it('server reveals baseline persisted sessions and only reopen a preview for a fresh reveal request', () => {
+  const { client } = fakeClient(() => ({})), state = emptyPanel(), store = browserHost(client).store;
+  store.applyServerSnapshot(threadRef, { ...snapshot, tabId: 'persisted', runtime: 'server', reveal: true });
+  revealServerSessions(client, state, threadRef); expect(floatingTabOf(client)).toBeNull();
+  store.applyServerSnapshot(threadRef, { ...snapshot, tabId: 'hidden-agent', runtime: 'server', reveal: false });
+  revealServerSessions(client, state, threadRef); expect(floatingTabOf(client)).toBeNull();
+  store.applyServerSnapshot(threadRef, { ...snapshot, tabId: 'revealed', runtime: 'server', reveal: true });
+  revealServerSessions(client, state, threadRef); expect(floatingTabOf(client)).toBe('revealed');
+  miniStoreOf(client).close(deviceThreadId(client)); revealServerSessions(client, state, threadRef); expect(floatingTabOf(client)).toBeNull();
+  openBrowserIn(state, 'revealed', 'local:thread-1'); state.visible = false;
+  store.applyServerSnapshot(threadRef, { ...snapshot, tabId: 'revealed', runtime: 'server', reveal: true, revealRequest: { id: 'again', force: true } });
+  revealServerSessions(client, state, threadRef); expect(state.visible).toBe(true); expect(state.active).toBe('browser:revealed');
 });

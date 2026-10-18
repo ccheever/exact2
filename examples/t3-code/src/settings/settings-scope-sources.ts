@@ -1,3 +1,4 @@
+import { requireRpcPermissions } from '../connections/command-permissions';
 // The settings scope's environments, project groups and per-environment writes
 // (reference: SettingsScopeContext.tsx, useSettingsProjectGroups.ts, useScopedSettings.ts
 // useRunScopedPlan at T3 Code 1e2ecbd975, MIT, LICENSE-T3). The focused environment is
@@ -16,12 +17,13 @@ import { pushToast } from '../shell/toast';
 
 /** One environment the scope can name: its connection, config and the transport its writes take. */
 export interface ScopeEnvironment extends ScopedSettingsEnvironment {
+  readonly scopes?: readonly string[];
   readonly displayUrl: string | null;
   readonly kind: string;
   /** '' for the focused environment, else the fleet key (`origin\nenvironmentId`). */
   readonly fleetKey: string;
 }
-type Focused = Pick<T3Client, 'environmentId' | 'config' | 'ready'> & Partial<Pick<T3Client, 'origin' | 'local'>> & { projectGroups(): { key: string; name: string; members: Obj[] }[] };
+type Focused = Pick<T3Client, 'environmentId' | 'config' | 'ready'> & Partial<Pick<T3Client, 'origin' | 'local' | 'scopes'>> & { projectGroups(): { key: string; name: string; members: Obj[] }[] };
 
 const hostOf = (origin: string) => { try { return new URL(origin).host || origin; } catch { return origin; } };
 const configOf = (config: Obj, connected: boolean) => connected && config.settings !== undefined
@@ -34,14 +36,14 @@ export function scopeEnvironments(client: Focused, source: EnvironmentFleet = ap
   if (client.environmentId) {
     const environment = obj(client.config.environment);
     list.push({ environmentId: client.environmentId, label: str(environment.label, 'This environment'), displayUrl: client.origin ?? null, kind: machineKind(client.config),
-      connection: { phase: client.ready ? 'connected' : 'disconnected' }, serverConfig: configOf(client.config, client.ready), fleetKey: '' });
+      scopes: client.scopes, connection: { phase: client.ready ? 'connected' : 'disconnected' }, serverConfig: configOf(client.config, client.ready), fleetKey: '' });
   }
   for (const entry of source.entries.values()) {
     if (!entry.environmentId || entry.key === focusedKey || list.some(known => known.environmentId === entry.environmentId)) continue;
     const saved = source.saved.find(item => environmentKey(str(item.origin), str(item.environmentId)) === entry.key);
     const synchronized = entry.phase === 'connected' && entry.synchronized === entry.generation;
     list.push({ environmentId: entry.environmentId, label: str(obj(entry.config.environment).label) || str(saved?.label) || hostOf(entry.origin), displayUrl: entry.origin,
-      kind: machineKind(entry.config, str(saved?.machine)), connection: { phase: synchronized ? 'connected' : entry.phase === 'connected' ? 'connecting' : entry.phase },
+      kind: machineKind(entry.config, str(saved?.machine)), scopes: entry.scopes, connection: { phase: synchronized ? 'connected' : entry.phase === 'connected' ? 'connecting' : entry.phase },
       serverConfig: configOf(entry.config, synchronized), fleetKey: entry.key });
   }
   return list;
@@ -82,6 +84,7 @@ export async function environmentRequest(client: Writer, native: Native, environ
   if (!environment.fleetKey) return client.settingsCoreRequest(native, method, payload, write);
   const entry = entryOf(source, environment.fleetKey);
   if (!entry || entry.phase !== 'connected') throw new Error('The environment is not connected.');
+  requireRpcPermissions(entry.scopes, { op: 'request', method, payload });
   const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { op: 'request', method, payload, generation: entry.generation });
   if (!reply.ok) throw new Error(reply.error!.message);
   if (reply.generation !== entry.generation) throw new Error('The connection changed.');
@@ -90,13 +93,13 @@ export async function environmentRequest(client: Writer, native: Native, environ
 
 /** persistScopedSettingsPatch's persistServer: one server.updateSettings per environment; the answer replaces that environment's settings. */
 export function scopedWriter(client: Writer, native: Native, environments: readonly ScopeEnvironment[], source: EnvironmentFleet = appFleet) {
-  return async ({ environmentId, input }: { environmentId: string; input: { patch: Obj } }): Promise<{ _tag: 'Success' | 'Failure' }> => {
+  return async ({ environmentId, input }: { environmentId: string; input: { patch: Obj } }): Promise<{ _tag: 'Success' | 'Failure'; value?: Obj }> => {
     const environment = environments.find(candidate => candidate.environmentId === environmentId);
     if (!environment) return { _tag: 'Failure' };
     const updated = await environmentRequest(client, native, environment, 'server.updateSettings', input, true, source);
     if (!environment.fleetKey) client.config = { ...client.config, settings: updated };
     else { const entry = entryOf(source, environment.fleetKey); if (entry) { entry.config = { ...entry.config, settings: updated }; source.revision++; } }
-    return { _tag: 'Success' };
+    return { _tag: 'Success', value: updated };
   };
 }
 

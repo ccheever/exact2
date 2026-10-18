@@ -1,15 +1,17 @@
 // The client
 // settings a new Browser tab opens with and Settings › Integrations › Browser's rows for them (MIT reference, see
-// LICENSE-T3, T3 Code 1e2ecbd975: packages/contracts/src/settings.ts `browserDefault*`, `browserRecording*`,
+// LICENSE-T3, T3 Code 9c161462c9: packages/contracts/src/settings.ts `browserDefault*`, `browserRecording*`,
 // `browserAutoShowFloatingPreview`; apps/web/src/browser/browserDefaults.ts; apps/web/src/components/settings/
 // IntegrationsSettings.tsx BrowserViewportSetting, BrowserZoomSetting, BrowserAppearanceSetting,
-// BrowserRecordingFrameRateSetting, BrowserRecordingInputSettings, BrowserAutoShowFloatingPreviewSetting).
+// BrowserRecordingFrameRateSetting, BrowserRecordingInputSettings, BrowserAutoShowFloatingPreviewSetting,
+// PullRequestLinksOpenInAppSetting; T3 Code 9c161462c9).
 //
 // They are client-local, as the reference's are (its Chromium guest is desktop-local). The viewport, zoom and appearance
 // are kept beside the profiles in the preference file (t3-code.json); a new tab is born at them (`preview.open`, and
 // `browserSet`). The recording rows and Auto-show write the client settings browser-capture.ts reads
 // (settings-core.ts `CLIENT_DEFAULTS`: browserRecordingFrameRate, browserRecordingShowKeyPresses,
-// browserRecordingShowMousePresses, browserAutoShowFloatingPreview). "Open links in" is browser-links.ts's row (`browserLinkTarget`).
+// browserRecordingShowMousePresses, browserAutoShowFloatingPreview), and "Open pull requests in T3 Code" the client setting
+// pr-surface.ts reads (pullRequestLinksOpenInApp). "Open links in" is browser-links.ts's row (`browserLinkTarget`).
 import { obj, type Obj } from '../client/domain';
 import { applyDeviceSetting, decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
 import type { PreviewViewportSetting } from './browser-state';
@@ -22,6 +24,7 @@ import { adoptBrowserProfilePrefs, browserDefaults, resolveBrowserDefaults, type
 export const BROWSER_RECORDING_FRAME_RATES = [30, 60] as const;
 export const DEFAULT_BROWSER_RECORDING_FRAME_RATE = 30;
 export const DEFAULT_BROWSER_AUTO_SHOW_FLOATING_PREVIEW = true;
+export const DEFAULT_PULL_REQUEST_LINKS_OPEN_IN_APP = true;
 /** "Responsive" before a size was typed: Fill has no dimensions to carry over. */
 export const RESPONSIVE_SEED_SIZE = { width: 1280, height: 800 } as const;
 
@@ -104,10 +107,11 @@ export function changedBrowserSettingLabels(owner: Holder): string[] {
     ...(client.browserRecordingShowMousePresses ? ['Recording mouse presses'] : []),
     ...(client.browserLinkTarget !== 'system' ? ['Open links in'] : []),
     ...(client.browserAutoShowFloatingPreview !== DEFAULT_BROWSER_AUTO_SHOW_FLOATING_PREVIEW ? ['Floating preview'] : []),
+    ...(client.pullRequestLinksOpenInApp !== DEFAULT_PULL_REQUEST_LINKS_OPEN_IN_APP ? ['Open pull requests in T3 Code'] : []),
   ];
 }
 /** restoreDefaults' browser keys kept at the preference root (viewport, zoom, appearance); the recording rows, "Open links
- *  in" and Auto-show are client settings, which restoreDeviceDefaults resets with the rest. */
+ *  in", Auto-show and "Open pull requests in T3 Code" are client settings, which restoreDeviceDefaults resets with the rest. */
 export function restoreBrowserTabDefaults(owner: Holder): void {
   Object.assign(owner.local, defaultsOf());
 }
@@ -150,9 +154,11 @@ export function applyBrowserDefault(owner: Holder, key: string, value: string): 
     case 'key-presses': return write(owner, 'browserRecordingShowKeyPresses', value === 'true' ? 'true' : 'false');
     case 'mouse-presses': return write(owner, 'browserRecordingShowMousePresses', value === 'true' ? 'true' : 'false');
     case 'auto-show': return write(owner, 'browserAutoShowFloatingPreview', value === 'true' ? 'true' : 'false');
+    case 'pull-request-links': return write(owner, 'pullRequestLinksOpenInApp', value === 'true' ? 'true' : 'false');
     case 'reset':
       if (value === 'frame-rate') return write(owner, 'browserRecordingFrameRate', String(DEFAULT_BROWSER_RECORDING_FRAME_RATE));
       if (value === 'auto-show') return write(owner, 'browserAutoShowFloatingPreview', String(DEFAULT_BROWSER_AUTO_SHOW_FLOATING_PREVIEW));
+      if (value === 'pull-request-links') return write(owner, 'pullRequestLinksOpenInApp', String(DEFAULT_PULL_REQUEST_LINKS_OPEN_IN_APP));
       if (value === 'viewport' || value === 'zoom' || value === 'appearance') {
         const field = ({ viewport: 'browserDefaultViewport', zoom: 'browserDefaultZoomFactor', appearance: 'browserDefaultAppearance' } as const)[value];
         (prefs as Record<string, unknown>)[field] = defaultsOf()[field];
@@ -171,6 +177,7 @@ export type BrowserDefaultsView = {
   viewportValue: string; viewportLabel: string; viewportSized: boolean; viewportWidth: number; viewportHeight: number; rotateLabel: string; viewportReset: boolean; viewportOptions: ViewportOption[];
   zoomLabel: string; zoomReset: boolean; zoomOptions: DefaultsOption[]; appearanceLabel: string; appearanceReset: boolean; appearanceOptions: DefaultsOption[];
   frameRateLabel: string; frameRateReset: boolean; frameRateOptions: DefaultsOption[]; keyPresses: boolean; mousePresses: boolean; autoShow: boolean; autoShowReset: boolean;
+  pullRequestLinksInApp: boolean;
 };
 const APPEARANCE_LABELS: Record<PreviewAppearancePreference, string> = { system: 'System', light: 'Light', dark: 'Dark' };
 /** viewportSelectValue / viewportSelectLabel: a preset's id while it is one, else Responsive. */
@@ -195,5 +202,6 @@ export function browserDefaultsView(owner: Holder): BrowserDefaultsView {
     frameRateOptions: BROWSER_RECORDING_FRAME_RATES.map(rate => ({ value: String(rate), label: `${rate} fps`, selected: rate === client.browserRecordingFrameRate })),
     keyPresses: client.browserRecordingShowKeyPresses, mousePresses: client.browserRecordingShowMousePresses,
     autoShow: client.browserAutoShowFloatingPreview, autoShowReset: client.browserAutoShowFloatingPreview !== DEFAULT_BROWSER_AUTO_SHOW_FLOATING_PREVIEW,
+    pullRequestLinksInApp: client.pullRequestLinksOpenInApp,
   };
 }

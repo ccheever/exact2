@@ -116,6 +116,7 @@ component SettingsWindow
     coreChange: action
     coreNavigateRoot: action
     coreScope: action
+    coreNoticeScope: action
     coreThemeDialog: action
     sourceControl: SourceControlPage
     modalError: string
@@ -197,7 +198,6 @@ component SettingsWindow
   state settingsEscapeHeld = false
   state settingsLegacyOpen = false
   state settingsRestoreOpen = false
-  state keybindingSearch = false
   state licenseSearchOpen = false
   // The "Models" block whose "Add custom model" field is open (ProviderModelsSection
   // isAdding, by the block's key: a successful add gives the block a new one), the field whose onKeyDown would take
@@ -218,7 +218,7 @@ component SettingsWindow
   // Escape closes only itself. While one owns it, Back gives up its Escape shortcut; with
   // none (a search left open with a query, the focus elsewhere), Escape leaves Settings. The When editor's and the
   // font list's popovers and the recorder are `aria-modal` too, and the dialogs make this view inert (below).
-  derive escapeOwned = routeKeyboard.phase != "" or settingsMenu != "" or modelsOpen or paletteOpen or chipOpen or themeInspecting or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen or (settingsRoute == "keybindings" and (keybindingRecording or (keybindingSearch and escapeFocus == "keybindings-filter"))) or (settingsRoute == "open-source-licenses" and licenseSearchOpen and escapeFocus == "license-search") or (settingsRoute == "providers" and (providerPage.escapeOwned or (modelAddingShown and escapeFocus == "custom-model-slug")))
+  derive escapeOwned = routeKeyboard.phase != "" or settingsMenu != "" or modelsOpen or paletteOpen or chipOpen or themeInspecting or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen or (settingsRoute == "keybindings" and (keybindingRecording or escapeFocus == "keybindings-filter")) or (settingsRoute == "open-source-licenses" and licenseSearchOpen and escapeFocus == "license-search") or (settingsRoute == "providers" and (providerPage.escapeOwned or (modelAddingShown and escapeFocus == "custom-model-slug")))
   // A Settings dialog is modal (Base UI Dialog): the page behind it is inert, so Back's Escape is the dialog's.
   // "Remove from this device…" (EnvironmentRemoveDialog) counts here; Network access's confirmation does not, as it stays
   // asked for after its serial moves on, when no dialog shows. Both are `aria-modal` too.
@@ -275,17 +275,15 @@ component SettingsWindow
     settingsCommand("settings-core", `restore-device-defaults:|${settingsCore.scopeKey}`, "")
   action coreSlide(row: string, part: string, value: number)
     settingsCommand("settings-core", `${row}:${part}|${settingsCore.scopeKey}`, `${value}`)
-  action searchKeybindings(open: bool)
-    if open or keybindingQuery == ""
-      keybindingSearch = open
-    if not open
-      escapeFocusSet("keybindings-filter", false)
+  // KeybindingsSearchInput: Escape clears the filter, then leaves the field; Settings' Back takes neither.
   action keybindingSearchKey(name: string)
     if name == "Escape"
       preventDefault()
-      keybindingSearch = false
-      escapeFocusSet("keybindings-filter", false)
-      editKeybindingQuery("")
+      if keybindingQuery != ""
+        editKeybindingQuery("")
+      else
+        escapeFocusSet("keybindings-filter", false)
+        blur("keybindings-filter")
   action openLicenseSearch
     licenseSearchOpen = true
   action closeLicenseSearch
@@ -310,11 +308,11 @@ component SettingsWindow
           // Each page owns its scroller (SettingsPageContainer's `data-settings-page-scroll`): a new page opens at its top.
           for page in [settingsPage] key=page
             scroll flex=1 min-height=0 width="100%" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" id="settings-content-scroll" scrollTop=settingsScrollTop scroll-behavior="smooth" testId="settings-content-scroll"
-              column gap="1.125rem" width="100%" max-width=(settingsRoute == "diagnostics" ? "72rem" : (settingsRoute == "providers" or settingsRoute == "connections" ? "64rem" : "56rem")) min-width=0 margin-left="auto" margin-right="auto" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="3rem" box-sizing="border-box" position="relative" id="settings-content-column"
+              column gap="1.125rem" width="100%" max-width=(settingsRoute == "diagnostics" ? "72rem" : "56rem") min-width=0 margin-left="auto" margin-right="auto" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="3rem" box-sizing="border-box" position="relative" id="settings-content-column"
                 if settingsMenu != ""
                   button press=coreMenuClose position="absolute" left=0 top=0 width="100%" height="100%" z-index=40 background-color="#00000000" aria-label="Close menu" aria-keyshortcuts="Escape" testId="settings-menu-backdrop" title=""
                 if settingsCore.showScope or settingsRoute == "general" or settingsRoute == "appearance"
-                  SettingsCoreBody(reduced=viewport.prefersReducedMotion, core=settingsCore, route=settingsRoute, busy=commandPending, menu=settingsMenu, legacyOpen=settingsLegacyOpen, toggleLegacy=coreLegacy, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreNavigate, choose=coreScope, dialog=coreThemeDialog)
+                  SettingsCoreBody(reduced=viewport.prefersReducedMotion, core=settingsCore, route=settingsRoute, busy=commandPending, menu=settingsMenu, legacyOpen=settingsLegacyOpen, toggleLegacy=coreLegacy, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreNavigate, choose=coreScope, noticeChoose=coreNoticeScope, dialog=coreThemeDialog)
                 if settingsRoute == "source-control"
                   SourceControlPanel(data=sourceControl, busy=commandPending, error=modalError, rest=rest, restInput=restInput, restLocal=restLocal)
                 if settingsRoute == "integrations"
@@ -322,7 +320,7 @@ component SettingsWindow
                 if settingsRoute == "snap-shot"
                   SnapshotPanel(data=snapshotSettings, busy=commandPending, setupOpen=snapshotSetupOpen, toggle=toggleSnapshots, setup=showSnapshotSetup(true), change=changeSnapshot, preview=previewSnapshotSound, record=recordSnapshotShortcut, saveShortcut=saveSnapshotShortcut)
                 if settingsRoute == "keybindings"
-                  KeybindingsPanel(data=bindings, query=keybindingQuery, searchOpen=keybindingSearch, adding=keybindingOpen, draftRow=keybindingPrevious, draftCommand=keybindingCommand, draftKey=keybindingKey, draftWhen=keybindingWhen, recording=keybindingRecording, busy=commandPending, error=modalError, search=editKeybindingQuery, searchToggle=searchKeybindings, searchKey=keybindingSearchKey, searchFocus=escapeFocusSet("keybindings-filter", true), add=newKeybinding, cancelAdd=cancelKeybinding, chooseCommand=chooseKeybindingCommand, edit=editKeybinding, setKey=editKeybindingKey, setWhen=editKeybindingWhen, record=recordKeybinding, capture=captureKeybinding, held=keybindingHeld, rest=rest, openFile=rest("keybinding-open", ""))
+                  KeybindingsPanel(data=bindings, query=keybindingQuery, adding=keybindingOpen, draftRow=keybindingPrevious, draftCommand=keybindingCommand, draftKey=keybindingKey, draftWhen=keybindingWhen, recording=keybindingRecording, busy=commandPending, error=modalError, search=editKeybindingQuery, searchKey=keybindingSearchKey, searchFocus=escapeFocusSet("keybindings-filter", true), searchBlur=escapeFocusSet("keybindings-filter", false), add=newKeybinding, cancelAdd=cancelKeybinding, chooseCommand=chooseKeybindingCommand, edit=editKeybinding, setKey=editKeybindingKey, setWhen=editKeybindingWhen, record=recordKeybinding, capture=captureKeybinding, held=keybindingHeld, rest=rest, openFile=rest("keybinding-open", ""))
                 if settingsRoute == "scheduled-tasks"
                   ScheduledPanel(data=scheduled, busy=commandPending, error=(restEditor == "" ? modalError : ""), open=restOpen, rest=rest)
                 if settingsRoute == "storage"
@@ -338,7 +336,7 @@ component SettingsWindow
                 if settingsRoute == "providers"
                   ProvidersPanel(page=providerPage, scheme=scheme, width=min(1024, viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUiWindow("select"), op=providerOp, accent=providerAccent, ui=providerUiWindow, modelAdding=modelAddingLive)
                 if settingsRoute == "projects"
-                  ProjectsPanel(data=projectsSettings, busy=commandPending, error=(restEditor == "" ? modalError : ""), choose=coreScope, rest=rest, restInput=restInput, raw=restRaw, open=restOpen)
+                  ProjectsPanel(data=projectsSettings, busy=commandPending, error=(restEditor == "" ? modalError : ""), choose=coreNoticeScope, rest=rest, restInput=restInput, raw=restRaw, open=restOpen)
                     for row in settingsCore.projectModel key=row.id
                       CoreRowView(reduced=viewport.prefersReducedMotion, row=row, section="project-defaults", pal=settingsCore.palette, codePreview=settingsCore.codePreview, busy=commandPending, menu=settingsMenu, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreNavigate)
                 if modalError != "" and settingsRoute != "projects" and settingsRoute != "scheduled-tasks" and settingsRoute != "source-control" and settingsRoute != "integrations" and settingsRoute != "keybindings" and settingsRoute != "storage" and settingsRoute != "archived" and not snapshotSetupOpen

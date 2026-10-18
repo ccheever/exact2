@@ -2,27 +2,28 @@ import { invalidateFileMetadata } from '../shared/file-metadata';
 // The Files surface (MIT reference, see LICENSE-T3:
 // components/files/FilePreviewPanel.tsx, FileBrowserPanel.tsx, useDirectoryEntries.ts,
 // FileBreadcrumbs.tsx, fileSaveCoordinator.ts, filePreviewMode.ts and @pierre/trees'
-// compact tree): the workspace tree over `projects.listEntries` (one folder at a time,
-// collapsed folders keep their children), path search over `projects.searchEntries`,
+// compact tree; T3 Code 9c161462c9): the workspace tree over `projects.listEntries` (one folder
+// at a time, collapsed folders keep their children), path search over `projects.searchEntries`,
 // the preview over `projects.readFile` with syntax colour, and edits written back with
-// `projects.writeFile` (latest contents win; a save in flight is followed by the newest).
+// `projects.writeFile` (latest contents win; a save in flight is followed by the newest). A
+// folder crumb moves the browser to its folder (`navigateFolderIn`), and a host folder outside
+// the workspace gets a tree of its own, listed with that folder as `cwd`.
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
-import type { Native } from '../client/protocol';
+import { ClientError, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { fileIconToken } from '../shared/timeline-files';
 import { lineTokens } from '../highlight/timeline-diff-syntax';
 import { EDITORS, lastEditor, preferredEditor, rememberEditor } from '../details/shell-details';
-import { workspaceOf, panelKey, panelState, type Surface, type PanelState } from './panel-surfaces';
+import { workspaceOf, panelKey, panelState, navigateFolderIn, type Surface, type PanelState } from './panel-surfaces';
+import { breadcrumbPathOf, fileBreadcrumbs, isAbsolutePath, isListableHostFolder, isWindowsAbsolutePath, joinHostPath, retainedBreadcrumbTrail, trailChildOf } from './files-path';
 import { tableRows } from './rendered-previews';
 import { markdownEnv, messageChips, type MarkdownEnv } from '../timeline/message-chips'; // the chat renderer's chips and settings
 import { messageCodeBlocks } from '../highlight/timeline-highlight';
 import { filesMermaid, type MermaidDiagramView } from '../timeline/timeline-mermaid';
 import { timelineView } from '../timeline/timeline-presentation';
-import { textWidth } from '../pages/pages-text-width';
 import { filesPrefs, type FilesPrefs } from './files-prefs';
-import { anchorFrame } from '../shared/laid-out-widths';
-import { crumbsMask, crumbsShift } from './files-crumbs-scroll'; // the trail scrolled to its end
+import { crumbsMask } from './files-crumbs-scroll'; // the trail scrolled to its end
 import { crumbsOffset, noteFirstRead, settleCrumbs, settleMounted, sourceGutter } from './files-crumbs-settle'; // where the trail settles
 import { contentRevision, htmlPage, htmlToggleLabel, isBrowserPreviewFile, isHtmlPath, isPdfPath } from './files-rendered-html'; // rendered HTML
 import { openFileInPreview } from '../browser/browser-links'; // "Open file in preview browser"
@@ -39,19 +40,24 @@ import { availableEditorIds, markdownFileMenuItems, revealLabelFor } from '../sh
 import { isWorkspaceImagePreviewPath, isWorkspaceVideoPreviewPath, mediaMimeTypeFromExtension } from '../media/media-source';
 import { openMarkdownMediaPreview } from '../timeline/timeline-attachments';
 
-export type TreeRow = { id: string; path: string; name: string; depth: number; directory: boolean; expanded: boolean; selected: boolean; token: string; ignored: boolean; guides: { id: string; left: number }[] };
-export type Crumb = { id: string; label: string; path: string; current: boolean; directory: boolean };
+export type TreeRow = { id: string; path: string; name: string; depth: number; directory: boolean; expanded: boolean; selected: boolean; token: string; ignored: boolean; loading: boolean; guides: { id: string; left: number }[] };
+/** A crumb: `navigable` moves the browser to its folder (FolderBreadcrumb), `descendant` is below the current one (kept
+ *  from where the browser came up), `menu` puts the folder's contents behind the chevron after it (FolderContentsMenu). */
+export type Crumb = { id: string; label: string; path: string; current: boolean; navigable: boolean; descendant: boolean; menu: boolean; last: boolean };
 export type CodeRun = { id: string; text: string; syntax: string };
 export type CodeLine = { id: string; number: string; runs: CodeRun[] };
 export type EditorChoice = { id: string; label: string; selected: boolean };
 export type CrumbEntry = { id: string; path: string; label: string; directory: boolean; token: string; current: boolean; ignored: boolean };
-export type CrumbMenu = { open: boolean; root: string; x: number; back: string; backPath: string; status: string; entries: CrumbEntry[] };
+export type CrumbMenu = { open: boolean; root: string; back: string; backPath: string; status: string; entries: CrumbEntry[] };
 export type FilesView = {
-  cwd: string; project: string; ready: boolean; loading: boolean; error: string; query: string; truncated: boolean;
+  cwd: string; project: string; ready: boolean; loading: boolean; searching: boolean; error: string; query: string; truncated: boolean;
   rows: TreeRow[]; hasDirectories: boolean; allExpanded: boolean; explorer: boolean; showExplorer: boolean;
   /** The tree rows' one context popover (context-menu-actions.ts filesTreeMenuRows). */
   treeMenu: MenuRow[];
-  path: string; preview: string; previewError: string; crumbs: Crumb[]; lines: FileLine[]; commentOpen: boolean; text: string; textKey: string;
+  /** The subheader shows: a file or folder, or the explorer the crumbs walked up to. */
+  subheader: boolean; explorerToggle: boolean;
+  /** A read error's attempted path and, for a workspace file, the workspace folder (FilePreviewPanel's read error). */
+  path: string; preview: string; previewError: string; errorPath: string; errorCwd: string; crumbs: Crumb[]; lines: FileLine[]; commentOpen: boolean; text: string; textKey: string;
   gutter: number; wrap: boolean; rawText: boolean; openInBrowser: boolean; truncatedNote: string; canRender: boolean; rendered: boolean; renderLabel: string; renderIcon: string;
   editable: boolean; pending: boolean; editorId: string; editorLabel: string; editorShow: boolean; editorHint: string; editorUnavailable: string; editors: EditorChoice[]; absolutePath: string;
   // FileMarkdownPreview is ChatMarkdown. `markdownSource` is renderMarkdown's one
@@ -64,10 +70,14 @@ export type FilesView = {
 };
 export type MarkdownSource = { id: string; kind: string; title: string; body: string };
 type Entry = { path: string; kind: 'file' | 'directory'; ignored: boolean };
-type Read = { contents: string; byteLength: number; truncated: boolean; error: string; notFile: boolean };
+type Read = { contents: string; byteLength: number; truncated: boolean; error: string; notFile: boolean; attempted: string; errorCwd: string };
+/** A host folder's own tree (FileBrowserPanel `hostFolder`): listed with the folder as `cwd`, searched over what is loaded. */
+type Tree = { dirs: Map<string, Entry[]>; errors: Map<string, string>; requested: Set<string>; expanded: Set<string>; loadingDirs: Set<string>; query: string; revealed: string };
 type Edit = { contents: string; revision: number; confirmed: number; saving: boolean; error: string };
 type FilesState = {
   key: string; dirs: Map<string, Entry[]>; errors: Map<string, string>; requested: Set<string>; expanded: Set<string>; expandAll: boolean;
+  // A folder's first load (not a refresh) shows a spinner in its row (useDirectoryEntries loadingDirectories).
+  loadingDirs: Set<string>; hosts: Map<string, Tree>; searching: boolean;
   query: string; search: { query: string; entries: Entry[]; truncated: boolean; error: string } | null;
   reads: Map<string, Read>; edits: Map<string, Edit>; loading: number; editing: string; editorText: string; crumb: { root: string; dir: string } | null;
 };
@@ -82,7 +92,7 @@ export function filesState(client: T3Client): FilesState {
   const { cwd } = workspaceOf(client), key = `${client.environmentId}|${cwd}`;
   let state = states.get(client);
   if (!state || state.key !== key) {
-    state = { key, dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), expandAll: false, query: '', search: null, reads: new Map(), edits: new Map(), loading: 0, editing: '', editorText: '', crumb: null };
+    state = { key, dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), expandAll: false, loadingDirs: new Set(), hosts: new Map(), searching: false, query: '', search: null, reads: new Map(), edits: new Map(), loading: 0, editing: '', editorText: '', crumb: null };
     states.set(client, state);
   }
   return state;
@@ -91,8 +101,30 @@ const parentOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 const message = (error: unknown) => error instanceof Error && error.message ? error.message : 'Unable to load folder.';
 export const isMarkdownPath = (path: string) => /\.(?:md|mdx)$/i.test(path);
+/** filePreviewReadErrorMessage: a read failure described by its code without the platform's cause; an older server's own message. */
+export function filePreviewReadErrorMessage(context: Readonly<Record<string, string>>, fallback: string): string {
+  switch (context.failure) {
+    case 'path_not_file': return 'The path is a directory or special file, not a regular file.';
+    case 'binary_file': return 'The file is binary and cannot be displayed as text.';
+    case 'workspace_path_outside_root': return 'The requested path is outside the workspace.';
+    case 'resolved_path_outside_root': return 'The path resolves to a location outside the workspace.';
+    // A realpath failure can mean a missing path, permissions, or another I/O error.
+    case 'operation_failed': return context.operation === 'realpath-workspace-root' ? 'The workspace folder could not be accessed.' : 'The file could not be accessed or read. It may be missing or inaccessible.';
+    default: return fallback;
+  }
+}
 export const isTablePath = (path: string) => /\.(?:csv|tsv)$/i.test(path);
-const isAbsolute = (path: string) => path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path);
+const isAbsolute = isAbsolutePath;
+function hostTree(state: FilesState, folder: string): Tree {
+  let tree = state.hosts.get(folder);
+  if (!tree) { tree = { dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), loadingDirs: new Set(), query: '', revealed: '' }; state.hosts.set(folder, tree); }
+  return tree;
+}
+/** A host folder listing's entry path (`/`-separated, relative to the folder) and back. */
+function hostRelative(folder: string, path: string): string {
+  const separator = isWindowsAbsolutePath(folder) ? '\\' : '/', base = folder.endsWith(separator) ? folder : `${folder}${separator}`;
+  return path.startsWith(base) ? path.slice(base.length).split(separator).join('/') : path;
+}
 /** Pierre's order: folders before files, then a case-insensitive natural name order. */
 export function sortEntries(entries: Entry[]): Entry[] {
   return [...entries].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'directory' ? -1 : 1)
@@ -103,19 +135,21 @@ const toEntry = (value: Obj): Entry | null => {
   return path ? { path, kind: value.kind === 'directory' ? 'directory' : 'file', ignored: value.ignored === true } : null;
 };
 
-/** useDirectoryEntries.load: one folder's immediate children, kept when it collapses. */
-async function loadDirectory(client: T3Client, native: Native, path: string, refresh = false): Promise<void> {
-  const state = filesState(client), { cwd } = workspaceOf(client);
-  if (!cwd || (!refresh && state.dirs.has(path))) return;
-  state.requested.add(path); loadBegin(state, `dir:${path}`); // counted by what is asked
+/** useDirectoryEntries.load: one folder's immediate children, kept when it collapses; `host` lists a host folder's tree. */
+async function loadDirectory(client: T3Client, native: Native, path: string, refresh = false, host = ''): Promise<void> {
+  const state = filesState(client), cwd = host || workspaceOf(client).cwd, tree = host ? hostTree(state, host) : state;
+  if (!cwd || (!refresh && tree.dirs.has(path))) return;
+  const key = host ? `host:${host}|${path}` : `dir:${path}`;
+  tree.requested.add(path); loadBegin(state, key); // counted by what is asked
+  if (!refresh) tree.loadingDirs.add(path);
   try {
     const result = await client.restAccess(native).request('projects.listEntries', { cwd, directoryPath: path });
     if (filesState(client) !== state) return;
     const entries = arr(result.entries).map(toEntry).filter((entry): entry is Entry => !!entry && parentOf(entry.path) === path);
-    state.dirs.set(path, sortEntries(entries)); state.errors.delete(path);
+    tree.dirs.set(path, sortEntries(entries)); tree.errors.delete(path);
   } catch (error) {
-    if (filesState(client) === state && !letGo(error)) state.errors.set(path, message(error));
-  } finally { loadEnd(state, `dir:${path}`); }
+    if (filesState(client) === state && !letGo(error)) tree.errors.set(path, message(error));
+  } finally { loadEnd(state, key); if (!refresh) tree.loadingDirs.delete(path); }
 }
 export async function ensureTree(client: T3Client, native: Native): Promise<void> {
   await loadDirectory(client, native, '');
@@ -129,11 +163,13 @@ async function readFile(client: T3Client, native: Native, path: string): Promise
   try {
     const result = await client.restAccess(native).request('projects.readFile', { cwd, relativePath: path });
     if (filesState(client) !== state) return;
-    state.reads.set(path, { contents: str(result.contents), byteLength: num(result.byteLength), truncated: result.truncated === true, error: '', notFile: false });
+    state.reads.set(path, { contents: str(result.contents), byteLength: num(result.byteLength), truncated: result.truncated === true, error: '', notFile: false, attempted: '', errorCwd: '' });
   } catch (error) {
     if (filesState(client) !== state || letGo(error)) return;
-    const text = message(error);
-    state.reads.set(path, { contents: '', byteLength: 0, truncated: false, error: text, notFile: /not a file|path_not_file|is a directory/i.test(text) });
+    // projectFilesQueryState: the decoded ProjectReadFileError (its failure, and the path it tried), else the message.
+    const context = error instanceof ClientError ? error.context : {}, text = filePreviewReadErrorMessage(context, message(error));
+    const notFile = context.failure ? context.failure === 'path_not_file' : /not a file|path_not_file|is a directory/i.test(text);
+    state.reads.set(path, { contents: '', byteLength: 0, truncated: false, error: text, notFile, attempted: context.resolvedPath || context.operationPath || '', errorCwd: context.cwd || cwd });
   } finally { loadEnd(state, `read:${path}`); }
 }
 /** Opening a file reads it and reveals it: each ancestor folder loads and expands (FileBrowserPanel's reveal). */
@@ -154,8 +190,8 @@ export async function ensureFile(client: T3Client, native: Native, path: string,
     if (reveal && !fromTree) { state.query = ''; state.search = null; }
   }
   await Promise.all(tasks);
-  // A path that turned out to be a folder is revealed and expanded in the tree instead.
-  if (reveal && state.reads.get(path)?.notFile) { state.expanded.add(path); await loadDirectory(client, native, path); }
+  // A path that turned out to be a folder is revealed and expanded in the tree instead; a host folder lists its own tree.
+  if (reveal && state.reads.get(path)?.notFile && !isAbsolute(path)) { state.expanded.add(path); await loadDirectory(client, native, path); }
 }
 export function reconcileFiles(panel: PanelState): void {
   const before = panel.surfaces.length;
@@ -169,15 +205,15 @@ async function search(client: T3Client, native: Native, query: string): Promise<
   const state = filesState(client), { cwd } = workspaceOf(client);
   state.query = query;
   const trimmed = query.trim().slice(0, 256);
-  if (!trimmed || !cwd) { state.search = null; return; }
-  loadBegin(state, 'search');
+  if (!trimmed || !cwd) { state.search = null; state.searching = false; return; }
+  loadBegin(state, 'search'); state.searching = true;
   try {
     const result = await client.restAccess(native).request('projects.searchEntries', { cwd, query: trimmed, limit: PATH_SEARCH_LIMIT });
     if (filesState(client) !== state || state.query !== query) return;
     state.search = { query: trimmed, entries: arr(result.entries).map(toEntry).filter((entry): entry is Entry => !!entry), truncated: result.truncated === true, error: '' };
   } catch (error) {
     if (filesState(client) === state && state.query === query && !letGo(error)) state.search = { query: trimmed, entries: [], truncated: false, error: message(error) };
-  } finally { loadEnd(state, 'search'); }
+  } finally { loadEnd(state, 'search'); if (state.query === query) state.searching = false; }
 }
 
 /** setAllDirectoriesExpanded, re-applied as folders load (the reference's expandAll effect), up to a bound. */
@@ -241,20 +277,59 @@ export function pendingPaths(client: T3Client): Set<string> {
   return new Set(state ? [...state.edits].filter(([, edit]) => edit.confirmed !== edit.revision).map(([path]) => path) : []);
 }
 
+/** FilePreviewPanel's place for a Files or file surface: its path (the workspace root itself is the explorer), whether
+ *  it is a folder, the host folder it lists, and the crumbs' current path and trail (`null` without a subheader). */
+type Place = { path: string; folder: boolean; hostFolder: string; crumbPath: string | null; trail: string | null };
+function placeOf(client: T3Client, state: FilesState, active: Surface): Place {
+  const root = workspaceOf(client).cwd.replace(/[\\/]+$/, ''), requested = active.kind === 'file' ? active.path : '';
+  const path = requested === '.' || (!!root && requested.replace(/[\\/]+$/, '') === root) ? '' : requested;
+  const read = path ? state.reads.get(path) : undefined, trail = active.folderTrail;
+  // The trail only continues below folders, so a surface with one is a folder before its read settles.
+  const folder = !!path && (!!read?.notFile || (trail !== undefined && read === undefined));
+  // The explorer shows crumbs only when they walked the browser up to it.
+  const crumbPath = active.kind === 'file' || active.kind === 'files' ? (path || (trail === undefined ? null : '')) : null;
+  return { path, folder, hostFolder: folder && isAbsolute(path) ? path : '', crumbPath, trail: crumbPath === null ? null : retainedBreadcrumbTrail(trail, crumbPath) };
+}
+const activeSurface = (client: T3Client) => { const panel = panelState(client); return panel.surfaces.find(entry => entry.id === panel.active); };
+/** The host folder the active surface lists, or ''. */
+function activeHostFolder(client: T3Client): string {
+  const active = activeSurface(client);
+  return active ? placeOf(client, filesState(client), active).hostFolder : '';
+}
+/** FilePreviewPanel navigateToFolder: a file keeps its tab and its folder opens beside it; a folder browser moves in
+ *  place (rightPanelStore.navigateFolder). The trail's end keeps its own spelling (`C:/a` or `C:\a`), so it finds its tab. */
+async function navigateCrumb(client: T3Client, native: Native, crumbPath: string): Promise<void> {
+  const panel = panelState(client), active = activeSurface(client), state = filesState(client);
+  if (!active) return;
+  const place = placeOf(client, state, active);
+  if (place.trail === null) return;
+  const path = breadcrumbPathOf(place.trail) === crumbPath ? place.trail : crumbPath, open = new Set(panel.surfaces.map(entry => entry.id));
+  const surface = navigateFolderIn(panel, active.id, path, retainedBreadcrumbTrail(place.trail, path), !!place.path && !place.folder);
+  state.crumb = null;
+  // A new tab reveals its path; a tab that already showed it is only switched to.
+  if (surface?.kind === 'file') await ensureFile(client, native, surface.path, !open.has(surface.id));
+  else if (surface) await ensureTree(client, native);
+}
+
 /** `shelllocal:surface-files-*`. */
 export async function filesLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
   if (op === 'link-menu') { await markdownFileMenu(client, native, id); return ''; }
   if (op === 'row-pick') { await filesTreeChoice(client, native, id, value); return ''; } // context-menu-actions.ts
   const state = filesState(client), preferences = prefsOf(client);
+  // A host folder's rows carry host paths (FileBrowserPanel panelPath); its tree is keyed by the folder's own entries.
+  const host = op === 'toggle' || op === 'search' || op === 'search-key' || op === 'refresh' ? activeHostFolder(client) : '';
   if (op === 'toggle') {
-    if (state.expanded.has(id)) { state.expanded.delete(id); state.expandAll = false; }
-    else { state.expanded.add(id); await loadDirectory(client, native, id); }
+    const tree = host && isAbsolute(id) ? hostTree(state, host) : state, path = tree === state ? id : hostRelative(host, id);
+    if (tree.expanded.has(path)) { tree.expanded.delete(path); if (tree === state) state.expandAll = false; }
+    else { tree.expanded.add(path); await loadDirectory(client, native, path, false, tree === state ? '' : host); }
     return '';
   }
-  if (op === 'search') { await search(client, native, value); return ''; }
+  // A host folder can be a home directory, so its search filters the folders already loaded instead of indexing on the server.
+  if (op === 'search') { if (host) hostTree(state, host).query = value; else await search(client, native, value); return ''; }
+  if (op === 'crumb-go') { await navigateCrumb(client, native, id === '.' ? '' : id); return ''; }
   if (op.startsWith('comment-')) return fileComment(client, native, op.slice(8), id, value, state.reads.get(id)?.contents ?? '', panelKey(client)); // diff-file-comments.ts
   // FileSearchField: its Escape closes the search (closeSearch); the field blurs itself (FilesExplorer searchKey).
-  if (op === 'search-key') { if (value === 'Escape') await search(client, native, ''); return ''; }
+  if (op === 'search-key') { if (value === 'Escape') { if (host) hostTree(state, host).query = ''; else await search(client, native, ''); } return ''; }
   if (op === 'begin-edit') {
     const read = state.reads.get(id);
     if (read && !read.error && !read.truncated && !isAbsolute(id)) { state.editing = id; state.editorText = read.contents; }
@@ -262,9 +337,9 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
   }
   if (op === 'end-edit') { if (state.editing === id) state.editing = ''; return ''; }
   if (op === 'refresh') {
-    const visited = [...state.requested];
-    for (let index = 0; index < visited.length; index += 4) await Promise.all(visited.slice(index, index + 4).map(path => loadDirectory(client, native, path, true)));
-    if (state.query.trim()) await search(client, native, state.query);
+    const visited = [...(host ? hostTree(state, host) : state).requested];
+    for (let index = 0; index < visited.length; index += 4) await Promise.all(visited.slice(index, index + 4).map(path => loadDirectory(client, native, path, true, host)));
+    if (!host && state.query.trim()) await search(client, native, state.query);
     const active = panelState(client).surfaces.find(entry => entry.id === panelState(client).active);
     if (active?.kind === 'file' && !state.edits.get(active.path)?.saving) await readFile(client, native, active.path);
     return '';
@@ -363,7 +438,7 @@ async function editorFor(client: T3Client, native: Native) {
 }
 
 /** The tree as visible rows: expanded folders' children, single-folder chains flattened (flattenEmptyDirectories). */
-export function treeRows(dirs: ReadonlyMap<string, Entry[]>, expanded: ReadonlySet<string>, selected: string): TreeRow[] {
+export function treeRows(dirs: ReadonlyMap<string, Entry[]>, expanded: ReadonlySet<string>, selected: string, loadingDirs: ReadonlySet<string> = new Set()): TreeRow[] {
   const rows: TreeRow[] = [];
   const visit = (folder: string, depth: number) => {
     for (const entry of dirs.get(folder) ?? []) {
@@ -375,7 +450,9 @@ export function treeRows(dirs: ReadonlyMap<string, Entry[]>, expanded: ReadonlyS
         }
       }
       const directory = entry.kind === 'directory', open = directory && expanded.has(path);
-      rows.push({ id: path, path, name, depth, directory, expanded: open, selected: !directory && path === selected, token: directory ? '' : fileIconToken(path), ignored: entry.ignored,
+      // The selected path is revealed and selected, a folder too (FileBrowserPanel's reveal); an open folder still
+      // loading its children shows a spinner in its row (renderRowDecoration).
+      rows.push({ id: path, path, name, depth, directory, expanded: open, selected: path === selected, token: directory ? '' : fileIconToken(path), ignored: entry.ignored, loading: open && loadingDirs.has(path),
         guides: Array.from({ length: depth }, (_, level) => ({ id: String(level), left: Math.round((13.6 + level * 18.7) * 10) / 10 })) });
       if (open) visit(path, depth + 1);
     }
@@ -405,29 +482,34 @@ export function searchRows(entries: Entry[], selected: string): TreeRow[] {
   const expanded = new Set([...all.values()].filter(entry => entry.kind === 'directory').map(entry => entry.path));
   return treeRows(dirs, expanded, selected).map(row => row.directory ? { ...row, expanded: true } : row);
 }
-export const closedCrumbs = (): CrumbMenu => ({ open: false, root: '', x: 0, back: '', backPath: '', status: '', entries: [] });
-/** The open crumb's menu: its folder's entries (folders first), Back while inside a subfolder, placed under the crumb. */
-function crumbMenu(state: FilesState, project: string, current: string, presentation: Obj = {}): CrumbMenu {
+export const closedCrumbs = (): CrumbMenu => ({ open: false, root: '', back: '', backPath: '', status: '', entries: [] });
+/** The open folder menu: its folder's entries (folders first), Back while inside a subfolder, under the crumb's chevron. */
+function crumbMenu(state: FilesState, project: string, current: string, trail: string): CrumbMenu {
   const menu = state.crumb;
-  if (!menu || !current) return closedCrumbs();
-  const trail = crumbs(project, current), index = trail.findIndex(crumb => (crumb.path === '.' ? '' : crumb.path) === menu.root);
+  if (!menu) return closedCrumbs();
+  const list = crumbs(project, current, trail), index = list.findIndex(crumb => crumb.menu && (crumb.path === '.' ? '' : crumb.path) === menu.root);
   if (index < 0) return closedCrumbs();
-  // 12pt subheader inset; a crumb after the first starts with its 14pt chevron and 4pt margins. The
-  // crumb's laid-out place (hooked `crumb:<path>`, laid-out-widths.ts); the advance table only before it reports.
-  const placed = anchorFrame(presentation, `crumb:${trail[index]!.id}`);
-  const x = placed ? 12 + crumbsShift(presentation) + placed[0] + (index > 0 ? 22 : 0) : 12 + trail.slice(0, index).reduce((sum, crumb) => sum + textWidth(crumb.label, 12) + 4 + 22, 0);
   const parent = menu.dir ? menu.dir.slice(0, Math.max(0, menu.dir.lastIndexOf('/'))) : null;
   const canBack = menu.dir !== menu.root && parent !== null && (menu.root === '' || parent === menu.root || parent.startsWith(`${menu.root}/`));
   const entries = state.dirs.get(menu.dir);
-  return { open: true, root: trail[index]!.id, x: Math.round(x * 10) / 10, back: canBack ? `Back to ${parent ? baseName(parent) : project}` : '', backPath: canBack ? parent! : '',
+  return { open: true, root: list[index]!.id, back: canBack ? `Back to ${parent ? baseName(parent) : project}` : '', backPath: canBack ? parent! : '',
     status: entries === undefined ? (state.errors.has(menu.dir) ? 'Retry loading folder' : 'Loading folder…') : entries.length ? '' : 'This folder is empty.',
-    entries: (entries ?? []).map(entry => ({ id: entry.path, path: entry.path, label: baseName(entry.path), directory: entry.kind === 'directory', token: entry.kind === 'directory' ? '' : fileIconToken(entry.path), current: entry.path === current, ignored: entry.ignored })) };
+    entries: (entries ?? []).map(entry => ({ id: entry.path, path: entry.path, label: baseName(entry.path), directory: entry.kind === 'directory', token: entry.kind === 'directory' ? '' : fileIconToken(entry.path), current: entry.kind === 'file' && entry.path === current, ignored: entry.ignored })) };
 }
-/** FileBreadcrumbs: the project, each folder and the current file. */
-export function crumbs(project: string, path: string): Crumb[] {
-  const segments = path.split('/').filter(Boolean);
-  return [{ id: '.', label: project || 'Workspace', path: '.', current: false, directory: true },
-    ...segments.map((segment, index) => ({ id: segments.slice(0, index + 1).join('/'), label: segment, path: segments.slice(0, index + 1).join('/'), current: index === segments.length - 1, directory: index < segments.length - 1 }))];
+/**
+ * FileBreadcrumbs over `trail` (the current path, or a deeper one the browser came up from): the project, each folder
+ * and the file. Each folder crumb moves the browser there and the chevron after it lists the folder's entries; a host
+ * path outside the workspace has no contents menu, and a host crumb the server cannot list (a UNC server) is a label.
+ * The workspace root's crumb is ".".
+ */
+export function crumbs(project: string, path: string, trail = path): Crumb[] {
+  const host = isAbsolute(path), list = fileBreadcrumbs(project || 'Workspace', trail);
+  const currentIndex = list.findIndex(crumb => crumb.path === breadcrumbPathOf(path));
+  return list.map((crumb, index) => ({
+    id: crumb.path || '.', label: crumb.label, path: crumb.path || '.', current: index === currentIndex,
+    navigable: index !== currentIndex && !(host && !isListableHostFolder(crumb.path)), descendant: index > currentIndex,
+    menu: !host && index < list.length - 1, last: index === list.length - 1,
+  }));
 }
 function runsKey(tokens: readonly { text: string; cls: string }[] | undefined, line: string): string {
   let hash = 0;
@@ -506,8 +588,8 @@ export function fileDraftHoldsCommandEnter(client: T3Client): boolean {
 }
 
 export const emptyFiles = (): FilesView => ({
-  cwd: '', project: '', ready: false, loading: false, error: '', query: '', truncated: false, rows: [], hasDirectories: false, allExpanded: false, treeMenu: [],
-  explorer: true, showExplorer: true, path: '', preview: '', previewError: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true, rawText: false, openInBrowser: false,
+  cwd: '', project: '', ready: false, loading: false, searching: false, error: '', query: '', truncated: false, rows: [], hasDirectories: false, allExpanded: false, treeMenu: [],
+  explorer: true, showExplorer: true, subheader: false, explorerToggle: false, path: '', preview: '', previewError: '', errorPath: '', errorCwd: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true, rawText: false, openInBrowser: false,
   truncatedNote: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', editable: false, pending: false, editorId: '', editorLabel: '', editorShow: false, editorHint: '', editorUnavailable: '', editors: [], absolutePath: '',
   markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, table: [], editing: false, editorText: '', crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
 });
@@ -515,41 +597,55 @@ export const emptyFiles = (): FilesView => ({
 export async function filesView(client: T3Client, native: Native, active: Surface, now = 0): Promise<FilesView> {
   const state = filesState(client), preferences = prefsOf(client), { cwd, projectName } = workspaceOf(client);
   if (!state.dirs.has('') && !state.errors.has('')) await ensureTree(client, native);
-  const path = active.kind === 'file' ? active.path : '';
+  const path = placeOf(client, state, active).path;
   if (crumbsMounting(client, client.threadId)) settleMounted(state, path);
   const cold = settleCrumbs(state, path); // where the crumbs settle
   if (path && !state.reads.has(path)) await ensureFile(client, native, path, true);
   else if (path && revealStale(state, path, now)) await ensureFile(client, native, path, true); // a reveal whose answer was abandoned asks again
   noteReveal(client, !!path && missingFolders(state, path).length > 0);
   const read = path ? state.reads.get(path) : undefined;
-  const folder = !!read?.notFile && !isAbsolute(path);
+  const { folder, hostFolder, crumbPath, trail } = placeOf(client, state, active);
   const previewPath = folder ? '' : path;
+  // A host folder's own tree: its root, then the entry that leads toward the trail, revealed and expanded once.
+  const tree = hostFolder ? hostTree(state, hostFolder) : null, selected = hostFolder ? trailChildOf(hostFolder, trail ?? hostFolder) ?? '' : path;
+  if (tree && !tree.dirs.has('') && !tree.errors.has('')) await loadDirectory(client, native, '', false, hostFolder);
+  if (tree && selected && tree.revealed !== trail) { tree.revealed = trail ?? ''; tree.expanded.add(selected); await loadDirectory(client, native, selected, false, hostFolder); }
   const markdown = isMarkdownPath(previewPath), table = isTablePath(previewPath), html = !isAbsolute(previewPath) && isHtmlPath(previewPath);
   const rendered = (markdown && preferences.renderMarkdown) || (table && preferences.renderTable) || (html && preferences.renderBrowserFile !== false);
   // FilePreviewPanel renderBrowserFile: a PDF always shows as its document (BrowserDocumentFrame; here the module's PDFView, issues/closed/20261009-app-file-iframe-loading.md), a page when rendered.
   const pdf = !isAbsolute(previewPath) && isPdfPath(previewPath), frame = (html && rendered) || pdf;
-  const absolute = path ? (isAbsolute(path) ? path : `${cwd.replace(/\/+$/, '')}/${path}`) : '';
+  // The explorer the crumbs walked up to opens the workspace folder in an editor.
+  const absolute = path ? (isAbsolute(path) ? path : `${cwd.replace(/\/+$/, '')}/${path}`) : crumbPath === '' ? cwd : '';
   // A rendered page waits for its signed URL, not for the read.
-  const page = frame ? await htmlPage(client, native, cwd, absolute, previewPath, read && !read.error ? contentRevision(read.contents) : '', now) : { url: '', error: '' };
+  const page = frame ? await htmlPage(client, native, cwd, absolute, read && !read.error ? contentRevision(read.contents) : '', now) : { url: '', error: '' };
   // An image or video renders from its signed URL, never from the read (FilePreviewPanel isImage / isVideo).
   const media = previewPath ? await filesMediaView(client, native, previewPath, absolute, cwd, '', now) : NO_MEDIA;
   const text = read?.contents ?? '';
   const lines = previewPath && read && !read.error ? codeLines(previewPath, text) : [];
   const editable = !!previewPath && !media.kind && !pdf && !!read && !read.error && !read.truncated && !isAbsolute(previewPath);
-  const rows = state.query.trim() && state.search ? searchRows(searchMatches(state.search.entries, state.query), path) : treeRows(state.dirs, state.expanded, path);
-  const reachable = new Set(['', ...[...state.dirs.values()].flat().filter(entry => entry.kind === 'directory').map(entry => entry.path)]);
-  const error = [...state.errors].find(([folderPath]) => reachable.has(folderPath))?.[1] ?? state.search?.error ?? '';
+  const rows = tree ? hostRows(tree, hostFolder, selected)
+    : state.query.trim() && state.search ? searchRows(searchMatches(state.search.entries, state.query), path) : treeRows(state.dirs, state.expanded, path, state.loadingDirs);
+  const shown = tree ?? state;
+  const reachable = new Set(['', ...[...shown.dirs.values()].flat().filter(entry => entry.kind === 'directory').map(entry => entry.path)]);
+  const error = [...shown.errors].find(([folderPath]) => reachable.has(folderPath))?.[1] ?? (tree ? '' : state.search?.error ?? '');
   const editors = await editorFor(client, native);
   const parsedTable = previewPath && table && rendered && read && !read.error ? tableRows(previewPath, text) : null;
-  const showExplorer = !isAbsolute(path) && (preferences.explorer || !previewPath);
+  // shouldShowFileExplorer: never beside a host file; a folder is the explorer alone.
+  const showExplorer = !isAbsolute(previewPath) && (preferences.explorer || !previewPath);
   const preview = !previewPath ? '' : media.kind ? 'media' : frame ? (page.error ? 'error' : page.url ? (pdf ? 'pdf' : 'html') : 'loading') : read === undefined ? 'loading' : read.error ? 'error' : rendered ? (markdown ? 'markdown' : 'table') : 'code';
   const rich = preview === 'markdown' ? await renderedMarkdown(client, native, previewPath, absolute, text, editable, now) : null;
+  const readError = !frame && !media.kind && !!read?.error;
   return {
-    cwd, project: projectName, ready: state.dirs.has(''), loading: state.loading > 0, error, query: state.query,
-    truncated: !!state.query.trim() && !!state.search?.truncated, rows, hasDirectories: [...state.dirs.values()].flat().some(entry => entry.kind === 'directory'),
+    cwd, project: hostFolder || projectName, ready: shown.dirs.has(''), loading: state.loading > 0, searching: !tree && state.searching, error, query: tree ? tree.query : state.query,
+    truncated: !tree && !!state.query.trim() && !!state.search?.truncated, rows,
+    // A host folder can be a home directory, so nothing walks it whole: no expand-all.
+    hasDirectories: !tree && [...state.dirs.values()].flat().some(entry => entry.kind === 'directory'),
     allExpanded: state.expandAll || allExpanded(state), explorer: preferences.explorer, showExplorer, treeMenu: filesTreeMenuRows(client),
+    subheader: crumbPath !== null, explorerToggle: !!previewPath && !isAbsolute(previewPath),
     path, preview,
-    previewError: frame ? page.error : read?.error && !folder ? read.error : '', crumbs: path ? crumbs(projectName, path) : [], lines: fileCommentLines(client, previewPath, text, lines, editable && state.editing === path), commentOpen: fileCommentOpen(client), text, textKey: `${path}:${active.reveal}`,
+    previewError: frame ? page.error : read?.error && !folder ? read.error : '',
+    errorPath: readError ? read!.attempted : '', errorCwd: readError && !isAbsolute(path) ? read!.errorCwd : '',
+    crumbs: crumbPath !== null && trail !== null ? crumbs(projectName, crumbPath, trail) : [], lines: fileCommentLines(client, previewPath, text, lines, editable && state.editing === path), commentOpen: fileCommentOpen(client), text, textKey: `${path}:${active.reveal}`,
     gutter: sourceGutter(lines.length), wrap: client.local.clientSettings.wordWrap !== false,
     // FilePreviewPanel: word wrap reaches only the text bodies (`showsRawText`); a page or a PDF opens in the Browser (`canOpenInBrowser`).
     rawText: preview === 'code', openInBrowser: !!previewPath && client.available === true && media.kind !== 'video' && isBrowserPreviewFile(previewPath),
@@ -560,8 +656,15 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
     ...editors, absolutePath: absolute,
     ...(rich ?? { markdownSource: [], md: emptyFiles().md, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0 }), table: parsedTable?.rows ?? [],
     editing: editable && state.editing === path, editorText: state.editing === path ? state.editorText : '',
-    crumbMenu: crumbMenu(state, projectName, path, client.presentation), crumbsMask: path ? crumbsMask(client.presentation) : 'none',
+    crumbMenu: crumbPath !== null && trail !== null ? crumbMenu(state, projectName, crumbPath, trail) : closedCrumbs(), crumbsMask: crumbPath !== null ? crumbsMask(client.presentation) : 'none',
     crumbsOffset: path !== '' && previewPath !== '' && !!read && !read.error && !rendered && !pdf ? crumbsOffset(client.presentation ?? {}, cold, true) : -1,
     url: frame ? page.url : '', media,
   };
+}
+
+/** A host folder's rows: its tree, or while searching the loaded entries that match, each named by its host path. */
+function hostRows(tree: Tree, folder: string, selected: string): TreeRow[] {
+  const loaded = [...tree.dirs.values()].flat();
+  const rows = tree.query.trim() ? searchRows(searchMatches(loaded, tree.query), selected) : treeRows(tree.dirs, tree.expanded, selected, tree.loadingDirs);
+  return rows.map(row => ({ ...row, id: joinHostPath(folder, row.path), path: joinHostPath(folder, row.path) }));
 }

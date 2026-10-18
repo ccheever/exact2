@@ -1,4 +1,6 @@
 import { notePagePullRequest } from '../panel/closed-views';
+import { checkoutCommand, sourceControlHostName } from '../shared/source-control-hosts';
+import { sharedPullRequestSummary } from './pages-pr-shared';
 // The pull request detail panel: pullRequests.detail and
 // .activity read for the selected row, presented as PullRequestDetailPanel's
 // header and Summary/Timeline tabs, and its writes (runAction, update,
@@ -30,7 +32,7 @@ import {
   shouldRefreshPullRequestActivity, writePullRequestDetailSnapshot, type PullRequestDetailSnapshotRef,
 } from './pages-pr-logic';
 import { holdPullRequestRefreshes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, snapshotStorage, viewRefreshedAt } from './pages-pr-refresh';
-import { conversationBodies, emptySummary, presentSummary, type RemarkWrites } from './pages-pr-summary';
+import { commentFilter, conversationBodies, emptySummary, presentSummary, toggleCommentFilter, type CommentFilter, type RemarkWrites } from './pages-pr-summary';
 import { emptyTimeline, presentTimeline } from './pages-pr-timeline';
 import { canEditPullRequestChangeRequest } from './pages-pr-writes-logic';
 import { commentEditing, emptyWrites, presentWrites, previewBodies, prWrite, reactionPills, writeReference } from './pages-pr-writes';
@@ -38,7 +40,7 @@ import { composerNow } from '../composer/composer-controls';
 import { emptyActions, isActionOp, notedListEntry, prActionCommand, prActionUi, presentActions, type PanelContext } from './pages-pr-actions';
 import { markStackDue, readPanelStack } from './pages-pr-stack';
 import { emptyHandoffs, presentHandoffs, prHandoffCommand } from './pages-pr-handoffs';
-import { runQuickAction } from './pages-pr-quick';
+import { runQuickAction, queueQuickAction, queueCloseBatch } from './pages-pr-quick';
 import { finishCheckoutHandoff } from '../details/pr-row-actions';
 import { emptyLinks, emptyPreview, hoveredLink, linkChips, linksCommand, linkPanelOnPage, openLink, presentLinks, readLinkedThreads, readPreview, type LinkContext } from './pages-pr-links';
 import { surfaceLocal } from '../panel/panel-surfaces';
@@ -189,6 +191,9 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   const ref = { ...selectionRef(selection) };
   if (panel.detailDue) await readDetail(client, native!, panel, ref, storage);
   if (due(panel) && phaseOf(panel) !== shown.get(client)) return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
+  const loaded = panel.detail ?? panel.cached;
+  const known = sharedPullRequestSummary(client, ref, loaded, selection.environmentId || client.environmentId);
+  if (loaded && known && panel.detail) panel.detail = { ...loaded, ...known };
   const display = panel.detail ?? panel.cached;
   if (panel.activityDue && display) await readActivity(client, native!, panel, ref);
   // Then, once the detail says the host keeps stacks, the stack (one native request at a time: an answer burst can
@@ -262,7 +267,7 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
       view.phase = 'ghost'; view.loading = true; view.ghost = ghostOf(listEntry, now);
       // loadingPullRequestCheckoutCommand: a GitHub reference already names its checkout.
       const identity = obj(client.shell.projects.find(project => project.id === selection.projectId)?.repositoryIdentity);
-      if (identity.provider === 'github' || selection.host.toLowerCase() === 'github.com') view.checkoutCommand = `gh pr checkout ${selection.number}`;
+      view.checkoutCommand = checkoutCommand({ provider: str(identity.provider, selection.host.toLowerCase() === 'github.com' ? 'github' : ''), number: selection.number });
     }
     return view;
   }
@@ -270,7 +275,7 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
   // Each remark's pencil and reactions, this client's presses in flight laid over.
   const reference = writeReference(selection);
   const remark = (comment: Obj): RemarkWrites => ({ ...commentEditing(client, reference, display, comment), ...reactionPills(client, reference, str(comment.id), comment.reactions) });
-  presentDetail(view, display, panel!.activity, now, { activityPending, activityError: panel!.activity ? '' : panel!.activityError, listEntry, remark });
+  presentDetail(view, display, panel!.activity, now, { activityPending, activityError: panel!.activity ? '' : panel!.activityError, listEntry, remark, filter: commentFilter(client) });
   view.writes = presentWrites(client, reference, display);
   const code = presentCode({ client, reference, detail: display, activity: panel!.activity, now });
   view.codeTab = code.view;
@@ -335,6 +340,7 @@ function contextOf(client: T3Client, selected: string): PanelContext | null {
 }
 /** `chatlocal:pr-ui-*`: the header's menu choices for the selected pull request (pages-pr-actions.ts). */
 export function prUiLocal(client: T3Client, op: string, selected: string, value: string): string {
+  if (op === 'comment-filter') { toggleCommentFilter(client, value); return ''; }
   const ctx = contextOf(client, selected);
   return ctx ? prActionUi(client, op, ctx, value) : '';
 }
@@ -344,7 +350,7 @@ const copies = new WeakMap<object, { value: string; nonce: number }>();
 export function noteCopy(client: object, value: string): void { copies.set(client, { value, nonce: (copies.get(client)?.nonce ?? 0) + 1 }); }
 export function copyNonce(client: object, value: string): number { const copy = copies.get(client); return copy && value && copy.value === value ? copy.nonce : 0; }
 
-export type PresentOptions = { activityPending?: boolean; activityError?: string; listEntry?: Obj | null; remark?: (comment: Obj) => RemarkWrites };
+export type PresentOptions = { activityPending?: boolean; activityError?: string; listEntry?: Obj | null; remark?: (comment: Obj) => RemarkWrites; filter?: CommentFilter };
 export function presentDetail(view: PrDetailView, detail: Obj, activity: Obj | null, now: number, options: PresentOptions = {}): PrDetailView {
   const author = person(activity?.author ?? detail.author), state = stateKey(detail), checks = arr(detail.checks);
   const permissions = obj(detail.viewerPermissions), capabilities = obj(detail.capabilities);
@@ -353,10 +359,10 @@ export function presentDetail(view: PrDetailView, detail: Obj, activity: Obj | n
     phase: 'content', loading: false, number: num(detail.number), numberLabel: `#${num(detail.number)}`, title: str(detail.title), repository: str(detail.repository),
     url: str(detail.url), state, stateLabel: STATE_LABELS[state] ?? 'Open', conflict: conflictLabel(detail), author: author.login, authorAvatar: author.avatar, authorInitial: author.initial,
     updated: `updated ${relativeLabel(detail.updatedAt, now)}`, updatedAgo: relativeLabel(detail.updatedAt, now), filesCount: count(num(detail.changedFiles)),
-    checkoutCommand: str(detail.provider, 'github') === 'github' ? `gh pr checkout ${num(detail.number)}` : '', baseBranch: str(detail.baseBranch), headBranch: str(detail.headBranch),
+    checkoutCommand: checkoutCommand(detail), baseBranch: str(detail.baseBranch), headBranch: str(detail.headBranch),
     files: `${count(num(detail.changedFiles))} ${num(detail.changedFiles) === 1 ? 'file' : 'files'}`, additions: `+${count(num(detail.additions))}`, deletions: `-${count(num(detail.deletions))}`,
     checksSummary: summarizeChecks(checks), checksTone: checksTone(checks), projectId: str(detail.projectId), host: hostOf(str(detail.url)),
-    hostName: HOST_NAMES[str(detail.provider)] ?? 'GitHub',
+    hostName: sourceControlHostName(str(detail.provider, 'github')),
     linkMenu: `${str(detail.provider)} ${str(detail.url)}`, linkOpenLabel: openOnHostLabel(str(detail.provider)), // the number's menu (PrLinkMenu)
     activityPending: options.activityPending === true, activityError: options.activityError ?? '',
   });
@@ -368,7 +374,7 @@ export function presentDetail(view: PrDetailView, detail: Obj, activity: Obj | n
   view.commentCount = num(activity?.commentCount, arr(activity?.comments).length);
   view.commentsLabel = `Comments (${view.commentCount})`;
   const shared = { detail, activity, activityPending: view.activityPending, activityError: view.activityError, now, ...(options.remark ? { remark: options.remark } : {}) };
-  view.summary = presentSummary({ ...shared, listEntry: options.listEntry ?? null });
+  view.summary = presentSummary({ ...shared, listEntry: options.listEntry ?? null, ...(options.filter ? { filter: options.filter } : {}) });
   view.timeline = presentTimeline(shared);
   // A newer rollup than the detail's checks: its headline, not a count the detail cannot back.
   if (view.summary.checksStale) { view.checksSummary = view.summary.checksState ? CHECKS_HEADLINE[view.summary.checksState] ?? 'No checks reported' : 'No checks reported'; view.checksTone = view.summary.checksState; }
@@ -410,7 +416,6 @@ export function gitHubPullRequestBrowserUrl(identity: Obj, repository: string, n
   if (!origin && !hostname) return '';
   try { const url = new URL(origin || `https://${hostname}`); url.pathname = `/${path.join('/')}/pull/${number}`; return url.toString(); } catch { return ''; }
 }
-const HOST_NAMES: Record<string, string> = { github: 'GitHub', gitlab: 'GitLab', bitbucket: 'Bitbucket', 'azure-devops': 'Azure DevOps', forgejo: 'Forgejo' };
 const hostOf = (url: string) => { try { return new URL(url).host; } catch { return ''; } };
 
 /** pages:pr-* writes, each against the selected pull request on its host. */
@@ -423,6 +428,10 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
   // A checkout hand-off's second half, once the window shows its thread.
   if (op === 'handoff-run') return finishCheckoutHandoff(client, native);
   // A list row's Shift quick action (it names its own row, whatever is selected).
+  if (op === 'queue' || op === 'close-batch') {
+    const lookup = (ref: string) => { const row = parseSelection(ref); return row ? listEntryFor(client, row) : null; };
+    return op === 'close-batch' ? queueCloseBatch(client, native, value.split('\n').filter(Boolean), lookup, () => stale(client)) : queueQuickAction(client, native, value, lookup, () => stale(client));
+  }
   if (op === 'quick') return runQuickAction(client, native, value, ref => { const row = parseSelection(ref); return row ? listEntryFor(client, row) : null; }, () => stale(client));
   const selection = parseSelection(selected);
   if (!selection) throw new ClientError('Choose a pull request first.');

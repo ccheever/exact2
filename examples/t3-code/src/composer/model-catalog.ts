@@ -1,9 +1,14 @@
 // T3's model picker catalog: ModelPickerContent.tsx (rail, filtering, legacy
-// section), modelOrdering.ts, modelPickerSearch.ts and shared searchRanking.ts.
+// section), modelOrdering.ts, and modelPickerSearch.ts and shared searchRanking.ts
+// as of 9c161462c9.
 // Browsing and searching never change the composer's selection; only a chosen
 // row commits one (`command("model", …)`).
-import { arr, str, type Obj } from '../client/domain';
+import { arr, obj, str, type Obj } from '../client/domain';
 import { providerLock, matchesLock } from './composer-controls-commands';
+import { projectProviderEnabled } from '../providers/project-provider-overrides';
+import { formatProviderUpdateRequiredNotice } from '../providers/provider-update-required-models';
+import { providerSettingsWritable } from '../providers/provider-permissions';
+import { modelPreferenceSource } from '../providers/model-preferences';
 import { applyPickerPrefs } from '../providers/settings-b-models'; // hidden models and saved order
 import { fanoutSelections, fanoutSupported } from './composer-controls-fanout';
 import type { T3Client } from '../client/client';
@@ -18,6 +23,7 @@ type Item = { id: string; name: string; shortName: string; subProvider: string; 
 export { pickerReady };
 
 const normalize = (value: string) => value.trim().toLowerCase();
+/** scoreSubsequenceMatch with ignorePosition: gaps and span only. */
 function subsequence(value: string, query: string): number | null {
   let at = 0, first = -1, previous = -1, gaps = 0;
   for (let index = 0; index < value.length; index += 1) {
@@ -25,28 +31,32 @@ function subsequence(value: string, query: string): number | null {
     if (first === -1) first = index;
     if (previous !== -1) gaps += index - previous - 1;
     previous = index; at += 1;
-    if (at === query.length) return first * 2 + gaps * 3 + (index - first + 1 - query.length) + Math.min(64, value.length - query.length);
+    if (at === query.length) return gaps * 3 + (index - first + 1 - query.length);
   }
   return null;
 }
+/** scoreQueryMatch with ignorePosition: the match tier alone, so equal matches keep the catalog's order. */
 function scoreField(value: string, token: string, base: number): number | null {
   if (!value || !token) return null;
-  const penalty = Math.min(64, Math.max(0, value.length - token.length));
   if (value === token) return base;
-  if (value.startsWith(token)) return base + 2 + penalty;
-  const boundary = [' ', '-', '_', '/'].map(marker => { const at = value.indexOf(marker + token); return at < 0 ? -1 : at + marker.length; })
-    .filter(at => at >= 0);
-  if (boundary.length) return base + 4 + Math.min(...boundary) * 2 + penalty;
-  const includes = value.indexOf(token);
-  if (includes >= 0) return base + 6 + includes * 2 + penalty;
+  if (value.startsWith(token)) return base + 2;
+  if ([' ', '-', '_', '/'].some(marker => value.includes(marker + token))) return base + 4;
+  if (value.includes(token)) return base + 6;
   const fuzzy = token.length >= 3 ? subsequence(value, token) : null;
   return fuzzy === null ? null : base + 100 + fuzzy;
 }
 const searchText = (item: Item) => normalize([item.name, item.shortName, item.subProvider, item.driver, item.providerName].filter(Boolean).join(' '));
-/** scoreModelPickerSearch: every token must match a field; favorites get a 24-point boost. */
+const modelName = (name: string) => normalize(name).replace(/\s+/gu, ' ');
+/**
+ * scoreModelPickerSearch: a query that is exactly the model's name or short
+ * name ranks above every token match (favorites too); otherwise every token
+ * must match a field, and favorites get a 24-point boost.
+ */
 export function scoreModel(item: Item, query: string): number | null {
   const tokens = normalize(query).split(/\s+/u).filter(Boolean);
   if (!tokens.length) return 0;
+  const joined = tokens.join(' ');
+  if (joined === modelName(item.name) || joined === modelName(item.shortName)) return -1000;
   const fields = [item.name, ...(item.shortName ? [item.shortName] : []), ...(item.subProvider ? [item.subProvider] : []),
     item.driver, item.providerName].map(normalize).concat(searchText(item));
   let score = 0;
@@ -56,6 +66,12 @@ export function scoreModel(item: Item, query: string): number | null {
     score += Math.min(...scores);
   }
   return item.favorite ? score - 24 : score;
+}
+export function providerRowLabel(displayName: string, subProvider: string): string {
+  const provider = displayName.trim(), sub = subProvider.trim();
+  if (!sub) return displayName;
+  const escaped = provider.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return provider && new RegExp(`^${escaped}\\s+\\S`, 'i').test(sub) ? sub : `${displayName} · ${sub}`;
 }
 function display(item: Item): string {
   const name = item.shortName || item.name, qualifier = item.subProvider.trim();
@@ -132,17 +148,18 @@ export function withJumpLabels<C extends { models: { kind: string; reason: strin
  * only while expanded (from the start when the active model is one of them:
  * `legacyDefault`); keyboard highlight is the view's.
  */
-export function pickerCatalog(client: { config: Obj; local: { favoriteModels: string[] }; providerId: string; modelId: string; threadId?: string; projection?: Obj },
+export function pickerCatalog(client: { config: Obj; local: { favoriteModels: string[] }; providerId: string; modelId: string; threadId?: string; projection?: Obj; projectId?: string; ready?: boolean; scopes?: readonly string[]; settingsWritable?: boolean },
   requested: string, query: string, badge: Badge, target?: PickerTarget) {
-  const providers = arr(client.config.providers);
+  const providers = arr(client.config.providers).map(provider => target ? provider : { ...provider, enabled: projectProviderEnabled(obj(client.config.settings), client.projectId ?? '', str(provider.instanceId), provider.enabled === true) });
   // The composer's picker checks the instance and model the composer shows (activeInstanceId and model are
   // ChatComposer's resolved selection, composer-provider-selection.ts); a settings target keeps its own value.
   const current = target ? { providerId: client.providerId, modelId: client.modelId } : composerPair(client);
   // A started thread offers only its driver's (and account group's) models (ModelPickerContent lockedProvider).
   const lock = target ? null : providerLock(client);
-  const keys = favoriteKeys(client.local.favoriteModels);
+  const source = modelPreferenceSource(client);
+  const keys = favoriteKeys(source.favoriteModels);
   const instanceOrder = new Map(providers.map((provider, index) => [str(provider.instanceId), index]));
-  const items: Item[] = providers.filter(provider => pickerReady(provider) && matchesLock(provider, lock)).flatMap(provider => applyPickerPrefs(client.local, str(provider.instanceId), arr(provider.models)).map((model, order) => {
+  const items: Item[] = providers.filter(provider => pickerReady(provider) && matchesLock(provider, lock)).flatMap(provider => applyPickerPrefs(source, str(provider.instanceId), arr(provider.models)).map((model, order) => {
     const id = str(model.slug), providerId = str(provider.instanceId);
     return { id, name: str(model.name, id), shortName: str(model.shortName), subProvider: str(model.subProvider), providerId,
       providerName: str(provider.displayName, str(provider.driver)), driver: str(provider.driver), favorite: keys.has(`${providerId}:${id}`),
@@ -151,14 +168,15 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
   // An active instance that needs setup opens selected, so its footer offers the setup (ModelPickerContent:245-264).
   const active = providers.find(provider => provider.instanceId === current.providerId);
   const activeNeedsSetup = target?.setup !== false && !!active && shouldOfferModelPickerSetup(active, pickerOptions(active));
-  const selected = requested || (activeNeedsSetup || client.local.favoriteModels.length === 0 ? current.providerId : 'favorites');
+  const selected = requested || (activeNeedsSetup || source.favoriteModels.length === 0 ? current.providerId : 'favorites');
   const searching = normalize(query) !== '';
   const original = (item: Item) => (instanceOrder.get(item.providerId) ?? 0) * 10000 + item.order;
   let list: Item[];
   if (searching) {
-    list = items.map(item => ({ item, score: scoreModel(item, query), tie: searchText(item) }))
-      .filter((entry): entry is { item: Item; score: number; tie: string } => entry.score !== null)
-      .sort((a, b) => a.score - b.score || Number(b.item.favorite) - Number(a.item.favorite) || a.tie.localeCompare(b.tie))
+    // rankModelPickerSearch: best match first; equal matches keep the catalog's own (newest-first) order.
+    list = items.map((item, order) => ({ item, score: scoreModel(item, query), order }))
+      .filter((entry): entry is { item: Item; score: number; order: number } => entry.score !== null)
+      .sort((a, b) => a.score - b.score || Number(b.item.favorite) - Number(a.item.favorite) || a.order - b.order)
       .map(entry => entry.item);
   } else if (selected === 'favorites') {
     list = items.filter(item => item.favorite).sort((a, b) => original(a) - original(b));
@@ -175,7 +193,7 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
   const fan = target ? null : fanoutSelections(client as unknown as T3Client);
   const fanKeys = new Set((fan ?? []).map(selection => `${selection.instanceId}:${selection.model}`));
   const row = (item: Item, index: number, kind: string) => ({ key: `${item.providerId}:${item.id}`, kind, id: item.id, providerId: item.providerId,
-    name: display(item), label: item.subProvider ? `${item.providerName} · ${item.subProvider}` : item.providerName, driver: item.driver,
+    name: display(item), label: providerRowLabel(item.providerName, item.subProvider), driver: item.driver,
     favorite: item.favorite, selected: fan ? fanKeys.has(`${item.providerId}:${item.id}`) : item.providerId === current.providerId && item.id === current.modelId, isNew: item.isNew,
     index, highlighted: false, expanded: false, checked: !!fan && fanKeys.has(`${item.providerId}:${item.id}`), reason: target?.reason(item.providerId, item.id) ?? '', jump: '', jumpKey: '' });
   const rows = ordered.map((item, index) => item === null
@@ -196,7 +214,9 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
   const at = rail.findIndex(entry => entry.selected);
   // expandedLegacyInstances starts with the active instance when its model is a legacy one.
   const legacyDefault = selected === current.providerId && legacy.some(item => item.id === current.modelId);
-  return { searching, provider: selected, favoritesSelected: selected === 'favorites', count: rows.length, legacyCount: legacy.length, legacyDefault,
+  const updateRequired = (searching ? providers.filter(provider => matchesLock(provider, lock)) : providers.filter(provider => provider.instanceId === selected))
+    .flatMap(provider => { const message = formatProviderUpdateRequiredNotice(provider, query); return message ? [{ id: str(provider.instanceId), message }] : []; });
+  return { favoriteWritable: client.settingsWritable ?? providerSettingsWritable(client), updateRequired, environmentId: str(obj(client.config.environment).environmentId), searching, provider: selected, favoritesSelected: selected === 'favorites', count: rows.length, legacyCount: legacy.length, legacyDefault,
     restCount: rest.length + (restLegacy ? 1 : 0), restLegacyCount: restLegacy,
     highlight: -1, highlightKind: '', highlightId: '', highlightProvider: '', models: rows, providers: rail,
     railIndex: selected === 'favorites' ? 0 : at < 0 ? -1 : at + 1,

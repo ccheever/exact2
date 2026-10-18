@@ -1,7 +1,7 @@
 // The chat canvas: where chat, the composer lane, the workspace card and the floating player sit
-// (T3 Code 1e2ecbd975, MIT, see LICENSE-T3: apps/web/src/components/chat/chatCanvasLayout.ts, and
+// (T3 Code 9c161462c9, MIT, see LICENSE-T3: apps/web/src/components/chat/chatCanvasLayout.ts and
 // ChatCanvas.tsx's width probe for the lane metrics). Ported as is; chatLaneMetrics is the one place
-// the lane's constants come from (the probe's `ps-5`, `--chat-content-max-width` and `min-w-[40rem]`),
+// the lane's constants come from (the probe's `sm:ps-12`, `--chat-content-max-width` and `min-w-[40rem]`),
 // so the Interface font size's rem conversion changes them here only.
 import { clampPreviewMiniPlayerPosition, resolvePreviewMiniPlayerFrame, type PreviewMiniPlayerFrame, type PreviewMiniPlayerObstacles } from '../device/previewMiniPlayerLayout';
 import type { PreviewMiniPlayerPosition, PreviewMiniPlayerSize, PreviewMiniPlayerState } from '../device/previewMiniPlayerStore';
@@ -14,9 +14,9 @@ export interface ChatCanvasPreview {
   readonly lastInteraction?: PreviewMiniPlayerState['lastInteraction'];
 }
 
-/** ChatCanvas's width probe at root size `rem`: padding 1.25rem (sm:ps-5), the chat width setting's maximum, a 40rem minimum. */
+/** ChatCanvas's width probe at root size `rem`: padding 3rem (sm:ps-12), the chat width setting's maximum, a 40rem minimum. */
 export function chatLaneMetrics(maxChatWidth: number, rem = 16): { padding: number; maxChatWidth: number; minChatWidth: number } {
-  return { padding: 1.25 * rem, maxChatWidth: maxChatWidth > 0 ? maxChatWidth : 46 * rem, minChatWidth: 40 * rem };
+  return { padding: 3 * rem, maxChatWidth: maxChatWidth > 0 ? maxChatWidth : 46 * rem, minChatWidth: 40 * rem };
 }
 
 const GAP = 12;
@@ -30,7 +30,7 @@ export type ChatCanvasLayout = ReturnType<typeof resolveChatCanvasLayout>;
 export function resolveChatCanvasLayout({
   container,
   preview,
-  padding = 20,
+  padding = 48,
   maxChatWidth = 768,
   minChatWidth = 640,
   composerHeight = 0,
@@ -56,9 +56,11 @@ export function resolveChatCanvasLayout({
   let overlapsChat = false;
   if (preview && container.width > 0 && container.height > 0) {
     frame = resolvePreviewMiniPlayerFrame({ ...preview, container });
-    // Dragging stops at a readable chat lane on the left. Resizing can still
-    // consume that space when the container requires message overlap.
-    const minimumPreviewX = preview.lastInteraction === 'resize' ? GAP : padding + minChatWidth + GAP;
+    // Reserve a readable chat lane only while it leaves room to drag. Otherwise
+    // the container's right edge would pin the preview at every pointer position.
+    const minimumPreviewX = preview.lastInteraction === 'resize' || container.width <= padding + minChatWidth + frame.width + GAP * 2
+      ? GAP
+      : padding + minChatWidth + GAP;
     // New players start beside the composer, with the workspace card above them.
     if (preview.position === null) frame = { ...frame, y: container.height - frame.height - GAP };
     if (preview.lastInteraction === 'resize' && composerHeight > 0) {

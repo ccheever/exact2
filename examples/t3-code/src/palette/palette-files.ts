@@ -1,3 +1,4 @@
+import { can } from '../connections/command-permissions';
 // Go to file (⌘P) and Search project contents (⇧⌘F): reference files/ProjectFilePicker.tsx,
 // ProjectFilePicker.logic.ts and search/ProjectContentSearchDialog.tsx, backed by the
 // server's projects.searchEntries and projects.searchContents over the active workspace.
@@ -79,6 +80,7 @@ export async function filePickerView(client: T3Client, native: Native | null | u
     escapeLabel: 'Back', panel: 'tall' };
   const target = activeTarget(client);
   if (!target || !native?.available || !client.ready) return { ...base, empty: 'Open a project to search its files.', placeholder: 'Search files…', accessoryEnabled: false };
+  if (!can(client, 'filesystem:read')) return { ...base, empty: 'This connection requires filesystem:read.', accessoryEnabled: false };
   const trimmed = query.trim().slice(0, 256);
   const result = await cached(fileCache, client, native, `${client.generation}:${target.cwd}:${trimmed}`, 'projects.searchEntries', { cwd: target.cwd, query: trimmed, limit: FILE_RESULT_LIMIT });
   const rows = flatten([{ value: 'project-files', label: target.projectName, items: fileRows(arr(result.value.entries), result.error ? '' : trimmed).map(entry => ({ row: entry, terms: [] })) }]);
@@ -139,6 +141,7 @@ export async function contentSearchView(client: T3Client, native: Native | null 
     panel: 'fill', toggles: true, matchCase: flags.caseSensitive, wholeWord: flags.wholeWord, regex: flags.useRegex, inputPaddingRight: 120, autoHighlight: true };
   const target = activeTarget(client);
   if (!target || !native?.available || !client.ready) return { ...base, toggles: false, placeholder: 'Search project contents…', empty: 'Open a project to search its files.' };
+  if (!can(client, 'filesystem:read')) return { ...base, toggles: false, empty: 'This connection requires filesystem:read.' };
   const placeholder = `Search in ${target.projectName}`;
   if (!query) return { ...base, placeholder, empty: 'Type to search across your project.' };
   const payload = { cwd: target.cwd, query: query.slice(0, 256), limit: CONTENT_RESULT_LIMIT, ...flags };

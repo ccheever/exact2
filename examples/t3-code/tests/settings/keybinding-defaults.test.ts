@@ -1,8 +1,8 @@
 // Keybindings follow T3 f90b77d809's defaults (upstream 5c0429b157
 // mod+alt+enter sends and opens a new thread; 263097a8da mod+enter starts in the background).
 import { describe, expect, test } from 'bun:test';
-import { keybindingCommands, keybindingDefaults } from '../../src/settings/keybinding-settings';
-import { buildRows, commandLabel, commandOptions } from '../../src/settings/keybinding-view';
+import { keybindingCommands, keybindingDefaults, keybindingSettings } from '../../src/settings/keybinding-settings';
+import { buildRows, commandLabel, commandOptions, groupRows } from '../../src/settings/keybinding-view';
 import { commandLabel as searchLabel } from '../../src/settings/settings-search';
 import { contractFns } from '../support/contract-fn-fixture';
 import { contractComponent } from '../support/contract-action-fixture';
@@ -157,5 +157,24 @@ describe('the Settings capture field (settings-keybindings.contract CaptureField
     expect(drawn('aria-modal=true focusin=entered', false, true)).toBe(true);
     expect(drawn('aria-modal=true focusin=entered', false, false)).toBe(false);
     expect(drawn('testId=`keybinding-capture-${rowId}`', false, false)).toBe(true);
+  });
+});
+
+describe('keybinding areas and disconnected settings', () => {
+  test('area sections preserve row order and mark their own first row', () => {
+    const rows = buildRows(['composer.sendAlternate', 'preview.focusUrl', 'sidebar.toggle', 'chat.new', 'terminal.toggle', 'theme.select', 'script.test.run', 'usage.cost']
+      .map(command => ({ command, shortcut: { key: 'x', modKey: true } })), '');
+    const groups = groupRows(rows);
+    expect(groups.map(group => group.title)).toEqual(['Navigation', 'Threads', 'Composer', 'Terminal', 'Preview & diff', 'Appearance', 'Project scripts', 'Other']);
+    expect(groups.every(group => group.rows[0]?.first)).toBe(true);
+    expect(commandLabel('preview.focusUrl')).toBe('Preview: Focus URL');
+    expect(searchLabel('preview.focusUrl')).toBe('Preview: Focus URL');
+  });
+  test('no environment still lists defaults and explains why the list is read-only', async () => {
+    const page = await keybindingSettings({ connection: 'disconnected' } as never, null, '', '', true);
+    expect(page).toMatchObject({ available: true, writable: false, notice: 'Connect an environment to change keybindings.', error: '' });
+    expect(page.groups.length).toBeGreaterThan(0);
+    expect(page.rows.some(row => row.command === 'threadPanel.toggle' && row.key === 'mod+shift+b')).toBe(true);
+    expect(keybindingDefaults.filter(rule => /^thread.jump/.test(rule.command)).every(rule => rule.when === '!modelPickerOpen && isDesktop')).toBe(true);
   });
 });

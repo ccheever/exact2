@@ -1,13 +1,13 @@
 #if os(macOS)
 import Foundation
 
-/// stream.ts decode's soft queue (MIT reference, see LICENSE-T3:
+/// stream.ts decode's soft queue (MIT reference 9c161462c9, see LICENSE-T3:
 /// packages/client-runtime/src/device/stream.ts SOFT_DECODE_QUEUE). The reference recovers when
-/// more than 8 samples wait for the decoder: iOS falls back to MJPEG (no 3D) and Android restarts
-/// its decoder. Its decoder is fed as the network delivers. Here samples reach the decoder from
+/// more than 8 samples wait for the decoder: iOS drops the backlog and subscribes to the AVCC body
+/// again, which starts at a fresh IDR, and Android restarts its decoder. Its decoder is fed as the network delivers. Here samples reach the decoder from
 /// the main thread, so a stalled main thread (the 3D phone's first scene build on a loaded Mac, a
 /// long layout pass) hands over everything that arrived meanwhile at once: more than 8 waiting
-/// samples although the decoder keeps up, and the phone fell back to flat on its first open.
+/// samples although the decoder keeps up, and the phone fell back to flat (then MJPEG) on its first open.
 ///
 /// A backlog over the soft queue therefore opens a window; the feed is behind only when the
 /// backlog is still over it a `window` later and has not shrunk. A burst drains within it; a

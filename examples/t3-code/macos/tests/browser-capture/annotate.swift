@@ -163,6 +163,16 @@ final class BrowserAnnotateTests: XCTestCase {
 
     // MARK: Tests
 
+    func testCommentDirectionFollowsItsTextOnARightToLeftPage() {
+        _ = CaptureSpin.evaluate(web, "document.documentElement.dir = 'rtl'; 'ok'")
+        start()
+        XCTAssertEqual(overlay()?["direction"] as? String, "ltr", "the toolbar keeps its layout")
+        test("setComment('Make this clearer')")
+        XCTAssertEqual(overlay()?["commentDirection"] as? String, "ltr")
+        test("setComment('مرحبا')")
+        XCTAssertEqual(overlay()?["commentDirection"] as? String, "rtl")
+    }
+
     func testTheOverlayShowsItsToolsAndKeepsItsShadowRootFromThePage() throws {
         start()
         let state = try XCTUnwrap(overlay())

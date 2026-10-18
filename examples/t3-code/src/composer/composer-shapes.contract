@@ -158,8 +158,6 @@ shape ComposerView
   fanoutMore: number
   fanoutKeys: string[]
   traitsLabel: string
-  traitsSpeed: string
-  traitsAria: string
   runtimeIconOnly: bool
   traitsIconOnly: bool
   restingRuntimeIconOnly: bool
@@ -313,7 +311,13 @@ shape PickerSetup
   id: string
   message: string
   label: string
+shape PickerUpdateNotice
+  id: string
+  message: string
 shape PickerCatalog
+  favoriteWritable: bool
+  updateRequired: PickerUpdateNotice[]
+  environmentId: string
   searching: bool
   provider: string
   favoritesSelected: bool

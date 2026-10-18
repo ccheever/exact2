@@ -321,6 +321,17 @@ describe('disconnect and forget', () => {
 });
 
 describe('HTTP through fetch', () => {
+  test('preview streams mint their own authenticated ticket without widening generic HTTP writes', async () => {
+    const { drive, server } = await paired();
+    const access = value(await drive.op({ op: 'previewStreamAccess' }));
+    expect(access).toMatchObject({ httpBase: `${ORIGIN}/api/preview-stream`, wsBase: 'ws://127.0.0.1:4001/api/preview-stream' });
+    expect(typeof access.ticket).toBe('string');
+    expect(server.requests.at(-1)).toMatchObject({ method: 'POST', path: '/api/auth/websocket-ticket', headers: { Authorization: 'Bearer token-1' } });
+    expect((await drive.op({ op: 'http', path: '/api/auth/websocket-ticket', method: 'POST' })).error).toMatchObject({ kind: 'Arguments' });
+    await drive.op({ op: 'disconnect' });
+    expect((await drive.op({ op: 'previewStreamAccess' })).error).toMatchObject({ kind: 'Disconnected' });
+  });
+
   test('a read sends the bearer; the pull request diff is a POST of its allowed fields', async () => {
     const { drive, server } = await paired();
     server.routes['/api/orchestration/shell'] = () => ({ status: 200, body: { projects: [] } });

@@ -12,7 +12,7 @@ import { arr, obj, str, type Obj } from '../client/domain';
 import type { PanelState, Surface } from './panel-surfaces';
 import { keepRestored, readRestored, RESTORED_KINDS, type RestoredSurface, type SurfaceEntry } from './saved-surfaces';
 
-export type SavedSurface = { id: string; kind: 'files' | 'file' | 'pull-requests'; path: string; line: number } | RestoredSurface;
+export type SavedSurface = { id: string; kind: 'files' | 'file' | 'pull-requests'; path: string; line: number; folderTrail?: string } | RestoredSurface;
 export type SavedPanel = { visible: boolean; active: string; surfaces: SavedSurface[]; maximized?: true };
 type Holder = { local: object };
 const KEPT = new Set(['files', 'file', 'pull-requests']);
@@ -21,11 +21,13 @@ const MAX_PANELS = 200;
 function keep(surface: SurfaceEntry): SavedSurface | null {
   if (RESTORED_KINDS.has(surface.kind)) return keepRestored(surface);
   if (!KEPT.has(surface.kind)) return null;
+  // The migration drops a folder trail that is not a string and keeps the surface.
+  const trail = typeof surface.folderTrail === 'string' && surface.kind !== 'pull-requests' ? { folderTrail: surface.folderTrail } : {};
   if (surface.kind === 'file') {
     if (!surface.path || surface.id !== `file:${surface.path}`) return null;
-    return { id: surface.id, kind: 'file', path: surface.path, line: surface.line > 0 ? Math.trunc(surface.line) : 0 };
+    return { id: surface.id, kind: 'file', path: surface.path, line: surface.line > 0 ? Math.trunc(surface.line) : 0, ...trail };
   }
-  return surface.id === surface.kind ? { id: surface.id, kind: surface.kind as 'files' | 'pull-requests', path: '', line: 0 } : null;
+  return surface.id === surface.kind ? { id: surface.id, kind: surface.kind as 'files' | 'pull-requests', path: '', line: 0, ...trail } : null;
 }
 
 /** One panel as saved: its kept surfaces, the active one (or the first while open), open only with something kept. */
@@ -83,6 +85,7 @@ export function restoreRightPanel(owner: Holder & { preferencesLoaded: boolean; 
   if (!saved || state.surfaces.length || state.userRevision) return false;
   state.surfaces = saved.surfaces.map((entry): Surface => ({
     id: entry.id, kind: entry.kind, path: entry.path, line: entry.line, reveal: 0,
+    ...('folderTrail' in entry && entry.folderTrail !== undefined ? { folderTrail: entry.folderTrail } : {}),
     ...('terminal' in entry ? { terminal: entry.terminal } : {}),
     ...('title' in entry ? { title: entry.title } : {}), ...('pr' in entry ? { pr: entry.pr } : {}), ...('attachment' in entry ? { attachment: entry.attachment } : {}), ...('device' in entry && entry.device ? { device: entry.device } : {}),
   }));

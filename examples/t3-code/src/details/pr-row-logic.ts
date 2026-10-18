@@ -1,3 +1,4 @@
+// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
 // The pure half of the details card's pull request row (MIT
 // reference, see LICENSE-T3, upstream f90b77d809):
 // - components/pullRequest/pullRequestDetail.logic.ts: allowedPullRequestMergeMethods,
@@ -149,7 +150,7 @@ export function handoffPrompt(existing: { prompt: string; lastHandoffPrompt: str
 
 // ── Host actions (PullRequestDetailPanel ACTION_SUCCESS_LABELS / ACTION_FAILURE_LABELS / ACTION_FAILURE_HINTS) ──
 /** PullRequestAction, in the contract's order. */
-export const PULL_REQUEST_ACTIONS = ['merge', 'ready', 'draft', 'close', 'reopen', 'update-branch', 'enable-auto-merge', 'disable-auto-merge', 'revert', 'approve-workflows'] as const;
+export const PULL_REQUEST_ACTIONS = ['merge', 'ready', 'draft', 'close', 'reopen', 'delete-branch', 'update-branch', 'enable-auto-merge', 'disable-auto-merge', 'revert', 'approve-workflows'] as const;
 export type PullRequestAction = (typeof PULL_REQUEST_ACTIONS)[number];
 export type UpdateMethod = 'merge' | 'rebase';
 export const ACTION_SUCCESS: Record<string, string> = {
@@ -157,13 +158,13 @@ export const ACTION_SUCCESS: Record<string, string> = {
   'update-branch': 'Branch updated with the base branch',
   // True whichever it did: a pull request that was already mergeable merges the moment this is armed.
   'enable-auto-merge': 'Auto-merge turned on — merges as soon as this is ready, sooner if it already is',
-  'disable-auto-merge': 'Auto-merge turned off', revert: 'Revert pull request opened', 'approve-workflows': 'Workflows approved',
+  'disable-auto-merge': 'Auto-merge turned off', revert: 'Revert pull request opened', 'delete-branch': 'Branch deleted', 'approve-workflows': 'Workflows approved',
 };
 /** Said as the thing that did not happen, rather than as the operation that returned an error. */
 export const ACTION_FAILURE: Record<string, string> = {
   merge: 'Could not merge this pull request', ready: 'Could not mark this ready for review', draft: 'Could not convert this to a draft', close: 'Could not close this pull request',
   reopen: 'Could not reopen this pull request', 'update-branch': 'Could not update this branch', 'enable-auto-merge': 'Could not turn on auto-merge',
-  'disable-auto-merge': 'Could not turn off auto-merge', revert: 'Could not open a revert pull request', 'approve-workflows': 'Could not approve workflows',
+  'disable-auto-merge': 'Could not turn off auto-merge', revert: 'Could not open a revert pull request', 'delete-branch': 'Could not delete this branch', 'approve-workflows': 'Could not approve workflows',
 };
 /** What to try, for the times the host says only that it refused. */
 export const ACTION_HINT: Record<string, string> = {
@@ -175,6 +176,7 @@ export const ACTION_HINT: Record<string, string> = {
   'update-branch': 'The host refused it. Check that you have write access to the branch — one from a fork also needs its author to allow edits from maintainers — and that it does not conflict with the base.',
   'enable-auto-merge': 'The host refused it. Check that this repository allows auto-merge, that you have write access, and that there is something left for it to wait on.',
   'disable-auto-merge': 'The host refused it. Check that you have write access, and that the merge has not already happened.',
+  'delete-branch': 'The host refused it. Check that you have write access to the source repository and that the branch has not moved since this page loaded.',
   revert: 'The host refused it. Check that you have write access and that this pull request was merged on the host.',
   'approve-workflows': 'The host refused it. Check that you have Actions write access and that these workflow runs are still awaiting approval.',
 };
@@ -229,7 +231,7 @@ export function resolveBaseFreshness(detail: Obj): { behindBy: number | null; me
 }
 /** pullRequestActionNeedsHostRefresh: an update moves the head; approved workflows are data the normal detail omits. */
 const ACTION_NEEDS_HOST_REFRESH: Record<PullRequestAction, boolean> = { 'update-branch': true, merge: false, ready: false, draft: false, close: false, reopen: false,
-  'enable-auto-merge': false, 'disable-auto-merge': false, revert: false, 'approve-workflows': true };
+  'enable-auto-merge': false, 'disable-auto-merge': false, revert: false, 'delete-branch': false, 'approve-workflows': true };
 export const pullRequestActionNeedsHostRefresh = (action: string) => ACTION_NEEDS_HOST_REFRESH[action as PullRequestAction] === true;
 const OPERATION_PREFIX = /^Pull request operation \w+ failed:\s*/iu;
 const TOOL_NOISE = [/^(github|gitlab|bitbucket|azure devops)?\s*(cli|api)?\s*(command\s*)?failed\.?$/iu, /^exited? with (code|status) \d+\.?$/iu, /^unknown error\.?$/iu];
@@ -262,17 +264,11 @@ export function preparePayload(detail: Obj, mode: 'worktree' | 'local' = 'worktr
 }
 
 // ── The row's trailing action (ThreadDetailsPrRow trailingAction) ──
-/**
- * The action segment's measured width (13pt medium label, 10pt insets, the transparent 1pt border
- * and, for the hand-offs, the 12pt arrow 10pt after the label), so the checks popover can land
- * end-aligned with its trigger (popovers here anchor at their invoker's bottom-left).
- */
-const ACTION_WIDTH: Record<string, number> = { Resolve: 92.3, Fix: 61.8, 'Preparing...': 116.2, Ready: 60.4, 'Marking...': 84.1, Merge: 61.3, 'Merging...': 84.9 };
-export type TrailingAction = { action: string; label: string; tooltip: string; destructive: boolean; suffix: boolean; width: number };
+export type TrailingAction = { action: string; label: string; tooltip: string; destructive: boolean; suffix: boolean };
 export function trailingAction(action: string, input: { handoff: string; actionPending: boolean; method: MergeMethod }): TrailingAction | null {
   const make = (label: string, pendingLabel: string, pending: boolean, tooltip: string, destructive: boolean, suffix: boolean): TrailingAction => {
     const shown = pending ? pendingLabel : label;
-    return { action, label: shown, tooltip, destructive, suffix, width: ACTION_WIDTH[shown] ?? 61.3 };
+    return { action, label: shown, tooltip, destructive, suffix };
   };
   if (action === 'resolve') return make('Resolve', 'Preparing...', input.handoff === 'conflicts', 'Check the branch out and resolve the conflicts in a new thread', true, true);
   if (action === 'ready') return make('Ready', 'Marking...', input.actionPending, 'Mark this pull request as ready for review', false, false);
@@ -328,4 +324,9 @@ export function prCard(detail: Obj, lifecycleKey: string, room: number, row: { w
   card.clamped = card.flipped && row.linkRight - width < -8;
   card.maxWidth = card.clamped ? Math.min(320, row.width + 16) : card.flipped ? 320 : Math.min(320, row.width + 8);
   return card;
+}
+
+/** The source branch is deletable only after merge/close, with both host support and viewer permission. */
+export function canDeletePullRequestBranch(detail: Obj): boolean {
+  return (detail.state === 'merged' || detail.state === 'closed') && obj(detail.capabilities).deleteBranch === true && offered(detail, 'delete-branch');
 }

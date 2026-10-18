@@ -6,7 +6,7 @@ use AttachmentUrl from "./timeline-attachments.contract"
 use CodeTip from "./code-tips.contract"
 use Icon from "../shared/icons.contract"
 use MorphMaximize, MorphCopyCheck from "../shell/shell-morph.contract"
-use CitePart, CiteOffer, citePart, citeEndKey, citeLineRight, citeLineBottom, citeAxis, citeSize, citeOfferFor from "./diff-cite.contract"
+use CitePart, CiteOffer, citePart, citeEndKey, citeLineRight, citeLineBottom, citeAxis, citeSize, citeOfferFor, citeNear from "./diff-cite.contract"
 use MarkdownMedia from "../media/media-markdown.contract"
 use hoverTipAtFrame from "../shell/hover-layer.contract" // a pull request link's card
 use kmArrow from "../shared/menu-keys.contract"
@@ -66,6 +66,9 @@ shape ChatBlock
   // -1 where the checkbox is GFM's disabled one (the transcript, a read-only file).
   task: string
   taskOffset: number
+  // An ordered list item's marker gutter in `ch` when the list's widest marker has several digits
+  // (markdown_headings.rs list_gutters), 0 for the default 1.25rem.
+  gutter: number
 shape ChatDocument
   id: string
   blocks: ChatBlock[]
@@ -163,6 +166,13 @@ fn galleryRun(run: ChatRun, chips: ChipView[]): bool = run.kind == "media" and r
 fn tableGalleryIds(block: ChatBlock, chips: ChipView[]): string = block.rows.map((row) => row.cells.map((cell) => cell.runs.filter((run) => galleryRun(run, chips)).map((run) => `${block.id}-${row.id}-${cell.id}-${run.id}`).join("\n")).join("\n")).join("\n")
 fn markdownGalleryIds(blocks: ChatBlock[], chips: ChipView[]): string[] = blocks.map((block) => block.kind == "image" ? (galleryImage(block.href, chips) ? block.id : "") : block.kind == "table" ? tableGalleryIds(block, chips) : (block.flow and not ["code", "table-row", "rule"].includes(block.kind) ? block.runs.filter((run) => galleryRun(run, chips)).map((run) => `${block.id}-${run.id}`).join("\n") : "")).join("\n").split("\n").filter((id) => id != "")
 
+// A heading's element: `md-<document>-<heading id>` (its id names nothing else in the window).
+fn headingNode(scope: string, block: ChatBlock): string = `md-${scope}-${block.href != "" ? block.href : block.id}`
+// Whether a `#fragment` link names a heading of `document`.
+fn headingTarget(document: ChatDocument, href: string): bool = href.startsWith("#") and document.blocks.filter((b) => b.kind == "heading" and b.href != "" and b.href == href.slice(1)).length > 0
+
+fn inlineFile(run: ChatRun, chips: ChipView[]): bool = run.mono and run.href.startsWith("t3-inline-code:") and chips.filter((chip) => chip.href == run.href).length > 0
+
 component ChatMarkdown
   props
     document: ChatDocument
@@ -205,7 +215,7 @@ component AnswerMarkdown
   // The selected part of each text of the answer, in the message's text stream (AssistantSelectionToolbar): a prose
   // block's, and each word or code span of a block laid out word by word and a code block's code.
   // `block` is the text's id suffix (`cite-<source>-<block>`): the block, the block and its run, or the block and "code".
-  state parts = [CitePart(block="", start=0, end=0, lx=0, ly=0, lw=-1, lh=0)].filter((p) => p.end > 0)
+  state parts = [CitePart(block="", start=0, end=0, lx=0, ly=0, lw=-1, lh=0, lines=[])].filter((p) => p.end > 0)
   // observeSelectionActions: a primary button is down in this answer (Cite waits for its release),
   // and the selection changed while it was.
   state held = false
@@ -232,14 +242,16 @@ component AnswerMarkdown
   action down(e: PointerEvent)
     held = e.buttons == 1
     moved = false
-  // The release of a press that changed the selection: Cite at the release point; within a double-click's wait (a third
-  // click) the wait begins again.
+  // The release of a press that changed the selection: Cite at the release point while it is on the selected text, else at
+  // the selection's last line; within a double-click's wait (a third click) the wait begins again.
   action up(e: PointerEvent)
     let bounds = frame("transcript")
+    let near = parts.filter((p) => citeNear(p, frame(`cite-${source}-${p.block}`), e.clientX, e.clientY)).length > 0
+    let endBox = frame(`cite-${source}-${citeEndKey(parts)}`)
     held = false
     moved = false
     if held and moved and source != "" and parts.length > 0
-      citeOfferSet(citeOfferFor(source, parts, citeStream(document.blocks, code), citeAxis(e.clientX, bounds.x, bounds.width, bounds.unavailable), citeAxis(e.clientY, bounds.y, bounds.height, bounds.unavailable)))
+      citeOfferSet(citeOfferFor(source, parts, citeStream(document.blocks, code), citeAxis(near ? e.clientX : citeLineRight(parts, endBox), bounds.x, bounds.width, bounds.unavailable), citeAxis(near ? e.clientY : citeLineBottom(parts, endBox) + 4, bounds.y, bounds.height, bounds.unavailable)))
       if citeHolding
         citeHold()
   // A double-click (after its release, which offered Cite): Cite shows once the wait is over.
@@ -298,8 +310,14 @@ component MarkdownBlocks
   action noCite(blockId: string, runId: string, s: Selection)
     let ignored = blockId
   derive galleryIds = markdownGalleryIds(document.blocks, noChips())
+  // handleMarkdownFragmentClick: a `#fragment` link never navigates; it scrolls its heading to the top
+  // (markdown_headings.rs resolved it to the heading's id). A press with a modifier held does nothing.
+  action fragmentJump(href: string, e: MouseEvent)
+    if not (e.metaKey or e.ctrlKey or e.altKey or e.shiftKey) and headingTarget(document, href)
+      scrollIntoView(`md-${document.id}-${href.slice(1)}`, block="start")
   provide
     galleryIds
+    fragmentJump
   view
     // A sent message's bubble fits its text (fit); an answer fills the lane.
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
@@ -308,7 +326,7 @@ component MarkdownBlocks
           if block.kind == "code"
             CodeBlock(block=block, local=local, code=code, copiedText="", copiedNonce=0, codeFont="ui-monospace", codeSize=13, wrapDefault=true, canRun=false, source="", cite=noCite, ms=-1, me=-1)
           else
-            BlockBody(block=block, prose=prose, fit=fit, chips=noChips(), wrapDefault=true, urls=noUrls(), local=local, copiedText="", copiedNonce=0, source="", cite=noCite, ms=-1, me=-1)
+            BlockBody(block=block, scope=document.id, prose=prose, fit=fit, chips=noChips(), wrapDefault=true, urls=noUrls(), local=local, copiedText="", copiedNonce=0, source="", cite=noCite, ms=-1, me=-1)
 
 // The same blocks under Settings → Appearance (MarkdownEnv).
 component EnvBlocks
@@ -324,8 +342,14 @@ component EnvBlocks
   action noCite(blockId: string, runId: string, s: Selection)
     let ignored = blockId
   derive galleryIds = markdownGalleryIds(document.blocks, env.chips)
+  // handleMarkdownFragmentClick: a `#fragment` link never navigates; it scrolls its heading to the top
+  // (markdown_headings.rs resolved it to the heading's id). A press with a modifier held does nothing.
+  action fragmentJump(href: string, e: MouseEvent)
+    if not (e.metaKey or e.ctrlKey or e.altKey or e.shiftKey) and headingTarget(document, href)
+      scrollIntoView(`md-${document.id}-${href.slice(1)}`, block="start")
   provide
     galleryIds
+    fragmentJump
   view
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
       for block in document.blocks key=block.id
@@ -333,7 +357,7 @@ component EnvBlocks
           if block.kind == "code"
             CodeBlock(block=block, local=local, code=code, copiedText="", copiedNonce=0, codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap, canRun=(block.closedFence and env.runCommands.includes(`${block.href}:${block.text}`)), source="", cite=noCite, ms=-1, me=-1)
           else
-            BlockBody(block=block, prose=prose, fit=fit, chips=env.chips, wrapDefault=env.wrap, urls=noUrls(), local=local, copiedText="", copiedNonce=0, source="", cite=noCite, ms=-1, me=-1)
+            BlockBody(block=block, scope=document.id, prose=prose, fit=fit, chips=env.chips, wrapDefault=env.wrap, urls=noUrls(), local=local, copiedText="", copiedNonce=0, source="", cite=noCite, ms=-1, me=-1)
 
 // The transcript's blocks: a settled ```mermaid fence draws its diagram.
 component DiagramBlocks
@@ -357,8 +381,14 @@ component DiagramBlocks
     markStart: number
     markEnd: number
   derive galleryIds = markdownGalleryIds(document.blocks, env.chips)
+  // handleMarkdownFragmentClick: a `#fragment` link never navigates; it scrolls its heading to the top
+  // (markdown_headings.rs resolved it to the heading's id). A press with a modifier held does nothing.
+  action fragmentJump(href: string, e: MouseEvent)
+    if not (e.metaKey or e.ctrlKey or e.altKey or e.shiftKey) and headingTarget(document, href)
+      scrollIntoView(`md-${document.id}-${href.slice(1)}`, block="start")
   provide
     galleryIds
+    fragmentJump
   view
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
       for block in document.blocks key=block.id
@@ -370,7 +400,7 @@ component DiagramBlocks
             else
               CodeBlock(block=block, local=local, code=code, copiedText=copiedText, copiedNonce=copiedNonce, codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap, canRun=(block.closedFence and env.runCommands.includes(`${block.href}:${block.text}`)), source=source, cite=cite, ms=(markStart < 0 ? -1 : markStart - citeOffset(document.blocks, code, block.id)), me=(markStart < 0 ? -1 : markEnd - citeOffset(document.blocks, code, block.id)))
           else
-            BlockBody(block=block, prose=prose, fit=fit, chips=env.chips, wrapDefault=env.wrap, urls=urls, local=local, copiedText=copiedText, copiedNonce=copiedNonce, source=source, cite=cite, ms=(markStart < 0 ? -1 : markStart - citeOffset(document.blocks, code, block.id)), me=(markStart < 0 ? -1 : markEnd - citeOffset(document.blocks, code, block.id)))
+            BlockBody(block=block, scope=document.id, prose=prose, fit=fit, chips=env.chips, wrapDefault=env.wrap, urls=urls, local=local, copiedText=copiedText, copiedNonce=copiedNonce, source=source, cite=cite, ms=(markStart < 0 ? -1 : markStart - citeOffset(document.blocks, code, block.id)), me=(markStart < 0 ? -1 : markEnd - citeOffset(document.blocks, code, block.id)))
 
 // Every block but a code fence: headings, list items, rules, tables, images, quotes and prose.
 component BlockBody
@@ -378,6 +408,8 @@ component BlockBody
     rem: number
   props
     block: ChatBlock
+    // The document's id: a heading's element id is `md-<scope>-<its id>` (headingNode).
+    scope: string
     prose: string
     fit: bool
     chips: ChipView[]
@@ -395,11 +427,12 @@ component BlockBody
   view
     if block.kind == "heading"
       if block.flow
-        box role="heading" aria-level=block.depth width="100%"
+        box id=headingNode(scope, block) role="heading" aria-level=block.depth width="100%"
           FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
       else
-        text role="heading" aria-level=block.depth id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") width="100%" font-size=(block.depth == 1 ? "1.25rem" : block.depth == 2 ? "1.125rem" : block.depth == 3 ? "1rem" : "0.875rem") line-height=1.3 color=(block.depth == 6 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
-          ChatRuns(runs=block.runs, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600, ms=ms, me=me)
+        column id=headingNode(scope, block) width="100%"
+          text role="heading" aria-level=block.depth id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") width="100%" font-size=(block.depth == 1 ? "1.25rem" : block.depth == 2 ? "1.125rem" : block.depth == 3 ? "1rem" : "0.875rem") line-height=1.3 color=(block.depth == 6 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
+            ChatRuns(runs=block.runs, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600, ms=ms, me=me)
     if block.kind == "item"
       row width="100%" padding-left=(block.depth * 1.25 * rem) box-sizing="border-box"
         if block.task != ""
@@ -408,7 +441,7 @@ component BlockBody
           box width="1.25rem" height="1.421875rem" flex-shrink=0 position="relative"
             box position="absolute" left="0.25rem" top="0.59375rem" width="0.3125rem" height="0.3125rem" box-sizing="border-box" border-radius=(block.depth >= 2 ? "0px" : "0.15625rem") border-width=(block.depth == 1 ? 1 : 0) border-style="solid" border-color="light-dark(#27272acc, #f5f5f5cc)" background-color=(block.depth == 1 ? "#00000000" : "light-dark(#27272acc, #f5f5f5cc)")
         if block.task == "" and block.marker != "•"
-          text block.marker width="1.25rem" flex-shrink=0 padding-right="0.25rem" box-sizing="border-box" text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.421875rem" color="light-dark(#27272acc, #f5f5f5cc)"
+          text block.marker width=(block.gutter > 0 ? `${block.gutter}ch` : "1.25rem") flex-shrink=0 padding-right="0.25rem" box-sizing="border-box" text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.421875rem" color="light-dark(#27272acc, #f5f5f5cc)"
         if block.flow
           FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
         else
@@ -478,12 +511,13 @@ component TaskBox
 
 // Inline runs in one text node (a chip's href is how its ChipView finds it, not a destination). Every link with a
 // destination is the anchor's: its press is the link's (`linkOpen`: a web link follows "Open links in", a mailto, irc or
-// xmpp link opens nothing, a fragment leaves for the new-thread draft) and its
+// xmpp link opens nothing; a fragment scrolls to its heading, fragmentJump) and its
 // right-click the anchor's onContextMenu (external-link-menu.ts); an emptied anchor is link-coloured text with neither.
 component ChatRuns
   inject
     linkOpen: action
     linkMenu: action
+    fragmentJump: action
   props
     runs: ChatRun[]
     size: number
@@ -491,15 +525,21 @@ component ChatRuns
     // The cited text in these runs' offsets (-1: none).
     ms: number
     me: number
+  // A fragment's press is its heading's (fragmentJump); any other link's follows linkOpen.
+  action open(href: string, e: MouseEvent)
+    if href.startsWith("#")
+      fragmentJump(href, e)
+    else
+      linkOpen("link", href, e)
   view
     for run in runs key=run.id
       if run.mono and (run.kind == "link" or run.kind == "link-start") and webLink(run.href)
-        text run.text href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+        text run.text href=run.href press=open(run.href) contextmenu=linkMenu(run.href) font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
       if run.mono and not ((run.kind == "link" or run.kind == "link-start") and webLink(run.href))
         text run.text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
       if not run.mono
         if (run.kind == "link" or run.kind == "link-start") and run.href != ""
-          text run.text href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
+          text run.text href=run.href press=open(run.href) contextmenu=linkMenu(run.href) font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
         if (run.kind == "link" or run.kind == "link-start") and run.href == ""
           text run.text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
         if run.kind != "link" and run.kind != "link-start"
@@ -528,7 +568,7 @@ component MarkedText
 
 // An http(s) link follows "Open links in" (its press); any other scheme stays the shell's.
 fn webLink(href: string): bool = href.startsWith("http://") or href.startsWith("https://")
-// A link whose click does something on every word: a web link opens, a fragment leaves for the new-thread draft;
+// A link whose click does something on every word: a web link opens, a fragment scrolls to its heading;
 // a mailto, irc or xmpp link's click opens nothing, word or not.
 fn pressLink(href: string): bool = webLink(href) or href.startsWith("#")
 // A run of a link that is not a pull request link (a pull request link's words are each a link of their own, PrLinkRun).
@@ -540,6 +580,7 @@ component FlowRuns
   inject
     linkOpen: action
     linkMenu: action
+    fragmentJump: action
   props
     runs: ChatRun[]
     size: number
@@ -557,6 +598,12 @@ component FlowRuns
     // The cited text in this block's offsets while its comment is open (-1: none).
     ms: number
     me: number
+  // A fragment's press is its heading's (fragmentJump); any other link's follows linkOpen.
+  action open(href: string, e: MouseEvent)
+    if href.startsWith("#")
+      fragmentJump(href, e)
+    else
+      linkOpen("link", href, e)
   view
     row flex-grow=(fit ? 0 : 1) min-width=0 width=(fit ? "auto" : "100%") max-width="100%" flex-wrap="wrap" align-items="flex-start"
       for run in runs key=run.id
@@ -565,12 +612,11 @@ component FlowRuns
         // `label` is the same), so a reader meets one link with its URL, not words. A press anywhere
         // opens it. Only a web link leads with its favicon and has the app's menu (ChatMarkdown's faviconHost); a mailto,
         // irc or xmpp link's press opens nothing, as the desktop shell's window-open handler opens none of them, and a
-        // fragment's leaves for the new-thread draft (Electron's hash router;
-        // browser-links.ts openLinkFromUi); their menu is the shell's, at the click or, for the ContextMenu
+        // fragment's scrolls to its heading (fragmentJump); their menu is the shell's, at the click or, for the ContextMenu
         // key, at the focused link (external-link-menu.ts). A code span is part of its link (`.chat-markdown
         // code` inside the `<a>`, after the favicon).
         if run.kind == "link-start" and linkRun(run, chips)
-          link href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start"
+          link href=run.href press=open(run.href) contextmenu=linkMenu(run.href) aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start"
             if webLink(run.href)
               box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
                 TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
@@ -581,16 +627,19 @@ component FlowRuns
         // A web or fragment link's later word or code span: its press and menu are the link's. Only a web link's is a Tab
         // stop (as it was); a fragment's is not, the `<a>` being one stop (its link node above).
         if run.kind == "link" and linkRun(run, chips) and pressLink(run.href)
-          box press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) tabindex=(webLink(run.href) ? 0 : -1) aria-hidden=(run.label != "") cursor="pointer" height="1.421875rem" padding-top=(run.mono ? "0.153125rem" : "0px") box-sizing="border-box" flex-shrink=0
+          box press=open(run.href) contextmenu=linkMenu(run.href) tabindex=(webLink(run.href) ? 0 : -1) aria-hidden=(run.label != "") cursor="pointer" height="1.421875rem" padding-top=(run.mono ? "0.153125rem" : "0px") box-sizing="border-box" flex-shrink=0
             if not run.mono
               text run.text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
             else
               text run.text font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
         // Any other code span (one in a pull request link too); a mailto, irc or xmpp link's later one is hidden as its
         // words are, and shows the link's pointer (the `<a>`'s `cursor: pointer` covers all of it).
-        if run.mono and not (linkRun(run, chips) and (run.kind == "link-start" or pressLink(run.href)))
+        if run.mono and not inlineFile(run, chips) and not (linkRun(run, chips) and (run.kind == "link-start" or pressLink(run.href)))
           box aria-hidden=(run.kind == "link" and run.label != "" and not webLink(run.href)) cursor=(run.kind == "link" and run.label != "" and not webLink(run.href) ? "pointer" : "auto") height="1.421875rem" padding-top="0.153125rem" box-sizing="border-box" flex-shrink=0
             text run.text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color=(ms >= 0 and citeMarks(ms, me, runAt(runs, run.id), run.text.length) ? "light-dark(#1b4ed873, #346bf173)" : "light-dark(#fafafa, #ffffff08)") color="light-dark(#27272a, #f5f5f5)"
+        if inlineFile(run, chips)
+          for chip in chips.filter((entry) => entry.href == run.href) key=chip.id
+            InlineFileChip(run=run, chip=chip, local=local)
         if not run.mono and (run.kind == "file" or chipAccent(run.kind) != "")
           if chips.filter((chip) => chip.href == run.href and run.href != "").length > 0
             for chip in chips.filter((chip) => chip.href == run.href) key=chip.id
@@ -611,7 +660,7 @@ component FlowRuns
             MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)
         // With no media chip (a pull request's text) an image inside a link's text is the link's word, its alt text.
         if run.kind == "media" and run.link != "" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length == 0
-          link href=run.link press=linkOpen("link", run.link) contextmenu=linkMenu(run.link) aria-label=(run.label != "" ? run.label : run.text) cursor="pointer" text-decoration-line="none" flex-shrink=0
+          link href=run.link press=open(run.link) contextmenu=linkMenu(run.link) aria-label=(run.label != "" ? run.label : run.text) cursor="pointer" text-decoration-line="none" flex-shrink=0
             text run.text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
         // A pull request link in a pull request's text (its chip names the card's target).
         if not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and ((run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length > 0)
@@ -654,8 +703,16 @@ component PrLinkRun
   // A modifier held on the click leaves the link to the browser (pages-pr-links.ts openLink): the press's own, as a fourth line.
   action open(e: MouseEvent)
     local("pr-link-open", "", `${chip.detail}\n${chip.target}\n${run.href}\n${heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey)}`)
+  state middleDown = false
+  action down(e: PointerEvent)
+    middleDown = e.buttons == 4
+  action up(e: PointerEvent)
+    let bounds = frame(`pr-link-${chip.id}`)
+    if middleDown and e.clientX >= bounds.x and e.clientX <= bounds.x + bounds.width and e.clientY >= bounds.y and e.clientY <= bounds.y + bounds.height
+      local("pr-link-open", "", `${chip.detail}\n${chip.target}\n${run.href}\nmiddle`)
+    middleDown = false
   view
-    button id=`pr-link-${chip.id}` press=open contextmenu=linkMenu(run.href) hover=hover role="link" aria-label=run.text testId=`pr-link-${chip.id}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="flex-start" flex-shrink=0 cursor="pointer"
+    button id=`pr-link-${chip.id}` press=open pointerdown=down pointerup=up contextmenu=linkMenu(run.href) hover=hover role="link" aria-label=run.text testId=`pr-link-${chip.id}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="flex-start" flex-shrink=0 cursor="pointer"
       if run.kind == "link-start" and chip.detail == ""
         box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
           TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
@@ -715,7 +772,18 @@ component FileChipFace
 // (an image previews on click, its thumbnail leading); a skill's `$name`; a
 // thread that opens; a reference whose record is gone drawn dashed with
 // "This context is no longer available."; terminal, element and review
-// references open their details above the chip.
+// references and an assistant quote open their details above the chip.
+component InlineFileChip
+  props
+    run: ChatRun
+    chip: ChipView
+    local: action
+  view
+    row height="1.421875rem" flex-shrink=0 align-items="center" padding-left=1 padding-right=1
+      CodeTip(label=chip.tip, side="top", offset=21)
+        button press=local("surface-file", chip.tip, "") contextmenu=local("surface-files-link-menu", chip.tip, "") aria-label=chip.tip padding=0 border-width=0 background-color="#00000000" testId=`inline-file-${run.id}`
+          FileChipFace(run=run, label=chip.label, icon=chip.icon)
+
 component ResolvedChip
   props
     run: ChatRun
@@ -746,13 +814,15 @@ component ResolvedChip
         TerminalContextChip(run=run, chip=chip)
       if chip.kind == "pr"
         PrContextChip(run=run, chip=chip, local=local)
+      if chip.kind == "citation"
+        CitationContextChip(run=run, chip=chip, local=local)
       if chip.kind == "element" or chip.kind == "review"
         button press=toggle aria-label=`${chip.label}. Show details` aria-expanded=open testId=`context-chip-${run.id}` height="1.0625rem" max-width="15rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}1c` id=`context-chip-${run.id}`
           TimelineIcon(name=chipIcon(chipFamily(chip.kind)), size=14, color=chipInk(chipFamily(chip.kind)))
           text chip.label min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk(chipFamily(chip.kind))
         if open
           ChipDetails(chip=chip, close=toggle)
-      if not ["link", "mention", "unresolved", "terminal", "element", "review", "pr"].includes(chip.kind)
+      if not ["link", "mention", "unresolved", "terminal", "element", "review", "pr", "citation"].includes(chip.kind)
         Tip(label=(chip.kind == "image" ? "" : chip.tip), side="top", align="center", offset=21)
           AttachmentChip(run=run, chip=chip, urls=urls, local=local)
 // PullRequestChip (contextChipParts.tsx): "#N" with its state's glyph and ContextChip kind (pr-open, pr-draft, pr-merged,
@@ -774,6 +844,35 @@ component PrContextChip
     button press=local("chip-pr", chip.target, "") hover=hover aria-label=chip.tip testId=`context-chip-${run.id}` height="1.0625rem" max-width="15rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color=prChipColour(chip.detail, 3) background-color=prChipColour(chip.detail, hovered ? 2 : 1) id=`context-chip-${run.id}` title=""
       EditorMenuIcon(name=(chip.detail == "draft" ? "git-pull-request-draft" : chip.detail == "merged" ? "git-merge" : chip.detail == "closed" ? "git-pull-request-closed" : "git-pull-request"), color=prChipColour(chip.detail, 0), size=14)
       text chip.label min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=prChipColour(chip.detail, 0)
+// AssistantCitationChip outside the composer (T3 Code 9c161462c9, MIT; see LICENSE-T3): a ContextChipPopover, width "lg"
+// and padding "compact" as TerminalContextChip's below, named "Quoted assistant text: <label>". Its content (`flex-col
+// items-start gap-3 p-1 text-sm`) is AssistantCitationQuote, the quote as a muted blockquote (border-l-2, pl-3) and the
+// comment under it, together at most 16rem tall and scrolling, then "Go to source": a PopoverClose rendered as an outline
+// small button, which opens the cited thread at the answer (citation-source.ts) and closes the popover.
+component CitationContextChip
+  props
+    run: ChatRun
+    chip: ChipView
+    local: action
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  derive popupId = `citation-context-${chip.owner}-${chip.id}-${run.id}`
+  view
+    button popovertarget=popupId hover=hover aria-label=`Quoted assistant text: ${chip.label}. Show details` testId=`context-chip-${run.id}` height="1.0625rem" max-width="22.5rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color=chipBorder("context-citation") background-color=`${chipAccent("context-citation")}${hovered ? "2b" : "1c"}` id=`context-chip-${run.id}` title=""
+      TimelineIcon(name="quote", size=14, color=chipInk("context-citation"))
+      text chip.label min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk("context-citation")
+    column id=popupId popover="auto" position-try-fallbacks="flip-block" position="absolute" position-area="top" margin-bottom="0.25rem" width="24rem" max-width="100vw" testId="citation-context-popover"
+      column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label=`Quoted assistant text: ${chip.label}`
+        column width="100%" padding="0.25rem" box-sizing="border-box" gap="0.75rem" align-items="flex-start"
+          scroll width="100%" max-height="16rem" min-height=0 testId="citation-context-quote"
+            column width="100%" gap="0.75rem"
+              text chip.tip width="100%" padding-left="0.75rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" font-size="0.875rem" line-height="1.25rem" white-space="pre-wrap" overflow-wrap="break-word" color="light-dark(#71717b, #818181)"
+              if chip.size != ""
+                text chip.size width="100%" font-size="0.875rem" line-height="1.25rem" white-space="pre-wrap" overflow-wrap="break-word" color="light-dark(#27272a, #f5f5f5)" testId="citation-context-comment"
+          button press=local("chip-citation", chip.target, chip.detail) popovertarget=popupId popovertargetaction="hide" disabled=(chip.target == "") testId="citation-context-source" display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.375rem" box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" flex-shrink=0 title=""
+            TimelineIcon(name="arrow-up-right", size=16, color="light-dark(#27272a, #f5f5f5)")
+            text "Go to source" font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
 // The original button-triggered ContextChipPopover. Auto popovers use the host's
 // top layer: scrolling ancestors cannot clip them; Escape and outside clicks
 // dismiss them, and keyboard activation returns focus to the invoking chip.
@@ -824,8 +923,8 @@ component AttachmentChipBody
   view
     // A sent file attachment opens its preview beside the thread (ChatView openFileAttachment).
     // A sent video's chip opens it in the media dialog (onExpandVideo).
-    if chip.kind == "image" or (chip.kind == "thread" or chip.kind == "citation" or chip.kind == "file" or chip.kind == "video") and chip.target != ""
-      button press=local((chip.kind == "image" or chip.kind == "video" ? "image-open" : chip.kind == "file" ? "surface-linked-attachment" : chip.kind == "citation" ? "chip-citation" : "chip-thread"), chip.target, (chip.kind == "image" or chip.kind == "file" or chip.kind == "video" ? chip.owner : chip.detail)) hover=hover aria-label=(chip.kind == "image" ? chip.tip : chip.kind == "file" or chip.kind == "video" ? `${chip.kind == "video" ? "Video" : "File"} attachment, ${chip.label}, ${chip.size}` : chip.kind == "citation" ? `View cited assistant text: ${chip.label}` : `Thread, ${chip.label}`) testId=`context-chip-${run.id}` height="1.0625rem" max-width="22.5rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}${hovered ? "2b" : "1c"}` id=`context-chip-${run.id}`
+    if chip.kind == "image" or (chip.kind == "thread" or chip.kind == "file" or chip.kind == "video") and chip.target != ""
+      button press=local((chip.kind == "image" or chip.kind == "video" ? "image-open" : chip.kind == "file" ? "surface-linked-attachment" : "chip-thread"), chip.target, (chip.kind == "image" or chip.kind == "file" or chip.kind == "video" ? chip.owner : chip.detail)) hover=hover aria-label=(chip.kind == "image" ? chip.tip : chip.kind == "file" or chip.kind == "video" ? `${chip.kind == "video" ? "Video" : "File"} attachment, ${chip.label}, ${chip.size}` : `Thread, ${chip.label}`) testId=`context-chip-${run.id}` height="1.0625rem" max-width="22.5rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}${hovered ? "2b" : "1c"}` id=`context-chip-${run.id}`
         ChipFace(chip=chip, urls=urls)
     else
       row aria-label=(chip.kind == "skill" ? `Skill, ${chip.label}` : chip.kind == "thread" ? `Thread, ${chip.label}` : `${chip.kind == "video" ? "Video" : "File"} attachment, ${chip.label}, ${chip.size}`) testId=`context-chip-${run.id}` height="1.0625rem" max-width="22.5rem" padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}1c`
@@ -843,7 +942,7 @@ component ChipFace
         image entry.url aria-hidden=true width="0.875rem" height="0.875rem" flex-shrink=0 border-radius="0.25rem" object-fit="cover"
     if chip.kind != "file" and not (chip.kind == "image" and urls.filter((entry) => entry.id == chip.target).length > 0)
       TimelineIcon(name=chipIcon(chipFamily(chip.kind)), size=14, color=chipInk(chipFamily(chip.kind)))
-    text chip.label min-width=0 max-width=(chip.kind == "citation" ? "12rem" : "18rem") line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk(chipFamily(chip.kind))
+    text chip.label min-width=0 max-width="18rem" line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk(chipFamily(chip.kind))
     if chip.size != ""
       text chip.size flex-shrink=0 font-size="0.625rem" font-weight=500 line-height="0.875rem" white-space="pre" color=chipInk(chipFamily(chip.kind))
 
@@ -951,10 +1050,10 @@ component CodeBlock
                 else
                   text color=synColor(token.cls) font-style=synSlant(token.cls)
                     MarkedText(value=token.text, at=codeAt + tokenAt(hl.tokens, token.id), ms=ms, me=me)
-// MarkdownMermaidCodeBlock: a settled ```mermaid fence draws its diagram with
-// no card, centred and fit to the lane, a "Show code" toggle and Copy beneath;
-// "Show code" turns it back into the code block, its toolbar led by "Show
-// diagram". While the diagram renders the space says so; a failure shows
+// MarkdownMermaidCodeBlock (ChatMarkdown.tsx at 9c161462c9): a settled ```mermaid fence draws its diagram with
+// no card, centred and fit to the lane, under the code header's actions ("Show code" left of Copy);
+// "Show code" turns it back into the code block, where "Show diagram" sits left of
+// Copy. While the diagram renders the space says so; a failure shows
 // Mermaid's message (with Retry when loading failed) above the source.
 // MermaidDiagram renders it with the reference's Mermaid in the Mermaid page,
 // the fence's own frame; the page posts what came of it (MermaidFrameView).
@@ -983,11 +1082,11 @@ component MermaidBlock
           row min-width=0 height="1.5rem" align-items="center" gap="0.375rem"
             text block.href font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#27272ab8, #f5f5f5b8)" line-clamp=1
           row gap="0.125rem" align-items="center" role="toolbar" aria-label="Code block actions"
-            Tip(label="Show diagram", side="top", align="center", offset=28)
-              DiagramToggle(label="Show diagram", icon="workflow", press=toggleCode)
             Tip(label=(wrap ? "Disable line wrap" : "Wrap lines"), side="top", align="center", offset=28)
               button press=toggleWrap aria-label=(wrap ? "Disable line wrap" : "Wrap lines") width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(wrap ? "light-dark(#fafafa, #ffffff08)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                 Icon(name="text-wrap", size=12, color="light-dark(#27272a, #f5f5f5)")
+            Tip(label="Show diagram", side="top", align="center", offset=28)
+              DiagramToggle(label="Show diagram", icon="workflow", press=toggleCode)
             Tip(label="Copy code", side="top", align="center", offset=28)
               CopyCodeButton(block=block, local=local, copied=copied)
         if wrap
@@ -996,7 +1095,14 @@ component MermaidBlock
           scroll width="100%" overflow-x="scroll" overflow-y="hidden"
             text block.text padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
     else
-      column width="100%" testId=`mermaid-${block.id}`
+      // The transparent border and the header's padding match the code frame, so the actions stay in place when
+      // switching views.
+      column width="100%" box-sizing="border-box" border-width=1 border-style="solid" border-color="#00000000" testId=`mermaid-${block.id}`
+        row width="100%" padding-top="0.375rem" padding-right="0.375rem" box-sizing="border-box" align-items="center" justify-content="flex-end" gap="0.125rem"
+          Tip(label="Show code", side="top", align="center", offset=28)
+            DiagramToggle(label="Show code", icon="code", press=toggleCode)
+          Tip(label="Copy code", side="top", align="center", offset=28)
+            CopyCodeButton(block=block, local=local, copied=copied)
         if frame.diagram == "error"
           column width="100%"
             row width="100%" align-items="center" justify-content="space-between" gap="0.5rem"
@@ -1015,11 +1121,6 @@ component MermaidBlock
             else
               column position="absolute" left=0 top=0 right=0 bottom=0 align-items="center" justify-content="center" role="status" pointer-events="none"
                 text "Rendering diagram" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-        row width="100%" margin-top="0.125rem" align-items="center" justify-content="space-between"
-          Tip(label="Show code", side="top", align="start", offset=28)
-            DiagramToggle(label="Show code", icon="code", press=toggleCode)
-          Tip(label="Copy code", side="top", align="end", offset=28)
-            CopyCodeButton(block=block, local=local, copied=copied)
 
 // An icon-xs ghost-muted button: muted until hovered, then an accent fill.
 component DiagramToggle
@@ -1089,6 +1190,12 @@ component MarkdownTable
     local: action
     copied: number
   state flipped = false
+  state clipped: string[] = []
+  action noteClipped(id: string, value: bool)
+    if value and not clipped.includes(id)
+      clipped = clipped.concat([id])
+    if not value and clipped.includes(id)
+      clipped = clipped.filter((entry) => entry != id)
   derive expanded = flipped ? not wrapDefault : wrapDefault
   action toggleExpanded
     flipped = not flipped
@@ -1100,10 +1207,13 @@ component MarkdownTable
             row width="100%" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" role="row"
               for cell in tableRow.cells key=`${cell.id}\t${cell.runs.map((part) => part.text).join("")}`
                 for column in block.columns.filter((entry) => entry.id == cell.id) key=column.id
-                  TableCell(cell=cell, column=column, header=tableRow.header, expanded=expanded, prose=prose, chips=chips, urls=urls, local=local, nodePrefix=`${block.id}-${tableRow.id}-${cell.id}`)
+                  TableCell(cell=cell, column=column, header=tableRow.header, expanded=expanded, prose=prose, chips=chips, urls=urls, local=local, nodePrefix=`${block.id}-${tableRow.id}-${cell.id}`, clipped=noteClipped)
       row width="100%" margin-top="0.125rem" align-items="center" justify-content="space-between"
-        Tip(label=(expanded ? "Collapse table cells" : "Expand table cells"), side="top", align="start", offset=28)
-          TableIconButton(label=(expanded ? "Collapse table cells" : "Expand table cells"), icon=(expanded ? "minimize" : "maximize"), pressed=expanded, press=toggleExpanded, testId=`table-expand-${block.id}`)
+        if block.rows.map((row) => row.cells.map((cell) => `${row.header ? "h:" : "b:"}${block.id}-${row.id}-${cell.id}`).join("\n")).join("\n").split("\n").filter((id) => clipped.includes(id)).length > 0
+          Tip(label=(expanded ? "Collapse table cells" : "Expand table cells"), side="top", align="start", offset=28)
+            TableIconButton(label=(expanded ? "Collapse table cells" : "Expand table cells"), icon=(expanded ? "minimize" : "maximize"), pressed=expanded, press=toggleExpanded, testId=`table-expand-${block.id}`)
+        else
+          box flex=1
         Tip(label="Copy table", side="top", align="end", offset=28)
           TableCopyButton(press=local("table-menu", block.id, `${block.markdown}\t${block.csv}`), pressFirst=local("table-menu", block.id, `keys:first\t${block.markdown}\t${block.csv}`), pressLast=local("table-menu", block.id, `keys:last\t${block.markdown}\t${block.csv}`), copied=copied, open=false, testId=`table-copy-${block.id}`) // its popup is the window's (table-menu.contract)
 
@@ -1112,6 +1222,8 @@ component MarkdownTable
 // shown content asks for no width (width 0) and fills the cell (min-width 100%),
 // so only the sizer sizes the column and the text uses all of it.
 component TableCell
+  inject
+    rem: number
   props
     cell: ChatCell
     column: ChatColumn
@@ -1123,8 +1235,27 @@ component TableCell
     local: action
     // The cell's table block, row and column: its images' node ids (markdownGalleryIds).
     nodePrefix: string
+    clipped: action
+  state cellWidth = 0
+  state naturalWidth = 0
+  action cellSized(width: number, height: number)
+    cellWidth = width
+    if width > 0 and naturalWidth > 0
+      clipped(`${header ? "h:" : "b:"}${nodePrefix}`, naturalWidth > min(max(0, width - 1.5 * rem), 22.5 * rem) + 1)
+  action naturalSized(width: number, height: number)
+    naturalWidth = width
+    if cellWidth > 0 and width > 0
+      clipped(`${header ? "h:" : "b:"}${nodePrefix}`, width > min(max(0, cellWidth - 1.5 * rem), 22.5 * rem) + 1)
   view
-    column flex-grow=column.grow flex-shrink=0 min-width=0 padding-left="0.75rem" padding-right="0.75rem" padding-top=(header ? "0.55rem" : "0.45rem") padding-bottom=(header ? "0.55rem" : "0.45rem") box-sizing="border-box" justify-content="center" role=(header ? "columnheader" : "cell")
+    column resize=cellSized position="relative" flex-grow=column.grow flex-shrink=0 min-width=0 padding-left="0.75rem" padding-right="0.75rem" padding-top=(header ? "0.55rem" : "0.45rem") padding-bottom=(header ? "0.55rem" : "0.45rem") box-sizing="border-box" justify-content="center" role=(header ? "columnheader" : "cell")
+      // Measure the same runs without a cap so a short table has no expansion control.
+      box position="absolute" left=0 top=0 display="grid" grid-template-columns="max-content" opacity=0 pointer-events="none" aria-hidden=true
+        if cellBoxes(cell.runs)
+          row resize=naturalSized width="auto" flex-shrink=0
+            CellSizer(runs=cell.runs, weight=(header ? 600 : 400), color=prose, chips=chips, urls=urls, natural=true)
+        else
+          text resize=naturalSized font-size="0.75rem" line-height=1.625 white-space="nowrap" flex-shrink=0
+            ChatRuns(runs=cell.runs, size=12, weight=(header ? 600 : 400), ms=-1, me=-1)
       if cellBoxes(cell.runs)
         // A code span keeps its bordered box (inline spans paint backgrounds only); an image is its picture.
         CellRuns(runs=cell.runs, weight=(header ? 600 : 400), color=prose, nowrap=(header or not expanded), justify=(column.align == "center" ? "center" : column.align == "right" ? "flex-end" : "flex-start"), chips=chips, urls=urls, local=local, nodePrefix=nodePrefix)
@@ -1139,7 +1270,7 @@ component TableCell
         if column.capped
           box width="22.5rem" height=0
         if not column.capped and cellBoxes(column.sizer)
-          CellSizer(runs=column.sizer, weight=(column.header ? 600 : 400), color=prose, chips=chips, urls=urls)
+          CellSizer(runs=column.sizer, weight=(column.header ? 600 : 400), color=prose, chips=chips, urls=urls, natural=false)
         if not column.capped and not cellBoxes(column.sizer)
           text max-width=(expanded and column.header ? "6250rem" : "22.5rem") font-size="0.75rem" line-height=1.625 white-space="nowrap" opacity=0
             ChatRuns(runs=column.sizer, size=12, weight=(column.header ? 600 : 400), ms=-1, me=-1)
@@ -1164,7 +1295,10 @@ component CellRuns
     // It fills its cell as TableCell's text does.
     row width=0 min-width="100%" max-width="6250rem" min-height="1.21875rem" flex-wrap=(nowrap ? "nowrap" : "wrap") align-items="center" justify-content=justify overflow=(nowrap ? "hidden" : "visible")
       for run in runs key=run.id
-        if run.mono
+        if inlineFile(run, chips)
+          for chip in chips.filter((entry) => entry.href == run.href) key=chip.id
+            InlineFileChip(run=run, chip=chip, local=local)
+        if run.mono and not inlineFile(run, chips)
           text run.text flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
         if not run.mono and run.kind == "file"
           FileChip(run=run)
@@ -1185,10 +1319,14 @@ component CellSizer
     color: string
     chips: ChipView[]
     urls: AttachmentUrl[]
+    natural: bool
   view
-    row width="auto" min-width=0 max-width="22.5rem" min-height="1.21875rem" flex-wrap="nowrap" align-items="center" overflow="hidden" opacity=0
+    row width="auto" min-width=0 max-width=(natural ? "6250rem" : "22.5rem") min-height="1.21875rem" flex-wrap="nowrap" align-items="center" overflow="hidden" opacity=0
       for run in runs key=run.id
-        if run.mono
+        if inlineFile(run, chips)
+          for chip in chips.filter((entry) => entry.href == run.href) key=chip.id
+            FileChipFace(run=run, label=chip.label, icon=chip.icon)
+        if run.mono and not inlineFile(run, chips)
           text run.text flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-width=1 border-style="solid"
         if not run.mono and run.kind == "file"
           FileChip(run=run)

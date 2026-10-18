@@ -30,19 +30,15 @@ use kmOpenKey from "../shared/menu-keys.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 
-// animate-status-pulse: full, then half opacity in six steps.
-keyframes cnStatusPulse
-  from opacity=1
-  40% opacity=1
-  50% opacity=0.5
-  90% opacity=0.5
-  to opacity=1
-
 shape EnvIconChoice
   kind: string
   label: string
   selected: bool
   note: string
+shape SessionPermission
+  scope: string
+  title: string
+  allowed: bool
 shape SavedEnvironment
   key: string
   first: bool
@@ -59,6 +55,7 @@ shape SavedEnvironment
   switchTip: string
   active: bool
   traceId: string
+  mcpUrl: string
   update: string
   updateVersion: string
   // ServerUpdateAction: a desktop-managed server without remote app updates shows this sentence, no button.
@@ -74,6 +71,9 @@ shape SavedEnvironment
   routeCount: string
   routesLabel: string
   routes: EnvRoute[]
+  permissionsChecked: bool
+  permissionContext: string
+  permissions: SessionPermission[]
 shape BalanceMachine
   key: string
   first: bool
@@ -271,10 +271,10 @@ component ThisMachineSection
                 text "Version" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
                 if machine.version != ""
                   text machine.version font-size="0.75rem" line-height="1.125rem" max-width="36rem" color="light-dark(#70707acc, #818181cc)" testId="this-machine-version-text"
-                // ServerUpdateProgress: a pulsing dot and the stage, or the failure in red.
+                // ServerUpdateProgress: a static dot and the stage, or the failure in red.
                 if machine.progress != ""
                   row gap="0.5rem" align-items="center" testId="this-machine-update-progress"
-                    box width="0.375rem" height="0.375rem" border-radius="0.1875rem" flex-shrink=0 background-color="light-dark(#27272a, #f5f5f5)" animation="cnStatusPulse 2s infinite"
+                    box width="0.375rem" height="0.375rem" border-radius="0.1875rem" flex-shrink=0 background-color="light-dark(#27272a, #f5f5f5)"
                     text machine.progress font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
                 if machine.progressFailed != ""
                   text machine.progressFailed font-size="0.75rem" line-height="1rem" color="light-dark(#e7000b, #ff6467)" role="alert" testId="this-machine-update-failure"
@@ -286,6 +286,9 @@ component ThisMachineSection
                   text machine.updateNote font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="this-machine-update-note"
                 if machine.upToDate
                   text "Up to date" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="this-machine-up-to-date"
+        if machine.canManage
+          box padding="1rem" width="100%" box-sizing="border-box"
+            SessionPermissions(environment=machine.environment)
         // Network access, its endpoints and Tailscale HTTPS (connections-network.contract).
         if machine.canManage and net.visible
           NetworkAccessRows(net=net, wide=wide, busy=busy, ask=ask, op=op)
@@ -305,6 +308,9 @@ component EnvironmentRow
     still: bool
   state tip = ""
   state routesOpen = false
+  state permissionsOpen = false
+  action togglePermissions
+    permissionsOpen = not permissionsOpen
   action hover(which: string, over: bool)
     tip = over ? which : (tip == which ? "" : tip)
   action toggleRoutes
@@ -312,7 +318,7 @@ component EnvironmentRow
     routesOpen = not routesOpen
     if closing and routeKeyboard.environmentId == environment.environmentId
       routeKeyboardInput(environment.environmentId, environment.key, routeKeyboard.routeId, "cancel", false)
-  derive menuItems = [KmItem(id=`environment-icon-${environment.environmentId}`, label="Icon"), KmItem(id=(busy ? "" : `environment-routes-item-${environment.environmentId}`), label=(routesOpen ? "Hide routes" : "Routes")), KmItem(id=(busy or environment.traceId == "" ? "" : `environment-trace-${environment.environmentId}`), label="Copy trace ID"), KmItem(id=(busy ? "" : (environment.active ? "forget-server" : `environment-remove-${environment.environmentId}`)), label="Remove from this device…")].filter((item) => item.id != "")
+  derive menuItems = [KmItem(id=`environment-icon-${environment.environmentId}`, label="Icon"), KmItem(id=(busy ? "" : `environment-routes-item-${environment.environmentId}`), label=(routesOpen ? "Hide routes" : "Routes")), KmItem(id=(busy or environment.mcpUrl == "" ? "" : `environment-mcp-${environment.environmentId}`), label="Copy MCP URL"), KmItem(id=(busy or environment.traceId == "" ? "" : `environment-trace-${environment.environmentId}`), label="Copy trace ID"), KmItem(id=(busy ? "" : (environment.active ? "forget-server" : `environment-remove-${environment.environmentId}`)), label="Remove from this device…")].filter((item) => item.id != "")
   action triggerKey(k: string, e: KeyboardEvent)
     if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
       preventDefault()
@@ -334,10 +340,12 @@ component EnvironmentRow
               if tip == "status"
                 CnTooltip(tip=environment.tooltip, tipId=`environment-status-tip-${environment.environmentId}`, above=20)
             RouteCount(label=environment.routeCount, open=routesOpen, still=still, environmentId=environment.environmentId, toggle=toggleRoutes)
-          // ServerUpdateProgress: a pulsing dot and "Downloading…"/"Restarting…", or the failure in red.
+            button press=togglePermissions aria-expanded=permissionsOpen aria-label=`Permissions for ${environment.label}` testId=`environment-permissions-${environment.environmentId}` background-color="#00000000" border-width=0 padding="0.125rem" color="light-dark(#71717b, #818181)"
+              text "Permissions" font-size="0.75rem" line-height="1rem"
+          // ServerUpdateProgress: a static dot and "Downloading…"/"Restarting…", or the failure in red.
           if environment.progress != ""
             row margin-top="0.25rem" gap="0.5rem" align-items="center" max-width="28rem" testId=`environment-update-progress-${environment.environmentId}`
-              box width="0.375rem" height="0.375rem" border-radius="0.1875rem" flex-shrink=0 background-color="light-dark(#27272a, #f5f5f5)" animation="cnStatusPulse 2s infinite"
+              box width="0.375rem" height="0.375rem" border-radius="0.1875rem" flex-shrink=0 background-color="light-dark(#27272a, #f5f5f5)"
               text environment.progress font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
           if environment.progressFailed != ""
             row margin-top="0.25rem" gap="0.5rem" align-items="center" max-width="28rem" min-width=0 role="alert" hover=hover("failure") position="relative" testId=`environment-update-failure-${environment.environmentId}`
@@ -369,6 +377,8 @@ component EnvironmentRow
             CnMenu(menuId=`environment-menu-${environment.environmentId}-popup`, invoker=`environment-menu-${environment.environmentId}`, label=`More actions for ${environment.label}`, width=196, area="bottom span-left", items=menuItems, keyed=0)
               EnvironmentIconMenu(keysId=`environment-menu-${environment.environmentId}-popup-keys`, environment=environment, op=op)
               RouteMenuItem(keysId=`environment-menu-${environment.environmentId}-popup-keys`, label=(routesOpen ? "Hide routes" : "Routes"), menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-routes-item-${environment.environmentId}`, disabled=busy, choose=toggleRoutes)
+              if environment.mcpUrl != ""
+                CnMenuItem(keysId=`environment-menu-${environment.environmentId}-popup-keys`, label="Copy MCP URL", menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-mcp-${environment.environmentId}`, destructive=false, disabled=busy, radio=false, highlighted=false, note="", icon="", submenu="", choose=op("environment-mcp", environment.key, environment.mcpUrl))
               if environment.traceId != ""
                 CnMenuItem(keysId=`environment-menu-${environment.environmentId}-popup-keys`, label="Copy trace ID", menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-trace-${environment.environmentId}`, destructive=false, disabled=busy, radio=false, highlighted=false, note="", icon="", submenu="", choose=op("environment-trace", environment.key, environment.traceId))
               CnSeparator()
@@ -377,6 +387,27 @@ component EnvironmentRow
       if routesOpen
         column width="100%" box-sizing="border-box" padding-left="2.75rem" padding-right="1rem" padding-bottom="0.625rem" opacity=(environment.dimmed ? 0.6 : 1)
           EnvironmentRoutes(environmentId=environment.environmentId, rowKey=environment.key, listLabel=environment.routesLabel, label=environment.label, routes=environment.routes, busy=busy, op=op, remove=remove, addRoute=addRoute)
+
+      if permissionsOpen
+        column width="100%" box-sizing="border-box" padding-left="2.75rem" padding-right="1rem" padding-bottom="0.625rem"
+          SessionPermissions(environment=environment)
+
+component SessionPermissions
+  props
+    environment: SavedEnvironment
+  view
+    column width="100%" gap="0.5rem" padding="0.75rem" box-sizing="border-box" border-width=1 border-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" border-radius="0.5rem" testId="session-permissions"
+      text "Session permissions" font-size="0.875rem" font-weight=500
+      if environment.permissionsChecked
+        text environment.permissionContext font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+        column width="100%" gap="0.375rem"
+          for permission in environment.permissions key=permission.scope
+            row width="100%" gap="0.5rem" align-items="center" testId=`session-permission-${permission.scope}`
+              text (permission.allowed ? "✓" : "−") aria-hidden=true font-size="0.75rem" width="1rem" color="light-dark(#71717b, #818181)"
+              text permission.title font-size="0.75rem" flex=1
+              text (permission.allowed ? "Allowed" : "Not granted") font-size="0.75rem" color="light-dark(#71717b, #818181)"
+      else
+        text "Permissions not checked. Connect to this environment to view this session’s permissions." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
 
 // EnvironmentIconMenu: "Icon" opens the machine kinds, the server's own
 // detection marked; a locked environment shows the reason as a disabled row.
