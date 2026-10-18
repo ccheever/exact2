@@ -2980,6 +2980,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "material-specimens-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "hello-data",
+]
+
+[[package]]
 name = "material-specimens-linux"
 version = "0.1.0"
 dependencies = [

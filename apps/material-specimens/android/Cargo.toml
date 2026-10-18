@@ -1,0 +1,28 @@
+# The Material oracle's specimens on Android's Canvas host (LLP 1115.001.001
+# D4), as apps/unsaid/android is Unsaid: one library with the runner, the
+# kernel, the baked plan and the host's JNI, which the reader (host/android)
+# loads as libexactcanvas.so. Each specimen's plan is named at launch
+# (`x_plan`). It asks nothing of a data source, so it borrows Hello's. Off
+# Android the library is empty.
+[package]
+name = "material-specimens-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Material oracle's specimens on Android's Canvas host: the library the reader loads"
+publish = false
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib"]
+test = false
+bench = false
+
+[target.'cfg(target_os = "android")'.dependencies]
+hello-data = { path = "../../hello/data" }
+exact-linux = { path = "../../../host/linux" }
+
+[build-dependencies]
+hello-data = { path = "../../hello/data" }
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
