@@ -108,7 +108,7 @@ export function projectIdentity(name: string): { monogram: string; color: string
   return { monogram, color: COLOR_IDS[index] ?? 'blue' };
 }
 
-/** ProjectIconOverride decoded from the wire: a lucide icon carrying monogramText is a monogram. */
+/** ReceivedProjectIcon: a lucide icon carrying monogramText (an older server's fallback) is a monogram; an unknown kind is none. */
 export function decodeIcon(value: unknown): { kind: string; name: string; color: string; text: string; emoji: string } {
   const icon = obj(value), kind = str(icon.kind);
   const color = COLOR_IDS.includes(str(icon.color)) ? str(icon.color) : '';
@@ -120,9 +120,9 @@ export function decodeIcon(value: unknown): { kind: string; name: string; color:
   if (kind === 'emoji') return { kind, name: '', color: '', text: '', emoji: str(icon.emoji) };
   return { kind: '', name: '', color: '', text: '', emoji: '' };
 }
-/** ProjectIconOverride encoded for the wire: older peers only know lucide and emoji. */
+/** ProjectIconOverride in its plain shape (reference 9c161462c9, 5c03ced3be: servers since the monogram decode it as it is). */
 export function encodeIcon(input: { kind: string; name: string; color: string; text: string; emoji: string }): Obj {
-  if (input.kind === 'monogram') return { kind: 'lucide', name: 'folder-code', color: input.color, monogramText: input.text };
+  if (input.kind === 'monogram') return { kind: 'monogram', text: input.text, color: input.color };
   if (input.kind === 'emoji') return { kind: 'emoji', emoji: input.emoji };
   return { kind: 'lucide', name: input.name, color: input.color };
 }

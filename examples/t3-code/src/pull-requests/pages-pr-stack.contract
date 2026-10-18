@@ -3,7 +3,7 @@
 // refresh failed), its menu (Stack #N with "May be stale"/"Refreshing…", Retry stack refresh, the
 // layers top-down with their state glyph and a check on this one, "↳ base", Merge stack (k), Rebase
 // stack, the open-and-ready note), the separate "Merge stack" button, "Retry stack lookup", and the
-// confirmation Dialog. Sources: T3 Code (MIT, see LICENSE-T3) components/pullRequest/
+// confirmation Dialog. Sources: T3 Code 9c161462c9 (MIT, see LICENSE-T3) components/pullRequest/
 // {PullRequestStackMenu,PullRequestStackLayers,PullRequestStackHeader,PullRequestStackLayerContent}.tsx,
 // ui/{menu,dialog,button}.tsx.
 use PgIcon from "../shared/pages-icons.contract"
@@ -168,7 +168,8 @@ component PsMenuItem
         PgIcon(name="check", size=14, color=psInk())
 
 // The confirmation Dialog over the window: "Merge k pull requests?" / "Rebase n pull requests?", the
-// layers it touches, Cancel and Merge stack / Rebase stack ("Working…" while it runs; no close then).
+// layers it touches, Cancel and Merge stack / Rebase stack. It closes as the run starts (a loading toast
+// stands for the run).
 component PrStackDialog
   props
     stack: PrStackView
@@ -198,11 +199,11 @@ component PsDialogPopup
   action fromCancel(k: string, e: KeyboardEvent)
     if k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
       preventDefault()
-      focus(e.shiftKey ? (stack.pending ? "pr-stack-dialog-confirm" : "pr-stack-dialog-close") : "pr-stack-dialog-confirm")
+      focus(e.shiftKey ? "pr-stack-dialog-close" : "pr-stack-dialog-confirm")
   action fromConfirm(k: string, e: KeyboardEvent)
     if k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
       preventDefault()
-      focus(e.shiftKey or stack.pending ? "pr-stack-dialog-cancel" : "pr-stack-dialog-close")
+      focus(e.shiftKey ? "pr-stack-dialog-cancel" : "pr-stack-dialog-close")
   action fromClose(k: string, e: KeyboardEvent)
     if k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
       preventDefault()
@@ -222,10 +223,9 @@ component PsDialogPopup
                 text layer.title font-size="0.875rem" line-height="1.25rem" color=psInk() white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
                 text layer.compact font-size="0.75rem" line-height="1rem" color=psMuted() white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
       row width="100%" gap="0.5rem" justify-content="flex-end" align-items="center" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
-        button id="pr-stack-dialog-cancel" press=local("pr-ui-stack-cancel", ref, "") key=fromCancel autofocus=true disabled=stack.pending aria-keyshortcuts="Escape" testId="pr-stack-dialog-cancel" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(stack.pending ? 0.64 : 1) display="flex" align-items="center" justify-content="center"
+        button id="pr-stack-dialog-cancel" press=local("pr-ui-stack-cancel", ref, "") key=fromCancel autofocus=true aria-keyshortcuts="Escape" testId="pr-stack-dialog-cancel" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center"
           text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=psInk()
-        button id="pr-stack-dialog-confirm" press=act("stack-run", "") key=fromConfirm disabled=stack.pending testId="pr-stack-dialog-confirm" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=psPrimary() background-color=psPrimary() box-shadow="inset 0 1px 0 #ffffff29, 0 1px 2px #0000000d" opacity=(stack.pending ? 0.64 : 1) display="flex" align-items="center" justify-content="center"
+        button id="pr-stack-dialog-confirm" press=act("stack-run", "") key=fromConfirm testId="pr-stack-dialog-confirm" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=psPrimary() background-color=psPrimary() box-shadow="inset 0 1px 0 #ffffff29, 0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center"
           text stack.dialogConfirm font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
-      if not stack.pending
-        button id="pr-stack-dialog-close" press=local("pr-ui-stack-cancel", ref, "") key=fromClose aria-label="Close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" testId="pr-stack-dialog-close" title=""
-          PgIcon(name="x", size=16, color=psInk())
+      button id="pr-stack-dialog-close" press=local("pr-ui-stack-cancel", ref, "") key=fromClose aria-label="Close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" testId="pr-stack-dialog-close" title=""
+        PgIcon(name="x", size=16, color=psInk())

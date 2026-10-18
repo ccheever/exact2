@@ -68,7 +68,7 @@ describe('Files: rendered HTML (FilePreviewPanel renderBrowserFile)', () => {
   });
 
   test('a draft names its workspace (draft-workspace-file); a refused mint shows the reference text', async () => {
-    expect(htmlResource('', '/repo', '/repo/a.html', 'a.html')).toEqual({ _tag: 'draft-workspace-file', cwd: '/repo', path: 'a.html' });
+    expect(htmlResource('', '/repo', '/repo/a.html')).toEqual({ _tag: 'draft-workspace-file', cwd: '/repo', path: '/repo/a.html' });
     const { client } = fakeClient();
     (client as unknown as { rpc: () => Promise<never> }).rpc = async () => { throw new Error('nope'); };
     const view = await filesView(client, native, surface('site/index.html'), 1000);

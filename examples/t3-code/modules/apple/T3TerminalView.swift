@@ -125,6 +125,7 @@ final class T3TerminalView: ExactNativeInstance {
     private var disposed = false
     private var responderObservation: NSKeyValueObservation?
     private var keyboardMonitor: Any?
+    private var releaseMonitor: Any?
     private var mountedOnce = false
     private var focusPublication: UInt64 = 0
     private var bindings: [T3TerminalKeys.Binding] = []
@@ -213,6 +214,7 @@ final class T3TerminalView: ExactNativeInstance {
     private func windowChanged() {
         responderObservation = nil
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor); self.keyboardMonitor = nil }
+        if let releaseMonitor { NSEvent.removeMonitor(releaseMonitor); self.releaseMonitor = nil }
         guard let window = web.window else { focusChanged(false); return }
         responderObservation = window.observe(\.firstResponder, options: [.initial, .new]) { [weak self] _, _ in
             guard let self else { return }
@@ -221,10 +223,24 @@ final class T3TerminalView: ExactNativeInstance {
         keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
             self?.routeTerminalKey(event) == true ? nil : event
         }
+        // The reference's panel, drawer and sidebar dividers share the surface's document, so their
+        // release reaches its window listener, which sends the settled grid to the PTY at once
+        // (surface.ts onWindowPointerRelease). Here they are native views outside this page: every
+        // release in the window is forwarded, after AppKit has dispatched it, so a divider's
+        // `panrelease` has laid out its last size first.
+        releaseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp, .rightMouseUp, .otherMouseUp]) { [weak self, weak window] event in
+            if event.window === window { DispatchQueue.main.async { self?.pointerReleased() } }
+            return event
+        }
         if !mountedOnce {
             mountedOnce = true
             if (Int(props["focus-request"] ?? "") ?? 0) > 0 { focusTerminal() }
         }
+    }
+
+    private func pointerReleased() {
+        guard !disposed, ready else { return }
+        send(["type": "pointerRelease"])
     }
 
     private func focusChanged(_ value: Bool, republish: Bool = false) {
@@ -423,7 +439,7 @@ final class T3TerminalView: ExactNativeInstance {
         let env = props["env"].flatMap { $0.data(using: .utf8) }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] } ?? [:]
         let bound = sessions.bind(self, environment: props["environment"] ?? "", thread: props["thread"] ?? "", terminal: identity,
                                   cwd: props["cwd"] ?? "", worktreePath: props["worktree"] ?? "", env: env,
-                                  providerInstance: props["provider-instance"] ?? "")
+                                  providerInstance: props["provider-instance"] ?? "", readOnly: props["read-only"] == "true")
         session = bound
         // TerminalViewport setup: the retained output as one reset, the error, then exit handling from "closed".
         let initial = bound.output.read(from: .initial)
@@ -508,6 +524,7 @@ final class T3TerminalView: ExactNativeInstance {
             send(["type": "keyPolicy", "keybindings": Self.initial(next)["keybindings"] ?? [],
                   "readOnly": next["read-only"] == "true", "closePending": next["close-pending"] == "true"])
         }
+        if previous["read-only"] != next["read-only"], sessionMode, session != nil { bindSession() }
         synchronizeAuthOutput()
         configureAuthInput()
         if previous["scheme"] != next["scheme"] || previous["terminal-theme"] != next["terminal-theme"] { send(["type": "theme", "theme": Self.theme(next)]) }
@@ -721,6 +738,7 @@ final class T3TerminalView: ExactNativeInstance {
         focusChanged(false)
         responderObservation = nil
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor); self.keyboardMonitor = nil }
+        if let releaseMonitor { NSEvent.removeMonitor(releaseMonitor); self.releaseMonitor = nil }
         if let inputSourceObserver { NotificationCenter.default.removeObserver(inputSourceObserver); self.inputSourceObserver = nil }
         send(["type": "dispose"])
         disposed = true

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Message, Obj } from '../../src/client/domain';
 import { chatLocal, timelineMessages, transcriptRows } from '../../src/timeline/timeline-presentation';
-import { commandDisplayText, commandProgramName, formatDuration, projectedWorkEntry, summarizeToolGroup, summaryIcon, summaryKind, thoughtText } from '../../src/timeline/timeline-worklog';
+import { commandDisplayText, commandProgramName, displayFailed, formatDuration, liveThoughtLine, projectedWorkEntry, summarizeToolGroup, summaryIcon, summaryKind, thoughtText } from '../../src/timeline/timeline-worklog';
 import type { Files, Native } from '../../src/client/protocol';
 import { appPath } from '../support/app-files';
 
@@ -79,11 +79,45 @@ describe('settled turns', () => {
     expect(kinds(result)).toEqual(['user', 'work', 'user', 'assistant']);
     await toggle(value, 'fold', 'r1');
     result = rows(value);
-    expect(result.find(row => row.kind === 'attempt')).toMatchObject({ title: 'Superseded attempt', detail: 'Partial output retained', groupId: 'a1', expanded: false });
+    expect(result.find(row => row.kind === 'attempt')).toMatchObject({ title: 'Superseded attempt', detail: 'Cut off by a steer', groupId: 'a1', expanded: false });
     expect(result.some(row => row.body === 'Partial')).toBe(false);
     await toggle(value, 'attempt', 'a1');
     expect(rows(value).some(row => row.body === 'Partial')).toBe(true);
     expect(rows(value).find(row => row.kind === 'user' && row.body === 'steer')).toMatchObject({ intent: 'Steer', intentTip: 'Steered the active turn' });
+  });
+
+  test('a reply that finished before the steer stays in the turn, not in an attempt fold (#17761)', async () => {
+    const value = client([user('u', 0, 'go'), { ...answer('old', 1, 'Whole answer', { completedAt: at(1) }), nodeId: 'n1' }, user('s', 2, 'steer', { inputIntent: 'steer' }),
+      { ...answer('new', 3, 'Done'), nodeId: 'n2' }], {
+      attempts: [{ id: 'a1', runId: 'r1', rootNodeId: 'n1', status: 'superseded', completedAt: at(2) }, { id: 'a2', runId: 'r1', rootNodeId: 'n2', status: 'completed' }] });
+    expect(rows(value).some(row => row.kind === 'attempt')).toBe(false);
+    await toggle(value, 'fold', 'r1');
+    expect(rows(value).find(row => row.body === 'Whole answer')).toMatchObject({ kind: 'assistant' });
+    // Cut off: the reply closed after the steer stamped the attempt.
+    const cut = client([user('u', 0, 'go'), { ...answer('old', 1, 'Partial', { completedAt: at(3) }), nodeId: 'n1' }, user('s', 2, 'steer', { inputIntent: 'steer' })], {
+      attempts: [{ id: 'a1', runId: 'r1', rootNodeId: 'n1', status: 'superseded', completedAt: at(2) }] });
+    expect(rows(cut).find(row => row.kind === 'attempt')).toMatchObject({ detail: 'Cut off by a steer' });
+  });
+
+  test('a running subagent card stays out of its settled turn\'s fold (#16878)', async () => {
+    const agent = (id: string, status: string) => item(id, 'subagent', 1, { status, providerTurnId: 'pt1', childThreadId: `c-${id}`, title: id });
+    const value = client([user('u', 0, 'go'), command('a', 1, 'ls'), agent('s1', 'running'), agent('s2', 'completed'), answer('x', 2, 'Done')]);
+    const kept = rows(value);
+    expect(kept.find(row => row.kind === 'subagents' || row.kind === 'subagent')).toBeDefined();
+    expect(kept.some(row => row.kind === 'work')).toBe(true);
+    const settled = rows(client([user('u', 0, 'go'), command('a', 1, 'ls'), agent('s1', 'completed'), answer('x', 2, 'Done')]));
+    expect(settled.some(row => row.kind === 'subagents' || row.kind === 'subagent')).toBe(false);
+  });
+
+  test('a resumed subagent folds with the turn that started it, not under the later prompt (#19338)', () => {
+    const value = client([user('u1', 0, 'first', { runId: 'r1' }), command('a', 1, 'ls'),
+      item('s1', 'subagent', 2, { runId: 'r2', status: 'completed', providerTurnId: 'pt2', childThreadId: 'c1', title: 'helper' }), answer('x', 3, 'One'),
+      user('u2', 4, 'second', { runId: 'r2' }), { ...command('b', 5, 'pwd'), runId: 'r2' }, { ...answer('y', 6, 'Two'), runId: 'r2' }],
+      { runs: [{ id: 'r1', status: 'completed', startedAt: at(0), completedAt: at(3) }, { id: 'r2', status: 'completed', startedAt: at(4), completedAt: at(6) }] });
+    const result = rows(value);
+    expect(kinds(result)).toEqual(['user', 'work', 'assistant', 'user', 'work', 'assistant']);
+    expect(result[1]).toMatchObject({ runId: 'r1' });
+    expect(result[4]).toMatchObject({ runId: 'r2' });
   });
 
   test('a completed answer with no text reads "(empty response)"', () => {
@@ -115,9 +149,41 @@ describe('live runs', () => {
     expect(kinds(failed)).toEqual(['user', 'working', 'thinking']);
   });
 
-  test('a streaming thought is the live row with its plain-text heading', () => {
+  test('a streaming thought is the live row: its plain-text line above, Thinking as the status', () => {
     const result = rows(live([user('u', 0, 'go'), item('t', 'reasoning', 1, { status: 'running', text: '**Reading** the files', streaming: true })]));
-    expect(result[2]).toMatchObject({ kind: 'live', title: 'Reading the files', icon: 'brain' });
+    expect(result[2]).toMatchObject({ kind: 'live', title: 'Thinking', detail: 'Reading the files', icon: 'brain' });
+  });
+
+  test('the live row carries the latest thought while a later tool runs (#16284)', () => {
+    const result = rows(live([user('u', 0, 'go'), item('t1', 'reasoning', 1, { text: 'First idea.' }), item('t2', 'reasoning', 2, { text: '**Found the cause**\nIt is the cache.' }),
+      command('b', 3, 'rg cause', { status: 'running', exitCode: undefined })]));
+    expect(result[2]).toMatchObject({ kind: 'live', title: 'Running rg', detail: 'Found the cause' });
+    // While the thought is itself the live entry, the status line just says Thinking.
+    const thinking = rows(live([user('u', 0, 'go'), item('t', 'reasoning', 1, { status: 'running', text: 'Looking at it. Then more.', streaming: true })]));
+    expect(thinking[2]).toMatchObject({ kind: 'live', title: 'Thinking', detail: 'Looking at it.' });
+  });
+
+  test('active tool entries keep their order (#18853)', async () => {
+    const value = live([user('u', 0, 'go'), command('a', 1, 'cat a.ts'), command('b', 2, 'cat b.ts'), command('c', 3, 'rg x', { status: 'running', exitCode: undefined })]);
+    const live0 = rows(value).find(row => row.kind === 'live')!;
+    await toggle(value, 'group', live0.groupId!);
+    expect(rows(value).find(row => row.kind === 'details')!.activities!.map(activity => activity.id)).toEqual([key('a'), key('b'), key('c')]);
+  });
+
+  test('a thread read names the thread by its live title and links it (#13140)', async () => {
+    const read = (id: string, seconds: number, extra: Obj = {}) => item(id, 'dynamic_tool', seconds, { toolName: 't3_thread_read', input: { threadId: ' t9 ' }, ...extra });
+    const value = live([user('u', 0, 'go'), read('r', 1), read('q', 2, { status: 'running' })]);
+    (value.shell as { threads: Obj[] }).threads = [{ id: 't9', title: 'Renamed plan' }];
+    const result = rows(value);
+    expect(result[2]).toMatchObject({ kind: 'live', title: 'Reading thread “Renamed plan”' });
+    const settled = client([user('u', 0, 'go'), read('r', 1), answer('a', 2, 'ok')]);
+    (settled.shell as { threads: Obj[] }).threads = [{ id: 't9', title: 'Renamed plan' }];
+    await toggle(settled, 'fold', 'r1');
+    const entry = rows(settled).find(row => row.kind === 'entry');
+    expect(entry?.activities?.[0]).toMatchObject({ label: 'Read thread “Renamed plan”', linkPrefix: 'Read thread', linkTitle: 'Renamed plan', linkThreadId: 't9' });
+    // An archived or unknown thread keeps the generic label.
+    (settled.shell as { threads: Obj[] }).threads = [{ id: 't9', title: 'Renamed plan', archivedAt: at(1) }];
+    expect(rows(settled).find(row => row.kind === 'entry')?.activities?.[0]).toMatchObject({ label: 'Read a T3 thread', linkThreadId: '' });
   });
 
   test('compaction becomes a divider labelled with its token counts', () => {
@@ -143,7 +209,27 @@ describe('events and messages', () => {
       { checkpoints: [{ id: 'cp1', runId: 'r1', status: 'ready', appRunOrdinal: 1 }] });
     const result = rows(value);
     expect(result[0]).toMatchObject({ kind: 'user', revert: 0 });
-    expect(result[2]).toMatchObject({ intent: 'Queued', intentTip: 'Queued behind the active turn', attribution: 'agent', targetId: 'other', revert: -1 });
+    expect(result[2]).toMatchObject({ intent: 'From queue', intentTip: 'Queued while the agent was busy', attribution: 'agent', targetId: 'other', revert: -1 });
+  });
+
+  test('a restart continuation reads "Sent by T3 Code"; a legacy scheduled prompt loses its prefix (#17723)', () => {
+    const result = rows(client([user('u', 0, 'Continue.', { createdBy: 'agent', creationSource: 'server' }),
+      user('s', 1, '[Triggered by schedule task: Daily]\n\nRun it', { messageId: 'scheduled-task-message:task-1:3:scheduled' }),
+      user('p', 2, 'hi', { createdBy: 'agent', creationSource: 'mcp' })]));
+    expect(result.filter(row => row.kind === 'user').map(row => [row.attribution, row.body, row.detail])).toEqual([
+      ['t3code', 'Continue.', ''], ['automation', 'Run it', 'task-1'], ['agent', 'hi', '']]);
+  });
+
+  test('short messages with links or quotes do not collapse; the visible text counts (#16624)', () => {
+    const link = `[label](${'x'.repeat(700)})`;
+    const result = rows(client([user('l', 0, link), user('n', 1, Array.from({ length: 9 }, (_, index) => `line ${index}`).join('\n'))]));
+    expect(result.filter(row => row.kind === 'user').map(row => row.collapsible)).toEqual([false, true]);
+  });
+
+  test('copy sits before fork in an answer\'s actions', async () => {
+    const source = await Bun.file(appPath('timeline.contract')).text();
+    const actions = source.split('component RowActions')[1]!;
+    expect(actions.indexOf('label="Copy message"')).toBeLessThan(actions.indexOf('label="Fork from this response"'));
   });
 
   test('every Message field is present for Contract', async () => {
@@ -179,6 +265,17 @@ describe('work-log presentation', () => {
   test('durations and thought headings match T3', () => {
     expect([formatDuration(912), formatDuration(9_960), formatDuration(42_000), formatDuration(162_000)]).toEqual(['912ms', '10s', '42s', '2m 42s']);
     expect(thoughtText('**Bold** and `code` [link](http://x)')).toBe('Bold and code link');
+  });
+  test('reasoning prose never reads as a failed tool (#21146)', () => {
+    const thought = entry({ type: 'reasoning', text: 'That exit code 2 is just from listing the deleted directory, which is expected.' });
+    expect(displayFailed(thought)).toBe(false);
+    expect(displayFailed(entry({ type: 'command_execution', input: 'ls', output: 'ls: x: No such file or directory' }))).toBe(true);
+  });
+  test('the live thought line: a bold-only heading wins, else the first sentence (liveThoughtLine)', () => {
+    expect(liveThoughtLine('**Tracing the cache**\nIt reads twice.')).toBe('Tracing the cache');
+    expect(liveThoughtLine('Found it in `rows.ts`. Next I will fix it.')).toBe('Found it in rows.ts.');
+    expect(liveThoughtLine('- Check [the docs](http://x) first? Then go.')).toBe('Check the docs first?');
+    expect(liveThoughtLine('Version 1.2 is "done." Then more')).toBe('Version 1.2 is "done."');
   });
 });
 

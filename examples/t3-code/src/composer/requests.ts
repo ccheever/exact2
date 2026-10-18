@@ -1,5 +1,5 @@
 // Pending approvals and questions, adapted from T3 Code (MIT); see LICENSE-T3.
-// Sources: packages/client-runtime/src/state/threadRequests.ts, apps/web/src/pendingUserInput.ts,
+// Sources at 9c161462c9: packages/client-runtime/src/state/threadRequests.ts, apps/web/src/pendingUserInput.ts,
 // apps/web/src/components/chat/ComposerPendingApproval{Panel,Actions}.tsx,
 // ComposerPendingUserInputPanel.tsx, ComposerPrimaryActions.tsx and
 // packages/client-runtime/src/work-log/userInput.ts. The server owns every answer.
@@ -8,6 +8,7 @@ import { ClientError } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { queuedEdit } from './composer-controls-queue';
 import { promptRewriteKey } from './composer-ultrathink';
+import { heldRequestIds } from './composer-typing-guard';
 
 /** One draft per question (`request::question`) and one per request (its question index). */
 export type RequestDraft = { selected: string[]; custom: string; index: number };
@@ -82,6 +83,20 @@ export function activeInput(client: T3Client) {
   const input = pendingRequests(client.projection).inputs[0];
   return input ? { input, ...progress(client, input) } : undefined;
 }
+/**
+ * The requests that take the composer over: a first approval or question that arrived while the user typed
+ * their draft is held (composer-typing-guard.ts), and the composer stays theirs until typing stops.
+ */
+export function composerRequests(client: T3Client): { approvals: PendingApproval[]; inputs: PendingInput[] } {
+  const pending = pendingRequests(client.projection);
+  const held = heldRequestIds(client, client.draftKey, [...pending.approvals.map(entry => entry.requestId), ...pending.inputs.map(entry => entry.requestId)]);
+  return { approvals: pending.approvals.filter(entry => !held.has(entry.requestId)), inputs: pending.inputs.filter(entry => !held.has(entry.requestId)) };
+}
+/** The question the composer answers, unless it is held. */
+export function composerInput(client: T3Client) {
+  const input = composerRequests(client).inputs[0];
+  return input ? { input, ...progress(client, input) } : undefined;
+}
 
 function responseReason(client: T3Client, resumable: boolean): string {
   if (!resumable) return NOT_RESUMABLE;
@@ -95,7 +110,7 @@ function responseReason(client: T3Client, resumable: boolean): string {
 
 /** The composer shows the first pending approval, else the first pending question (ChatComposer). */
 export function requestPresentation(client: T3Client) {
-  const { approvals: pendingApprovals } = pendingRequests(client.projection);
+  const { approvals: pendingApprovals } = composerRequests(client);
   const pending = client.pending;
   const responding = (id: string) => !!pending && str(pending.payload.requestId) === id;
   const approvals = pendingApprovals.slice(0, 1).map(approval => {
@@ -108,7 +123,7 @@ export function requestPresentation(client: T3Client) {
       canRespond: !reason, live: approval.live, responding: responding(approval.requestId), responseReason: reason,
       options: options.filter(option => option.primary), more: options.filter(option => !option.primary) };
   });
-  const active = approvals.length ? undefined : activeInput(client);
+  const active = approvals.length ? undefined : composerInput(client);
   const questions = active?.active ? [(() => {
     const { input, active: entry, index } = active;
     const reason = responseReason(client, input.resumable);
@@ -168,8 +183,8 @@ function setDraft(client: T3Client, key: string, next: Partial<RequestDraft>): v
 }
 /** setPendingUserInputCustomAnswer: typing in the composer answers the active question. */
 export function setCustomAnswer(client: T3Client, value: string): boolean {
-  const current = activeInput(client);
-  if (!current?.active || pendingRequests(client.projection).approvals.length) return false;
+  const current = composerInput(client);
+  if (!current?.active || composerRequests(client).approvals.length) return false;
   if (!current.active.allowCustom) throw new ClientError('Choose one of the offered options.');
   if (value.length > 100_000) throw new ClientError('Keep an answer under 100,000 characters.');
   const key = `${current.input.requestId}::${current.active.id}`;

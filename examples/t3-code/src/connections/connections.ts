@@ -25,9 +25,10 @@ import { CLIENT_VERSION, versionMismatch } from './version-skew';
 import { nativeUpdateDeps, updateEnvironment, updateTargetFromConfig } from './server-update';
 import { confirms } from './server-update-notices';
 import { configInstallation, desktopManagedOnly, manualUpdateCopy, serverUpdateActionLabel, DESKTOP_MANAGED_NOTE } from './server-installation';
-import { gitHubRoutingConnectionKey, savedRoutes, singleRouteKey, type ConnectionRoute } from './connection-routes';
+import { gitHubRoutingConnectionKey, routeHttpBaseUrl, savedRoutes, singleRouteKey, type ConnectionRoute } from './connection-routes';
 import { moveSavedRoute, placeRoute, removeSavedRoute, routeCountLabel, routeRows, routesTransportLabel, savedEntry, savedList } from './connection-routes-ops';
 import { letGo } from '../client/let-go';
+import { sessionPermissionRows } from './auth-scope-options';
 
 export interface ConnectionHost {
   connection: string; origin: string; environmentId: string; statusMessage: string; scopes: string[]; config: Obj;
@@ -51,6 +52,16 @@ export function savedStatus(enabled: boolean, phase: FleetPhase, error: string):
   if (phase === 'unsupported') return { text: 'Client not supported', tone: 'muted' };
   if (phase === 'error') return { text: error ? `Connection failed: ${error}` : 'Connection failed', tone: 'error' };
   return { text: 'Not connected', tone: 'muted' };
+}
+/**
+ * WelcomeWizard's ConnectionStep label: presentSavedCloudEnvironmentConnection's buttonLabel, and, as in
+ * Settings, "Off" for a switched-off computer rather than "Not connected".
+ */
+export function welcomeComputerStatus(enabled: boolean, phase: FleetPhase): string {
+  if (!enabled && phase !== 'unsupported') return 'Off';
+  const labels: Record<FleetPhase, string> = { connected: 'Connected', connecting: 'Connecting…', reconnecting: 'Reconnecting…', unsupported: 'Client not supported',
+    error: 'Connection failed', available: 'Not connected' };
+  return labels[phase];
 }
 export function statusText(phase: FleetPhase, error: string): string {
   if (phase === 'available') return 'Available';
@@ -155,6 +166,17 @@ const sourceTransport = (source: Source, ssh: Record<string, SshTarget>) =>
 /** The icon menu's row while there is no primary (the shape is fixed; the menu is not shown). */
 const PLACEHOLDER: Source = { key: '', origin: '', environmentId: '', label: 'This machine', machine: 'desktop', enabled: false, phase: 'available', error: '', traceId: '',
   config: {}, scopes: [], focused: false, routes: [], activeRouteId: '', primary: true };
+/** T3 9c161462c9 presentation.ts environmentMcpUrl: prefer the connected route, then saved routes; SSH has no stable address. */
+export function environmentMcpUrl(source: Pick<Source, 'routes' | 'activeRouteId' | 'phase' | 'origin'>, ssh: Record<string, SshTarget> = {}): string {
+  const routes = source.routes.length ? source.routes : [{ id: source.origin, origin: source.origin, kind: ssh[trimOrigin(source.origin)] ? 'ssh' : '' }];
+  const connected = source.phase === 'connected' ? routes.find(route => route.id === source.activeRouteId) : undefined;
+  for (const route of connected ? [connected, ...routes] : routes) {
+    const base = routeHttpBaseUrl(route);
+    if (base === null) continue;
+    try { const url = new URL(base); url.pathname = '/mcp'; url.search = ''; url.hash = ''; return url.toString(); } catch { /* Try the next route. */ }
+  }
+  return '';
+}
 /** One Environments row's projection (and the This machine icon menu's). */
 export type SavedRowView = ReturnType<typeof savedRow>;
 export const placeholderRow = (): SavedRowView => savedRow(PLACEHOLDER, 0);
@@ -171,10 +193,10 @@ export function savedRow(source: Source, index: number, ssh: Record<string, SshT
   const selfUpdate = str(capabilities.serverSelfUpdate);
   const lock = !Object.keys(source.config).length || !connected ? 'Connect to this environment to change its icon.'
     : capabilities.environmentIcon !== true ? "This environment's server is too old to keep an icon. Update it to choose one."
-      : source.scopes.length && !source.scopes.includes('orchestration:operate') ? 'Your session on this environment cannot change its settings.' : '';
+      : !source.scopes.includes('settings:write') ? 'Your session on this environment cannot change its settings.' : '';
   const showUpdate = enabled && connected && mismatch !== null;
   // server-update.ts: a running update (the banner's or this row's) shows its progress here instead of the button.
-  const updateLabel = showUpdate && !desktopManagedOnly(capabilities) && !outdated.running
+  const updateLabel = source.scopes.includes('environment:maintain') && showUpdate && !desktopManagedOnly(capabilities) && !outdated.running
     ? serverUpdateActionLabel(selfUpdate, configInstallation(source.config)) : '';
   const kind = Object.keys(source.config).length ? machineKind(source.config) : machineKind({}, source.machine);
   const detected = str(obj(obj(source.config.environment).platform).machine);
@@ -182,7 +204,7 @@ export function savedRow(source: Source, index: number, ssh: Record<string, SshT
     key: source.key, first: index === 0, origin: source.origin, environmentId: source.environmentId, label: source.label, kind,
     subtitle, tooltip, errorTone: enabled && status.tone === 'error' && !outdated.resuming, enabled, dimmed: !enabled, unsupported,
     outdatedAction: outdated.action, outdatedFrom: outdated.fromVersion, progress: outdated.progress, progressFailed: outdated.failure,
-    switchTip: unsupported ? 'Client not supported' : enabled ? 'Switch off' : 'Switch on', active: source.focused, traceId: source.traceId,
+    switchTip: unsupported ? 'Client not supported' : enabled ? 'Switch off' : 'Switch on', active: source.focused, traceId: source.traceId, mcpUrl: environmentMcpUrl(source, ssh),
     // ServerUpdateAction (3b0093d716): the manual label follows the install; a desktop app that cannot
     // update from here gets the sentence instead of a button.
     update: updateLabel,
@@ -193,6 +215,9 @@ export function savedRow(source: Source, index: number, ssh: Record<string, SshT
     // EnvironmentRoutesList: the route count control and the list under the row.
     routeCount: routeCountLabel(source.routes.length), routesLabel: `Routes to ${source.label}, preferred first`,
     routes: routeRows(source.environmentId, source.routes, source.activeRouteId, connected),
+    permissionsChecked: connected && Object.keys(source.config).length > 0,
+    permissionContext: source.routes.length > 1 ? 'These permissions apply to your active route. Other routes may have different permissions.' : 'These permissions apply to this client’s current connection.',
+    permissions: sessionPermissionRows(source.scopes),
   };
 }
 
@@ -441,6 +466,15 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
       return { status: obj(reply.value), generation: reply.generation };
     } catch (error) { failed(client, 'Could not remove backend', error); throw error; }
   }
+  if (op === 'environment-mcp') {
+    try {
+      const url = new URL(value);
+      if (!['http:', 'https:'].includes(url.protocol) || url.pathname !== '/mcp') throw new ClientError('That MCP URL is unavailable.');
+      await call(native, { op: 'copyText', text: url.toString() });
+      if (client) pushToast(client, { kind: 'success', title: 'MCP URL copied', description: `Add it to an agent, e.g. claude mcp add --transport http t3 ${url}` });
+    } catch (error) { failed(client, 'Could not copy MCP URL', error); throw error; }
+    return { status: null, generation: -1 };
+  }
   if (op === 'environment-trace') {
     // "Copy trace ID" (useCopyToClipboard): value is the trace from the row.
     try {
@@ -511,7 +545,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
     if (!targets.length) throw new ClientError('No saved environment can update itself right now.');
     // Each through the shared single-flight update (server-update.ts), its failure named by its label.
     await Promise.all(targets.map(target => updateEnvironment(updateTargetFromConfig(target.config, target.key, target.environmentId, target.label),
-      nativeUpdateDeps(native, client ?? null), `${target.label} update failed`)));
+      nativeUpdateDeps(native, client ?? null))));
     return { status: null, generation: -1 };
   }
   if (op === 'local-environment') {

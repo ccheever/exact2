@@ -1,8 +1,8 @@
-// Provider update logic, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+// Provider update logic, T3 Code 1e2ecbd975 (getProviderUpdateRunOutcome 9c161462c9; MIT, see LICENSE-T3):
 // apps/web/src/components/ProviderUpdateLaunchNotification.logic.ts — isProviderUpdateCandidate,
 // isProviderUpdateActive, collectProviderUpdateCandidates, isProviderSettingsUpdateCandidate,
 // hasOneClickUpdateProviderCandidate, canOneClickUpdateProviderCandidate,
-// providerUpdateNotificationKey, getProviderUpdateInitialToastView,
+// providerUpdateNotificationKey, getProviderUpdateInitialToastView, getProviderUpdateRunOutcome,
 // shouldShowPrimaryProviderUpdateToast, getProviderUpdateRejectedToastView,
 // getProviderUpdateProgressToastView, getProviderUpdateRunToastView,
 // collectUpdatedProviderSnapshots, firstFailedProviderUpdateMessage, isTerminalProviderUpdatePhase,
@@ -154,23 +154,28 @@ export function getProviderUpdateProgressToastView(input: { providers: readonly 
   return getProviderUpdateRunningToastView(input.providerCount);
 }
 
-/** One provider update sent by the cross-machine "Update all", with its result. */
-export interface ProviderUpdateRun { readonly machineLabel: string; readonly driver: string; readonly instanceId: string; readonly result: CommandResult<{ providers: readonly Obj[] }> }
+/** One provider update sent by the cross-machine "Update all" (and Update everything), with its result. */
+export interface ProviderUpdateRun { readonly environmentId: string; readonly machineLabel: string; readonly driver: string; readonly instanceId: string; readonly result: CommandResult<{ providers: readonly Obj[] }> }
 const errorMessage = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback;
+
+/** One update's outcome: interrupted (let go), updated, or a failure line naming its machine and provider. */
+export function getProviderUpdateRunOutcome(run: ProviderUpdateRun): { readonly status: 'interrupted' | 'updated' } | { readonly status: 'failed'; readonly line: string } {
+  if (isInterrupted(run.result)) return { status: 'interrupted' };
+  const label = `${run.machineLabel} · ${providerDisplayName(run.driver)}`;
+  if (run.result._tag === 'Failure') return { status: 'failed', line: `${label}: ${errorMessage(run.result.error, 'Provider update failed.')}` };
+  const updateState = run.result.value.providers.find(provider => provider.instanceId === run.instanceId)?.updateState;
+  return str(obj(updateState).status) === 'succeeded' ? { status: 'updated' }
+    : { status: 'failed', line: `${label}: ${str(obj(updateState).message) || 'Provider update did not finish.'}` };
+}
 
 /**
  * Summarize a cross-machine "Update all" as one toast, or null when every request was
  * interrupted. Each update that did not succeed gets its own line.
  */
 export function getProviderUpdateRunToastView(runs: readonly ProviderUpdateRun[]): Pick<ProviderUpdateToastView, 'type' | 'title' | 'description'> | null {
-  const settled = runs.filter(run => !isInterrupted(run.result));
+  const settled = runs.map(getProviderUpdateRunOutcome).filter(outcome => outcome.status !== 'interrupted');
   if (settled.length === 0) return null;
-  const failureLines = settled.flatMap(run => {
-    const label = `${run.machineLabel} · ${providerDisplayName(run.driver)}`;
-    if (run.result._tag === 'Failure') return [`${label}: ${errorMessage(run.result.error, 'Provider update failed.')}`];
-    const updateState = run.result.value.providers.find(provider => provider.instanceId === run.instanceId)?.updateState;
-    return str(obj(updateState).status) === 'succeeded' ? [] : [`${label}: ${str(obj(updateState).message) || 'Provider update did not finish.'}`];
-  });
+  const failureLines = settled.flatMap(outcome => outcome.status === 'failed' ? [outcome.line] : []);
   if (failureLines.length === 0) return { type: 'success', title: settled.length === 1 ? 'Provider updated' : `${settled.length} providers updated`, description: getProviderUpdatedDescription(settled.length) };
   return { type: 'error', title: failureLines.length < settled.length ? `${failureLines.length} of ${settled.length} provider updates failed`
     : settled.length === 1 ? 'Provider update failed' : 'Provider updates failed', description: failureLines.join('\n') };

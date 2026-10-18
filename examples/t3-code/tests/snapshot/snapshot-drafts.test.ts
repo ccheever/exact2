@@ -5,7 +5,7 @@ import type { Native, Files } from '../../src/client/protocol';
 const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 function fixture() {
   const client = new T3Client();
-  Object.assign(client, { generation: 1, environmentId: 'env', projectId: 'p', threadId: 't', connection: 'connected', configLive: true, shellLive: true, threadLive: true, providerId: 'fixture', modelId: 'fixture-model', scopes: ['orchestration:operate'] });
+  Object.assign(client, { generation: 1, environmentId: 'env', projectId: 'p', threadId: 't', connection: 'connected', configLive: true, shellLive: true, threadLive: true, providerId: 'fixture', modelId: 'fixture-model', scopes: ['orchestration:read', 'orchestration:operate'] });
   client.config = { environment: { capabilities: { serverResolvedCommandContext: true } }, providers: [{ instanceId: 'fixture', enabled: true, installed: true, availability: 'available', auth: { status: 'authenticated' }, models: [{ slug: 'fixture-model' }] }] };
   client.shell = { sequence: 1, projects: [{ id: 'p' }], threads: [{ id: 't', projectId: 'p' }] };
   const calls: Obj[] = [], events: string[] = [];
@@ -31,6 +31,34 @@ test('capture is durably associated with original draft before native acknowledg
   expect(obj(f.persisted().snapshotDrafts)['env:t']).toHaveLength(1);
   await f.client.adoptSnapshots(f.native, f.files);
   expect(f.calls.filter(call => call.op === 'snapshotDraftSave')).toHaveLength(1);
+});
+test('the draft is saved within the attachment edge and keeps the saved size (deliverSnapShot)', async () => {
+  const f = fixture(), later = f.native.later.bind(f.native);
+  // T3SnapShot.swift's snapshotDraftSave names the scaled PNG's size when it scaled the capture.
+  f.native.later = async request => obj(request).op === 'snapshotDraftSave' ? (await later(request), { ok: true, generation: 1, value: { id, sizeBytes: 41, width: 2000, height: 1299 } }) : later(request);
+  await f.client.adoptSnapshots(f.native, f.files);
+  expect(f.calls.find(call => call.op === 'snapshotDraftSave')).toMatchObject({ id, imageMaxEdge: 2000 });
+  expect(f.client.snapshotDrafts).toMatchObject([{ id, mimeType: 'image/png', sizeBytes: 41 }]);
+});
+test('an existing draft is bounded on read and its upload uses the resulting bytes and size', async () => {
+  const f = fixture();
+  await f.client.adoptSnapshots(f.native, f.files);
+  const later = f.native.later.bind(f.native);
+  f.native.later = async request => obj(request).op === 'snapshotDraftRead'
+    ? (await later(request), { ok: true, generation: 1, value: { base64: 'bounded-png', sizeBytes: 41 } })
+    : later(request);
+  await f.client.uploadSnapshots(f.native, f.files);
+  expect(f.calls.find(call => call.op === 'snapshotDraftRead')).toMatchObject({ id, imageMaxEdge: 2000 });
+  expect(f.calls.find(call => call.method === 'attachments.createUploadUrl')?.payload).toMatchObject({ sizeBytes: 41 });
+  expect(f.calls.find(call => call.op === 'uploadAttachment')).toMatchObject({ base64: 'bounded-png' });
+  expect(f.client.snapshotDrafts).toMatchObject([{ id, sizeBytes: 41, uploadId: 'uploaded-fixture.png' }]);
+});
+test('a GIF or WebP staged as PNG keeps its source format exclusion on upload', async () => {
+  const f = fixture();
+  await f.client.adoptSnapshots(f.native, f.files);
+  f.client.snapshotDrafts[0]!.downscalable = false;
+  await f.client.uploadSnapshots(f.native, f.files);
+  expect(f.calls.find(call => call.op === 'snapshotDraftRead')).toMatchObject({ id, imageMaxEdge: 0 });
 });
 test('failed persistence retains native pending capture without an adopted attachment', async () => {
   const f = fixture(); f.failSave(); await f.client.adoptSnapshots(f.native, f.files);

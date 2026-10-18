@@ -62,6 +62,21 @@ final class TerminalDrawerTests: XCTestCase {
                         windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: repeating, keyCode: code)!
     }
 
+    func testReadOnlySessionSuppressesInputAndResizeAndUpdatesWhenPermissionChanges() throws {
+        let view = mount(extra: ["read-only": "true"])
+        let session = try XCTUnwrap(view.session)
+        XCTAssertTrue(session.readOnly)
+        sessions.write("do not execute\r", to: session, from: view)
+        sessions.resize(session, cols: 100, rows: 30)
+        XCTAssertEqual(session.writes, 0)
+        XCTAssertEqual(session.lastSize.cols, 0)
+        var next = view.props
+        next["read-only"] = "false"
+        try view.setProps(next)
+        XCTAssertTrue(view.session === session)
+        XCTAssertFalse(session.readOnly)
+    }
+
     func testTerminalNativeTextInputPreventsComposerTypeToFocus() {
         let view = mount(focusRequest: "1")
         XCTAssertTrue(window.firstResponder === view.web)
@@ -175,8 +190,8 @@ final class TerminalDrawerTests: XCTestCase {
         XCTAssertEqual(selection.text, "first\nsecond")
         XCTAssertEqual(selection.lineStart, 3); XCTAssertEqual(selection.lineEnd, 4)
         let context = view.actions.makeMenu(T3TerminalActions.menuItems(context: true, hasSelection: false, canAddToChat: true))
-        XCTAssertEqual(context.items.map(\.title), ["Add to chat", "Copy", "Paste"])
-        XCTAssertEqual(context.items.map(\.isEnabled), [false, false, true])
+        XCTAssertEqual(context.items.map(\.title), ["Add to chat", "Copy", "Paste", "Select all", "Jump to latest"])
+        XCTAssertEqual(context.items.map(\.isEnabled), [false, false, true, true, true])
         let popup = view.actions.makeMenu(T3TerminalActions.menuItems(context: false, hasSelection: true, canAddToChat: false))
         XCTAssertEqual(popup.items.map(\.title), ["Copy"])
         view.actions.perform("add-to-chat", selection: selection, request: 0)
@@ -189,6 +204,35 @@ final class TerminalDrawerTests: XCTestCase {
         view.actions.perform("add-to-chat", selection: selection, request: 0)
         XCTAssertEqual(messages("selectionAction").count, 1, "a superseded menu cannot emit a chip")
         XCTAssertTrue(window.firstResponder === composer, "a superseded menu cannot steal focus")
+    }
+
+    /// ThreadTerminalDrawer's Select all and Jump to latest act on the page's whole history, and
+    /// Shift+PageUp reads it without leaving the terminal (surface.ts onKeyDown).
+    func testContextMenuSelectsAllHistoryAndJumpsToLatest() throws {
+        let view = mount()
+        spin(until: { view.ready })
+        view.write((0..<80).map { "line \($0)" }.joined(separator: "\r\n"))
+        spin(until: { text(view).last == "line 79" })
+        view.actions.perform("select-all", selection: nil, request: 0)
+        spin(until: { view.selection.hasPrefix("line 0\n") })
+        XCTAssertTrue(view.selection.hasPrefix("line 0\n"), "the selection starts at the first retained line")
+        XCTAssertTrue(view.selection.hasSuffix("line 79"))
+        let pageUp = "document.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown', {key: 'PageUp', code: 'PageUp', shiftKey: true, cancelable: true}))"
+        view.web.evaluateJavaScript(pageUp)
+        let atBottom = { () -> Bool? in
+            var result: Bool?, read = false
+            view.debug { result = $0["atBottom"] as? Bool; read = true }
+            self.spin(until: { read }, timeout: 5)
+            return result
+        }
+        spin(until: { atBottom() == false })
+        XCTAssertEqual(atBottom(), false, "Shift+PageUp pages back through history")
+        spin(until: { text(view).last != "line 79" }, timeout: 2)
+        XCTAssertNotEqual(text(view).last, "line 79")
+        view.actions.perform("scroll-to-bottom", selection: nil, request: 0)
+        spin(until: { atBottom() == true && text(view).last == "line 79" })
+        XCTAssertEqual(atBottom(), true, "Jump to latest returns to the current output")
+        XCTAssertEqual(text(view).last, "line 79")
     }
 
     func testAddToChatDoesNotForwardSelectionClearOrFocusAsAnotherCommand() throws {

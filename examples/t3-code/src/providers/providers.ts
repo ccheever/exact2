@@ -1,4 +1,5 @@
-// Settings → Providers: T3's ProviderSettingsPanel projected for Contract, and
+import { providerWritable } from './provider-permissions';
+// T3 Code 9c161462c9 (MIT, LICENSE-T3), ProviderSettingsPanel projected for Contract, and
 // the provider-instance writes it offers. Every write reads fresh server
 // settings first and changes only the selected instance (atomic mutation).
 import { setupOf } from './provider-setup'; // the Account and Runtime rows
@@ -12,7 +13,7 @@ import { ClientError, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { accentHsv } from './settings-b-accent';
 import { favoriteSlugs, groupModels, instancePrefs, runModelPrefOp, MODEL_PREF_OPS } from './settings-b-models';
-import { DRIVERS, driverMeta, instanceEnabled, sameValue, versionLabel, providerSummary, checkedLabel,
+import { DRIVERS, driverMeta, instanceEnabled, legacyProviders, sameValue, versionLabel, providerSummary, checkedLabel,
   slugifyLabel, validateInstanceId, deriveAvailableInstanceId, type Driver, type DriverField } from './providers-meta';
 import { letGo } from '../client/let-go';
 // The update popover, Update all, ACP management and the custom model
@@ -22,7 +23,7 @@ import { instanceIconUrl, resolveOfficialAcpRegistryIconUrl, resolveProviderInst
 import { hostClient } from './codex-fleet-host';
 
 export interface ProviderHost {
-  config: Obj; ready: boolean; writable: boolean; local: { favoriteModels: string[] };
+  config: Obj; ready: boolean; writable: boolean; scopes?: readonly string[]; local: { favoriteModels: string[] };
   rpc(native: Native, method: string, payload: Obj, write?: boolean): Promise<Obj>;
   /** The native id source the client's command ids come from (client.ts `ids`): new ChatGPT accounts are `codex_<uuid>`. */
   ids?(native: Native, count: number): Promise<string[]>;
@@ -37,16 +38,17 @@ const liveProviders = (host: ProviderHost) => arr(host.config.providers);
 
 /** Rows in T3's order: each driver's default slot, then its custom instances, then unknown drivers. */
 export function providerRows(settings: Obj, live: Obj[], target = ''): Row[] {
-  const instances = obj(settings.providerInstances), legacy = obj(settings.providers), rows: Row[] = [];
+  const instances = obj(settings.providerInstances), legacy = legacyProviders(settings), rows: Row[] = [];
   const visible = DRIVERS.filter(driver => driver.id !== 'cursor' || live.some(provider => provider.instanceId === 'cursor'));
   for (const driver of visible) {
-    if (driver.defaultSlot) {
-      const explicit = instances[driver.id] && typeof instances[driver.id] === 'object' ? obj(instances[driver.id]) : undefined;
-      const legacyConfig = legacy[driver.id] && typeof legacy[driver.id] === 'object' ? obj(legacy[driver.id]) : undefined;
-      const synthesized = legacyConfig ? (() => { const { enabled, ...rest } = legacyConfig; return { driver: driver.id, enabled, config: rest }; })() : undefined;
+    const explicit = instances[driver.id] && typeof instances[driver.id] === 'object' ? obj(instances[driver.id]) : undefined;
+    if (driver.defaultSlot || explicit) {
+      // A newer server runs an unconfigured slot with its driver's default config; an older one keeps it in `providers`.
+      const legacyConfig = legacy && legacy[driver.id] && typeof legacy[driver.id] === 'object' ? obj(legacy[driver.id]) : undefined;
+      const synthesized = !legacy ? { driver: driver.id } : legacyConfig ? (() => { const { enabled, ...rest } = legacyConfig; return { driver: driver.id, enabled, config: rest }; })() : undefined;
       const effective = explicit ?? synthesized;
       if (effective) {
-        const isDirty = explicit !== undefined || !sameValue(legacyConfig, driver.legacyDefault);
+        const isDirty = explicit !== undefined || (!!legacy && !sameValue(legacyConfig, driver.legacyDefault));
         if (driver.id === 'codex' || driver.id === 'claudeAgent' || isDirty || instanceEnabled(effective) || target === driver.id) {
           rows.push({ id: driver.id, instance: effective, driver: driver.id, isDefault: true, isDirty });
         }
@@ -123,19 +125,19 @@ function setupKind(host: ProviderHost, row: Row, provider: Obj | undefined): '' 
   if (row.driver === 'antigravity') return 'antigravity';
   if (row.driver === 'codex' && readCodexSetupMode(row.instance.config) === 'managed') return 'codex';
   const setup = obj(provider?.setup);
-  if (host.writable && provider && (setup.canAuthenticate === true || (provider.driver === 'acpRegistry' && provider.installed === true))) return 'account';
-  if (host.writable && row.driver === 'cursor' && provider && setup.canAuthenticate === false) return 'cursor';
+  if (providerWritable(host) && provider && (setup.canAuthenticate === true || (provider.driver === 'acpRegistry' && provider.installed === true))) return 'account';
+  if (providerWritable(host) && row.driver === 'cursor' && provider && setup.canAuthenticate === false) return 'cursor';
   return '';
 }
 function setupView(host: ProviderHost, row: Row, provider: Obj | undefined) {
   const kind = setupKind(host, row, provider), environmentLabel = environmentLabelOf(host), entry = setupOf(host, row.id);
-  const mode = kind !== 'antigravity' ? '' : !host.writable ? 'unavailable' : !provider || provider.setup === undefined || provider.setup === null ? 'update' : 'actions';
+  const mode = kind !== 'antigravity' ? '' : !providerWritable(host) ? 'unavailable' : !provider || provider.setup === undefined || provider.setup === null ? 'update' : 'actions';
   const live = provider ?? {};
   return {
-    kind, environmentLabel, mode, showEnable: kind === 'antigravity' && !instanceEnabled(row.instance) && host.writable,
+    kind, environmentLabel, mode, showEnable: kind === 'antigravity' && !instanceEnabled(row.instance) && providerWritable(host),
     runtime: mode === 'actions' ? [providerRuntime(live, entry, environmentLabel, configuredBinaryPath(row.instance.config), instanceEnabled(row.instance))] : [],
     account: kind === 'account' || mode === 'actions' ? [providerAccount(row.id, live, entry, environmentLabel)] : [],
-    codex: kind === 'codex' ? [codexSetupView(host, row.id, provider, { presentation: 'settings', mode: 'managed', enabled: instanceEnabled(row.instance), readOnly: !host.writable, allowExistingCli: true, ...setupTargetOf(host, row.id) })] : [],
+    codex: kind === 'codex' ? [codexSetupView(host, row.id, provider, { presentation: 'settings', mode: 'managed', enabled: instanceEnabled(row.instance), readOnly: !providerWritable(host), allowExistingCli: true, ...setupTargetOf(host, row.id) })] : [],
     cursorNote: kind === 'cursor' ? "Using CURSOR_API_KEY. Remove it from this provider's environment to use browser sign-in." : '',
   };
 }
@@ -230,7 +232,7 @@ export function providerPage(host: ProviderHost, selection: string, nowMs: numbe
   const latest = live.reduce((value, provider) => str(provider.checkedAt) > value ? str(provider.checkedAt) : value, '');
   const health = healthInterval(settings);
   return {
-    available: true, writable: host.writable, message: host.writable ? '' : "This session can view this environment's providers but can't change their settings.",
+    available: true, writable: providerWritable(host), message: providerWritable(host) ? '' : "This session can view this environment's providers but can't change their settings.",
     checked: live.length ? checkedLabel(latest, nowMs) : 'Not checked yet', selectedId: selected?.id || '',
     rows: rows.map((row, index) => {
       const provider = live.find(candidate => candidate.instanceId === row.id), status = rowStatus(row, provider);
@@ -251,7 +253,8 @@ export function providerPage(host: ProviderHost, selection: string, nowMs: numbe
 
 function existingIds(settings: Obj): Set<string> {
   const ids = new Set(['codex', 'claudeAgent', ...Object.keys(obj(settings.providerInstances))]);
-  for (const [kind, config] of Object.entries(obj(settings.providers))) if (!sameValue(config, driverMeta(kind)?.legacyDefault)) ids.add(kind);
+  // An older server's configured legacy slots stay reserved too, so adding an account cannot replace them.
+  for (const [kind, config] of Object.entries(legacyProviders(settings) ?? {})) if (!sameValue(config, driverMeta(kind)?.legacyDefault)) ids.add(kind);
   return ids;
 }
 // The ACP Registry agent the wizard prepared, for this wizard opening only.
@@ -294,7 +297,7 @@ export function providerWizard(host: ProviderHost, open: boolean, serial: number
 function chatgptDialog(host: ProviderHost, open: boolean, serial: number) {
   if (!open || chatgptCreated?.serial !== serial) return [];
   const { instanceId, displayName } = chatgptCreated, provider = liveProviders(host).find(candidate => candidate.instanceId === instanceId);
-  const setup = provider?.setup ? [codexSetupView(host, instanceId, provider, { presentation: 'settings', mode: 'managed', enabled: true, readOnly: !host.writable, allowExistingCli: false, ...setupTargetOf(host, instanceId) })] : [];
+  const setup = provider?.setup ? [codexSetupView(host, instanceId, provider, { presentation: 'settings', mode: 'managed', enabled: true, readOnly: !providerWritable(host), allowExistingCli: false, ...setupTargetOf(host, instanceId) })] : [];
   return [{ key: instanceId, instanceId, title: displayName, setup }];
 }
 /** The dialog closes once the destination's snapshot shares a ChatGPT plan (usesChatGptSharing). */
@@ -321,8 +324,8 @@ export async function acpRegistry(host: ProviderHost, native: Native | null | un
 async function freshSettings(host: ProviderHost, native: Native) { return host.rpc(native, 'server.getSettings', {}); }
 async function refreshConfig(host: ProviderHost, native: Native) { host.config = await host.rpc(native, 'server.getConfig', {}); }
 async function upsert(host: ProviderHost, native: Native, row: Row, next: Obj, settings: Obj, extra: Obj = {}) {
-  const legacyDefault = row.isDefault ? driverMeta(row.driver)?.legacyDefault : undefined;
-  const patch = { ...(legacyDefault ? { providers: { ...obj(settings.providers), [row.driver]: legacyDefault } } : {}), ...extra };
+  const legacy = legacyProviders(settings), legacyDefault = row.isDefault && legacy ? driverMeta(row.driver)?.legacyDefault : undefined;
+  const patch = { ...(legacy && legacyDefault ? { providers: { ...legacy, [row.driver]: legacyDefault } } : {}), ...extra };
   await host.rpc(native, 'server.updateSettings', { patch, providerInstanceMutation: { operation: 'upsert', instanceId: row.id, instance: next } }, true);
 }
 const withKey = (base: Obj, key: string, value: unknown) => { const next: Obj = { ...base }; if (value === undefined) delete next[key]; else next[key] = value as Obj[string]; return next; };
@@ -427,8 +430,9 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
       }
     }
   } else if (op === 'provider-reset') {
-    if (!row.isDefault || !meta?.legacyDefault) throw new ClientError('Only built-in provider slots can be reset.');
-    await host.rpc(native, 'server.updateSettings', { patch: { providers: { ...obj(settings.providers), [row.driver]: meta.legacyDefault } }, providerInstanceMutation: { operation: 'remove', instanceId: id } }, true);
+    const legacy = legacyProviders(settings);
+    if (!row.isDefault || (legacy && !meta?.legacyDefault)) throw new ClientError('Only built-in provider slots can be reset.');
+    await host.rpc(native, 'server.updateSettings', { patch: legacy ? { providers: { ...legacy, [row.driver]: meta!.legacyDefault } } : {}, providerInstanceMutation: { operation: 'remove', instanceId: id } }, true);
     envDraftsOf(host).delete(id);
   } else {
     let next: Obj = instance, extra: Obj = {};

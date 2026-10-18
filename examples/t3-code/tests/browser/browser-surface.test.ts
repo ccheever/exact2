@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3), under their own names:
 // apps/web/src/components/preview/openPreviewSession.test.ts (4 of 4, with the unread-settings retry's
 // "session" row; its "link" row is browser-links.ts's openUrlInPreview), addBrowserSurface.test.ts (2) and closePreviewSession.test.ts (2). The
@@ -35,6 +36,7 @@ type Call = { method: string; payload: Obj };
 function fakeClient(answer: (method: string, payload: Obj) => Obj | Promise<Obj>, extra: Obj = {}) {
   const calls: Call[] = [], native: Call[] = [];
   const client = {
+    scopes: AUTH_STANDARD_CLIENT_SCOPES,
     environmentId: 'local', threadId: 'thread-1', projectId: 'p1', generation: 1, connection: 'connected', ready: true, available: true, diffOpen: false,
     draftKey: 'local:thread-1', presentation: {} as Obj, config: { environment: { capabilities: {} } }, shell: { threads: [{ id: 'thread-1', projectId: 'p1' }], projects: [{ id: 'p1', workspaceRoot: '/p' }] },
     local: { clientSettings: {}, deviceSettings: {}, composerControls: false },
@@ -218,15 +220,20 @@ describe('the chrome row and the native host', () => {
     expect(browserView(client, surface)).toMatchObject({ failed: true, live: false, failHost: 'localhost:16699', failMessage: 'Connection refused', failLabel: 'ERR_CONNECTION_REFUSED' });
   });
 
-  it('handleSubmitUrl: a good address loads in the tab web view; one the rules refuse does nothing', async () => {
+  it('handleSubmitUrl: a good address loads in the tab web view, other text searches for it; one the rules refuse does nothing', async () => {
     const { client, native } = fakeClient(() => ({}));
     const state = emptyPanel();
     opened(client, state, idle('tab-1'));
     await browserLocal(client, module, state, 'navigate', 'tab-1', 'localhost:16651');
     await browserLocal(client, module, state, 'navigate', 'tab-1', 'ftp://example.com');
     await browserLocal(client, module, state, 'navigate', 'tab-1', '   ');
-    expect(native.map(call => call.payload)).toEqual([{ op: 'browserNavigate', tab: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1'), url: 'http://localhost:16651/', profile: 'default', environment: 'local' }]);
-    expect(browserHost(client).store.read(threadRef).recentlySeenUrls).toEqual(['http://localhost:16651/']);
+    await browserLocal(client, module, state, 'navigate', 'tab-1', 'how to center a div');
+    const tab = previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1'), search = 'https://duckduckgo.com/?q=how%20to%20center%20a%20div';
+    expect(native.map(call => call.payload)).toEqual([
+      { op: 'browserNavigate', tab, url: 'http://localhost:16651/', profile: 'default', environment: 'local' },
+      { op: 'browserNavigate', tab, url: search, profile: 'default', environment: 'local' },
+    ]);
+    expect(browserHost(client).store.read(threadRef).recentlySeenUrls).toEqual([search, 'http://localhost:16651/']);
   });
 
   it('Back, Forward, Refresh and Hard reload go to the tab web view; Open in system browser opens its URL', async () => {

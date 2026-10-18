@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // Settings shell, General and Appearance logic.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
@@ -22,11 +23,11 @@ import { contractFn } from '../support/contract-fn-fixture';
 const provider = { instanceId: 'fixture', driver: 'codex', displayName: 'Exact fixture', enabled: true, installed: true, auth: { status: 'authenticated' }, status: 'ready',
   models: [{ slug: 'luna', name: 'GPT-5.6-Luna', isDefault: true, capabilities: { optionDescriptors: [{ id: 'reasoningEffort', type: 'select', options: [{ id: 'low', label: 'Low' }, { id: 'medium', label: 'Medium', isDefault: true }, { id: 'high', label: 'High' }] }] } },
     { slug: 'astra', name: 'GPT-6-Astra' }] };
-type Fake = { local: Obj; ready: boolean; environmentId: string; config: Obj; writes: Obj[]; files: Record<string, string>; projectGroups(): { key: string; name: string; members: Obj[] }[]; settingsCoreRequest(native: Native, method: string, payload: Obj): Promise<Obj> };
+type Fake = { scopes: readonly string[]; local: Obj; ready: boolean; environmentId: string; config: Obj; writes: Obj[]; files: Record<string, string>; projectGroups(): { key: string; name: string; members: Obj[] }[]; settingsCoreRequest(native: Native, method: string, payload: Obj): Promise<Obj> };
 function fake(settings: Obj = {}, ready = true): Fake {
   const client: Fake = {
     local: { deviceSettings: { composerCollapseOnScroll: true, planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' }, clientSettings: decodeClientPrefs({}), groupingMode: 'repository' },
-    ready, environmentId: 'env1', writes: [], files: {},
+    scopes: AUTH_STANDARD_CLIENT_SCOPES, ready, environmentId: 'env1', writes: [], files: {},
     config: { environment: { environmentId: 'env1', label: 'Studio', serverVersion: '0.0.46', capabilities: { projectSettingsOverrides: true, threadAutoSettlement: true, threadRestartContinuation: true } }, providers: [provider], settings: { defaultRuntimeMode: 'full-access', projectSettingsOverrides: {}, ...settings } },
     projectGroups: () => [{ key: 'repo', name: 'Parity fixture', members: [{ id: 'p1', title: 'Parity fixture', workspaceRoot: '/a' }, { id: 'p2', title: 'Parity fixture', workspaceRoot: '/b' }] },
       { key: 'env1:/c', name: 'Single checkout two', members: [{ id: 'p3', title: 'Single checkout two', workspaceRoot: '/c' }] }],
@@ -131,7 +132,7 @@ describe('general rows', () => {
     expect([row('default-permissions').label, row('default-permissions').icon, row('default-permissions').inheritance]).toEqual(['Full access', 'lock-open', 'default']);
     expect([row('snooze-limited-threads').checked, row('snooze-limited-threads').inheritance, row('snooze-limited-threads').resettable]).toEqual([true, 'environment', false]);
     expect([row('new-threads').label, row('worktree-submodules').label, row('days-before-auto-settle').value]).toEqual(['Current checkout', 'Recursive', '3']);
-    expect(row('version').value).toBe('0.0.46-nightly.20261004.1'); // this app's own release, not the server's
+    expect(row('version').value).toBe('0.1.1-nightly.20261018.3302'); // this app's own release, not the server's
   });
   test('project scope: overrides, t3.json and environment-wide rows', () => {
     const client = as(fake({ projectSettingsOverrides: { p1: { defaultRuntimeMode: 'approval-required' }, p2: { defaultRuntimeMode: 'approval-required' } } }));
@@ -161,7 +162,7 @@ describe('general rows', () => {
 });
 
 describe('traits picker', () => {
-  test('sections, Default badges and the bolt; a pick keeps the other traits (TraitsPicker)', () => {
+  test('sections, Default badges and the speed label; a pick keeps the other traits (TraitsPicker)', () => {
     const tier = { id: 'serviceTier', label: 'Service Tier', type: 'select', options: [{ id: 'default', label: 'Standard', isDefault: true }, { id: 'priority', label: 'Fast', description: '2x speed, increased usage' }] };
     const descriptors = (provider.models[0]!.capabilities as Obj).optionDescriptors as Obj[];
     descriptors.push(tier);
@@ -169,7 +170,7 @@ describe('traits picker', () => {
       const client = as(fake({ defaultModelSelection: { instanceId: 'fixture', model: 'luna', options: [{ id: 'reasoningEffort', value: 'high' }, { id: 'serviceTier', value: 'priority' }] } }));
       const context = serverContext(client, resolveScope(client, '', '', ''), new Map());
       const model = generalSections(client, context).flatMap(section => section.rows).find(entry => entry.id === 'default-model')!;
-      expect([model.label2, model.icon]).toEqual(['High', 'fast']);
+      expect([model.label2, model.icon]).toEqual(['High Fast', '']);
       expect(model.options2.map(entry => [entry.value, entry.icon, entry.selected])).toEqual([['section:reasoningEffort', 'section', false], ['reasoningEffort=low', '', false],
         ['reasoningEffort=medium', 'default', false], ['reasoningEffort=high', '', true], ['section:serviceTier', 'section-rule', false], ['serviceTier=default', 'default', false], ['serviceTier=priority', '', true]]);
       expect(model.options2.find(entry => entry.value === 'serviceTier=priority')!.detail).toBe('2x speed, increased usage');
@@ -350,6 +351,10 @@ describe('navigation and search', () => {
     expect(searchSettings('wrap', context)[0]!.id).toBe('word-wrap');
     expect(searchSettings('auto settle', { ...context, autoSettle: false }).map(item => item.id)).not.toContain('auto-settle-inactive-threads');
     expect(searchSettings('tailscale', context)).toEqual([]);
+    // The About rows (472ea7ec5f): Version by its update words, and Update track, both on General.
+    expect(searchSettings('check for updates', context).map(item => item.id)).toContain('app-version');
+    expect(searchSettings('update track', context)).toEqual([expect.objectContaining({ id: 'update-track', title: 'Update track', route: 'general' })]);
+    expect(searchSettings('nightly', context).map(item => [item.id, item.target])).toContainEqual(['update-track', 'update-track']);
     const result = settingsNavigation('send shortcut', context);
     expect([result.firstRoute, result.firstTarget, result.items[0]!.section]).toEqual(['general', 'setting-send-shortcut', 'General']);
     expect(scopeAvailable('environment-defaults', 'project')).toBe(false);

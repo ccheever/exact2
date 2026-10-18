@@ -1,3 +1,4 @@
+use PromptLinkView from "./src/prompt-links/prompt-links.contract"
 use ThemeUse, ThemeRoleUsage from "./src/appearance/settings-appearance-editor-shapes.contract"
 use WorkspaceDiscovery, WorkspaceRefresh, TimelineReadsResult, Time, Page from "./src/shell/app-shapes.contract" // first: the plan orders shapes by first use
 use HighlightStep from "./src/highlight/highlight.contract"
@@ -38,7 +39,25 @@ use TerminalDrawerView from "./src/terminal/terminal.contract"
 use HoverTip, noHoverTip, hoverDelay, hoverOpenDelay from "./src/shell/hover-layer.contract"
 use TransportTable, TransportSlot, TransportUpdateSlot, TransportConnect, TransportUpdateStep, TransportSocket, TransportInbox from "./src/transport/transport.contract"
 use legacyTipOwner from "./src/sidebar/legacy-sidebar.contract"
+routes promptLinks
+  home "/"
+  incoming "/open"
+
 component T3Code
+  action promptLinkNavigate(location: string)
+    promptLinks = open(promptLinks, location)
+  resource promptLinkPage = promptLinkView(data.revision) as shape PromptLinkView
+  resource promptLinksReady = promptLinksReady(data.revision, transportSeen) as shape bool
+  task incomingPromptLink when top(promptLinks).name == "incoming" and promptLinksReady and not welcome.show and not commandPending
+    after(1, promptLinkReceived)
+  action promptLinkReceived
+    let value = searchParam(top(promptLinks), "u")
+    promptLinks = open(promptLinks, path("home"))
+    settingsOpen = false
+    utilityPage = ""
+    send fragmentChanged = command("shelllocal:prompt-link-open", "", value, 0)
+  action promptLinkAct(which: string)
+    send fragmentChanged = command("shelllocal:prompt-link-action", which, "", 0)
   state themeInspecting = false // Color inspection owns Escape while its floating editor remains open.
   action setThemeInspecting(value: bool)
     themeInspecting = value
@@ -48,7 +67,7 @@ component T3Code
     after(1, clearThemeInspecting)
   state elapsed = 0
   resource wallTime = exactTime() as shape Time
-  resource data = snapshot(wallTime.epochAtZero + elapsed, reconnectGraceKey, disconnectDelayKey, viewport.displayMode, restOwner, restResting, restAtEnd, restPulls, transportSeen) as shape Snapshot // full screen drops the traffic lights' inset (presentation.ts); the transcript's viewport (transcript-facts.ts); the connections' news (transport.ts)
+  resource data = snapshot(wallTime.epochAtZero + elapsed, reconnectGraceKey, disconnectDelayKey, viewport.displayMode, restOwner, restResting, restAtEnd, restPulls, transportSeen, composerTyping) as shape Snapshot // full screen drops the traffic lights' inset (presentation.ts); the transcript's viewport (transcript-facts.ts); the connections' news (transport.ts); the typing guard (composer-typing-guard.ts)
   state reconnectGraceKey = ""
   state disconnectDelayKey = ""
   task reconnectGrace when data.serverUpdate.reconnecting != "" key=data.serverUpdate.reconnecting
@@ -110,7 +129,7 @@ component T3Code
   // or ends (a connect, a retry or a disconnect changes it inside an answer, which nothing else reads), and once
   // whenever the delivering answer reports a table the tick has not published (a socket closed, a slot's attempt got
   // its URL).
-  derive transportAnswering = `${pending(data)}${pending(balanceLoaded)}${pending(attachmentUrls)}${pending(home)}${pending(usage)}${pending(usageShortcuts)}${pending(prList)}${pending(prDetail)}${pending(welcome)}${pending(timelineDisclosureChanged)}${pending(timelineReadsRefreshed)}${pending(timelineReadsRefreshedNext)}${pending(workspaceDiscovery)}${pending(workspaceRefreshed)}${pending(palette)}${pending(paletteChanged)}${pending(providerAuthChanged)}${pending(providerUpdateRun)}${pending(changed)}${pending(localChanged)}${pending(prHandoffChanged)}${pending(terminalFocusChanged)}${pending(fileCommentChanged)}${pending(lineDragChanged)}${pending(terminalChanged)}${pending(fragmentChanged)}${pending(providerPage)}${pending(providerWizard)}${pending(connectionsPage)}${pending(acpAgents)}${pending(bindings)}${pending(scheduled)}${pending(shortcuts)}${pending(sourceControl)}${pending(integrations)}${pending(storageSettings)}${pending(archives)}${pending(licenses)}${pending(diagnostics)}${pending(snapshotSettings)}${pending(settingsNavigation)}${pending(settingsCore)}${pending(settings)}${pending(projectsSettings)}${pending(sbSshHosts)}${pending(sshPrompt)}${pending(sshAnswered)}${pending(pairFields)}${pending(sbPicker)}${pending(catalog)}${pending(editor)}${pending(chip)}${pending(branches)}${pending(sidebarLaunch)}${pending(automationRecordingServed0)}${pending(automationRecordingServed1)}${pending(automationRecordingServed2)}${pending(automationRecordingServed3)}${pending(themeLive)}${pending(shell)}${pending(details)}${pending(canvas)}${pending(terminalDrawer)}`
+  derive transportAnswering = `${pending(data)}${pending(balanceLoaded)}${pending(attachmentUrls)}${pending(home)}${pending(usage)}${pending(usageShortcuts)}${pending(prList)}${pending(prDetail)}${pending(welcome)}${pending(timelineDisclosureChanged)}${pending(timelineReadsRefreshed)}${pending(timelineReadsRefreshedNext)}${pending(workspaceDiscovery)}${pending(workspaceRefreshed)}${pending(palette)}${pending(paletteChanged)}${pending(providerAuthChanged)}${pending(providerUpdateRun)}${pending(changed)}${pending(localChanged)}${pending(prQuickChanged)}${pending(prConfirmChanged)}${pending(prHandoffChanged)}${pending(terminalFocusChanged)}${pending(fileCommentChanged)}${pending(lineDragChanged)}${pending(terminalChanged)}${pending(fragmentChanged)}${pending(providerPage)}${pending(providerWizard)}${pending(connectionsPage)}${pending(acpAgents)}${pending(bindings)}${pending(scheduled)}${pending(shortcuts)}${pending(sourceControl)}${pending(integrations)}${pending(storageSettings)}${pending(archives)}${pending(licenses)}${pending(diagnostics)}${pending(snapshotSettings)}${pending(settingsNavigation)}${pending(settingsCore)}${pending(settings)}${pending(projectsSettings)}${pending(sbSshHosts)}${pending(sshPrompt)}${pending(sshAnswered)}${pending(pairFields)}${pending(sbPicker)}${pending(catalog)}${pending(editor)}${pending(chip)}${pending(branches)}${pending(sidebarLaunch)}${pending(automationRecordingServed0)}${pending(automationRecordingServed1)}${pending(automationRecordingServed2)}${pending(automationRecordingServed3)}${pending(themeLive)}${pending(shell)}${pending(details)}${pending(canvas)}${pending(terminalDrawer)}`
   task transportAnswered key=transportAnswering
     after(1, transportPump)
   task transportRepublish when transportInbox.table > transportTable.rev key=transportInbox.table
@@ -391,11 +410,19 @@ component T3Code
   action prSetTab(value: string)
     prTab = value
   action prAct(op: string, value: string)
-    if not commandPending
+    if op == "quick" or op == "close-batch"
+      send prQuickChanged = command(`pageslocal:pr-act-${op == "quick" ? "queue" : op}`, "", value, 0)
+    else if not commandPending
       commandPending = true
       send changed = command(`pageslocal:pr-act-${op}`, utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, value, 0)
   action prCopy(label: string, text: string)
     send localChanged = command("pageslocal:copy", label, text, 0)
+  task prConfirmLapse when prDetail.actions.armedSerial > 0 key=prDetail.actions.armedSerial // useInlineActionConfirm: an armed confirmation lapses after 3 s, or as the window loses the focus
+    after(3000, prConfirmLapsed)
+  task prConfirmBlur when prDetail.actions.armedSerial > 0 and not page.hasFocus key=prDetail.actions.armedSerial
+    after(1, prConfirmLapsed)
+  action prConfirmLapsed
+    chatLocal("pr-ui-disarm", prDetail.ref, `serial:${prDetail.actions.armedSerial}`)
   state welcomeStep = "connect"
   state welcomeLink = ""
   state welcomePairOpen = true
@@ -643,6 +670,8 @@ component T3Code
   mutation providerAuthChanged as shape Change queue refreshes data, providerPage, providerWizard
   mutation providerUpdateRun as shape Change queue refreshes providerPage
   mutation changed as shape Change refreshes data then commandCompleted
+  mutation prQuickChanged as shape Change queue refreshes data
+  mutation prConfirmChanged as shape Change refreshes data
   mutation localChanged as shape Change refreshes data
   mutation prHandoffChanged as shape Change refreshes data // a checkout hand-off's second half, its own send
   mutation terminalFocusChanged as shape Change refreshes data
@@ -666,6 +695,7 @@ component T3Code
           focus("composer")
       case none
   state commandPending = false
+  state lineageStopping = ""
   // A row's double-click while its first click's open runs: the rename (its op and row) starts once the open lands,
   // on the environment it focused, as Sidebar.tsx's onDoubleClick renames after that click navigated.
   state renameAfterOp = ""
@@ -734,7 +764,7 @@ component T3Code
   state licenseRetry = 0
   state diagnosticPeriod = "15m"
   resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute, utilityPage, modelTarget.id, confirmOp) as shape KeyDispatch[]
-  resource sourceControl = sourceControlPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "source-control", settingsRefresh, data.revision) as shape SourceControlPage
+  resource sourceControl = sourceControlPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "source-control", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape SourceControlPage
   resource integrations = integrationsPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "integrations", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout, fdaPoll) as shape IntegrationsPage
   state fdaPoll = 0 // Poll Full Disk Access every 1.5 s and on window focus, only while visible; fdaPoll refreshes the wizard.
   task fdaPolling when integrations.browserProfiles.wizard.step == "fullDiskAccess" and page.visibilityState == "visible"
@@ -779,8 +809,8 @@ component T3Code
     else
       focus("browser-profiles-add")
     removalAt = integrations.browserProfiles.removalId
-  resource storageSettings = storageSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "storage", settingsRefresh, data.revision) as shape StoragePage
-  resource archives = archivedSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "archived", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision) as shape ArchivePage
+  resource storageSettings = storageSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "storage", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout, wallTime.epochAtZero + elapsed) as shape StoragePage
+  resource archives = archivedSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "archived", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape ArchivePage
   resource licenses = licenseSettings(licenseQuery, licenseExpanded, licenseRetry, settingsOpen and settingsRoute == "open-source-licenses", data.revision) as shape LicenseSettings
   resource diagnostics = diagnosticsSettings(settingsEnvironmentId, diagnosticPeriod, settingsOpen and settingsRoute == "diagnostics", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, data.telemetry) as shape DiagnosticsPage // a telemetry sample asks only this page again (data.telemetry); its reads are shared, so one asked again before a reply joins it (diagnostics-view.ts)
   state settingsFocusTarget = ""
@@ -899,6 +929,14 @@ component T3Code
     composerFocused = true
   action composerBlur
     composerFocused = false
+    composerTyping = false
+  // COMPOSER_TYPING_IDLE_MS: the draft's last edit in the focused composer, until 1.5 s pass without another.
+  state composerTyping = false
+  state typingSerial = 0
+  task composerTypingIdle when composerTyping key=typingSerial
+    after(1500, composerTypingIdled)
+  action composerTypingIdled
+    composerTyping = false
   action scrollToEnd
     jumpRequest = jumpRequest + 1
     foldHold = false
@@ -1034,6 +1072,7 @@ component T3Code
       case none
     pendingModal = ""
     commandPending = false
+    lineageStopping = ""
     if renameAfterOp != ""
       send localChanged = command(`sidebarlocal:${renameAfterOp}`, renameAfterId, "", 0)
       renameAfterOp = ""
@@ -1174,6 +1213,15 @@ component T3Code
     settingsCheckout = project ? "" : settingsCheckout
     settingsProjectId = project ? member : settingsProjectId
     settingsMachine = project ? settingsMachine : id
+  action coreNoticeScope(project: string, machine: string, member: string)
+    settingsMenu = ""
+    modalError = ""
+    providerSelected = ""
+    providerLinkTarget = ""
+    settingsProjectKey = project
+    settingsCheckout = ""
+    settingsProjectId = member
+    settingsMachine = machine
   action coreNavigate(route: string)
     settingsRoute = route
     providerLinkTarget = "" // a route reached without a provider link names no instance
@@ -1446,6 +1494,10 @@ component T3Code
   action write(value: string)
     draft = value
     draftOwner = `${composerOwner}${data.requestKey}`
+    // Typing the thread draft (not an answer) holds a request that arrives meanwhile (composer-typing-guard.ts).
+    if composerFocused and data.requestMode == ""
+      composerTyping = true
+      typingSerial = typingSerial + 1
     send localChanged = command("draft", "", value, 0)
   action send(held: string) // held: a pointer press's own modifiers (press-modifiers.contract), "" from a key or a call
     if not commandPending and editor.overLimit and data.requestMode != "question"
@@ -1454,6 +1506,7 @@ component T3Code
       if data.requestMode == "question" or (data.canSend and (composerText != "" or data.snapshotDrafts.length > 0))
         commandPending = true
         send changed = command("send", held == "" ? "" : `pointer:${held}`, composerText, 0)
+        composerTyping = false
         draftOwner = "__unset__"
         jumpRequest = jumpRequest + 1
   action editorOp(op: string, id: string, value: string) // composer-editor.ts: menu picks, the stash
@@ -1480,10 +1533,10 @@ component T3Code
       taskModelPick = `${provider}:${id}`
       modelsOpen = false
       focus("setting-task-model")
-    else if id != "" and modelTarget.id.startsWith("source-control-writer-model:")
+    else if id != "" and (modelTarget.id.startsWith("source-control-writer-model:") or modelTarget.id.startsWith("review-guide-model:"))
       modelsOpen = false
-      focus("setting-source-control-writer-model")
-      restRaw("rest:scoped", modelTarget.id.slice(modelTarget.id.indexOf(":|") + 2, modelTarget.id.length), `key=sourceControlWriterModelSelection&value=${encodeURIComponent(`${provider}:${id}`)}`)
+      focus(modelTarget.id.startsWith("review-guide-model:") ? "setting-review-guide-model" : "setting-source-control-writer-model")
+      restRaw("rest:scoped", modelTarget.id.slice(modelTarget.id.indexOf(":|") + 2, modelTarget.id.length), `key=${modelTarget.id.startsWith("review-guide-model:") ? "reviewGuideModelSelection" : "sourceControlWriterModelSelection"}&value=${encodeURIComponent(`${provider}:${id}`)}`)
     else if not commandPending and id != ""
       commandPending = true
       pendingModal = modelTarget.id == "" ? "" : "settings" // a General row's pick is that setting's write, never the thread's model
@@ -1494,12 +1547,18 @@ component T3Code
   action pickModel(row: string, context: string)
     openModels()
     modelTarget = PickerTarget(id=`${row}:|${context}`, top=frame(`setting-${row}`).y, bottom=frame(`setting-${row}`).y + frame(`setting-${row}`).height, left=frame(`setting-${row}`).x)
+  action prConfirmDisarm(ref: string, serial: string)
+    send prConfirmChanged = command("chatlocal:pr-ui-disarm", ref, serial, 0)
   action chatLocal(op: string, id: string, value: string)
-    if op == "fold" or op == "group" or op == "attempt" or op == "tree-all" or op == "tree-dir"
+    // A disclosure toggled with the transcript at its end keeps the end in view while the rows re-measure (the list goes
+    // on following it); anywhere else the toggled row holds its place (MessagesTimeline's disclosurePinsEnd).
+    if (op == "fold" or op == "group" or op == "attempt" or op == "tree-all" or op == "tree-dir") and not (restAtEnd and restOwner == composerOwner)
       foldHold = true
     if op == "surface-close-others" or op == "surface-close-to-right" or op == "surface-close-all" or (op == "surface-close" and shell.panel.tabs.filter((tab) => tab.id == id and tab.closeTitle != "").length == 0) or (op == "surface-browser-float" and not shell.panel.browser.capture.floating) or op == "surface-session-float" or (op == "surface-files-search-key" and id == "sheet" and value == "Escape")
       rightPanelAt = ""
-    if op.startsWith("surface-files-comment-")
+    if op == "surface-pr-quick"
+      send prQuickChanged = command(`chatlocal:${op}`, id, value, 0)
+    else if op.startsWith("surface-files-comment-")
       send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)
     else if op == "pr-code-drag" or op == "pr-code-begin"
       send lineDragChanged = command(`chatlocal:${op}`, id, value, 0) // the Code tab's gutter drags and "+", in turn
@@ -1530,14 +1589,14 @@ component T3Code
   state rightPanelAt = ""
   derive rightPanel = (rightPanelAt != "" and rightPanelAt == shell.panel.key) or shell.panel.launcher
   state detailsOpen = false
-  resource details = shellDetails(detailsShown, data.threadId, data.revision, conversationWidth >= 984, wallTime.epochAtZero + shellClock, floor(viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth), page.hasFocus and page.visibilityState == "visible") as shape ShellDetails
+  resource details = shellDetails(detailsShown, data.threadId, data.revision, conversationWidth >= 1012, wallTime.epochAtZero + shellClock, floor(viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth), page.hasFocus and page.visibilityState == "visible") as shape ShellDetails
   state canvasGestureValue = ""
   action canvasGesture(value: string)
     canvasGestureValue = value
     detailsOpen = detailsOpen and value == "" // a drag on the player is outside the details popover (Base UI's outside press; a press: T3Window outsidePressDown)
-  resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, conversationWidth >= 984 and data.projectId != "", data.look.chatMax, data.messages.length > 0 or data.threadId != "", canvasGestureValue, `${shell.panel.deviceMini.key}|${shell.panel.browserMini.key}`, shell.panel.deviceMini.show or shell.panel.browserMini.show, conversationWidth >= 984, detailsOpen) as shape ChatCanvasView
+  resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, conversationWidth >= 1012 and data.projectId != "", data.look.chatMax, data.messages.length > 0 or data.threadId != "", canvasGestureValue, `${shell.panel.deviceMini.key}|${shell.panel.browserMini.key}`, shell.panel.deviceMini.show or shell.panel.browserMini.show, conversationWidth >= 1012, detailsOpen) as shape ChatCanvasView
   state detailsEpoch = 0
-  derive detailsPopover = canvas.ready ? canvas.popover : conversationWidth < 984
+  derive detailsPopover = canvas.ready ? canvas.popover : conversationWidth < 1012
   derive detailsShown = detailsOpen and detailsPopover and detailsEpoch == canvas.popoverEpoch
   resource terminalDrawer = terminalDrawer(data.revision, viewport.height, wallTime.epochAtZero + elapsed) as shape TerminalDrawerView // terminal-drawer-view.ts
   state titleDialog = false
@@ -1651,6 +1710,8 @@ component T3Code
       commandPending = true
       send changed = command((id == "diff" or id == "d" or id == "D") ? "diff" : "shelllocal:surface-open", "", id, 0)
   action detailsAct(op: string, target: string, value: string) // the window's half: the editors list, the title menu
+    if op == "shell:stop-subagent" and not commandPending
+      lineageStopping = target
     detailsOpen = op == "toggle" ? (not detailsShown and detailsPopover) : (detailsOpen and op != "ui:project-settings" and op != "ui:scheduled-tasks" and op != "select-thread" and op != "ui:changes" and op != "dismiss") // inline: toggle remembers the thread's docked card
     detailsEpoch = op == "toggle" ? canvas.popoverEpoch : detailsEpoch
     if op == "ui:project-settings"
@@ -1675,7 +1736,7 @@ component T3Code
       taskModelPick = ""
     if (op != "toggle" or not detailsPopover) and op != "dismiss" and op != "ui:project-settings" and op != "ui:add-script" and op != "ui:scheduled-tasks" and not commandPending
       commandPending = true
-      send changed = command(op == "toggle" ? "shelllocal:details-inline" : op == "ui:changes" ? "diff" : op == "ui:editor" ? "shell:open-editor" : op, target, value, 0)
+      send changed = command(op == "toggle" ? "shelllocal:details-inline" : op == "ui:changes" ? "diff" : op == "ui:editor" ? "shell:select-editor" : op, target, value, 0)
       if op == "select-thread" or op == "shell:merge-back"
         draftOwner = "__unset__"
         jumpRequest = jumpRequest + 1
@@ -1759,4 +1820,4 @@ component T3Code
   action citeDismissed
     citeDismissals = citeDismissals + 1
   view
-    T3Window(data=data, viewport=viewport, scheme=scheme, hoverTip=hoverTip, hoverShown=hoverShown, hoverTipAt=hoverTipAt, themeInspecting=themeInspecting, setThemeInspecting=setThemeInspecting, themeRevealRequest=themeRevealRequest, themeUsage=themeUsage, settingsCore=settingsCore, sshPrompt=sshPrompt, modal=modal, shell=shell, wallTime=wallTime, liveNow=liveNow, elapsed=elapsed, sidebarWidth=sidebarWidth, commandPending=commandPending, settings=settings, utilityPage=utilityPage, home=home, paletteShow=paletteShow, openThread=openThread, sidebarLocal=sidebarLocal, sidebarRun=sidebarRun, openSettings=openSettings, openPage=openPage, pageBack=pageBack, openProviderSettings=openProviderSettings, sidebarHoverId=sidebarHoverId, openProjects=openProjects, sidebarNewThread=sidebarNewThread, selectThread=selectThread, command=command, resizeSidebar=resizeSidebar, resetSidebarWidth=resetSidebarWidth, noticeExit=noticeExit, noticeDismiss=noticeDismiss, pageCover=pageCover, canvas=canvas, canvasGesture=canvasGesture, rightPanel=rightPanel, narrowDiff=narrowDiff, detailsOpen=detailsShown, details=details, jumpRequest=jumpRequest, composerOwner=composerOwner, markdown=markdown, earlier=earlier, attachmentUrls=attachmentUrls, conversationWidth=conversationWidth, editor=editor, chip=chip, chipCovered=chipCovered, composerKey=composerKey, composerDrop=composerDrop, editorOp=editorOp, openModels=openModels, composerText=composerText, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, composerFocus=composerFocus, composerBlur=composerBlur, openOptions=openOptions, removeSnapshot=removeSnapshot, menuPick=menuPick, branches=branches, terminalDrawer=terminalDrawer, confirmOp=confirmOp, diffWidth=diffWidth, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, prDetail=prDetail, prMarkdown=prMarkdown, filesMarkdown=filesMarkdown, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, usage=usage, usageShortcuts=usageShortcuts, usageMetricSet=usageMetricSet, usageWindowSet=usageWindowSet, usageBreakdownSet=usageBreakdownSet, usageRefreshNow=usageRefreshNow, prList=prList, prTyped=prTyped, prQuery=prQuery, prSelected=prSelected, prPanelOpen=prPanelOpen, prTogglePanel=prTogglePanel, prType=prType, prControl=prControl, prSelect=prSelect, prClose=prSelect(""), openConnectionsPage=openConnectionsPage, welcomeImport=welcomeImport, popoverSession=popoverSession, closeOptions=closeOptions, menuCommand=menuCommand, branchQuery=branchQuery, searchBranches=searchBranches, projectsOpen=projectsOpen, manageProject=manageProject, selectProject=selectProject, settingsOpen=settingsOpen, connecting=connecting, settingsThemeDialog=settingsThemeDialog, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, settingsMenu=settingsMenu, editSettingsQuery=editSettingsQuery, coreSearchKey=coreSearchKey, corePick=corePick, coreClearSearch=coreClearSearch, settingsScrollTop=settingsPageScrollTop, settingsPage=settingsPage, coreMenuClose=coreMenuClose, coreMenu=coreMenu, coreChange=coreChange, coreNavigate=coreNavigate, coreScope=coreScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, restLocal=restLocal, importWizardFocusMoved=importWizardFocusMoved, integrations=integrations, snapshotSettings=snapshotSettings, settingsCommand=settingsCommand, previewSnapshotSound=previewSnapshotSound, bindings=bindings, keybindingQuery=keybindingQuery, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, scheduled=scheduled, restEditor=restEditor, storageSettings=storageSettings, archives=archives, licenses=licenses, licenseQuery=licenseQuery, editLicenseQuery=editLicenseQuery, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, providerPage=providerPage, providerDialog=providerDialog, providerOp=providerOp, providerAccent=providerAccent, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, coreThemeLive=coreThemeLive, welcome=welcome, welcomeStep=welcomeStep, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeGo=welcomeGo, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, welcomeSetup=welcomeSetup, welcomeFinish=welcomeFinish, shortcuts=shortcuts, newThread=newThread, deviceSetting=deviceSetting, selectProvider=selectProvider, selectModel=selectModel, pickModel=pickModel, taskModelPick=taskModelPick, paletteRun=paletteRun, restSubject=restSubject, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, sbSet=sbSet, origin=origin, pairFields=pairFields, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerTarget=providerTarget, providerVisit=providerVisit, catalog=catalog, modelQuery=modelQuery, modelTarget=modelTarget, closeModels=closeModels, searchModels=searchModels, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, answerRevert=answerRevert, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct, sshResponding=sshResponding, sshAnswer=sshAnswer, providerAuthPending=pending(providerAuthChanged), sidebarHoverRoot=sidebarHover, panelUiRoot=panelUi, detailsActRoot=detailsAct, titleMenuPickRoot=titleMenuPick, chatLocal=chatLocal, scrollToEnd=scrollToEnd, foldHold=foldHold, releaseFold=releaseFold, titleSend=titleSend, openConnectionRoot=openConnection, closeConnectionRoot=closeConnection, editOriginRoot=editOrigin, editCredentialRoot=editCredential, connectionOp=connectionOp, connectionRemove=connectionRemove, connectionMenu=connectionMenu, connectionAskRemove=connectionAskRemove, connectionToggleMenu=connectionToggleMenu, closeModalRoot=closeModal, clearModalError=clearModalError, restOpenRoot=restOpen, restCloseRoot=restClose, taskBaseRoot=restTaskBase, restRawRoot=restRaw, settingsEnvironmentId=settingsEnvironmentId, settingsProjectId=settingsProjectId, providerUiRoot=providerUi, providerAddRoot=providerAdd, composerFocused=composerFocused, canRest=canRest, citeWaitDone=citeWaitDone, citeWaitAsk=citeWaitAsk, citeDismissals=citeDismissals)
+    T3Window(promptLinkPage=promptLinkPage, promptLinkNavigate=promptLinkNavigate, promptLinkAct=promptLinkAct, data=data, viewport=viewport, scheme=scheme, hoverTip=hoverTip, hoverShown=hoverShown, hoverTipAt=hoverTipAt, themeInspecting=themeInspecting, setThemeInspecting=setThemeInspecting, themeRevealRequest=themeRevealRequest, themeUsage=themeUsage, settingsCore=settingsCore, sshPrompt=sshPrompt, modal=modal, shell=shell, wallTime=wallTime, liveNow=liveNow, elapsed=elapsed, sidebarWidth=sidebarWidth, commandPending=commandPending, lineageStopping=lineageStopping, settings=settings, utilityPage=utilityPage, home=home, paletteShow=paletteShow, openThread=openThread, sidebarLocal=sidebarLocal, sidebarRun=sidebarRun, openSettings=openSettings, openPage=openPage, pageBack=pageBack, openProviderSettings=openProviderSettings, sidebarHoverId=sidebarHoverId, openProjects=openProjects, sidebarNewThread=sidebarNewThread, selectThread=selectThread, command=command, resizeSidebar=resizeSidebar, resetSidebarWidth=resetSidebarWidth, noticeExit=noticeExit, noticeDismiss=noticeDismiss, pageCover=pageCover, canvas=canvas, canvasGesture=canvasGesture, rightPanel=rightPanel, narrowDiff=narrowDiff, detailsOpen=detailsShown, details=details, jumpRequest=jumpRequest, composerOwner=composerOwner, markdown=markdown, earlier=earlier, attachmentUrls=attachmentUrls, conversationWidth=conversationWidth, editor=editor, chip=chip, chipCovered=chipCovered, composerKey=composerKey, composerDrop=composerDrop, editorOp=editorOp, openModels=openModels, composerText=composerText, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, composerFocus=composerFocus, composerBlur=composerBlur, openOptions=openOptions, removeSnapshot=removeSnapshot, menuPick=menuPick, branches=branches, terminalDrawer=terminalDrawer, confirmOp=confirmOp, diffWidth=diffWidth, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, prDetail=prDetail, prMarkdown=prMarkdown, filesMarkdown=filesMarkdown, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, usage=usage, usageShortcuts=usageShortcuts, usageMetricSet=usageMetricSet, usageWindowSet=usageWindowSet, usageBreakdownSet=usageBreakdownSet, usageRefreshNow=usageRefreshNow, prList=prList, prTyped=prTyped, prQuery=prQuery, prSelected=prSelected, prPanelOpen=prPanelOpen, prTogglePanel=prTogglePanel, prType=prType, prControl=prControl, prSelect=prSelect, prClose=prSelect(""), openConnectionsPage=openConnectionsPage, welcomeImport=welcomeImport, popoverSession=popoverSession, closeOptions=closeOptions, menuCommand=menuCommand, branchQuery=branchQuery, searchBranches=searchBranches, projectsOpen=projectsOpen, manageProject=manageProject, selectProject=selectProject, settingsOpen=settingsOpen, connecting=connecting, settingsThemeDialog=settingsThemeDialog, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, settingsMenu=settingsMenu, editSettingsQuery=editSettingsQuery, coreSearchKey=coreSearchKey, corePick=corePick, coreClearSearch=coreClearSearch, settingsScrollTop=settingsPageScrollTop, settingsPage=settingsPage, coreMenuClose=coreMenuClose, coreMenu=coreMenu, coreChange=coreChange, coreNavigate=coreNavigate, coreScope=coreScope, coreNoticeScope=coreNoticeScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, restLocal=restLocal, importWizardFocusMoved=importWizardFocusMoved, integrations=integrations, snapshotSettings=snapshotSettings, settingsCommand=settingsCommand, previewSnapshotSound=previewSnapshotSound, bindings=bindings, keybindingQuery=keybindingQuery, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, scheduled=scheduled, restEditor=restEditor, storageSettings=storageSettings, archives=archives, licenses=licenses, licenseQuery=licenseQuery, editLicenseQuery=editLicenseQuery, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, providerPage=providerPage, providerDialog=providerDialog, providerOp=providerOp, providerAccent=providerAccent, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, coreThemeLive=coreThemeLive, welcome=welcome, welcomeStep=welcomeStep, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeGo=welcomeGo, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, welcomeSetup=welcomeSetup, welcomeFinish=welcomeFinish, shortcuts=shortcuts, newThread=newThread, deviceSetting=deviceSetting, selectProvider=selectProvider, selectModel=selectModel, pickModel=pickModel, taskModelPick=taskModelPick, paletteRun=paletteRun, restSubject=restSubject, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, sbSet=sbSet, origin=origin, pairFields=pairFields, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerTarget=providerTarget, providerVisit=providerVisit, catalog=catalog, modelQuery=modelQuery, modelTarget=modelTarget, closeModels=closeModels, searchModels=searchModels, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, answerRevert=answerRevert, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct, sshResponding=sshResponding, sshAnswer=sshAnswer, providerAuthPending=pending(providerAuthChanged), sidebarHoverRoot=sidebarHover, panelUiRoot=panelUi, detailsActRoot=detailsAct, titleMenuPickRoot=titleMenuPick, chatLocal=chatLocal, prConfirmDisarm=prConfirmDisarm, scrollToEnd=scrollToEnd, foldHold=foldHold, releaseFold=releaseFold, titleSend=titleSend, openConnectionRoot=openConnection, closeConnectionRoot=closeConnection, editOriginRoot=editOrigin, editCredentialRoot=editCredential, connectionOp=connectionOp, connectionRemove=connectionRemove, connectionMenu=connectionMenu, connectionAskRemove=connectionAskRemove, connectionToggleMenu=connectionToggleMenu, closeModalRoot=closeModal, clearModalError=clearModalError, restOpenRoot=restOpen, restCloseRoot=restClose, taskBaseRoot=restTaskBase, restRawRoot=restRaw, settingsEnvironmentId=settingsEnvironmentId, settingsProjectId=settingsProjectId, providerUiRoot=providerUi, providerAddRoot=providerAdd, composerFocused=composerFocused, canRest=canRest, citeWaitDone=citeWaitDone, citeWaitAsk=citeWaitAsk, citeDismissals=citeDismissals)

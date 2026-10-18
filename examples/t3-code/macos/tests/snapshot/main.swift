@@ -38,9 +38,9 @@ let drafts = fixtureRoot.appendingPathComponent("snapshots/drafts", isDirectory:
 try FileManager.default.createDirectory(at: drafts, withIntermediateDirectories: true)
 let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6QXkAAAAASUVORK5CYII=")!
 try png.write(to: drafts.appendingPathComponent("\(draftId).png"), options: .atomic)
-func operation(_ bridge: T3SnapShot, _ op: String, _ id: String) -> [String: Any] {
+func operation(_ bridge: T3SnapShot, _ op: String, _ id: String, extra: [String: Any] = [:]) -> [String: Any] {
     var result: [String: Any] = [:]
-    bridge.perform(["op": op, "id": id]) { result = $0 }
+    bridge.perform(["op": op, "id": id].merging(extra) { _, value in value }) { result = $0 }
     return result
 }
 let first = T3SnapShot(directory: fixtureRoot, agent: true, changed: { _ in })
@@ -48,12 +48,23 @@ expect(operation(first, "snapshotDraftRead", draftId)["ok"] as? Bool == true, "s
 first.destroy()
 let reopened = T3SnapShot(directory: fixtureRoot, agent: true, changed: { _ in })
 expect(operation(reopened, "snapshotDraftRead", draftId)["ok"] as? Bool == true, "bridge recreation retains draft file")
+let wide = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 300, pixelsHigh: 150, bitsPerSample: 8, samplesPerPixel: 4,
+    hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+try wide.representation(using: .png, properties: [:])!.write(to: drafts.appendingPathComponent("\(draftId).png"), options: .atomic)
+let bounded = operation(reopened, "snapshotDraftRead", draftId, extra: ["imageMaxEdge": 200])["value"] as? [String: Any] ?? [:]
+let boundedData = Data(base64Encoded: bounded["base64"] as? String ?? "") ?? Data()
+let boundedImage = NSBitmapImageRep(data: boundedData)
+expect(boundedImage?.pixelsWide == 200 && boundedImage?.pixelsHigh == 100, "upload read bounds an existing draft before returning bytes")
+expect(bounded["sizeBytes"] as? Int == boundedData.count, "upload size names the resized bytes")
+expect(try Data(contentsOf: drafts.appendingPathComponent("\(draftId).png")) == boundedData, "resized draft is retained for upload retry")
+let reread = operation(reopened, "snapshotDraftRead", draftId)["value"] as? [String: Any] ?? [:]
+expect(reread["base64"] as? String == bounded["base64"] as? String, "a retry reads the same bounded bytes")
 expect(operation(reopened, "snapshotDraftRemove", "../other")["ok"] as? Bool == false, "non-UUID path cannot remove outside image")
 expect(operation(reopened, "snapshotDraftRemove", draftId)["ok"] as? Bool == true, "only owned UUID draft removed")
 expect(operation(reopened, "snapshotDraftRemove", draftId)["ok"] as? Bool == true, "cleanup retry is idempotent")
 expect(!FileManager.default.fileExists(atPath: drafts.appendingPathComponent("\(draftId).png").path), "released draft file absent")
 reopened.destroy()
-print("6 native draft-file persistence/cleanup checks passed")
+print("10 native draft-file persistence/cleanup checks passed")
 
 let original = T3SnapshotImage.boundedPNG(png, cancelled: { false })
 expect(original?.data == png && original?.width == 1 && original?.height == 1, "small PNG retains bytes and pixel dimensions")

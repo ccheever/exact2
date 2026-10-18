@@ -5,6 +5,7 @@
 // (`exactPage().hasFocus`, document.hasFocus(): exact2 #219); the macOS side
 // (notification center, sound, Dock badge, a click that opens the thread) is
 // modules/apple/T3Notifications.swift, which says why it is not `showNotification`.
+import { noteSubagentRequests } from '../sidebar/subagent-requests';
 import type { T3Client } from '../client/client';
 import { pushToast } from './toast';
 import { arr, obj, str, type Shell } from '../client/domain';
@@ -64,6 +65,7 @@ type Transition = { threadId: string; kind: 'completion' | 'input'; status: stri
  */
 export function threadTransitions(environment: { shell: Shell }, previous: Map<string, Memory> | null): { next: Map<string, Memory>; transitions: Transition[] } {
   const next = new Map<string, Memory>(), transitions: Transition[] = [];
+  noteSubagentRequests(environment.shell.threads); // subagents are skipped below, so their requests notify through the thread above them
   for (const thread of environment.shell.threads) {
     if (obj(thread.lineage).relationshipToParent === 'subagent') continue;
     const id = str(thread.id);

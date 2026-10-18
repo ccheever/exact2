@@ -1,4 +1,4 @@
-// Assistant quotes ("Cite"), adapted from T3 Code 1e2ecbd975 (MIT; see LICENSE-T3):
+// Assistant quotes ("Cite"), adapted from T3 Code 9c161462c9 (MIT; see LICENSE-T3):
 // packages/shared/src/assistantCitations.ts (the t3-citation:// href and its prompt forms),
 // packages/contracts/src/assistantCitations.ts (the AssistantCitation bounds),
 // apps/web/src/lib/assistantTextSelection.ts (createAssistantTextSelector,
@@ -70,6 +70,12 @@ export function parseAssistantCitationHref(href: string): AssistantCitation | nu
     };
     return validCitation(citation) ? citation : null;
   } catch { return null; }
+}
+
+/** The quote (or its comment) on one line, cut at 64 characters: a chip's label and its visible length in a message. */
+export function assistantCitationLabel(citation: AssistantCitation): string {
+  const preview = (citation.comment?.trim() || citation.text).replace(/\s+/g, ' ');
+  return preview.length > 64 ? `${preview.slice(0, 64)}…` : preview;
 }
 
 export function serializeAssistantCitation(citation: AssistantCitation): string { return `[Assistant quote](${formatAssistantCitationHref(citation)})`; }

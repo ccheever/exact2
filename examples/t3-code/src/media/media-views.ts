@@ -66,7 +66,7 @@ async function mint(client: T3Client, native: Native | null | undefined, key: st
 export async function filesMediaView(client: T3Client, native: Native | null | undefined, previewPath: string, absolutePath: string, cwd: string, revision: string, now = 0): Promise<MediaView> {
   const kind = isWorkspaceVideoPreviewPath(previewPath) ? 'video' : isWorkspaceImagePreviewPath(previewPath) ? 'image' : '';
   if (!kind || !previewPath || !absolutePath) return NO_MEDIA;
-  const resource = client.threadId ? { _tag: kind === 'video' ? 'media-file' : 'workspace-file', threadId: client.threadId, path: absolutePath } : { _tag: 'draft-workspace-file', cwd, path: previewPath };
+  const resource = client.threadId ? { _tag: kind === 'video' ? 'media-file' : 'workspace-file', threadId: client.threadId, path: absolutePath } : { _tag: 'draft-workspace-file', cwd, path: absolutePath };
   const key = `files:${JSON.stringify([client.environmentId, client.threadId, cwd, absolutePath, kind])}`;
   const entry = await mint(client, native, key, resource, now);
   const url = entry && !entry.error ? revisedUrl(entry.url, revision) : '';
@@ -280,8 +280,9 @@ export function markdownMediaChips(text: string, root: string, scope: MediaScope
 }
 
 /**
- * Signed URLs for the visible messages' host-path media (`media:<path>`; `media-failed:<path>` when refused), or a
- * given document's. `threadId` names the thread they sign through (a draft's own id in Files, as the reference's draft
+ * Signed URLs for the visible messages' host-path media (`media:<path>`; `media-failed:<path>` when refused, with
+ * `media-noaccess:<path>` too when the session lacks `filesystem:read`, which the host requires: blockedAssetUrlState
+ * skips the request so the label can say to pair again), or a given document's. `threadId` names the thread they sign through (a draft's own id in Files, as the reference's draft
  * thread ref; the server signs an absolute `media-file` path without looking the thread up).
  */
 export async function markdownMediaUrls(client: T3Client, native: Native, root: string, now: number, texts?: string[], scope: MediaScope & { threadId?: string } = {}): Promise<{ id: string; url: string }[]> {
@@ -296,7 +297,10 @@ export async function markdownMediaUrls(client: T3Client, native: Native, root: 
       if (media.access === 'environment' && media.source?.asset) wanted.set(media.key, media);
     }
   }
+  // An unread grant (no scopes yet) may still ask the host, as useFilesystemReadAccess's pending state does not refuse.
+  const blocked = client.ready && !client.scopes?.includes('filesystem:read');
   for (const [key, media] of [...wanted].slice(-32)) {
+    if (blocked) { out.push({ id: `media-failed:${key.slice('media:'.length)}`, url: '' }, { id: `media-noaccess:${key.slice('media:'.length)}`, url: '' }); continue; }
     const resource = { ...media.source!.asset!.resource, threadId };
     const entry = await mint(client, native, `md:${client.environmentId}|${threadId}|${key}`, resource, now);
     if (!entry) continue;

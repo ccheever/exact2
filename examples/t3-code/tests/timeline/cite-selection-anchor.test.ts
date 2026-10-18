@@ -13,7 +13,7 @@ import { contractComponent, value, type Env } from '../support/contract-action-f
 import { contractFn, contractFns as fnsOf } from '../support/contract-fn-fixture';
 import { appPath } from '../support/app-files';
 
-const contractFns = (file: string) => fnsOf(file, ['CitePart', 'CiteOffer']);
+const contractFns = (file: string) => fnsOf(file, ['CitePart', 'CiteOffer', 'CiteLine']);
 const std = { min: Math.min, max: Math.max };
 
 const source = (file: string) => readFileSync(appPath(file), 'utf8');
@@ -64,7 +64,7 @@ describe('Cite at the release point, else at the selection\'s last line (resolve
   test('a text\'s part keeps its last selected line from the text\'s top-left; the end part is the one ending last', () => {
     const box = geometry(280, 351.42, 672, 45.5);
     const rects = [geometry(280, 352.5, 672, 21), geometry(280, 375.25, 221.2, 21)];
-    expect(cite.citePart!('2' as never, 160 as never, 300 as never, rects as never, box as never)).toEqual({ block: '2', start: 160, end: 300, lx: 0, ly: 375.25 - 351.42, lw: 221.2, lh: 21 });
+    expect(cite.citePart!('2' as never, 160 as never, 300 as never, rects as never, box as never)).toEqual({ block: '2', start: 160, end: 300, lx: 0, ly: 375.25 - 351.42, lw: 221.2, lh: 21, lines: [{ x: 0, y: 352.5 - 351.42, width: 672, height: 21 }, { x: 0, y: 375.25 - 351.42, width: 221.2, height: 21 }] });
     // A reader paragraph reports no rectangle: the text's own frame stands for its line.
     expect(cite.citePart!('2' as never, 160 as never, 300 as never, [] as never, box as never)).toMatchObject({ lw: -1 });
     const parts = [{ block: '0-3', start: 16, end: 23, lx: 0, ly: 0, lw: 45, lh: 21 }, { block: '0-21', start: 150, end: 159, lx: 0, ly: 0, lw: 66.3, lh: 21 },
@@ -133,9 +133,20 @@ describe('the answer offers Cite as observeSelectionActions does', () => {
     expect(a.state).toMatchObject({ held: false, moved: false });
   });
 
+  test('a drag released outside the selected lines anchors to the last line, including the eight-point tolerance', () => {
+    for (const [x, y, expectedX, expectedY] of [[900, 300, 501.2, 400.25], [509, 385, 509, 385], [510, 385, 501.2, 400.25]]) {
+      const a = answer();
+      a.md.call('down', a.state, a.scope(), [{ buttons: 1 }]);
+      a.md.call('selected', a.state, a.scope(), ['2', '', a.selection('selected', 0, 140, a.line2)]);
+      a.md.call('up', a.state, a.scope(), [{ buttons: 0, clientX: x, clientY: y }]);
+      expect(a.offers()[0]!.x).toBeCloseTo(expectedX!, 5);
+      expect(a.offers()[0]!.y).toBeCloseTo(expectedY!, 5);
+    }
+  });
+
   test('a press that changes nothing (a button in the answer, a click on empty text) offers nothing at its release', () => {
     const a = answer();
-    a.state.parts = [{ block: '2', start: 12, end: 31, lx: 0, ly: 1, lw: 140, lh: 21 }];
+    a.state.parts = [{ block: '2', start: 12, end: 31, lx: 0, ly: 1, lw: 140, lh: 21, lines: [] }];
     a.md.call('down', a.state, a.scope('["t","a"]'), [{ buttons: 1, clientX: 900, clientY: 300 }]);
     a.md.call('up', a.state, a.scope(), [{ buttons: 0, clientX: 900, clientY: 300 }]);
     expect(a.calls).toEqual([]);
@@ -144,7 +155,7 @@ describe('the answer offers Cite as observeSelectionActions does', () => {
   test('a double-click: the release offers Cite and the double-click holds it 500 ms; a third click begins the wait again', () => {
     const a = answer();
     a.state.held = true; a.state.moved = true;
-    a.state.parts = [{ block: '2', start: 14, end: 21, lx: 13.1, ly: 3.1, lw: 46.1, lh: 16.5 }];
+    a.state.parts = [{ block: '2', start: 14, end: 21, lx: 13.1, ly: 3.1, lw: 46.1, lh: 16.5, lines: [{ x: 13.1, y: 3.1, width: 46.1, height: 16.5 }] }];
     a.md.call('up', a.state, a.scope(), [{ buttons: 0, clientX: 316, clientY: 362.8 }]);
     a.md.call('doubled', a.state, a.scope(), []);
     expect(a.calls.map(c => c[0])).toEqual(['offer', 'hold']);
@@ -242,7 +253,7 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
     else if (dismiss === 'key') a.md.call('keys', a.state, answerScope, ['ArrowRight', {}]);
     else {
       w.outsideDown = false;
-      window.call('outsidePressDown', w, { chipShown: false, detailsOpen: false,
+      window.call('outsidePressDown', w, { prDetail: { actions: { armedAction: '' } }, chipShown: false, detailsOpen: false,
         frame: () => ({ ...geometry(0, 0, 0, 0), unavailable: true }) }, [{ buttons: 1, clientX: 100, clientY: 100 }]);
     }
     props.citeWaitDone = 1;
@@ -291,7 +302,7 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
     // The transcript's scroll (ChatColumn's transcriptScrolled) still hides it, before it keeps the position.
     expect(source('app-main.contract')).toContain('reachend=releaseFold scroll=transcriptScrolled');
     const scrolled: unknown[][] = [];
-    contractComponent('app-main.contract', 'ChatColumn').call('transcriptScrolled', { firstKey: '', anchor: { owner: '' }, turnsSeen: [], tipEpoch: 0, tipArmed: false },
+    contractComponent('app-main.contract', 'ChatColumn').call('transcriptScrolled', { firstKey: '', anchor: { owner: '' }, turnsSeen: [], tipEpoch: 0, tipArmed: false, wheelTop: 0, wheelJump: -1, wheelPending: false, scrolledTop: 0, scrolledMax: 0, scrolledPort: 0 },
       { citeScrolled: (...args: unknown[]) => scrolled.push(args), restScrolled: () => {}, frame: () => ({ unavailable: true }), anchorKey: (key?: string) => key ?? '', composerOwner: 'o', commandPending: false, turnIds: [] },
       [0, 120, { firstVisibleKey: undefined, firstVisibleOffset: 0, scrollTop: 120, scrollHeight: 2000, clientHeight: 600 }]);
     expect(scrolled).toEqual([[0, 120]]);
@@ -324,7 +335,7 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
   test('a press anywhere but on Cite hides it (observeSelectionActions\' pointerdown); one on Cite keeps it for its press', () => {
     const at = (x: number, y: number) => {
       const state: Env = { outsideDown: false, citeFor: '["t","a"]', keybindingField: '' };
-      window.call('outsidePressDown', state, { chipShown: false, detailsOpen: false, frame: (id: string) => id === 'cite-action' ? geometry(501, 385, 65.3, 28) : geometry(0, 0, 0, 0) },
+      window.call('outsidePressDown', state, { prDetail: { actions: { armedAction: '' } }, chipShown: false, detailsOpen: false, frame: (id: string) => id === 'cite-action' ? geometry(501, 385, 65.3, 28) : geometry(0, 0, 0, 0) },
         [{ buttons: 1, clientX: x, clientY: y }]);
       return state;
     };

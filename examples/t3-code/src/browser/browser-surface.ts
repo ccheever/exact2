@@ -1,3 +1,4 @@
+import { can, requirePermission } from '../connections/command-permissions';
 // The right panel's Browser tabs over a native WKWebView (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/web/src/components/preview/{addBrowserSurface,openPreviewSession,closePreviewSession,usePreviewBridge,
 // PreviewView}.ts(x), apps/web/src/rightPanelStore.ts `openBrowser`/`reconcileBrowserSurfaces`,
@@ -24,7 +25,7 @@ import {
   PreviewStateStore, previewRuntimeTabId, readSnapshot, shouldShowPreviewEmptyState,
   type DesktopPreviewOverlay, type PreviewNavStatus, type PreviewSessionSnapshot, type PreviewViewportSetting,
 } from './browser-state';
-import { describePreviewError, normalizePreviewUrl, previewErrorLabel, previewHost } from './browser-url';
+import { describePreviewError, previewErrorLabel, previewHost, resolveAddressBarInput } from './browser-url';
 // Annotate, Capture, Float preview, the separate window and the floating player.
 import { adoptCaptureNative, applyCaptureResults, artifactLocal, browserCaptureView, browserMiniLocal, cancelHiddenPicks, captureLocal, emptyCaptureView, type BrowserCaptureView } from './browser-capture';
 import { annotationAttachedToDraft } from './browser-annotation';
@@ -35,6 +36,7 @@ import { emptyNavigationView, navigationLocal, navigationNow, navigationPrepare,
 import { browserHistory } from './browser-history';
 import { environmentHostname } from './browser-targets';
 import { adoptAutomationTabs, adoptedAutomationNotes, automationOverlay, automationPrepare } from './browser-automation';
+import { openRequestedLinks } from './browser-links';
 
 // ── Profiles (browser-profiles.ts) ─────────────────────────────────────────────────────────
 export { DEFAULT_BROWSER_PROFILE_ID };
@@ -67,7 +69,9 @@ export function browserHost(client: T3Client): Host {
 const rpcOf = (client: T3Client, native: Native): Rpc => (method, payload) => client.rpc(native, method, payload, method !== 'preview.list');
 
 // ── Sessions: open, close, list (openPreviewSession, addBrowserSurface, closePreviewSession, usePreviewSession) ──
-export type OpenInput = { url?: string; profileId?: string; viewport?: PreviewViewportSetting };
+/** `background`: the answer joins the thread's sessions without becoming its active tab (openUrlInPreview's
+ *  `updatePreviewServerSnapshot`). */
+export type OpenInput = { url?: string; profileId?: string; viewport?: PreviewViewportSetting; background?: boolean };
 /** The configured defaults a new tab opens with (browserDefaults.ts: its profile and viewport). */
 export type OpenDefaults = () => Pick<BrowserDefaults, 'profileId'> & { viewport?: PreviewViewportSetting };
 const builtInDefaults: OpenDefaults = () => ({ profileId: DEFAULT_BROWSER_PROFILE_ID });
@@ -81,7 +85,8 @@ export async function openPreviewSession(rpc: Rpc, store: PreviewStateStore, ref
   });
   const snapshot = readSnapshot(answer);
   if (!snapshot) throw new Error('The server answered preview.open with no session.');
-  store.applyServerSnapshot(ref, snapshot);
+  if (input.background) store.updateServerSnapshot(ref, snapshot);
+  else store.applyServerSnapshot(ref, snapshot);
   if (input.url !== undefined) store.rememberUrl(ref, snapshot.navStatus._tag === 'Idle' ? input.url : snapshot.navStatus.url);
   return snapshot;
 }
@@ -149,6 +154,7 @@ export function reconcileBrowserSurfaces(state: PanelState, tabIds: readonly str
 
 /** addBrowserSurface (the "+" menu's Browser row, B): a new session under the profile, then its tab. */
 export async function addBrowserSurface(client: T3Client, native: Native, state: PanelState, profileId?: string): Promise<string> {
+  requirePermission(client.scopes, 'preview:operate');
   // A new thread's draft has its id from the start in the reference (activeThreadRef); here it is allocated now.
   if (!client.threadId && !activeRef(client) && client.environmentId) await ensureDraftThreadId(client, native);
   const ref = activeRef(client);
@@ -267,6 +273,7 @@ async function applyTabDefaults(client: T3Client, native: Native, created: reado
   }
 }
 async function nativeOp(client: T3Client, native: Native, request: Obj): Promise<Obj> {
+  if (request.op !== 'browserClose') requirePermission(client.scopes, 'preview:operate');
   const reply = await client.raw(native, request);
   return reply.ok ? obj(reply.value) : {};
 }
@@ -363,7 +370,7 @@ export function browserView(client: T3Client, surface: Surface | null, now = 0):
 
 /** The panel's effects before it projects (usePreviewSession, the reconcile effect, usePreviewBridge, ElectronBrowserHost). */
 export async function browserPrepare(client: T3Client, native: Native | null | undefined, state: PanelState): Promise<void> {
-  if (!native?.available) return;
+  if (!native?.available || !can(client, 'preview:operate')) return;
   const ref = activeRef(client), host = browserHost(client);
   installBrowserCleanup(client, native);
   adoptAutomationTabs(client); // tabs the previewAutomation host opened (browser-automation.ts)
@@ -376,6 +383,7 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
       if (client.ready && host.listed.get(scopedThreadKey(ref)) === client.generation) reconcileBrowserSurfaces(state, Object.keys(host.store.read(ref).sessions), scopedThreadKey(ref));
     }
     await mirrorNativeState(client, native);
+    await openRequestedLinks(client, native); // a page's target=_blank links (browser-links.ts)
     await syncNativeSessions(client, native);
     // Part 3: Annotate's settled picks reach the composer once each (browser-capture.ts).
     adoptCaptureNative(client, native);
@@ -388,6 +396,7 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
 
 // ── The chrome row's commands (`surface-browser-<op>`, PreviewView's handlers) ───────────────────
 export async function browserLocal(client: T3Client, native: Native, state: PanelState, op: string, id: string, value: string): Promise<string> {
+  if (!op.startsWith('artifact-') && op !== 'annotation-held') requirePermission(client.scopes, 'preview:operate');
   const host = browserHost(client);
   if (op === 'open') return addBrowserSurface(client, native, state, value || undefined);
   // Part 3: a toast's artifact buttons (id = the file) and the floating player's pill (id = its runtime tab).
@@ -403,10 +412,10 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
   if (await captureLocal(client, native, state, op, { ref, tabId: surface.browser.tabId, runtimeId }, value)) return '';
   switch (op) {
     case 'navigate': {
-      // handleSubmitUrl: an address the rules refuse does nothing (the server's failed event, not a toast, is the
-      // reference's only error path); a good one loads in this tab's web view and is remembered.
+      // handleSubmitUrl: text that is not an address searches for it; only empty input or an unsupported scheme does
+      // nothing (the field keeps the text). The URL loads in this tab's web view and is remembered.
       let url: string;
-      try { url = normalizePreviewUrl(value); } catch { return ''; }
+      try { url = resolveAddressBarInput(value); } catch { return ''; }
       await nativeOp(client, native, { op: 'browserNavigate', tab: runtimeId, url, profile, environment: ref.environmentId });
       host.store.rememberUrl(ref, url);
       browserHistory(client.local).recordVisitForThread(ref, url, navigationNow(client), environmentHostname(client));

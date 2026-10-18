@@ -96,6 +96,7 @@ test('one Refresh press invalidates once, though the announcement it causes asks
     restAccess: () => ({ call: async () => ({ id: 'sub-1' }) }),
     rpc: async (_native: unknown, method: string) => { calls.push(method); if (method === 'pullRequests.list' && calls.filter(c => c === 'pullRequests.list').length > 1) await gate; return method === 'pullRequests.list' ? { entries: [] } : {}; },
   } as unknown as Parameters<typeof pullRequestsPage>[0];
+  client.projectGroups = () => client.shell.projects.map(project => ({ key: String(project.id), name: String(project.title ?? ''), members: [project] }));
   const native = { available: true, watch: () => {}, later: async () => ({ ok: true }) } as unknown as Parameters<typeof pullRequestsPage>[1];
   const input = { open: true, now: 0, selected: '', query: '', typed: false };
   await pullRequestsPage(client, native, { ...input, refresh: 0 });

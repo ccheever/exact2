@@ -1,9 +1,10 @@
+import { sharedPullRequestSummary, observePullRequestSummary } from '../pull-requests/pages-pr-shared';
 // A sidebar row's pull request when the thread links none (T3 Code
-// 1e2ecbd975, MIT; see LICENSE-T3): ThreadStatusIndicators.tsx useLinkedThreadPullRequest. With no current link in the
+// 9c161462c9, MIT; see LICENSE-T3): ThreadStatusIndicators.tsx useLinkedThreadPullRequest. With no current link in the
 // thread's `pullRequests`, the row reads `(!supportsLinks ? linkedPullRequest : null) ?? branchPullRequest` (the pull
 // request the server found for the thread's branch) through `linkedPullRequestDetailAtom`, the server's
 // `pullRequests.summary` (client-runtime pullRequests.ts createLinkedPullRequestSummaryAtomFamily: stale after 60 s,
-// refreshed every 60 s), and both sidebars draw it as prStatusIndicator does: the state's glyph and tone, the number,
+// refreshed every 60 s until it is merged), and both sidebars draw it as prStatusIndicator does: the state's glyph and tone, the number,
 // "PR #113 - Open: Document the release steps". The "Studio branch" row (feature/release-notes) carries
 // `branchPullRequest` #113 and `pullRequests: []`, so the clone, which read `pullRequests` alone, drew nothing.
 // Data sources have no clock: the summaries are asked inside each refresh (sidebar-commands.ts sidebarRefreshed, as the
@@ -51,7 +52,10 @@ const keyOf = (client: T3Client, environmentId: string, reference: Obj) => JSON.
 export function branchPullRequest(client: T3Client, thread: Obj, source: EnvironmentFleet = fleet): BranchPr | null {
   const { environmentId, config } = home(client, thread, source);
   const reference = fallbackReference(thread, config);
-  return reference ? cache(client).get(keyOf(client, environmentId, reference))?.pr ?? null : null;
+  if (!reference) return null;
+  const held = cache(client).get(keyOf(client, environmentId, reference))?.pr ?? null;
+  const known = sharedPullRequestSummary(client, reference, null, environmentId || client.environmentId);
+  return known ? asPr(known) : held;
 }
 
 function asPr(value: Obj): BranchPr | null {
@@ -76,7 +80,9 @@ export async function syncBranchPullRequests(client: T3Client, native: Native, n
     const reference = fallbackReference(thread, config);
     if (!reference) continue;
     const key = keyOf(client, environmentId, reference), cached = map.get(key);
-    if (cached && (cached.reading || now - cached.at < STALE_MS)) continue;
+    // A merged pull request can no longer change, so its summary is not read again (createLinkedPullRequestSummaryAtomFamily `isFinal`).
+    const known = sharedPullRequestSummary(client, reference, null, environmentId || client.environmentId);
+    if (known?.state === 'merged' || (cached && (cached.reading || cached.pr?.state === 'merged' || now - cached.at < STALE_MS))) continue;
     due.set(key, { environmentId, reference });
   }
   await Promise.all([...due].map(([key, { environmentId, reference }]) => readSummary(client, native, map, key, environmentId, reference, now)));
@@ -84,7 +90,11 @@ export async function syncBranchPullRequests(client: T3Client, native: Native, n
 async function readSummary(client: T3Client, native: Native, map: Map<string, Entry>, key: string, environmentId: string, reference: Obj, now: number): Promise<void> {
   const cached = map.get(key), entry: Entry = { at: now, pr: cached?.pr ?? null, reading: true };
   map.set(key, entry);
-  try { entry.pr = asPr(obj(await client.rpc(native, 'pullRequests.summary', { ...(environmentId ? { environmentId } : {}), ...reference }))); }
+  try {
+    const summary = obj(await client.rpc(native, 'pullRequests.summary', { ...(environmentId ? { environmentId } : {}), ...reference }));
+    observePullRequestSummary(client, environmentId || client.environmentId, reference, summary);
+    entry.pr = asPr(sharedPullRequestSummary(client, reference, summary, environmentId || client.environmentId) ?? summary);
+  }
   catch (error) {
     if (letGo(error)) { if (map.get(key) === entry) { if (cached) map.set(key, cached); else map.delete(key); } throw error; }
     entry.pr = null;

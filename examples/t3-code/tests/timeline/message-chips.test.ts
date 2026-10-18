@@ -2,7 +2,7 @@
 // (OrchestrationMessageContext records, ChatAttachment), file-link paths, and
 // the Markdown settings the chat reads.
 import { describe, expect, test } from 'bun:test';
-import { attachmentSize, chippedAttachmentIds, diffSchemeOf, fileLinkTarget, markdownEnv, messageChips, middleTruncate } from '../../src/timeline/message-chips';
+import { attachmentSize, chippedAttachmentIds, diffSchemeOf, fileLinkTarget, markdownEnv, markdownLinks, messageChips, middleTruncate } from '../../src/timeline/message-chips';
 import type { T3Client } from '../../src/client/client';
 import { markdownImageHref, markdownLinkHref, NO_HREF } from '../../src/media/media-views';
 
@@ -65,15 +65,35 @@ describe('sent-message context chips', () => {
     expect(table.map(([href]) => [href, markdownLinkHref(href)])).toEqual(table);
     expect([markdownImageHref('a.png:3'), markdownImageHref('shots/a.png'), markdownImageHref('data:image/png;base64,AA'), markdownImageHref('#shot')]).toEqual(['', 't3-file:shots/a.png', '', '']);
   });
-  test('an assistant quote reads its quote cut at 64 characters and "View source" opens the cited thread', () => {
+  test('an assistant quote reads its quote cut at 64 characters; its popover holds the quote, and "Go to source" opens the cited thread', () => {
     const quote = 'q'.repeat(70);
     const chips = messageChips({ text: `see [Assistant quote](t3-citation://v1/env/thread-9/msg-2?text=${quote}&start=0&end=70&prefix=&suffix=)` }, '', []);
-    expect(chips.map(chip => [chip.kind, chip.label, chip.tip, chip.target, chip.detail])).toEqual([['citation', `${'q'.repeat(64)}…`, 'View source', 'thread-9', 'msg-2']]);
+    expect(chips.map(chip => [chip.kind, chip.label, chip.tip, chip.size, chip.target, chip.detail])).toEqual([['citation', `${'q'.repeat(64)}…`, 'q'.repeat(70), '', 'thread-9', 'msg-2']]);
   });
   test('formatAttachmentSize, middle truncation and path resolution follow the reference helpers', () => {
     expect([attachmentSize(0), attachmentSize(1025), attachmentSize(1024 * 1024)]).toEqual(['1 KB', '2 KB', '1.0 MB']);
     expect(middleTruncate('a-very-long-attachment-name-that-goes-on-and-on.png')).toBe('a-very-long-attachmen…-on-and-on.png');
     expect(fileLinkTarget('../x.md', '/a/b')).toBe('/a/x.md');
+  });
+});
+
+describe('markdown link scan (extractMarkdownLinkHrefs)', () => {
+  test('angle and bare destinations, titles, nested brackets and images', () => {
+    expect(markdownLinks('[a](<x y.md>) [b]( c.ts "t" ) [d[e](f.md) ![g](h.png) [i](j.md \'k\')')).toEqual([
+      { image: false, label: 'a', href: 'x y.md' }, { image: false, label: 'b', href: 'c.ts' }, { image: false, label: 'd[e', href: 'f.md' },
+      { image: true, label: 'g', href: 'h.png' }, { image: false, label: 'i', href: 'j.md' }]);
+  });
+  test('a label stays on one line; an unclosed title or an empty destination is no link', () => {
+    expect(markdownLinks('[a\n[b](c.md) [d\ne](f.md)')).toEqual([{ image: false, label: 'b', href: 'c.md' }]);
+    expect(markdownLinks('[a](b.md "open) [c]() [d](<e.md>')).toEqual([]);
+  });
+  test('unmatched labels and destinations scan in linear time (#18387)', () => {
+    const started = performance.now();
+    expect(markdownLinks('[a]('.repeat(20_000))).toEqual([]);
+    expect(markdownLinks('[a](file.md) '.repeat(20_000))).toHaveLength(20_000);
+    expect(markdownLinks(`[${'['.repeat(20_000)}](`)).toEqual([]);
+    expect(markdownLinks(`[a]( ${' '.repeat(20_000)}x "`.repeat(20))).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(1000);
   });
 });
 
@@ -119,7 +139,7 @@ describe('Pull Requests diff colors and Markdown settings', () => {
     const { pullRequestsPage } = await import('../../src/pull-requests/pages-prs');
     const { pullRequestDetail } = await import('../../src/pull-requests/pages-pr-detail');
     const client = { local: { clientSettings: { diffColorScheme: 'blue-orange', fontSizeCode: 15, wordWrap: false, fontFamilyCode: '' } },
-      config: { environment: { capabilities: { pullRequests: true } } }, shell: { projects: [], threads: [] }, ready: false, environmentId: 'e' } as unknown as T3Client;
+      config: { environment: { capabilities: { pullRequests: true } } }, shell: { projects: [], threads: [] }, projectGroups: () => [], ready: false, environmentId: 'e' } as unknown as T3Client;
     const list = await pullRequestsPage(client, null, { open: false, refresh: 0, now: 0, selected: '', query: '', typed: false });
     expect(list.diffScheme).toBe('blue-orange');
     const detail = await pullRequestDetail(client, null, { selected: '', refresh: 0, now: 0 });

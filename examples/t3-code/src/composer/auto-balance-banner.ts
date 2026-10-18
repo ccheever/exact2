@@ -107,7 +107,7 @@ export async function updateServers(owner: object, targets: readonly ServerUpdat
     const available = eligibleTargets(targets).filter(target => !isServerUpdatePending(target.environmentId));
     const desktop = available.filter(target => target.selfUpdate === 'desktop-managed');
     if (desktop.length > 0 && !((await confirm(desktopAppsConfirmMessage(desktop.map(target => target.serverLabel)))) ?? true)) return 'cancelled';
-    await Promise.all(available.map(target => updateEnvironment(target, deps, `${target.serverLabel} update failed`)));
+    await Promise.all(available.map(target => updateEnvironment(target, deps)));
     return 'started';
   } finally { batches.delete(owner); }
 }

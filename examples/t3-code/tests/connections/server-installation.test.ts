@@ -1,10 +1,11 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // Ports of the reference tests for the install-aware update command and the standard scopes
 // (T3 Code MIT, see LICENSE-T3; 1e2ecbd975: apps/web/src/versionSkew.test.ts,
 // apps/web/src/components/ServerUpdateAction.test.tsx, packages/contracts/src/environment.test.ts).
 import { describe, test, expect } from 'bun:test';
 import { configInstallation, decodeServerInstallation, desktopManagedOnly, manualServerUpdateCommand, manualUpdateCopy, serverUpdateActionLabel,
   serverUpdateAriaLabel, DESKTOP_MANAGED_NOTE, type ServerInstallation } from '../../src/connections/server-installation';
-import { AUTH_STANDARD_CLIENT_SCOPES, encodeOAuthScope, withStandardScope } from '../../src/connections/remote-scopes';
+import { AUTH_STANDARD_CLIENT_SCOPES, LEGACY_CLIENT_SCOPES, encodeOAuthScope, sessionHasLegacyPermissions, sessionPermissions, withStandardScope } from '../../src/connections/remote-scopes';
 import { connectionsProjection, runConnectionOp, CLIENT_VERSION, type ConnectionHost } from '../../src/connections/connections';
 import { fleet } from '../../src/connections/settings-b-fleet';
 import { toasts } from '../../src/shell/toast';
@@ -103,7 +104,7 @@ describe('ServerUpdateAction', () => {
   test('keeps the manual instruction for desktop servers without remote update support', () => {
     expect(desktopManagedOnly({ serverSelfUpdate: 'desktop-managed' })).toBe(true);
     expect(desktopManagedOnly({ serverSelfUpdate: 'desktop-managed', desktopAppUpdate: true })).toBe(false);
-    const host = (capabilities: Obj): ConnectionHost => ({ connection: 'connected', origin: 'http://127.0.0.1:16140', environmentId: 'env-a', statusMessage: '', scopes: [],
+    const host = (capabilities: Obj): ConnectionHost => ({ connection: 'connected', origin: 'http://127.0.0.1:16140', environmentId: 'env-a', statusMessage: '', scopes: [...AUTH_STANDARD_CLIENT_SCOPES],
       config: { environment: { label: 'Box', serverVersion: '0.0.40', capabilities } } });
     const saved = [{ origin: 'http://127.0.0.1:16140', environmentId: 'env-a', label: 'Box', enabled: true }];
     fleet.entries.clear();
@@ -120,16 +121,21 @@ describe('ServerUpdateAction', () => {
 });
 
 describe('AuthStandardClientScopes', () => {
-  test('the standard five, in the reference order, encoded as one space-separated scope', () => {
-    expect([...AUTH_STANDARD_CLIENT_SCOPES]).toEqual(['orchestration:read', 'orchestration:operate', 'terminal:operate', 'review:write', 'relay:read']);
-    expect(encodeOAuthScope(AUTH_STANDARD_CLIENT_SCOPES)).toBe('orchestration:read orchestration:operate terminal:operate review:write relay:read');
+  const STANDARD = 'orchestration:read orchestration:operate settings:write providers:manage environment:maintain preview:operate diagnostics:read '
+    + 'terminal:read terminal:operate source-control:write filesystem:read filesystem:write relay:read access:read access:write relay:write';
+  const LEGACY = 'orchestration:read orchestration:operate terminal:operate review:write relay:read';
+
+  test('the standard sixteen, in the reference order, encoded as one space-separated scope; the legacy five beside them', () => {
+    expect(AUTH_STANDARD_CLIENT_SCOPES).toHaveLength(16);
+    expect(encodeOAuthScope(AUTH_STANDARD_CLIENT_SCOPES)).toBe(STANDARD);
+    expect(encodeOAuthScope(LEGACY_CLIENT_SCOPES)).toBe(LEGACY);
     expect(() => encodeOAuthScope([])).toThrow(ClientError);
     expect(() => encodeOAuthScope(['a', 'a'])).toThrow('unique');
     expect(() => encodeOAuthScope(['has space'])).toThrow('syntactically valid');
   });
 
-  test('a request with a credential asks for the standard scopes; a saved-token reconnect asks for none', () => {
-    expect(withStandardScope({ origin: 'http://h', credential: 'code' })).toEqual({ origin: 'http://h', credential: 'code', scope: 'orchestration:read orchestration:operate terminal:operate review:write relay:read' });
+  test('a request with a credential asks for the standard scopes and names the legacy ones; a saved-token reconnect asks for none', () => {
+    expect(withStandardScope({ origin: 'http://h', credential: 'code' })).toEqual({ origin: 'http://h', credential: 'code', scope: STANDARD, legacyScope: LEGACY });
     expect(withStandardScope({ origin: 'http://h', credential: '' })).toEqual({ origin: 'http://h', credential: '' });
   });
 
@@ -139,18 +145,37 @@ describe('AuthStandardClientScopes', () => {
     await runConnectionOp(native, 'environment-add', 'http://127.0.0.1:16141', 'code-1', true).catch(() => undefined);
     await runConnectionOp(native, 'environment-add', 'http://127.0.0.1:16141', 'code-2', false).catch(() => undefined);
     const exchanges = native.calls.filter(call => call.credential);
-    expect(exchanges.map(call => [call.op, call.scope])).toEqual([
-      ['pairEnvironment', encodeOAuthScope(AUTH_STANDARD_CLIENT_SCOPES)],
-      ['connect', encodeOAuthScope(AUTH_STANDARD_CLIENT_SCOPES)]]);
+    expect(exchanges.map(call => [call.op, call.scope, call.legacyScope])).toEqual([['pairEnvironment', STANDARD, LEGACY], ['connect', STANDARD, LEGACY]]);
   });
 
-  test('a session paired before this change keeps working with its three scopes (left as is)', () => {
-    // The old exchange's grant, kept only as a fixture of a pre-change session.
-    const legacy = 'orchestration:read orchestration:operate review:write'.split(' ');
-    const host: ConnectionHost = { connection: 'connected', origin: 'http://127.0.0.1:16140', environmentId: 'env-a', statusMessage: '', scopes: legacy,
+  test('sessionGrantsScope: a new server\'s permissions as they are; an old server\'s scopes with their legacy children', () => {
+    const permissions = ['orchestration:read', 'settings:write'];
+    expect(sessionPermissions({ authenticated: true, scopes: ['orchestration:read'], permissions })).toEqual(permissions);
+    expect(sessionPermissions({ authenticated: true, scopes: ['orchestration:read'], permissions: [] })).toEqual([]);
+    expect(sessionPermissions({ authenticated: false, scopes: ['orchestration:read'] })).toEqual([]);
+    const old = sessionPermissions({ authenticated: true, scopes: ['orchestration:read', 'orchestration:operate', 'terminal:operate'], auth: { policy: 'remote-reachable' } });
+    for (const granted of ['filesystem:read', 'diagnostics:read', 'settings:write', 'providers:manage', 'environment:maintain', 'preview:operate',
+      'source-control:write', 'filesystem:write', 'terminal:read']) expect(old).toContain(granted);
+    // A server that advertises serverUpdateScope never expands grants.
+    expect(sessionPermissions({ authenticated: true, scopes: ['orchestration:operate'], auth: { serverUpdateScope: 'environment:maintain' } })).toEqual(['orchestration:operate']);
+  });
+
+  test('sessionHasLegacyPermissions: only a new server\'s pre-split grant', () => {
+    expect(sessionHasLegacyPermissions({ authenticated: true, scopes: ['orchestration:operate'], permissions: ['orchestration:operate'] })).toBe(true);
+    expect(sessionHasLegacyPermissions({ authenticated: true, scopes: ['orchestration:operate'], permissions: ['orchestration:operate', 'filesystem:read'] })).toBe(false);
+    expect(sessionHasLegacyPermissions({ authenticated: true, scopes: ['orchestration:operate'] })).toBe(false);
+    expect(sessionHasLegacyPermissions({ authenticated: true, permissions: ['relay:read'] })).toBe(false);
+  });
+
+  test('a session paired before the split keeps changing settings on an old server', () => {
+    // The old exchange's grant on an old server: settings:write is orchestration:operate's child there.
+    const scopes = sessionPermissions({ authenticated: true, scopes: 'orchestration:read orchestration:operate review:write'.split(' ') });
+    const host: ConnectionHost = { connection: 'connected', origin: 'http://127.0.0.1:16140', environmentId: 'env-a', statusMessage: '', scopes,
       config: { environment: { label: 'Old pairing', serverVersion: CLIENT_VERSION, capabilities: { environmentIcon: true } } } };
-    const row = connectionsProjection(host, [{ origin: 'http://127.0.0.1:16140', environmentId: 'env-a', label: 'Old pairing', enabled: true }]).environments[0]!;
-    expect(row.iconLock).toBe('');
-    expect(legacy.includes('terminal:operate') || legacy.includes('relay:read')).toBe(false);
+    const saved = [{ origin: 'http://127.0.0.1:16140', environmentId: 'env-a', label: 'Old pairing', enabled: true }];
+    expect(connectionsProjection(host, saved).environments[0]!.iconLock).toBe('');
+    // The same grant kept by a new server (permissions without settings:write) cannot.
+    const kept = sessionPermissions({ authenticated: true, scopes: ['orchestration:read', 'orchestration:operate'], permissions: ['orchestration:read', 'orchestration:operate'] });
+    expect(connectionsProjection({ ...host, scopes: kept }, saved).environments[0]!.iconLock).toBe('Your session on this environment cannot change its settings.');
   });
 });

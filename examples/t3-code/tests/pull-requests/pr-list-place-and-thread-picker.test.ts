@@ -87,6 +87,7 @@ function focusedClient() {
     },
     restAccess: () => ({ call: async () => ({ id: '1-1' }) }),
   } as unknown as T3Client & { ready: boolean };
+  client.projectGroups = () => client.shell.projects.map(project => ({ key: String(project.id), name: String(project.title ?? ''), members: [project] }));
   const native = { available: true, watch: () => {}, later: async () => ({ ok: true, generation: 1, value: {} }) } as unknown as Native;
   const page = (input: Partial<PrInput> & { returns?: number } = {}) => pullRequestsPage(client, native, { open: true, refresh: 0, now: NOW, selected: '', query: '', typed: false, ...input });
   return { client, page, listed };

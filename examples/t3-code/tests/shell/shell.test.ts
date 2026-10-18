@@ -11,7 +11,7 @@ import type { Files, Native } from '../../src/client/protocol';
 
 const prefs = (extra: Obj = {}) => ({ notificationMode: 'off', inAppNotificationsEnabled: false, confirmThreadArchive: false, confirmThreadDelete: true, confirmThreadUnpin: false, ...extra });
 function fakeClient(extra: Obj = {}): T3Client {
-  return { threadId: '', projectId: '', ready: true, environmentId: 'env', connection: 'connected', shell: { threads: [], projects: [] },
+  return { scopes: ['filesystem:read', 'preview:operate', 'terminal:read', 'terminal:operate'], threadId: '', projectId: '', ready: true, environmentId: 'env', connection: 'connected', shell: { threads: [], projects: [] },
     config: { environment: { capabilities: {} } }, local: { clientSettings: prefs(), deviceSettings: { timestampFormat: '24-hour' } }, ...extra } as unknown as T3Client;
 }
 
@@ -365,6 +365,8 @@ describe('shell commands and routed failures', () => {
   test('archive refuses a running thread; the editor uses its RPC', async () => {
     const running = client({ shell: { threads: [{ id: 't1', title: 'Busy', status: 'running', activeRunId: 'r' }], projects: [] }, config: { providers: [{ driver: 'codex', instanceId: 'codex' }] } });
     await expect(shellCommand(running.value, {} as Native, storage, 'archive', 't1', '')).rejects.toThrow('Stop the running turn');
+    await shellCommand(running.value, {} as Native, storage, 'select-editor', '/work/p1', 'zed');
+    expect(running.requested).toEqual([]);
     await shellCommand(running.value, {} as Native, storage, 'open-editor', '/work/p1', 'cursor');
     expect(running.requested).toEqual([{ method: 'shell.openInEditor', cwd: '/work/p1', editor: 'cursor' }]);
   });

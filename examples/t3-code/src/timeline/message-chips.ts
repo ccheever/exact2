@@ -1,16 +1,18 @@
-// Context chips in sent messages, adapted from T3 Code (MIT, see LICENSE-T3):
+// Context chips in sent messages, adapted from T3 Code 9c161462c9 (MIT, see LICENSE-T3):
 // MessagesTimeline.tsx userMessageContextPresentationRegistry (each
 // `[label](t3-context://v1/<kind>/<id>)` resolved against the message's
 // `context.records` and attachments), contextChipParts.tsx (FileChip,
 // ImageChipButton, UnresolvedChip), ThreadContextChip.tsx and ChatMarkdown's
 // MarkdownFileLink tooltip (the link's full path). Contract matches each chip
 // to its parsed run by `href` (markdown.contract ChipView).
+import { isWindowsAbsolutePath } from '../media/media-reference';
+import { inlineCodeFilePathCandidate } from './inline-code-files';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { fileIconToken } from '../shared/timeline-files';
 import type { T3Client } from '../client/client';
 import { decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
 import { fontStack } from '../appearance/settings-appearance';
-import { collectAssistantCitations, parseAssistantCitationHref } from './diff-citations';
+import { assistantCitationLabel, collectAssistantCitations, parseAssistantCitationHref } from './diff-citations';
 import { markdownLinkHref, markdownMediaChips, noteMarkdownDocument, type MediaScope } from '../media/media-views'; // a message's images and their actions
 
 export interface ChipView {
@@ -20,8 +22,77 @@ export interface ChipView {
 export interface MarkdownEnv { codeFont: string; codeSize: number; wrap: boolean; chips: ChipView[]; runCommands: string[] }
 
 const CONTEXT_LINK = /(!?)\[([^\]\n]{0,512})\]\((t3-context:\/\/v1\/([a-z][a-z0-9-]{0,39})\/([a-z0-9_-]{1,128}))\)/gi;
-// MARKDOWN_LINK_HREF_PATTERN, minus web and context links: what the parser marks as a file link.
-const FILE_LINK = /(!?)\[([^\]\n]*)\]\(\s*(?:<([^>\n]+)>|([^\s)]+))(?:\s+["'][^"']*["'])?\s*\)/g;
+
+// extractMarkdownLinkHrefs (packages/shared/src/markdownLinks.ts at 9c161462c9): a forward scan
+// with cached delimiter searches, linear where the old link pattern backtracked quadratically.
+/** Reuses delimiter searches when successive candidates fall in the same run. */
+function runEndFinder(markdown: string, delimiter: RegExp) {
+  let runStart = -1, runEnd = -1;
+  return (start: number) => {
+    if (start >= runStart && start <= runEnd) return runEnd;
+    delimiter.lastIndex = start;
+    runStart = start;
+    runEnd = delimiter.exec(markdown)?.index ?? markdown.length;
+    return runEnd;
+  };
+}
+function linkTailScanner(markdown: string) {
+  const whitespaceEnd = runEndFinder(markdown, /\S/g), titleEnd = runEndFinder(markdown, /["']/g), titleWhitespaceEnd = runEndFinder(markdown, /\S/g);
+  return (start: number) => {
+    const end = whitespaceEnd(start);
+    if (markdown[end] === ')') return end + 1;
+    if (end === start || (markdown[end] !== '"' && markdown[end] !== "'")) return null;
+    const quoteEnd = titleEnd(end + 1);
+    if (quoteEnd === markdown.length) return null;
+    const close = titleWhitespaceEnd(quoteEnd + 1);
+    return markdown[close] === ')' ? close + 1 : null;
+  };
+}
+function linkDestinationScanner(markdown: string) {
+  const whitespaceEnd = runEndFinder(markdown, /\S/g), angleEnd = runEndFinder(markdown, /[>\n]/g), bareEnd = runEndFinder(markdown, /[\s)]/g);
+  // Separate caches keep each branch's searches moving forward when an angle destination falls back to a bare one.
+  const angleTail = linkTailScanner(markdown), bareTail = linkTailScanner(markdown);
+  return (start: number) => {
+    if (markdown[start] !== '(') return null;
+    const hrefStart = whitespaceEnd(start + 1);
+    if (markdown[hrefStart] === '<') {
+      const hrefEnd = angleEnd(hrefStart + 1);
+      if (hrefEnd > hrefStart + 1 && markdown[hrefEnd] === '>') {
+        const end = angleTail(hrefEnd + 1);
+        if (end !== null) return { hrefStart: hrefStart + 1, hrefEnd, end };
+      }
+    }
+    const hrefEnd = bareEnd(hrefStart);
+    if (hrefEnd === hrefStart) return null;
+    const end = bareTail(hrefEnd);
+    return end === null ? null : { hrefStart, hrefEnd, end };
+  };
+}
+/** Every `[label](href)` in order, with whether a `!` makes it an image. A label stays on one line, as the parser's does. */
+export function markdownLinks(markdown: string): { image: boolean; label: string; href: string }[] {
+  const links: { image: boolean; label: string; href: string }[] = [];
+  const scanDestination = linkDestinationScanner(markdown);
+  let cursor = 0, lineStart = 0, lineEnd = markdown.indexOf('\n');
+  while (cursor < markdown.length) {
+    let labelStart = markdown.indexOf('[', cursor);
+    if (labelStart === -1) break;
+    const labelEnd = markdown.indexOf(']', labelStart + 1);
+    if (labelEnd === -1) break;
+    // Nested opening brackets share this closing bracket: on failure skip the whole label.
+    cursor = labelEnd + 1;
+    while (lineEnd !== -1 && lineEnd < labelEnd) {
+      lineStart = lineEnd + 1;
+      lineEnd = markdown.indexOf('\n', lineStart);
+    }
+    if (lineStart > labelStart) { labelStart = markdown.indexOf('[', lineStart); if (labelStart === -1 || labelStart > labelEnd) continue; }
+    const destination = scanDestination(cursor);
+    if (!destination) continue;
+    cursor = destination.end;
+    const href = markdown.slice(destination.hrefStart, destination.hrefEnd).trim();
+    if (href) links.push({ image: markdown[labelStart - 1] === '!', label: markdown.slice(labelStart + 1, labelEnd), href });
+  }
+  return links;
+}
 
 /** formatAttachmentSize (client-runtime state/attachments.ts). */
 export function attachmentSize(bytes: number): string {
@@ -43,7 +114,7 @@ export function fileLinkTarget(href: string, root: string): string {
   let target = href.trim();
   try { target = decodeURI(target); } catch { /* keep the raw spelling */ }
   target = target.replace(/^file:\/\//i, '').replace(/#L(\d+)(?:C(\d+))?$/i, (_all, line: string, column?: string) => `:${line}${column ? `:${column}` : ''}`);
-  if (target.startsWith('~') || target.startsWith('/') || !root) return target;
+  if (target.startsWith('~') || target.startsWith('/') || isWindowsAbsolutePath(target) || !root) return target;
   const parts: string[] = [];
   for (const part of `${root.replace(/\/+$/, '')}/${target}`.split('/')) {
     if (part === '.' || (part === '' && parts.length > 0)) continue;
@@ -51,6 +122,22 @@ export function fileLinkTarget(href: string, root: string): string {
     parts.push(part);
   }
   return parts.join('/') || '/';
+}
+
+const MARKDOWN_LINK = /!?\[([^\]\n]*)\]\((?:<[^>\n]*>|[^\s)]*)\)/g;
+/**
+ * shouldCollapseUserMessage (MessagesTimeline.logic.ts): past 600 characters or 8 lines of what
+ * the reader sees, where a link counts as its label and a quote as its chip's label.
+ */
+export function shouldCollapseUserMessage(text: string): boolean {
+  const linkLabels = (segment: string) => segment.replace(MARKDOWN_LINK, '$1');
+  let visible = '', cursor = 0;
+  for (const match of collectAssistantCitations(text)) {
+    visible += linkLabels(text.slice(cursor, match.start)) + assistantCitationLabel(match.citation);
+    cursor = match.end;
+  }
+  visible += linkLabels(text.slice(cursor));
+  return visible.trim().length > 0 && (visible.length > 600 || visible.split('\n').length > 8);
 }
 
 /** Every chip a message's Markdown draws, by the href its run keeps (markdown.rs chat_run); `media`: where its media resolve. */
@@ -66,11 +153,20 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
     add(contextChip(href, kind, label, record && str(record.kind) === kind ? record : undefined, attachments, threads));
   }
   if (text.includes('](t3-citation:')) for (const match of collectAssistantCitations(text)) add(citationChip(match.source.slice('[Assistant quote]('.length, -1)));
-  if (text.includes('](')) for (const match of text.matchAll(FILE_LINK)) {
-    const href = (match[3] ?? match[4] ?? '').trim();
+  if (text.includes('](')) for (const link of markdownLinks(text)) {
     // Exactly the destinations markdown.rs draws as file chips.
-    if (match[1] || !markdownLinkHref(href).startsWith('t3-file:')) continue;
-    add({ href: `t3-file:${href}`, kind: 'link', label: match[2]!, size: '', tip: fileLinkTarget(href, root), detail: '', icon: fileIconToken(href), target: '' });
+    if (link.image || !markdownLinkHref(link.href).startsWith('t3-file:')) continue;
+    add({ href: `t3-file:${link.href}`, kind: 'link', label: link.label, size: '', tip: fileLinkTarget(link.href, root), detail: '', icon: fileIconToken(link.href), target: '' });
+  }
+  if (root) for (const match of text.matchAll(/(`+)([^`]+)\1/g)) {
+    const code = match[2]!.trim(), candidate = inlineCodeFilePathCandidate(code);
+    if (candidate === null) continue;
+    const cwd = media.cwd || root;
+    const fromRoot = !/^(?:~|\.{1,2})[\\/]/.test(candidate) && candidate.replace(/:\d+(?::\d+)?$/, '').includes('/')
+      && (root === cwd || root.startsWith(`${cwd.replace(/\/+$/, '')}/`));
+    const target = fileLinkTarget(candidate, fromRoot ? cwd : root), position = /:(\d+)(?::\d+)?$/.exec(candidate);
+    const path = candidate.replace(/:\d+(?::\d+)?$/, ''), name = path.replaceAll('\\', '/').split('/').pop() || path;
+    add({ href: `t3-inline-code:${code}`, kind: 'link', label: `${name}${position ? ` · L${position[1]}` : ''}`, size: '', tip: target, detail: '', icon: fileIconToken(path), target: '' });
   }
   // An image's chip (kind "media") is matched by href and kind, so a link to the same file keeps its own.
   for (const chip of markdownMediaChips(text, root, media)) chips.push({ id: `chip-${chips.length}`, ...chip, owner });
@@ -78,12 +174,13 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
   return chips;
 }
 
-/** AssistantCitationChip: the quote (or its comment) cut at 64 characters; "View source" opens the cited thread at the answer.
- * Each `[Assistant quote](t3-citation://…)` is read with the reference's parseAssistantCitationHref (diff-citations.ts). */
+/** AssistantCitationChip (T3 Code 9c161462c9): the label is the quote (or its comment) cut at 64 characters; its popover
+ * shows the quote (`tip`) and the comment (`size`), and "Go to source" opens the cited thread (`target`) at the answer
+ * (`detail`). Each `[Assistant quote](t3-citation://…)` is read with the reference's parseAssistantCitationHref (diff-citations.ts). */
 function citationChip(href: string): Omit<ChipView, 'id' | 'owner'> {
   const citation = parseAssistantCitationHref(href);
-  const quote = (citation?.comment?.trim() || citation?.text || '').replace(/\s+/g, ' ');
-  return { href, kind: 'citation', label: quote.length > 64 ? `${quote.slice(0, 64)}…` : quote, size: '', tip: 'View source', detail: citation?.messageId ?? '', icon: '', target: citation?.threadId ?? '' };
+  return { href, kind: 'citation', label: citation ? assistantCitationLabel(citation) : '', size: citation?.comment ?? '', tip: citation?.text ?? '',
+    detail: citation?.messageId ?? '', icon: '', target: citation?.threadId ?? '' };
 }
 const UNAVAILABLE = 'This context is no longer available.';
 function contextChip(href: string, kind: string, label: string, record: Obj | undefined, attachments: Map<string, Obj>, threads: Obj[]): Omit<ChipView, 'id' | 'owner'> {

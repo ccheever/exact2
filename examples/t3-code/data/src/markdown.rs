@@ -55,6 +55,8 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "providerWizard",
             "settingsCore",
             "sourceControlPage",
+            "promptLinkView",
+            "promptLinksReady",
             "pagesHome",
             "usagePage",
             "usageKeys",
@@ -168,6 +170,7 @@ include!("markdown_tables.rs");
 include!("markdown_table_align.rs");
 include!("markdown_links.rs");
 include!("markdown_media.rs");
+include!("markdown_headings.rs");
 
 /// The resolver's mark for a workspace file link (`[label](src/a.ts:3)`): T3
 /// draws it as a file chip, not a web link.
@@ -272,6 +275,9 @@ fn chat_run(value: Value, link_start: bool) -> Value {
     } else {
         ("link", "")
     };
+    if href.is_empty() && fields.get(4) == Some(&Value::Bool(true)) {
+        fields[5] = Value::str(&format!("t3-inline-code:{text}"));
+    }
     fields.push(Value::str(kind));
     fields.push(Value::str(icon));
     Value::record(fields)
@@ -639,6 +645,9 @@ fn document_with_links(
         links_without_cwd(&mut doc.blocks);
     }
     unmark_runs(&mut doc.blocks);
+    heading_ids(&mut doc.blocks);
+    fragment_links(&mut doc.blocks);
+    let gutters = list_gutters(&doc.blocks);
     let mut tasks = task_items(&mut doc.blocks, source);
     if !toggle_tasks {
         tasks.iter_mut().for_each(|task| task.1 = -1.0);
@@ -715,6 +724,7 @@ fn document_with_links(
                     line_fields.push(Value::Bool(true));
                     no_table(&mut line_fields);
                     line_fields.extend(task_fields(tasks[index]));
+                    line_fields.push(Value::Number(gutters[index]));
                     blocks.push(Value::record(line_fields));
                 }
                 continue;
@@ -757,6 +767,7 @@ fn document_with_links(
             code_index += 1;
         }
         fields.extend(task_fields(tasks[index]));
+        fields.push(Value::Number(gutters[index]));
         blocks.push(Value::record(fields));
     }
     Value::record(vec![id, Value::list(blocks)])
@@ -1334,7 +1345,7 @@ mod tests {
                 let Value::Record(fields) = block else {
                     panic!("block")
                 };
-                assert_eq!(fields.len(), 18);
+                assert_eq!(fields.len(), 19);
                 fields[1].as_str().unwrap_or("").to_string()
             })
             .collect();

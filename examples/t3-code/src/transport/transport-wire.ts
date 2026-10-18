@@ -1,5 +1,5 @@
 // The Effect RPC wire T3's server speaks over its socket, and the HTTP pieces every
-// connection shares (T3 Code 1e2ecbd975, MIT, see LICENSE-T3: packages/client-runtime/src/rpc/
+// connection shares (T3 Code 9c161462c9, MIT, see LICENSE-T3: packages/client-runtime/src/rpc/
 // protocol.ts and session.ts frame JSON with effect's RpcSerialization.layerJson;
 // connection/compatibility.ts, supervisor.ts retryDelayMs, rpc/client.ts's expected-failure
 // retry; authorization/remote.ts bootstrapRemoteBearerSession; connection/errors.ts
@@ -17,16 +17,19 @@ export function letGoAbort(error: unknown): boolean {
   return fields.name === 'FetchError' && fields.kind === 'Aborted';
 }
 
-/** A failure as the native bridge reported it (`{kind, message, uncertain, reason, detail}`). */
+/** A failure as the native bridge reported it (`{kind, message, uncertain, reason, detail, context}`). */
 export class TransportFailure extends Error {
-  constructor(readonly kind: string, message: string, readonly uncertain = false, readonly reason = '', readonly detail = '') {
+  constructor(readonly kind: string, message: string, readonly uncertain = false, readonly reason = '', readonly detail = '', readonly context: Record<string, string> = {}) {
     super(message);
   }
-  json() { return { kind: this.kind, message: this.message, uncertain: this.uncertain, reason: this.reason, detail: this.detail }; }
+  json() { return { kind: this.kind, message: this.message, uncertain: this.uncertain, reason: this.reason, detail: this.detail, ...(Object.keys(this.context).length ? { context: this.context } : {}) }; }
   with(fields: { message?: string; uncertain?: boolean }) {
-    return new TransportFailure(this.kind, fields.message ?? this.message, fields.uncertain ?? this.uncertain, this.reason, this.detail);
+    return new TransportFailure(this.kind, fields.message ?? this.message, fields.uncertain ?? this.uncertain, this.reason, this.detail, this.context);
   }
 }
+
+/** A typed error's context fields a client reads (ProjectReadFileError's failure, operation and the paths it tried). */
+const CONTEXT_FIELDS = ['failure', 'operation', 'cwd', 'relativePath', 'resolvedPath', 'operationPath'];
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown) => typeof value === 'string' ? value : '';
@@ -140,7 +143,8 @@ function typed(value: unknown): TransportFailure {
   if (!message && field('detail')) message = field('detail');
   if (!message && 'cause' in value) message = failure(value.cause).message;
   if (!message || message === 'The server request failed.') message = `The server refused the request (${tag}).`;
-  return new TransportFailure(tag, message, false, field('reason'), field('detail'));
+  const context = tag === 'ProjectReadFileError' ? Object.fromEntries(CONTEXT_FIELDS.filter(key => text(value[key])).map(key => [key, text(value[key])])) : {};
+  return new TransportFailure(tag, message, false, field('reason'), field('detail'), context);
 }
 
 // MARK: Addresses
@@ -199,6 +203,24 @@ export function exchangeForm(credential: string, scope = ''): string {
   };
   if (scope) fields.scope = scope;
   return form(fields);
+}
+
+/** The `reason` of a refused HTTP request's body (`invalid_scope`, `invalid_credential`, …), or ''. */
+export function failureReason(decoded: unknown): string {
+  return isObject(decoded) && typeof decoded.reason === 'string' ? decoded.reason : '';
+}
+
+/**
+ * A pairing's token exchange: the requested scopes, then `legacyScope` when the server answers
+ * `invalid_scope`. A server older than the permission split refuses the new scope names before it
+ * spends the one-time credential, so the second request may use it (remote-scopes.ts).
+ */
+export async function exchangeScopes<T>(scope: string, legacyScope: string, exchange: (scope: string) => Promise<T>): Promise<T> {
+  try { return await exchange(scope); }
+  catch (error) {
+    if (!legacyScope || legacyScope === scope || !(error instanceof TransportFailure) || error.reason !== 'invalid_scope') throw error;
+    return exchange(legacyScope);
+  }
 }
 
 /**

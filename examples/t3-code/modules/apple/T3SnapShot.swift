@@ -298,17 +298,24 @@ final class T3SnapShot {
             do {
                 let drafts = directory.appendingPathComponent("drafts", isDirectory: true)
                 try FileManager.default.createDirectory(at: drafts, withIntermediateDirectories: true)
-                try Data(contentsOf: capture.path).write(to: drafts.appendingPathComponent("\(id).png"), options: .atomic)
-                complete(["id": id])
+                // The draft holds what the send uploads: a capture over `imageMaxEdge` is scaled to it (T3ImageFit).
+                let data = try Data(contentsOf: capture.path)
+                let fitted = T3ImageFit.fit(data, maxEdge: request["imageMaxEdge"] as? Int ?? 0)
+                try (fitted?.data ?? data).write(to: drafts.appendingPathComponent("\(id).png"), options: .atomic)
+                complete(fitted.map { ["id": id, "sizeBytes": $0.data.count, "width": $0.width, "height": $0.height] } ?? ["id": id])
             } catch { fail("Could not save the captured image to its draft.") }
         case "snapshotDraftRead", "snapshotDraftRemove":
             guard let id = request["id"] as? String, UUID(uuidString: id) != nil else { fail("That draft image is unavailable."); return }
             let path = directory.appendingPathComponent("drafts", isDirectory: true).appendingPathComponent("\(id).png")
             do {
                 if request["op"] as? String == "snapshotDraftRemove" { if FileManager.default.fileExists(atPath: path.path) { try FileManager.default.removeItem(at: path) }; complete(["removed": id]); return }
-                let data = try Data(contentsOf: path)
+                var data = try Data(contentsOf: path)
+                if let fitted = T3ImageFit.fit(data, maxEdge: request["imageMaxEdge"] as? Int ?? 0) {
+                    data = fitted.data
+                    try data.write(to: path, options: .atomic)
+                }
                 guard data.count <= 10 * 1024 * 1024, data.starts(with: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) else { fail("The captured image is too large or invalid."); return }
-                complete(["id": id, "base64": data.base64EncodedString()])
+                complete(["id": id, "base64": data.base64EncodedString(), "sizeBytes": data.count])
             } catch { fail("Could not read the saved draft image.") }
         case "snapshotDraftSize":
             // The expanded preview's natural size: the pixels the tile shows (`installTile` decodes at most 2048 on the

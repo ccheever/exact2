@@ -1,9 +1,10 @@
 // Remote open-in-editor (MIT reference, see LICENSE-T3: apps/web/src/remoteOpen.ts,
 // components/chat/OpenInPicker.tsx and OpenInPicker.logic.ts, ChatMarkdown.tsx
 // canUseMarkdownFileShellActions, apps/desktop/src/electron/ElectronShell.ts
-// parseSafeExternalUrl, at 1e2ecbd975). When this client is not on the environment's
-// machine, "Open" hands the OS a `vscode://vscode-remote/ssh-remote+…` deep link (the
-// local editor connects over SSH) instead of running an editor on the environment's host.
+// parseSafeExternalUrl, at 1e2ecbd975; the remote editor links at 9c161462c9). When this client
+// is not on the environment's machine, "Open" hands the OS a `vscode://vscode-remote/ssh-remote+…`
+// deep link (Zed's and JetBrains' own shapes too; the local editor connects over SSH) instead of
+// running an editor on the environment's host.
 // Host precedence: the SSH alias of a saved SSH environment beats the server's advertised
 // `remoteOpenTargets` (tailnet name first, then mDNS). The editors offered are the
 // remote-capable ones this Mac has (T3RemoteEditors.swift probes them), else VS Code.
@@ -73,7 +74,8 @@ const ZED_SSH_PATHNAME = /^\/[^/@:]+\/.*$/;
 function isRemoteEditorUrl(url: URL): boolean {
   return REMOTE_EDITOR_PROTOCOLS.has(url.protocol) && url.username.length === 0 && url.password.length === 0
     && (url.protocol === 'zed:' ? url.host === 'ssh' && ZED_SSH_PATHNAME.test(url.pathname)
-      : url.host === 'vscode-remote' && url.pathname.startsWith('/ssh-remote+') && url.pathname.length > '/ssh-remote+'.length);
+      : url.protocol === 'jetbrains:' ? url.host === 'gateway' && url.pathname === '/ssh/environment' && (url.searchParams.get('h') ?? '').length > 0
+        : url.host === 'vscode-remote' && url.pathname.startsWith('/ssh-remote+') && url.pathname.length > '/ssh-remote+'.length);
 }
 export function parseSafeExternalUrl(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;

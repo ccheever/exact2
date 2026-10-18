@@ -20,11 +20,12 @@ import { toasts } from '../../src/shell/toast';
 import { T3Client } from '../../src/client/client';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Files, Native } from '../../src/client/protocol';
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 
 afterEach(() => { resetPrimary(); primaryLifecycle.environmentId = ''; primaryLifecycle.welcome = null; primaryLifecycle.migration = null; });
 
 const ready = (extra: Obj = {}) => parseLocalBackendStatus({ state: 'ready', enabled: true, httpBaseUrl: 'http://127.0.0.1:16437', wsBaseUrl: 'ws://127.0.0.1:16437', bearerReady: true,
-  environmentId: 'env-local', label: 'Lane Mac', serverVersion: '0.0.46-nightly.20261005.2667', ...extra });
+  environmentId: 'env-local', label: 'Lane Mac', serverVersion: '0.1.1-nightly.20261018.3302', ...extra });
 
 describe('environmentBootstrap', () => {
   it('describes which desktop bootstrap endpoint is missing', () => {
@@ -71,7 +72,7 @@ describe('the primary from the embedded server', () => {
     primaryAt('http://127.0.0.1:16437', 'env-local');
     expect(resolvePrimaryEnvironmentHttpUrl('/api/auth/session')).toBe('http://127.0.0.1:16437/api/auth/session');
     expect(isPrimaryEnvironment('env-local')).toBe(true);
-    expect(sessionScopes('env-local', ['orchestration:read'])).toEqual(['orchestration:read', 'orchestration:operate', 'terminal:operate', 'review:write', 'relay:read', 'access:read', 'access:write', 'relay:write']);
+    expect(sessionScopes('env-local', ['orchestration:read'])).toEqual([...AUTH_STANDARD_CLIENT_SCOPES]);
     expect(sessionScopes('env-remote', ['orchestration:read'])).toEqual(['orchestration:read']);
   });
 
@@ -370,9 +371,9 @@ describe('the Local environment switch persists before requesting app relaunch',
     expect(thisMachine(undefined, null)).toMatchObject({ status: 'Development build: set T3_LOCAL_HOME and T3_LOCAL_PORT to start the local server.', canManage: false });
     primaryAt('http://127.0.0.1:16437', 'env-local', 'Lane Mac');
     const host = { connection: 'connected', origin: 'http://127.0.0.1:16437', environmentId: 'env-local', statusMessage: '', scopes: ['orchestration:read'],
-      config: { environment: { label: 'Lane Mac', serverVersion: '0.0.46-nightly.20261005.2667', platform: { machine: 'laptop' }, capabilities: { environmentIcon: true } } } };
+      config: { environment: { label: 'Lane Mac', serverVersion: '0.1.1-nightly.20261018.3302', platform: { machine: 'laptop' }, capabilities: { environmentIcon: true } } } };
     const page = connectionsProjection(host, []);
-    expect(page.thisMachine).toMatchObject({ title: 'Lane Mac', kind: 'laptop', menu: true, version: '0.0.46-nightly.20261005.2667 · http://127.0.0.1:16437/', upToDate: true, update: '', updateNote: '' });
+    expect(page.thisMachine).toMatchObject({ title: 'Lane Mac', kind: 'laptop', menu: true, version: '0.1.1-nightly.20261018.3302 · http://127.0.0.1:16437/', upToDate: true, update: '', updateNote: '' });
     expect(page.environments).toEqual([]);
     // An older embedded server that only its desktop app can update: the sentence, no button.
     const older = connectionsProjection({ ...host, config: { environment: { ...host.config.environment, serverVersion: '0.0.45', capabilities: { serverSelfUpdate: 'desktop-managed' } } } }, []);

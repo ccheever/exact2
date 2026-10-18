@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // Settings › Providers shows the environment its scope selector chose (found
 // by #312): T3 Code 1e2ecbd975 routes/settings.providers.tsx:7-30. This Mac (the focused
 // connection) has Codex signed in; a second, background environment has not. Before the fix the page
@@ -39,17 +40,17 @@ function servers() {
   const focus = new Backend(), second = new Backend();
   focus.generation = FOCUS_GENERATION; // the app's client bootstraps from this one
   focus.config = { ...focus.config, providers: [codex({ status: 'authenticated', email: 'mac@example.com', label: 'ChatGPT' })],
-    settings: { ...obj(focus.config.settings), providerInstances: instances } };
+    settings: { ...obj(focus.config.settings), providerInstances: instances, providers: { codex: { enabled: true } } } };
   second.generation = 3;
   second.config = { environment: { environmentId: 'env2', label: 'LAN box', platform: { os: 'darwin', machine: 'server' } },
-    providers: [codex({ status: 'unauthenticated' })], settings: { providerInstances: instances } };
+    providers: [codex({ status: 'unauthenticated' })], settings: { providerInstances: instances, providers: { codex: { enabled: true } } } };
   const native = new TwoServers(focus, second), disk = storage();
   return { focus, second, native, files: disk.files };
 }
 /** The second environment as the fleet knows it once its transport synchronized (settings-b-fleet.ts). */
 function background(second: Backend, phase: 'connected' | 'reconnecting' = 'connected', projects: Obj[] = []) {
   fleet.entries.set(KEY, { key: KEY, origin: ORIGIN, environmentId: 'env2', phase, message: '', traceId: '', generation: 3, synchronized: phase === 'connected' ? 3 : -1,
-    lastEvent: 0, subscriptions: {}, config: second.config, shell: { ...initialShell(), projects }, scopes: ['orchestration:read', 'orchestration:operate'], error: '', requested: true });
+    lastEvent: 0, subscriptions: {}, config: second.config, shell: { ...initialShell(), projects }, scopes: [...AUTH_STANDARD_CLIENT_SCOPES], error: '', requested: true });
 }
 /** The providerPage resource's arguments (app.contract): selection, active, revision, clock, then the scope. */
 const page = async (native: Native, files: Parameters<typeof answer>[3], machine: string, extra: string[] = ['', '', '']) =>

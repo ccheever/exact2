@@ -12,6 +12,7 @@ use TipBubble from "../shell/shell-tip.contract"
 shape TerminalDrawerView
   available: bool // an active server thread with a project (PanelLayoutControls terminalAvailable)
   open: bool
+  readOnly: bool
   threadKey: string // `${environmentId}:${threadId}`
   environmentId: string
   threadId: string
@@ -80,6 +81,7 @@ component TerminalDrawer
   state dragKey = ""
   state dragHeight = 0
   state dragging = false
+  state dragStart = 0
   state hovered = ""
   derive maxHeight = max(180, floor(viewportHeight * 0.75))
   derive height = min(max(floor((dragKey == view.threadKey and dragHeight > 0 ? dragHeight : view.height) + 0.5), 180), maxHeight)
@@ -89,14 +91,21 @@ component TerminalDrawer
   // handleResizePointerMove: the height follows the pointer, clamped at every step.
   action resize(dx: number, dy: number)
     let current = height
+    if not dragging
+      dragStart = current
     dragging = true
     dragKey = view.threadKey
     dragHeight = min(max(current - dy, 180), maxHeight)
-  // handleResizePointerEnd → syncHeight: the store keeps the clamped height (saved per thread).
+  // handleResizePointerEnd → syncHeight: the store keeps the clamped height (saved per thread). A drag
+  // that ends where it started keeps the stored preference, which may be taller than the window-capped
+  // height the drag started from.
   action release(vx: number, vy: number)
     let committed = height
     dragging = false
-    command("terminallocal:height", view.threadKey, `${committed}`, 0)
+    if committed == dragStart
+      dragHeight = 0
+    else
+      command("terminallocal:height", view.threadKey, `${committed}`, 0)
   // onSessionExited: the view printed "[terminal] Process exited"; the tab closes without a confirmation.
   action exited(message: string)
     command("terminallocal:exited", view.threadKey, message, 0)
@@ -137,14 +146,14 @@ component TerminalContent
       if view.panes.length == 0
         column flex=1 min-height=0 align-items="center" justify-content="center" gap="0.75rem" padding-left="1rem" padding-right="1rem" padding-top="1.5rem" padding-bottom="1.5rem" testId="terminal-drawer-empty"
           text "No terminal sessions for this thread yet." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" text-align="center"
-          button press=command(`${view.commandPrefix}:new`, view.threadKey, "", 0) aria-label=view.newLabel testId="terminal-drawer-new" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff1a)" background-color="light-dark(#ffffff, #ffffff05)"
+          button press=command(`${view.commandPrefix}:new`, view.threadKey, "", 0) aria-label=view.newLabel testId="terminal-drawer-new" disabled=view.readOnly height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff1a)" background-color="light-dark(#ffffff, #ffffff05)"
             text view.newLabel font-size="0.75rem" line-height="1rem"
       else
         box flex=1 min-height=0 min-width=0 display="flex" flex-direction=view.direction testId="terminal-drawer-surface"
           for pane in view.panes key=pane.sessionKey
             // ThreadTerminalDrawer.tsx:1511-1530: no pane header; a pane activates when it takes focus (focus-in).
             column flex=1 min-width=0 min-height=0 border-width=0 border-right-width=(view.direction == "row" and view.panes.length > 1 ? 1 : 0) border-bottom-width=(view.direction == "column" and view.panes.length > 1 ? 1 : 0) border-style="solid" border-color=(pane.active ? "light-dark(#e4e4e7, #ffffff1a)" : "light-dark(#e4e4e7b3, #ffffff12)") testId=`terminal-pane-${pane.terminalId}`
-              t3-terminal terminal=pane.terminalId environment=view.environmentId thread=view.threadId cwd=view.cwd worktree=view.worktree env=view.env active=view.open terminal-surface=view.surface focus-request=pane.focusRequest keybindings=view.keybindings close-pending=closePending can-add-to-chat=true terminal-label=pane.label scheme=(dark ? "dark" : "light") terminal-theme=(dark ? look.terminalDark : look.terminalLight) terminal-font=look.terminalFont terminal-font-size=look.terminalSize message=message(pane.target) focus=focused(pane.target, true) blur=focused(pane.target, false) aria-label=pane.label testId=(pane.active and view.surface == "drawer" ? "terminal-view" : `terminal-view-${pane.terminalId}`) flex=1 min-width=0 min-height=0
+              t3-terminal read-only=view.readOnly terminal=pane.terminalId environment=view.environmentId thread=view.threadId cwd=view.cwd worktree=view.worktree env=view.env active=view.open terminal-surface=view.surface focus-request=pane.focusRequest keybindings=view.keybindings close-pending=closePending can-add-to-chat=true terminal-label=pane.label scheme=(dark ? "dark" : "light") terminal-theme=(dark ? look.terminalDark : look.terminalLight) terminal-font=look.terminalFont terminal-font-size=look.terminalSize message=message(pane.target) focus=focused(pane.target, true) blur=focused(pane.target, false) aria-label=pane.label testId=(pane.active and view.surface == "drawer" ? "terminal-view" : `terminal-view-${pane.terminalId}`) flex=1 min-width=0 min-height=0
         if not view.showTabs
           box position="absolute" right="0.5rem" top="0.5rem" z-index=20
             TerminalToolbar(view=view, command=command, confirm=confirm, strip=false)
@@ -163,7 +172,7 @@ component TerminalContent
                     text `${tab.count}` font-size="0.5625rem" line-height="0.75rem" color="light-dark(#71717bb3, #818181b3)"
                 row align-items="center" gap="0.125rem" height="1.5rem" padding-left="0.375rem" padding-right="0.5rem" border-radius="0.375rem" background-color=(tab.active ? "light-dark(#f4f4f5, #ffffff14)" : (hovered == tab.id ? "light-dark(#f4f4f599, #ffffff0f)" : "#00000000")) hover=hover(tab.id) testId=`terminal-tab-${tab.id}`
                   box position="relative" flex-shrink=0
-                    button id=`terminal-tab-close-${view.surface}-${tab.id}` press=askClose(tab.target, tab.closeTitle, tab.closeBody, `terminal-tab-close-${view.surface}-${tab.id}`) hover=hoverClose(tab.id) aria-label=tab.closeLabel testId=`terminal-tab-close-${tab.id}` width="1rem" height="1rem" padding="0.125rem" border-width=0 border-radius="0.125rem" background-color=(closeHovered == tab.id ? "light-dark(#f4f4f5, #ffffff14)" : "#00000000") title=""
+                    button id=`terminal-tab-close-${view.surface}-${tab.id}` press=askClose(tab.target, tab.closeTitle, tab.closeBody, `terminal-tab-close-${view.surface}-${tab.id}`) hover=hoverClose(tab.id) disabled=view.readOnly aria-label=tab.closeLabel testId=`terminal-tab-close-${tab.id}` width="1rem" height="1rem" padding="0.125rem" border-width=0 border-radius="0.125rem" background-color=(closeHovered == tab.id ? "light-dark(#f4f4f5, #ffffff14)" : "#00000000") title=""
                       ShellIcon(name=(hovered == tab.id ? "x" : "square-terminal"), size=12, color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
                     TipBubble(label=tab.closeLabel, side="top", align="start", offset=22, inset=0, shown=(closeHovered == tab.id))
                   button press=command(`${view.commandPrefix}:activate`, tab.target, "", 0) aria-label=tab.label aria-pressed=tab.active testId=`terminal-tab-select-${tab.id}` flex=1 min-width=0 height="1.5rem" padding=0 border-width=0 background-color="#00000000" text-align="left"
@@ -188,10 +197,10 @@ component TerminalToolbar
       TerminalAction(icon="split-vertical", label=view.splitVerticalLabel, disabled=view.splitDisabled, id="terminal-split-vertical", elementId="", strip=strip, edge=true, press=command(`${view.commandPrefix}:split-vertical`, `${view.threadKey}|${view.terminalId}`, "", 0))
       if not strip
         box width=1 height="1rem" background-color="light-dark(#e4e4e7, #ffffff1a)"
-      TerminalAction(icon="plus", label=view.newLabel, disabled=false, id="terminal-new", elementId="", strip=strip, edge=true, press=command(`${view.commandPrefix}:new`, view.threadKey, "", 0))
+      TerminalAction(icon="plus", label=view.newLabel, disabled=view.readOnly, id="terminal-new", elementId="", strip=strip, edge=true, press=command(`${view.commandPrefix}:new`, view.threadKey, "", 0))
       if not strip
         box width=1 height="1rem" background-color="light-dark(#e4e4e7, #ffffff1a)"
-      TerminalAction(icon="trash", label=view.closeLabel, disabled=false, id="terminal-close", elementId=`terminal-close-${view.surface}`, strip=strip, edge=true, press=askClose)
+      TerminalAction(icon="trash", label=view.closeLabel, disabled=view.readOnly, id="terminal-close", elementId=`terminal-close-${view.surface}`, strip=strip, edge=true, press=askClose)
 
 component TerminalAction
   props

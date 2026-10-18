@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // The drawer's client side (terminal-drawer-view.ts) against a fake client and native bridge: what
 // toggle, New, Close, the exit report and thread delete send to the server (T3 Code 1e2ecbd975
 // ChatView.tsx toggleTerminalVisibility / closeTerminal, useThreadActions.ts), the metadata stream's
@@ -12,11 +13,13 @@ import { closeThreadTerminals, terminalRows, terminalKeybindings, terminalDrawer
 import { surfaceStore } from '../../src/panel/panel-surfaces';
 import { focusedTerminal, recordTerminalFocus } from '../../src/terminal/terminal-focus';
 import { adoptTerminalPrefs, terminalUiStore } from '../../src/terminal/terminal-ui-state';
+import { contractComponent } from '../support/contract-action-fixture';
 
 type Call = { method: string; payload: Obj };
 function fixture(options: { fail?: string[]; connected?: boolean } = {}) {
   const calls: Call[] = [], native: Obj[] = [];
   const client = {
+    scopes: [...AUTH_STANDARD_CLIENT_SCOPES],
     environmentId: 'env-a', threadId: 'thread-1', projectId: 'project-1', generation: 3, connection: options.connected === false ? 'disconnected' : 'connected',
     ready: options.connected !== false, config: { keybindings: [] }, local: {} as object,
     shell: { projects: [{ id: 'project-1', workspaceRoot: '/repo' }], threads: [{ id: 'thread-1', projectId: 'project-1', worktreePath: '/repo/.t3/wt-1' }, { id: 'thread-2', projectId: 'project-1' }] },
@@ -124,6 +127,31 @@ describe('terminal drawer commands', () => {
     expect(reopened).toMatchObject({ terminalOpen: true, terminalHeight: 630, terminalIds: ['term-1'], activeTerminalId: 'term-1' });
   });
 
+  test('a smaller window and a drag returning to its start preserve the preferred height', async () => {
+    const { client } = fixture();
+    await run(client, 'toggle');
+    await terminalDrawerView(client, null, 840, 0);
+    await run(client, 'height', 'env-a:thread-1', '600');
+    const drawer = contractComponent('terminal.contract', 'TerminalDrawer');
+    const state = drawer.state(), sent: unknown[][] = [];
+    const view = await terminalDrawerView(client, null, 620, 0);
+    expect(view.height).toBe(465);
+    const scope = { view, viewportHeight: 620, look: { panelMs: 0 }, reduced: false,
+      min: Math.min, max: Math.max, floor: Math.floor, command: (...args: unknown[]) => sent.push(args) };
+    const call = (name: string, dy: number) => drawer.call(name, state, { ...scope, ...drawer.derives(state, scope) }, [0, dy]);
+    call('resize', 20);
+    expect(drawer.derives(state, scope).height).toBe(445);
+    call('resize', -20);
+    call('release', 0);
+    expect(sent).toEqual([]);
+    expect(state.dragHeight).toBe(0);
+    expect((await terminalDrawerView(client, null, 840, 0)).height).toBe(600);
+
+    call('resize', 20);
+    call('release', 0);
+    expect(sent).toEqual([['terminallocal:height', 'env-a:thread-1', '445', 0]]);
+  });
+
   test('New in the empty state allocates the lowest free id the server and the drawer both leave', async () => {
     const { client, calls } = fixture();
     terminalMetadataEvent(client, { subscriptionId: '3-1', value: { type: 'snapshot', terminals: [{ threadId: 'thread-1', terminalId: 'term-1', cwd: '/repo', worktreePath: null,
@@ -196,6 +224,7 @@ import { launchThreadId, forgetDraftThreadId } from '../../src/composer/draft-th
 import { activeRef } from '../../src/terminal/terminal-drawer-view';
 test('draft terminal reserves its send identity, worktree and session across first send', async () => {
   const client = new Client();
+  Object.assign(client, { scopes: [...AUTH_STANDARD_CLIENT_SCOPES], connection: 'connected', configLive: true, shellLive: true, threadLive: true });
   client.environmentId = 'env'; client.projectId = 'project'; client.threadId = '';
   client.shell.projects = [{ id: 'project', workspaceRoot: '/repo' }];
   client.local.composerControls.contexts[client.draftKey] = { envMode: 'worktree', branch: 'feature', worktreePath: '/wt' };

@@ -51,3 +51,7 @@ popover (`notice-machines-<id>`) with its Update; while it runs the rows read "D
 then "Restarting…". The stand-in updates once: `down` and `up --older` again for another run. Its
 log is `envs/third/older-server.log`. A normal launch paired through it saves its token under the
 stand-in's origin; `env.mjs forget third` removes that one too while the stand-in runs.
+
+## Eight-machine settings fixture
+
+Use `bun examples/t3-code/tools/machines/machines.mjs up --many` to start seven isolated saved environments. `drive --many --storage settings-many -- …` pairs them alongside This machine, including two named Lane Studio whose addresses distinguish them. `down --many` stops the recorded fixture processes. Keep `T3_FIXTURE_ROOT` in this worktree's `target/`, and select an unused fixture port range before starting.

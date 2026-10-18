@@ -8,6 +8,7 @@
 import type { T3Client } from '../client/client';
 import { arr, str, type Obj } from '../client/domain';
 import { prEnvironments, readsPullRequests } from './pages-pr-environments';
+import { isScratchProject, scratchRoot } from '../pages/pages-home';
 import { assignProjectsToEnvironments, findScopedProject, mergePullRequestLists, PR_MAX_PAGE_SIZE, PR_PAGE_SIZE, pullRequestEntryKey, resolveQueryEnvironmentIds,
   type MergedPullRequestList } from './pages-pr-routing';
 
@@ -30,7 +31,9 @@ function pagingOf(client: object): Paging {
 export function environmentQueries(client: T3Client, projectId: string): { environmentId: string; projectIds?: string[] }[] {
   const environments = prEnvironments(client).filter(environment => environment.connected && readsPullRequests(environment));
   const ids = environments.map(environment => environment.id);
-  const projects = environments.flatMap(environment => environment.projects.map(project => ({ ...project, id: str(project.id), environmentId: environment.id })));
+  // The Scratch folder is never a repository, so no server is asked about it.
+  const projects = environments.flatMap(environment => environment.projects.filter(project => !isScratchProject(project, scratchRoot(environment.config)))
+    .map(project => ({ ...project, id: str(project.id), environmentId: environment.id })));
   const scoped = projectId ? findScopedProject(projects, client.environmentId, projectId) : undefined;
   const asked = resolveQueryEnvironmentIds(ids, projects, scoped, projectId || undefined, true);
   if (projectId) return asked.map(environmentId => ({ environmentId }));
@@ -83,6 +86,19 @@ export function orderAnswer(previous: Obj[] | null, answer: Obj[], continued: bo
   return [...previous, ...arrived];
 }
 
+/**
+ * How many rows the largest single read returned (largestPullRequestReadCount): a refresh asks each read for that many
+ * again. GitHub reads a host's repositories in one search; the other hosts read one repository at a time, so rows
+ * spread across repositories need no larger page.
+ */
+export function largestPullRequestReadCount(entries: Obj[]): number {
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    const read = `${str(entry.environmentId)} ${str(entry.host).toLowerCase()} ${str(entry.provider, 'github') === 'github' ? '' : str(entry.repository).toLowerCase()}`;
+    counts.set(read, (counts.get(read) ?? 0) + 1);
+  }
+  return Math.max(0, ...counts.values());
+}
 /** What an answer to this question said about carrying on, kept for "Load more pull requests". */
 export function noteAnswer(client: object, key: string, merged: MergedPullRequestList | null, loaded: number): void {
   pagingOf(client).answered = merged ? { key, nextCursors: merged.nextCursors, truncatedEnvironments: merged.truncatedEnvironments, loaded } : null;

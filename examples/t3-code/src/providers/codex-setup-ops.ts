@@ -1,4 +1,5 @@
-// ManagedCodexSetup's commands and effects, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+import { providerWritable } from './provider-permissions';
+// ManagedCodexSetup's commands and effects, T3 Code 9c161462c9 (MIT, see LICENSE-T3):
 // apps/web/src/components/settings/CodexSetupSection.tsx `run` :318-347, the handoff
 // :349-387, cancelSignIn :388-395, signIn :397-454, setup :456-479, the auto start, continue
 // and refresh effects :283-298 and :481-514, openPage and the listener cleanup :516-566, the
@@ -17,7 +18,7 @@ import { setupOf, watchedSetup } from './provider-setup';
 import { codexFlow, codexFlows, codexStatus, readCodexSetupMode, codexInstance, type CodexFlow, type CodexHost } from './codex-setup';
 import { isLoopbackHost } from './codex-auth-request';
 import { CHATGPT_USAGE_URL, acknowledgeChatGptPlan } from './chatgpt-plan';
-import { driverMeta } from './providers-meta';
+import { driverMeta, legacyProviders } from './providers-meta';
 import { letGo } from '../client/let-go';
 
 export const RECEIVE_FAILED = 'Could not finish sign-in on this computer. Try again or paste the redirect URL below.';
@@ -33,7 +34,7 @@ export type CodexContext = {
 
 const providerOf = (host: CodexHost, instanceId: string) => arr(host.config.providers).find(provider => provider.instanceId === instanceId);
 const enabledOf = (host: CodexHost, instanceId: string) => providerOf(host, instanceId)?.enabled !== false;
-const statusOf = (context: CodexContext) => codexStatus(context.host, context.instanceId, providerOf(context.host, context.instanceId), { enabled: enabledOf(context.host, context.instanceId), readOnly: !context.host.writable });
+const statusOf = (context: CodexContext) => codexStatus(context.host, context.instanceId, providerOf(context.host, context.instanceId), { enabled: enabledOf(context.host, context.instanceId), readOnly: !providerWritable(context.host) });
 const call = (context: CodexContext, method: string, payload: Obj) => context.host.rpc(context.native, method, { instanceId: context.instanceId, ...payload }, true);
 
 /** `run`: one command at a time; a failure (not an interruption) is the setup's error. */
@@ -138,8 +139,8 @@ async function changeMode(context: CodexContext, mode: 'managed' | 'existing'): 
   const instance = codexInstance(settings, context.instanceId);
   const config = obj(instance.config);
   const next = { ...instance, driver: 'codex', enabled: true, config: { ...config, enabled: true, setupMode: mode } };
-  const legacyDefault = context.instanceId === 'codex' ? driverMeta('codex')?.legacyDefault : undefined;
-  await context.host.rpc(context.native, 'server.updateSettings', { patch: legacyDefault ? { providers: { ...obj(settings.providers), codex: legacyDefault } } : {},
+  const legacy = legacyProviders(settings), legacyDefault = context.instanceId === 'codex' && legacy ? driverMeta('codex')?.legacyDefault : undefined;
+  await context.host.rpc(context.native, 'server.updateSettings', { patch: legacy && legacyDefault ? { providers: { ...legacy, codex: legacyDefault } } : {},
     providerInstanceMutation: { operation: 'upsert', instanceId: context.instanceId, instance: next } }, true);
   context.host.config = await context.host.rpc(context.native, 'server.getConfig', {});
 }
@@ -153,7 +154,7 @@ export async function codexSetupOp(context: CodexContext, op: string, token: str
   const flow = codexFlow(context.host, context.instanceId), status = statusOf(context), entry = setupOf(context.host, context.instanceId);
   if (op === 'setup:chatgpt-usage') { await openExternal(context.module, CHATGPT_USAGE_URL); return; }
   if (op === 'setup:chatgpt-plan-ack') { acknowledgeChatGptPlan(context.host, value); await save(); return; }
-  if (!context.host.writable) return;
+  if (!providerWritable(context.host)) return;
   const once = `${op}|${token}`;
   const guarded = !['setup:codex-callback', 'setup:codex-browser', 'setup:codex-mode', 'setup:codex-start'].includes(op);
   if (guarded && (token !== status.token || entry.done.has(once))) return;
