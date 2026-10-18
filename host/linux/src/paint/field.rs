@@ -9,8 +9,10 @@
 //! the clips around it, and keeps where that box is in the field's own
 //! (`Painter::field_content`), which the shell's field is placed by.
 use super::*;
+use crate::text::decorations::FieldDecorations;
 use crate::text::field::{line_left, Cursor, Geometry};
 use crate::text::{Paragraph, Spec, TextEngine};
+use std::borrow::Cow;
 
 pub(crate) struct PaintedField {
     pub(crate) geometry: Geometry,
@@ -21,9 +23,16 @@ pub(crate) struct PaintedField {
     masked: bool,
     origin: (f32, f32),
     pub(super) transform: Transform,
+    decorations: Option<Rc<FieldDecorations>>,
 }
 
 impl PaintedField {
+    pub(crate) fn decoration_state(&self) -> Option<serde_json::Value> {
+        self.decorations
+            .as_ref()
+            .map(|decorations| decorations.state(&self.value))
+    }
+
     fn new(
         paragraph: &Paragraph,
         value: &str,
@@ -32,6 +41,7 @@ impl PaintedField {
         multiline: bool,
         masked: bool,
         transform: Transform,
+        decorations: Option<Rc<FieldDecorations>>,
     ) -> Self {
         let left = |width| line_left(spec.align, spec.direction, content.2, width);
         let empty_x = left(0.);
@@ -72,6 +82,7 @@ impl PaintedField {
             masked,
             origin,
             transform,
+            decorations,
         }
     }
 
@@ -84,6 +95,9 @@ impl PaintedField {
             value.to_owned()
         };
         spec.runs = vec![run];
+        if let Some(decorations) = &self.decorations {
+            spec = decorations.project(spec, value).spec;
+        }
         let paragraph = text.paragraph(&spec, self.multiline.then_some(self.content.2));
         Self::new(
             &paragraph,
@@ -93,6 +107,7 @@ impl PaintedField {
             self.multiline,
             self.masked,
             self.transform,
+            self.decorations.clone(),
         )
     }
 
@@ -192,6 +207,29 @@ impl Painter {
         }
         let spec = text_spec(&computed, shown);
         let multiline = node.props.str(PropId::SemanticTag) == Some("textarea");
+        let decorations = (!placeholder && multiline)
+            .then(|| {
+                FieldDecorations::read(
+                    node.props.str(PropId::Decorations)?,
+                    node.props.str(PropId::DecorationStyles)?,
+                    walk.scene.kernel.root_font_size(),
+                    walk.scene.kernel.display_scale(),
+                )
+                .ok()
+                .map(Rc::new)
+            })
+            .flatten();
+        let (spec, inks, backgrounds) = match &decorations {
+            Some(decorations) => {
+                let projected = decorations.project(spec, shown);
+                (
+                    projected.spec,
+                    Some(projected.inks),
+                    Some(projected.backgrounds),
+                )
+            }
+            None => (spec, None, None),
+        };
         let paragraph = self.text.borrow_mut().paragraph_replacing(
             (node.id, 0),
             &spec,
@@ -249,6 +287,21 @@ impl Painter {
                     paragraph.width,
                 )
             };
+        let base = RunPaint {
+            color: ink,
+            source: node.id,
+        };
+        let palette: Cow<'_, [RunPaint]> = match inks {
+            Some(inks) => Cow::Owned(
+                inks.iter()
+                    .map(|color| RunPaint {
+                        color: color.map_or(ink, |color| rgba(color.resolve(self.dark))),
+                        source: node.id,
+                    })
+                    .collect(),
+            ),
+            None => Cow::Borrowed(std::slice::from_ref(&base)),
+        };
         let field = PaintedField::new(
             &paragraph,
             value,
@@ -257,23 +310,41 @@ impl Painter {
             multiline,
             node.props.str(PropId::Type) == Some("password"),
             ts,
+            decorations,
         );
         let selection = walk.scene.selection.filter(|_| focused);
+        if let Some(backgrounds) = backgrounds {
+            let backgrounds: Vec<_> = backgrounds
+                .iter()
+                .enumerate()
+                .map(|(index, color)| {
+                    color.map(|color| {
+                        color.map_or(palette[index].color, |color| rgba(color.resolve(self.dark)))
+                    })
+                })
+                .collect();
+            for (r, color) in paragraph.run_backgrounds(&backgrounds) {
+                self.backend
+                    .fill(&Shape::rect((ox + r.0, oy + r.1, r.2, r.3)), color, ts);
+            }
+        }
         if let Some(s) = selection {
             self.field_highlight(&field, s);
         }
-        {
-            let mut engine = self.text.borrow_mut();
-            self.backend.text(
-                &mut engine,
+        if field.decorations.is_some() {
+            self.text_decorations(
+                walk.scene.kernel,
                 &paragraph,
-                &[RunPaint {
-                    color: ink,
-                    source: node.id,
-                }],
+                &palette,
                 (ox, oy),
                 ts,
+                walk.reveal,
             );
+        }
+        {
+            let mut engine = self.text.borrow_mut();
+            self.backend
+                .text(&mut engine, &paragraph, &palette, (ox, oy), ts);
         }
         if focused {
             let caret = computed

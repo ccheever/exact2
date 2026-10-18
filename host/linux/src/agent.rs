@@ -186,6 +186,19 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             let mut s = p.host().agent(line);
             if s.ends_with('}') && !s.starts_with("{\"error\"") {
                 s.pop();
+                let mut decorations: Vec<_> = p
+                    .brush
+                    .field_text
+                    .iter()
+                    .filter_map(|(id, field)| {
+                        Some(serde_json::json!({"id":id,"applied":field.decoration_state()?}))
+                    })
+                    .collect();
+                decorations.sort_by_key(|value| value["id"].as_u64());
+                s.push_str(&format!(
+                    ",\"decorations\":{}",
+                    serde_json::json!(decorations)
+                ));
                 let presence: Vec<_> = p
                     .boxes()
                     .to_vec()
