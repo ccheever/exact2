@@ -93,6 +93,7 @@ pub struct Host<D: DataSource> {
     pub(crate) flow_damage: crate::paint::damage::Changes,
     /// What changed for the painter's kept rows since its last frame.
     pub(crate) row_dirty: crate::paint::rows::Dirty,
+    pub(crate) scroll_anchors: crate::scroll_anchor::State,
     /// The nodes whose `:hover` look holds, the one whose `:focus-visible`
     /// does (LLP 1121 D8), and the state held (LLP 1122 D8; the presenter's,
     /// `presenter/feedback.rs`, `presenter/held.rs`): a new host holds none.
@@ -273,6 +274,7 @@ impl<D: DataSource> Host<D> {
             height_owner: None,
             flow_damage: Default::default(),
             row_dirty: Default::default(),
+            scroll_anchors: Default::default(),
             looks_shown: Default::default(),
             height_bindings: Default::default(),
             transform_bindings: Default::default(),

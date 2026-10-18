@@ -7,6 +7,8 @@ use exact_runner::{
 };
 use std::collections::{BTreeSet, VecDeque};
 
+mod anchoring;
+
 const PASSES: usize = 2;
 
 /// Whether a led window leans ([`CollectionFill::lean`]): off unless asked.
@@ -20,6 +22,8 @@ pub(super) struct ModelScroll {
     pub(super) sequence: u64,
     top: f32,
     left: Option<f32>,
+    /// Cumulative anchor correction on this input sequence, acknowledged with its pixels.
+    rebase: f32,
 }
 
 #[derive(Default)]
@@ -57,6 +61,10 @@ struct Cursor {
     requested_top: Option<f64>,
     model_scroll: Option<ModelScroll>,
     ordinary: bool,
+    anchored: bool,
+    /// The part of the sequence's correction already applied to the reader.
+    rebased: f32,
+    page_at: Option<(f32, f32)>,
     requested_left: Option<f64>,
     follow_end: bool,
     maximum: Option<(f32, f32)>,
@@ -74,6 +82,7 @@ impl Cursor {
     fn advance(&mut self) {
         self.sequence = self.sequence.saturating_add(1);
         self.model_scroll = None;
+        self.rebased = 0.;
     }
     fn bind(&mut self, key: NodeKey, sequence: u64) {
         if self.key.is_some_and(|old| old != key) {
@@ -125,6 +134,7 @@ impl Cursor {
                 sequence: self.sequence,
                 top: target.1,
                 left: Some(target.0),
+                rebase: self.rebased,
             });
         } else {
             *offset = target;
@@ -511,9 +521,11 @@ impl<D: DataSource> Presenter<D> {
                 self.scroll_end_retargeted(view, before_model);
             }
         }
-        self.collection
-            .cursors
-            .retain(|view, cursor| !cursor.ordinary || live.contains(view));
+        self.collection.cursors.retain(|view, cursor| {
+            !cursor.ordinary
+                || live.contains(view)
+                || (cursor.anchored && (*view == PAGE || self.host.kernel().node(*view).is_some()))
+        });
     }
 
     pub(super) fn has_pending_scroll(&self, view: ViewId) -> bool {
@@ -555,11 +567,12 @@ impl<D: DataSource> Presenter<D> {
         let cursor = self.collection.cursors.get(&view)?;
         let pending = cursor.model_scroll?;
         (pending.sequence == cursor.sequence
-            && self
-                .host
-                .kernel()
-                .node(view)
-                .is_some_and(|n| n.key == pending.key)
+            && (view == PAGE
+                || self
+                    .host
+                    .kernel()
+                    .node(view)
+                    .is_some_and(|n| n.key == pending.key))
             && !self.host.route_visibility(view).0)
             .then_some(pending)
     }
@@ -588,7 +601,7 @@ impl<D: DataSource> Presenter<D> {
         &self,
         boxes: &[PaintedBox],
     ) -> BTreeMap<ViewId, ModelScroll> {
-        boxes
+        let mut painted: BTreeMap<_, _> = boxes
             .iter()
             .filter_map(|b| {
                 let pending = self.pending_model_scroll(b.id)?;
@@ -598,7 +611,11 @@ impl<D: DataSource> Presenter<D> {
                 (offset.1 == pending.top && pending.left.is_none_or(|left| offset.0 == left))
                     .then_some((b.id, pending))
             })
-            .collect()
+            .collect();
+        if let Some(page) = self.pending_model_scroll(PAGE) {
+            painted.insert(PAGE, page);
+        }
+        painted
     }
 
     #[cfg(any(target_os = "linux", target_os = "android", test))]
@@ -612,15 +629,25 @@ impl<D: DataSource> Presenter<D> {
             }
             // A newer model correction on the same input sequence survives B,
             // but the interaction base becomes precisely B's painted position.
-            let offset = self.scroll.entry(view).or_default();
+            let offset = if view == PAGE {
+                &mut self.page
+            } else {
+                self.scroll.entry(view).or_default()
+            };
             let before = *offset;
             offset.1 = accepted.top;
             if let Some(left) = accepted.left {
                 offset.0 = left;
             }
             let moved = *offset != before;
+            let cursor = self.collection.cursors.get_mut(&view).unwrap();
+            let correction = accepted.rebase - cursor.rebased;
+            cursor.rebased = accepted.rebase;
+            cursor.page_at = (view == PAGE).then_some(*offset);
+            self.reader
+                .rebased(view, before, (before.0, before.1 + correction));
             self.scroll_end_acknowledged(view, accepted, moved);
-            if moved {
+            if moved && view != PAGE {
                 self.collection.scroll_event(view, accepted.key);
                 self.executor.notify();
             }
@@ -788,8 +815,22 @@ impl<D: DataSource> Presenter<D> {
     fn collection_scroll_turn(&mut self, view: ViewId, owned_edge: bool) {
         self.collection.scroll_events.retain(|(id, _)| *id != view);
         if let Some(cursor) = self.collection.cursors.get_mut(&view) {
+            let correction = cursor
+                .model_scroll
+                .map_or(0., |p| p.rebase - cursor.rebased);
             cursor.advance();
+            if correction != 0. {
+                let offset = self.scroll.entry(view).or_default();
+                cursor.model_offset(
+                    cursor.key.unwrap(),
+                    (offset.0, offset.1 + correction),
+                    true,
+                    offset,
+                );
+                cursor.model_scroll.as_mut().unwrap().rebase = correction;
+            }
         }
+        self.arm_scroll_anchors();
         // Collection observation supplements the ordinary authored handler.
         let authored = self
             .host

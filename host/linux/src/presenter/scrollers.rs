@@ -77,7 +77,7 @@ pub(super) struct Reader {
 }
 
 impl Reader {
-    /// A list corrected its own offset from `was` to `now`: its content
+    /// A scroller corrected its own offset from `was` to `now`: its content
     /// stays where it shows, so the reader's moves still stand.
     pub(super) fn rebased(&mut self, id: ViewId, was: (f32, f32), now: (f32, f32)) {
         if let Some((_, at)) = self.tracked.get_mut(&id) {

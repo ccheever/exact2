@@ -87,6 +87,8 @@ pub mod preferences;
 mod requests;
 mod retained_action;
 mod reveal;
+#[cfg(test)]
+mod scroll_anchor_tests;
 mod scroll_end;
 mod scrollers;
 use scroll_end::Completion;
@@ -737,6 +739,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn service_commit(&mut self) -> Option<String> {
+        self.restore_scroll_anchors();
         self.alert_sync();
         // What the commit asked the host to run goes to the executor (LLP
         // 1016 D2); the reply comes back through `pump`. Its commands wait
@@ -892,6 +895,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn clamp_scroll(&mut self) -> bool {
+        self.restore_scroll_anchors();
         let collection_limits = self.collection_scroll_limits();
         let kernel = self.host.kernel();
         let region = self.host.content_region();
@@ -929,17 +933,6 @@ impl<D: DataSource> Presenter<D> {
         self.page.1 = self.page.1.clamp(0.0, (doc.1 - viewport.1).max(0.0));
         self.publish_scroll();
         changed || self.page != page
-    }
-
-    /// Tell the runner where every scroller and the page stand, for
-    /// `frame()` (LLP 1051.000 D1): after a clamp, and wherever a scroll
-    /// moves geometry (`refresh_transform_geometry`).
-    pub(crate) fn publish_scroll(&mut self) {
-        let runner = self.host.runner_mut();
-        runner.scrolled(None, f64::from(self.page.0), f64::from(self.page.1));
-        for (id, (left, top)) in &self.scroll {
-            runner.scrolled(Some(*id), f64::from(*left), f64::from(*top));
-        }
     }
 
     /// Every node's painted box, in paint order (a fresh frame when stale).

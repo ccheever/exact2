@@ -122,6 +122,15 @@ impl<D: DataSource> Host<D> {
     // Mandatory layout entries always reconcile eligibility and use fresh epochs.
     // Failed layout invalidates this cache; unchanged samples must retry recovery.
     pub(crate) fn layout(&mut self) -> Result<bool, String> {
+        let result = self.layout_anchored();
+        if result.is_ok() {
+            self.scroll_anchors
+                .laid_out(self.runner.kernel(), &self.runner.roots());
+        }
+        result
+    }
+
+    fn layout_anchored(&mut self) -> Result<bool, String> {
         if let Some((text, installed)) = self.font_sync.as_mut() {
             if self.runner.runtime_font_count() != *installed {
                 text.borrow_mut().install_runtime(
