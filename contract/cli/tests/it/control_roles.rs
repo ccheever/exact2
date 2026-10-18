@@ -85,18 +85,20 @@ fn best_effort_is_silent_and_an_unset_parameter_is_not_judged() {
 fn a_field_role_is_judged_unless_the_field_writes_its_own_row() {
     let design = "  Field = #fff1a8\n";
     let view = "component App\n  state words = \"a\"\n  action write(value: string)\n    words = value\n  view\n    input value=words change=write aria-label=\"Words\"\n";
-    let path = app("field", "\"web\": {}", design, view);
+    let path = app("field", "\"macos\": {}", design, view);
     let said = unreachable(&path);
     assert_eq!(said.len(), 1, "{said:?}");
     assert!(
-        said[0].starts_with("Field on the web's fields: the web host does not read Field yet"),
+        said[0].starts_with(
+            "Field on macOS fields: AppKit's bezeled NSTextField draws its own ground"
+        ),
         "{said:?}"
     );
     let own = view.replace(
         "aria-label=\"Words\"",
         "aria-label=\"Words\" background-color=\"#ffffff\"",
     );
-    let path = app("field-own", "\"web\": {}", design, &own);
+    let path = app("field-own", "\"macos\": {}", design, &own);
     assert_eq!(unreachable(&path), Vec::<String>::new());
 }
 
@@ -180,10 +182,10 @@ fn auto_precedence_timed_progress_and_sure_rows() {
         .any(|m| m.contains("macOS spinners")));
 
     let both = "style Red\n  background-color=\"#ff0000\"\n\nstyle Blue\n  background-color=\"#0000ff\"\n\ncomponent App\n  state flag = true\n  state words = \"a\"\n  action write(value: string)\n    words = value\n  view\n    input class=(flag ? Red : Blue) value=words change=write aria-label=\"W\"\n";
-    assert!(unreachable(&app("both", "\"web\": {}", design, both)).is_empty());
+    assert!(unreachable(&app("both", "\"macos\": {}", design, both)).is_empty());
     let cleared = "component App\n  state flag = true\n  state words = \"a\"\n  action write(value: string)\n    words = value\n  view\n    input background-color=(flag ? \"#ff0000\" : none) value=words change=write aria-label=\"W\"\n";
     assert_eq!(
-        unreachable(&app("cleared", "\"web\": {}", design, cleared)).len(),
+        unreachable(&app("cleared", "\"macos\": {}", design, cleared)).len(),
         1
     );
 }
@@ -205,7 +207,7 @@ fn branches_hold_apart() {
     );
     let field = format!("{head}      input class=Red background-color=(flag ? \"#ff0000\" : none) value=words change=write aria-label=\"W\"\n");
     assert!(
-        unreachable(&app("branch-field", "\"web\": {}", design, &field))
+        unreachable(&app("branch-field", "\"macos\": {}", design, &field))
             .iter()
             .any(|m| m.starts_with("Field on"))
     );

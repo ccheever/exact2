@@ -10,6 +10,8 @@ import type { Answer, Result, Sources } from './app.contract.d.ts';
 import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } from './inspector';
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf } from './dials';
+import { componentsOf } from './components';
+import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
 export { cellText, colourLiteral, controlOf, folded, panelOf } from './dials';
 import { partsOf } from './parts';
 export { joined, missing, partsOf } from './parts';
@@ -130,7 +132,7 @@ function change(e: any): Change | null {
 }
 
 type Design = Result<'loadDesign'>;
-const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], tokenGroups: [], names: [], axes: [], icons: [] });
+const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], tokenGroups: [], names: [], axes: [], icons: [], components: [] });
 let designs = 0;
 
 
@@ -157,6 +159,12 @@ export function columnsOf(axes: Axis[]): Column[] {
 
 type When = { axis: string; value: string };
 const whenOf = (text: string): When[] => text.split(' ').filter(Boolean).map(w => { const [axis, value] = w.split('='); return { axis, value }; });
+// A param's name as its `params` line spells it: its short name where one
+// param answers it (else the full one), from the newest design read.
+let paramNames = new Map<string, string>();
+// The params as the newest settled read of the app's design has them.
+let appParams = new Map<string, ParamInfo>(), appParamsKey = '';
+const lineName = (param: string) => paramNames.get(param) ?? param;
 const whenText = (w: When[]) => w.map(c => `${c.axis}=${c.value}`).sort().join(' ');
 
 /** The branch a cell shows (LLP 1122 D6's target branch), as the checker
@@ -193,7 +201,8 @@ const SYSTEM = new Set(['canvas', 'canvastext', 'linktext', 'visitedtext', 'acti
  * which also makes the value an expression. A word is a whole word of the
  * value: never part of a hex colour or a number. */
 export function inputsOf(value: string, names: string[], dials: string[]): { tokens: string[]; dials: string[]; roles: string[] } {
-  const words = value.split(/[\s,()/*+]+/).filter(w => /^[A-Za-z_-][\w.-]*$/.test(w));
+  // (A param's full name, `src/card.contract#Card.tone`, is one word: a division has spaces.)
+  const words = value.split(/[\s,()*+]+/).filter(w => /^[A-Za-z_.-][\w./#-]*$/.test(w));
   const set = new Set(words), lower = new Set(words.map(w => w.toLowerCase()));
   const named = (n: string) => set.has(n) || lower.has(n.toLowerCase()) || (n.toLowerCase().startsWith('-exact-') && lower.has(n.toLowerCase().slice(7)));
   const tokens = names.filter(named), found = dials.filter(d => set.has(d));
@@ -208,7 +217,7 @@ export function inputsOf(value: string, names: string[], dials: string[]): { tok
 // its answer), so it keeps nothing; the shown one is the newest kept, and
 // what follows it (a cell's branch, contrast) names it.
 type Stored = { css: string; srgb: string; residual: boolean; note: string; value: string };
-type Snapshot = { file: string; axes: Axis[]; columns: Column[]; stored: Map<string, Stored[][]>; dials: Map<string, { group: string; more: boolean }>; digests: string; kinds: Map<string, string> };
+type Snapshot = { file: string; axes: Axis[]; columns: Column[]; stored: Map<string, Stored[][]>; dials: Map<string, { group: string; more: boolean }>; digests: string; kinds: Map<string, string>; params: Map<string, ParamInfo>; tokenOf: (v: string) => string | null };
 const snapshots = new Map<number, Snapshot>();
 // Design reads, and reads of the app design's axes (either kind): only the
 // newest of the second sets the axes a selection is placed by.
@@ -264,10 +273,27 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
 
 /** An edit's operation in `tamber/1`'s shape, on `file` (the app's design
  * when ""). */
+/** An edit's operations: its one, and before a param's `when` line where
+ * the app has no line for the param, that line (its default as written),
+ * which a `when` line needs first (LLP 1121 D15). */
+function opsOf(file: string, kind: string, target: string, when: string, value: string): Record<string, unknown>[] {
+  const op = opOf(file, kind, target, when, value);
+  const p = kind === 'set-param' && when ? appParams.get(target) : undefined;
+  // A default that reads another param (named in full) is no value a line can
+  // take: none, said by the proposal.
+  if (p && p.set === null && p.default.includes('#')) return [];
+  return p && p.set === null ? [{ op: 'set-param', name: lineName(target), when: [], value: p.default }, op] : [op];
+}
+// Whether `opsOf` read the params of the design these digests are of.
+const paramsOf = (kind: string, when: string, files: Record<string, string>) => !(kind === 'set-param' && when) || appParamsKey === digestKey(files);
 function opOf(file: string, kind: string, target: string, when: string, value: string): Record<string, unknown> {
   const on = file ? { file } : {};
   switch (kind) {
     case 'set-dial': return { op: kind, name: target, value, ...on };
+    // A param's line is the app design's (LLP 1121 D15), whichever file is
+    // open, written by its short name where that names one param.
+    case 'set-param': return { op: kind, name: lineName(target), when: whenOf(when), value };
+    case 'unset-param': return { op: kind, name: lineName(target), when: whenOf(when) };
     case 'set-token': return { op: kind, name: target, when: whenOf(when), value, ...on };
     case 'add-token': return { op: kind, name: target, value, ...on };
     case 'rename-token': return { op: kind, from: target, to: value, ...on };
@@ -275,7 +301,7 @@ function opOf(file: string, kind: string, target: string, when: string, value: s
   }
 }
 const label = (kind: string, target: string, when: string, value: string) =>
-  kind === 'rename-token' ? `${target} → ${value}` : kind === 'remove-token' ? `removed ${target}` : `${target}${when ? ` when ${when}` : ''} = ${value}`;
+  kind === 'rename-token' ? `${target} → ${value}` : kind === 'remove-token' ? `removed ${target}` : kind === 'unset-param' ? `reset ${target}${when ? ` when ${when}` : ''}` : `${target}${when ? ` when ${when}` : ''} = ${value}`;
 // The scrub (LLP 1122 D6), one session at a time, from Scrub live to Keep,
 // Cancel or an end: the edit it is of (file, kind, target, branch), the
 // digests and server run it opened on, its id once the server answers, the
@@ -367,7 +393,7 @@ const keyOf = (file: string, kind: string, target: string, when: string, value: 
 // them, and `session` counts those.
 // Each with the token of the server run that issued its inverse.
 // An accepted proposal's entry keeps its proposer: its redo is theirs.
-type Entry = { inverse: string; ops: Record<string, unknown>[]; label: string; token: string; client?: string };
+type Entry = { inverse: string; ops: Record<string, unknown>[]; label: string; token: string; client?: string; rescope?: Rescope | null };
 const undoStack: Entry[] = [], redoStack: Entry[] = [];
 let session = 0;
 /** The stacks emptied: another run of the server has none of their
@@ -382,7 +408,7 @@ function forget(run: string, still = false) {
   undoStack.length = 0; redoStack.length = 0; mine.length = 0; session += 1;
   if (run) forgotRuns.add(run);
 }
-const stacks = (ok: boolean, error: string, last: string, key = '') => ({ ok, error, undo: undoStack.length, redo: redoStack.length, last, key, session, note: '', carried: [] as string[] });
+const stacks = (ok: boolean, error: string, last: string, key = '') => ({ ok, error, undo: undoStack.length, redo: redoStack.length, last, key, session, note: '', carried: [] as string[], rescope: undoStack.at(-1)?.rescope?.text ?? '' });
 /** Who moved a file a refused write or undo found moved: its client, or
  * "changed on disk". */
 const byWhom = (reply: Reply) => {
@@ -588,6 +614,8 @@ const opText = (o: any): string => {
     o?.op === 'set-token' ? `${o.name}${o.when?.length ? ` when ${whenText(o.when)}` : ''} = ${o.value}`
     : o?.op === 'unset-token-when' ? `${o.name}: drop when ${whenText(o.when ?? [])}`
     : o?.op === 'set-dial' ? `${o.name} = ${o.value}`
+    : o?.op === 'set-param' ? `${o.name}${o.when?.length ? ` when ${whenText(o.when)}` : ''} = ${o.value}`
+    : o?.op === 'unset-param' ? `reset ${o.name}${o.when?.length ? ` when ${whenText(o.when)}` : ''}`
     : o?.op === 'add-token' ? `add ${o.name} = ${o.value}`
     : o?.op === 'rename-token' ? `rename ${o.from} → ${o.to}`
     : o?.op === 'remove-token' ? `remove ${o.name}`
@@ -674,6 +702,20 @@ const fileWords = (n: Noted, f: string) => `${f}: ${n.values.get(f)?.join('; ') 
 /** An entry in plain words: each file and what moved in it (its tokens
  * named, until measured), who. */
 const plain = (n: Noted) => n.gap ? 'Some changes were missed here (the server keeps the last 256), so this list may be incomplete.' : `${n.files.map(f => `${f}: ${n.values.get(f)?.join('; ') || tokensIn(n, f).join(', ') || 'edited'}`).join('; ') || 'the design: edited'} · ${n.who}${n.acceptedBy ? `, accepted by ${n.acceptedBy}` : ''}${n.redoneBy ? `, redone by ${n.redoneBy}` : ''}`;
+
+/** The re-scope an edit of the app's design would offer once written (D6),
+ * read from the design as it is before the write. */
+async function rescopeFor(file: string, op: Record<string, unknown>, token: string, files: Record<string, string>): Promise<Rescope | null> {
+  // The design read and every explain of the revision the edit was reviewed on.
+  const key = digestKey(files);
+  const app = (f: string) => f === '' || f === designFile;
+  const snap = [...snapshots.values()].reverse().find(x => app(x.file) && x.digests === key);
+  if (!app(file) || !snap || (op.op !== 'set-param' && op.op !== 'set-token')) return null;
+  return rescopeOf(op as { op: string; name: string; when: When[]; value: string }, snap.params, snap.tokenOf, async name => {
+    const { error, reply } = await call('/__tamber', { method: 'explain', token: name }, 15000, token);
+    return error ? null : (reply.ok as { value: string; whens: { when: When[]; value: string }[]; files?: Record<string, string> });
+  }, key);
+}
 
 const sources: Sources = {
   loadHello: async () => {
@@ -762,7 +804,8 @@ const sources: Sources = {
       if (number === issued) {
         // The app design's axes, of the newest read only.
         if (axesAt === axesReads) designAxes = axes;
-        snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens].map((t: { name: string; kind: string }) => [t.name, t.kind])) });
+        snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens, ...(ir.components ?? []).flatMap((c: { params: unknown[] }) => c.params)].map((t: { name: string; kind: string }) => [t.name, t.kind])), params: paramInfoOf(ir), tokenOf: tokenOfIn(ir) });
+        if (!file || file === designFile) { appParams = snapshots.get(number)!.params; appParamsKey = snapshots.get(number)!.digests; paramNames = new Map([...appParams].map(([name, p]) => [name, p.short])); }
         for (const old of snapshots.keys()) if (old < number - 4) snapshots.delete(old);
         reads.set(`${named(file)}|${read.files?.[named(file)] ?? ''}`, { stored, axes, columns });
         while (reads.size > 24) reads.delete(reads.keys().next().value!);
@@ -773,6 +816,8 @@ const sources: Sources = {
         tokenGroups: [...groups].map(([name, rows]) => ({ name, tokens: rows })),
         names: [...names],
         icons: (ir.icons ?? []).map((i: { name: string; sf: string | null; material: string | null; svg: string | null }) => ({ name: i.name, sf: i.sf ?? '', material: i.material ?? '', svg: i.svg ?? '' })),
+        // A param's line is the app design's: the panel only while that is open.
+        components: file && file !== designFile ? [] : componentsOf(ir.components, designFile, names),
       };
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e;
@@ -780,7 +825,7 @@ const sources: Sources = {
     }
   },
   loadBranch: async ([file, token, column, answer]) => {
-    const none = { ok: true, error: '', token: '', kind: 'color', column: '', place: '', label: '', when: '', value: '', expression: false, inputs: [], dials: [], roles: [], exact: true, own: '', answer };
+    const none = { ok: true, error: '', token: '', kind: 'color', column: '', place: '', label: '', when: '', value: '', expression: false, inputs: [], dials: [], roles: [], exact: true, own: '', param: false, answer };
     const snap = snapshots.get(answer);
     const col = snap?.columns.find(c => c.id === column);
     if (!token || !col || !snap || snap.file !== file) return none;
@@ -799,7 +844,7 @@ const sources: Sources = {
     const dials = inputs.dials.map(name => ({ name, group: snap.dials.get(name)?.group ?? '', more: snap.dials.get(name)?.more ?? false, hidden: !snap.dials.has(name) }));
     return {
       ok: true, error: '', token, kind: snap.kinds.get(token) ?? 'color', column, place: placeOf(snap.axes, col), label: `${token} · ${b.when || 'default'} (${col.label})`, when: b.when, value,
-      expression: inputs.tokens.length + inputs.dials.length + inputs.roles.length > 0, inputs: inputs.tokens, dials, roles: inputs.roles, exact: b.own === '' || b.when === b.own, own: b.own, answer,
+      expression: inputs.tokens.length + inputs.dials.length + inputs.roles.length > 0, inputs: inputs.tokens, dials, roles: inputs.roles, exact: b.own === '' || b.when === b.own, own: b.own, param: snap.params.has(token), answer,
     };
   },
   // The branch editor's typed fields for a value (parts.ts), the names in
@@ -811,40 +856,70 @@ const sources: Sources = {
   },
   proposeEdit: async ([file, kind, target, when, value, , , live]) => {
     const key = keyOf(file, kind, target, when, value);
-    const idle = { ok: true, error: '', active: false, chip: '', diff: '', tokens: [], key, review: '' };
+    const idle = { ok: true, error: '', active: false, chip: '', diff: '', tokens: [], key, scrubbable: false, review: '' };
     if (!kind || !target) return idle;
-    if (kind !== 'remove-token' && !value) return { ...idle, ok: false, error: 'Give it a value.' };
-    const { error, reply, used } = await call('/__tamber', { method: 'propose', ops: [opOf(file, kind, target, when, value)] });
+    if (kind !== 'remove-token' && kind !== 'unset-param' && !value) return { ...idle, ok: false, error: 'Give it a value.' };
+    const ops = opsOf(file, kind, target, when, value);
+    if (!ops.length) return { ...idle, ok: false, error: `${lineName(target)}'s default reads another param, which its line can't: give it a value of its own first, then Only this mode.` };
+    const { error, reply, used } = await call('/__tamber', { method: 'propose', ops });
     if (error) return { ...idle, ok: false, error };
     const ok = reply.ok as { diff: string; class: string; files: Record<string, string>; changed: { token: string }[] };
+    // A param's first `when` line was planned from the params of another
+    // revision than this proposal's: asked again once the design is read.
+    if (!paramsOf(kind, when, ok.files)) return { ...idle, ok: false, error: 'The design changed: reading it again before this is proposed.' };
     // What Apply writes: this edit, against the digests this proposal read,
     // to the server run that read them (its token), carried on the proposal
     // itself, so what is shown is what is written, and where.
-    return { ok: true, error: '', active: true, chip: ok.class === 'live' && live === true ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token), key, review: JSON.stringify({ key, files: ok.files, diff: ok.diff, token: used }) };
+    return { ok: true, error: '', active: true, chip: ok.class === 'live' && live === true ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token), key, scrubbable: ops.length === 1, review: JSON.stringify({ key, files: ok.files, diff: ok.diff, token: used, ops }) };
   },
   writeEdit: async ([file, kind, target, when, value, client, review]) => {
     const at = session;
     const key = keyOf(file, kind, target, when, value);
-    let read: { key?: string; files?: Record<string, string>; diff?: string; token?: string } = {};
+    let read: { key?: string; files?: Record<string, string>; diff?: string; token?: string; ops?: Record<string, unknown>[] } = {};
     try { read = JSON.parse(review || '{}'); } catch { /* none */ }
-    if (read.key !== key || !read.files || !read.token) return stacks(false, 'Review the change before applying it.', '');
-    const op = opOf(file, kind, target, when, value);
+    if (read.key !== key || !read.files || !read.token || !read.ops?.length) return stacks(false, 'Review the change before applying it.', '');
+    // The operations reviewed, as reviewed.
+    const ops = read.ops;
+    const op = ops.at(-1)!;
+    const move = ops.length === 1 ? await rescopeFor(file, op, read.token, read.files) : null;
     // Every file's digest as the proposal read it: the server checks the
     // ones the edit writes, whichever file the app's design is.
-    const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files: read.files, ops: [op] }, WRITE_WAIT, read.token);
+    const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files: read.files, ops }, WRITE_WAIT, read.token);
     if (error === RESTARTED) forget(used);
     if (session !== at) return stacks(false, RESTARTED, '');
     if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since you reviewed it.` : error, '');
     const inverse = (reply.ok as { inverse: string | null }).inverse;
     // A write that changed no byte has no inverse, and leaves redo be.
-    if (inverse) { undoStack.push({ inverse, ops: [op], label: label(kind, target, when, value), token: read.token }); redoStack.length = 0; wroteMine(reply.ok); }
+    // A re-scope is checked against the files as this write left them: one
+    // that finds them moved since (another write, a hand edit) is refused.
+    const after = (reply.ok as { files?: Record<string, string> }).files;
+    if (inverse) { undoStack.push({ inverse, ops, label: label(kind, target, when, value), token: read.token, rescope: move && after ? { ...move, files: after } : null }); redoStack.length = 0; wroteMine(reply.ok); }
     return stacks(true, '', kind.split('-')[0], key);
+  },
+  rescopeLast: async ([client]) => {
+    // The last write moved to the other rung: its inverse and the new write,
+    // one transaction, to the server run it was written to; undone as one.
+    const at = session;
+    const top = undoStack.at(-1);
+    if (!top?.rescope) return stacks(false, 'The last write has no other rung to move to.', '');
+    const { ops, files } = top.rescope;
+    // Every file the move was worked out on, edited or not (a component's
+    // default in its Contract source decides what the param shows): `requires`.
+    const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files, requires: files, ops }, WRITE_WAIT, top.token);
+    if (error === RESTARTED) forget(used);
+    if (session !== at) return stacks(false, RESTARTED, '');
+    // Refused by the server (a file moved, a loop through another token), it is not offered again.
+    if (error) { if (reply.error) top.rescope = null; return stacks(false, byWhom(reply) ? `Not moved: ${byWhom(reply)} since the edit, so its inverse would undo theirs.` : error, ''); }
+    const inverse = (reply.ok as { inverse: string | null }).inverse;
+    if (inverse) { undoStack.push({ inverse, ops, label: top.rescope.text.replace(/^Apply to/, 'moved to').replace(/ instead$/, ''), token: top.token }); redoStack.length = 0; wroteMine(reply.ok); }
+    return stacks(true, '', 'rescope');
   },
   scrubFrame: async ([ask, , file, kind, target, when, value, client, review]) => {
     // Scrub live pressed: a session for this edit, opened on the digests
     // and server run its proposal read. Then each value the draft takes is
     // wanted, if it is still this edit; the state as it stands is answered.
-    const scrubbable = (kind === 'set-dial' || kind === 'set-token') && !!value;
+    // (Not a param's first `when` line, which needs its own line written first.)
+    const scrubbable = (kind === 'set-dial' || kind === 'set-token' || kind === 'set-param') && !!value && opsOf(file, kind, target, when, value).length === 1;
     const op = scrubbable ? opOf(file, kind, target, when, value) : null;
     const of = [file, kind, target, when].join('␟');
     if (ask > scrubAsked) {
@@ -886,6 +961,8 @@ const sources: Sources = {
     scrubEnded = '';
     const op = kept, [file, kind, target, when] = s.of.split('␟');
     const value = draftValue;
+    // Its re-scope, from the files the scrub opened on (it wrote nothing until now).
+    const move = await rescopeFor(file, op, s.token, s.files);
     const { error, reply, used } = await call('/__tamber', { method: 'scrub-release', client: s.client, scrub: s.id }, WRITE_WAIT, s.token);
     // No answer from the server (not a refusal): the scrub may still be
     // open there, so it stays, to keep or cancel again.
@@ -894,7 +971,8 @@ const sources: Sources = {
     if (session !== at) return stacks(false, RESTARTED, '');
     if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since the scrub opened; the running copies have the committed value back.` : error, '');
     const inverse = (reply.ok as { inverse: string | null }).inverse;
-    if (inverse) { undoStack.push({ inverse, ops: [op], label: label(kind, target, when, value), token: s.token }); redoStack.length = 0; wroteMine(reply.ok); }
+    const after = (reply.ok as { files?: Record<string, string> }).files;
+    if (inverse) { undoStack.push({ inverse, ops: [op], label: label(kind, target, when, value), token: s.token, rescope: move && after ? { ...move, files: after } : null }); redoStack.length = 0; wroteMine(reply.ok); }
     return stacks(true, '', kind.split('-')[0], keyOf(file, kind, target, when, value));
   },
   cancelScrub: async ([ask]) => {
@@ -959,7 +1037,8 @@ const sources: Sources = {
     const inverse = (reply.ok as { inverse: string | null }).inverse;
     // A redo of an accepted proposal is the proposer's write; its row says
     // who redid it.
-    if (inverse) { undoStack.push({ ...top, inverse }); wroteMine(reply.ok, top.client && top.client !== client ? client : ''); }
+    // (A redo offers no re-scope: its move was worked out from the files before the edit, not before the redo.)
+    if (inverse) { undoStack.push({ ...top, inverse, rescope: null }); wroteMine(reply.ok, top.client && top.client !== client ? client : ''); }
     return stacks(true, '', 'redo');
   },
   loadContrast: async ([a, b, answer]) => {

@@ -17,6 +17,8 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   for (const [name, key] of [['headless', 'HEADLESS'], ['headless-markdown', 'HEADLESS_MARKDOWN'], ['headless-hidden-markdown', 'HEADLESS_HIDDEN_MARKDOWN'], ['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE'], ['inline-frame', 'INLINE_FRAME'], ['fieldless', 'FIELDLESS'], ['web-documents', 'WEB_DOCUMENTS'], ['tab-owner', 'TAB_OWNER'], ['grouped-list-reveal', 'GROUPED_REVEAL'], ['due-now', 'DUE_NOW'], ['caret-reveal', 'CARET_REVEAL'], ['cover-scroll', 'COVER_SCROLL']]) {
     contract([resolve(root, `scripts/fixtures/${name}.contract`), '-o', env[`${prefix}_${key}_PLAN`] = resolve(dir, `${name}.plan`)]);
   }
+  // HeldStateTests' own (a card that presses over a flat leaf), beside them.
+  contract([resolve(root, 'host/apple/tests/fixtures/held-state.contract'), '-o', env[`${prefix}_HELD_STATE_PLAN`] = resolve(dir, 'held-state.plan')]);
   const question = 'host/apple/tests/ExactKitTests/SnapshotFixtures/open-question';
   const refusing = resolve(dir, 'entries/refusing');
   mkdirSync(refusing, { recursive: true });

@@ -45,6 +45,21 @@ impl<D: DataSource> Presenter<D> {
         None
     }
 
+    /// The control a contact's press shows on.
+    fn pressed_feedback(&self) -> Option<ViewId> {
+        self.contact_hit()
+            .and_then(|key| self.host.kernel().node_by_key(key).map(|node| node.id))
+            .and_then(|id| self.feedback_at(id))
+    }
+
+    /// The control a held `active` shows pressed (`presenter/held.rs`), as
+    /// the real press it stands for, beside any contact's.
+    pub(super) fn held_press_feedback(&self) -> Option<ViewId> {
+        (self.held())
+            .filter(|h| h.state == crate::host::press::HoldState::Active)
+            .and_then(|h| self.feedback_at(h.view))
+    }
+
     /// Read both again, after anything that moved the pointer or a contact.
     pub(super) fn refresh_feedback(&mut self) {
         // A finger hovers nothing; a held contact is not also a hover (but
@@ -56,10 +71,7 @@ impl<D: DataSource> Presenter<D> {
         let hover = hit
             .filter(|_| self.contact.is_none())
             .and_then(|id| self.feedback_at(id));
-        let pressed = self
-            .contact_hit()
-            .and_then(|key| self.host.kernel().node_by_key(key).map(|node| node.id))
-            .and_then(|id| self.feedback_at(id));
+        let pressed = self.pressed_feedback();
         if self.brush.feedback != (hover, pressed) {
             self.brush.feedback = (hover, pressed);
             self.dirty = true;
@@ -70,15 +82,17 @@ impl<D: DataSource> Presenter<D> {
     /// The nodes whose `:hover` look holds (LLP 1121 D8): the pointer's hit
     /// and its ancestors that have one, as CSS's `:hover` matches; none for
     /// a finger. The focus's `:focus-visible` look holds where its ring
-    /// would show. A node whose looks moved paints again. `hit`: what the
-    /// pointer hovers now, after it moved (`None`: a paint keeps the hover it
-    /// has, its nodes that live).
+    /// would show. A state held keeps its look beside them, until what lets
+    /// it go (`held.rs`). A node whose looks moved paints again. `hit`: what
+    /// the pointer hovers now, after it moved (`None`: a paint keeps the
+    /// hover it has, its nodes that live).
     pub(super) fn refresh_looks(&mut self, hit: Option<Option<ViewId>>) {
         let mut at = hit.flatten().filter(|_| !self.direct());
+        self.check_hold(hit.map(|_| at));
         let kernel = self.host.kernel();
         let mut hovered = Vec::new();
         if hit.is_none() {
-            hovered = (self.host.looks_shown.0.iter().copied())
+            hovered = (self.host.looks_shown.hover.iter().copied())
                 .filter(|id| kernel.node(*id).is_some())
                 .collect();
         }
@@ -101,18 +115,18 @@ impl<D: DataSource> Presenter<D> {
                     .any(|(s, _)| *s == exact_kernel::LOOK_FOCUS_VISIBLE)
             })
         });
-        let (old, old_focus) = std::mem::replace(&mut self.host.looks_shown, (hovered, focus));
-        let (new, new_focus) = &self.host.looks_shown;
-        let moved: Vec<ViewId> = (old.iter().filter(|id| !new.contains(id)))
-            .chain(new.iter().filter(|id| !old.contains(id)))
-            .chain(
-                [old_focus, *new_focus]
-                    .iter()
-                    .flatten()
-                    .filter(|_| old_focus != *new_focus),
-            )
-            .copied()
+        let old = self.host.looks_shown.marks();
+        (self.host.looks_shown.hover, self.host.looks_shown.focus) = (hovered, focus);
+        let new = self.host.looks_shown.marks();
+        let moved: Vec<ViewId> = (old.iter().filter(|m| !new.contains(m)))
+            .chain(new.iter().filter(|m| !old.contains(m)))
+            .map(|m| m.0)
             .collect();
+        self.repaint_looks(moved);
+    }
+
+    /// Paint `moved` again: their looks were painted or taken off.
+    pub(super) fn repaint_looks(&mut self, moved: Vec<ViewId>) {
         // A look painted or taken off is no flow damage's small region.
         if !moved.is_empty() {
             self.host.flow_damage.repaint();
@@ -127,6 +141,8 @@ impl<D: DataSource> Presenter<D> {
     }
 }
 
+#[path = "held.rs"]
+mod held;
 #[cfg(test)]
 #[path = "looks_tests.rs"]
 mod looks_tests;

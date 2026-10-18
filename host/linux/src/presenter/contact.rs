@@ -231,6 +231,14 @@ impl<D: DataSource> Presenter<D> {
     pub(super) fn contact_hit(&self) -> Option<NodeKey> {
         self.contact.as_ref().map(|contact| contact.hit)
     }
+    /// The node the held contact's press shows on, while it does.
+    /// The node a live contact presses now: its press, while it is inside
+    /// the box it had when pressed.
+    pub(super) fn contact_press(&self) -> Option<NodeKey> {
+        let c = self.contact.as_ref()?;
+        let (key, box_) = c.press.as_ref()?;
+        box_.contains(c.position.0, c.position.1).then_some(*key)
+    }
     pub(crate) fn contact_position(&self) -> Option<(f32, f32)> {
         self.contact.as_ref().map(|c| c.position)
     }

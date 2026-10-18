@@ -455,6 +455,9 @@ impl<D: DataSource> Presenter<D> {
         if !self.hosted_live(id, generation) {
             return;
         }
+        if focused {
+            self.hold_input(Some(id)); // a finger on the field lets a hold of it go (presenter/held.rs)
+        }
         // Under an open surface of the top layer the page is inert (LLP
         // 1115.001 D10): a field there is not given the focus, whatever
         // made its view take it (a hardware key ends touch mode, and the
@@ -478,6 +481,14 @@ impl<D: DataSource> Presenter<D> {
         self.queue_collections();
     }
 
+    /// The reader's field had real input that may change nothing it says
+    /// otherwise (a finger down in it, a key down): a hold of it lets go.
+    pub fn reader_field_input(&mut self, id: ViewId, generation: u32) {
+        if self.hosted_live(id, generation) {
+            self.hold_input(Some(id));
+        }
+    }
+
     /// The reader's field holds `value` after its edit number `seq`, with
     /// the selection at `start` to `end` (UTF-16 units): an edit of the
     /// person's, composing text included. It is the field's text from now
@@ -495,6 +506,7 @@ impl<D: DataSource> Presenter<D> {
         if !self.hosted_live(id, generation) {
             return;
         }
+        self.hold_input(Some(id)); // real input on the field lets a hold of it go (presenter/held.rs)
         if let Some(known) = self.hosted.known.get_mut(&id) {
             known.seq = seq;
         }
@@ -538,6 +550,7 @@ impl<D: DataSource> Presenter<D> {
         if !self.hosted_live(id, generation) {
             return;
         }
+        self.hold_input(Some(id)); // real input on the field lets a hold of it go (presenter/held.rs)
         if composing {
             self.hosted.composing.insert(id, value.to_owned());
         } else {
@@ -558,6 +571,7 @@ impl<D: DataSource> Presenter<D> {
         if !self.hosted_live(id, generation) {
             return;
         }
+        self.hold_input(Some(id)); // real input on the field lets a hold of it go (presenter/held.rs)
         let value = self.field_text(id);
         let selection = FieldSelection::clamped(
             start.into(),
@@ -590,6 +604,7 @@ impl<D: DataSource> Presenter<D> {
         if !self.hosted_live(id, generation) || !self.focusable(id) {
             return;
         }
+        self.hold_input(Some(id)); // real input on the field lets a hold of it go (presenter/held.rs)
         if self.focus != Some(id) {
             if let Some(e) = self.set_focus(Some(id), now_ms) {
                 eprintln!("exact: {e}");

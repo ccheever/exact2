@@ -25,6 +25,7 @@ extension Presenter {
         if let responder = view.window?.firstResponder as? NSView, responder.isDescendant(of: view) {
             view.window?.makeFirstResponder(nil)
         }
+        for member in members { member.holdGone() } // a held node that starts to leave is gone (HeldState.swift)
         for member in members { release(member.id, forget: false) }
         view.routeInert = true
         view.setAccessibilityHidden(true)

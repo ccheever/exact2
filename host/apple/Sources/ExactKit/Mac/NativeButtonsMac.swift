@@ -16,6 +16,11 @@ import AppKit
 /// its node's, offered where the node offers it (X84): a `contextPopover`.
 final class NativeButtonCellMac: NSButtonCell {
     private var owner: NodeView? { (controlView as? NativeButtonMac)?.owner }
+    /// AppKit's highlight while the mouse holds it, and a held press's beside it (HeldState.swift).
+    override var isHighlighted: Bool {
+        get { super.isHighlighted || owner?.holds("active") == true }
+        set { super.isHighlighted = newValue }
+    }
     override func accessibilityPerformShowMenu() -> Bool { owner?.accessibilityPerformShowMenu() ?? false }
     override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
         selector == #selector(accessibilityPerformShowMenu) ? owner?.isAccessibilitySelectorAllowed(selector) == true : super.isAccessibilitySelectorAllowed(selector)
