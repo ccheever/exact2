@@ -936,6 +936,8 @@ extension Agent {
                         p.collections.animationEnded(list.id, dragging: true)
                     }
                     sv.setContentOffset(target, animated: false)
+                    // As a trackpad's scroll shows them, fading after.
+                    sv.flashScrollIndicators()
                     return
                 }
                 if let owner = sv.superview as? NodeView,
