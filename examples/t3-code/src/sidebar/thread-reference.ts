@@ -1,5 +1,5 @@
 // thread.copyReference, adapted from
-// T3 Code 1e2ecbd975 (MIT); see LICENSE-T3. Sources:
+// T3 Code 9c161462c9 (MIT); see LICENSE-T3. Sources:
 // packages/shared/src/threadReference.ts (resolveThreadReferenceCopyTarget,
 // unchanged), packages/shared/src/threadPullRequests.ts
 // (resolveThreadCurrentPullRequest / resolveThreadCurrentPullRequestLink, over
@@ -10,7 +10,7 @@ import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { visiblePullRequests } from '../panel/shell-pr';
-import { resolveChains } from '../panel/linked-prs';
+import { layersFromTop, resolveChains } from '../panel/linked-prs';
 import { panelState } from '../panel/panel-surfaces';
 import { letGo } from '../client/let-go';
 
@@ -33,11 +33,11 @@ export function resolveThreadCurrentPullRequestLink(links: unknown): Obj | null 
   if (open.length === 1) return open[0]!;
   const chains = resolveChains(visible);
   if (open.length > 1) {
-    const ordered = chains.map(chain => [...chain.layers].reverse().filter(isOpen)).filter(layers => layers.length > 0)
+    const ordered = chains.map(chain => layersFromTop(chain).filter(isOpen)).filter(layers => layers.length > 0)
       .sort((left, right) => Math.max(...right.map(link => Date.parse(str(link.linkedAt)))) - Math.max(...left.map(link => Date.parse(str(link.linkedAt))))).flat();
     return ordered[0]!;
   }
-  if (chains.length === 1) return chains[0]!.layers[chains[0]!.layers.length - 1]!;
+  if (chains.length === 1) return layersFromTop(chains[0]!)[0]!;
   return [...visible].sort((left, right) => latestUpdatedAt(right) - latestUpdatedAt(left))[0]!;
 }
 

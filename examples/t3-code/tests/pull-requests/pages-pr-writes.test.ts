@@ -119,7 +119,8 @@ describe('the composer: comment, close or reopen with comment (PullRequestCommen
     answer(false);
     expect(await closing).toBe('');
     expect(await rows()).toEqual([]); // "done": the note stands until a list answer agrees
-    expect(toasts(run.client).at(-1)).toMatchObject({ kind: 'success', title: 'Pull request closed' });
+    // The closed state is the panel's own answer: no success toast.
+    expect(toasts(run.client).at(-1)?.kind).toBe('error');
     expect(run.sent('pullRequests.comment').map(payload => payload.body)).toEqual(['Superseded by #8.', 'Superseded by #8, for real.']);
     expect(run.sent('pullRequests.runAction').map(payload => payload.action)).toEqual(['close', 'close']);
   });
@@ -147,12 +148,12 @@ describe('the composer: comment, close or reopen with comment (PullRequestCommen
     listed = [{ ...open7, updatedAt: '2026-10-08T12:00:00Z' }];
     expect(await rows(3)).toEqual(['7:open']); // the next answer has it open, and nothing written over it hides it
   });
-  test('reopen with comment on a closed pull request, and its toast', async () => {
+  test('reopen with comment on a closed pull request, with no toast', async () => {
     const run = lane({ 'pullRequests.detail': () => detail({ state: 'closed' }), 'pullRequests.activity': () => activity(), 'pullRequests.comment': () => ({}), 'pullRequests.runAction': () => ({}) });
     expect((await run.view()).writes.followUp).toBe('reopen');
     expect(await run.act('comment-reopen', 'Back on.')).toBe('');
     expect(run.sent('pullRequests.runAction')).toEqual([{ ...reference, action: 'reopen' }]);
-    expect(toasts(run.client).at(-1)).toMatchObject({ kind: 'success', title: 'Pull request reopened' });
+    expect(toasts(run.client)).toEqual([]);
   });
   test('an empty comment sends nothing; the drafts are kept per pull request', async () => {
     const run = lane({ 'pullRequests.detail': () => detail(), 'pullRequests.activity': () => activity() });

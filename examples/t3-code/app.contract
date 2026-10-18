@@ -396,6 +396,12 @@ component T3Code
       send changed = command(`pageslocal:pr-act-${op}`, utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, value, 0)
   action prCopy(label: string, text: string)
     send localChanged = command("pageslocal:copy", label, text, 0)
+  task prConfirmLapse when prDetail.actions.armedSerial > 0 key=prDetail.actions.armedSerial // useInlineActionConfirm: an armed confirmation lapses after 3 s, or as the window loses the focus
+    after(3000, prConfirmLapsed)
+  task prConfirmBlur when prDetail.actions.armedSerial > 0 and not page.hasFocus key=prDetail.actions.armedSerial
+    after(1, prConfirmLapsed)
+  action prConfirmLapsed
+    chatLocal("pr-ui-disarm", prDetail.ref, `serial:${prDetail.actions.armedSerial}`)
   state welcomeStep = "connect"
   state welcomeLink = ""
   state welcomePairOpen = true
