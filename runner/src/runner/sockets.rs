@@ -5,8 +5,9 @@
 //! stream ticket of the resource that owns the socket now, and hands them
 //! to the host only once the commit that staged them stands. A refused
 //! commit takes them back with everything else (`commit.rs`'s checkpoint).
-//! A resource's answer sends too (the amendment of 2026-10-18): each turn's
-//! operations are one batch, which no commit's refusal takes back.
+//! An answer in flight sends too (the amendment of 2026-10-18): each turn's
+//! operations are one batch, sent once the commit that ran the turn stands
+//! whatever the answer turns out to be.
 use super::*;
 use crate::request::{SocketOp, SocketOrigin, SocketSend};
 
@@ -111,9 +112,9 @@ impl<D: DataSource> Runner<D> {
 
     /// Address what `target`'s answer sent in the turn just run, one batch
     /// in the order it made them, behind the batches of earlier turns. It
-    /// goes out whatever the turn's answer was, and a refused commit keeps
-    /// it ([`Runner::keep_answers`]); a batch with an operation on a socket
-    /// that is not open is refused whole, and said.
+    /// goes out once the commit that ran the turn stands, whatever the
+    /// turn's answer was ([`Runner::refuse_batches`]); a batch with an
+    /// operation on a socket that is not open is refused whole, and said.
     pub(super) fn stage_answer(&mut self, target: Target) {
         let staged = self.store.take_answer_sockets();
         if staged.is_empty() {
@@ -126,16 +127,18 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// A refused commit takes back the batches its mutations and mappers
-    /// staged after `from`. Its answers' turns ran, so their batches stay,
-    /// in order.
-    pub(super) fn keep_answers(&mut self, from: usize) {
-        if from >= self.sockets.len() {
-            return;
+    /// A refused commit takes back the batches its turns staged after
+    /// `from`, as it takes back their fetches: the answers whose turns sent
+    /// them are let go with it. An answer's are said, since its code went
+    /// on as if they were sent (a mapper's are said by [`Runner::message`]).
+    pub(super) fn refuse_batches(&mut self, from: usize, why: &str) {
+        let taken = self.sockets.split_off(from.min(self.sockets.len()));
+        for batch in taken
+            .iter()
+            .filter(|b| matches!(b.origin, SocketOrigin::Answer(_)))
+        {
+            self.log(refused(&batch.origin, why));
         }
-        let tail = self.sockets.split_off(from);
-        let answers = tail.into_iter();
-        (self.sockets).extend(answers.filter(|b| matches!(b.origin, SocketOrigin::Answer(_))));
     }
 
     /// Address the replies the mapper of `p`, a resource's open socket,

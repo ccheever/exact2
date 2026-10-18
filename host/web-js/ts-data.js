@@ -356,22 +356,18 @@ export function install(data, mixed = false, modules = null) {
       call.socketConflict = true; Promise.resolve(r).catch(() => {}); call.settled = true;
       throw new Error(SOCKET_AND_FETCH);
     }
-    if (call.effects?.length && r && typeof r.then === 'function') {
-      // A fetch its continuation makes is the module's, not the mutation's:
-      // the page has no turn to tie it to (LLP 1016.000 D7).
-      Promise.resolve(r).catch(() => {}); call.settled = true;
-      throw new Error('a socket mutation must answer synchronously');
-    }
-    if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_), target_), store: seen.read }; }
+    // What the source sent goes once the commit that asked it stands: a resource's answer's and a mutation's that answers
+    // with a promise go whatever it then answers (LLP 1016.000 D7, amended 2026-10-18), and a refused commit says so.
+    const verb = mutation ? 'send' : 'answer', said = why => journal.push(`t=${clock.now} ${verb} ${target_} failed: ${why}; socket frames were refused`);
+    const effects = call.effects?.map(effect => Object.assign(() => { try { effect(); } catch (e) { said(e?.message ?? e); } }, mutation ? {} : { refused: said }));
+    if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_), target_), store: seen.read, effects }; }
     if (r && typeof r.then === 'function') {
       pendingAnswers++;
       const settle = () => { call.settled = true; pendingAnswers--; if (!pendingAnswers && owed) { owed = false; leftOpen(); } };
-      return { promise: r.then(v => (settle(), conv(shaped(v), result, target_)), e => { settle(); leftOpen(); throw e; }), store: seen.read };
+      return { promise: r.then(v => (settle(), conv(shaped(v), result, target_)), e => { settle(); leftOpen(); throw e; }), store: seen.read, effects };
     }
     call.settled = true;
-    return { v: conv(shaped(r), result, target_), store: seen.read, effects: call.effects?.map(effect => () => {
-      try { effect(); } catch (e) { journal.push(`t=${clock.now} send ${target_} failed: ${e?.message ?? e}; socket frames were refused`); }
-    }) };
+    return { v: conv(shaped(r), result, target_), store: seen.read, effects };
   };
   // Beside a Rust source (LLP 1027.002): a source this module does not
   // answer is the Rust module's, not ready until it loads; rust-data.js

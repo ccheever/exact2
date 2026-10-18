@@ -89,7 +89,7 @@ function say(id: string, what: string): unknown {
       case "too many": for (let i = 0; i <= 256; i++) socket.send("x"); return "sent";
       case "too big": socket.send("x".repeat(1048577)); return "sent";
       case "throws": socket.send("never"); throw new Error("the source threw");
-      case "async": socket.send("never"); return Promise.resolve("later");
+      case "async": socket.send("early"); return Promise.resolve("later");
       case "later": return Promise.resolve().then(() => { socket.send("after"); return "sent"; });
       case "then send": Promise.resolve().then(() => socket.send("never")).catch(refused); return "now";
       default: socket.send(what); socket.send(what + " again"); return "sent";

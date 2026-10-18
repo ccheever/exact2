@@ -35,8 +35,7 @@ pub(super) struct Checkpoint {
     published: Option<Box<Published>>,
     commands: usize,
     /// Socket batches of earlier commits, not yet taken (LLP 1016.000 D7):
-    /// a refusal takes back the batches staged after them, except an
-    /// answer turn's.
+    /// a refusal takes back the batches staged after them.
     sockets: usize,
     /// The root font size, and the window's app tuple (`setMode`).
     root_font: (super::root_font::RootFont, f32, u32),
@@ -130,12 +129,12 @@ impl<D: DataSource> Runner<D> {
                 self.log_store_writes(c.store.writes);
                 self.transport_stood();
             }
-            Err(_) if self.poisoned && !was_poisoned => {
+            Err(e) if self.poisoned && !was_poisoned => {
                 self.store.restore(c.store);
-                self.keep_answers(c.sockets);
+                self.refuse_batches(c.sockets, &crate::failure::Failure::of(e).message);
             }
-            Err(_) => {
-                self.keep_answers(c.sockets);
+            Err(e) => {
+                self.refuse_batches(c.sockets, &crate::failure::Failure::of(e).message);
                 // What the refused commit asked is let go with it.
                 self.forgot = true;
                 self.store.restore(c.store);

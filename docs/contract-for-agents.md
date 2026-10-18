@@ -983,10 +983,10 @@ stands, in order, and have bounded admission. The source must send and
 answer synchronously, and a mutation that sends cannot also `fetch`
 (whichever comes second refuses it). A resource's answer may send its own
 request on its module's socket and await the reply, with no timer, and so
-may a mutation's once its source has answered with a promise: what each
-turn of it sends goes out after the commit that ran that turn, standing or
-not, and stays sent if it is let go (on the web build, only a resource's
-synchronous source call may send). Refreshing or removing the
+may a mutation whose source answers with a promise: what each turn of it
+sends goes out once the commit that ran that turn stands, and stays sent if
+it is let go (on the web build, only its source's synchronous call may
+send). Refreshing or removing the
 resource invalidates the old handle. **TypeScript on the web JS target,
 macOS, iOS and Linux**; the wasm target and Rust sources remain
 receive-only. See

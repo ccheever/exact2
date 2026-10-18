@@ -85,6 +85,8 @@ test('JS target socket mutations, mapper replies and answers echo ordered frames
         text "throw"
       button press=write("async") testId="async"
         text "async"
+      button press=write("later") testId="later"
+        text "later"
       button press=write("shape") testId="shape"
         text "shape"
       button press=write("overflow") testId="overflow"
@@ -213,6 +215,8 @@ export function answer(name: string, args: any): any {
     return 'sent';
   }
   if (mode === 'overflow') { for (let i = 0; i < 257; i++) s.send('too many'); return 'bad'; }
+  // A waiting mutation's continuation has no turn this page can tie to it.
+  if (mode === 'later') return Promise.resolve().then(() => { try { s.send('later'); return 'sent later'; } catch (e: any) { return 'later: ' + e.message; } });
   s.send(mode);
   if (mode === 'throw') throw new Error('source failed');
   if (mode === 'async') return Promise.resolve('bad');
@@ -254,7 +258,7 @@ export function answer(name: string, args: any): any {
     expect(ackLogs).toContain('; socket frames were refused');
     // A resource's answer sends its request from its source and resolves
     // with the reply; a continuation refuses; D7's bounds hold per answer;
-    // and a refused commit still sends what its answer sent.
+    // and a refused commit takes back what its answer sent, and says so.
     await until(s => s.resources.answers === 'open');
     await browser.tap('ask');
     expect((await until(s => s.resources.asked === 'got 1')).resources.asked).toBe('got 1');
@@ -264,14 +268,12 @@ export function answer(name: string, args: any): any {
     await browser.tap('ask-many');
     expect((await until(s => s.resources.asked !== later.resources.asked)).resources.asked).toBe('socket answer exceeds 256 operations');
     await browser.tap('ask-refuse');
-    await until(() => asked.includes('request 4'));
     await browser.tap('ask-probe');
     expect((await until(s => s.resources.asked === '0:3')).resources.asked).toBe('0:3');
     await until(() => asked.includes('abc'));
-    expect(asked).toEqual(['request 1', 'request 2', ...Array(256).fill('many'), 'request 4', 'abc']);
+    expect(asked).toEqual(['request 1', 'request 2', ...Array(256).fill('many'), 'abc']);
     const answerLogs = (await browser.logs()).lines.join('\n');
-    expect(answerLogs).toContain('refused ');
-    expect(answerLogs).toContain('deliberate commit refusal');
+    expect(answerLogs).toMatch(/answer asked failed: .*deliberate commit refusal; socket frames were refused/);
     // A socket no resource owns (a mutation's stream) takes none of its
     // mapper's replies, as natively.
     await browser.tap('watch');
@@ -301,15 +303,17 @@ export function answer(name: string, args: any): any {
     expect(oracle.close).toEqual([4001, 'finished', true]);
     expect(oracle.buffered).toBe(0);
     received.length = 0;
+    // A mutation that answers with a promise is an answer: what its source sent goes once its commit stands.
+    oracle.messages.unshift('async');
     for (const mode of ['throw', 'async', 'shape', 'overflow', 'rollback']) await browser.tap(mode);
     await browser.tap('burst');
-    const echoed = await until(s => s.resources.feed === 'subscribe|Ack|Ping|8,9|');
+    const echoed = await until(s => s.resources.feed === 'async|subscribe|Ack|Ping|8,9|');
     expect(received).toEqual(oracle.messages);
     expect(echoed.resources.other).toBe('open');
-    expect(echoed.streams.find(s => s.name === 'feed')).toMatchObject({ sent: 4, bufferedAmount: 0, coalesced: 0, grant: `net.websocket ${url}` });
+    expect(echoed.streams.find(s => s.name === 'feed')).toMatchObject({ sent: 5, bufferedAmount: 0, coalesced: 0, grant: `net.websocket ${url}` });
     await browser.tap('twice');
     await browser.clock('settle');
-    await until(s => s.resources.feed === 'subscribe|Ack|Ping|8,9|first|second|');
+    await until(s => s.resources.feed === 'async|subscribe|Ack|Ping|8,9|first|second|');
     oracle.messages.push('first', 'second');
     expect(received).toEqual(oracle.messages);
     await browser.tap('replace');
@@ -325,6 +329,8 @@ export function answer(name: string, args: any): any {
     expect(logs).toContain('socket close: 4001 finished');
     expect(logs).toContain('socket mutation exceeds 256');
     expect(logs).toContain('the socket is not open');
+    await browser.tap('later');
+    await until(s => JSON.stringify(s.slots.sent).includes("later: socket.send is only available in a mutation's or a resource's synchronous source, or its socket's own mapper"));
     // bufferedAmount counts what the mutation has staged.
     await browser.tap('probe');
     await until(s => JSON.stringify(s.slots.sent).includes('0:3') && s.resources.other === 'abc|');

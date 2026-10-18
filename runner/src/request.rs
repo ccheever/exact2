@@ -541,9 +541,9 @@ pub enum SocketOrigin {
     /// A resource's mapper answering a frame of its own socket (its `open`
     /// or a `message`), by the resource's name.
     Mapper(String),
-    /// One turn of a resource's answer, by the resource's name (the
-    /// amendment of 2026-10-18): sent whatever becomes of the answer or of
-    /// the commit that ran the turn.
+    /// One turn of an answer in flight, by its resource's or mutation's
+    /// name (the amendment of 2026-10-18): sent once the commit that ran
+    /// the turn stands, whatever becomes of the answer.
     Answer(String),
 }
 
@@ -563,7 +563,7 @@ impl SocketOrigin {
 /// operations, in the order its code made them, each addressed to the
 /// stream ticket of the resource that owns the socket. Taken by
 /// [`crate::Runner::take_socket_sends`] after the commit that staged them
-/// stands (an answer's, after the commit that ran its turn either way); the
+/// stands (an answer turn's, after the commit that ran the turn); the
 /// host checks the whole batch, then sends it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SocketSend {

@@ -192,7 +192,7 @@ export function commit(f, what = "commit") {
     if (Now.v !== was) { Now.v = was; for (const o of Now.obs) stale(o, DIRTY); } // nor its time: the clock's readers read as they did
     Resources.forEach((r, k) => r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; }); Sched?.restore(queued); Ov.restore(writes);
     Store.restore(store);
-    Out = Out.filter(go => go.keep || (go.refused?.(e?.message ?? e), false)); Commands = []; Landed = []; Refused = e; // what would have gone says so, and an answer's frames go anyway (ts-stream.js)
+    for (const go of Out) go.refused?.(e?.message ?? e); Out = []; Commands = []; Landed = []; Refused = e; // what would have gone says so (ts-stream.js, ts-data.js)
     say(`refused ${what}: ${e.message}`); Why = why(step, e instanceof Refusal ? e.message : String(e)); // `String`: a TypeError's name too
     if (!(e instanceof Refusal)) console.error(e);
     Restoring = true; try { settle(); } catch {} finally { Restoring = false; }
@@ -206,7 +206,7 @@ export function commit(f, what = "commit") {
     for (const f of Before) f();
     Pres?.before({ ops: [] }, Views); // presence measures what it tracks before the tree changes (LLP 1063)
     try { flush(); openTabs(); } catch (e) { Poisoned = true; Why = why("updating the tree", String(e)); say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
-    settled(true); if (!ok) return out.forEach(go => go()), Sched?.scan(false), false;
+    settled(true); if (!ok) return Sched?.scan(false), false;
     clock.epoch++; Store.persist();
     for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds); Sounds.midiApply?.(cmds); Sounds.stood?.(); if (!Booting) { autofocus(); Input?.arrive(); } // after its focus commands, as the wasm host (focus.js); then the focus follows the route (input-glue.js; LLP 1115.000 D4.2)
     // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
@@ -396,7 +396,7 @@ export const Resources = [];
 let Ticket = 0;
 const sameReq = (a, b) => a && b && a.storage === b.storage && a.method === b.method && a.url === b.url && a.body === b.body && JSON.stringify(a.headers) === JSON.stringify(b.headers) && a.http === b.http;
 /** Requests in flight, for the agent's `clock settle`. */
-export const inflight = { n: 0 }, outgoing = go => Writes ? Out.push(go) : go(); // `outgoing`: work that goes once the commit in progress ends
+export const inflight = { n: 0 };
 function send(t, land) {
   Out.push(() => {
     inflight.n++; t.waiting = true;
@@ -495,7 +495,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
       if (r.ticket && equal(a, r.ticket.args)) return r.value;
     }
     let ans;
-    try { ans = ask(source, a, name); }
+    try { ans = ask(source, a, name); Out.push(...(ans?.effects ?? [])); } // what its source sent on a socket goes once this commit stands (LLP 1016.000 D7, amended 2026-10-18)
     catch (e) {
       if (e instanceof Refusal) throw e;
       if (e.refuse && !reconciling) throw new Failed(`resource ${name}: ${e.message}`);

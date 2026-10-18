@@ -3,7 +3,7 @@
 // snapshot for every protocol frame. Loaded only for a streaming source.
 import { streamed } from './http-body.js';
 import { answering, SOCKET_AND_FETCH } from './ts-fetch.js';
-import { clock, journal, outgoing } from './rt.js';
+import { clock, journal } from './rt.js';
 import { failureCode, failureReason } from './shape.js';
 import { bodyFromRefusal, methodOf, readBodyFile } from './ts-body-from.js';
 
@@ -41,9 +41,8 @@ const publish = operations => () => {
 // mutation's answer, to the socket's own mapper while it answers `open` or a
 // `message` (`answering.mapper`), or to a resource's answer while its source
 // runs, the one turn of it this page can tie to it (LLP 1016.000 D7, the
-// amendment of 2026-10-18). rt.js publishes a mutation's and a mapper's only
-// after the commit that settles that turn stands, an answer's after the
-// commit its source ran in, standing or not.
+// amendment of 2026-10-18). rt.js publishes them only after the commit that
+// settles that turn, or that ran that source, stands.
 function handle(transport, owner) {
   const encoder = new TextEncoder();
   answering.sockets = true;
@@ -63,11 +62,8 @@ function handle(transport, owner) {
     // what the turn stages on it.
     if (operations.reduce((n, x) => n + x.size, 0) + size > 1048576) throw over(new DOMException(`socket ${kind} exceeds 1 MiB`, 'QuotaExceededError'));
     try { transport.check(operations.reduce((n, x) => x.transport === transport ? n + x.size : n, 0) + size); } catch (e) { throw over(e); }
-    if (!mapper && !answer && !operations.length) (call.effects ??= []).push(publish(operations));
+    if (!mapper && !operations.length) (call.effects ??= []).push(publish(operations));
     operations.push({ transport, owner, op, data, reason, size });
-    if (answer && operations.length === 1) outgoing(Object.assign(() => {
-      try { publish(operations)(); } catch (e) { journal.push(`t=${clock.now} answer ${call.name} failed: ${e?.message ?? e}; socket frames were refused`); }
-    }, { keep: true }));
   };
   return Object.freeze({
     get readyState() { return owner.signal.aborted ? 3 : transport.readyState; },

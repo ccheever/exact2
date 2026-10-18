@@ -268,7 +268,7 @@ fn the_mapper_replies_on_its_own_socket_during_open_and_each_message() {
 /// and a continuation is not the call's. Each frame that fails ends the
 /// stream, so each case boots afresh.
 #[test]
-fn what_a_mapper_may_not_do_sends_nothing() {
+fn what_a_mapper_may_not_do() {
     // Whether the call had staged frames before it failed: the journal
     // says they were refused.
     for (data, why, staged) in [
@@ -358,15 +358,9 @@ fn what_the_handle_refuses_sends_nothing_it_refused() {
     let (said, ops) = say(&mut r, "too big");
     assert_eq!(said, "QuotaExceededError: socket mutation exceeds 1 MiB");
     assert!(ops.is_empty());
-    for what in ["throws", "async"] {
-        assert_eq!(say(&mut r, what).1, vec![], "{what}");
-    }
+    assert_eq!(say(&mut r, "throws").1, vec![]);
     let journal = journal(&r);
     assert!(journal.contains("the source threw"), "{journal}");
-    assert!(
-        journal.contains("a socket mutation must answer synchronously"),
-        "{journal}"
-    );
 }
 
 /// `bufferedAmount` is the transport's count as the turn began plus what
@@ -420,12 +414,6 @@ fn a_mutation_cannot_both_send_and_fetch() {
         assert_eq!((said.as_str(), ops), ("", vec![]), "{what}");
         assert!(r.take_requests().is_empty(), "{what}: no fetch goes out");
     }
-    // A refused mutation's continuation fetches nothing either.
-    assert_eq!(say(&mut r, "send, await, fetch"), (String::new(), vec![]));
-    assert!(
-        r.take_requests().is_empty(),
-        "the continuation's fetch never goes out"
-    );
     let journal = journal(&r);
     assert_eq!(
         journal
@@ -615,9 +603,10 @@ fn an_answer_s_buffered_amount_counts_what_is_not_yet_sent() {
     assert_eq!(sends(&mut r)[0].1, [SocketOp::Text("x".repeat(200_000))]);
 }
 
-/// A mutation whose source answered with a promise is an answer in flight:
-/// what its continuation sends goes out as that answer's, named by the
-/// mutation. One whose source answered now has given its answer, so a
+/// A mutation whose source answered with a promise is an answer in flight
+/// from its source on: what its source staged and what its continuation
+/// sends go out as that answer's, named by the mutation, and it may fetch
+/// too. One whose source answered now has given its answer, so a
 /// continuation it left behind refuses.
 #[test]
 fn a_waiting_mutation_sends_as_an_answer() {
@@ -626,6 +615,15 @@ fn a_waiting_mutation_sends_as_an_answer() {
     r.act("say", vec![Value::str("later")]).unwrap();
     assert_eq!(sends(&mut r), [answer("said", &["after"])]);
     assert_eq!(r.slot("said"), Some(&Value::some(Value::str("sent"))));
+    r.act("say", vec![Value::str("async")]).unwrap();
+    assert_eq!(sends(&mut r), [answer("said", &["early"])]);
+    assert_eq!(r.slot("said"), Some(&Value::some(Value::str("later"))));
+    r.act("say", vec![Value::str("send, await, fetch")])
+        .unwrap();
+    assert_eq!(sends(&mut r), [answer("said", &["a"])]);
+    let fetched = r.take_requests();
+    assert_eq!(fetched.len(), 1);
+    assert_eq!(fetched[0].request.url, "https://echo.test/x");
     assert_eq!(say(&mut r, "then send"), ("now".into(), vec![]));
     assert_eq!(
         frame(&mut r, ticket, "report"),

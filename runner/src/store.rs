@@ -50,7 +50,7 @@ pub struct Store {
     sockets: Vec<(usize, crate::SocketOp)>,
     /// Socket operations a turn of an answer sent, by the same index (the
     /// amendment of 2026-10-18): taken by the runner after the turn, and
-    /// sent whatever becomes of the answer or the commit.
+    /// sent once its commit stands, whatever becomes of the answer.
     answer_sockets: Vec<(usize, crate::SocketOp)>,
     /// Each open socket's buffered bytes at the start of the turn, by its
     /// resource's index: what its handle's `bufferedAmount` starts from.

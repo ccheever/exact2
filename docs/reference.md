@@ -876,8 +876,8 @@ the call's: it runs in a later turn (below).
 
 A resource's answer may also `send` and `close` on a socket a stream
 resource of the same module owns, so it sends its own request and awaits
-the reply, with no timer, and so may a mutation's after a source that
-answered with a promise (LLP 1016.000 D7, amended 2026-10-18):
+the reply, with no timer, and so may a mutation whose source answers with
+a promise (LLP 1016.000 D7, amended 2026-10-18):
 
 ```ts
 const waiting = new Map<string, (reply: string) => void>();
@@ -890,20 +890,20 @@ if (source === "request") {
 }
 ```
 
-An answer is not a commit: what each turn of it sends goes out in the
-order it sent it once the commit that ran the turn ends, whether that
-commit stands or not, and nothing the answer does afterwards takes it back.
-Natively its turns are a resource's source call and each delivery of its
-own `fetch` or storage step; a mutation's source still stages for its
-commit, so a mutation sends as an answer only after its source returns a
-promise. Code that resumes from an `await` runs in the next turn the
-module runs (the delivery that settled what it awaited, or for a promise a
-mapper or another answer settled, the next answer's) and sends as that
-turn's answer; code that runs in no answer's turn refuses. An answer asked
-again after a refused commit sends again, so key a request that must not
-repeat.
-On the web build only a resource's synchronous source call may send; a
-continuation refuses, since the page cannot tell whose it is. An answer
+What each turn of an answer sends goes out in the order it sent it once
+the commit that ran the turn stands, as its fetches do; a refused commit
+takes it back and says so, and nothing the answer does afterwards (a
+value, a failure) takes it back. Natively its turns are its source's call
+and each delivery of its own `fetch` or storage step. Code that resumes
+from an `await` runs in the next turn that drains microtasks (its own
+delivery, or the answer's that settled what it awaited) and sends as that
+turn's answer; a mapper's call drains none, so code a mapper resumes runs
+in the next answer asked, or in none (and its send refuses) when that is
+the waiting answer's own re-ask. Send before the first `await`, or settle
+waiters from an answer. An answer asked again sends again, so key a
+request that must not repeat. On the web build only the source's
+synchronous call may send; a continuation refuses, since the page cannot
+tell whose it is. An answer
 the runner lets go (new arguments, `refresh`, a newer send, leaving the
 view) sends nothing more as its own; what it sent stays sent. It may also
 `fetch`. Its bounds are a mutation's, over all its turns (`socket answer

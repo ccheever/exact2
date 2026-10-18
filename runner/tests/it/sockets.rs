@@ -27,6 +27,9 @@ component App
     send said = say(what)
   action askLater(what: string)
     send asking = askLater(what)
+  action askLaterRefused(what: string)
+    q = "refuse"
+    send asking = askLater(what)
   action both(what: string)
     send said = say(what)
     send other = misshapen()
@@ -466,8 +469,8 @@ fn a_mapper_sends_nothing_at_the_end() {
 
 /// A resource's answer sends as each of its turns ends: its ask, then the
 /// delivery of its own work. Its batches keep turn order with a mutation's
-/// in the same commit, and stand whatever becomes of the answer and
-/// whether or not the commit that asked it stands.
+/// in the same commit, and stand whatever becomes of the answer; a commit
+/// that is refused takes back its turns' batches, and says so.
 #[test]
 fn an_answer_s_sends_go_out_as_each_of_its_turns_ends() {
     let (mut r, ticket) = boot();
@@ -495,15 +498,17 @@ fn an_answer_s_sends_go_out_as_each_of_its_turns_ends() {
     assert!(sends
         .iter()
         .all(|s| s.ops.iter().all(|(t, ..)| *t == ticket)));
-    // What it sent stands though its answer fails...
+    // What it sent stands though its answer fails.
     assert_eq!(ask(&mut r, "fail"), None);
-    assert_eq!(batches(&r.take_socket_sends()), [answer(&["request fail"])]);
-    assert!(journal(&r).contains("the answer failed"));
-    // ...or though the commit that asked it is refused, which takes the
-    // mutation's frames back.
-    assert!(r.act("askAndSay", vec![Value::str("refuse")]).is_err());
     let sends = r.take_socket_sends();
-    assert_eq!(batches(&sends), [answer(&["request refuse"])]);
+    assert_eq!(batches(&sends), [answer(&["request fail"])]);
+    assert!(journal(&r).contains("the answer failed"));
+    // A refused commit lets go of the answer it asked, and takes back its
+    // batch with the mutation's.
+    assert!(r.act("askAndSay", vec![Value::str("refuse")]).is_err());
+    assert!(r.take_socket_sends().is_empty());
+    assert!(journal(&r)
+        .contains("answer reply failed: deliberate commit refusal; socket frames were refused"));
     // The host refused a batch at publication: the journal names the answer.
     r.socket_published(
         &sends[0],
@@ -563,20 +568,20 @@ fn an_ask_s_snapshot_counts_the_batches_not_yet_taken() {
 }
 
 /// A frame's commit asks an answer that sends and is then refused: the
-/// answer's batch stays, and the mapper, which staged nothing, is not said
-/// to have failed.
+/// answer's batch goes with it and is said, and the mapper, which staged
+/// nothing, is not said to have failed.
 #[test]
-fn a_refused_frame_keeps_its_answer_s_batch() {
+fn a_refused_frame_takes_back_its_answer_s_batch() {
     let (mut r, ticket) = boot();
     opened(&mut r, ticket);
     frame(&mut r, ticket, "silent refuse");
-    let gate = (
-        SocketOrigin::Answer("gate".into()),
-        vec!["gate says".to_string()],
-    );
-    assert_eq!(batches(&r.take_socket_sends()), [gate]);
+    assert!(r.take_socket_sends().is_empty());
     let journal = journal(&r);
-    assert!(journal.contains("deliberate commit refusal"), "{journal}");
+    assert!(
+        journal
+            .contains("answer gate failed: deliberate commit refusal; socket frames were refused"),
+        "{journal}"
+    );
     assert!(!journal.contains("mapper feed failed"), "{journal}");
 }
 
@@ -598,4 +603,15 @@ fn a_waiting_mutation_s_turns_send_as_its_answer() {
     r.fulfill(waiting, delivered()).unwrap();
     assert_eq!(batches(&r.take_socket_sends()), [asking("landed x")]);
     assert_eq!(r.slot("asking"), Some(&Value::some(Value::str("x"))));
+}
+
+/// A waiting mutation sent by an action whose commit is refused is let go
+/// with it: what its source sent never goes out.
+#[test]
+fn a_waiting_mutation_in_a_refused_commit_sends_nothing() {
+    let (mut r, ticket) = boot();
+    opened(&mut r, ticket);
+    assert!(r.act("askLaterRefused", vec![Value::str("x")]).is_err());
+    assert!(r.take_socket_sends().is_empty());
+    assert!(journal(&r).contains("answer asking failed: deliberate commit refusal"));
 }

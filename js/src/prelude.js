@@ -589,7 +589,7 @@
   // answering `open` or a `message` may send or close: each operation is
   // copied now, handed over with that turn's answer (`settle`,
   // `__exact_message`) and published once the commit that settles it stands.
-  // An answer's, in any turn after a mutation's source, go at once (amendment of 2026-10-18).
+  // An answer in flight's go to the host as each is made, in any turn of it (amendment of 2026-10-18).
   var SOCKET_OPS = 256, SOCKET_BYTES = 1048576;
   // A mutation does one kind of effect, socket operations or a fetch: whichever
   // comes second refuses, and the mutation with it, before either leaves.
@@ -664,9 +664,9 @@
     call.socketOps = null;
   }
   // A turn's staged operations to the host, with its answer.
-  function handSocketOps(call) {
-    var ops = call.socketOps; call.socketOps = null;
-    for (var i = 0, op; ops && (op = ops[i]); i++) host(14, String(op.owner.ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason }));
+  function handSocketOps(call, door) { // door 17: a promise-answering mutation's first answer turn, counted toward its bounds
+    var ops = call.socketOps || [], sent = door === 17 && (call.socketSent = { ops: ops.length, bytes: 0, closed: [] }); call.socketOps = null;
+    ops.forEach(function (op) { if (sent) { sent.bytes += op.size; if (op.op === "close") sent.closed.push(op.owner); } host(door || 14, String(op.owner.ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason })); });
   }
 
   global.Response = Response;
@@ -1266,13 +1266,14 @@
       call.sync = true;
       try { result = global.exact.answer(source, JSON.parse(argsJson), store, storage, native); }
       finally { call.sync = false; }
-      // Staged socket operations go out only with a value given now (D7):
-      // not with a promise, a stream answer or any other fetch.
+      // Staged socket operations go out with no fetch, a stream answer's included (D7); a source that answers with a promise is
+      // an answer in flight from its call on, and what it staged is that turn's (the amendment of 2026-10-18).
       if (call.socketOps && call.tickets.length) call.socketConflict = true;
-      if (call.socketConflict || (call.socketOps && result && typeof result.then === "function")) {
+      if (call.socketConflict) {
         if (result && typeof result.then === "function") result.then(undefined, function () {});
-        throw new Error(call.socketConflict ? SOCKET_AND_FETCH : "a socket mutation must answer synchronously");
+        throw new Error(SOCKET_AND_FETCH);
       }
+      if (call.socketOps && result && typeof result.then === "function") handSocketOps(call, 17);
     }
     catch (e) {
       calls.set(call.id, call);
