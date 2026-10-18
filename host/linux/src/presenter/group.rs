@@ -539,6 +539,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn group_edges(&mut self, now: f64) {
+        self.restore_scroll_anchors();
         let Some((id, vertical, speed)) = self.group_edge() else {
             return;
         };
@@ -562,7 +563,8 @@ impl<D: DataSource> Presenter<D> {
         } else {
             ((old.0 + speed * dt).clamp(0., bounds.max.0), old.1)
         };
-        if next == old {
+        let moved = self.anchor_input(id, old, if vertical { speed * dt } else { 0. }, next);
+        if next == old && moved.is_none_or(|dy| dy == 0.) {
             return;
         }
         self.scroll.insert(id, next);

@@ -237,7 +237,7 @@ impl<D: DataSource> Presenter<D> {
         self.restore_scroll_anchors();
         // An absolute destination supersedes the previous position's correction.
         self.cancel_anchor_correction(id);
-        let result = self.scroll_to_completion(id, to, Completion::Instant);
+        let result = self.scroll_to_completion(id, to, Completion::Instant, None);
         self.arm_scroll_anchors();
         result.map(|_| {
             if id == PAGE {
@@ -253,6 +253,7 @@ impl<D: DataSource> Presenter<D> {
         id: ViewId,
         to: (f32, f32),
         completion: Completion,
+        relative: Option<(f32, f32)>,
     ) -> Option<(f32, f32)> {
         if !to.0.is_finite() || !to.1.is_finite() {
             return None;
@@ -271,8 +272,11 @@ impl<D: DataSource> Presenter<D> {
                 s.offset.1
             },
         );
-        if next == s.offset {
-            return Some(next);
+        let moved = relative
+            .and_then(|by| self.anchor_input(id, s.offset, if s.axes.1 { by.1 } else { 0. }, next));
+        let result = (next.0, moved.map_or(next.1, |dy| s.offset.1 + dy));
+        if next == s.offset && moved.is_none_or(|dy| dy == 0.) {
+            return Some(result);
         }
         if completion == Completion::Reader {
             if let Some((_, accepted)) = self.reader.tracked.get_mut(&id) {
@@ -291,7 +295,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = self.refresh_transform_geometry() {
             self.host.log(error);
         }
-        Some(next)
+        Some(result)
     }
 
     /// The reader moved scroller `id` by `by`, knowing revision `rev` of
@@ -311,8 +315,12 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         let from = s.offset;
-        let to =
-            self.scroll_to_completion(id, (from.0 + by.0, from.1 + by.1), Completion::Reader)?;
+        let to = self.scroll_to_completion(
+            id,
+            (from.0 + by.0, from.1 + by.1),
+            Completion::Reader,
+            Some(by),
+        )?;
         Some((to.0 - from.0, to.1 - from.1))
     }
 

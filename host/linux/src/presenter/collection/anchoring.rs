@@ -16,27 +16,6 @@ impl<D: DataSource> Presenter<D> {
                     .node(view)
                     .is_some_and(|n| cursor.key == Some(n.key))
         });
-        // Page input has no collection turn to invalidate a submitted intent.
-        let page_max = (self.live_document().1 - self.viewport.1).max(0.);
-        if let Some(cursor) = self.collection.cursors.get_mut(&PAGE) {
-            if cursor.page_at.is_some_and(|at| at != self.page) {
-                let correction = cursor
-                    .model_scroll
-                    .map_or(0., |p| p.rebase - cursor.rebased);
-                cursor.advance();
-                if correction != 0. {
-                    let top = (self.page.1 + correction).clamp(0., page_max);
-                    cursor.model_offset(
-                        cursor.key.unwrap(),
-                        (self.page.0, top),
-                        true,
-                        &mut self.page,
-                    );
-                    cursor.model_scroll.as_mut().unwrap().rebase = top - self.page.1;
-                }
-                cursor.page_at = Some(self.page);
-            }
-        }
         let collections: BTreeSet<_> = self
             .host
             .collections_shallow()
@@ -79,7 +58,6 @@ impl<D: DataSource> Presenter<D> {
         {
             self.dirty |= cursor.model_scroll.is_some();
             cursor.advance();
-            cursor.page_at = (view == PAGE).then_some(self.page);
         }
     }
 
@@ -95,11 +73,75 @@ impl<D: DataSource> Presenter<D> {
         })
     }
 
-    pub(in crate::presenter) fn restore_scroll_anchors(&mut self) {
-        for (view, shift) in self.host.scroll_anchors.take() {
-            if shift == 0. {
-                continue;
+    pub(in crate::presenter) fn anchor_input_position(
+        &self,
+        view: ViewId,
+        acknowledged: f32,
+    ) -> Option<(f32, f32)> {
+        let cursor = self.collection.cursors.get(&view).filter(|c| c.anchored)?;
+        let shift = cursor
+            .model_scroll
+            .map_or(0., |p| p.rebase - cursor.rebased);
+        Some((acknowledged + shift, self.live_scroll_max(view)))
+    }
+
+    /// Carry only the unapplied anchor shift across input. The full delta belongs
+    /// in the live range's clamp, before the acknowledged picture clamps its copy.
+    pub(in crate::presenter) fn anchor_input(
+        &mut self,
+        view: ViewId,
+        from: (f32, f32),
+        dy: f32,
+        next: (f32, f32),
+    ) -> Option<f32> {
+        let (corrected, max) = self.anchor_input_position(view, from.1)?;
+        let top = (corrected + dy).clamp(0., max);
+        let cursor = self.collection.cursors.get_mut(&view)?;
+        let previous = cursor.model_scroll.map_or(from.1, |p| p.top);
+        if next == from && top == previous {
+            return Some(0.);
+        }
+        cursor.advance();
+        if self.display.attached() && top != next.1 {
+            let mut acknowledged = next;
+            cursor.model_offset(cursor.key?, (next.0, top), true, &mut acknowledged);
+            if let Some(pending) = &mut cursor.model_scroll {
+                pending.rebase = top - next.1;
             }
+        }
+        self.dirty = true;
+        Some(top - previous)
+    }
+
+    pub(in crate::presenter) fn rebase_clamped_anchor(
+        &mut self,
+        view: ViewId,
+        before: (f32, f32),
+        after: (f32, f32),
+    ) {
+        let Some(pending) = self
+            .collection
+            .cursors
+            .get_mut(&view)
+            .filter(|c| c.anchored)
+            .and_then(|c| c.model_scroll.as_mut())
+        else {
+            return;
+        };
+        // A stale picture can narrow the input range while a newer intent waits.
+        // Keep that intent's destination and move its remaining correction's base.
+        pending.rebase += before.1 - after.1;
+        self.reader.rebased(view, before, after);
+    }
+
+    pub(in crate::presenter) fn restore_scroll_anchors(&mut self) {
+        let mut corrections = self.host.scroll_anchors.take();
+        for (&view, cursor) in &self.collection.cursors {
+            if cursor.anchored && cursor.model_scroll.is_some() {
+                corrections.entry(view).or_default();
+            }
+        }
+        for (view, shift) in corrections {
             let (key, max) = if view == PAGE {
                 (
                     NodeKey {
@@ -133,6 +175,9 @@ impl<D: DataSource> Presenter<D> {
             let was = *offset;
             let current = cursor.model_scroll.map_or(offset.1, |p| p.top);
             let top = (current + shift).clamp(0., max);
+            if top == current {
+                continue;
+            }
             let rebase = cursor.model_scroll.map_or(cursor.rebased, |p| p.rebase) + top - current;
             let left = cursor
                 .model_scroll
@@ -141,7 +186,6 @@ impl<D: DataSource> Presenter<D> {
             if let Some(pending) = &mut cursor.model_scroll {
                 pending.rebase = rebase;
             }
-            cursor.page_at = (view == PAGE).then_some(*offset);
             self.reader.rebased(view, was, *offset);
             if *offset != was && view != PAGE {
                 self.collection.scroll_event(view, key);

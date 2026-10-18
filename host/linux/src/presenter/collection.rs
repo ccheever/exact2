@@ -64,7 +64,6 @@ struct Cursor {
     anchored: bool,
     /// The part of the sequence's correction already applied to the reader.
     rebased: f32,
-    page_at: Option<(f32, f32)>,
     requested_left: Option<f64>,
     follow_end: bool,
     maximum: Option<(f32, f32)>,
@@ -643,7 +642,6 @@ impl<D: DataSource> Presenter<D> {
             let cursor = self.collection.cursors.get_mut(&view).unwrap();
             let correction = accepted.rebase - cursor.rebased;
             cursor.rebased = accepted.rebase;
-            cursor.page_at = (view == PAGE).then_some(*offset);
             self.reader
                 .rebased(view, before, (before.0, before.1 + correction));
             self.scroll_end_acknowledged(view, accepted, moved);
@@ -814,19 +812,13 @@ impl<D: DataSource> Presenter<D> {
 
     fn collection_scroll_turn(&mut self, view: ViewId, owned_edge: bool) {
         self.collection.scroll_events.retain(|(id, _)| *id != view);
-        let max = self.live_scroll_max(view);
-        if let Some(cursor) = self.collection.cursors.get_mut(&view) {
-            let correction = cursor
-                .model_scroll
-                .map_or(0., |p| p.rebase - cursor.rebased);
+        if let Some(cursor) = self
+            .collection
+            .cursors
+            .get_mut(&view)
+            .filter(|c| !c.anchored)
+        {
             cursor.advance();
-            if correction != 0. {
-                let offset = self.scroll.entry(view).or_default();
-                // Input uses the acknowledged bounds; the next picture uses the live bounds.
-                let top = (offset.1 + correction).clamp(0., max);
-                cursor.model_offset(cursor.key.unwrap(), (offset.0, top), true, offset);
-                cursor.model_scroll.as_mut().unwrap().rebase = top - offset.1;
-            }
         }
         self.arm_scroll_anchors();
         // Collection observation supplements the ordinary authored handler.

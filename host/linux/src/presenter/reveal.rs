@@ -75,6 +75,7 @@ impl<D: DataSource> Presenter<D> {
     /// by the pixels given, clamped to its travel, as the web's
     /// `Element.scrollBy`; an element that does not scroll does not move.
     pub(super) fn scroll_element_by(&mut self, args: &[exact_plan::Value]) {
+        self.restore_scroll_anchors();
         let name = args
             .first()
             .and_then(exact_plan::Value::as_str)
@@ -120,7 +121,8 @@ impl<D: DataSource> Presenter<D> {
                 off.1
             },
         );
-        if next != off {
+        let moved = self.anchor_input(id, off, if scrolls(oy) { by(2) } else { 0. }, next);
+        if next != off || moved.is_some_and(|dy| dy != 0.) {
             self.scroll.insert(id, next);
             self.scroll_end_moved(id, Completion::Instant);
             self.dirty = true;
@@ -154,6 +156,7 @@ impl<D: DataSource> Presenter<D> {
         completion: bool,
         by: impl Fn(Rect4, Rect4) -> (f32, f32),
     ) {
+        self.restore_scroll_anchors();
         let (vw, vh) = self.display.viewport().unwrap_or(self.viewport);
         // The scroll containers above it, innermost first, with their axes and travel.
         let mut scrollers = Vec::new();
@@ -235,7 +238,8 @@ impl<D: DataSource> Presenter<D> {
                     off.1
                 },
             );
-            if next != off {
+            let moved = self.anchor_input(a, off, if sy { dy } else { 0. }, next);
+            if next != off || moved.is_some_and(|dy| dy != 0.) {
                 self.scroll.insert(a, next);
                 if completion {
                     self.scroll_end_moved(a, Completion::Instant);
@@ -257,7 +261,8 @@ impl<D: DataSource> Presenter<D> {
                 (self.page.0 + dx).clamp(0.0, max.0),
                 (self.page.1 + dy).clamp(0.0, max.1),
             );
-            if next != self.page {
+            let moved = self.anchor_input(PAGE, self.page, dy, next);
+            if next != self.page || moved.is_some_and(|dy| dy != 0.) {
                 self.page = next;
                 self.dirty = true;
             }
