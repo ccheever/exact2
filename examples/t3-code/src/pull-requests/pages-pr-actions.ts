@@ -25,7 +25,7 @@ import { pagesPrefs } from '../pages/pages-prefs';
 import { composerNow } from '../composer/composer-controls';
 import { prState } from '../details/pr-row-actions';
 import {
-  ACTION_FAILURE, ACTION_SUCCESS, PULL_REQUEST_ACTIONS, PULL_REQUEST_MERGE_METHOD_LABELS, actionHint, actionPayload, allowedMergeMethods, allowsSinglePullRequestMerge,
+  canDeletePullRequestBranch, ACTION_FAILURE, ACTION_SUCCESS, PULL_REQUEST_ACTIONS, PULL_REQUEST_MERGE_METHOD_LABELS, actionHint, actionPayload, allowedMergeMethods, allowsSinglePullRequestMerge,
   pullRequestActionMenuHasGroup, pullRequestActionNeedsHostRefresh, readableFailure, resolveBaseFreshness, resolvePullRequestMergeMethod, resolvePullRequestPrimaryControl,
   type MergeMethod, type PrimaryControl, type UpdateMethod,
 } from '../details/pr-row-logic';
@@ -77,8 +77,8 @@ export function settlePullRequestOverrides<Entry extends Obj>(overrides: Readonl
 
 // ── Per-client state ────────────────────────────────────────────────────────
 
-export type ConfirmAction = 'merge' | 'close' | 'enable-auto-merge' | 'revert' | 'approve-workflows';
-const CONFIRMS: readonly ConfirmAction[] = ['merge', 'close', 'enable-auto-merge', 'revert', 'approve-workflows'];
+export type ConfirmAction = 'merge' | 'close' | 'enable-auto-merge' | 'revert' | 'approve-workflows' | 'delete-branch';
+const CONFIRMS: readonly ConfirmAction[] = ['merge', 'close', 'enable-auto-merge', 'revert', 'approve-workflows', 'delete-branch'];
 type State = {
   /** pendingAction: which action is in flight; every control is disabled while any runs. */
   pending: { key: string; action: string } | null;
@@ -131,7 +131,7 @@ export function emptyActions() {
     primary: '', primaryLabel: '', primaryDisabled: false, armedLabel: '', armedTip: '', stateLabel: '', stateKey: '',
     refreshing: false, moreLabel: 'More pull request actions', pending: false, open: false,
     draftToggle: '', mergeNow: false, autoMerge: '', methods: [] as { key: string; method: string; label: string; selected: boolean }[], methodsSeparator: false, groupSeparator: false,
-    closeItem: false, reopenItem: false, revertItem: false,
+    closeItem: false, reopenItem: false, revertItem: false, deleteBranchItem: false, deleteBranchDisabled: false, deleteBranchLabel: 'Delete branch',
     freshness: false, freshnessSummary: '', freshnessMethods: [] as { key: string; value: string; label: string }[], stacked: false, baseTip: '',
     approveWorkflows: false, approveLabel: 'Approve workflows to run',
     dialogOpen: false, dialogTitle: '', dialogDescription: '', dialogConfirm: '', dialogDestructive: false, dialogValue: '',
@@ -189,6 +189,9 @@ export function presentActions(client: T3Client, input: PresentInput): PrActions
   view.closeItem = open && can(detail, 'close');
   view.reopenItem = detail.state === 'closed' && can(detail, 'reopen');
   view.revertItem = detail.state === 'merged' && can(detail, 'revert');
+  view.deleteBranchItem = canDeletePullRequestBranch(detail);
+  view.deleteBranchDisabled = actionPending || !client.ready || !client.writable;
+  view.deleteBranchLabel = pendingAction === 'delete-branch' ? 'Deleting branch...' : 'Delete branch';
   // The base branch: the out-of-date mark and its popover, else the plain name (stacked on another branch, or not).
   const freshness = resolveBaseFreshness(detail), base = str(detail.baseBranch);
   view.stacked = query.stacked;
@@ -209,10 +212,11 @@ export function presentActions(client: T3Client, input: PresentInput): PrActions
       'enable-auto-merge': ['Enable auto-merge?', `This merges #${number} using ${method} as soon as the host considers it ready, which may be immediately.`, 'Enable auto-merge'],
       revert: ['Revert these changes?', `This opens a new pull request that reverses the changes merged by #${number}.`, 'Create revert PR'],
       'approve-workflows': ['Approve workflows to run?', `This allows ${workflows} ${workflows === 1 ? 'workflow' : 'workflows'} from #${number} to run. Review the code and workflow changes first.`, 'Approve and run'],
+      'delete-branch': [`Delete branch ${str(detail.headBranch)}?`, `This deletes ${str(detail.headBranch)} from ${str(detail.headRepositoryNameWithOwner, str(detail.repository))}. Local branches and worktrees are not changed.`, 'Delete branch'],
       close: ['Close pull request?', `This closes #${number} without merging it.`, 'Close'],
     };
     const [title, description, label] = text[confirm];
-    Object.assign(view, { dialogOpen: true, dialogTitle: title, dialogDescription: description, dialogConfirm: label, dialogDestructive: confirm === 'close',
+    Object.assign(view, { dialogOpen: true, dialogTitle: title, dialogDescription: description, dialogConfirm: label, dialogDestructive: confirm === 'close' || confirm === 'delete-branch',
       dialogValue: confirm === 'merge' || confirm === 'enable-auto-merge' ? `${confirm}:${method}` : confirm });
   }
   view.stack = presentStack(client, { key: input.key, reference: input.reference, detail, query, saved, supportsStackActions: stacks, canMergeMethod: can(detail, 'merge') && allowed.length > 0, mergeMethod: method }) as PrStackView;
@@ -279,6 +283,7 @@ export async function performAction(client: T3Client, native: Native, ctx: Panel
   const state = actionState(client);
   if (state.pending) return '';
   if (!(PULL_REQUEST_ACTIONS as readonly string[]).includes(action)) throw new ClientError(`Unknown pull request action: ${action}`);
+  if (action === 'delete-branch' && (!client.ready || !client.writable || !ctx.detail || !canDeletePullRequestBranch(ctx.detail))) throw new ClientError('This branch cannot be deleted.');
   state.pending = { key: ctx.key, action };
   return finishAction(client, native, ctx, action, method, updateMethod);
 }

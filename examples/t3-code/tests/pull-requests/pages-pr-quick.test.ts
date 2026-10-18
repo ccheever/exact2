@@ -57,13 +57,17 @@ const rows = (view: Awaited<ReturnType<typeof page>>) => view.groups.flatMap(gro
 const quick = (client: T3Client, row: Obj, action: string) => prCommand(client, native, 'quick', '', JSON.stringify({ ref: rowRef(row), action }));
 
 describe('the Shift quick actions (PullRequestSpeedActions)', () => {
-  test('a closed row reopens, a draft closes or readies, an open one closes or merges; merged and other hosts offer none', () => {
+  test('a closed row reopens, a draft closes or readies, an open one closes or merges; merged rows offer none and hosts limit their actions', () => {
     const keys = (row: Obj) => speedActions(row, false).map(action => action.action);
     expect(keys(entry(1, { state: 'closed' }))).toEqual(['reopen']);
     expect(keys(entry(2, { isDraft: true }))).toEqual(['close', 'ready']);
     expect(keys(entry(3))).toEqual(['close', 'merge']);
     expect(keys(entry(4, { state: 'merged' }))).toEqual([]);
-    expect(keys(entry(5, { provider: 'gitlab' }))).toEqual([]);
+    expect(keys(entry(5, { provider: 'gitlab' }))).toEqual(['close', 'merge']);
+    expect(keys(entry(6, { provider: 'bitbucket', isDraft: true }))).toEqual(['close']);
+    expect(keys(entry(7, { provider: 'bitbucket', state: 'closed' }))).toEqual([]);
+    expect(keys(entry(8, { provider: 'gitcafe', isDraft: true }))).toEqual(['close', 'ready']);
+    expect(keys(entry(9, { provider: 'unknown' }))).toEqual([]);
     expect(speedActions(entry(3), false)).toEqual([
       expect.objectContaining({ label: 'Close', icon: 'git-pull-request-closed', destructive: true, disabled: false, tooltip: 'Close immediately', aria: 'Close #3' }),
       expect.objectContaining({ label: 'Merge', icon: 'git-merge', destructive: false, disabled: false, tooltip: 'Merge immediately', aria: 'Merge #3' }),

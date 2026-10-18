@@ -1,3 +1,4 @@
+import { sourceControlHostActions } from '../shared/source-control-hosts';
 // The Pull Requests page's row extras: the Shift quick actions
 // (PullRequestSpeedActions: Reopen, Close + Ready for review, Close + Merge, shown while Shift alone is
 // held), the checks popover (PullRequestChecksPopover on a listing row: the rollup's headline, then the
@@ -52,12 +53,13 @@ const ACTIONS: Record<string, { label: string; icon: string }> = {
   ready: { label: 'Ready for review', icon: 'git-pull-request-arrow' }, reopen: { label: 'Reopen', icon: 'git-pull-request-arrow' },
 };
 export type PrSpeedAction = { key: string; action: string; label: string; icon: string; destructive: boolean; disabled: boolean; tooltip: string; aria: string; value: string };
-/** The row's quick actions: none on a merged or non-GitHub row; Reopen on a closed one, Close and Ready for review on a draft, else Close and Merge. */
+/** State determines the candidates; the host definition limits which actions it supports. */
 export function speedActions(entry: Obj, pending: boolean): PrSpeedAction[] {
-  if (entry.state === 'merged' || str(entry.provider, 'github') !== 'github') return [];
+  if (entry.state === 'merged') return [];
+  const supported = sourceControlHostActions(str(entry.provider, 'github'));
   const actions = entry.state === 'closed' ? ['reopen'] : entry.isDraft === true ? ['close', 'ready'] : ['close', 'merge'];
   const stacked = entry.stack !== undefined && entry.stack !== null;
-  return actions.map(action => {
+  return actions.filter(action => supported.includes(action)).map(action => {
     const { label, icon } = ACTIONS[action]!;
     return { key: action, action, label, icon, destructive: action === 'close', disabled: pending || (action === 'merge' && stacked),
       tooltip: action === 'merge' && stacked ? 'Open this pull request to merge its stack' : `${label} immediately`, aria: `${label} #${num(entry.number)}`,

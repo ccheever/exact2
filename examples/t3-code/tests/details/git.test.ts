@@ -70,7 +70,7 @@ describe('options menu (buildMenuItems, getMenuActionDisabledReason)', () => {
       { kind: 'gitlab', label: 'GitLab', status: 'available', auth: { status: 'authenticated', account: { _tag: 'Some', value: 'me' } } }];
     expect(publishReadiness('github', discovered)).toMatchObject({ ready: false, hint: 'GitHub is not authenticated. Open Settings -> Source Control for setup guidance.' });
     expect(publishReadiness('bitbucket', discovered).hint).toBe('Provider status unavailable. Open Settings -> Source Control and rescan.');
-    expect(sortedPublishProviders(discovered).map(option => option.value)).toEqual(['gitlab', 'azure-devops', 'bitbucket', 'forgejo', 'github']);
+    expect(sortedPublishProviders(discovered).map(option => option.value)).toEqual(['gitlab', 'azure-devops', 'bitbucket', 'forgejo', 'gitcafe', 'github']);
   });
 });
 

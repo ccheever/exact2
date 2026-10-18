@@ -6,6 +6,7 @@ use ProviderMark from "../shared/icons.contract"
 use BrandGitLab from "../settings/settings-brands.contract"
 use BrandAzureDevOps from "../settings/settings-brands.contract"
 use BrandBitbucket from "../settings/settings-brands.contract"
+use BrandGitCafe from "../settings/settings-brands.contract"
 use BrandForgejo from "../settings/settings-brands.contract"
 use DiffGlyph from "../diff/diff-glyphs.contract"
 use synColor from "../timeline/markdown.contract"
@@ -157,8 +158,11 @@ component PaletteGlyph
             if name == "source-bitbucket"
               BrandBitbucket(size=16)
             else
-              if name == "source-forgejo"
-                BrandForgejo(size=16)
+              if name == "source-forgejo" or name == "source-gitcafe"
+                if name == "source-gitcafe"
+                  BrandGitCafe(size=16)
+                else
+                  BrandForgejo(size=16)
               else
                 // PierreEntryIcon: Markdown files green, other files the two-tone page.
                 if name == "file-md" or name == "file"

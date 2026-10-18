@@ -156,7 +156,7 @@ describe('add project', () => {
     const c = client(), native = new Fake();
     native.replies['server.discoverSourceControl'] = { sourceControlProviders: [{ kind: 'github', label: 'GitHub', status: 'available', auth: { status: 'authenticated' } }, { kind: 'gitlab', label: 'GitLab', status: 'missing', installHint: 'Install glab' }] };
     const view = await addProjectView(c, native, { page: 'add-project', query: '', highlighted: false });
-    expect(view.rows.map(entry => entry.title)).toEqual(['New project', 'Local folder', 'Git URL', 'GitHub repository', 'Azure DevOps repository', 'Bitbucket repository', 'Forgejo / Gitea repository', 'GitLab repository']);
+    expect(view.rows.map(entry => entry.title)).toEqual(['New project', 'Local folder', 'Git URL', 'GitHub repository', 'Azure DevOps repository', 'Bitbucket repository', 'Forgejo / Gitea repository', 'GitCafe repository', 'GitLab repository']);
     expect(view.rows[0]!.header).toBe('Sources');
     expect(view.rows[1]!.description).toBe('Browse a folder on disk');
     expect(view.rows[4]!.badge).toBe('Setup Required');

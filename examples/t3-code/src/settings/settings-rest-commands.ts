@@ -1,3 +1,4 @@
+import { hostCredentialsCommand } from './source-control-credentials';
 // Mutations for these settings routes: Projects,
 // Integrations, Keybindings, Source control, Storage, Archive, Scheduled
 // tasks, Diagnostics and licenses. Every write re-reads the server's current
@@ -15,7 +16,6 @@ import { deviceToolsCommand } from '../device/settings-a-integrations';
 import { devicePlatformsCommand } from '../device/device-support';
 import { telemetryCommand, telemetryLocal } from './settings-a-telemetry';
 import { openLogsFolder } from './diagnostics-view';
-import { bitbucketCommand } from './settings-a-bitbucket';
 import { browserProfilesLocal } from '../browser/browser-profiles-settings';
 import { deviceHostsCommand } from '../device/settings-a-hosts';
 import { deviceScopedCommand } from '../device/settings-integrations-scope';
@@ -113,7 +113,10 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
   if (op === 'device-tools') return deviceToolsCommand(client, native, params(value));
   if (op === 'device-platforms') return devicePlatformsCommand(client, native); // 5318d054a5: Simulator support Refresh
   if (op === 'diag-open-logs') return openLogsFolder(client, native);
-  if (op === 'bitbucket') return bitbucketCommand(client, native, str(params(value).environment), params(value), () => { viewState(client).rescan++; });
+  if (op === 'host-credentials') {
+    if (splitScope(scope).projectId) throw new ClientError('Source control host settings belong to the environment.');
+    return hostCredentialsCommand(client, native, params(value), () => { viewState(client).rescan++; });
+  }
   if (op.startsWith('diag-')) return telemetryCommand(client, native, op, params(value)); // settings-a-telemetry.ts
   if (op.startsWith('hosts-')) return deviceHostsCommand(client, native, op, params(value), splitScope(scope).projectId !== ''); // settings-a-hosts.ts
   // A background environment's project (Settings › Projects over every environment): its writes go through that

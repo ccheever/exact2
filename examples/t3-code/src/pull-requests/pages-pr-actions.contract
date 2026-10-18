@@ -57,6 +57,9 @@ shape PrActionsView
   closeItem: bool
   reopenItem: bool
   revertItem: bool
+  deleteBranchItem: bool
+  deleteBranchDisabled: bool
+  deleteBranchLabel: string
   freshness: bool
   freshnessSummary: string
   freshnessMethods: PrUpdateItem[]
@@ -189,7 +192,7 @@ component PrdActionsMenu
   // focus on its first row, and the arrows, Home, End and a letter move through the enabled rows.
   derive gated = not actions.pending and actions.open
   derive handing = handoffs.pending == ""
-  derive rows = [KmItem(id=(links.menuShown and not links.pending ? "pr-more-link" : ""), label=links.menuLabel), KmItem(id=(actions.refreshing ? "" : "pr-more-refresh"), label="Refresh"), KmItem(id=(handing ? "pr-more-ask" : ""), label="Ask a question"), KmItem(id=(handing ? "pr-more-explain" : ""), label="Explain this PR"), KmItem(id=(handing ? "pr-more-fix-findings" : ""), label="Fix findings")].concat(actOn.map((item) => KmItem(id=(handing ? `pr-more-act-on-${item.key}` : ""), label=item.label))).concat([KmItem(id=(gated and actions.draftToggle == "draft" ? "pr-more-draft" : ""), label="Convert to draft"), KmItem(id=(gated and actions.draftToggle == "ready" ? "pr-more-ready" : ""), label="Ready for review"), KmItem(id=(gated and actions.mergeNow ? "pr-more-merge-now" : ""), label="Merge now"), KmItem(id=(gated and actions.autoMerge == "disable" ? "pr-more-disable-auto-merge" : ""), label="Disable auto-merge"), KmItem(id=(gated and actions.autoMerge == "enable" ? "pr-more-enable-auto-merge" : ""), label="Enable auto-merge")]).concat(actions.methods.map((item) => KmItem(id=(gated ? `pr-more-method-${item.method}` : ""), label=item.label))).concat([KmItem(id="pr-more-open-host", label=`Open on ${hostName}`), KmItem(id="pr-more-copy-link", label="Copy link"), KmItem(id="pr-more-copy-number", label="Copy PR number"), KmItem(id=(actions.closeItem and not actions.pending ? "pr-more-close" : ""), label="Close pull request"), KmItem(id=(actions.reopenItem and not actions.pending ? "pr-more-reopen" : ""), label="Reopen pull request"), KmItem(id=(actions.revertItem and not actions.pending ? "pr-more-revert" : ""), label="Revert changes")]).filter((item) => item.id != "")
+  derive rows = [KmItem(id=(links.menuShown and not links.pending ? "pr-more-link" : ""), label=links.menuLabel), KmItem(id=(actions.refreshing ? "" : "pr-more-refresh"), label="Refresh"), KmItem(id=(handing ? "pr-more-ask" : ""), label="Ask a question"), KmItem(id=(handing ? "pr-more-explain" : ""), label="Explain this PR"), KmItem(id=(handing ? "pr-more-fix-findings" : ""), label="Fix findings")].concat(actOn.map((item) => KmItem(id=(handing ? `pr-more-act-on-${item.key}` : ""), label=item.label))).concat([KmItem(id=(gated and actions.draftToggle == "draft" ? "pr-more-draft" : ""), label="Convert to draft"), KmItem(id=(gated and actions.draftToggle == "ready" ? "pr-more-ready" : ""), label="Ready for review"), KmItem(id=(gated and actions.mergeNow ? "pr-more-merge-now" : ""), label="Merge now"), KmItem(id=(gated and actions.autoMerge == "disable" ? "pr-more-disable-auto-merge" : ""), label="Disable auto-merge"), KmItem(id=(gated and actions.autoMerge == "enable" ? "pr-more-enable-auto-merge" : ""), label="Enable auto-merge")]).concat(actions.methods.map((item) => KmItem(id=(gated ? `pr-more-method-${item.method}` : ""), label=item.label))).concat([KmItem(id="pr-more-open-host", label=`Open on ${hostName}`), KmItem(id="pr-more-copy-link", label="Copy link"), KmItem(id="pr-more-copy-number", label="Copy PR number"), KmItem(id=(actions.closeItem and not actions.pending ? "pr-more-close" : ""), label="Close pull request"), KmItem(id=(actions.reopenItem and not actions.pending ? "pr-more-reopen" : ""), label="Reopen pull request"), KmItem(id=(actions.revertItem and not actions.pending ? "pr-more-revert" : ""), label="Revert changes"), KmItem(id=(actions.deleteBranchItem and not actions.deleteBranchDisabled ? "pr-more-delete-branch" : ""), label="Delete branch")]).filter((item) => item.id != "")
   action hover(value: bool)
     over = value
   // menu-keys.contract: the link row is a MenuItem too, highlighted by its focus alone; the
@@ -270,6 +273,9 @@ component PrdActionsMenu
             if actions.revertItem
               PaSeparator()
               PaMenuItem(keysId="pr-more-keys", icon="rotate-ccw", label="Revert changes", shortcut="", disabled=actions.pending, destructive=false, press=ask("revert"), testId="pr-more-revert")
+            if actions.deleteBranchItem
+              PaSeparator()
+              PaMenuItem(keysId="pr-more-keys", icon="trash-2", label=actions.deleteBranchLabel, shortcut="", disabled=actions.deleteBranchDisabled, destructive=true, press=ask("delete-branch"), testId="pr-more-delete-branch")
       box width="1rem" height=1 flex-shrink=0
 
 component PaSeparator

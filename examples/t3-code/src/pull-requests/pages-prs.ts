@@ -1,3 +1,4 @@
+import { sourceControlHostName } from '../shared/source-control-hosts';
 // The Pull Requests page: pullRequests.list / listStats /
 // detail / activity, grouped, sorted and presented as the reference page does.
 // Sources: T3 Code (MIT, see LICENSE-T3) apps/web/src/routes/_chat.pull-requests.tsx
@@ -526,7 +527,7 @@ export function presentList(view: PrListView, result: Obj | null, error: string,
   return view;
 }
 function providerName(kind: string): string {
-  return ({ github: 'GitHub', gitlab: 'GitLab', bitbucket: 'Bitbucket', 'azure-devops': 'Azure DevOps', forgejo: 'Forgejo' } as Record<string, string>)[kind] ?? kind;
+  return sourceControlHostName(kind);
 }
 
 // ── Commands ────────────────────────────────────────────────────────────────

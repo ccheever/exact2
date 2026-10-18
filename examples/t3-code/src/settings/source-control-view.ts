@@ -1,3 +1,4 @@
+import { hostCredentials, type HostCredentials } from './source-control-credentials';
 // Settings → Source control and Integrations view models (reference
 // SourceControlSettings.tsx, ProjectDefaultsSettings.tsx, BranchNamingSettings.tsx,
 // SourceControlWritingSettings.tsx, IntegrationsSettings.tsx, SettingInheritance.tsx).
@@ -9,7 +10,6 @@ import { arr, obj, str, num, type Json, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import { providerAvailable, type Native } from '../client/protocol';
 import { deviceTool } from '../device/settings-a-integrations';
-import { bitbucketView, type BitbucketView } from './settings-a-bitbucket';
 import { deviceHostsView } from '../device/settings-a-hosts';
 import { deviceScope } from '../device/settings-integrations-scope';
 import { connectedEnvironmentCount, simulatorSupportRows, type SimulatorSupportRow } from '../device/device-support'; // 5318d054a5: Simulator support row
@@ -32,10 +32,10 @@ export type ScopedRow = { key: string; kind: string; title: string; description:
   /** A model row's picker trigger mark: the instance's driver and ProviderInstanceIcon badge. */
   driver: string; badge: string; accent: string };
 
-export const DEFAULTS: Obj = { defaultAutoPull: false, pullRequestMergeMethod: null, branchNamingMode: 'static', branchNamePrefix: 't3code', branchNameInstructions: '',
-  sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true }, sourceControlWriterModelSelection: null,
+export const DEFAULTS: Obj = { defaultAutoPull: false, pullRequestMergeMethod: null, branchNamingMode: 'static', branchNamePrefix: 't3', branchNameInstructions: '',
+  sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true }, sourceControlWriterModelSelection: null, removeAgentCreditsOnMerge: false,
   enableAgentBrowserAccess: true, enableAgentDeviceAccess: false, enableDeviceSupport: false, defaultModelSelection: null, defaultThreadEnvMode: null, deviceHosts: [] };
-const PROJECT_KEYS = ['defaultModelSelection', 'defaultThreadEnvMode', 'defaultAutoPull', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'sourceControlWriterModelSelection', 'sourceControlWritingStyle', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod'];
+const PROJECT_KEYS = ['defaultModelSelection', 'defaultThreadEnvMode', 'defaultAutoPull', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'sourceControlWriterModelSelection', 'sourceControlWritingStyle', 'removeAgentCreditsOnMerge', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod'];
 const MERGE_LABELS: Record<string, string> = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' };
 const BRANCH_MODES: Record<string, string> = { static: 'Static prefix', semantic: 'Semantic prefix', custom: 'Custom instructions' };
 const WRITING_MODES: Record<string, { label: string; description: string }> = {
@@ -101,7 +101,7 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
     row(settings, projectId, environmentLabel, 'branchNamingMode', { kind: 'select', title: 'Worktree branch naming', resetLabel: 'branch naming', first: true, value: mode, valueLabel: BRANCH_MODES[mode] || mode, disabled: !writable,
       description: 'Choose how new worktree branches are named from your first message.', options: Object.entries(BRANCH_MODES).map(([v, l]) => ({ value: v, label: l, selected: v === mode })), reset: resetFor('branchNamingMode', mode !== 'static') }),
     ...(mode === 'static' ? [row(settings, projectId, environmentLabel, 'branchNamePrefix', { kind: 'text', title: 'Branch prefix', resetLabel: 'branch prefix', value: str(value.branchNamePrefix), placeholder: 'No prefix', disabled: !writable,
-      description: 'For example, t3code or t3code/ produces t3code/add-search. Leave empty for no prefix.', reset: resetFor('branchNamePrefix', str(value.branchNamePrefix) !== 't3code') })] : []),
+      description: 'For example, t3 or t3/ produces t3/add-search. Leave empty for no prefix.', reset: resetFor('branchNamePrefix', str(value.branchNamePrefix) !== 't3') })] : []),
     ...(mode === 'semantic' ? [row(settings, projectId, environmentLabel, 'branchNamingMode', { kind: 'note', title: '', description: 'The model chooses a prefix that describes the work, such as feat/add-search, fix/login-timeout, or refactor/auth.' })] : []),
     ...(mode === 'custom' ? [row(settings, projectId, environmentLabel, 'branchNameInstructions', { kind: 'textarea', title: 'Branch naming instructions', resetLabel: 'branch naming instructions', value: str(value.branchNameInstructions), placeholder: 'Use julius/ followed by the issue ID and a short description.', disabled: !writable,
       description: 'Appended to the naming prompt. The model returns the complete branch name; no prefix or suffix is added.', reset: resetFor('branchNameInstructions', str(value.branchNameInstructions) !== '') })] : []),
@@ -111,6 +111,8 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
       reset: project ? (overridden('sourceControlWritingStyle') ? 'key=sourceControlWritingStyle&value=__inherit__' : '') : (writing !== 'repo_conventions' || str(style.customInstructions) !== '' ? 'key=sourceControlWritingStyle&value=__default__' : '') }),
     row(settings, projectId, environmentLabel, 'sourceControlWritingStyle', { key: 'sourceControlWritingStyle.followChangeRequestTemplates', kind: 'switch', title: 'Follow change request templates', resetLabel: 'change request templates', checked: style.followChangeRequestTemplates !== false, disabled: !writable,
       description: "Use the repository's template for change request descriptions when available.", reset: project ? '' : style.followChangeRequestTemplates === false ? 'key=sourceControlWritingStyle.followChangeRequestTemplates&value=__default__' : '' }),
+    row(settings, projectId, environmentLabel, 'removeAgentCreditsOnMerge', { title: 'Remove agent credits on merge', checked: value.removeAgentCreditsOnMerge === true, disabled: !writable,
+      description: 'Omit agent credits from generated merge messages.', reset: resetFor('removeAgentCreditsOnMerge', value.removeAgentCreditsOnMerge === true) }),
     row(settings, projectId, environmentLabel, 'sourceControlWriterModelSelection', { kind: 'model', title: 'Source control writer model', checked: writerOn, disabled: !writable,
       description: "Model for source control text and branch or bookmark names. Off uses the environment's text generation model.",
       value: writerOn ? `${str(writer.instanceId)}:${str(writer.model)}` : '', valueLabel: writerOn ? (writerModel ? triggerModelName(writerModel) : str(writer.model)) || 'Choose model' : '',
@@ -192,7 +194,7 @@ export function discoveryRows(result: Obj) {
       : status === 'unauthenticated' ? `${str(item.label)} is not authenticated on this server. Sign in or configure credentials using the ${str(item.executable)} tool on the server host to enable change request features.`
       : `Could not verify ${str(item.label)}. ${option(auth.detail) || str(item.installHint)}`;
     return { kind: str(item.kind), label: str(item.label), version: option(item.version), comingSoon: false, badge: status === 'unauthenticated' && available ? 'Not authenticated' : '',
-      dot: !available || status !== 'authenticated' ? 'warning' : 'success', summary, account: available && status === 'authenticated' && option(auth.account) !== '', enabled: available && status === 'authenticated', details: str(item.kind) === 'bitbucket',
+      dot: !available || status !== 'authenticated' ? 'warning' : 'success', summary, account: available && status === 'authenticated' && option(auth.account) !== '', enabled: available && status === 'authenticated', details: ['github', 'gitcafe', 'bitbucket'].includes(str(item.kind)),
       // RedactedAccount (SourceControlSettings.tsx:160-168): each item reveals its own account.
       ...(({ value, placeholder }) => ({ accountValue: value, accountPlaceholder: placeholder }))(redactedValue(available && status === 'authenticated' ? option(auth.account) : '')) };
   });
@@ -226,7 +228,7 @@ function environmentLabel(client: T3Client): string { return str(obj(client.conf
 
 export async function sourceControlPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, rescan: number) {
   const empty = { available: false, error: '', project: projectId !== '', scope: `${environmentId}:${projectId}`, repositories: [] as ScopedRow[], text: [] as ScopedRow[],
-    scanned: false, scanError: '', vcs: [] as ReturnType<typeof discoveryRows>['vcs'], providers: [] as ReturnType<typeof discoveryRows>['providers'], fetches: [fetchInterval({})], bitbucket: [] as BitbucketView[] };
+    scanned: false, scanError: '', vcs: [] as ReturnType<typeof discoveryRows>['vcs'], providers: [] as ReturnType<typeof discoveryRows>['providers'], fetches: [fetchInterval({})], hostCredentials: [] as HostCredentials[] };
   if (!active) return empty;
   const error = scopeError(client, native, environmentId, projectId);
   if (error || !native) return { ...empty, error };
@@ -245,7 +247,7 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
       discoveries.set(client, cached);
     }
     const found = discoveryRows(cached.value);
-    return { ...empty, available: true, ...rows, scanned: true, scanError: cached.error, ...found, fetches: [fetchInterval(settings)], bitbucket: [bitbucketView(settings, client.environmentId, rescan)] };
+    return { ...empty, available: true, ...rows, scanned: true, scanError: cached.error, ...found, fetches: [fetchInterval(settings)], hostCredentials: hostCredentials(settings, cached.value, client.environmentId, rescan, client.writable && !projectId) };
   } catch (failure) { return { ...empty, error: failure instanceof Error ? failure.message : 'Could not load settings.' }; }
 }
 
