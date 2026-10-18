@@ -46,3 +46,5 @@
 /mobile/file-icons.contract
 # The app's own Cargo workspace builds here (Cargo.toml).
 /target/
+/src/highlight/codex-directives.js
+/src/highlight/codex-directives.d.ts

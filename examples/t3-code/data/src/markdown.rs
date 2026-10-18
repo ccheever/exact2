@@ -77,6 +77,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "serverBrowserWheel",
             "shellDetails",
             "chatCanvas",
+            "threadFind",
             "terminalDrawer", // the thread terminal drawer (terminal-drawer-view.ts)
             "sidebarLaunchWidth",
             "prList",
@@ -93,6 +94,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
         ],
         &[
             "renderMarkdown",
+            "renderQuestionMarkdown",
             "renderPullRequestMarkdown",
             "renderFileMarkdown",
         ],
@@ -111,6 +113,7 @@ impl DataSource for Markdown {
         // renderFileMarkdown: a Markdown file in Files (files-surface.ts)
         // and a sent attachment's (attachment-surface.ts).
         if source != "renderMarkdown"
+            && source != "renderQuestionMarkdown"
             && source != "renderPullRequestMarkdown"
             && source != "renderFileMarkdown"
         {
@@ -127,7 +130,11 @@ impl DataSource for Markdown {
                 continue;
             };
             let Some(id) = fields.first() else { continue };
-            let kind = fields.get(1).and_then(Value::as_str).unwrap_or("");
+            let kind = if source == "renderQuestionMarkdown" {
+                "assistant"
+            } else {
+                fields.get(1).and_then(Value::as_str).unwrap_or("")
+            };
             if kind != "assistant"
                 && kind != "plan"
                 && kind != "user"
@@ -173,17 +180,17 @@ impl DataSource for Markdown {
                 ));
             }
         }
-        Ok(Value::record(vec![Value::list(documents)]))
+        Ok(find_documents(documents, messages, args))
     }
 }
 
+include!("markdown_find.rs");
 include!("pierre_icons.rs");
 include!("markdown_tables.rs");
 include!("markdown_table_align.rs");
 include!("markdown_links.rs");
 include!("markdown_media.rs");
 include!("markdown_headings.rs");
-
 /// The resolver's mark for a workspace file link (`[label](src/a.ts:3)`): T3
 /// draws it as a file chip, not a web link.
 const FILE_LINK: &str = "t3-file:";
