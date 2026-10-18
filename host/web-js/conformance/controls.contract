@@ -14,6 +14,7 @@ component Controls
   state flow = "grid"
   state direction = "row"
   state placement = "static"
+  state alignment = "center"
   state pick = "Alpha"
   state day = ""
   state hour = ""
@@ -26,6 +27,8 @@ component Controls
     direction = axis
   action setPlacement(value: string)
     placement = value
+  action align(value: string)
+    alignment = value
   action choose(value: string)
     pick = value
   action setDay(value: string)
@@ -55,7 +58,18 @@ component Controls
           text "abs"
         button testId="in-flow" press=setPlacement("static") width=40 height=24
           text "flow"
-      box testId="progress-parent" position="relative" display=flow flex-direction=direction width=240 height=40
+      row gap=4
+        button testId="align-start" press=align("start") width=60 height=24
+          text "start"
+        button testId="align-center" press=align("center") width=60 height=24
+          text "center"
+        button testId="align-normal" press=align("normal") width=60 height=24
+          text "normal"
+      box display="grid" justify-items="center" width=240 height=20
+        progress testId="progress-sized-center" width=20 height=20
+      box display="grid" justify-items="start" width=240 height=20
+        progress testId="progress-static-start"
+      box testId="progress-parent" position="relative" display=flow flex-direction=direction justify-items=alignment width=240 height=40
         progress testId="progress-live" position=placement left=0 right=0 top=0
       select value=pick change=choose testId="pick" width=120 height=24
         option "Alpha"

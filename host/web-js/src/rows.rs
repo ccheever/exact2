@@ -510,7 +510,7 @@ impl Em<'_> {
         if id == StyleId::Display && parts.css.contains("--exact-progress-justify:") {
             let normal = self.uses.rt("normal");
             writes.push(("--exact-progress-justify".into(), String::new(), Some(format!(
-                "v=>[\"flex\",\"grid\",\"none\"].includes({normal}(\"display\",String(v??\"\")))?\"normal\":\"start\""
+                "v=>[\"flex\",\"grid\",\"none\"].includes({normal}(\"display\",String(v??\"\")))?\"auto\":\"start\""
             ))));
         }
         if id == StyleId::PositionType && parts.props.contains_key("data-exact-progress") {
@@ -519,7 +519,7 @@ impl Em<'_> {
                 "justify-self".into(),
                 String::new(),
                 Some(format!(
-                    "v=>{normal}(\"position\",String(v??\"\"))===\"absolute\"?\"normal\":{:?}",
+                    "v=>{normal}(\"position\",String(v??\"\"))===\"absolute\"?\"auto\":{:?}",
                     style::PROGRESS_JUSTIFY
                 )),
             ));

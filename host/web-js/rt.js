@@ -653,8 +653,8 @@ function adopt(p, tag, cls, attrs) {
   if (!e || e.localName.toLowerCase() !== tag.toLowerCase()) throw new Mismatch(`adoption: expected <${tag}>, found ${e ? "<" + e.localName + ">" : "nothing"}`);
   p.$n = e.nextSibling; e.$exactTree = true;
   e.$paintWaiting = false; e.$paintFacts = null; e.removeAttribute("data-exact-paint");
-  // The renderer's inline style stays: it is the class's declarations and
-  // the live rows, which the node's style bindings rewrite as they change.
+  // Inline rows stay, except spinner alignment: its class follows the live parent.
+  if (attrs?.["data-exact-progress"] !== undefined) e.style.removeProperty("justify-self");
   if (e.hasAttribute("data-view")) e.removeAttribute("data-view");
   if (attrs?.["data-exact-own-isolation"] === undefined && !e.hasAttribute("data-exact-own-isolation") && !e.hasAttribute("data-exact-policy") && e.style.isolation) e.style.removeProperty("isolation");
   if (cls !== 0 && e.getAttribute("class") !== "c" + cls) e.setAttribute("class", "c" + cls);

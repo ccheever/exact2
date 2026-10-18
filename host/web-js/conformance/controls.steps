@@ -1,3 +1,13 @@
+# Authored grid alignment, with sized and intrinsic spinners, survives re-entry.
+tap align-start
+tap block
+tap grid
+tap align-center
+tap block
+tap grid
+tap absolute
+tap in-flow
+tap align-normal
 # Start in grid; revisit block between each layout and return from absolute.
 tap block
 tap grid

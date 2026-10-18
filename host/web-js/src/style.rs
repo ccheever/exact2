@@ -341,7 +341,7 @@ pub fn project(
             let justify = if node.style.display == exact_kernel::Display::Block {
                 "start"
             } else {
-                "normal"
+                "auto"
             };
             parts
                 .css
@@ -350,7 +350,7 @@ pub fn project(
         if progress[i] {
             parts.css = parts.css.replace("justify-self:start;", "");
             let justify = if node.style.position_type == exact_kernel::PositionType::Absolute {
-                "normal"
+                "auto"
             } else {
                 PROGRESS_JUSTIFY
             };
