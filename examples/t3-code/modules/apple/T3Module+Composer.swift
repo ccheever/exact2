@@ -42,8 +42,8 @@ extension T3Module {
         if request["op"] as? String == "composerPasteTake" {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return reply.send(["ok": false, "generation": 0]) }
-                let fileLimit = request["fileLimit"] as? Int ?? 0
-                let files = self.composer.editor.takePastedFiles { self.attach.stage($0, fileLimit: fileLimit) }
+                let fileLimit = request["fileLimit"] as? Int ?? 0, imageMaxEdge = request["imageMaxEdge"] as? Int ?? 0
+                let files = self.composer.editor.takePastedFiles { self.attach.stage($0, fileLimit: fileLimit, imageMaxEdge: imageMaxEdge) }
                 reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["files": files]])
             }
             return
