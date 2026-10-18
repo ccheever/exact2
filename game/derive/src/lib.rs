@@ -30,6 +30,48 @@ pub fn resource(input: TokenStream) -> TokenStream {
     derive(input, Some("Resource"))
 }
 
+/// Implement a typed, next-tick event record. `#[event(capacity = N)]` sets its bound.
+#[proc_macro_derive(Event, attributes(data, event))]
+pub fn event(input: TokenStream) -> TokenStream {
+    let tokens: Vec<_> = input.clone().into_iter().collect();
+    let capacity = tokens.windows(2).find_map(|pair| {
+        if !punct(&pair[0], '#') {
+            return None;
+        }
+        let TokenTree::Group(g) = &pair[1] else {
+            return None;
+        };
+        let a: Vec<_> = g.stream().into_iter().collect();
+        if a.first().is_none_or(|t| t.to_string() != "event") {
+            return None;
+        }
+        Some(a.get(1).map(ToString::to_string).unwrap_or_default())
+    });
+    let bound = capacity
+        .map(|s| s.trim_matches(['(', ')']).replace(' ', ""))
+        .map(|s| {
+            s.strip_prefix("capacity=")
+                .and_then(|n| n.parse::<u32>().ok())
+                .filter(|&n| n > 0 && n <= 65536)
+                .ok_or_else(|| "event expects capacity = 1..65536".to_owned())
+        })
+        .unwrap_or(Ok(256));
+    let result = bound.and_then(|bound| {
+        let (ty, _) = strip(&tokens, false)?;
+        if ty.first().is_none_or(|t| t.to_string() != "struct") || !matches!(ty.get(2), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Brace) {
+            return Err("Event requires a named record".into());
+        }
+        let name = ty[1].to_string();
+        expand(input, Some("Event")).map(|mut s| {
+            s = s.replace(&format!("impl ::exact_game::Event for {name} {{"), &format!("impl ::exact_game::Event for {name} {{ const CAPACITY: usize = {bound}; const QUEUE_NAME: &'static str = concat!(\"events:\", stringify!({name}));")); s
+        })
+    });
+    match result {
+        Ok(s) => s.parse().expect("Event derive emitted Rust"),
+        Err(e) => format!("::core::compile_error!({e:?});").parse().unwrap(),
+    }
+}
+
 struct Field {
     name: String,
     skip: bool,

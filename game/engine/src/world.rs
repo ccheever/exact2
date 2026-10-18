@@ -177,7 +177,7 @@ pub(crate) struct Attachments {
 
 /// One journal event. Reads never generate per-tick samples.
 #[derive(Clone, Debug, Default, Data)]
-pub struct Event {
+pub struct JournalEvent {
     /// Monotonically increasing journal cursor.
     pub index: u64,
     /// Simulation tick at the event.
@@ -230,6 +230,8 @@ pub struct World {
     names: RefCell<Option<Vec<(u64, u32)>>>,
     pub(crate) alive_mask: Vec<u64>,
     rng: storage::Singleton<Rng>,
+    pub(crate) event_types: BTreeMap<&'static str, crate::events::Registration>,
+    pub(crate) event_overflow: RefCell<BTreeSet<&'static str>>,
     registry: BTreeMap<&'static str, Registration>,
     components: BTreeMap<&'static str, Box<dyn Erased>>,
     resources: BTreeMap<&'static str, Box<dyn Erased>>,
@@ -237,7 +239,7 @@ pub struct World {
     pub(crate) leases: Leases,
     // Animation-owned derived data, populated only when animation is linked and used; never saved.
     pub(crate) animation_runtime: RefCell<Option<Box<dyn std::any::Any>>>,
-    journal: RefCell<VecDeque<Event>>,
+    journal: RefCell<VecDeque<JournalEvent>>,
     journal_next: std::cell::Cell<u64>,
     pub(crate) published_pending: std::cell::Cell<bool>,
     published: RefCell<BTreeMap<String, crate::values::Stored>>,
@@ -288,6 +290,8 @@ impl World {
             alive_mask: vec![],
             names: RefCell::new(None),
             rng,
+            event_types: BTreeMap::new(),
+            event_overflow: RefCell::default(),
             registry: BTreeMap::new(),
             components: BTreeMap::new(),
             resources: BTreeMap::new(),
@@ -1041,7 +1045,7 @@ impl World {
         }
         let index = self.journal_next.get();
         self.journal_next.set(index + 1);
-        j.push_back(Event {
+        j.push_back(JournalEvent {
             index,
             tick: self.tick(),
             seconds: self.seconds(),
@@ -1053,7 +1057,7 @@ impl World {
         });
     }
     /// Snapshot journal events; journal reads do not affect simulation state.
-    pub fn journal(&self) -> Vec<Event> {
+    pub fn journal(&self) -> Vec<JournalEvent> {
         self.journal.borrow().iter().cloned().collect()
     }
     /// Publish to the app and journal only changes to this key.
@@ -1173,6 +1177,7 @@ impl World {
     pub(crate) fn registered_scratch(&self) -> Self {
         let mut scratch = Self::new(self.hz(), 0);
         scratch.registry = self.registry.clone();
+        scratch.event_types = self.event_types.clone();
         scratch.derived_publications = self.derived_publications.clone();
         scratch.attachments = self.attachments;
         scratch.detach = self.detach;

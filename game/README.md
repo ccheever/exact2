@@ -341,6 +341,13 @@ since, in order, from `input.messages()`. Nothing is coalesced, nothing needs an
 acknowledgement, and a delivered message is not part of a later save. Use live
 arguments for settings, messages for things that happen once.
 
+Typed simulation events use `#[derive(Default, Event)]`, `register_event`,
+`emit_event` and next-tick `input.events::<T>()`. Their bounded queues are resources
+inside saves and hashes. Read delivered records with `state world events [Type]`.
+String `emit` is the presentation path to Contract `message=`, outside the hash;
+typed events do not deliver a second Contract message. Same-tick effects are function calls.
+See the [tick admission contract](engine/README.md#tick-admission).
+
 ## Proof pins
 
 `pins.json` owns the game's expected tick hashes and continuation-save digests.

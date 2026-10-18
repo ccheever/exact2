@@ -23,6 +23,8 @@ struct Request {
     from: u64,
     limit: Option<u64>,
     resources: bool,
+    events: bool,
+    event_type: Option<String>,
 }
 impl Request {
     fn parse(text: &str) -> Result<Self, DataError> {
@@ -32,6 +34,8 @@ impl Request {
         while let Some(f) = r.field()? {
             match f.as_str() {
                 "op" => q.op.read(&mut r)?,
+                "events" => q.events.read(&mut r)?,
+                "event_type" => q.event_type = Some(r.string()?),
                 "entity" => q.entity = Some(r.string()?),
                 "under" => q.under = Some(r.string()?),
                 "settle" => q.settle.read(&mut r)?,
@@ -275,6 +279,7 @@ impl<G: Game> Sim<G> {
                 out.push('}');
                 Ok(out)
             }
+            "state" if q.events => Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"events\":{}}}", w.hash(), w.events_json(q.event_type.as_deref())?)),
             "state" if q.entity.as_deref() == Some("*") => {
                 let all = hierarchy(w)?;
                 let subtree = q.under.as_deref().map(|n| resolve(w,n)).transpose()?;

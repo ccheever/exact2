@@ -126,6 +126,16 @@ work until a host arms them. `perf world:world` arms and reads p50, p95, maximum
 mean milliseconds per tick; `perf world:world during "clock +1000"` reads only the
 ticks the operation added. Rings retain 16,384 ticks; an expired difference refuses.
 
+## Tick admission
+
+Everything that changes a world from outside the tick enters through the tick-stamped
+input queue, in stamp order, applied at the start of the tick its stamp falls in:
+keys and pads, messages, `set`, a replaced table. Everything the tick itself produces
+for a later tick enters a hashed world queue: typed events, sequence markers.
+Neither path coalesces, reorders or drops silently; each bounds itself and journals
+a refusal by name. Tables, pads and sequence markers use this contract when admitted;
+this engine currently admits keys, pointers, controls, wheels, messages and typed events.
+
 ## HUD and events
 
 Publish ordinary scalars with `w.publish("lit", count)`. For a structured HUD,
@@ -142,7 +152,17 @@ Contract JSON. Record publication rejects enum variants and integers outside
 publication accepts u8/u16/u32 and i8/i16/i32; larger integers can use the checked
 record path. See the [HUD example](../README.md#publications-and-events).
 
-`w.emit("won")` queues a string for the canvas's `message=` handler. Undelivered
+`#[derive(Default, Event)] struct Hit { target: Entity, damage: f32 }` declares
+a simulation event. Call `w.register_event::<Hit>()` in `Game::register` and
+`w.emit_event(Hit { .. })` in the tick. The next tick reads `input.events::<Hit>()`
+in emission order; every tick replaces that delivered batch, even when empty.
+`#[event(capacity = 32)]` overrides the default 256 emissions per type per tick.
+Overflow leaves the queue unchanged and journals one named refusal per type per tick.
+Pending and delivered batches are resources, saved and hashed; restoring before delivery
+reproduces the next tick. `state world events` lists delivered batches with their tick;
+`state world events Hit` filters by type. Same-tick consequences are function calls.
+
+`w.emit("won")` is the presentation path: it queues a string for the canvas's `message=` handler. Undelivered
 messages save in order and stay outside the simulation hash. The journal is
 telemetry; reading it does not change the world.
 
