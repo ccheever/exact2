@@ -906,7 +906,7 @@ agent geometry even at noninteger heights on a 2× display. Integer display scal
 keep texels on whole device pixels; fractional display scales can give uneven
 physical widths with nearest sampling.
 
-Primitives with `Material.color[3] < 1` join this same sorted quad arena: each
+Primitives with `Material.color[3]` in the half-open range `(0.0..1.0)` join this same sorted quad arena: each
 triangle is one instance (the quad's second triangle is degenerate), compatible
 with untextured straight-alpha particles. One halo and a hundred share one draw;
 triangles still cost derivation, upload and sorting. Their look is flat
@@ -962,7 +962,7 @@ geometry/material/winding batches. Repeated handles share one CPU model, one GPU
 upload and one draw group; preparation reuses its content digest across frames.
 `MeshData.colors` is optional linear RGBA. Both model and primitive vertex paths
 multiply the material base colour; model alpha also multiplies vertex alpha,
-including masked shadows. Primitive materials remain opaque. The packed public
+including masked shadows. Primitive materials outside that alpha range remain opaque, including the negative-alpha grid sentinel. The packed public
 `Vertex` is 48 bytes including colour, with white in built-in shapes; skin weights
 retain their separate 32-byte stride. The asset fixture constructs a seeded coloured
 heightfield and three shared rocks in setup, with no runtime texture generator.

@@ -924,6 +924,10 @@ fn world_state(reply: &str) -> bool {
 mod tests;
 #[cfg(test)]
 impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
+    pub(crate) fn world_for_test(&mut self) -> &mut exact_game::World {
+        self.dirty = true;
+        self.sim.as_mut().unwrap().world_mut()
+    }
     pub(crate) fn renderer_for_test(
         &mut self,
     ) -> Option<&mut crate::renderer::RendererWithAssets<ASSETS>> {

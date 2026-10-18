@@ -1381,6 +1381,14 @@ screen, 2026-10-16.)
 
 ## Games
 
+- **A socket follower's local pose is `SocketFollow::offset`.** Its `Transform`
+  is the fallback when the socket cannot resolve; rotating that fallback does not
+  rotate a resolved attachment. Use `SocketFollow.offset.rotation` for the local
+  rotation on a working socket.
+- **Entity verbs require an entity handle.** Use `World::get_mut`, `require_mut` or
+  `nearest_xz_mut`. Consuming query rows and resource guards have no entity identity;
+  their verbs report `entity-handle-required`. Borrowed query iteration yields plain
+  references, which do not expose these verbs.
 - **Append new `Data` enum variants when existing values must keep their hashes.**
   Saves name variants, but the simulation hash includes their declaration ordinals.
   Keep existing ordinals, including `Mesh::Asset` at five, to preserve model-world

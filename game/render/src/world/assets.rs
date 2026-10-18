@@ -45,7 +45,7 @@ impl Assets {
         &mut self,
         w: &World,
         r: &mut impl Writes,
-        drawn: &[(exact_game::Entity, bool)],
+        drawn: &[(exact_game::Entity, bool, bool)],
         batches: &mut Vec<Batch>,
         slots: &mut Vec<u32>,
     ) -> Result<(), RenderError> {
@@ -61,7 +61,7 @@ impl Assets {
                 && w.query::<(&Mesh, &Transform)>()
                     .iter()
                     .zip(drawn)
-                    .filter_map(|((entity, (mesh, _)), &(expected, visible))| {
+                    .filter_map(|((entity, (mesh, _)), &(expected, visible, _))| {
                         debug_assert_eq!(entity, expected);
                         match mesh {
                             Mesh::Asset(name) if visible => Some((entity, name.as_str())),
@@ -89,7 +89,7 @@ impl Assets {
                 .query::<(&Mesh, &Transform)>()
                 .iter()
                 .zip(drawn)
-                .filter_map(|((entity, (mesh, _)), &(expected, visible))| {
+                .filter_map(|((entity, (mesh, _)), &(expected, visible, _))| {
                     debug_assert_eq!(entity, expected);
                     match mesh {
                         Mesh::Asset(name) if visible => Some((entity, name.clone())),
@@ -127,7 +127,7 @@ impl Assets {
     fn remove_models(
         &mut self,
         w: &World,
-        drawn: &[(exact_game::Entity, bool)],
+        drawn: &[(exact_game::Entity, bool, bool)],
         revisions: [u64; 3],
     ) -> bool {
         let Some(structure) = &mut self.structure else {
@@ -138,7 +138,7 @@ impl Assets {
         }
         let mut keep = Vec::new();
         let mut at = 0;
-        for ((entity, (mesh, _)), &(expected, visible)) in
+        for ((entity, (mesh, _)), &(expected, visible, _)) in
             w.query::<(&Mesh, &Transform)>().iter().zip(drawn)
         {
             debug_assert_eq!(entity, expected);

@@ -16,6 +16,7 @@ struct Primitive {
     material: Material,
     glow: Option<Glow>,
     opacity: f32,
+    viewmodel: bool,
 }
 #[derive(Default)]
 pub(super) struct Primitives {
@@ -82,11 +83,13 @@ impl Primitives {
                 material: *material,
                 glow: None,
                 opacity: 1.,
+                viewmodel: false,
             });
             if p.mesh != item.value {
                 p.triangles = triangles();
                 p.mesh.clone_from(&item.value);
             }
+            p.viewmodel = w.has::<exact_game::ViewModel>(item.entity);
             p.poses = item.poses;
             p.material = *material;
             if let Some(tint) = w.get::<exact_game::Tint>(item.entity) {
@@ -114,20 +117,23 @@ impl Primitives {
         order: &mut Vec<Order>,
     ) {
         for p in self.items.values() {
+            // Primitive shaders interpolate absolute scales; attachments retain their affine map.
+            let poses = p.poses.map(|mut pose| {
+                pose.scale = pose.scale.abs();
+                pose
+            });
             let matrix =
-                f.displayed_matrix(p.entity, crate::world::scene::interpolate(p.poses, f.alpha));
+                f.displayed_matrix(p.entity, crate::world::scene::interpolate(poses, f.alpha));
             let reach = p
                 .triangles
                 .iter()
                 .flatten()
                 .map(|v| v.length())
                 .fold(0., f32::max)
-                * matrix
-                    .x_axis
-                    .truncate()
-                    .length()
-                    .max(matrix.y_axis.truncate().length())
-                    .max(matrix.z_axis.truncate().length());
+                // Frobenius norm bounds affine stretch, including shear.
+                * (matrix.x_axis.truncate().length_squared()
+                    + matrix.y_axis.truncate().length_squared()
+                    + matrix.z_axis.truncate().length_squared()).sqrt();
             if cull && !crate::cull::sphere_visible(camera, matrix.w_axis.truncate(), reach) {
                 continue;
             }
@@ -138,8 +144,13 @@ impl Primitives {
             let m = p.material;
             let color = [m.color[0], m.color[1], m.color[2], m.color[3] * p.opacity];
             let emissive = m.emissive.map(|c| c * glow);
+            let reflected = matrix.determinant() < 0.;
             for triangle in &p.triangles {
-                let [a, b, c] = triangle.map(|v| matrix.transform_point3(v));
+                let [a, mut b, mut c] = triangle.map(|v| matrix.transform_point3(v));
+                // The cross product is also the flat lighting normal in quad.wgsl.
+                if reflected {
+                    std::mem::swap(&mut b, &mut c);
+                }
                 let index = data.len();
                 data.push(super::quad(
                     a,
@@ -151,7 +162,7 @@ impl Primitives {
                     0.,
                 ));
                 order.push(Order {
-                    kind: Kind::Particle(false, NO_LOOK, false),
+                    kind: Kind::Particle(false, NO_LOOK, false, p.viewmodel),
                     depth: -f.view.transform_point3((a + b + c) / 3.).z,
                     layer: 0,
                     slot: p.entity.index(),

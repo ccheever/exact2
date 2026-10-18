@@ -456,7 +456,7 @@ pub struct Feed {
     groups: Vec<Group>,
     shapes: BTreeMap<(Shape, bool), usize>,
     batches: Vec<Batch>,
-    draw_entities: Vec<(exact_game::Entity, bool)>,
+    draw_entities: Vec<(exact_game::Entity, bool, bool)>,
     visibility: visibility::Visibility,
     parent_changes: visibility::ParentChanges,
     slots: Vec<u32>,
@@ -646,7 +646,7 @@ impl Feed {
             || next.lod != old.lod
             || next.live != old.live
             || next.membership != old.membership;
-        let draw_entities = if batches {
+        let draw_entities = if batches || next.material != old.material {
             // Entity/parent/visibility revisions include cameras, particles and
             // gameplay-only rows. Rebuild draw records only if their effective
             // membership changed, or a draw's own mesh/LOD/assets changed.
@@ -654,7 +654,14 @@ impl Feed {
             let entities: Vec<_> = w
                 .query::<(&Mesh, &Transform)>()
                 .iter()
-                .map(|(entity, _)| (entity, self.visibility.get(w, entity)))
+                .map(|(entity, _)| {
+                    (
+                        entity,
+                        self.visibility.get(w, entity),
+                        w.get::<Material>(entity)
+                            .is_some_and(|m| (0.0..1.0).contains(&m.color[3])),
+                    )
+                })
                 .collect();
             batches = initial
                 || next.assets != old.assets
@@ -935,7 +942,7 @@ impl Feed {
             for group in &mut self.groups {
                 group.slots.clear();
             }
-            for ((e, (mesh, _)), &(expected, visible)) in
+            for ((e, (mesh, _)), &(expected, visible, translucent)) in
                 w.query::<(&Mesh, &Transform)>().iter().zip(drawn)
             {
                 debug_assert_eq!(e, expected);
@@ -949,10 +956,7 @@ impl Feed {
                     self.dimensions.resize(slot + 1, [1.0; 3]);
                 }
                 self.dimensions[slot] = dimensions(mesh);
-                if !visible
-                    || w.get::<Material>(e)
-                        .is_some_and(|m| (0.0..1.0).contains(&m.color[3]))
-                {
+                if !visible || translucent {
                     continue;
                 }
                 let viewmodel = w.has::<ViewModel>(e);

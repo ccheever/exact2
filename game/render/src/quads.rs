@@ -14,8 +14,8 @@ use std::{collections::BTreeMap, ops::Range};
 pub(crate) enum Kind {
     Model(usize, u32),
     /// Additive, the `looks` index of a textured look (`NO_LOOK` for dots), and
-    /// soft (fading into the opaque scene).
-    Particle(bool, u32, bool),
+    /// soft (fading into the opaque scene), and viewmodel depth membership.
+    Particle(bool, u32, bool, bool),
     Sprite(usize),
     #[cfg(not(target_arch = "wasm32"))]
     Child(u16),
@@ -583,7 +583,7 @@ impl Quads {
         let target = (self.samples, Some(self.format));
         for i in 0..self.draws.len() {
             match self.draws[i].kind {
-                Kind::Particle(_, NO_LOOK, _) if self.direct.particles.is_none() => {
+                Kind::Particle(_, NO_LOOK, _, _) if self.direct.particles.is_none() => {
                     let shader = self.particle_shader(d);
                     self.direct.particles = Some(std::array::from_fn(|i| {
                         pipeline(
@@ -596,7 +596,9 @@ impl Quads {
                         )
                     }));
                 }
-                Kind::Particle(_, look, _) if look != NO_LOOK && self.direct.textured.is_none() => {
+                Kind::Particle(_, look, _, _)
+                    if look != NO_LOOK && self.direct.textured.is_none() =>
+                {
                     self.texture_layout(d);
                     let shader = self.sprite_shader(d);
                     let texture = self.texture_layout.as_ref().unwrap();
@@ -652,7 +654,7 @@ impl Quads {
     pub fn soft_drawn(&self) -> bool {
         self.draws
             .iter()
-            .any(|d| matches!(d.kind, Kind::Particle(_, _, true)))
+            .any(|d| matches!(d.kind, Kind::Particle(_, _, true, _)))
     }
     /// Bind this frame's multisampled scene depth for soft particles (`None`
     /// draws them hard, as without a split translucent pass).
@@ -795,6 +797,7 @@ impl Quads {
                         e.additive,
                         textured.map_or(NO_LOOK, |i| i as u32),
                         soft > 0.,
+                        false,
                     ),
                     depth: -f.view.transform_point3(position).z,
                     layer: e.layer,
@@ -945,7 +948,7 @@ impl Quads {
         }
         pass.set_bind_group(0, &self.bind, &[]);
         match draw.kind {
-            Kind::Particle(additive, look, soft) => {
+            Kind::Particle(additive, look, soft, _) => {
                 let soft = match (&self.soft_bind, &self.soft_pipelines) {
                     (Some((_, bind)), Some(pipelines)) if soft && self.soft_active => {
                         Some((bind, pipelines))
@@ -1026,8 +1029,9 @@ fn push_draw(
 ) {
     if let Some(previous) = draws.last_mut() {
         let compatible = match (previous.kind, kind) {
-            (Kind::Particle(a, i, s), Kind::Particle(b, j, t)) => {
+            (Kind::Particle(a, i, s, v), Kind::Particle(b, j, t, w)) => {
                 a == b
+                    && v == w
                     && s == t
                     && (i == j
                         || (i != NO_LOOK
@@ -1338,7 +1342,7 @@ mod retained_tests {
     #[test]
     fn every_kind_and_owner_ordinal_has_the_same_total_order() {
         let mut kinds = vec![
-            Kind::Particle(false, NO_LOOK, false),
+            Kind::Particle(false, NO_LOOK, false, false),
             Kind::Model(0, 0),
             Kind::Sprite(0),
         ];
@@ -1376,7 +1380,7 @@ mod retained_tests {
         // Rank is independently pinned; a mistaken enum rank must fail too.
         assert_eq!(Kind::Model(0, 0).rank(), 0);
         assert_eq!(Kind::Sprite(0).rank(), 1);
-        assert_eq!(Kind::Particle(false, NO_LOOK, false).rank(), 2);
+        assert_eq!(Kind::Particle(false, NO_LOOK, false, false).rank(), 2);
         #[cfg(not(target_arch = "wasm32"))]
         assert_eq!(Kind::Child(0).rank(), 3);
     }

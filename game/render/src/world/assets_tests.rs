@@ -75,7 +75,7 @@ fn feed(assets: &mut Assets, w: &World, r: &mut Recording) -> (Vec<Batch>, Vec<u
     let drawn: Vec<_> = w
         .query::<(&Mesh, &Transform)>()
         .iter()
-        .map(|(entity, _)| (entity, w.is_visible(entity)))
+        .map(|(entity, _)| (entity, w.is_visible(entity), false))
         .collect();
     let (mut batches, mut slots) = (Vec::new(), Vec::new());
     assets
