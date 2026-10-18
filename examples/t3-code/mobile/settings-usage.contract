@@ -197,7 +197,7 @@ component SettingsUsage
           text data.emptyMessage padding-top=56 padding-bottom=56 text-align="center" color=colors.muted font-size=roles.body.size
         if data.tab == "limits"
           if data.limitsEmpty.length > 0
-            text data.limitsEmpty color=colors.muted font-size=roles.body.size
+            text data.limitsEmpty padding-top=42 padding-bottom=42 text-align="center" color=colors.muted font-size=roles.body.size line-height=`${roles.body.line}px`
           for pool, poolIndex in data.pools key=pool.id
             if poolIndex == data.cursorPoolInsertAt
               UsageCursorLimits(items=data.cursor, colors=colors, roles=roles, dark=dark, command=command)

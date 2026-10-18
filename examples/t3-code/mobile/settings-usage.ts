@@ -24,8 +24,10 @@ export function usageGrant(session:Obj):boolean {
 }
 export const mobileUsageWindow=(days:number,now:number)=>makeWindow([1,7,30,90].includes(days)?days:30,now);
 interface CachedSummary { generation:number; origin:string|null; windowKey:string; summary:Obj|null; error:string; pending:Promise<Obj>|null }
-const summaries=new Map<string,CachedSummary>(),refreshAfter=new Map<string,number>(),refreshes=new Map<string,Promise<void>>(),commands=new Set<string>();
+interface LimitsGroup { failureSerial:number }
+const summaries=new Map<string,CachedSummary>(),refreshAfter=new Map<string,{after:number;failure:{group:LimitsGroup;label:string;order:number}|null}>(),refreshes=new Map<string,Promise<void>>(),commands=new Set<string>();
 let prepared:{selection:string;tab:string;window:UsageWindow;metric:string;now:number;sources:UsageSourceView[];presentations:LimitPresentations;external:boolean;choices:{id:string;label:string;selected:boolean}[];endpoints:Map<string,MobileSettingsEndpoint>}|null=null;
+let limitsGroup:LimitsGroup|null=null;
 let epoch=0;
 const failure=(error:unknown,fallback:string)=>error instanceof Error?error.message:fallback;
 const result=(message='')=>({revision:++mobileClient.revision,message});
@@ -61,18 +63,25 @@ async function readSummary(endpoint:MobileSettingsEndpoint,window:UsageWindow,fo
   }catch(error){if(letGo(error))throw error;if(isCurrent())entry.error=failure(error,'Could not read usage.');}
   return entry;
 }
-async function probe(endpoint:MobileSettingsEndpoint,now:number,automatic:boolean,afterPending=false):Promise<void> {
-  const key=JSON.stringify([endpoint.source.key,endpoint.generation]),pending=refreshes.get(key);
-  if(pending){if(!afterPending)return automatic?undefined:pending;try{await pending;}catch{}return probe(endpoint,now,false,true);}
-  if(automatic&&now<(refreshAfter.get(key)??0))return;
-  const promise=(async()=>{await settingsCall(endpoint,{op:'request',method:'server.refreshProviders',payload:{}});
+async function probe(endpoint:MobileSettingsEndpoint,now:number,automatic:boolean,afterPending=false,group=limitsGroup):Promise<void> {
+  const key=JSON.stringify([endpoint.source.key,endpoint.generation]),pending=refreshes.get(key),label=endpoint.source.label;
+  if(pending){if(!afterPending)return automatic?undefined:pending;try{await pending;}catch{}return probe(endpoint,now,false,true,group);}
+  const state=refreshAfter.get(key)??{after:0,failure:null};
+  if(automatic&&now<state.after)return;
+  refreshAfter.set(key,state);
+  const owns=()=>group!==null&&limitsGroup===group&&settingsEndpointCurrent(endpoint);
+  const promise=(async()=>{
+    try{await settingsCall(endpoint,{op:'request',method:'server.refreshProviders',payload:{}});}
+    catch(cause){if(!letGo(cause)&&group&&owns())state.failure={group,label,order:++group.failureSerial};throw cause;}
+    if(owns())state.failure=null;
     const config=await settingsCall(endpoint,{op:'request',method:'server.getConfig',payload:{}});settingsAdoptConfig(endpoint,config);
-  })().finally(()=>{refreshes.delete(key);refreshAfter.set(key,now+300000);});refreshes.set(key,promise);return promise;
+  })().finally(()=>{refreshes.delete(key);state.after=now+300000;});refreshes.set(key,promise);return promise;
 }
 /** Async only at route activation, source/revision/window changes, or refresh; local metric/reveal uses snapshot. */
 export async function mobileUsage(selectionJSON:string,tab:string,windowJSON:string,metric:string,now:number,nativeInput:Native|null|undefined,externalLinksAvailable=false,active=true,isCurrent=()=>true) {
   const run=++epoch;
-  if(!active){prepared=null;return mobileUsagePresentation(null);}
+  if(!active){prepared=null;limitsGroup=null;return mobileUsagePresentation(null);}
+  limitsGroup??={failureSerial:0};
   if(!nativeInput?.available)return mobileUsagePresentation(null);
   try{
     const selection=mobileUsageSelection(selectionJSON),window=parseWindow(windowJSON),native=settingsNative(nativeInput),all=await settingsSources(native);
@@ -99,7 +108,11 @@ export async function mobileUsage(selectionJSON:string,tab:string,windowJSON:str
 /** No network/watch activity for a metric or email-reveal change. Scope mismatch never shows another selection. */
 export function mobileUsageSnapshot(selectionJSON:string,tab:string,metric:string){
   const selectedTab=tab==='usage'?'usage':'limits';
-  return prepared?.selection===selectionJSON?mobileUsagePresentation({...prepared,tab:selectedTab,metric:metric==='tokens'?'tokens':'cost'},true,id=>commands.has(JSON.stringify(['enable-cursor',id,'']))):{...mobileUsagePresentation(null),tab:selectedTab,canRefresh:false};
+  if(prepared?.selection!==selectionJSON)return {...mobileUsagePresentation(null),tab:selectedTab,canRefresh:false};
+  const selected=prepared,failedLabels=selected.sources.flatMap(source=>{const endpoint=selected.endpoints.get(source.id);
+    const failure=endpoint?refreshAfter.get(JSON.stringify([endpoint.source.key,endpoint.generation]))?.failure:null;
+    return failure&&failure.group===limitsGroup?[failure]:[];}).sort((a,b)=>a.order-b.order).map(failure=>failure.label);
+  return mobileUsagePresentation({...selected,failedLabels,tab:selectedTab,metric:metric==='tokens'?'tokens':'cost'},true,id=>commands.has(JSON.stringify(['enable-cursor',id,''])));
 }
 async function current(environmentId:string,native:Native,permission:'diagnostics:read'|'settings:write'|'providers:manage'|null,selected=prepared) {
   if(!selected?.sources.some(source=>source.id===environmentId))throw new ClientError('Choose an environment in the current usage selection.');

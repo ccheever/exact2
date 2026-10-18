@@ -4,7 +4,7 @@ import { arr, obj, str, type Obj } from './shared/domain';
 import { formatCount, formatTokens, formatUsd, formatPercent, formatDayShort, formatHourShort, mergeUsage, windowPeriods, isModelCostUnknown, type UsageWindow } from './shared/pages-usage';
 import { collectLimitAccounts, collectLimitPools, collectLimitNotices, collectExternalUsageLinks, cursorUsageWindowDetails, displayLimitWindows, remainingPercent, formatResetsIn, formatDuration, type LimitAccount, type LimitPresentations } from './settings-usage-limits';
 export interface UsageSourceView {id:string;label:string;connected:boolean;summary:Obj|null;error:string;canRead:boolean;canWrite:boolean;canManage:boolean;config:Obj}
-interface Prepared {tab:string;window:UsageWindow;metric:string;now:number;sources:UsageSourceView[];presentations:LimitPresentations;external:boolean}
+interface Prepared {tab:string;window:UsageWindow;metric:string;now:number;sources:UsageSourceView[];presentations:LimitPresentations;external:boolean;failedLabels?:string[]}
 export const MOBILE_USAGE_PROVIDERS=[
   {id:'codex',driver:'codex',label:'Codex',light:'#3c3c43',dark:'#e6e6e6'}, {id:'claude',driver:'claudeAgent',label:'Claude Code',light:'#d97757',dark:'#d97757'},
   {id:'grok',driver:'grok',label:'Grok Build',light:'#52525b',dark:'#a1a1aa'}, {id:'cursor',driver:'cursor',label:'Cursor',light:'#8b8b8b',dark:'#8b8b8b'},
@@ -41,12 +41,14 @@ export function mobileUsagePresentation(input:Prepared|null,publish=true,pending
   const cursor=cursorSources.map(source=>({id:source.id,label:source.label,usageLabel:sources.length>1?`Cursor · ${source.label}`:'Cursor',
     buttonLabel:cursorSources.length>1?`Enable on ${source.label}`:'Enable',disabled:!source.connected||!source.canWrite||pendingCursor(source.id)}));
   const providers=mobileUsageProviderRows(merged.providers,tokens),afterCore=(ids:string[],claude:string)=>Math.max(ids.indexOf('codex'),ids.indexOf(claude))+1;
+  const limitNotices=collectLimitNotices(input?.presentations??new Map()),externalLinks=collectExternalUsageLinks(input?.presentations??new Map()),failedLabels=input?.failedLabels??[];
   return {ready:!!input,error:'',tab:input?.tab??'limits',metric:tokens?'tokens':'cost',hasUsage:actual,canRefresh:(input?.tab??'limits')==='limits'||sources.some(source=>source.canRead),refreshing:false,
-    emptyMessage:!input?'':!sources.length?'Select an environment to see usage.':!actual&&input.tab==='usage'?'No usage summary is available for these environments.':'',
+    emptyMessage:!input||input.tab!=='usage'?'':!sources.length?'Select an environment to see usage.':!actual?'No usage summary is available for these environments.':'',
     environments:sources.map(source=>({id:source.id,label:source.label,status:source.error||(!source.connected?'Waiting for connection…':''),connected:source.connected})),
-    notices:[...collectLimitNotices(input?.presentations??new Map()),...merged.mismatches.map(item=>`${item.environment}: ${item.direction==='serverBehind'?'Update the server to read usage.':'Update this app to read usage.'}`),...sources.flatMap(source=>arr(source.summary?.sources).flatMap(item=>str(item.message)?[`${source.label}: ${str(item.message)}`]:[]))].map((text,index)=>({id:String(index),text})),
+    notices:[...limitNotices,...merged.mismatches.map(item=>`${item.environment}: ${item.direction==='serverBehind'?'Update the server to read usage.':'Update this app to read usage.'}`),...sources.flatMap(source=>arr(source.summary?.sources).flatMap(item=>str(item.message)?[`${source.label}: ${str(item.message)}`]:[])),
+      ...(input?.tab==='limits'&&failedLabels.length?[`${failedLabels.join(', ')} could not refresh limits. Showing the last known values.`]:[])].map((text,index)=>({id:String(index),text})),
     duplicateMessage:merged.duplicates.length?`Counted once across environments sharing a transcript directory: ${merged.duplicates.join(', ')}`:'',
-    links:collectExternalUsageLinks(input?.presentations??new Map()).map(link=>({...link,accounts:link.accounts.join(', '),message:link.message??'',disabled:!input?.external})),
+    links:externalLinks.map(link=>({...link,accounts:link.accounts.join(', '),message:link.message??'',disabled:!input?.external})),
     cursor,cursorInsertAt:afterCore(providers.map(item=>item.id),'claude'),cursorPoolInsertAt:afterCore(pools.map(pool=>pool.driver),'claudeAgent'),
     pools:pools.map(pool=>({id:pool.driver,label:LIMIT_DRIVER_LABEL[pool.driver]??pool.driver,light:provider(pool.driver==='claudeAgent'?'claude':'codex').light,dark:provider(pool.driver==='claudeAgent'?'claude':'codex').dark,
       windows:displayLimitWindows(pool).map(window=>{
@@ -60,7 +62,8 @@ export function mobileUsagePresentation(input:Prepared|null,publish=true,pending
               pending:!!own?.resetsAt,resetsIn:resetsIn??'',resetLabel:resetsIn?.replace('resets in ','↻ ')??'',credits:account.limits.resetCredits?.availableCount??0};
           })};
       })})),
-    limitsEmpty:input?.tab==='limits'&&pools.length===0&&cursor.length===0?'No subscription limits reported.':'',
+    limitsEmpty:input?.tab==='limits'&&pools.length===0&&limitNotices.length===0&&failedLabels.length===0&&cursor.length===0&&externalLinks.length===0
+      ?sources.length===0?'Select an environment to see limits.':'No provider on the selected environments reports subscription limits.':'',
     total:actual?(tokens?formatTokens(merged.totalTokens):formatUsd(merged.costUsd)):'',chartTitle:`${input?.window.resolution==='hour'?'Hourly':'Daily'} ${tokens?'processed tokens':'cost'}`,
     chartHasActivity:(input?.window.resolution==='hour'?merged.hourly:merged.daily).some(period=>period.totalTokens>0),
     headlineLabel:actual?(tokens?'Processed tokens':'Raw token cost'):'',
