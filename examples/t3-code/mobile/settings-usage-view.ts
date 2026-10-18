@@ -11,8 +11,8 @@ export const MOBILE_USAGE_PROVIDERS=[
   {id:'opencode',driver:'opencode',label:'OpenCode',light:'#5b9bbd',dark:'#5b9bbd'}, {id:'antigravity',driver:'antigravity',label:'Antigravity',light:'#8c7bd1',dark:'#8c7bd1'}];
 export function mobileUsageProviderRows(providers:Readonly<ReturnType<typeof mergeUsage>['providers']>,tokens:boolean){
   return [...providers].sort((a,b)=>tokens?b.totalTokens-a.totalTokens:b.costUsd-a.costUsd).flatMap(total=>{
-    const item=MOBILE_USAGE_PROVIDERS.find(item=>item.id===total.provider);
-    return item?[{id:item.id,label:item.label,light:item.light,dark:item.dark,value:tokens?formatTokens(total.totalTokens):formatUsd(total.costUsd),share:formatPercent(tokens?total.tokenShare:total.costShare),detail:tokens?formatUsd(total.costUsd):`${formatTokens(total.totalTokens)} tokens`}]:[];
+    const item=MOBILE_USAGE_PROVIDERS.find(item=>item.id===total.provider),fraction=tokens?total.tokenShare:total.costShare;
+    return item?[{id:item.id,label:item.label,light:item.light,dark:item.dark,value:tokens?formatTokens(total.totalTokens):formatUsd(total.costUsd),fraction,share:`${formatPercent(fraction)} of ${tokens?'tokens':'cost'}`,detail:tokens?formatUsd(total.costUsd):`${formatTokens(total.totalTokens)} tokens`}]:[];
   });
 }
 const provider=(id:string)=>MOBILE_USAGE_PROVIDERS.find(provider=>provider.id===id||provider.driver===id)??{id,driver:id,label:id,light:'#737373',dark:'#a3a3a3'};
