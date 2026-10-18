@@ -1164,7 +1164,7 @@ async function main(args) {
       copyFileSync(resolve(swiftBinDir, p), executable);
       assertAppleIdentity(app, executable, bakedCompat.id, shared && resolve(shared.framework, 'ExactCore'));
       assertLinkedSdk(executable, designCompatible(app, ios ? 'ios' : 'macos') ? COMPATIBLE_SDK[ios ? 'ios' : 'macos'] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
-      assertCapabilityFrameworks(executable, swiftCapabilities, gallery ? ['SwiftUI'] : []);
+      assertCapabilityFrameworks(executable, gallery ? [...swiftCapabilities, 'ExactSnapshot'] : swiftCapabilities, gallery ? ['SwiftUI'] : []);
       if (ipa) stripped = stripForDistribution(executable, `${ipa.replace(/\.ipa$/, '')}.dSYM`);
     }
   } finally { releaseSwift(); }
