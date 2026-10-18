@@ -245,6 +245,7 @@ impl Painter {
             scene: walk.scene,
             boxes: Vec::new(),
             text: BTreeMap::new(),
+            fields: HashMap::new(),
             skip: None,
             replay: None,
             ranks: Rc::clone(&walk.ranks),
@@ -260,6 +261,7 @@ impl Painter {
             None,
         );
         walk.text.extend(child_walk.text);
+        walk.fields.extend(child_walk.fields);
         let planes = [[0., 0., 1.]; 2];
         if let Ok(source) = painter.backend.finish() {
             if let Some((pixels, rect)) =

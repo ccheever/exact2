@@ -81,7 +81,13 @@ impl Painter {
             p.translate.1,
             p.scale * p.press,
             p.rotate,
-            p.opacity,
+            // The layer's alpha only where its reader plays the opacity: else
+            // the painter draws it into the layer's content (`Painter::node`).
+            if p.lowered & LOWER_OPACITY != 0 {
+                p.opacity
+            } else {
+                1.0
+            },
             0.0,
             0.0,
         ];

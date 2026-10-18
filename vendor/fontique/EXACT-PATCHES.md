@@ -49,6 +49,16 @@ here pass.
    (`a_script_without_families_of_its_own_takes_the_last_resort`: every
    script's list is what a copy per script gave).
 
+5. **Pinned declared weight.** `FontInfo::with_pinned_weight` keeps a
+   declaration's `wght` coordinate, clamped to the file's axis range,
+   separately from its matching weight. Synthesis emits that coordinate
+   even when the request equals the declaration, and never substitutes the
+   requested weight or faux bold. Linux enables it for declared faces before
+   Parley shapes, so advances, normalized coordinates and presenter settings
+   agree. Reversed or NaN axis bounds leave the face unpinned. Static faces
+   and installed variable fonts retain their behavior.
+   Tests: `host/linux/src/text/variable_face_tests.rs`.
+
 `Cargo.toml` also carries the empty `[workspace]` boundary described below;
 retain it when updating. All remaining archive files are byte-for-byte upstream.
 

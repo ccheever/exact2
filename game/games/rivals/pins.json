@@ -4,16 +4,16 @@
     "1080": "0x1e5dd38f9b0ce70a"
   },
   "saves": {
-    "continuation": "1281660766dcd23f55c3e6e1cb581920bee88a6f19df6f68d35b523a782e3072"
+    "continuation": "fb7228f320ecd6e1e2d4219836b5c6ce52cfd191d3fca8ee6bc4266e5a57a6b1"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "3405923bfd0b7a8a6f1621ded724693964fcb005f17adad5e3681023302cb419",
-  "sourceInputs": "ea05810dc091048c0c7f57dfc77be878788753ffc444bf8c11dbd5401bfbe651",
+  "inputs": "0e3580d0e1ae109278fcf10ba20c78725586c2089318309cc8001c744a6ff755",
+  "sourceInputs": "abc78712eca22c6ee88456c18be5db097a564327b2b9b1ea0be79238c5aea2d1",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "dafbc718b70afd2e658500f6291a35c37c49d3d0",
-  "reason": "Review round 2 of LLP 1127.003: Input's applied contexts and bindings leave its saved copy for the InputState resource, so the continuation save's bytes move; Rivals uses neither, and ticks 0 and 1080 are unchanged."
+  "at": "6419855d6257b681461c72dc257e33e6375017fb",
+  "reason": "EXGAME v5 (developmentEdits): continuation bytes differ by the version byte only; tick hashes unchanged"
 }

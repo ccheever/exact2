@@ -17,6 +17,7 @@ mod overlay;
 mod pinned_engines;
 mod pure;
 mod render;
+mod snapshot;
 mod socket;
 mod storage;
 mod superseded;

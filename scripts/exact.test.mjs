@@ -709,17 +709,24 @@ test.skipIf(process.platform !== 'darwin')('Apple asset catalogs retain named im
 }), 60000);
 
 // LLP 1116.001 D4.5: `exact contract build` of an app's app.contract rewrites the types its app.ts imports
-// when a source's signature changed, and only then, saying so in one line on stderr; `contract types` agrees.
+// when a source's signature changed, and only then, saying so in one line on stderr (under `--json`, nothing on
+// stderr: the array is the whole reply); `contract types` agrees.
 test('contract build regenerates app.contract.d.ts when a signature changed, and only then', () => inDir(dir => {
   const contract = (shape) => `shape Greeting\n  text: string\n${shape}\ncomponent App\n  resource greeting = greeting("x") as shape Greeting\n  view\n    text greeting.text\n`;
   writeFileSync(resolve(dir, 'app.contract'), contract(''));
   writeFileSync(resolve(dir, 'app.ts'), "export const appId = 'com.example.types';\n");
   const exact = (...args) => spawnSync(process.execPath, [resolve(import.meta.dir, 'exact.mjs'), ...args], { cwd: dir, encoding: 'utf8', timeout: 600_000 });
-  const build = () => exact('contract', 'build', 'app.contract', '--json');
+  const build = () => exact('contract', 'build', 'app.contract');
+  const json = () => exact('contract', 'build', 'app.contract', '--json');
   const types = resolve(dir, 'app.contract.d.ts');
-  let r = build();
+  let r = json();
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout.trim(), '[]', 'the build\'s reply stays JSON');
+  assert.equal(r.stdout, '[]\n', 'the build\'s reply is one JSON value');
+  assert.equal(r.stderr, '', 'and the whole of it');
+  assert.ok(existsSync(resolve(dir, 'app.contract.d.ts')), 'written all the same');
+  rmSync(resolve(dir, 'app.contract.d.ts'));
+  r = build();
+  assert.equal(r.status, 0, r.stderr);
   assert.match(r.stderr, /^app\.contract\.d\.ts: written \(the types app\.ts imports\)$/m);
   assert.equal(readFileSync(types, 'utf8'), exact('contract', 'types', 'app.contract').stdout, 'what contract types prints');
   const written = statSync(types).mtimeMs;
@@ -737,12 +744,18 @@ test('contract build regenerates app.contract.d.ts when a signature changed, and
   writeFileSync(resolve(dir, 'other.contract'), contract(''));
   assert.doesNotMatch(exact('contract', 'build', 'other.contract').stderr, /app\.contract\.d\.ts/);
   // In an app's directory (an app.json beside it) the build type-checks app.ts as every host's build does,
-  // its report on stderr; outside one (above) it does not.
+  // its report on stderr, or under `--json` in the array; outside one (above) it does not.
   writeFileSync(resolve(dir, 'app.contract'), contract(''));
   writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Types', app: { id: 'com.example.types', name: 'Types' } }));
   writeFileSync(resolve(dir, 'app.ts'), "export const appId: number = 'com.example.types';\n");
   r = build();
   assert.equal(r.status, 1, r.stderr);
-  assert.equal(r.stdout.trim(), '[]', 'the build\'s reply stays JSON');
   assert.match(r.stderr, /app\.ts\(1,14\): error TS2322/);
+  r = json();
+  assert.equal(r.status, 1, r.stderr);
+  assert.equal(r.stderr, '');
+  // One diagnostic per TypeScript error (the fixture's app.ts also lacks the exports the entry reads).
+  const error = JSON.parse(r.stdout).find((d) => d.file === 'app.ts');
+  assert.deepEqual({ ...error, message: undefined }, { id: 'typescript-TS2322', severity: 'error', message: undefined, file: 'app.ts', line: 1, col: 14, end_col: 14, related: [] });
+  assert.match(error.message, /not assignable to type 'number'/);
 }), 600_000); // The first call may compile the compiler.

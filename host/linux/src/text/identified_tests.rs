@@ -131,6 +131,7 @@ fn paint(p: &mut Painter, k: &Kernel) -> crate::paint::Frame {
             images: &BTreeMap::new(),
             focus: None,
             selection: None,
+            caret_upstream: false,
             pointer: None,
             controls: &BTreeMap::new(),
             chosen: &BTreeMap::new(),

@@ -426,6 +426,10 @@ export function tapWords(args, held = false) {
     case 'at': return [first, options(args.slice(1), ['at', 'modifiers'])];
     case 'down': return [first, { down: true, ...options(rest, ['at', 'modifiers']) }];
     case 'hover': return [first, { hover: true, ...options(rest, []) }];
+    // A held state (LLP 1122 D8): `tap <target> hold-state active|hover|focus-visible|none`, as the host's own.
+    case 'hold-state':
+      if (rest.length !== 1 || !['active', 'hover', 'focus-visible', 'none'].includes(rest[0])) refuse('hold-state takes active, hover, focus-visible or none');
+      return [first, { holdState: rest[0] === 'none' ? null : rest[0] }];
     case 'history': if (rest.length !== 1) refuse('history takes one step, as history -1'); return [first, { history: number(rest[0], 'history') }];
     case 'mediasession':
       if (!rest[0] || rest.length > 2) refuse('mediasession <action> [seconds]');

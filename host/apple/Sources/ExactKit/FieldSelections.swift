@@ -238,7 +238,7 @@ final class FieldSelections {
     /// write, not an undoable user edit; the admitted extra input keeps the
     /// app's binding synchronized (LLP 1069.001, issue #275).
     func setRangeText(_ args: [Any]) {
-        guard [2, 4, 5].contains(args.count), let name = args[0] as? String,
+        guard (2...6).contains(args.count), let name = args[0] as? String,
               let replacement = args[1] as? String else { return }
         let refuse = { (why: String) in self.presenter.session?.log("setRangeText \"\(name)\" refused: \(why)") }
         let named = presenter.views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name })
@@ -246,7 +246,10 @@ final class FieldSelections {
         guard let node = named, Self.tracks(node), node.textArea != nil || ["text", "search", "url", "tel", "password"].contains(node.props["type"] ?? "text") else {
             refuse("not a plain text field"); return
         }
-        let mode = args.count == 5 ? args[4] as? String ?? "" : "preserve"
+        let undo = args.count == 3 || args.count == 6
+        guard !undo || args.last as? String == "undo" else { refuse("invalid undo mode"); return }
+        if undo && node.fieldComposing { refuse("composition is active"); return }
+        let mode = args.count >= 5 ? args[4] as? String ?? "" : "preserve"
         guard ["preserve", "select", "start", "end"].contains(mode) else { refuse("invalid selectionMode"); return }
         let old = current(node), value = Array(node.fieldText.utf16)
         var start = old.start, end = old.end
@@ -274,7 +277,16 @@ final class FieldSelections {
                                        end: old.end > end ? old.end + delta : old.end > start ? after : old.end)
         }
         selection = .clamped(Double(selection.start), Double(selection.end), nil, length: next.utf16.count)
-        quietly { node.replaceFieldValue(next) }
+        if undo && node.fieldText != next {
+            guard let manager = node.fieldUndoManager else { refuse("no native undo manager"); return }
+            let entry = FieldUndoEntry(node: node, value: node.fieldText, selection: old)
+            manager.beginUndoGrouping()
+            entry.register(in: manager)
+            quietly { node.replaceFieldValue(next, clearUndo: false) }
+            set(node, selection, notify: false)
+            manager.setActionName("Replace Text")
+            manager.endUndoGrouping()
+        } else { quietly { node.replaceFieldValue(next, clearUndo: !undo) } }
         // Value mutation invalidates the prior scripted-selection suppression.
         scripted[node.id] = nil
         set(node, selection, notify: false)
@@ -355,7 +367,7 @@ extension NodeView {
     /// A script replaces the buffer without registering a native undo edit.
     /// As with an authoritative value write, old native undo ranges no longer
     /// describe this buffer; discard only this field's history.
-    func replaceFieldValue(_ value: String) {
+    func replaceFieldValue(_ value: String, clearUndo: Bool = true) {
         pendingValue = nil
         guard !fieldText.utf16.elementsEqual(value.utf16) else { return }
         toldText = nil
@@ -363,11 +375,12 @@ extension NodeView {
         writingValue = true
         defer { writingValue = false }
         let editor = selectionEditor
-        editor?.breakUndoCoalescing(); editor?.undoManager?.removeAllActions()
+        editor?.breakUndoCoalescing()
+        if clearUndo { editor?.undoManager?.removeAllActions() }
         field?.stringValue = value
         editor?.string = value
         #else
-        (textArea?.undoManager ?? selectionField?.undoManager)?.removeAllActions()
+        if clearUndo { (textArea?.undoManager ?? selectionField?.undoManager)?.removeAllActions() }
         textArea?.text = value
         field?.text = value
         headerField?.text = value
@@ -375,7 +388,7 @@ extension NodeView {
     }
 
     /// The field's value as its editor holds it.
-    var fieldText: String {
+    package var fieldText: String {
         #if os(macOS)
         textArea?.string ?? field?.stringValue ?? ""
         #else

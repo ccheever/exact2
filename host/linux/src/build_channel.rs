@@ -75,6 +75,19 @@ pub(crate) struct Link {
     pub before: Option<Pinned>,
     /// The pin held, by revision: set again on a new generation's runner.
     pub held: Option<(u64, Pin)>,
+    /// The hold frame held (*1.11*), by revision, and the plan digest it was
+    /// held under: taken again on a new generation's runner of that plan.
+    /// And the stream it came on (`Link::stream`).
+    pub hold: Option<(u64, HoldTarget, String, u64)>,
+    /// The hold revisions this host ended itself (input, disabled, gone, a
+    /// refusal): not taken again when their frame comes again (a resent
+    /// answer). A lower revision is a new server's, and forgets them.
+    pub ended: Vec<u64>,
+    /// Which stream this is: one more each time the nonce changes (a
+    /// reconnect, a restarted loop), so a hold of an earlier one says nothing.
+    streams: u64,
+    /// The plan digest a registration names (the last status's).
+    pub plan_digest: Option<String>,
     /// The scheme (dark), contrast and root font size the last status named.
     pub facts: Option<(bool, exact_runner::Contrast, f64)>,
     /// The window's modes the last status named, and the kernel epoch they
@@ -100,9 +113,21 @@ impl Link {
             revision: None,
             before: None,
             held: None,
+            hold: None,
+            ended: Vec::new(),
+            streams: 0,
+            plan_digest: None,
             facts: None,
             modes: None,
             snapshot: false,
+        }
+    }
+
+    /// Hold revision `revision` ended here (`ended`).
+    pub(crate) fn end(&mut self, revision: u64) {
+        self.ended.push(revision);
+        if self.ended.len() > 64 {
+            self.ended.remove(0);
         }
     }
 
@@ -158,12 +183,34 @@ impl Link {
             ack: self.ack,
             reports: std::mem::take(&mut self.outbox),
             plan: self.plan.clone(),
+            plan_digest: self.plan_digest.clone(),
             design: self.design.clone(),
         })
     }
 
+    /// The stream a hold is held on (`streams`).
+    pub(crate) fn stream(&self) -> u64 {
+        self.streams
+    }
+
+    /// Queue a hold report, for the stream it is of: one a newer nonce
+    /// would carry is dropped instead (`Exchange::tick`).
+    pub(crate) fn report_hold(&mut self, mut report: Value) {
+        // (None while there is no stream: such a report is no stream's, and goes nowhere.)
+        report["_nonce"] = self.nonce.clone().into();
+        self.report(report);
+    }
+
     /// Take a tick's answer back.
     pub fn settle(&mut self, answer: Answer) {
+        // A new stream (or none: a lost one) may be a new server's: a hold of the old one
+        // is no news to it, and the revisions ended on the old one are forgotten.
+        // A hold command still waiting from the old one is no command of the new one's.
+        if answer.nonce != self.nonce {
+            self.streams += 1;
+            self.ended.clear();
+            self.frames.retain(|f| f["kind"] != "hold");
+        }
         self.nonce = answer.nonce;
         self.ack = answer.ack;
         self.quiet_until = answer.off.then(|| Instant::now() + QUIET);
@@ -191,6 +238,7 @@ pub(crate) struct Exchange {
     ack: u64,
     reports: Vec<Value>,
     plan: Option<String>,
+    plan_digest: Option<String>,
     design: Option<String>,
 }
 
@@ -203,6 +251,21 @@ pub(crate) struct Answer {
     off: bool,
     /// Reports kept for the next tick: a transport failure or a 5xx.
     unsent: Vec<Value>,
+    /// The commands poll was answered: it was held there until a frame came
+    /// or [`WAIT_MS`] passed, so the next tick starts at once.
+    held: bool,
+}
+
+/// A commands poll is held this long (`wait`, *1.10*), until a frame comes:
+/// a frame reaches this build at once, and a report waits at most this
+/// long for the tick that sends it.
+const WAIT_MS: u64 = 250;
+
+impl Answer {
+    /// Whether the next tick may start at once ([`Answer::held`]).
+    pub fn held(&self) -> bool {
+        self.held
+    }
 }
 
 /// A live-table frame, the same JSON the web page's stream carries.
@@ -245,6 +308,7 @@ impl Exchange {
             registered: false,
             off: false,
             unsent: Vec::new(),
+            held: false,
         };
         self.tick(page, &mut answer);
         answer.unsent = std::mem::take(&mut self.reports);
@@ -275,8 +339,8 @@ impl Exchange {
                         return;
                     };
                     let register = json!({"nonce": nonce, "kind": "register", "id": self.id,
-                        "host": HOST, "capabilities": ["pin"],
-                        "plan": self.plan, "design": self.design});
+                        "host": HOST, "capabilities": ["pin", "hold"],
+                        "plan": self.plan, "planDigest": self.plan_digest, "design": self.design});
                     if send(&report, Some(&register)).map(|r| r.0) != Some(200) {
                         return;
                     }
@@ -289,6 +353,13 @@ impl Exchange {
             let mut expired = false;
             while !self.reports.is_empty() {
                 let mut body = self.reports[0].clone();
+                // A hold report of another stream's goes nowhere (`Link::report_hold`).
+                if let Some(of) = body.as_object_mut().and_then(|b| b.remove("_nonce")) {
+                    if of.as_str() != Some(nonce.as_str()) {
+                        self.reports.remove(0);
+                        continue;
+                    }
+                }
                 body["nonce"] = nonce.clone().into();
                 match send(&report, Some(&body)).map(|r| r.0) {
                     Some(403) => {
@@ -302,10 +373,15 @@ impl Exchange {
                 }
             }
             if !expired {
-                let url = format!("{commands}?nonce={}&ack={}", encode(&nonce), answer.ack);
+                let url = format!(
+                    "{commands}?nonce={}&ack={}&wait={WAIT_MS}",
+                    encode(&nonce),
+                    answer.ack
+                );
                 match send(&url, None) {
                     // One not read whole keeps the ack: it comes again.
                     Some((200, body)) => {
+                        answer.held = true;
                         if let Some((seq, frames)) = commands_answer(&body) {
                             if seq != answer.ack {
                                 answer.frames.extend(frames);
@@ -335,9 +411,18 @@ fn commands_answer(body: &[u8]) -> Option<(u64, Vec<Value>)> {
 
 #[cfg(test)]
 impl Exchange {
-    /// The reports this tick would send.
+    /// The reports this tick would send, as it sends them: a hold report
+    /// of this stream's untagged, one of another stream's (or of none) gone.
     pub fn reports_for_test(self) -> Vec<Value> {
-        self.reports
+        let nonce = self.nonce;
+        (self.reports.into_iter())
+            .filter_map(
+                |mut r| match r.as_object_mut().and_then(|o| o.remove("_nonce")) {
+                    Some(of) if of.as_str() != nonce.as_deref() => None,
+                    _ => Some(r),
+                },
+            )
+            .collect()
     }
 }
 
@@ -364,13 +449,28 @@ pub(crate) struct Pin {
     pub root_font_size: Option<f64>,
 }
 
+/// A `hold` frame's `{site, instance, state}` (*1.11*): a state on the one
+/// view of this build's plan at that site and instance path.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct HoldTarget {
+    pub site: Option<u64>,
+    pub instance: Value,
+    pub state: String,
+    /// The plan digest the site addresses, when the server knows it.
+    pub plan: Option<String>,
+}
+
 /// A command frame, as the presenter dispatches it.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Frame {
     /// `pin` `{revision, pin}`: `None` hands every fact back.
     Pin { revision: u64, pin: Option<Pin> },
-    /// `inspect`, `outline`, `hold`: reserved (T2b, stage 8), answered
-    /// `unsupported`.
+    /// `hold` `{revision, hold}` (LLP 1122 D8): `None` lets it go.
+    Hold {
+        revision: u64,
+        hold: Option<HoldTarget>,
+    },
+    /// `inspect`, `outline`: reserved (T2b), answered `unsupported`.
     Reserved(String),
 }
 
@@ -417,7 +517,16 @@ impl Frame {
                     pin: Some(pin),
                 })
             }
-            kind @ ("inspect" | "outline" | "hold") => Some(Frame::Reserved(kind.to_string())),
+            "hold" => Some(Frame::Hold {
+                revision: frame["revision"].as_u64().unwrap_or(0),
+                hold: frame["hold"].as_object().map(|h| HoldTarget {
+                    site: h.get("site").and_then(Value::as_u64),
+                    instance: h.get("instance").cloned().unwrap_or(Value::Null),
+                    state: h.get("state").and_then(Value::as_str).unwrap_or("").into(),
+                    plan: frame["plan"].as_str().map(str::to_string),
+                }),
+            }),
+            kind @ ("inspect" | "outline") => Some(Frame::Reserved(kind.to_string())),
             _ => None,
         }
     }
@@ -431,7 +540,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     #[test]
-    fn frames_parse_to_pins_and_reserved_commands() {
+    fn frames_parse_to_pins_holds_and_reserved_commands() {
         let pin = Frame::parse(&json!({"kind": "pin", "revision": 3, "pin": {
             "scheme": "dark", "contrast": "more", "mode": {"density": "compact"}, "rootFontSize": 20}}));
         assert_eq!(
@@ -454,8 +563,28 @@ mod tests {
             })
         );
         assert_eq!(
-            Frame::parse(&json!({"kind": "hold"})),
-            Some(Frame::Reserved("hold".into()))
+            Frame::parse(&json!({"kind": "hold", "revision": 5, "hold": {"site": 7,
+                "instance": [{"region": 2, "key": "b"}], "state": "hover"}, "plan": "p1"})),
+            Some(Frame::Hold {
+                revision: 5,
+                hold: Some(HoldTarget {
+                    site: Some(7),
+                    instance: json!([{"region": 2, "key": "b"}]),
+                    state: "hover".into(),
+                    plan: Some("p1".into()),
+                })
+            })
+        );
+        assert_eq!(
+            Frame::parse(&json!({"kind": "hold", "revision": 6, "hold": null})),
+            Some(Frame::Hold {
+                revision: 6,
+                hold: None
+            })
+        );
+        assert_eq!(
+            Frame::parse(&json!({"kind": "outline"})),
+            Some(Frame::Reserved("outline".into()))
         );
         assert_eq!(Frame::parse(&json!({"kind": "future"})), None);
         assert!(build_id().starts_with("linux-") && build_id().len() <= 64);
@@ -507,7 +636,7 @@ mod tests {
                     } else {
                         (403, "{}".into())
                     }
-                } else if path == "/__dev/commands?nonce=n1&ack=0" && polls == 0 {
+                } else if path == "/__dev/commands?nonce=n1&ack=0&wait=250" && polls == 0 {
                     polls += 1;
                     (
                         200,
@@ -515,7 +644,9 @@ mod tests {
                             [{"kind": "pin", "revision": 1, "pin": {"scheme": "dark"}}]})
                         .to_string(),
                     )
-                } else if path == format!("/__dev/commands?nonce=n{hellos}&ack=0") && hellos > 1 {
+                } else if path == format!("/__dev/commands?nonce=n{hellos}&ack=0&wait=250")
+                    && hellos > 1
+                {
                     (200, json!({"seq": 1, "frames": []}).to_string())
                 } else if path.starts_with("/__dev/commands") {
                     (404, "null".into())
@@ -569,7 +700,7 @@ mod tests {
         );
         assert_eq!(posts[0]["id"], posts[2]["id"]);
         assert_eq!(posts[0]["host"], "linux");
-        assert_eq!(posts[0]["capabilities"], json!(["pin"]));
+        assert_eq!(posts[0]["capabilities"], json!(["pin", "hold"]));
         assert_eq!(posts[0]["plan"], "plan-a");
         assert_eq!(posts[0]["design"], "design-a");
     }
@@ -686,6 +817,7 @@ mod tests {
             registered: true,
             off: false,
             unsent: Vec::new(),
+            held: false,
         });
         assert!(link.take_design(), "registered: one catch-up snapshot");
         assert!(!link.take_design());
@@ -885,12 +1017,12 @@ mod tests {
         assert_eq!(
             *polls.lock().unwrap(),
             [
-                "nonce=n1&ack=0",
-                "nonce=n1&ack=1",
-                "nonce=n1&ack=1",
-                "nonce=n1&ack=2",
-                "nonce=n1&ack=2",
-                "nonce=n2&ack=0",
+                "nonce=n1&ack=0&wait=250",
+                "nonce=n1&ack=1&wait=250",
+                "nonce=n1&ack=1&wait=250",
+                "nonce=n1&ack=2&wait=250",
+                "nonce=n1&ack=2&wait=250",
+                "nonce=n2&ack=0&wait=250",
             ]
         );
         assert_eq!(link.ack, 1);
@@ -925,5 +1057,18 @@ mod tests {
         link.report(json!({"kind": "status"}));
         assert!(link.exchange().is_none(), "quiet after a 404 hello");
         assert!(link.outbox.is_empty());
+    }
+}
+
+#[cfg(test)]
+impl Link {
+    /// As if a tick's answer came on stream `nonce` (a reconnect).
+    pub(crate) fn settle_nonce_for_test(&mut self, nonce: &str) {
+        if self.nonce.as_deref() != Some(nonce) {
+            self.streams += 1;
+            self.ended.clear();
+            self.frames.retain(|f| f["kind"] != "hold");
+        }
+        self.nonce = Some(nonce.to_string());
     }
 }

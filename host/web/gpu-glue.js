@@ -28,6 +28,12 @@ const publishers = new Map(); // name -> first live entry
 const pendingRecords = [];
 let drainingRecords = false;
 let planCarries = new Map();
+let editsAdmitted = false;
+function retainEdits(entry, module = gpu) {
+  if (!entry?.id) return;
+  const reply = module.gpu_agent(entry.id, JSON.stringify({op:"state"}));
+  if (reply) editsAdmitted ||= JSON.parse(reply).world?.developmentEdits === true;
+}
 const surfaces = new Map(); // view id -> surface, input listeners and journal cursor
 // postMessage(text, name): held per surface name (at most exact.postBound, glue.js's
 // POST_BOUND = Linux POST_BOUND = Apple Canvases.postBound) until a canvas of
@@ -280,7 +286,7 @@ function recoverDevice() {
     if (outcome.status !== "recovered") throw Object.assign(new Error(outcome.error ?? JSON.stringify(outcome)), {code:outcome.code});
     pendingCutover = {module, staged, outcome};
     for (const [old, entry] of staged) {
-      if (live(old.view) !== old) { module.gpu_destroy(entry.id); continue; }
+      if (live(old.view) !== old) { retainEdits(entry, module); module.gpu_destroy(entry.id); continue; }
       entry.values = old.values;
       detached.add(old);
       installCanvas(old, entry);
@@ -457,7 +463,7 @@ function ensure(entry) {
     if (!entry.restoreError && !entry.pendingRestore) delete entry.carry;
     restorePending(entry);
   } catch (error) {
-    if (entry.id) gpu.gpu_destroy(entry.id);
+    if (entry.id) { retainEdits(entry); gpu.gpu_destroy(entry.id); }
     entry.id = 0;
     throw error;
   }
@@ -704,6 +710,8 @@ function agent(view, request) {
   try {
     const value = JSON.parse(reply);
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("world reply must be an object");
+    if (request.op === "state" && Array.isArray(value.entities)) { editsAdmitted ||= value.developmentEdits === true; value.sessionDevelopmentEdits = editsAdmitted; }
+    if (value.world) { editsAdmitted ||= value.world.developmentEdits === true; value.world.sessionDevelopmentEdits = editsAdmitted; }
     if (request.op === "state" && value.world && entry.restoreError) value.world.restoreError = entry.restoreError;
     return value;
   } catch (error) { console.error(`exact gpu: view ${view}:`, error); return null; }
@@ -822,19 +830,22 @@ const api = {
       if (summary?.world) node.world = summary.world;
     }
     if (request.op === "state") {
-      const world = worlds({ op: "state" });
+      const world = worlds({ op: "state", trace_export: request.trace_export === true });
+      reply.sessionDevelopmentEdits ||= editsAdmitted;
       if (world.length) reply.world = [...(reply.world ?? []), ...world]; // another artifact's worlds too
     }
     if (request.op === "logs") {
       const world = [];
       for (const [canvas, entry] of surfaces) {
-        const journal = agent(canvas, { op: "logs", since: entry.logCursor });
+        const since = request.all ? 0 : entry.logCursor;
+        const journal = agent(canvas, { op: "logs", since });
         if (!journal || journal.error || !Array.isArray(journal.lines)) continue;
         const { from, next, lines } = journal;
-        world.push({ canvas, from, next, lines, dropped: Math.max(0, from - entry.logCursor) });
+        world.push({ canvas, from, next, lines, dropped: Math.max(0, from - since) });
         entry.logCursor = next;
       }
       for (const {canvas, error} of restoreJournal.splice(0)) world.push({canvas, lines:[error]});
+      reply.sessionDevelopmentEdits ||= editsAdmitted;
       if (world.length) reply.world = [...(reply.world ?? []), ...world]; // another artifact's worlds too
     }
     return restoreReply(reply);
@@ -887,7 +898,7 @@ const api = {
   destroy(view) {
     const entry = surfaces.get(view);
     if (entry) { cancelAssets(entry); for (const row of entry.children ?? []) restoreChild(row); }
-    if (entry?.id) gpu.gpu_destroy(entry.id);
+    if (entry?.id) { retainEdits(entry); gpu.gpu_destroy(entry.id); }
     // The observer would fire once more as the element leaves the page, for
     // a surface the module no longer has (found by the agent smoke, which
     // is the first thing to navigate away from a canvas and back).
@@ -1032,7 +1043,7 @@ async function swap(version) {
     }
     if (!next.gpu_flush()) throw new Error(`surfaces: flush: ${next.gpu_error()}`);
   } catch (error) {
-    for (const [,entry] of staged) if (entry.id) next.gpu_destroy(entry.id);
+    for (const [,entry] of staged) if (entry.id) { retainEdits(entry, next); next.gpu_destroy(entry.id); }
     next.gpu_unload(); exact.devError?.(String(error)); throw error;
   }
   if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
@@ -1041,7 +1052,7 @@ async function swap(version) {
     installCanvas(old, entry);
     if (publishers.get(old.name) === old) publishers.set(old.name, entry);
     surfaces.set(entry.view, entry);
-    if (old.id) oldModule.gpu_destroy(old.id);
+    if (old.id) { retainEdits(old, oldModule); oldModule.gpu_destroy(old.id); }
   }
   oldModule?.gpu_unload(); gpu = next; loaded = true; resetRecovery();
   for (const [old, entry] of staged) {

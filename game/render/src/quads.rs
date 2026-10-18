@@ -1,4 +1,6 @@
 //! Separate sprite/particle arenas and one total order shared with blended models.
+pub(crate) mod primitives;
+
 use crate::{
     buffers::{bytes, Buffer},
     FrameInput, RenderError,
@@ -12,8 +14,8 @@ use std::{collections::BTreeMap, ops::Range};
 pub(crate) enum Kind {
     Model(usize, u32),
     /// Additive, the `looks` index of a textured look (`NO_LOOK` for dots), and
-    /// soft (fading into the opaque scene).
-    Particle(bool, u32, bool),
+    /// soft (fading into the opaque scene), and viewmodel depth membership.
+    Particle(bool, u32, bool, bool),
     Sprite(usize),
     #[cfg(not(target_arch = "wasm32"))]
     Child(u16),
@@ -35,14 +37,16 @@ impl Kind {
 pub(crate) struct Order {
     pub kind: Kind,
     pub depth: f32,
+    pub viewmodel: bool,
     pub layer: i32,
     pub slot: u32,
     pub index: usize,
 }
 impl Order {
     fn compare(a: &Self, b: &Self) -> std::cmp::Ordering {
-        b.depth
-            .total_cmp(&a.depth)
+        a.viewmodel
+            .cmp(&b.viewmodel)
+            .then_with(|| b.depth.total_cmp(&a.depth))
             .then(a.layer.cmp(&b.layer))
             .then(a.slot.cmp(&b.slot))
             .then(a.kind.rank().cmp(&b.kind.rank()))
@@ -115,6 +119,7 @@ pub(crate) struct Quads {
     sprite_shader: Option<wgpu::ShaderModule>,
     particle_shader: Option<wgpu::ShaderModule>,
     particles: Vec<Item<Emitter>>,
+    primitives: primitives::Primitives,
     looks: Vec<Item<ParticleLook>>,
     textured_pipelines: Option<[wgpu::RenderPipeline; 2]>,
     sprites: Vec<Item<Sprite>>,
@@ -217,6 +222,7 @@ impl Quads {
             sprite_shader: None,
             particle_shader: None,
             particles: Vec::new(),
+            primitives: Default::default(),
             looks: Vec::new(),
             textured_pipelines: None,
             sprites: Vec::new(),
@@ -261,6 +267,8 @@ impl Quads {
         parent_changed: bool,
     ) -> Result<(), RenderError> {
         self.hz = w.hz();
+        self.primitives
+            .feed(w, initial, next_tick, parent_changed)?;
         feed(w, &mut self.particles, initial, next_tick, parent_changed);
         feed(w, &mut self.looks, initial, next_tick, parent_changed);
         self.particles.retain(|item| match item.value.validate() {
@@ -455,8 +463,9 @@ impl Quads {
                     .saturating_add(u64::from(emitter.state.burst))
             })
             .sum::<u64>()
-            .min(u64::from(exact_game::emitter::PARTICLE_BUDGET)) as usize;
-        if !self.particles.is_empty() {
+            .min(u64::from(exact_game::emitter::PARTICLE_BUDGET)) as usize
+            + self.primitives.len();
+        if particles > 0 {
             let arena = self
                 .particle_arena
                 .get_or_insert_with(|| Arena::new(d, particles));
@@ -486,7 +495,7 @@ impl Quads {
                 )
             }));
         }
-        if !self.particles.is_empty() && self.particle_pipelines.is_none() {
+        if particles > 0 && self.particle_pipelines.is_none() {
             let shader = self.particle_shader(d);
             self.particle_pipelines = Some(std::array::from_fn(|i| {
                 pipeline(
@@ -576,7 +585,7 @@ impl Quads {
         let target = (self.samples, Some(self.format));
         for i in 0..self.draws.len() {
             match self.draws[i].kind {
-                Kind::Particle(_, NO_LOOK, _) if self.direct.particles.is_none() => {
+                Kind::Particle(_, NO_LOOK, _, _) if self.direct.particles.is_none() => {
                     let shader = self.particle_shader(d);
                     self.direct.particles = Some(std::array::from_fn(|i| {
                         pipeline(
@@ -589,7 +598,9 @@ impl Quads {
                         )
                     }));
                 }
-                Kind::Particle(_, look, _) if look != NO_LOOK && self.direct.textured.is_none() => {
+                Kind::Particle(_, look, _, _)
+                    if look != NO_LOOK && self.direct.textured.is_none() =>
+                {
                     self.texture_layout(d);
                     let shader = self.sprite_shader(d);
                     let texture = self.texture_layout.as_ref().unwrap();
@@ -645,7 +656,7 @@ impl Quads {
     pub fn soft_drawn(&self) -> bool {
         self.draws
             .iter()
-            .any(|d| matches!(d.kind, Kind::Particle(_, _, true)))
+            .any(|d| matches!(d.kind, Kind::Particle(_, _, true, _)))
     }
     /// Bind this frame's multisampled scene depth for soft particles (`None`
     /// draws them hard, as without a split translucent pass).
@@ -788,14 +799,18 @@ impl Quads {
                         e.additive,
                         textured.map_or(NO_LOOK, |i| i as u32),
                         soft > 0.,
+                        false,
                     ),
                     depth: -f.view.transform_point3(position).z,
+                    viewmodel: false,
                     layer: e.layer,
                     slot: item.entity.index(),
                     index,
                 });
             });
         }
+        self.primitives
+            .frame(f, &camera, cull, &mut self.particle_data, &mut self.order);
         if ASSETS {
             for (index, item) in self.sprites.iter().enumerate() {
                 let s = &item.value;
@@ -846,6 +861,7 @@ impl Quads {
                     self.order.push(Order {
                         kind: Kind::Sprite(index),
                         depth: -f.view.transform_point3(center).z,
+                        viewmodel: false,
                         layer: s.layer,
                         slot: item.entity.index(),
                         index: at,
@@ -878,6 +894,7 @@ impl Quads {
             self.order.push(Order {
                 kind: Kind::Child(child),
                 depth: -p.placement.depth,
+                viewmodel: false,
                 layer: 0,
                 slot: u32::from(child),
                 index,
@@ -936,7 +953,7 @@ impl Quads {
         }
         pass.set_bind_group(0, &self.bind, &[]);
         match draw.kind {
-            Kind::Particle(additive, look, soft) => {
+            Kind::Particle(additive, look, soft, _) => {
                 let soft = match (&self.soft_bind, &self.soft_pipelines) {
                     (Some((_, bind)), Some(pipelines)) if soft && self.soft_active => {
                         Some((bind, pipelines))
@@ -1017,8 +1034,9 @@ fn push_draw(
 ) {
     if let Some(previous) = draws.last_mut() {
         let compatible = match (previous.kind, kind) {
-            (Kind::Particle(a, i, s), Kind::Particle(b, j, t)) => {
+            (Kind::Particle(a, i, s, v), Kind::Particle(b, j, t, w)) => {
                 a == b
+                    && v == w
                     && s == t
                     && (i == j
                         || (i != NO_LOOK
@@ -1059,6 +1077,26 @@ pub(crate) fn feed_poses<T: exact_game::Component + Clone>(
     parent_changed: bool,
     visible_only: bool,
 ) {
+    feed_with_pose(
+        w,
+        items,
+        initial,
+        next_tick,
+        parent_changed,
+        visible_only,
+        crate::world::scene::pose,
+    );
+}
+#[allow(clippy::too_many_arguments)]
+fn feed_with_pose<T: exact_game::Component + Clone>(
+    w: &World,
+    items: &mut Vec<Item<T>>,
+    initial: bool,
+    next_tick: bool,
+    parent_changed: bool,
+    visible_only: bool,
+    pose: fn(&World, Entity) -> Option<Transform>,
+) {
     let revision = w.revision::<T>();
     // Compact once, then append arrivals. Never shift the tail for each removal.
     items.retain_mut(|i| {
@@ -1068,7 +1106,7 @@ pub(crate) fn feed_poses<T: exact_game::Component + Clone>(
         if visible_only && !w.is_visible(i.entity) {
             return false;
         }
-        let Some(pose) = crate::world::scene::pose(w, i.entity) else {
+        let Some(pose) = pose(w, i.entity) else {
             return false;
         };
         if next_tick {
@@ -1095,7 +1133,7 @@ pub(crate) fn feed_poses<T: exact_game::Component + Clone>(
         if visible_only && !w.is_visible(entity) {
             continue;
         }
-        if let Some(pose) = crate::world::scene::pose(w, entity) {
+        if let Some(pose) = pose(w, entity) {
             items.push(Item {
                 entity,
                 poses: [pose; 2],
@@ -1329,7 +1367,7 @@ mod retained_tests {
     #[test]
     fn every_kind_and_owner_ordinal_has_the_same_total_order() {
         let mut kinds = vec![
-            Kind::Particle(false, NO_LOOK, false),
+            Kind::Particle(false, NO_LOOK, false, false),
             Kind::Model(0, 0),
             Kind::Sprite(0),
         ];
@@ -1341,6 +1379,7 @@ mod retained_tests {
                 rows.push(Order {
                     kind,
                     depth: 3.,
+                    viewmodel: false,
                     layer: 1,
                     slot: 7,
                     index,
@@ -1367,7 +1406,7 @@ mod retained_tests {
         // Rank is independently pinned; a mistaken enum rank must fail too.
         assert_eq!(Kind::Model(0, 0).rank(), 0);
         assert_eq!(Kind::Sprite(0).rank(), 1);
-        assert_eq!(Kind::Particle(false, NO_LOOK, false).rank(), 2);
+        assert_eq!(Kind::Particle(false, NO_LOOK, false, false).rank(), 2);
         #[cfg(not(target_arch = "wasm32"))]
         assert_eq!(Kind::Child(0).rank(), 3);
     }

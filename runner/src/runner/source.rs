@@ -256,9 +256,45 @@ impl Target {
     }
 }
 
+/// Borrowed bytes of one pinned snapshot cohort (LLP 1126 D8).
+#[derive(Clone, Copy)]
+pub struct SnapshotModule<'a> {
+    /// Producer receipt admitting both the entry plan and bytecode.
+    pub receipt: &'a str,
+    /// Hermes bytecode; copied once into the engine's owned allocation.
+    pub bytecode: &'a [u8],
+    /// Encoded entry plan, checked against the receipt before activation.
+    pub plan: &'a [u8],
+    /// Entry kind within the receipt's plans map.
+    pub kind: &'a str,
+}
+
 /// The app's data source: the one seam through which computation enters
 /// (LLP 1004 D4). Implemented once, in Rust, by the app's data crate.
 pub trait DataSource {
+    /// Prepare a disposable, read-only snapshot refresh before activation.
+    /// Bytecode and its receipt come from the app's pinned generation, never
+    /// from a separately selected update (LLP 1126.000 WP5).
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
+        let _ = deadline;
+        if module.is_some() {
+            return Err(DataError::Unavailable(
+                "this source accepts no snapshot bytecode".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Successful storage effects since the last host commit. A host may
+    /// invalidate another process's read snapshot; no data crosses this ping.
+    fn take_storage_changed(&mut self) -> bool {
+        false
+    }
+
     /// Session that may use document handles minted by this host.
     fn set_document_owner(&mut self, owner: u64) {
         let _ = owner;
@@ -662,6 +698,19 @@ pub enum DataError {
     /// validation still refuse it. A Rust source's own error is `Unavailable`.
     /// The third field carries an application reason (`failure(x).reason`).
     Failed(crate::failure::FailureCode, String, String),
+}
+
+impl std::fmt::Display for DataError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownSource(name) => write!(f, "unknown source: {name}"),
+            Self::BadArguments(reason)
+            | Self::Unavailable(reason)
+            | Self::DeferredAtBake(reason)
+            | Self::Interface(reason)
+            | Self::Failed(_, reason, _) => f.write_str(reason),
+        }
+    }
 }
 
 #[cfg(test)]

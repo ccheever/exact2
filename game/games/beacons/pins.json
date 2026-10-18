@@ -1,19 +1,19 @@
 {
   "ticks": {
-    "0": "0x28a83f80b6f1a5ad",
-    "90": "0xa4eefb7865f5f042"
+    "0": "0xeea76e80d36d39df",
+    "90": "0x284b31db4a5cb036"
   },
   "saves": {
-    "continuation": "f800ac487c941277db3aede14e3680394e496b3f1febcedc0c12be0bea040af1"
+    "continuation": "e0ab9187993218c702d7bc0c1b59fe6a484698986f8624233d19b4dcc1ab75df"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "c9b8765633a0d0329b0c0861e705eb2fa045399a26d1a92da377327dad16687a",
-  "sourceInputs": "76d9326167aac210fc38a3c246c0596b7c0457cbd0ffcdca8708f82a0a4f22fe",
+  "inputs": "22e202fcb543cea4258a08d0e34b9675c9ce163139666156f202f0963a8bc136",
+  "sourceInputs": "7f8c6043873741df42c256f0f5b8a1d8277906da55de590f81e76388ca6e4efb",
   "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
-  "at": "1f9267d428337b6cf992b8eba1d179d51f70cc29",
-  "reason": "Review round 2 of LLP 1127.003: the contexts and bindings as last applied leave Input's saved copy for the hashed InputState resource (InputGestures renamed), so the continuation save's bytes move; ticks 0 and 90 are unchanged."
+  "at": "2bd2d3c30ff62dca19a56b0737b4f800598565cd",
+  "reason": "EXGAME v5 (developmentEdits): continuation bytes differ by the version byte only; tick hashes unchanged"
 }

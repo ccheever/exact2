@@ -15,6 +15,7 @@ test('native binary identity includes protocol handler registration and template
   const manifest = { app: { id: 'com.exact.links' }, protocol_handlers: [{ protocol: 'exacttest', url: '/open?u=%s' }] };
   const first = nativeManifestMetadata(manifest, 'macos');
   expect(first.protocol_handlers).toEqual(manifest.protocol_handlers);
+  for (const platform of ['macos', 'ios']) expect(nativeManifestMetadata({ ...manifest, protocol_handlers: [{ ...manifest.protocol_handlers[0], distribution_only: true }] }, platform)).not.toEqual(nativeManifestMetadata(manifest, platform));
   expect(nativeManifestMetadata({ ...manifest, protocol_handlers: [{ protocol: 'exacttest', url: '/callback?u=%s' }] }, 'macos')).not.toEqual(first);
 });
 

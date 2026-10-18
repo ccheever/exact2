@@ -17,6 +17,11 @@ fn range() -> Sim<Rivals> {
         ..Options::default()
     })
 }
+#[test]
+fn initial_proof_pin() {
+    range().assert_pin(include_str!("../../pins.json"));
+}
+
 fn fighter(sim: &Sim<Rivals>, name: &str) -> Fighter {
     sim.world().require::<Fighter>(name).clone()
 }

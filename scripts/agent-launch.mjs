@@ -1,4 +1,5 @@
 // Session setup shared by the agent CLI and its programmatic driver.
+import { widgetArguments, validateWidget } from './agent-widget.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
@@ -319,7 +320,9 @@ export function chromium(environment = process.env, platform = process.platform)
 }
 
 export function parseFlags(argv) {
-  const flags = { json: false };
+  const selection = widgetArguments(argv);
+  argv = selection.argv;
+  const flags = { json: false, ...(selection.widget ? { widget: selection.widget } : {}) };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--json') flags.json = true;
@@ -328,7 +331,11 @@ export function parseFlags(argv) {
     else if (argv[i] === '--backend') { const value = argv[++i]; if (!value || value.startsWith('--')) throw new Error('--backend <url>: name the backend origin'); process.env.EXACT_BACKEND_ORIGIN = value; }
     else if (argv[i] === '--app') flags.app = argv[++i];
     else if (argv[i] === '--browser') flags.browser = argv[++i];
-    else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
+    else if (argv[i] === '--size') {
+      const size = argv[++i] ?? '';
+      if (!/^\d+(?:\.\d+)?x\d+(?:\.\d+)?$/.test(size) || !size.split('x').every(v => Number(v) > 0 && Number.isFinite(Number(v)))) throw new Error('--size: expected positive <w>x<h>; large|xxxl needs widget <entry>');
+      flags.size = size.split('x').map(Number);
+    }
     // A number, or what was typed, which `open` refuses by name (`--scale 1x`, a missing value).
     else if (argv[i] === '--scale') { const v = argv[++i] ?? ''; flags.scale = v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : v; }
     else if (argv[i] === '--test') flags.test = argv[++i];
@@ -356,6 +363,7 @@ export function parseFlags(argv) {
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
     else rest.push(argv[i]);
   }
+  if (flags.widget && !argv.some(arg => arg === '--help' || arg === '-h')) validateWidget(flags, rest);
   if (flags.keepStorage && flags.resetStorage) throw new Error('--keep-storage and --reset-storage are mutually exclusive');
   if ((flags.keepStorage || flags.resetStorage) && flags.storage === undefined) throw new Error('--keep-storage and --reset-storage need --storage <name>');
   return { flags, rest };
@@ -501,8 +509,9 @@ export function depInfoInputs(bin, info = `${bin}.d`, base = process.cwd()) {
 // A build script's output (`…/build/<pkg>/out/…`) is rewritten whenever another
 // build reruns that script with other variables (the web build does, for its
 // render pass) without its sources changing; those sources are in the dep-info
-// themselves, so they, not the output, decide.
-const GENERATED = /\/build\/[^/]+\/out\//;
+// themselves, so they, not the output, decide. A bake made before Cargo for a
+// linked plan (`….baked/`, scripts/linked-plan.mjs) names its own in its record.
+const GENERATED = /\/build\/[^/]+\/out\/|\.baked\//;
 // A build script watches directories an app may not have (`../assets`, `../data`,
 // `../gpu/shaders`: apps/svg-gallery has no assets); Cargo's dep-info names the
 // watch whether or not the directory exists, and a directory that never existed
@@ -510,6 +519,11 @@ const GENERATED = /\/build\/[^/]+\/out\//;
 const DIRECTORY_WATCH = /\/[^./]+$/;
 /** Dep-info's inputs modified after `since`, or gone, generated outputs and never-present watched directories aside. */
 export function depInfoNewer(since, bin, info, base) {
+  return watchedNewer(since, depInfoInputs(bin, info, base).filter(p => !GENERATED.test(p)));
+}
+
+/** Of `paths`, files and the directories a build script watches whole, those modified after `since`, or gone. */
+export function watchedNewer(since, paths) {
   const skips = new Map();
   // What no build reads: a build's output, installed packages (their declarations are inputs of their own) and a
   // hidden tree; within an app, also what its other freshness checks pass over (`notBuildInput`, and the names
@@ -525,7 +539,7 @@ export function depInfoNewer(since, bin, info, base) {
     }
     return skips.get(app);
   };
-  return [...new Set(depInfoInputs(bin, info, base).filter(p => !GENERATED.test(p)).flatMap(p => {
+  return [...new Set(paths.flatMap(p => {
     let stat;
     try { stat = statSync(p); } catch { return DIRECTORY_WATCH.test(p) ? [] : [shown(p)]; }
     if (!stat.isDirectory()) return stat.mtimeMs > since ? [shown(p)] : [];
@@ -763,8 +777,12 @@ export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hash
   const products = new Map((build?.products ?? []).map(p => [resolve(p.path), p.sha256]));
   const inputs = info ? depInfoInputs(null, info, app.workspace) : [];
   const replaced = inputs.filter(path => products.has(path) && fileDigest(path) !== products.get(path)).map(shown);
-  const tools = info ? depInfoNewer(since, null, info, app.workspace).filter(path => !skipped(path) && !products.has(resolve(ROOT, path))) : [];
-  return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own, ...tools, ...replaced])];
+  // A linked plan's bake ran before Cargo: the dep-info names what it wrote, its record what it read.
+  // A record gone or unreadable says nothing of what it read: the build is stale.
+  let baked = [], unread = [];
+  if (build?.linkedPlan) { const at = resolve(build.linkedPlan, 'inputs.json'); try { baked = JSON.parse(readFileSync(at, 'utf8')).paths; if (!Array.isArray(baked)) throw new Error(); } catch { baked = []; unread = [shown(at)]; } }
+  const tools = info ? [...depInfoNewer(since, null, info, app.workspace), ...watchedNewer(since, baked)].filter(path => !skipped(path) && !products.has(resolve(ROOT, path))) : [];
+  return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own, ...tools, ...unread, ...replaced])];
 }
 
 /** A web `dist/`: app and shared runtime sources newer than its build marker.

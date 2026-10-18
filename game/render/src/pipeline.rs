@@ -186,8 +186,7 @@ pub(crate) struct Pipelines {
     pub sky: wgpu::RenderPipeline,
     pub tone: [wgpu::RenderPipeline; 2],
     pub bloom: [wgpu::RenderPipeline; 2],
-    pub bright: wgpu::ComputePipeline,
-    pub bright_target_layout: wgpu::BindGroupLayout,
+    pub bright: wgpu::RenderPipeline,
     pub scene_layout: wgpu::BindGroupLayout,
     pub tone_layout: wgpu::BindGroupLayout,
     pub shadow_layout: wgpu::BindGroupLayout,
@@ -311,7 +310,8 @@ impl Pipelines {
             ],
         );
         // Group 1 of every forward pipeline: sun cascades, the comparison
-        // sampler and local light shadows (placeholders when absent).
+        // sampler, local light shadows (placeholders when absent) and the
+        // sampler that gathers cascade texels for receiver-plane filtering.
         let shadow_layout = layout(
             "game shadow sample",
             &[
@@ -326,6 +326,7 @@ impl Pipelines {
                     wgpu::TextureSampleType::Depth,
                     wgpu::TextureViewDimension::D2Array,
                 ),
+                sampler(3, wgpu::SamplerBindingType::NonFiltering),
             ],
         );
         let camera_layout = layout("game cascade camera", &[uniform]);
@@ -503,33 +504,23 @@ impl Pipelines {
                 true,
             )
         });
-        let bright_target_layout = layout(
-            "game bloom bright target",
-            &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::StorageTexture {
-                    access: wgpu::StorageTextureAccess::WriteOnly,
-                    format: wgpu::TextureFormat::Rgba16Float,
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                },
-                count: None,
-            }],
+        let bright = make_pipeline(
+            device,
+            cache.handle.as_ref(),
+            &shaders[4],
+            "game bloom bright",
+            "vs",
+            Some("bright"),
+            &[Some(&bloom_layout)],
+            &[],
+            None,
+            1,
+            wgpu::TextureFormat::Rgba16Float,
+            None,
+            &[],
+            false,
+            true,
         );
-        let bright = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("game bloom bright"),
-            layout: Some(
-                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("game bloom bright"),
-                    bind_group_layouts: &[Some(&bloom_layout), Some(&bright_target_layout)],
-                    immediate_size: 0,
-                }),
-            ),
-            module: &shaders[4],
-            entry_point: Some("bright_tile"),
-            compilation_options: Default::default(),
-            cache: cache.handle.as_ref(),
-        });
         let [pbr, _, sky_module, _, _] = shaders;
         Self {
             cache,
@@ -554,7 +545,6 @@ impl Pipelines {
             tone,
             bloom,
             bright,
-            bright_target_layout,
             scene_layout,
             tone_layout,
             shadow_layout,

@@ -80,6 +80,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = self.refine_collections() {
             self.host.log(error);
         }
+        self.refresh_looks(None); // the focus's ring (LLP 1121 D8)
         let dirty = self.host.take_row_dirty();
         self.brush.numerals.now = self.host.now();
         self.brush.numerals.still = self.host.runner().viewport().preferences.reduced_motion;
@@ -115,6 +116,7 @@ impl<D: DataSource> Presenter<D> {
             images: &self.images.bitmaps,
             focus: self.focus,
             selection,
+            caret_upstream: self.focus.is_some_and(|id| self.field_cursor(id).upstream),
             pointer: self.pointer,
             controls: &self.controls,
             chosen: &self.chosen,

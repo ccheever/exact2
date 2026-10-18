@@ -541,23 +541,30 @@ pub enum SocketOrigin {
     /// A resource's mapper answering a frame of its own socket (its `open`
     /// or a `message`), by the resource's name.
     Mapper(String),
+    /// One turn of an answer in flight, by its resource's or mutation's
+    /// name (the amendment of 2026-10-18): sent once the commit that ran
+    /// the turn stands, whatever becomes of the answer.
+    Answer(String),
 }
 
 impl SocketOrigin {
-    /// Its words in the journal: `send <mutation>` or `mapper <resource>`.
+    /// Its words in the journal: `send <mutation>`, `mapper <resource>` or
+    /// `answer <resource>`.
     pub fn words(&self) -> (&'static str, &str) {
         match self {
             SocketOrigin::Mutation(name) => ("send", name),
             SocketOrigin::Mapper(name) => ("mapper", name),
+            SocketOrigin::Answer(name) => ("answer", name),
         }
     }
 }
 
-/// One mutation's or one mapper call's socket operations, in the order its
-/// code made them, each addressed to the stream ticket of the resource
-/// that owns the socket. Taken by [`crate::Runner::take_socket_sends`]
-/// after the commit that staged them stands; the host checks the whole
-/// batch, then sends it.
+/// One mutation's, one mapper call's or one answer turn's socket
+/// operations, in the order its code made them, each addressed to the
+/// stream ticket of the resource that owns the socket. Taken by
+/// [`crate::Runner::take_socket_sends`] after the commit that staged them
+/// stands (an answer turn's, after the commit that ran the turn); the
+/// host checks the whole batch, then sends it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SocketSend {
     /// What staged them.

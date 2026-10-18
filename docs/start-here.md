@@ -21,7 +21,7 @@ The only required reading; the rest is lookup.
    converter's answer) stays a centred column (`max-width="26.25rem"`) or a `SummaryCard`.
    `use X from "exact:content"` draws them; the card gives each one's call (`none` for an option):
    - `RoundButton`: Start, Stop. `AnswerTile`: a choice; `status` is `"idle"`, `"selected"`,
-     `"correct"`, `"wrong"` or `"dimmed"`. `SummaryCard`: the one number, shown once
+     `"correct"`, `"wrong"`, `"dimmed"` or `"chosen"` (your pick once closed). `SummaryCard`: the one number, shown once
    - `RingProgress`, `StatBar`, `RowText`, `Badge` a status, `DoneMark` done or not; `EmptyState` over your `button`
 4. **Compose as the platform does:** a row pushes its detail; create and edit are sheets; a
    phone gets one column, a wide window two (`responsive-columns`). Tabs (a sidebar) and a
@@ -42,8 +42,8 @@ name is found where you are, else in the app, and it says which it took. Your
 shell commands have no such help, so keep one directory.
 |`bun exact.mjs …`|What it does|
 |---|---|
-|`contract build app.contract --json`|`[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports and type-checks it.|
-|`verify`, `verify ios`|Builds, runs `app.test.contract`, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time: one report. A clean run on the app's platform is done.|
+|`contract build app.contract --json --errors-only`|A CI gate: `[]` and exit zero mean no errors (omit `--errors-only` to include warnings); it rewrites the types `app.ts` imports and type-checks it.|
+|`verify`, `verify ios`|Builds, runs `app.test.contract`, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time, and reads those screens (on the web, also the ones the tests pass through) at the largest text size, where what spills is the app's layout to fix: one report. A clean run on the app's platform is done.|
 |`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; `--keep-storage` reopens saved data.|
 |`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|
 
@@ -52,6 +52,10 @@ want checked or captured is a test's end; a drive takes any others (`resize`, `p
 Create seam types once with `bun exact.mjs contract types app.contract -o app.contract.d.ts`.
 `contract build` refreshes that declaration after a successful compile and reports
 the change on stderr. `contract types --check app.contract` checks freshness without writing.
+`bun exact.mjs update` reports lock drift after this checkout moves; `bun exact.mjs lock`
+refreshes it. `contract migrate app.contract` rewrites retired Contract syntax;
+[the Snapback upgrade note](../snapback4/README.md#updating-an-inherited-app) covers
+mutation refusals too.
 Keep scratch files in `.exact/`: they do not make the build stale (a JSON file `app.ts` imports does).
 
 `agent ios` is the app as a person sees it, UIKit's bars included, with screenshots a pixel a
@@ -207,7 +211,7 @@ test "an item is added, a repeat refused, checked off and kept"
   expect text "left" == "0 items left"
 ```
 
-Every step, launch lines (`epoch "…"`) and `verify`'s flags are on the card.
+Every step, launch line and `verify` flag is on the card.
 
 Interactive web drives also accept `reload` (keeps storage and fetch faults) and
 `pick <input-id> <path>`. `agent web --help all` lists driver capabilities.
@@ -240,7 +244,7 @@ snapshot. The backend’s clock stays its own.
 
 ## Look it up
 
-Start from the nearest pattern, a tested app with what the recipes teach. Look up what it lacks:
+Look up what the nearest pattern (a tested app) lacks:
 `contract vocab` prints each name's answer in turn, a keyword, tag, function or part as well as a
 recipe (`docs/recipes/<name>.md`, whole), so one call fetches what a screen needs:
 
@@ -252,7 +256,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 
 |Pattern|Already has|
 |---|---|
-|`one-screen`|a tracker: a total, buttons, a centred column over a grouped log in a file|
+|`one-screen`|a tracker: a total, quick-add buttons, a dated log in a file|
 |`dashboard`|a summary, bars, dated rows, an add sheet that validates, two columns|
 |`list-detail`|search, a detail, an add sheet, a delete alert, empty states, a file; split when wide|
 |`tabs`|two tabs, a stack in each, a saved set kept with `persist`|
@@ -261,11 +265,12 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |Not in a pattern|Look up|
 |---|---|
 |an entry or settings form|`grouped-form`|
+|rows added and removed in a form|`editable-rows`|
 |a write that may be refused|`after-a-write`|
 |tabular digits: numeric columns or values changing in place|`numeric-readout`|
-|a count 1–99|`stepper`|
+|a number field, a stepper's `step`|`number-field`, `stepper`|
 |a chat that opens at its newest message|`chat-thread`|
-|a welcome shown at first launch only|`first-launch`|
+|a welcome at first launch|`first-launch`|
 |SQLite, grants|`files-and-grants`|
 |another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
 |video, a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|

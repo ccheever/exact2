@@ -98,9 +98,14 @@ impl Grammars {
 pub struct IoLinks {
     /// Bind the app's grants: [`crate::store::endowed`].
     pub endow: fn(&str, &str, bool) -> crate::store::Endowed,
+    /// Read the stores only on an explicitly requested refresh.
+    pub snapshot: StoreSnapshot,
     /// Start the executor: [`crate::executor::start_io`].
     pub start: StartIo,
 }
+
+/// Read a linked app's stores through its endowed bindings.
+pub type StoreSnapshot = fn(Option<&ibex2::host::Bindings>, &str) -> Vec<(String, Vec<u8>)>;
 
 /// How [`IoLinks`] starts the executor: over the bindings, for the grants,
 /// waking the presenter through the hook.
@@ -114,6 +119,7 @@ impl IoLinks {
     /// The platform's.
     pub const LINKED: IoLinks = IoLinks {
         endow: crate::store::endowed,
+        snapshot: crate::store::snapshot_for,
         start: crate::executor::start_io,
     };
 }
@@ -128,6 +134,8 @@ pub struct Links<D: DataSource> {
     /// The device capabilities (share, documents, pickers, notifications;
     /// authentication, which follows the grants, always).
     pub device: DeviceLinks<D>,
+    /// The presenter found a packaged ActivityKit arm; false until it declares one.
+    pub activities: bool,
     /// The kernel's style grammars.
     pub grammars: Grammars,
     /// The host's I/O; `None`, none (no request runs, nothing is kept).
@@ -142,6 +150,7 @@ impl<D: DataSource> Clone for Links<D> {
         Links {
             runner: self.runner,
             device: self.device,
+            activities: self.activities,
             grammars: self.grammars,
             io: self.io,
             engine: self.engine,
@@ -154,6 +163,7 @@ impl<D: DataSource> Links<D> {
     pub const ALL: Links<D> = Links {
         runner: RunnerLinks::ALL,
         device: DeviceLinks::ALL,
+        activities: false,
         grammars: Grammars::ALL,
         io: Some(IoLinks::LINKED),
         engine: &exact_motion::EngineLinks::ALL,
@@ -228,6 +238,7 @@ impl<D: DataSource> Links<D> {
                     None
                 },
             },
+            activities: false,
             grammars: Grammars::of(uses),
             io: if uses.has(Capability::Io) {
                 Some(IoLinks::LINKED)

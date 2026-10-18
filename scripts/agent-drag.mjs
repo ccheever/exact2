@@ -329,3 +329,12 @@ async function toward(s, node, { to, at, from }) {
   const point = at ? [b.x + at[0], b.y + at[1]] : [b.x + b.w / 2, b.y + b.h / 2];
   return { dx: point[0] - start[0], dy: point[1] - start[1] };
 }
+
+/** A held state (LLP 1122 D8, LLP 1121 stage 8 E): `holdState` on the node,
+ * which the host holds as the real one (no input event), or null to let it
+ * go; its reply as a tap's. */
+export async function holdTap({ s, node, target, host, timing, tapRefusal, scrolled }, holdState) {
+  const r = await s.op({ op: 'tap', id: node.id, holdState });
+  if (r.error) throw await tapRefusal(s, target, new Error(r.error));
+  return s.landed({ ...r, tapped: node.id, target, ...(scrolled ? { scrolled } : {}), delivery: r.delivery ?? 'recognized', carrier: host, mode: r.mode ?? timing });
+}

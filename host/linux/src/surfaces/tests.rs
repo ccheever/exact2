@@ -178,7 +178,25 @@ uint32_t gpu_bind_at(uint32_t id, const unsigned char *text, size_t len, double 
 }
 const char *test_bound(void) { return bound; }
 static const char reply[] = "{\"hit\":{\"name\":\"cpu\"}}";
+static char journal_reply[256];
+static const char *output;
+static uint32_t journal_next;
+void test_journal_next(uint32_t next) { journal_next = next; }
 uint32_t gpu_agent(uint32_t id, const unsigned char *text, size_t len) {
+  output = reply;
+  char query[4096];
+  if(len>=sizeof(query)) return 268435457;
+  memcpy(query,text,len); query[len]=0;
+  if (strstr(query,"logs")) {
+    unsigned long since=0;
+    const char *cursor=strstr(query,"\"since\":");
+    if(cursor) sscanf(cursor+8,"%lu",&since);
+    unsigned long from=journal_next>4096 ? journal_next-4096 : 0;
+    if(since>from) from=since;
+    if(from>journal_next) from=journal_next;
+    snprintf(journal_reply,sizeof(journal_reply),"{\"from\":%lu,\"next\":%u,\"lines\":[]}",from,journal_next);
+    output=journal_reply; return strlen(output);
+  }
   for (size_t i=0; i+6<=len; ++i) if (!memcmp(text+i, "layout", 6)) return sizeof(reply)-1;
   return 268435457;
 }
@@ -209,13 +227,12 @@ uint32_t gpu_carry(void) { return 268435457; }
 uint32_t gpu_restore(void) { return 1; }
 void gpu_destroy(void) {}
 uint32_t gpu_error(void) { return 0; }
-const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
+const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)(output ? output : reply); }
 "#,
     )
     .unwrap();
     compile_fixture(&source, &path);
-    // A baked card names the code digest: a Mach-O's signature left out.
-    let digest = super::code::code_digest(&std::fs::read(&path).unwrap());
+    let digest = digest::file(&path, true).unwrap();
     let compat = json!({"id":"cohort", "inputs":{"app":"test.app"}, "embedded":{"gpu":{
             "name":path.file_name().unwrap().to_str().unwrap(),"sha256":digest,
             "app":"test.app","cohort":"cohort","trust":"production"}}});
@@ -241,6 +258,23 @@ fn module_identity_refuses_stale_foreign_and_missing_bakes_before_loading() {
     }
     assert!(Abi::open_path(&path, &Value::Null, "").is_err());
     drop(Abi::open_path(&path, &compat, "").unwrap());
+    let mut development = compat.clone();
+    development["embedded"]["gpu"]["trust"] = json!("development");
+    development["embedded"]["gpu"]["receipt"] = json!(true);
+    let receipt = format!("{}.proof.json", path.display());
+    std::fs::write(
+        &receipt,
+        json!({"inputs":"a".repeat(64),
+        "artifact":digest::bytes_digest(&std::fs::read(&path).unwrap(), false)})
+        .to_string(),
+    )
+    .unwrap();
+    verify_module(&path, &development, "").unwrap();
+    verify_module(&path, &compat, "").unwrap();
+    development["embedded"]["gpu"]["receipt"] = json!(false);
+    development["embedded"]["gpu"]["sha256"] = json!("wrong digest");
+    assert!(verify_module(&path, &development, "").is_err());
+
     // A digest-authenticated old child ABI must refuse before any call.
     let source = path.with_file_name("probe.c");
     let old = std::fs::read_to_string(&source)
@@ -250,7 +284,7 @@ fn module_identity_refuses_stale_foreign_and_missing_bakes_before_loading() {
     compile_fixture(&source, &path);
     let mut old_compat = compat.clone();
     old_compat["embedded"]["gpu"]["sha256"] =
-        super::code::code_digest(&std::fs::read(&path).unwrap()).into();
+        digest::bytes_digest(&std::fs::read(&path).unwrap(), true).into();
     let error = Abi::open_path(&path, &old_compat, "")
         .err()
         .expect("old ABI refused");

@@ -11,9 +11,9 @@ fn diagnostics_keep_the_by_value_error_below_the_large_result_threshold() {
     assert!(std::mem::size_of::<contract::CompileError>() < 128);
 }
 
-struct App(PathBuf);
+pub(super) struct App(pub(super) PathBuf);
 impl App {
-    fn new(name: &str) -> Self {
+    pub(super) fn new(name: &str) -> Self {
         // Windows forbids quotes in filenames; backslashes still exercise JSON
         // path escaping, and both platforms retain Unicode and whitespace.
         let suffix = if cfg!(windows) {
@@ -26,13 +26,13 @@ impl App {
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
     }
-    fn write(&self, name: &str, source: &str) -> PathBuf {
+    pub(super) fn write(&self, name: &str, source: &str) -> PathBuf {
         let path = self.0.join(name);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, source).unwrap();
         path
     }
-    fn run(&self, args: &[&str]) -> Output {
+    pub(super) fn run(&self, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_contract"))
             .arg("build")
             .args(args)
@@ -46,7 +46,7 @@ impl Drop for App {
         std::fs::remove_dir_all(&self.0).unwrap();
     }
 }
-fn diagnostics(output: &Output, code: i32) -> Vec<Value> {
+pub(super) fn diagnostics(output: &Output, code: i32) -> Vec<Value> {
     assert_eq!(output.status.code(), Some(code), "{output:?}");
     assert!(output.stderr.is_empty(), "{output:?}");
     serde_json::from_slice(&output.stdout).expect("stdout is exactly one JSON array")
@@ -162,59 +162,6 @@ fn io_and_usage_failures_stay_in_the_structured_protocol() {
     assert!(String::from_utf8_lossy(&human.stderr).contains("contract-use-unreadable"));
 }
 
-/// LLP 1116 D6: a warning is a diagnostic of severity `"warning"` after
-/// every refusal, in the same array or on the same stream; it never fails
-/// the build, and a refusal says `"severity": "error"`.
-#[test]
-fn warnings_follow_the_refusals_and_never_fail_the_build() {
-    let app = App::new("warnings");
-    let source = "shape Ack\n  ok: bool\ncomponent App\n  mutation wrote as shape Ack\n  action save\n    send wrote = keep(performanceNow())\n  view\n    button \"save\" press=save\n";
-    app.write("app.contract", source);
-    let warnings = diagnostics(&app.run(&["app.contract", "--json", "-o", "out.plan"]), 0);
-    assert_eq!(warnings.len(), 1, "{warnings:?}");
-    assert_eq!(warnings[0]["id"], "type-performance-now-persisted");
-    assert_eq!(warnings[0]["severity"], "warning");
-    assert_eq!(warnings[0]["file"], "app.contract");
-    assert_eq!(
-        (&warnings[0]["line"], &warnings[0]["col"]),
-        (&6.into(), &23.into())
-    );
-    assert!(app.0.join("out.plan").exists(), "a warning writes the plan");
-    let human = app.run(&["app.contract"]);
-    assert!(human.status.success(), "{human:?}");
-    assert!(String::from_utf8_lossy(&human.stdout).contains("nodes,"));
-    let stderr = String::from_utf8_lossy(&human.stderr);
-    assert!(
-        stderr.starts_with("app.contract:6:23 warning [type-performance-now-persisted] "),
-        "{stderr}"
-    );
-    // Beside a refusal: the refusal first, the warning after, and the
-    // refusal's exit status.
-    app.write(
-        "app.contract",
-        &source.replace("button \"save\"", "button widht=3 \"save\""),
-    );
-    let both = diagnostics(&app.run(&["app.contract", "--json"]), 1);
-    let ids: Vec<(&Value, &Value)> = both.iter().map(|d| (&d["severity"], &d["id"])).collect();
-    assert_eq!(
-        ids,
-        [
-            (&"error".into(), &"lower-unknown-attr".into()),
-            (&"warning".into(), &"type-performance-now-persisted".into())
-        ]
-    );
-    let human = app.run(&["app.contract"]);
-    assert_eq!(human.status.code(), Some(1));
-    let stderr = String::from_utf8_lossy(&human.stderr);
-    let lines: Vec<&str> = stderr.lines().collect();
-    assert!(
-        lines.len() == 2
-            && lines[0].contains("[lower-unknown-attr]")
-            && lines[1].contains(" warning ["),
-        "{stderr}"
-    );
-}
-
 #[test]
 fn compile_failure_preserves_an_existing_output() {
     let app = App::new("preserve");
@@ -258,7 +205,7 @@ fn every_command_help_succeeds_without_reading_or_changing_files() {
     for flag in ["--help", "-h"] {
         app.write(flag, "this is not a Contract source\n");
     }
-    for command in ["", "build", "symbols", "fmt", "types", "test"] {
+    for command in ["", "build", "migrate", "symbols", "fmt", "types", "test"] {
         for flag in ["--help", "-h"] {
             let mut process = Command::new(env!("CARGO_BIN_EXE_contract"));
             if !command.is_empty() {
@@ -392,7 +339,7 @@ fn unknown_types_list_named_choices_at_the_original_import() {
         .unwrap();
     let expected = contract::compile_path(&root).unwrap_err();
     assert_eq!(expected.id, "type-unknown");
-    assert_eq!(expected.message, "unknown type `Contcat`; known named types: `number`, `string`, `bool`, `unit`, `action`, `ClipboardEvent`, `Contact`, `DOMRectReadOnly`, `DragEvent`, `Failure`, `FocusEvent`, `Geometry`, `InputEvent`, `IntersectionObserverEntry`, `KeyboardEvent`, `MIDIMessageEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `ToggleEvent`, `WheelEvent`, `Wrapper`, `Zulu`");
+    assert_eq!(expected.message, "unknown type `Contcat`; known named types: `number`, `string`, `bool`, `unit`, `action`, `ClipboardEvent`, `Contact`, `DOMRectReadOnly`, `DragEvent`, `Failure`, `FocusEvent`, `Geometry`, `InputEvent`, `IntersectionObserverEntry`, `KeyboardEvent`, `MIDIMessageEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `TextDecorationAtom`, `TextDecorationBlock`, `TextDecorationHidden`, `TextDecorationRange`, `TextDecorationSpan`, `TextDecorations`, `ToggleEvent`, `WheelEvent`, `Wrapper`, `Zulu`");
     let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 1);
     same_error(&errors[0], &expected);
     assert_eq!(errors[0]["file"], model.to_str().unwrap());
@@ -421,9 +368,9 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
         // every file can name, `Geometry` what `frame` and `measure` answer, and
         // `Failure` what `failure(x)` does.
         let extra = if prefix.contains("Later") {
-            ", `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Failure`, `FocusEvent`, `Geometry`, `InputEvent`, `IntersectionObserverEntry`, `KeyboardEvent`, `Later`, `MIDIMessageEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `ToggleEvent`, `WheelEvent`"
+            ", `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Failure`, `FocusEvent`, `Geometry`, `InputEvent`, `IntersectionObserverEntry`, `KeyboardEvent`, `Later`, `MIDIMessageEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `TextDecorationAtom`, `TextDecorationBlock`, `TextDecorationHidden`, `TextDecorationRange`, `TextDecorationSpan`, `TextDecorations`, `ToggleEvent`, `WheelEvent`"
         } else {
-            ", `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Failure`, `FocusEvent`, `Geometry`, `InputEvent`, `IntersectionObserverEntry`, `KeyboardEvent`, `MIDIMessageEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `ToggleEvent`, `WheelEvent`"
+            ", `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Failure`, `FocusEvent`, `Geometry`, `InputEvent`, `IntersectionObserverEntry`, `KeyboardEvent`, `MIDIMessageEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `TextDecorationAtom`, `TextDecorationBlock`, `TextDecorationHidden`, `TextDecorationRange`, `TextDecorationSpan`, `TextDecorations`, `ToggleEvent`, `WheelEvent`"
         };
         assert_eq!(error.id, "type-unknown");
         assert_eq!(
@@ -434,7 +381,7 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     let root = app.write("app.contract", &format!("routes nav\n  home \"/\"\n{body}"));
     let error = contract::compile_path(&root).unwrap_err();
     assert_eq!(error.id, "type-unknown");
-    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Entry`, `Failure`, `FocusEvent`, `Geometry`, `InputEvent`, `IntersectionObserverEntry`, `KeyboardEvent`, `MIDIMessageEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Params`, `Picked`, `PointerEvent`, `ReorderEvent`, `Router`, `ScrollEvent`, `Selection`, `Tab`, `ToggleEvent`, `WheelEvent`"));
+    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Entry`, `Failure`, `FocusEvent`, `Geometry`, `InputEvent`, `IntersectionObserverEntry`, `KeyboardEvent`, `MIDIMessageEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Params`, `Picked`, `PointerEvent`, `ReorderEvent`, `Router`, `ScrollEvent`, `Selection`, `Tab`, `TextDecorationAtom`, `TextDecorationBlock`, `TextDecorationHidden`, `TextDecorationRange`, `TextDecorationSpan`, `TextDecorations`, `ToggleEvent`, `WheelEvent`"));
     // Field resolution has already seen later declarations, even when it fails
     // while resolving the first shape's fields.
     let root = app.write("app.contract", "shape First\n  value: Ltaer\nshape Later\n  value: string\ncomponent App\n  view\n    text \"hello\"\n");
@@ -442,7 +389,7 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     assert_eq!(error.id, "type-unknown");
     assert!(error
         .message
-        .ends_with("`First`, `FocusEvent`, `Geometry`, `InputEvent`, `IntersectionObserverEntry`, `KeyboardEvent`, `Later`, `MIDIMessageEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `ToggleEvent`, `WheelEvent`"));
+        .ends_with("`First`, `FocusEvent`, `Geometry`, `InputEvent`, `IntersectionObserverEntry`, `KeyboardEvent`, `Later`, `MIDIMessageEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `TextDecorationAtom`, `TextDecorationBlock`, `TextDecorationHidden`, `TextDecorationRange`, `TextDecorationSpan`, `TextDecorations`, `ToggleEvent`, `WheelEvent`"));
 }
 
 #[test]

@@ -165,7 +165,7 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
     for (attr, row, invalid) in [
         ("align-items", StyleId::AlignItems, "middle"),
         ("display", StyleId::Display, "flexbox"),
-        ("overflow", StyleId::OverflowX, "clip"),
+        ("overflow", StyleId::OverflowX, "truncate"),
         ("object-fit", StyleId::ObjectFit, "stretch"),
         ("font-style", StyleId::FontStyle, "slanted"),
         ("position", StyleId::PositionType, "fixed"),

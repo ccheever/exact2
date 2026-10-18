@@ -46,6 +46,7 @@ pub mod bridge;
 pub mod commands;
 pub mod compare;
 mod conform;
+pub mod decorations;
 pub mod delivery;
 pub mod design;
 pub mod device;
@@ -111,9 +112,9 @@ pub use runner::{
     InFlight, InputDetails, Interrupt, Intersection, KeyModifiers, KeyboardEvent, Limits,
     ListTextPolicy, ListTextPosition, Native, NativeCall, NativeHandler, Overlaid, Picked,
     PickerLinks, PickerRequest, PointerEvent, PreloadWake, ResizeRect, RouterChange, RouterLink,
-    Routing, Runner, RunnerError, RunnerLinks, ScrollEvent, SelectionDirection, SocketReader,
-    SocketState, StackSplit, StreamCount, SurfaceAnswer, Target, Timed, WheelEvent, Write,
-    BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED,
+    Routing, Runner, RunnerError, RunnerLinks, ScrollEvent, SelectionDirection, SnapshotModule,
+    SocketReader, SocketState, StackSplit, StreamCount, SurfaceAnswer, Target, Timed, WheelEvent,
+    Write, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED,
     TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
 pub use runner::{LiveApplied, LiveRefusal, Place, Tamber};
@@ -125,7 +126,7 @@ pub mod tamber {
         Token, TypeKind as Type,
     };
 }
-pub use store::{Store, StoreError, StoreWrite};
+pub use store::{Store, StoreChange, StoreError, StoreWrite};
 pub use uses::{svg_filters, svg_islands, uses, Capability, Uses};
 pub use viewport::{Contrast, Fold, Gamut, Hover, Pointer, Posture, Preferences, Viewport};
 pub use vm::Trap;

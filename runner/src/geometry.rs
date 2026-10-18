@@ -100,6 +100,12 @@ pub type Measured = Vec<(StrId, GeometryAnswer)>;
 pub trait InlineGeometry: std::fmt::Debug {
     /// The last presented run, or `UNAVAILABLE` when it is not mounted.
     fn frame(&self, view: ViewId) -> GeometryAnswer;
+
+    /// A field's UTF-16 source range in viewport coordinates (LLP 1114.007).
+    /// Until a host links its editor range reader, the answer is unavailable.
+    fn range_frame(&self, _view: ViewId, _start: u32, _end: u32) -> GeometryAnswer {
+        GeometryAnswer::UNAVAILABLE
+    }
 }
 
 /// Where the host last showed each scroll container, and the page, in CSS
@@ -265,6 +271,7 @@ impl Scrolled {
 /// geometry carries none of it (LLP 1047 D3).
 #[derive(Clone, Copy)]
 pub struct GeometryLinks {
+    range_frame: fn(&Kernel, &Scrolled, ViewId, f64, f64) -> GeometryAnswer,
     frame: fn(&Kernel, &Scrolled, ViewId) -> GeometryAnswer,
     measure: fn(&mut Kernel, &Scrolled, ViewId) -> GeometryAnswer,
     point: fn(&Kernel, &Scrolled, f64, f64) -> Option<ViewId>,
@@ -289,6 +296,7 @@ impl GeometryLinks {
         shown: fn(&Kernel, &Scrolled, ViewId, bool) -> bool,
     ) -> GeometryLinks {
         GeometryLinks {
+            range_frame: kernel_range_frame,
             frame,
             measure,
             point,
@@ -297,6 +305,15 @@ impl GeometryLinks {
             ahead: measure_ahead,
             read,
         }
+    }
+
+    /// Use the host editor's source-range geometry in viewport coordinates.
+    pub const fn with_range_frame(
+        mut self,
+        range_frame: fn(&Kernel, &Scrolled, ViewId, f64, f64) -> GeometryAnswer,
+    ) -> Self {
+        self.range_frame = range_frame;
+        self
     }
 
     /// Every `measure` in an action's `code`, answered before it runs, by
@@ -703,6 +720,18 @@ fn read(env: &GeometryEnv<'_>, plan: &Plan, f: Stdlib, args: &[Value]) -> Option
         ));
     }
     let id = args.first()?.as_str()?;
+    if f == Stdlib::RangeFrame {
+        let start = args.get(1)?.as_number()?;
+        let end = args.get(2)?.as_number()?;
+        let answer = view_of(env.kernel, id).map_or(GeometryAnswer::UNAVAILABLE, |view| {
+            if !start.is_finite() || !end.is_finite() || start < 0. || start > end {
+                GeometryAnswer::UNAVAILABLE
+            } else {
+                (env.links.range_frame)(env.kernel, env.scrolled, view, start, end)
+            }
+        });
+        return Some(answer.value());
+    }
     let answer = if f == Stdlib::Measure {
         env.measured
             .iter()
@@ -714,6 +743,45 @@ fn read(env: &GeometryEnv<'_>, plan: &Plan, f: Stdlib, args: &[Value]) -> Option
         })
     };
     Some(answer.value())
+}
+
+fn kernel_range_frame(
+    kernel: &Kernel,
+    scrolled: &Scrolled,
+    view: ViewId,
+    start: f64,
+    end: f64,
+) -> GeometryAnswer {
+    if !start.is_finite() || !end.is_finite() || start > end {
+        return GeometryAnswer::UNAVAILABLE;
+    }
+    let Some(node) = kernel
+        .node(view)
+        .filter(|node| node.node_type == exact_kernel::NodeType::TextInput)
+    else {
+        return GeometryAnswer::UNAVAILABLE;
+    };
+    let Some((_, provisional)) = kernel.laid_out_frame(node.key) else {
+        return GeometryAnswer::UNAVAILABLE;
+    };
+    let offset = |n: f64| n.trunc().clamp(0., f64::from(u32::MAX)) as u32;
+    let mut answer = scrolled
+        .inline
+        .as_ref()
+        .map_or(GeometryAnswer::UNAVAILABLE, |read| {
+            read.range_frame(view, offset(start), offset(end))
+        });
+    if answer.unavailable
+        || ![answer.x, answer.y, answer.width, answer.height]
+            .iter()
+            .all(|v| v.is_finite())
+        || answer.width < 0.
+        || answer.height < 0.
+    {
+        return GeometryAnswer::UNAVAILABLE;
+    }
+    answer.provisional |= provisional;
+    answer
 }
 
 /// The `id` of `view` or of its nearest ancestor with one: DOM's

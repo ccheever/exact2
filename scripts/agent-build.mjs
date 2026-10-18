@@ -27,7 +27,8 @@ import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
 import { compilerWarnings, CONFIG_JSON, DECLARATIONS, depInfoInputs, moduleGraph, newerThan, notBuildInput, receiptChanges, refuseStale } from './agent-launch.mjs';
-import { claimLive, developmentBuildEnv, resolveApp, shaderWatchRoots } from './app.mjs';
+import { bakeOutput, claimLive, developmentBuildEnv, resolveApp, shaderWatchRoots } from './app.mjs';
+import { bakeTool, linkedBakeDir } from './linked-plan.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const label = host => host === 'ios' ? 'iOS' : 'macOS';
@@ -164,11 +165,14 @@ export function planOverride(host, app, state, graph = graphOf(app)) {
   return { plan: resolve(dir, 'app.plan'), dir };
 }
 
-/** The module receipt the build baked: its build script's, found by the plan
- * its receipt names (the archive's dep-info names that script's output). */
+/** The module receipt the build baked, found by the plan its receipt names:
+ * the bake its link carries (linked-plan.mjs), or its build script's (the
+ * archive's dep-info names that script's output). */
 export function builtModule(app, receipt) {
   const { target } = receipt, plan = receipt.build?.compat?.embedded?.plan?.sha256;
   if (!target || !plan) return null;
+  const linked = linkedBakeDir({ EXACT_BAKE_OUTPUT: bakeOutput(app, developmentBuildEnv()) }, receipt.build.compat.inputs?.platform, target);
+  if (digestOf(resolve(linked, 'app.plan')) === plan) try { return JSON.parse(readFileSync(resolve(linked, 'app.module.json'), 'utf8')); } catch {}
   const archive = `lib${app.crate(target.includes('-ios') ? 'ios' : 'macos').replace(/-/g, '_')}.d`;
   let infos = []; try { infos = readdirSync(resolve(app.target, target)).map(p => resolve(app.target, target, p, archive)).filter(existsSync); } catch {}
   for (const info of infos) {
@@ -199,13 +203,6 @@ export function moduleRefusal(built, baked) {
   if (baked.bytecodeVersion !== built.bytecodeVersion) return 'the bake made another Hermes bytecode version than the build';
   return null;
 }
-
-/** The bake tool, the web dev loop's producer (`exact-js-bake`), built once in
- * this checkout's target and shared by every app driven from it: the command
- * that builds it (a no-op when built), and where it is. */
-const TOOL_TARGET = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(ROOT, 'target');
-const bakeTool = { command: 'cargo', args: ['build', '-q', '--profile', 'host-dev', '-p', 'exact-js-bake'], built: resolve(TOOL_TARGET, 'host-dev/exact-js-bake'),
-  options: () => ({ cwd: ROOT, env: { ...developmentBuildEnv(), EXACT_UPDATE_TRUST: 'development', CARGO_TARGET_DIR: TOOL_TARGET } }) };
 
 /** The bake tool baking `app` into the new directory `out`. */
 async function bakePlan(app, out, log) {

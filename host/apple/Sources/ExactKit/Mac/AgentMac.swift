@@ -284,6 +284,7 @@ extension Agent {
         guard let d = session.agent("{\"op\":\"node\",\"id\":\(id),\"plan\":\(includePlan)}").data(using: .utf8),
               var node = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return ["error": "node #\(id): unreadable"] }
         if let e = node["error"] { return ["error": e] }
+        MainActor.assumeIsolated { if let held = HeldState.rows(for: UInt32(id), in: presenter) { node["held"] = held } } // what is held on it (LLP 1122 D8)
         let host = v.paragraphOwner
         // @ref LLP 1043.000 §3 D7 — diagnose actual painted fragments, not a replay.
         if !host.flowShapes.isEmpty, let paragraph = host.paragraphLayout() {
@@ -529,6 +530,7 @@ extension Agent {
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {
+        if req["holdState"] != nil { return holdTap(req) } // a held state (LLP 1122 D8, HeldState.swift)
         // An alert's buttons are AppKit's (LLP 1115.000 D7.6): a tap on an
         // authored button of it presses the alert's, and nothing behind its
         // sheet takes one.

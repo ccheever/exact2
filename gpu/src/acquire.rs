@@ -35,11 +35,14 @@ use std::sync::{mpsc, Arc};
 /// The texture a surface's acquisition returned.
 pub(crate) type Current = wgpu::CurrentSurfaceTexture;
 
+/// A texture the thread presents before it acquires the next.
+type Present = Option<(wgpu::Queue, wgpu::SurfaceTexture)>;
+
 /// One canvas's acquisitions: at most one in flight.
 #[derive(Default)]
 pub(crate) struct Acquire {
     worker: Option<(
-        mpsc::Sender<()>,
+        mpsc::Sender<Present>,
         mpsc::Receiver<Current>,
         std::thread::JoinHandle<()>,
     )>,
@@ -76,7 +79,8 @@ impl Retired {
     /// Wait for the thread to end, then drop the surface here.
     pub(crate) fn join(self) {
         let _ = self.thread.join();
-        drop(self.surface);
+        let surface = self.surface;
+        crate::swapchains(|| drop(surface));
     }
 }
 
@@ -156,8 +160,31 @@ impl Acquire {
 
     /// Ask for `target`'s next texture, unless one is already in flight.
     pub(crate) fn request(&mut self, target: &Arc<wgpu::Surface<'static>>) {
+        self.ask(target, None);
+    }
+
+    /// Present `texture` on the thread, then acquire `target`'s next one: on
+    /// Android a present is a binder call into the compositor that takes the
+    /// presenter's thread about a millisecond, and, once the GPU has fallen
+    /// behind, waits there for the frame before (Adreno 630). When one is
+    /// already in flight, `texture` is presented here.
+    #[cfg(target_os = "android")]
+    pub(crate) fn present_then_request(
+        &mut self,
+        target: &Arc<wgpu::Surface<'static>>,
+        queue: &wgpu::Queue,
+        texture: wgpu::SurfaceTexture,
+    ) {
+        if let Some((queue, texture)) = self.ask(target, Some((queue.clone(), texture))) {
+            queue.present(texture);
+        }
+    }
+
+    /// Send the thread `present` and a request, unless one is in flight;
+    /// what was not sent comes back.
+    fn ask(&mut self, target: &Arc<wgpu::Surface<'static>>, present: Present) -> Present {
         if self.in_flight {
-            return;
+            return present;
         }
         if self.worker.is_none() {
             self.taken = 0;
@@ -166,11 +193,18 @@ impl Acquire {
             self.surface = Some(target.clone());
         }
         match &self.worker {
-            Some((ask, _, _)) if ask.send(()).is_ok() => self.in_flight = true,
-            _ => {
-                self.worker = None;
-                self.surface = None;
-            }
+            Some((ask, _, _)) => match ask.send(present) {
+                Ok(()) => {
+                    self.in_flight = true;
+                    None
+                }
+                Err(mpsc::SendError(present)) => {
+                    self.worker = None;
+                    self.surface = None;
+                    present
+                }
+            },
+            None => present,
         }
     }
 
@@ -273,17 +307,20 @@ fn spawn(
     starved: Arc<AtomicBool>,
     sent: Arc<AtomicUsize>,
 ) -> Option<(
-    mpsc::Sender<()>,
+    mpsc::Sender<Present>,
     mpsc::Receiver<Current>,
     std::thread::JoinHandle<()>,
 )> {
-    let (ask, asked) = mpsc::channel::<()>();
+    let (ask, asked) = mpsc::channel::<Present>();
     let (answer, answers) = mpsc::channel::<Current>();
     let thread = std::thread::Builder::new()
         .name("exact-gpu-acquire".into())
         .spawn(move || {
             interactive();
-            while asked.recv().is_ok() {
+            while let Ok(present) = asked.recv() {
+                if let Some((queue, texture)) = present {
+                    crate::swapchains(|| queue.present(texture));
+                }
                 if answer.send(target.get_current_texture()).is_err() {
                     break;
                 }

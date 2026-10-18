@@ -86,6 +86,9 @@ pub(crate) struct Said {
     /// Every word the literals write, a token's name or not: what D7's
     /// retention reads (`tamber::Retention`), for this design or an edit of it.
     pub words: BTreeSet<String>,
+    /// Every word a colour keyframe writes: a token one names is folded into
+    /// the keyframes, so its value is the plan's structure.
+    pub folded: BTreeSet<String>,
 }
 
 impl Said {
@@ -130,6 +133,7 @@ impl Said {
                 Node::Children { .. } => {}
             }
         }
+        let mut folded = BTreeSet::new();
         // A colour keyframe folds its tokens as a row does (`keyframes::tokens`):
         // its value as the app compiles it, through a palette function's
         // template (`shade("chip")` to `light-dark(chip, #ffffff)`).
@@ -141,6 +145,7 @@ impl Said {
         {
             if colour_attr(&a.name) {
                 if let Some(text) = crate::keyframes::constant(&a.value, &file.fns) {
+                    folded.extend(words(&text).map(str::to_string));
                     literals.push((text, a.span, true));
                 }
             }
@@ -175,6 +180,7 @@ impl Said {
         let mut said = Said {
             computed,
             computed_measure,
+            folded,
             ..Default::default()
         };
         for (text, span, strict) in literals {

@@ -48,6 +48,7 @@ use crate::renderer::RETIRED_BUDGET;
 pub struct WorldSurface<G: Game, P: Executor = (), const ASSETS: bool = false, H: crate::Hooks = ()>
 {
     sim: Option<Sim<G>>,
+    development_edits: bool,
     pending_restore: Option<(Vec<u8>, Restore)>,
     placed: crate::placed::Placements,
     refusal: Option<SurfaceError>,
@@ -81,6 +82,12 @@ pub struct WorldSurface<G: Game, P: Executor = (), const ASSETS: bool = false, H
     interrupted: bool,
 }
 impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
+    /// Bake-owned development capability; production modules refuse live edits.
+    #[doc(hidden)]
+    pub fn development_edits(mut self, allowed: bool) -> Self {
+        self.development_edits = allowed;
+        self
+    }
     fn check_primitive_assets(&mut self) -> Result<(), SurfaceError> {
         if ASSETS {
             return Ok(());
@@ -151,6 +158,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         self.error = None;
         self.reported = false;
         self.perf = Perf::default();
+        self.gpu_timing = None;
         Ok(())
     }
     fn finish_restore(&mut self) {
@@ -831,12 +839,13 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
         // its own Data decoder to distinguish state from tree/error/entity replies.
         let state = world_state(&reply);
         if state {
-            #[derive(Default, exact_game::Data)]
-            struct PerfRequest {
-                perf_reset: bool,
-                perf: bool,
-            }
-            if let Ok(r) = exact_game::json::from_str::<PerfRequest>(request) {
+            let span_since = crate::perf::PerfRequest::parse(request)
+                .ok()
+                .and_then(|r| r.span_since);
+            if let Ok(r) = crate::perf::PerfRequest::parse(request) {
+                if r.perf || r.perf_reset {
+                    sim.measure_spans(crate::perf::clock_ms, r.perf_reset);
+                }
                 if r.perf_reset {
                     self.perf.reset();
                     if let Some(timing) = &mut self.gpu_timing {
@@ -862,6 +871,14 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
                 ",\"device\":false"
             });
             self.perf.append(&mut reply);
+            reply.pop();
+            reply.push_str(",\"tickSpans\":");
+            reply.push_str(&sim.spans_json(span_since));
+            reply.push('}');
+            let trace_events = crate::perf::PerfRequest::parse(request)
+                .ok()
+                .filter(|q| q.trace_export)
+                .map(|_| sim.trace_events_json());
             let work = self
                 .render
                 .as_ref()
@@ -908,6 +925,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
                 }
                 timing.append(&mut reply);
             }
+            if let Some(events) = trace_events {
+                render::append_trace(&mut reply, events, self.gpu_timing.as_ref());
+            }
             reply.push_str("}}");
         }
         if let Some(error) = &self.error {
@@ -949,6 +969,10 @@ fn world_state(reply: &str) -> bool {
 mod tests;
 #[cfg(test)]
 impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
+    pub(crate) fn world_for_test(&mut self) -> &mut exact_game::World {
+        self.dirty = true;
+        self.sim.as_mut().unwrap().world_mut()
+    }
     pub(crate) fn renderer_for_test(
         &mut self,
     ) -> Option<&mut crate::renderer::RendererWithAssets<ASSETS>> {

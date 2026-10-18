@@ -336,6 +336,26 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                     });
                 }
             }
+            Op::SetLooks { id, looks } => {
+                staged.require(op_index, *id)?;
+                let rows = crate::look_rows();
+                let mut last = None;
+                for (state, patch) in looks {
+                    // Each state once, ascending; only the look rows, set
+                    // or cleared.
+                    if !(crate::LOOK_HOVER..=crate::LOOK_FOCUS_VISIBLE).contains(state)
+                        || last.is_some_and(|l| l >= *state)
+                        || !patch.mask.union(patch.written).minus(rows).is_empty()
+                        || patch.validate_domain().is_err()
+                    {
+                        return Err(ApplyError::LookRow {
+                            op_index,
+                            state: *state,
+                        });
+                    }
+                    last = Some(*state);
+                }
+            }
             Op::SetStyle { id, patch } => {
                 staged.require(op_index, *id)?;
                 if let Err(error) = patch.validate_domain() {
@@ -766,6 +786,12 @@ pub(crate) fn continue_document(
                         defaults::after_prop(arena, layout, starts, touched, receipt);
                         source_changed(arena, slot, *prop, receipt);
                         text_style::shorthand_changed(arena, layout, slot, *prop, touched, receipt);
+                        touched.push(arena.key(slot));
+                    }
+                }
+                Op::SetLooks { id, looks } => {
+                    let slot = live_slot(arena, op_index, *id)?;
+                    if arena.set_looks(slot, looks) {
                         touched.push(arena.key(slot));
                     }
                 }

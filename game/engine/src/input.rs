@@ -521,6 +521,8 @@ pub(crate) struct ControlContact {
 pub struct Input {
     #[data(skip)]
     actions: Option<Arc<Actions>>,
+    #[data(skip)]
+    pub(crate) events: crate::events::InputEvents,
     pub(crate) keys: Vec<String>,
     pressed: Vec<String>,
     released: Vec<String>,
@@ -546,6 +548,15 @@ pub struct Input {
     latched: Vec<String>,
 }
 impl Input {
+    /// Events produced by the preceding tick, in emission order for this type.
+    pub fn events<E: crate::TypedEvent>(&self) -> &[E] {
+        self.events
+            .0
+            .get(E::NAME)
+            .and_then(|v| v.downcast_ref::<Vec<E>>())
+            .map_or(&[], Vec::as_slice)
+    }
+
     pub(crate) fn new(actions: Actions) -> Self {
         Self {
             actions: (!actions.entries.is_empty()).then(|| Arc::new(actions)),

@@ -38,7 +38,7 @@ export function appleComposition(graph, production, ahead = [], granted = false)
 /** The system frameworks only a capability's Swift half brings, and so
  * absent from an executable whose composition does not link it (LLP
  * 1047.001.000 §6, the check's first form). */
-const CAPABILITY_FRAMEWORKS = [['ExactMediaPicker', 'PhotosUI'], ['ExactAuthSession', 'AuthenticationServices'], ['ExactNumerals', 'SwiftUI']];
+const CAPABILITY_FRAMEWORKS = [['ExactMediaPicker', 'PhotosUI'], ['ExactAuthSession', 'AuthenticationServices'], ['ExactNumerals', 'SwiftUI'], ['ExactSnapshot', 'WidgetKit'], ['ExactSnapshot', 'ActivityKit']];
 
 /** The dylibs an executable's load commands name (`LC_LOAD_DYLIB` and its
  * weak, re-export, lazy and upward forms), every slice of a universal one.
@@ -67,9 +67,9 @@ export function loadedDylibs(executable) {
 /** An executable links no framework that only an unlinked capability
  * brings: the next import of one into the core fails the build by name
  * instead of costing every launch silently. */
-export function assertCapabilityFrameworks(executable, products) {
+export function assertCapabilityFrameworks(executable, products, allowedFrameworks = []) {
   const loaded = loadedDylibs(executable);
-  const stray = CAPABILITY_FRAMEWORKS.filter(([product, framework]) => !products.includes(product) && loaded.some((path) => path.endsWith(`/${framework}.framework/${framework}`)));
+  const stray = CAPABILITY_FRAMEWORKS.filter(([product, framework]) => !products.includes(product) && !allowedFrameworks.includes(framework) && loaded.some((path) => path.endsWith(`/${framework}.framework/${framework}`)));
   if (stray.length) throw new Error(`host/apple: ${basename(executable)} links ${stray.map(([product, framework]) => `${framework} (only ${product} may)`).join(', ')}, which its composition does not link: an import outside the capability's module brings it to every launch`);
 }
 

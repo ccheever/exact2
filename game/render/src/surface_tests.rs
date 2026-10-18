@@ -1,4 +1,6 @@
 use super::*;
+#[path = "surface_tests/trace.rs"]
+mod trace;
 use exact_game::{Camera, Input, Mesh, Transform, Vec3};
 use exact_gpu::{fixture, Gpu};
 
@@ -19,6 +21,7 @@ impl Game for Move {
         w.spawn((Transform::at(0., 0., 8.), Camera::default()));
     }
     fn tick(w: &mut World, _: &Input, args: &Self::Args) {
+        let _span = w.span("move");
         if args.r#move {
             for (_, (_, t)) in w.query::<(&Mesh, &mut Transform)>().iter() {
                 t.position.x += 1.;
@@ -1403,4 +1406,48 @@ fn srgb_target_matches_shader_transfer_after_hdr_rendering() {
         !WorldSurface::<Move>::default().srgb_target(),
         "the four-sample path is unchanged"
     );
+}
+
+#[test]
+fn world_perf_difference_reads_only_the_requested_ticks_over_the_wire() {
+    #[derive(Default, exact_game::Data)]
+    struct Sample {
+        count: u64,
+    }
+    #[derive(Default, exact_game::Data)]
+    struct Spans {
+        spans: Vec<Sample>,
+        error: String,
+    }
+    #[allow(non_snake_case)]
+    #[derive(Default, exact_game::Data)]
+    struct Metrics {
+        tickSpans: Spans,
+    }
+    #[derive(Default, exact_game::Data)]
+    struct WorldState {
+        perf: Metrics,
+    }
+    #[derive(Default, exact_game::Data)]
+    struct Reply {
+        world: WorldState,
+    }
+    let mut s = surface();
+    s.agent(r#"{"op":"clock","now":0}"#);
+    s.agent(r#"{"op":"state","perf":true}"#);
+    s.agent(r#"{"op":"clock","now":34}"#);
+    let read = |text: String| {
+        exact_game::json::from_str::<Reply>(&text)
+            .unwrap()
+            .world
+            .perf
+            .tickSpans
+    };
+    let window = read(s.agent(r#"{"op":"state","span_since":1}"#).unwrap());
+    assert!(!window.spans.is_empty());
+    assert!(window.spans.iter().all(|s| s.count == 1));
+    let all = read(s.agent(r#"{"op":"state","span_since":0}"#).unwrap());
+    assert!(all.spans.iter().all(|s| s.count == 2));
+    let backwards = read(s.agent(r#"{"op":"state","span_since":3}"#).unwrap());
+    assert!(backwards.error.contains("counters went back"));
 }

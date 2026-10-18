@@ -35,6 +35,15 @@ final class NodeLayer: CALayer {
     }
 }
 
+/// Image geometry uses the same animation context as its owning UIView.
+private final class NodeImageLayer: CALayer {
+    override func action(forKey event: String) -> CAAction? {
+        guard ["bounds", "position", "contentsRect"].contains(event),
+              let view = superlayer?.delegate as? UIView else { return NSNull() }
+        return view.action(for: self, forKey: event) ?? NSNull()
+    }
+}
+
 extension NodeView {
     /// Paint only `draw(_:)` makes: a box Core Animation cannot say, an
     /// image's pixels no sublayer shows, a capture's picture, a paragraph
@@ -64,7 +73,7 @@ extension NodeView {
             // puts it; the view's own bounds and radius clip it.
             CATransaction.begin(); CATransaction.setDisableActions(true)
             defer { CATransaction.commit() }
-            let l = imageLayer ?? CALayer()
+            let l = imageLayer ?? NodeImageLayer()
             if l.superlayer !== layer { imageLayer = l; insertBoxSublayer(l) }
             l.frame = look.image
             l.contentsRect = CGRect(x: 0, y: 0, width: 1, height: 1)
@@ -93,16 +102,19 @@ extension NodeView {
         for (r, mask) in zip(radii, masks) where r > 0 { corners.insert(mask) }
         let unit = CGRect(x: (shown.minX - rect.minX) / rect.width, y: (shown.minY - rect.minY) / rect.height,
                           width: shown.width / rect.width, height: shown.height / rect.height)
-        CATransaction.begin(); CATransaction.setDisableActions(true)
+        let l = imageLayer ?? NodeImageLayer()
+        let mounted = l.superlayer === layer
+        CATransaction.begin()
+        CATransaction.setDisableActions(!mounted || CATransaction.disableActions())
         defer { CATransaction.commit() }
-        let l = imageLayer ?? CALayer()
-        if l.superlayer !== layer {
+        if !mounted {
             // Where `draw(_:)` paints it: under the border and the children.
             imageLayer = l
             insertBoxSublayer(l)
         }
         if l.frame != shown { l.frame = shown }
         if l.contentsRect != unit { l.contentsRect = unit }
+        CATransaction.setDisableActions(true)
         let frame = AnimatedRasters.shared.frame(for: self) ?? bitmap.image
         if (l.contents as AnyObject?) !== frame { l.contents = frame }
         l.applyDynamicRange(hdr: bitmap.isHDR, headroom: bitmap.headroom, limit: style["dynamic_range_limit"]?.string)
@@ -166,7 +178,7 @@ extension NodeView {
     /// fixed gradient.
     var fixedGradientPort: CGRect? {
         guard let port = presenter?.viewport, window != nil else { return nil }
-        return port.convert(port.bounds, to: self)
+        return port.convert(port.pageBounds, to: self) // the page's area, not the bands it is drawn past
     }
 
     /// The fixed gradient aimed again at where the viewport now is. Every
@@ -193,7 +205,9 @@ extension NodeView {
     /// where the overflow clips.
     func applyBoxLayer() {
         defer { syncEllipticalClip(); applyColorRanges() }
-        let background = cgColor("background_color")
+        let authored = cgColor("background_color")
+        let ground = authored == nil ? fieldGround : nil
+        let background = authored ?? ground
         let fill = background.flatMap { $0.alpha > 0 ? $0 : nil }
         let uniform = number("border_width")
         let sides = ["top", "right", "bottom", "left"]
@@ -235,7 +249,12 @@ extension NodeView {
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
         for (r, mask) in zip(radii, masks) where r > 0 { corners.insert(mask) }
-        let cornerRadius = onLayer && oneRadius && (shape == nil || continuous) ? radius : 0
+        var cornerRadius = onLayer && oneRadius && (shape == nil || continuous) ? radius : 0
+        // The design's Field under a field's own bezel: on the bezel's corners.
+        if ground != nil, onLayer, cornerRadius == 0, !isCellField {
+            cornerRadius = FieldChromeCache.textareaRadius
+            corners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
+        }
         let border = !onLayer || away || cssVisibilityHidden ? nil : edges ? sideColor : width > 0 ? colors[0] : nil
         applyShadow(outline: roundedPath(in: bounds).cgPath)
         CATransaction.begin(); CATransaction.setDisableActions(true)

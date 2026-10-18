@@ -9,10 +9,13 @@
 
 ## Current scope
 
-Remaining: Window Controls Overlay `env(titlebar-area-x|y|width|height)`,
-including absent-value fallback and fullscreen geometry transitions, then
-manifest title-row/traffic-light configuration before arbitrary positioning.
-Saved-frame repair already landed.
+Remaining (Charlie, 2026-10-18): Window Controls Overlay's
+`env(titlebar-area-x|y|width|height)` only, reporting AppKit's own geometry
+under `viewport-fit="cover"`, with the absent-value fallback, 0 in full screen
+and in a window whose toolbar LLP 1115.002 D2 projects, and full-screen
+transitions verified with a real ⌃⌘F. No manifest field moves the traffic
+lights: D2's unified toolbar is the platform's 52 pt title row, and moving the
+lights would be a tell. Saved-frame repair already landed.
 
 The display-mode slice is implemented: `exactViewport().displayMode` and
 `state.device.displayMode`; browser media-query changes on both web targets;

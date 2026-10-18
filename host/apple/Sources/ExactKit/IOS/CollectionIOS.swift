@@ -45,7 +45,8 @@ extension CollectionHost {
         let bounds = node.layoutBounds, insets = scroll.adjustedContentInset
         let content = node.contentBox()
         let portWidth = max(0, bounds.width - insets.left - insets.right)
-        let portHeight = max(0, bounds.height - insets.top - insets.bottom)
+        // A page band (LLP 1130 D3) is past the box, not inside it.
+        let portHeight = max(0, bounds.height - (insets.top - node.pageBand.top) - (insets.bottom - node.pageBand.bottom))
         guard portWidth.isFinite, portHeight.isFinite else { return nil }
         let horizontal = entries[id]?.snapshot.horizontal ?? false
         // Animating to a smooth correction: where it is headed is the port
@@ -70,6 +71,12 @@ extension CollectionHost {
         return CollectionFacts(offset: Double(max(-start, at.y + insets.top - content.minY)),
             portMain: Double(portHeight), portCross: Double(portWidth), cross: Double(width),
             measurements: [], focus: nil, interaction: nil, paddingStart: Double(start), paddingEnd: Double(end))
+    }
+    /// A smooth correction's native targets move with a page band's inset
+    /// (LLP 1130 D3), as the offset itself does (`NodeView.setPageBand`).
+    func offsetsMoved(_ id: UInt32, by dy: CGFloat) {
+        animationTargets[id]?.y += dy; owedTargets[id]?.y += dy
+        offsetDrivers[id]?.moveOffsets(by: dy)
     }
     /// The insets UIKit adjusts the list's port by, at its start edges. A
     /// safe area its frame changed reaches the scroll view in a layout
@@ -403,6 +410,8 @@ final class OffsetDriver: NSObject {
         began = CACurrentMediaTime()
         FrameClock.shared.want(self, .offsetDriver, rate: FrameClock.full(on: scroll?.window?.screen)) { [weak self] in self?.frame($0) }
     }
+    /// Native offsets move by `dy` under it (a page band's inset, LLP 1130 D3).
+    func moveOffsets(by dy: CGFloat) { from.y += dy; to.y += dy }
     func retarget(_ target: CGPoint, serial: Int) {
         guard let scroll else { return }
         self.serial = serial

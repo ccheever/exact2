@@ -572,6 +572,15 @@ pub fn show_neutral_look() {
     exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
 }
 
+/// Say that this process paints Android's Material look (LLP 1115.001.001
+/// D2.4), before it boots a plan: the schema's metrics are read in their
+/// Material column, which is the web's first look's wherever a row has no
+/// Material value. Android's reader says it, and the Material oracle's
+/// specimen door.
+pub fn show_material_look() {
+    exact_kernel::style::metrics::set_column(exact_kernel::style::metrics::Column::Material);
+}
+
 /// Run a configured app, optionally composed with a delivery adapter.
 pub fn run_config<D: DataSource + Default>(config: &mut Config, started: Instant) -> i32 {
     if let Err(why) = exact_runner::delivery::refuse_analysis(&config.compat) {

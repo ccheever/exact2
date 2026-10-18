@@ -341,6 +341,41 @@ final class AgentCheckIOSTests: XCTestCase {
         for id in [3, 4] { XCTAssertNil(items.first { $0["id"] as? Int == id }?["outX"], "#\(id) is held: \(items)") }
     }
 
+    /// Round 21's event-rsvp at the largest text size: a centred caption wider than its flex column runs past both of
+    /// the column's sides (`spill`, the web's rule), and where its line is drawn (`ink`) is observed where that is not its
+    /// box, so the driver finds two texts running into each other; one in a column that clips is held.
+    func testATextPastItsColumnAndWhereItsLineIsDrawnAreObserved() throws {
+        let caption: [String: Any] = ["font_size": 17, "text_align": "center"]
+        let agent = mounted([
+            ["op": "create", "id": 1, "kind": "view", "style": ["background_color": [255, 255, 255, 255]]],
+            ["op": "create", "id": 2, "kind": "view", "handlers": ["press"], "style": ["display": "flex"]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Going"], "style": caption],
+            ["op": "create", "id": 4, "kind": "text", "props": ["text": "Maybe"], "style": caption],
+            ["op": "create", "id": 5, "kind": "view", "handlers": ["press"], "style": ["display": "flex", "overflow_x": "hidden", "overflow_y": "hidden"]],
+            ["op": "create", "id": 6, "kind": "text", "props": ["text": "Held"], "style": caption],
+            ["op": "children", "id": 1, "ids": [2, 4, 5]], ["op": "children", "id": 2, "ids": [3]], ["op": "children", "id": 5, "ids": [6]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "frame", "id": 2, "x": 40.0, "y": 100.0, "w": 20.0, "h": 40.0],
+            ["op": "frame", "id": 3, "x": -10.0, "y": 0.0, "w": 40.0, "h": 22.0],   // 10 past each side of its column
+            ["op": "frame", "id": 4, "x": 16.0, "y": 200.0, "w": 368.0, "h": 22.0],  // a short word centred in a wide box
+            ["op": "frame", "id": 5, "x": 40.0, "y": 300.0, "w": 20.0, "h": 40.0],
+            ["op": "frame", "id": 6, "x": -10.0, "y": 0.0, "w": 40.0, "h": 22.0],
+        ])
+        let reply = agent.check([:])
+        XCTAssertNil(reply["error"], "\(reply)")
+        let items = try XCTUnwrap(reply["items"] as? [[String: Any]])
+        func item(_ id: Int) throws -> [String: Any] { try XCTUnwrap(items.first { $0["id"] as? Int == id }, "#\(id) in \(items)") }
+        let spill = try XCTUnwrap(try item(3)["spill"] as? [String: Any], "\(items)")
+        XCTAssertEqual(spill["by"] as? Int, 2)
+        XCTAssertEqual(spill["dx"] as? Double, 10)
+        let ink = try XCTUnwrap(try item(4)["ink"] as? [String: Any], "\(items)")
+        let x = try XCTUnwrap(ink["x"] as? Double), w = try XCTUnwrap(ink["w"] as? Double)
+        XCTAssertLessThan(w, 100, "the word, not its box: \(ink)")
+        XCTAssertEqual(x + w / 2, 200, accuracy: 1, "centred in its box: \(ink)")
+        XCTAssertNil(try item(6)["spill"], "a column that clips holds it")
+    }
+
     /// LLP 1116.006 D5: a text stands on the nearest fill painted under it —
     /// its own box's (a rounded bubble, whose corners show the page), a
     /// bubble column's, the page's — in each scheme; and a row its scroller

@@ -28,6 +28,8 @@ struct Request {
     stick: Option<String>,
     value: Option<[f32; 2]>,
     pad: u32,
+    events: bool,
+    event_type: Option<String>,
 }
 impl Request {
     fn parse(text: &str) -> Result<Self, DataError> {
@@ -37,6 +39,8 @@ impl Request {
         while let Some(f) = r.field()? {
             match f.as_str() {
                 "op" => q.op.read(&mut r)?,
+                "events" => q.events.read(&mut r)?,
+                "event_type" => q.event_type = Some(r.string()?),
                 "entity" => q.entity = Some(r.string()?),
                 "under" => q.under = Some(r.string()?),
                 "settle" => q.settle.read(&mut r)?,
@@ -289,6 +293,7 @@ impl<G: Game> Sim<G> {
                 out.push('}');
                 Ok(out)
             }
+            "state" if q.events => Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"events\":{}}}", w.hash(), w.events_json(q.event_type.as_deref())?)),
             "state" if q.entity.as_deref() == Some("*") => {
                 let all = hierarchy(w)?;
                 let subtree = q.under.as_deref().map(|n| resolve(w,n)).transpose()?;
@@ -304,7 +309,8 @@ impl<G: Game> Sim<G> {
                     entities.push_str(&w.components_json(e).map_err(|e| e.to_string())?);
                     entities.push('}');
                 }
-                let mut tail = String::new();
+                let mut tail = if self.edits_admitted || w.set_seen.get() { String::from("\"developmentEdits\":true,") } else { String::new() };
+                tail.push_str(&format!("\"queuedSets\":{},", self.queued_sets()));
                 page_tail(&mut tail, to, start, end);
                 let resources = if q.resources { format!(",\"resources\":{}", w.resources_json().map_err(|e| e.to_string())?) } else { String::new() };
                 Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"entities\":[{entities}],{tail}{resources}{}}}", w.hash(), if q.busy { format!(",\"busy\":{}", encode(&self.changing(self.quiescent()))?) } else { String::new() }))
@@ -317,7 +323,7 @@ impl<G: Game> Sim<G> {
             "state" => {
                 let host_input = self.host_input();
                 Ok(format!("{{\"tick\":{tick},\"world\":{{\"name\":{},\"tick\":{tick},\"hz\":{},\"seed\":{},\"hash\":\"0x{:016x}\",\"entities\":{},\"paused\":{},\"loading\":{},\"assets\":{},\"restarted\":{},\"restored\":{}{}{},\"args\":{},\"resources\":{},\"audio\":{},\"input\":{},\"published\":{}}}}}",
-                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&w.assets.states.iter().filter(|(_, s)| **s == crate::asset::AssetState::Pending).map(|(n, _)| n.clone()).collect::<Vec<_>>())?, w.assets.state_json(), self.restarted, self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), self.paranoid_samples().map_or_else(String::new, |(skipped, owed)| format!(",\"paranoid\":{{\"skipped\":{skipped},\"owed\":{owed}}}")), self.args_json, w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.input.state_json(&host_input, self.refused_posts)?, w.published_json(true)))
+                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&w.assets.states.iter().filter(|(_, s)| **s == crate::asset::AssetState::Pending).map(|(n, _)| n.clone()).collect::<Vec<_>>())?, w.assets.state_json(), self.restarted, self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), if self.edits_admitted || w.set_seen.get() { ",\"developmentEdits\":true".to_owned() } else { String::new() } + &format!(",\"queuedSets\":{}", self.queued_sets()) + &self.paranoid_samples().map_or_else(String::new, |(skipped, owed)| format!(",\"paranoid\":{{\"skipped\":{skipped},\"owed\":{owed}}}")), self.args_json, w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.input.state_json(&host_input, self.refused_posts)?, w.published_json(true)))
             },
             "layout" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().ok_or("layout needs an entity")?)?;

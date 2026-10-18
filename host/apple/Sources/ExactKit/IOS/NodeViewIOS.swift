@@ -342,8 +342,31 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         focusedBySurfaceTouch = false
         return false
     }
-    var press = PressFeedback() // LLP 1061 D2: the feedback `pressed` drives
-    var pressPaint = PressPaint() // LLP 1061 D7: the author's pressed paint
+    /// The press's feedback (LLP 1061 D2) and the author's pressed paint
+    /// (D7), made at a node's first press: most nodes are never pressed, and
+    /// inline the two were 200 of a node's 1,336 bytes, a 1,536-byte block
+    /// where without them it takes one of 1,280.
+    private final class Pressing {
+        var feedback = PressFeedback()
+        var paint = PressPaint()
+    }
+    private var pressing: Pressing?
+    private var pressingMade: Pressing {
+        if let pressing { return pressing }
+        let made = Pressing()
+        pressing = made
+        return made
+    }
+    var press: PressFeedback {
+        get { pressing?.feedback ?? PressFeedback() }
+        set { if pressing != nil || !newValue.atRest { pressingMade.feedback = newValue } }
+        _modify { let made = pressingMade; yield &made.feedback }
+    }
+    var pressPaint: PressPaint {
+        get { pressing?.paint ?? PressPaint() }
+        set { if pressing != nil || !newValue.atRest { pressingMade.paint = newValue } }
+        _modify { let made = pressingMade; yield &made.paint }
+    }
     package var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.
     package var inert: Bool { presenter?.modals.inertBehind(self) == true || authoredInert }
@@ -564,9 +587,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if symbolKey != key {
             symbolKey = key; loadGeneration += 1
             let generation = loadGeneration
-            image = name.isEmpty ? nil : symbolImage(name, symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight)))
+            // An icon with no SF Symbol draws its own path (D10, stage 9 A).
+            image = name.isEmpty ? iconPathImage(side: points) : symbolImage(name, symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight)))
             symbolFound = image != nil; if points <= 0 { image = nil }
-            if name.isEmpty, !source.hasPrefix("symbol:sf/"), symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
+            if name.isEmpty, props["symbolPath"] == nil, !source.hasPrefix("symbol:sf/"), symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
             if !name.isEmpty || source.hasPrefix("symbol:sf/") { symbolRefusal = nil }
             let leaf = symbolView ?? UIImageView()
             if symbolView == nil { symbolView = leaf; addSubview(leaf) }
@@ -577,7 +601,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // The symbol's size when the kernel's measurer could not say
             presenter?.queueIntrinsicSize(self, generation: generation, SymbolMeasure.size(name, points: points, weight: weight))
         }
-        symbolView?.tintColor = symbolTint // `nil` inherits UIKit's live tint
+        // An icon path is the node's tint, else its colour (D10); a symbol `nil` inherits UIKit's live tint.
+        symbolView?.tintColor = props["symbolPath"] != nil ? iconPathTint : symbolTint
         if let leaf = symbolView { applySymbolEffect(leaf) }
         layoutSymbol()
     }
@@ -597,6 +622,13 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         // host's symbol mask draws it (LLP 1011 §4).
         default: leaf.contentMode = .scaleAspectFit
         }
+        // An icon path is a vector: drawn again at the box it fills, not its em square stretched (UIKit scales a bitmap).
+        if props["symbolPath"] != nil, let image {
+            let side = max(content.width, content.height)
+            // (Centred, it is its em square again, whatever the box was before.)
+            if leaf.contentMode == .center { if leaf.image !== image { leaf.image = image } }
+            else if side > 0, leaf.image?.size.width != side { leaf.image = iconPathImage(side: side) }
+        }
         // A square box clips nothing the content box does not.
         if cornerRadii(in: bounds).allSatisfy({ $0 == 0 }) { if leaf.layer.mask != nil { leaf.layer.mask = nil }; return }
         let path = roundedPath(in: bounds).cgPath
@@ -606,6 +638,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     /// The view is gone: no load in flight may report for it.
     func forget() {
+        holdGone() // out of the map: a hold on it is let go (HeldState.swift)
         cancelPressContact()
         let previousTransform = transformHold; transformHold = nil
         DispatchQueue.main.async { previousTransform?.cancel() }
@@ -636,24 +669,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         self.kind = kind
         self.presenter = presenter
         super.init(frame: .zero)
-        registerForTraitChanges(SystemColor.traits) { (node: NodeView, _: UITraitCollection) in // platform colours follow contrast and level too (LLP 1095 D5)
-            // A control's accent, a tablist's tint and a grouped list's
-            // switches resolve per appearance in their projections.
-            if node.kind == "control" || node.kind == "list" || ["tablist", "radiogroup"].contains(node.props["accessibilityRole"] ?? "") {
-                node.presenter?.requestProjectionSync()
-            }
-            node.paragraphOwner.invalidateText()
-            node.paragraphOwner.setNeedsDisplay()
-            node.applyStyle(node.style)
-            node.presenter?.flats.appearanceChanged(node.id)
-            // Its paint motion resolves in its own appearance (LLP 1062 D4),
-            // a `color-scheme` above it included (LLP 1034 §8).
-            node.presenter?.session?.noteAppearance(node)
-            // An `svg`'s paints are resolved into its scene's layers.
-            node.presenter?.svg.reappear(node.id, dark: node.drawsDark, clock: node.presenter?.session?.clock, tint: node.viewTint)
-            node.presenter?.requestTextPublication()
-            if let presenter = node.presenter, node.superview === presenter.root { presenter.paintCanvas() }
-        }
         // The box's background is the layer's (`applyBoxLayer`), never
         // UIView's: UIKit would reapply its own on a trait change.
         isOpaque = false
@@ -672,6 +687,32 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         presenter.leaves.embed(self) // a video's player, an iframe's web view, a module's box (LLP 1068 §5.1)
     }
     required init?(coder: NSCoder) { nil }
+
+    /// Platform colours follow contrast and level too (LLP 1095 D5). UIKit
+    /// keeps a registry of about 700 bytes for each view that registers for
+    /// trait changes; this override hears the same changes for none.
+    @available(iOS, deprecated: 17.0)
+    @available(tvOS, deprecated: 17.0)
+    package override func traitCollectionDidChange(_ previous: UITraitCollection?) {
+        super.traitCollectionDidChange(previous)
+        guard let previous, SystemColor.resolvesDifferently(previous, traitCollection) else { return }
+        // A control's accent, a tablist's tint and a grouped list's
+        // switches resolve per appearance in their projections.
+        if kind == "control" || kind == "list" || ["tablist", "radiogroup"].contains(props["accessibilityRole"] ?? "") {
+            presenter?.requestProjectionSync()
+        }
+        paragraphOwner.invalidateText()
+        paragraphOwner.setNeedsDisplay()
+        applyStyle(style)
+        presenter?.flats.appearanceChanged(id)
+        // Its paint motion resolves in its own appearance (LLP 1062 D4),
+        // a `color-scheme` above it included (LLP 1034 §8).
+        presenter?.session?.noteAppearance(self)
+        // An `svg`'s paints are resolved into its scene's layers.
+        presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint)
+        presenter?.requestTextPublication()
+        if let presenter, superview === presenter.root { presenter.paintCanvas() }
+    }
 
     package override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -767,7 +808,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         // The kernel's authored frames already include this content room.
         // Keep the physical UI inset basis, but do not count native padding twice.
         let room = extras?.nativeScrollContentInsets ?? .zero
-        presenter?.onScrolled?(id, Double(scrollView.contentOffset.x + room.left), Double(scrollView.contentOffset.y + room.top))
+        presenter?.onScrolled?(id, Double(scrollView.contentOffset.x + room.left), Double(scrollView.contentOffset.y + room.top + pageBand.top))
         presenter?.stickies.scrolled(id); presenter?.collections.changed(id, user: true)
         #if os(iOS)
         if swipeOwner, scrollView.isTracking { presenter?.swipeActions.painted.scrolled(self) }
@@ -965,7 +1006,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     // Resolve the same light-dark() wire value as the shared paragraph builder.
     // @ref LLP 1034 D1/D2
-    var drawsDark: Bool { traitCollection.userInterfaceStyle == .dark }
+    package var drawsDark: Bool { traitCollection.userInterfaceStyle == .dark }
     package func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
         style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) }
     }
@@ -1216,12 +1257,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// Scrolling and clipping come from the effective overflow the host
     /// wrote in (never from the node's kind): `scroll` on an axis makes a
     /// scroll container that scrolls that axis; `hidden` clips.
-    /// Whether the style clips the children (`overflow: hidden`); a waiting
+    /// Whether the style clips the children (`overflow: hidden` or `clip`); a waiting
     /// scroll clips as its scroll view would. Without a clip box, it is the
     /// layer's `masksToBounds` (`syncScroll`; a landing flight, `FlightsIOS`).
     var overflowClips: Bool {
         let ox = style["overflow_x"]?.string ?? "visible", oy = style["overflow_y"]?.string ?? "visible"
-        return ox == "hidden" || oy == "hidden" || scrollDormant
+        return ["hidden", "clip"].contains(ox) || ["hidden", "clip"].contains(oy) || scrollDormant
     }
 
     func syncScroll() {
@@ -1241,6 +1282,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
                 for child in children { sv.addSubview(child) }
             }
             scroll = sv
+            if pageBand != .zero { more.pageBand = .zero } // a new scroll view reaches no band until asked (LLP 1130 D3)
             scrollWritten = nil
             updateRefresh()
             presenter?.navigation.scrollBackendChanged(self)
@@ -1253,6 +1295,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
                 sv.removeFromSuperview()
             }
             scroll = nil
+            if pageBand != .zero { more.pageBand = .zero }
         }
         scroll?.scrollsX = (ox == "scroll" || ox == "auto")
         scroll?.scrollsY = (oy == "scroll" || oy == "auto")
