@@ -57,7 +57,7 @@ test('old browsers show durations and their reservation uses only the displayed 
   for (const locale of ['en-US', 'fr-FR', 'ar-EG']) {
     for (const sign of [-1, 1]) {
       const text = relativeReservation(locale, sign);
-      if (locale === 'en-US') expect((text.match(/ago/g) ?? []).length).toBe(sign < 0 ? 1 : 0);
+      expect(text).toBe(sign < 0 ? '59 min, 59 sec ago' : 'in 59 min, 59 sec');
     }
     const model = formatted(2000, 0, 'countdown', locale, 'UTC');
     const values = durationReservation(model, locale, 'UTC');

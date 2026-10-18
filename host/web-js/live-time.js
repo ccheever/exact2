@@ -37,12 +37,10 @@ export function formatted(datetime, now, format, locale, timeZone) {
   if (!['date', 'time'].includes(kind) || !['short', 'medium', 'long', 'full'].includes(style)) return null;
   return new Intl.DateTimeFormat(locale, { timeZone, [kind + 'Style']: style }).format(datetime);
 }
-export function relativeReservation(locale, sign) {
-  if (typeof Intl.DurationFormat !== 'function') return sign < 0 ? '59 min, 59 sec ago' : 'in 59 min, 59 sec';
-  const body = new Intl.DurationFormat(locale, { style: 'short' }).format({ minutes: 59, seconds: 59 });
-  const parts = new Intl.RelativeTimeFormat(locale, { style: 'short', numeric: 'always' }).formatToParts(sign * 59, 'minute');
-  const first = parts.findIndex(p => p.type === 'integer'), last = parts.map(p => p.type).lastIndexOf('unit');
-  return parts.slice(0, first).map(p => p.value).join('') + body + parts.slice(last + 1).map(p => p.value).join('');
+export function relativeReservation(_locale, sign) {
+  // Intl.RelativeTimeFormat cannot format two units in one relative phrase.
+  // Use the kernel's English width samples, as the native formatters do.
+  return sign < 0 ? '59 min, 59 sec ago' : 'in 59 min, 59 sec';
 }
 export function durationReservation(model, locale, timeZone) {
   const digits = Array.from({ length: 10 }, (_, i) => [...formatted(0, i * 1000, 'timer', locale, timeZone)].reverse().find(c => /\p{Number}/u.test(c)));
