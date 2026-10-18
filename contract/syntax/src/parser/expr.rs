@@ -165,7 +165,7 @@ impl Parser {
             if self.at_punct("[") && next.line == last.line && next.col == last.end_col {
                 return self.err(
                     "syntax-refused-idiom",
-                    "Contract has no `xs[i]`: write `xs.at(i)`, an option (`none` past the end; a negative index counts from the end, unlike `xs[i]`); for text, `s.slice(i, i + 1)`",
+                    "Contract has no `xs[i]`: write `xs.at(i)`, an option (`none` past the end; a negative index counts from the end, unlike `xs[i]`), read as `match xs.at(i) { case some(x) => x, case none => 0 }` with what `none` shows; for text, `s.slice(i, i + 1)`",
                 );
             }
             if !self.at_punct(".") {
