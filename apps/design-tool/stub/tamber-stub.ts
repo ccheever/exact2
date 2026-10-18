@@ -17,6 +17,8 @@ let TOKEN = 'stub-token';
 let EPOCH = 'stub-epoch', restarts = 0, writes = 0;
 // The next commit's answer: refused, naming why, when a test asks.
 let refuseCommit = '';
+// A session with nothing to commit (`/__stub/refuse-commit` `{nothing: true}`).
+let nothingToCommit = false;
 // The dev loop's page hello names, as a test sets it (`/__stub/page`): none
 // by default, as `tamber tool` alone.
 let PAGE: string | null = null;
@@ -178,6 +180,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       }
       if (request.method === 'propose') return send({ ok: { files: FILES, class: classOf(request.ops), changed: request.ops.map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
+      if (request.method === 'commit' && nothingToCommit) return send({ error: { message: 'nothing to commit: the session has written nothing' } }, 409);
       if (request.method === 'commit') return refuseCommit
         ? send({ error: { message: `commit refused: app.tamber: ${refuseCommit}`, refused: [{ file: 'app.tamber', why: refuseCommit }] } }, 409)
         : send({ ok: { ...(request.dry ? { scope: 'stub-scope' } : { commit: 'c0ffee0123456789abcdef0123456789abcdef01' }), files: ['app.tamber'], edits: [{ file: 'app.tamber', client: 'agent:codex', tokens: ['surface.card'] }] } });
@@ -304,7 +307,9 @@ Bun.serve({ hostname, port: Number(port), routes: {
   '/__stub/refuse-commit': {
     POST: async (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
-      refuseCommit = String((await req.json().catch(() => ({}))).why ?? '');
+      const body = await req.json().catch(() => ({}));
+      refuseCommit = String(body.why ?? '');
+      nothingToCommit = body.nothing === true;
       return send({ ok: true });
     },
   },

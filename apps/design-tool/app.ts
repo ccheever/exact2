@@ -497,6 +497,8 @@ let commitsTold = 0;
 // The scrubs open on the server, any client's, as its events tell them:
 // while one is, a build's status or a frame re-reads nothing.
 const scrubsOpen = new Set<string>();
+// Each scrub opened or ended (two in one answer still move it).
+let scrubMoves = 0;
 const digestKey = (files: Record<string, string> = {}) => JSON.stringify(Object.keys(files).sort().map(f => [f, files[f]]));
 // Each read's stored values, axes and columns, by `<file>|<its digest>`; a few.
 const reads = new Map<string, { stored: Map<string, Stored[][]>; axes: Axis[]; columns: Column[] }>();
@@ -1076,7 +1078,7 @@ const sources: Sources = {
     if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
     const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client, ...(heldAt.epoch === epoch ? { held: heldAt.revision } : {}) } : { after: 0, wait: false, client }, 40000);
     answers += 1;
-    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${fileChanges} ${commitsTold}` : `answer ${answers}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
+    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
     if (error) return { ok: false, error, missed: false, ...state() };
     if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
     const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; held?: number; proposals?: any[] };
@@ -1133,7 +1135,9 @@ const sources: Sources = {
     if (epoch && !r.missed) for (const e of (r.events ?? []) as any[]) noted(e);
     // The builds, as their events tell them.
     for (const e of (r.events ?? []) as any[]) {
-      if (e.event === 'scrub') { if (e.reason === 'opened') scrubsOpen.add(String(e.scrub)); else scrubsOpen.delete(String(e.scrub)); if (scrubsOpen.size > 64) scrubsOpen.delete(scrubsOpen.values().next().value!); }
+      // (The design server gone: its scrubs with it.)
+      if (e.event === 'down') { scrubMoves += 1; scrubsOpen.clear(); }
+      if (e.event === 'scrub') { scrubMoves += 1; if (e.reason === 'opened') scrubsOpen.add(String(e.scrub)); else scrubsOpen.delete(String(e.scrub)); if (scrubsOpen.size > 64) scrubsOpen.delete(scrubsOpen.values().next().value!); }
       // Each as it comes, so a reload told in one answer still ends a
       // selection (a build that went keeps its inspect mode at the server,
       // which tells it again when it is back).

@@ -209,9 +209,9 @@ shape Changes
   // (a build's status, a scrub's frame or a proposal moves `seq`, not them).
   files: string
   // Each answer, but while a scrub is open (any client's) only the files'
-  // changes and the commits told: what hello, the commit's dry run and a
-  // token's uses are read again on, so a scrub's frames and its builds'
-  // statuses cost no reads.
+  // changes, the commits told and scrubs opening or ending: what hello, the
+  // commit's dry run, a token's uses and a draft's proposal are read again
+  // on, so a scrub's frames and its builds' statuses cost no reads.
   paced: string
 
 // A control drawn from a dial's declared metadata (LLP 1122 D7, LLP 1121
@@ -562,7 +562,7 @@ component DesignTool
   // each 25 s, but while a scrub is shown (its class moves without files:
   // the JS loop's builds, its design reader getting ready, which says
   // nothing), so a stream of scrub frames proposes nothing again.
-  state proposeAt = 0
+  state proposeAt = ""
   state asks = 0
   resource hello = loadHello() as shape Hello else empty(ok=true)
   derive client = `design-tool:${person}`
@@ -700,7 +700,7 @@ component DesignTool
     filesAt = changes.files
     pacedAt = changes.paced
     if not scrubShown
-      proposeAt = changes.answer
+      proposeAt = changes.paced
     epoch = changes.epoch
     asks = asks + 1
   action reconnect
@@ -713,7 +713,7 @@ component DesignTool
         filesAt = changes.files
         pacedAt = changes.paced
         if not scrubShown
-          proposeAt = changes.answer
+          proposeAt = changes.paced
         epoch = changes.epoch
       asks = asks + 1
   action editName(v: string)
