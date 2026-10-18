@@ -79,7 +79,6 @@ const KEYED: Record<string, { component: string; wraps: string[] }> = {
   'connections-network-dialogs.contract "create-pairing-dialog"': { component: 'CreatePairingDialog', wraps: ['focus("pairing-create-close")', 'focus("pairing-label")'] },
   'connections-network-dialogs.contract "pairing-reveal-dialog"': { component: 'PairingRevealDialog', wraps: ['focus("pairing-reveal-close")', 'focus("pairing-reveal-value")'] },
   'connections.contract "connection-dialog"': { component: 'AddEnvironmentDialog', wraps: ['focus("connection-mode-remote")'] }, // ModeCard wraps the other way
-  'pages-pr-actions.contract "pr-action-dialog"': { component: 'PrActionDialog', wraps: ['focus("pr-action-dialog-confirm")', 'focus("pr-action-dialog-cancel")'] },
   'pages-pr-stack.contract "pr-stack-dialog"': { component: 'PsDialogPopup', wraps: ['focus(e.shiftKey ? "pr-stack-dialog-confirm" : "pr-stack-dialog-cancel")'] },
   'providers-wizard.contract "chatgpt-account-dialog"': { component: 'ChatGptAccountDialog', wraps: ['focus("chatgpt-account-continue-button")', 'focus("chatgpt-account-name-field")'] },
   'settings-rest-dialogs.contract dialogId': { component: 'SettingsConfirm', wraps: ['focus(busy ? dialogId : `${dialogId}-confirm`)', 'focus(busy ? dialogId : `${dialogId}-cancel`)'] },
@@ -537,7 +536,6 @@ describe('every modal dialog gives focus back through a surviving observer or it
     'connections-network-dialogs.contract "tailscale-setup-dialog"': ['connections-network-dialogs.contract', 'focus("tailscale-https-switch")'],
     'connections-network-dialogs.contract "create-pairing-dialog"': ['connections-network-dialogs.contract', 'focus("create-pairing-link")'],
     'connections.contract "connection-dialog"': ['connections.contract', 'focus(routeTarget == "" ? "manage-connection" : `environment-route-add-${routeTarget}`)'],
-    'pages-pr-actions.contract "pr-action-dialog"': ['pages-pr-actions.contract', 'focus(opener)'],
     'sidebar-overlays.contract "sidebar-snooze"': ['sidebar-overlays.contract', 'focus(data.sidebar.dialogReturn)'],
     'this-machine.contract "local-environment-dialog"': ['this-machine.contract', 'focus("local-environment-switch")'],
   };

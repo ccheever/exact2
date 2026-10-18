@@ -56,12 +56,12 @@ export const SHELL_ICON = [
 
 /** sidebar-icons.contract SidebarIcon: the sidebar's own glyphs. */
 export const SIDEBAR_ICON = [
-  'pin', 'pin-off', 'alarm-clock', 'alarm-clock-off', 'circle-dashed', 'message-circle-question',
+  'pin', 'pin-off', 'alarm-clock', 'alarm-clock-off', 'circle-dashed', 'circle-dot-dashed', 'message-circle-question',
   'shield-question', 'circle-alert', 'circle-check', 'square-pen', 'plus', 'minus', 'check', 'undo-2', 'clock',
   'x', 'folder', 'settings', 'search', 'chevron-down', 'chevron-left', 'chevron-right', 'chevron-up',
   own('folder-git-2'), own('git-branch'), own('layers'), 'calendar', 'laptop', 'monitor', 'server', 'cloud',
   own('mac-mini'), own('mac-studio'), 'messages-square', 'arrow-right-left', ['loader', 'loader-circle'],
-  'download', 'triangle-alert',
+  'download', 'triangle-alert', 'list-filter',
 ];
 
 /** timeline-icons.contract timelineIconGeometry: the timeline's glyphs (TimelineIcon draws a name it lacks
@@ -73,7 +73,7 @@ export const TIMELINE_ICON = [
   'chevrons-down-up', 'folder-open', 'folder-closed', ['check-mark', 'check'], ['redo', 'redo-2'], 'ellipsis',
   'download', 'quote', 'message-square', 'triangle-alert', ['list-collapse', 'list-chevrons-down-up'],
   ['device', 'smartphone'], 'loader-circle', 'minus', 'circle', 'chevron-down', 'chevron-right', 'code',
-  'workflow', 'external-link',
+  'workflow', 'external-link', 'alarm-clock', 'circle-check',
 ];
 
 /** panel-icons.contract PanelIcon: the right panel's surfaces. */

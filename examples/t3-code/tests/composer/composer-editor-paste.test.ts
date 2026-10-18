@@ -45,8 +45,9 @@ describe('a paste with files on the pasteboard (onComposerPaste)', () => {
       { kind: 'image', id: uuid(2), name: 'image.png', sizeBytes: 120 },
     ];
     await composerEditorView(client, native);
-    // Staged as Attach stages a picked file: within the server's staging limit (unknown capabilities: 50 MB).
-    expect(ops(native, 'composerPasteTake')).toMatchObject([{ fileLimit: 50 * 1024 * 1024 }]);
+    // Staged as Attach stages a picked file: within the server's staging limit (unknown capabilities: 50 MB), and
+    // an image over 2000 px on its long edge scaled to it.
+    expect(ops(native, 'composerPasteTake')).toMatchObject([{ fileLimit: 50 * 1024 * 1024, imageMaxEdge: 2000 }]);
     // The prompt has no prose, so the image lives on the shelf with no chip (imageAttachmentsGetChips).
     expect(ops(native, 'editorInsert').map(call => call.text)).toEqual([`[notes.md](t3-context://v1/file/file_${uuid(1)})`]);
     expect(draftFiles(client.local).map(file => [file.name, file.draftKey, file.status])).toEqual([['notes.md', client.draftKey, 'staged']]);

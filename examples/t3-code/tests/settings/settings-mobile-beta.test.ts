@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import { encodeQr, qrCells } from '../../src/settings/settings-qr';
 import { aboutRows, rememberDelivery } from '../../src/settings/settings-a-about';
+import { CLIENT_VERSION } from '../../src/connections/connections';
 import { APP_STORE_URL, GOOGLE_PLAY_URL, mobileAppRow } from '../../src/settings/settings-mobile-beta';
 
 const IOS_TESTFLIGHT_URL = 'https://testflight.apple.com/join/XgaxaRtd';
@@ -40,6 +41,7 @@ describe('Mobile app row', () => {
       rememberDelivery(client, stream, false);
       const rows = aboutRows(client, '0.0.45');
       expect(rows.map(row => row.title)).toEqual(['Version', 'Update track', 'Mobile app']);
+      expect(aboutRows(client, CLIENT_VERSION)[0]!.value).toBe('0.1.1-nightly.20261018.3302');
       expect(rows.at(-1)).toMatchObject({ id: 'mobile-app', kind: 'mobile-app', description: 'Connect to your server from your phone or tablet.' });
     }
   });

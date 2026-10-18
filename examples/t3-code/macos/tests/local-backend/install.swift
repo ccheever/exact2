@@ -274,9 +274,12 @@ final class LocalProcessTests: XCTestCase {
         try! """
         #!/bin/sh
         IFS= read -r line
-        printf '%s' "$line" > "$FAKE_T3_OUT/envelope.json"
-        printf '%s\\n' "$@" > "$FAKE_T3_OUT/argv.txt"
-        env > "$FAKE_T3_OUT/env.txt"
+        printf '%s' "$line" > "$FAKE_T3_OUT/envelope.$$.json"
+        mv "$FAKE_T3_OUT/envelope.$$.json" "$FAKE_T3_OUT/envelope.json"
+        printf '%s\\n' "$@" > "$FAKE_T3_OUT/argv.$$.txt"
+        mv "$FAKE_T3_OUT/argv.$$.txt" "$FAKE_T3_OUT/argv.txt"
+        env > "$FAKE_T3_OUT/env.$$.txt"
+        mv "$FAKE_T3_OUT/env.$$.txt" "$FAKE_T3_OUT/env.txt"
         echo "fake server out"
         echo "fake server err" >&2
         exit 3

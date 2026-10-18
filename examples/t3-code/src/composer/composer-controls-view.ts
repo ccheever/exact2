@@ -1,9 +1,9 @@
 // What the composer footer and its docked banners show,
-// adapted from T3 Code (MIT); see LICENSE-T3. Sources: ComposerPrimaryActions.tsx,
+// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 9c161462c9: ComposerPrimaryActions.tsx,
 // ChatComposer.tsx (footer blocks, provider-unavailable control, activity row),
 // composerFooterLayout.ts (icon-only before overflow), TraitsPicker.tsx
-// (buildTraitsTriggerDisplay), ChatView.tsx (woke/parked/background banners,
-// tasks progress), threadSync.ts and ComposerTasksBadge.tsx.
+// (buildTraitsTriggerDisplay), ChatView.tsx (background and child-input banners,
+// the Compact chip, tasks progress), threadSync.ts and ComposerTasksBadge.tsx.
 import { branchMismatchNotice } from './composer-controls-branch';
 import { projectCloneBlock, projectCloneNotice } from '../shell/project-clones-live';
 import { systemComposerNotices } from '../connections/server-update-notices';
@@ -15,11 +15,12 @@ import { composerSelection } from './composer-provider-selection'; // one provid
 import { fanoutSelections } from './composer-controls-fanout';
 import type { T3Client } from '../client/client';
 import { followUpBehavior, planFollowUp, resolveDispatchMode, resumeState } from './composer-controls';
-import { wokeAt, wokeWatermark } from './composer-controls-commands';
 import { usageNotices, type UsageAccountView } from './composer-controls-usage';
 import { feedbackNotices, feedbackUploading } from './composer-feedback'; // Codex /feedback
 import { subagentTitle } from '../timeline/timeline-events';
-import { compactBlocked, resumeCompaction } from './composer-controls-resume';
+import { compactBlocked, keepsFullHistory, latestTokenUsage, resumeCompaction, resumeCompactionTokens } from './composer-controls-resume';
+import { childThreadInputs, childThreadInputsTitle } from '../sidebar/subagent-requests';
+import { pendingRequests } from './requests';
 import { chordGlyphs } from './composer-controls-model';
 import { commandChords } from './composer-presentation';
 import { threadWorktreeSetup } from '../timeline/timeline-worktree';
@@ -123,12 +124,27 @@ export function primaryAction(client: T3Client, phase: string) {
   };
 }
 
+/**
+ * The Compact chip beside Send (ComposerPrimaryActions compactTokens): a stale Claude session's token count, on
+ * ("Compact", the send compacts first) or off ("Full", the next send keeps the history). It hides while a queued
+ * message is edited, and the contract hides it where Resume thread replaces Send. `compactWidth` is the chip's
+ * width (h-8 rounded-full border px-2.5 gap-1.5, a 14pt glyph and 12pt labels), which the resting card reserves.
+ */
+export function compactChip(client: T3Client, now: number, editingQueued: boolean) {
+  const tokens = editingQueued ? null : resumeCompactionTokens(client, now, contextSnapshot(client.projection));
+  if (tokens === null) return { compactTokens: '', compactKeepFull: false, compactTip: '', compactSend: false, compactWidth: 0 };
+  const count = formatTokens(tokens), keep = keepsFullHistory(client), word = keep ? 'Full' : 'Compact';
+  const anchor = obj(client.presentation.anchors)[`compact:${word}:${count}`], width = Array.isArray(anchor) ? Number(anchor[1]) : NaN;
+  return { compactTokens: count, compactKeepFull: keep, compactSend: !keep, compactWidth: Number.isFinite(width) && width > 0 ? width : Math.ceil(22 + 14 + 6 + textWidth(word, true) + 6 + textWidth(count.replace(/\d/g, '0'), true)),
+    compactTip: keep ? `Next send keeps all ${count} tokens. Click to compact first` : `Next send compacts ${count} tokens first. Click to keep full history` };
+}
+
 // ── Docked banners ─────────────────────────────────────────────────────────
 
 export type ComposerNotice = { id: string; variant: string; icon: string; title: string; description: string;
   action: string; actionLabel: string; action2: string; action2Label: string; dismiss: string; dismissLabel: string; priority: number; lines: string[];
-  /** Why the action is disabled (its tooltip), '' when it is enabled; the id the dismiss command receives. */
-  actionReason: string; dismissId: string; segments: NoticeSegment[];
+  /** Why the action is disabled (its tooltip), '' when it is enabled; the ids the action and dismiss commands receive. */
+  actionReason: string; actionId: string; dismissId: string; segments: NoticeSegment[];
   /** The server-update banner: the title's and the actions' tooltips, a red icon, a "·" before the description, the title's live role. */
   tip: string; actionTip: string; action2Tip: string; iconTone: string; sep: boolean; liveRole: string;
   /** Auto balance: the multi-machine banner's popover rows and its title's accessible name. */
@@ -136,7 +152,7 @@ export type ComposerNotice = { id: string; variant: string; icon: string; title:
   /** A description that is an account address (RedactedSensitiveText, then `redactAfter`), and the /usage-limits body. */
   redact: string; redactMask: string; redactAfter: string; usage: UsageAccountView[] };
 const notice = (value: Partial<ComposerNotice> & { id: string; title: string }): ComposerNotice => ({ variant: 'info', icon: '', description: '',
-  action: '', actionLabel: '', action2: '', action2Label: '', dismiss: '', dismissLabel: '', priority: 2, lines: [], actionReason: '', dismissId: '', segments: [],
+  action: '', actionLabel: '', action2: '', action2Label: '', dismiss: '', dismissLabel: '', priority: 2, lines: [], actionReason: '', actionId: '', dismissId: '', segments: [],
   tip: '', actionTip: '', action2Tip: '', iconTone: '', sep: false, liveRole: '', machines: [], menuLabel: '', redact: '', redactMask: '', redactAfter: '', usage: [], ...value });
 
 const BACKGROUND_KINDS: Record<string, { order: number; singular: string; plural: string }> = {
@@ -180,6 +196,20 @@ function backgroundWork(client: T3Client): ComposerNotice | null {
     description: presented.description, segments: presented.segments, action: 'cc:stop-background', actionLabel: 'Stop' }) : null;
 }
 
+/**
+ * childInputBannerItem: a delegated subagent below this thread waits on the user. Its title opens it; the
+ * action opens the first. Hidden while this thread itself waits on the user.
+ */
+function childInputNotice(client: T3Client): ComposerNotice | null {
+  const children = childThreadInputs(client.shell.threads, client.threadId), first = children[0];
+  const shell = client.shell.threads.find(thread => thread.id === client.threadId);
+  const requests = pendingRequests(client.projection);
+  const parentAwaiting = requests.approvals.length > 0 || requests.inputs.length > 0 || obj(shell?.pendingRuntimeRequest).kind === 'user_input';
+  if (!first || parentAwaiting) return null;
+  return notice({ id: `child-input:${first.id}`, priority: 0, icon: first.approval ? 'shield-question' : 'message-circle', title: childThreadInputsTitle(children),
+    segments: children.map((entry, index) => ({ key: entry.id, label: entry.title, threadId: entry.id, last: index === children.length - 1 })),
+    action: 'select-thread', actionId: first.id, actionLabel: first.approval ? 'Open approval' : 'Open question' });
+}
 export function composerNotices(client: T3Client, now: number): ComposerNotice[] {
   const mismatch = branchMismatchNotice(client); // returning to Home resets revelation, but keeps session dismissals
   // ChatView projectCloneBannerItem: a project added by cloning shows its clone where its draft is (project-clones-live.ts).
@@ -189,36 +219,18 @@ export function composerNotices(client: T3Client, now: number): ComposerNotice[]
   // An Auto draft shows one banner for every machine's update instead of the single-machine notice.
   const system = [...systemComposerNotices(client, { automaticEnvironment: autoBalanceState(client).automatic }), ...autoBalanceNotices(client)].map(item => notice(item));
   if (!client.threadId) return rankNotices([...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...system]);
-  const shell = client.shell.threads.find(thread => thread.id === client.threadId) ?? {};
-  const capabilities = obj(obj(client.config.environment).capabilities);
-  // ChatView composerBannerItems order: feedback, limit recovery, usage limits, background work, woke, parked.
+  // ChatView composerBannerItems order: feedback, limit recovery, usage limits, project clone, system, then the
+  // activity tier (a subagent waiting on the user, background work), then the branch mismatch. Settled, snoozed and
+  // woke are thread state, not composer actions: a line after the last message (thread-status-line.ts).
   const items: ComposerNotice[] = [...feedbackNotices(client).map(item => notice(item)), ...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...system];
+  const child = childInputNotice(client);
+  if (child) items.push(child);
   const background = backgroundWork(client);
   if (background) items.push(background);
-  // resumeCompactionBannerItem: an idle Claude session offers to compact before resuming.
   const resume = resumeCompaction(client, now, contextSnapshot(client.projection));
-  if (resume) {
-    const reason = compactBlocked(client);
-    items.push(notice({ id: `resume-compaction:${resume.key}`, icon: 'minimize', title: 'Resume with less context', description: `${formatTokens(resume.used)} tokens from earlier`,
-      action: 'cc:compact', actionLabel: 'Compact', actionReason: reason, dismiss: `cclocal:resume-compaction-dismiss`, dismissId: resume.key, dismissLabel: 'Keep full history' }));
-  }
-  // Snooze is derived: a passed wake time stops classifying as snoozed and feeds the woke notice.
-  const snoozeSupported = capabilities.threadSnooze !== false;
-  const woke = snoozeSupported ? wokeAt(shell, now) : '';
-  const until = Date.parse(str(shell.snoozedUntil));
-  const snoozed = snoozeSupported && Number.isFinite(until) && until > now && !woke;
-  const settled = capabilities.threadSettlement !== false && shell.settledOverride === 'settled';
-  if (woke && !settled) {
-    // The sidebar's watermark (server-owned when tracked), floored at the latest run's completion.
-    const seen = Date.parse(wokeWatermark(client, shell)), completed = Date.parse(str(obj(shell.latestRun).completedAt));
-    const visited = Math.max(Number.isFinite(seen) ? seen : -Infinity, Number.isFinite(completed) ? completed : -Infinity);
-    if (visited < Date.parse(woke)) items.push(notice({ id: `thread-woke:${client.threadId}`, icon: 'alarm', title: 'Thread woke from snooze',
-      description: 'Send a message to continue', dismiss: `cclocal:dismiss-woke`, dismissLabel: 'Dismiss Woke notification' }));
-  }
+  if (resume) items.push(notice({ id: `resume-compaction:${resume.key}`, icon: 'minimize', title: 'Resume with less context', description: `${formatTokens(resume.used)} tokens from earlier`,
+    action: 'cc:compact', actionLabel: 'Compact', actionReason: compactBlocked(client), dismiss: 'cclocal:resume-compaction-dismiss', dismissId: resume.key, dismissLabel: 'Keep full history' }));
   if (mismatch) items.push(notice(mismatch));
-  if (snoozed || settled) items.push(notice({ id: `thread-${snoozed ? 'snoozed' : 'settled'}:${client.threadId}`, icon: snoozed ? 'alarm' : 'circle-check',
-    title: `This thread is ${snoozed ? 'snoozed' : 'settled'}`, description: `Send a message to ${snoozed ? 'wake' : 'unsettle'}`,
-    action: snoozed ? 'cc:unsnooze' : 'unsettle', actionLabel: snoozed ? 'Wake now' : 'Un-settle' }));
   return rankNotices(items);
 }
 /** bannerPriority: activity stays attached; urgency (priority 1), warnings and errors order the notices behind it. */
@@ -293,16 +305,21 @@ export function formatTokens(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return '0';
   if (value < 1_000) return `${Math.round(value)}`;
   if (value < 10_000) return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}k`;
-  if (value < 1_000_000) return `${Math.round(value / 1_000)}k`;
+  // Anything from 999,500 rounds to 1000k, so it belongs to the next unit.
+  if (value < 999_500) return `${Math.round(value / 1_000)}k`;
   return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}m`;
 }
 const finite = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) ? value : null;
 /** deriveLatestContextWindowSnapshot: live turn usage, else the provider thread's report, else the last compaction. */
-export function contextSnapshot(projection: Obj) {
-  const turn = [...arr(projection.providerTurns)].reverse().find(entry => entry.tokenUsage !== undefined && entry.tokenUsage !== null);
-  if (turn) {
-    const usage = obj(turn.tokenUsage), used = Math.max(0, finite(usage.usedTokens) ?? 0), max = finite(usage.maxTokens);
-    return { used, max, total: null as number | null, cost: null as Obj | null, auto: true, threshold: null as number | null, updatedAt: str(usage.updatedAt, str(turn.updatedAt)) };
+export type ContextUsage = { used: number; max: number | null; total: number | null; cost: Obj | null; auto: boolean; threshold: number | null; updatedAt: string;
+  /** The provider's prompt cache lifetime, reported with live usage only. */
+  promptCacheTtlMs?: number };
+export function contextSnapshot(projection: Obj): ContextUsage | null {
+  const usage = latestTokenUsage(arr(projection.providerTurns));
+  if (usage) {
+    const used = Math.max(0, finite(usage.usedTokens) ?? 0), max = finite(usage.maxTokens), ttl = finite(usage.promptCacheTtlMs);
+    return { used, max, total: null as number | null, cost: null as Obj | null, auto: true, threshold: null as number | null, updatedAt: str(usage.updatedAt),
+      ...(ttl !== null && ttl > 0 ? { promptCacheTtlMs: ttl } : {}) };
   }
   const thread = arr(projection.providerThreads).find(entry => entry.id === obj(projection.thread).activeProviderThreadId);
   const report = obj(thread?.contextUsage);

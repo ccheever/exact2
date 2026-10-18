@@ -1,11 +1,11 @@
-// T3 Code 1e2ecbd975 packages/client-runtime/src/connection/routes.test.ts (all 13 cases, original
+// T3 Code 9c161462c9 packages/client-runtime/src/connection/routes.test.ts (its cases, original
 // names) and registry.test.ts "EnvironmentRegistry routes" cases that are pure route edits here,
 // ported to bun:test over the clone's plain route records (connection-routes.ts).
 import { describe, expect, it } from 'bun:test';
 import {
   connectionRouteId, connectionRouteKind, connectionRouteLabel, credentialConnectionId, entryWithRoutes, gitHubRoutingConnectionKey,
-  insertRoute, mergeLearnedRoutes, registerRoute, removedWithRelay, reorderRoutes, routesAfterRemoving, savedRoutes,
-  singleRouteKey, storedRoute, upsertRoute, connectionRouteAddress, type ConnectionRoute, type RouteEntry,
+  insertRoute, mergeLearnedRoutes, registerRoute, removedWithRelay, reorderRoutes, routesAfterRemoving, savedRoutes, sendsTokenInClear,
+  singleRouteKey, storedRoute, upsertRoute, usableRoutes, connectionRouteAddress, type ConnectionRoute, type RouteEntry,
 } from '../../src/connections/connection-routes';
 
 const ENVIRONMENT_ID = 'environment-1';
@@ -15,11 +15,14 @@ const LAN = direct('lan', 'http://192.168.1.10:3773/');
 const TAILNET = direct('tailnet', 'https://desk.tail1234.ts.net/');
 const PUBLIC = direct('public', 'https://desk.example.com/');
 const entryOf = (routes: ConnectionRoute[]): RouteEntry => ({ environmentId: ENVIRONMENT_ID, label: 'Desk', routes });
+const learned = (id: string, httpBaseUrl: string): ConnectionRoute => ({ ...direct(id, httpBaseUrl), learned: true });
 
 describe('connection routes', () => {
   it('classifies direct routes by address', () => {
     expect(connectionRouteKind(LAN)).toBe('lan');
-    expect(connectionRouteKind(direct('ip', 'http://100.101.102.103:3773/'))).toBe('tailnet');
+    // Tailscale, Cloudflare WARP and Mesh, and other VPNs share 100.64.0.0/10.
+    expect(connectionRouteKind(direct('ip', 'http://100.101.102.103:3773/'))).toBe('vpn');
+    expect(connectionRouteLabel(direct('mesh', 'http://100.96.0.1:3773/'))).toBe('VPN');
     expect(connectionRouteKind(TAILNET)).toBe('tailnet');
     expect(connectionRouteKind(PUBLIC)).toBe('public');
     expect(connectionRouteKind(direct('lo', 'http://127.0.0.1:3773/'))).toBe('loopback');
@@ -69,6 +72,29 @@ describe('learned routes', () => {
     expect(ids(next)).toEqual([`learned:${ENVIRONMENT_ID}:http://100.101.102.103:3773`, 'relay', `learned:${ENVIRONMENT_ID}:http://192.168.1.10:3773`]);
   });
 
+  it('labels a learned address Tailscale only while the server reports it as tailnet', () => {
+    const tailscale = { kind: 'tailnet', httpBaseUrl: 'http://100.101.102.103:3773/' };
+    const mesh = { kind: 'lan', httpBaseUrl: 'http://100.96.0.1:3773/' };
+    const first = mergeLearnedRoutes({ entry: relayOnly, activeRoute: RELAY, reported: [tailscale, mesh], allowInsecure: true })!;
+    expect(first.map(connectionRouteLabel)).toEqual(['Tailscale', 'VPN', 'T3 Connect']);
+    // The server later finds the address is not on its Tailscale interface.
+    const corrected = mergeLearnedRoutes({ entry: entryWithRoutes(relayOnly, first), activeRoute: RELAY, reported: [{ ...tailscale, kind: 'lan' }, mesh], allowInsecure: true })!;
+    expect(ids(corrected)).toEqual(ids(first));
+    expect(corrected.map(connectionRouteLabel)).toEqual(['VPN', 'VPN', 'T3 Connect']);
+    expect(mergeLearnedRoutes({ entry: entryWithRoutes(relayOnly, corrected), activeRoute: RELAY, reported: [{ ...tailscale, kind: 'lan' }, mesh], allowInsecure: true })).toBeNull();
+  });
+
+  it('labels a paired numeric Tailscale address Tailscale once the server confirms it', () => {
+    const paired = direct('paired', 'http://100.101.102.103:3773/');
+    const other = direct('other', 'http://100.96.0.1:3773/');
+    const entry = entryWithRoutes(relayOnly, [paired, other, RELAY]);
+    expect(connectionRouteLabel(paired)).toBe('VPN');
+    const confirmed = mergeLearnedRoutes({ entry, activeRoute: paired, reported: [{ kind: 'tailnet', httpBaseUrl: 'http://100.101.102.103:3773/' }], allowInsecure: true })!;
+    // Same routes in the same order; only the label of the confirmed one changes.
+    expect(ids(confirmed)).toEqual(['paired', 'other', 'relay']);
+    expect(confirmed.map(connectionRouteLabel)).toEqual(['Tailscale', 'VPN', 'T3 Connect']);
+  });
+
   it('leaves user routes alone and does not learn an address already saved', () => {
     const entry = entryOf([LAN, RELAY]);
     expect(mergeLearnedRoutes({ entry, activeRoute: RELAY, reported: [{ httpBaseUrl: 'http://192.168.1.10:3773' }], allowInsecure: true })).toBeNull();
@@ -81,6 +107,50 @@ describe('learned routes', () => {
     const learned = routes.find(route => connectionRouteKind(route) === 'tailnet')!;
     expect(learned).not.toHaveProperty('authorization');
     expect(credentialConnectionId(connectionRouteId(learned))).toBe('lan');
+  });
+
+  it('keeps a token paired over HTTPS off plain HTTP addresses outside the tailnet', () => {
+    const routes = mergeLearnedRoutes({ entry: entryOf([PUBLIC, RELAY]), activeRoute: PUBLIC, reported: [
+      { kind: 'lan', httpBaseUrl: 'http://192.168.1.10:3773/' }, { kind: 'tailnet', httpBaseUrl: 'http://100.101.102.103:3773/' },
+      { kind: 'tailnet', httpBaseUrl: 'https://desk.tail1234.ts.net/' }], allowInsecure: true });
+    expect(ids(routes)).toEqual([`learned:${ENVIRONMENT_ID}:http://100.101.102.103:3773@public`, `learned:${ENVIRONMENT_ID}:https://desk.tail1234.ts.net@public`, 'public', 'relay']);
+  });
+
+  it('drops a plain HTTP LAN route learned earlier over an HTTPS-paired token', () => {
+    const lanOrigin = 'http://192.168.1.10:3773';
+    const stale = learned(`learned:${ENVIRONMENT_ID}:${lanOrigin}@public`, `${lanOrigin}/`);
+    const routes = mergeLearnedRoutes({ entry: entryOf([stale, PUBLIC, RELAY]), activeRoute: PUBLIC, reported: [{ kind: 'lan', httpBaseUrl: `${lanOrigin}/` }], allowInsecure: true });
+    expect(ids(routes)).toEqual(['public', 'relay']);
+  });
+
+  it('drops a stale plain HTTP route borrowing an HTTPS-paired token while another route is active', () => {
+    const lanOrigin = 'http://10.0.0.42:3773';
+    const stale = learned(`learned:${ENVIRONMENT_ID}:${lanOrigin}@public`, `${lanOrigin}/`);
+    const entry = entryOf([stale, PUBLIC, RELAY]);
+    expect(sendsTokenInClear([stale, PUBLIC, RELAY], stale)).toBe(true);
+    expect(ids(usableRoutes(entry))).toEqual(['public', 'relay']);
+    const routes = mergeLearnedRoutes({ entry, activeRoute: RELAY, reported: [{ kind: 'lan', httpBaseUrl: `${lanOrigin}/` }], allowInsecure: true });
+    // The stale route is gone; the address is learned again with T3 Connect's credential.
+    expect(ids(routes)).toEqual([`learned:${ENVIRONMENT_ID}:${lanOrigin}`, 'public', 'relay']);
+    expect(routes![0]!).toMatchObject({ authorization: 't3-connect' });
+  });
+
+  it("keeps plain HTTP routes that don't borrow the active HTTPS-paired token", () => {
+    const lanOrigin = 'http://10.0.0.42:3773';
+    const overLan = learned(`learned:${ENVIRONMENT_ID}:${lanOrigin}@lan`, `${lanOrigin}/`);
+    expect(mergeLearnedRoutes({ entry: entryOf([overLan, LAN, PUBLIC, RELAY]), activeRoute: PUBLIC, reported: [{ kind: 'lan', httpBaseUrl: `${lanOrigin}/` }], allowInsecure: true })).toBeNull();
+  });
+
+  it('learns plain HTTP LAN addresses over a token paired over plain HTTP', () => {
+    const routes = mergeLearnedRoutes({ entry: entryOf([LAN, RELAY]), activeRoute: LAN, reported: [{ kind: 'lan', httpBaseUrl: 'http://10.0.0.42:3773/' }], allowInsecure: true });
+    expect(ids(routes)).toEqual(['lan', `learned:${ENVIRONMENT_ID}:http://10.0.0.42:3773@lan`, 'relay']);
+  });
+
+  it('keeps the Tailscale mark through the catalog record', () => {
+    const marked: ConnectionRoute = { ...learned(`learned:${ENVIRONMENT_ID}:http://100.101.102.103:3773@lan`, 'http://100.101.102.103:3773/'), network: 'tailscale' };
+    const [read] = savedRoutes({ routes: [storedRoute(marked)] });
+    expect(read).toMatchObject({ network: 'tailscale', learned: true });
+    expect(connectionRouteLabel(read!)).toBe('Tailscale');
   });
 
   it('skips plain HTTP from an HTTPS page and never learns loopback', () => {

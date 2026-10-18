@@ -22,7 +22,7 @@ const SERVER_KEYS = new Set(['worktreeCleanup', 'storageCleanup', 'responseStrea
   'snoozeLimitedThreads', 'autoResumeLimitedThreads', 'sidebarAutoSettleOnMerge', 'backgroundActivity', 'automaticGitFetchInterval', 'providerHealthRefreshInterval',
   'backgroundActivityProfile', 'defaultTheme', 'defaultThemeSetAt', 'environmentIcon', 'defaultThreadEnvMode', 'newWorktreesStartFromOrigin', 'worktreeSubmodules',
   'addProjectBaseDirectory', 'textGenerationModelSelection', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'sourceControlWritingStyle',
-  'sourceControlWriterModelSelection', 'pullRequestMergeMethod', 'providers', 'providerInstances', 'observability', 'bitbucket', 'usageLimitSources',
+  'sourceControlWriterModelSelection', 'pullRequestMergeMethod', 'providers', 'providerInstances', 'observability', 'bitbucket', 'sourceControlHosts', 'usageLimitSources',
   'cursorKeychainUsageEnabled', 'usagePriceOverrides', 'usageModelAliases']);
 const CLIENT_KEYS = new Set(['notificationMode', 'inAppNotificationsEnabled', 'diffColorScheme', 'chatWidth', 'loadBalancingEnabled', 'loadBalancingWeights', 'appearanceContrast',
   'panelAnimationDurationMs', 'confirmQuit', 'confirmThreadArchive', 'confirmThreadDelete', 'confirmThreadUnpin', 'diffFilesCollapsed', 'diffIgnoreWhitespace', 'diffLayout',
@@ -51,7 +51,10 @@ function modelProviderEnabled(settings: Obj, selection: Obj): boolean {
   const instanceId = typeof selection.instanceId === 'string' ? selection.instanceId : '';
   const instance = obj(settings.providerInstances)[instanceId];
   if (instance !== undefined) return obj(instance).enabled !== false;
-  const legacy = obj(settings.providers)[instanceId];
+  // An older server's legacy `providers` map; a newer one runs only Codex and Claude unconfigured (isUnconfiguredDefaultInstanceEnabled).
+  const providers = settings.providers;
+  if (providers === undefined && settings.providerInstances !== undefined) return instanceId === 'codex' || instanceId === 'claudeAgent';
+  const legacy = obj(providers)[instanceId];
   return legacy === undefined ? true : obj(legacy).enabled === true;
 }
 

@@ -52,6 +52,16 @@ export function savedStatus(enabled: boolean, phase: FleetPhase, error: string):
   if (phase === 'error') return { text: error ? `Connection failed: ${error}` : 'Connection failed', tone: 'error' };
   return { text: 'Not connected', tone: 'muted' };
 }
+/**
+ * WelcomeWizard's ConnectionStep label: presentSavedCloudEnvironmentConnection's buttonLabel, and, as in
+ * Settings, "Off" for a switched-off computer rather than "Not connected".
+ */
+export function welcomeComputerStatus(enabled: boolean, phase: FleetPhase): string {
+  if (!enabled && phase !== 'unsupported') return 'Off';
+  const labels: Record<FleetPhase, string> = { connected: 'Connected', connecting: 'Connecting…', reconnecting: 'Reconnecting…', unsupported: 'Client not supported',
+    error: 'Connection failed', available: 'Not connected' };
+  return labels[phase];
+}
 export function statusText(phase: FleetPhase, error: string): string {
   if (phase === 'available') return 'Available';
   if (phase === 'connecting') return 'Connecting...';
@@ -182,7 +192,7 @@ export function savedRow(source: Source, index: number, ssh: Record<string, SshT
   const selfUpdate = str(capabilities.serverSelfUpdate);
   const lock = !Object.keys(source.config).length || !connected ? 'Connect to this environment to change its icon.'
     : capabilities.environmentIcon !== true ? "This environment's server is too old to keep an icon. Update it to choose one."
-      : source.scopes.length && !source.scopes.includes('orchestration:operate') ? 'Your session on this environment cannot change its settings.' : '';
+      : source.scopes.length && !source.scopes.includes('settings:write') ? 'Your session on this environment cannot change its settings.' : '';
   const showUpdate = enabled && connected && mismatch !== null;
   // server-update.ts: a running update (the banner's or this row's) shows its progress here instead of the button.
   const updateLabel = showUpdate && !desktopManagedOnly(capabilities) && !outdated.running

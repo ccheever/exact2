@@ -29,7 +29,7 @@ test('a pairing that never connected is not listed as a computer that is still c
   const live = wizardClient('connected');
   expect((await welcomeView(live, native([]), { step: 'connect', now: 1 })).computers.map(computer => computer.status)).toEqual(['Connected']);
   (live as unknown as { connection: string }).connection = 'reconnecting';
-  expect((await welcomeView(live, native([]), { step: 'connect', now: 1 })).computers.map(computer => computer.status)).toEqual(['Offline']);
+  expect((await welcomeView(live, native([]), { step: 'connect', now: 1 })).computers.map(computer => computer.status)).toEqual(['Reconnecting…']);
 });
 
 test('Continue skips selected offline and switched-off computers beside a connected one', async () => {
@@ -41,8 +41,18 @@ test('Continue skips selected offline and switched-off computers beside a connec
   ];
   const view = await welcomeView(client, native(saved), { step: 'connect', now: 1 });
   expect(view.ready).toBe(true);
-  expect(view.computers.map(computer => computer.status)).toEqual(['Connected', 'Offline', 'Switched off']);
+  expect(view.computers.map(computer => computer.status)).toEqual(['Connected', 'Not connected', 'Off']);
   expect(view.skipped).toBe('Not connected, so setup skips Offline Mac, Off Mac. You can set them up later from Settings.');
+});
+
+// WelcomeWizard ConnectionStep (0ae1091d01): the same rule as Settings, a switched-off computer reads Off.
+test('a switched-off saved computer reads Off, not Not connected', async () => {
+  const client = wizardClient('connected');
+  const saved = [{ origin: 'http://127.0.0.1:9', environmentId: 'env-x', label: 'Mac', enabled: true }, { origin: 'http://10.0.0.7:3773', environmentId: 'env-off', label: 'Studio', enabled: false }];
+  // The wizard opened with nothing saved yet; the computers saved since are listed in it.
+  expect((await welcomeView(client, native([]), { step: 'connect', now: 1 })).show).toBe(true);
+  const view = await welcomeView(client, native(saved), { step: 'connect', now: 1 });
+  expect(view.computers.map(computer => [computer.label, computer.status])).toEqual([['Mac', 'Connected'], ['Studio', 'Off']]);
 });
 
 test('copying the pairing command flips the button to Check without a toast', async () => {

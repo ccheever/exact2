@@ -1,18 +1,20 @@
 // The embedded server's environment, after T3 Code's desktop
-// app (MIT, see LICENSE-T3; reference 1e2ecbd975: apps/desktop/src/shell/DesktopShellEnvironment.ts
+// app (MIT, see LICENSE-T3; reference 9c161462c9: apps/desktop/src/shell/DesktopShellEnvironment.ts
 // `installPosixEnvironment`, and backend/DesktopBackendConfiguration.ts `DESKTOP_BACKEND_ENV_NAMES`).
 //
 // An app opened from Finder inherits launchd's short PATH, so the server would not find the
 // provider CLIs. The login shell is asked once (`$SHELL -ilc`, 5 s; then /bin/zsh), launchctl's
 // PATH only when no shell answered (2 s), and the values are merged into the environment the
 // server starts with. Difference: the reference installs them into its own process (every child
-// inherits them); this module applies them to the server's environment only.
+// inherits them); this module applies them to the server's environment only. The reference also
+// reads T3CODE_TELEMETRY_ENABLED from the shell; here telemetry is always off (spec), so it is not read.
 import Foundation
 
 enum T3LocalShellEnvironment {
     static let loginShellNames = ["PATH", "DBUS_SESSION_BUS_ADDRESS", "DISPLAY", "LANG", "LC_ALL", "LC_CTYPE", "SSH_AUTH_SOCK",
                                   "HOMEBREW_PREFIX", "HOMEBREW_CELLAR", "HOMEBREW_REPOSITORY", "XDG_CONFIG_HOME", "XDG_CURRENT_DESKTOP",
-                                  "XDG_DATA_HOME", "XDG_RUNTIME_DIR", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "WAYLAND_DISPLAY"]
+                                  "XDG_DATA_HOME", "XDG_RUNTIME_DIR", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "WAYLAND_DISPLAY",
+                                  "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "__MISE_DIFF"]
     static let localeNames = ["LANG", "LC_ALL", "LC_CTYPE"]
     static let fallbackLcCtype = "en_US.UTF-8"
     static let loginShellTimeout: TimeInterval = 5
@@ -83,10 +85,15 @@ enum T3LocalShellEnvironment {
             env["PATH"] = merged
         }
         if env["SSH_AUTH_SOCK"]?.isEmpty ?? true, let value = shell["SSH_AUTH_SOCK"] { env["SSH_AUTH_SOCK"] = value }
-        for name in ["DBUS_SESSION_BUS_ADDRESS", "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE"] {
+        // __MISE_DIFF is mise's record of the PATH entries it added. It must travel with the shell's PATH, or
+        // `mise x` can rebuild PATH behind a same-named wrapper (`exec mise x claude -- claude`) that re-runs itself.
+        for name in ["DBUS_SESSION_BUS_ADDRESS", "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "__MISE_DIFF"] {
             if let value = shell[name] { env[name] = value }
         }
-        for name in ["DISPLAY", "HOMEBREW_PREFIX", "HOMEBREW_CELLAR", "HOMEBREW_REPOSITORY", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR", "WAYLAND_DISPLAY"] {
+        // The CA trust names: without them a Node or OpenSSL with no bundled roots (a shared-OpenSSL node on
+        // PATH) cannot verify TLS, so provider updaters and agents fail to reach their registries.
+        for name in ["DISPLAY", "HOMEBREW_PREFIX", "HOMEBREW_CELLAR", "HOMEBREW_REPOSITORY", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR", "WAYLAND_DISPLAY",
+                     "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"] {
             if env[name]?.isEmpty ?? true, let value = shell[name] { env[name] = value }
         }
         // One precedence group: LC_ALL can override an inherited LANG or LC_CTYPE.

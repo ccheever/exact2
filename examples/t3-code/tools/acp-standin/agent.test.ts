@@ -122,6 +122,22 @@ describe("the agent", () => {
     await child.exited;
   });
 
+  test("'Read the thread <id>' thinks, then runs a t3_thread_read tool call on that id before the reply", async () => {
+    const home = join(root, "home-read");
+    const { executable } = install(home, { methods: "none" });
+    const notes: { method: string; params: any }[] = [];
+    const replies = await talk(executable, [{ method: "session/new", params: { cwd: root, mcpServers: [] } }], notes);
+    const sessionId = replies.get(1)!.result.sessionId;
+    const turn = await talk(executable, [{ method: "session/load", params: { sessionId, cwd: root, mcpServers: [] } },
+      { method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: "<user_request>\nRead the thread thread-9 for 0s\n</user_request>" }] } }], notes);
+    expect(turn.get(2)!.result).toEqual({ stopReason: "end_turn" });
+    const kinds = notes.map(note => note.params?.update).filter(Boolean).filter(update => update.sessionUpdate !== "available_commands_update")
+      .map(update => [update.sessionUpdate, update.title ?? update.status ?? update.content?.text ?? ""]);
+    expect(kinds).toEqual([["agent_thought_chunk", "**Checking the other thread**\n\nIt holds the plan this turn follows."], ["tool_call", "t3_thread_read"],
+      ["tool_call_update", "completed"], ["agent_message_chunk", "Stand-in reply: read the other thread"], ["usage_update", ""]]);
+    expect(notes.find(note => note.params?.update?.sessionUpdate === "tool_call")!.params.update.rawInput).toEqual({ threadId: "thread-9" });
+  });
+
   test("a prompt needs the sign-in an agent mode asks for", async () => {
     const { executable } = install(join(root, "home-h"));
     const replies = await talk(executable, [{ method: "session/prompt", params: { sessionId: "s1", prompt: [{ type: "text", text: "hi" }] } }]);

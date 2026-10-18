@@ -13,7 +13,7 @@
 // components/settings/{providerStatus,CodexSetupSection.logic}.ts (9c161462c9).
 import { arr, obj, str, num, applyShell, type Obj } from '../client/domain';
 import { ClientError, bridgeReply, type Native } from '../client/protocol';
-import { environmentSources } from '../connections/connections';
+import { environmentSources, welcomeComputerStatus } from '../connections/connections';
 import { fleet, EnvironmentFleet } from '../connections/settings-b-fleet';
 import { look } from '../appearance/settings-appearance-look';
 import { pagesPrefs } from './pages-prefs';
@@ -293,7 +293,7 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
   }
   const selected = state.selection ?? new Set(sources.map(source => source.key));
   view.computers = sources.map(source => ({ key: source.key, environmentId: source.environmentId, label: source.label, url: `${source.origin.replace(/\/+$/, '')}/`,
-    status: !source.enabled ? 'Switched off' : source.phase === 'connected' ? 'Connected' : source.phase === 'connecting' ? 'Connecting…' : 'Offline', selected: selected.has(source.key) }));
+    status: welcomeComputerStatus(source.enabled, source.phase), selected: selected.has(source.key) }));
   const selectedSources = sources.filter(source => selected.has(source.key));
   view.ready = selectedSources.some(source => source.enabled && source.phase === 'connected') && !selectedSources.some(source => source.enabled && source.phase === 'connecting');
   const skipped = selectedSources.filter(source => !source.enabled || !['connected', 'connecting'].includes(source.phase));

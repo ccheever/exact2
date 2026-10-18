@@ -41,7 +41,7 @@ struct T3DesktopSettings: Equatable {
 
     /// The desktop app this client mirrors (version-skew.ts `CLIENT_VERSION`): its version picks the
     /// default update channel (`resolveDefaultDesktopSettings`).
-    static let appVersion = "0.0.46-nightly.20261004.1"
+    static let appVersion = "0.1.1-nightly.20261018.3302"
     static let fileName = "desktop-settings.json"
     /// The keys the clone kept in `t3-code.json` before it used the desktop settings file.
     static let legacyKeys = ["localEnvironmentEnabled", "serverExposureMode", "tailscaleServeEnabled", "tailscaleServePort"]
