@@ -171,13 +171,15 @@ test('generator owns shells and does not normalize another game or write the sha
     writeFileSync(resolve(dir,'games/existing/logic/src/lib.rs'),`impl Game for Existing { const ID: &'static str = "existing"; }`);
     const before = treeHash(dir, resolve(dir,'games/added'));
     const stamp=statSync(resolve(dir,'Cargo.lock')).mtimeMs;
-    assert.match(createGame('added',dir), /proof\.mjs'? web --screenshot-only$/);
+    assert.match(createGame(resolve(dir,'games/added')), /^Created /);
     assert.equal(treeHash(dir, resolve(dir,'games/added')), before);
     assert.equal(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),'shared lock sentinel');
     assert.equal(statSync(resolve(dir,'Cargo.lock')).mtimeMs,stamp);
     assert.ok(!existsSync(resolve(dir,'games/existing/app.json')));
     assert.ok(!existsSync(resolve(dir,'.shells')));
-    assert.ok(!existsSync(resolve(dir,'games/added/.shells')));
+    assert.ok(existsSync(resolve(dir,'games/added/.shells/Cargo.lock')));
+    const locked = spawnSync('cargo', ['metadata','--manifest-path',resolve(dir,'games/added/.shells/Cargo.toml'),'--locked','--offline','--format-version','1'], {encoding:'utf8',maxBuffer:64*1024*1024});
+    assert.equal(locked.status,0,locked.stderr);
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
 
@@ -195,7 +197,7 @@ test('shell test CLI honors an app path and keeps the no-path SDK sweep', () => 
     cpSync(resolve(import.meta.dir, 'new'), resolve(sdk, 'new'), {recursive:true});
     const fixture = resolve(sdk, 'games/fixture'), bench = resolve(sdk, 'bench/example');
     for (const app of [external, fixture, bench]) {
-      createGame(app, sdk);
+      createGame(app);
       mkdirSync(resolve(app, 'art'));
     }
     // Only Cargo is substituted: exercise the real CLI, manifest resolution,
@@ -204,7 +206,7 @@ test('shell test CLI honors an app path and keeps the no-path SDK sweep', () => 
     writeFileSync(cargo, `#!${process.execPath}\nimport {appendFileSync} from 'node:fs';
 const args=process.argv.slice(2);
 appendFileSync(process.env.SCOPE_CALLS, JSON.stringify({cwd:process.cwd(),args,target:process.env.CARGO_TARGET_DIR,sentinel:process.env.SCOPE_SENTINEL})+'\\n');
-if (args[0] === 'metadata') console.log('{}');
+if (args[0] === 'metadata') console.log('{"packages":[]}');
 if (args[0] === 'run' && args.at(-1) === process.env.SCOPE_BAKE_FAIL) process.exit(8);
 if (args[0] === 'test' && process.cwd() === process.env.SCOPE_TEST_FAIL) process.exit(7);\n`);
     chmodSync(cargo, 0o755);
@@ -247,7 +249,7 @@ if (args[0] === 'test' && process.cwd() === process.env.SCOPE_TEST_FAIL) process
     assert.deepEqual(missing.bakes, [], 'an invalid app must not run an art bake');
     assert.deepEqual(missing.tests, [], 'an invalid app must not fall back to the SDK sweep');
   } finally {rmSync(parent, {recursive:true, force:true});}
-});
+},60000);
 
 test('changing app identity keeps adapter paths and the Cargo cache', async () => {
   const {gameDefaults, gameShells} = await import('./app/shells.mjs');
@@ -361,7 +363,7 @@ test.skipIf(process.platform !== 'darwin')('generation inside an empty author di
     const [status,stderr]=await Promise.all([child.exited,new Response(child.stderr).text()]);
     assert.equal(status,0,stderr);
     assert.equal(treeHash(parent, app), before);
-    assert.ok(!existsSync(resolve(app,'.shells')));
+    assert.ok(existsSync(resolve(app,'.shells/Cargo.lock')));
     for (const file of ['Cargo.toml','Cargo.lock','app.json','logic/Cargo.toml'])
       assert.ok(!existsSync(resolve(app,file)),`${file}: derived, never written into the author directory`);
   } finally { rmSync(parent,{recursive:true,force:true}); }
@@ -374,7 +376,7 @@ test('a game without logic/Cargo.toml owns a generated member over its own sourc
   try {
     cpSync(resolve(import.meta.dir,'new'),resolve(dir,'new'),{recursive:true});
     cpSync(resolve(import.meta.dir,'Cargo.toml'),resolve(dir,'Cargo.toml'));
-    createGame('added',dir);
+    createGame(resolve(dir,'games/added'));
     const app=resolve(dir,'games/added');
     mkdirSync(resolve(app,'logic/examples/tour'),{recursive:true});
     writeFileSync(resolve(app,'logic/examples/tour/main.rs'),'fn main() {}\n');

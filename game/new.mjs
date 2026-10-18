@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
-import { capturedLockDrift, gameDefaults, gameShells } from './app/shells.mjs';
+import { capturedLockDrift, gameDefaults, gameShells, prepareGame } from './app/shells.mjs';
 import { readDeviceStamp } from '../snapback4/web/device-build.mjs';
 import { cargoEnvironment, pathFrom, patchLines } from '../scripts/app.mjs';
 
@@ -71,6 +71,10 @@ export function createGame(destination, directory = import.meta.dir, options = {
     manifest.gpu = {shaderRoots:['render/shaders']};
   }
   if (Object.keys(manifest.game).length) writeFileSync(resolve(destination, 'app.json'), JSON.stringify(manifest, null, 2) + "\n");
+
+  // Resolve against this SDK now, before the first locked test or proof.
+  // No captured lock is needed unless the author adds dependencies.
+  prepareGame(destination, gameDefaults(destination).game, directory);
 
   const argument = local ? quote(destination === process.cwd() ? '.' : destination) : name;
   const proof = quote(relative(process.cwd(), resolve(destination, 'proof.mjs')));
