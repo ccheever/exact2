@@ -94,17 +94,19 @@ void collect_garbage(State *state, const char *cause) {
 // collection ends it at a share of the segment that starts at a half and grows
 // by a tenth with every collection under 10 ms. A module that allocates a
 // little per call collects here instead, between calls, once it has allocated
-// as much as it held live at the last full collection and at least
-// kCollectEvery since, so its young generation stays near boot's. A full
-// collection's cost follows the live heap, so this is at most one per that
-// much allocation. The total counts what Hermes' own young collections
+// half as much as it held live at the last full collection and at least
+// kCollectEvery since. Its young generation then stays near its largest
+// call's allocation plus kCollectEvery: euxy's boot (a 430 KB call, then a
+// 760 KB one) kept 1.2 MB of it touched at 512 KB, and keeps 0.8 MB. A full
+// collection's cost follows the live heap, so this is at most one per half
+// that much allocation. The total counts what Hermes' own young collections
 // already reclaimed, so after one this collects early, never late.
-constexpr int64_t kCollectEvery = 512 << 10;
+constexpr int64_t kCollectEvery = 256 << 10;
 
 void collect_if_due(State *state) {
   auto info = state->rt->instrumentation().getHeapInfo(false);
   int64_t total = info["hermes_totalAllocatedBytes"];
-  if (total - state->collected_at >= std::max(kCollectEvery, state->live))
+  if (total - state->collected_at >= std::max(kCollectEvery, state->live / 2))
     collect_garbage(state, "between calls");
 }
 
