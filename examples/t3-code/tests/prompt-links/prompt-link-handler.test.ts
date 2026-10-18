@@ -169,3 +169,32 @@ test('palette and user-message actions copy shareable links through the native c
   expect(new URL(str(native.calls.findLast(call => call.op === 'copyText')?.text)).searchParams.get('prompt')).toBe('Message prompt');
   expectNotSent(native);
 });
+
+test('a server that withholds Scratch reports the unavailable draft without creating a project or sending', async () => {
+  const { client, native, open } = await setup();
+  delete client.config.scratchWorkspaceRoot;
+  await open('t3code://new?prompt=Read+this');
+  expect(promptLinkView(client)).toMatchObject({ show: true, title: 'Could not open the link',
+    description: 'None of your machines can start a thread without a project right now.' });
+  expect(native.calls.some(call => call.method === 'projects.ensureScratch')).toBe(false);
+  expectNotSent(native);
+});
+
+test('without a recent or primary Scratch machine, multiple offerings require a choice rather than an arbitrary write', async () => {
+  const { client, native, open } = await setup();
+  delete client.config.scratchWorkspaceRoot;
+  client.shell.threads = [];
+  const keys: string[] = [];
+  for (const id of ['remote-a', 'remote-b']) {
+    const key = environmentKey(`http://${id}.test`, id); keys.push(key);
+    fleet.entries.set(key, { key, origin: `http://${id}.test`, environmentId: id, phase: 'connected', message: '', traceId: '', generation: 1,
+      synchronized: 1, lastEvent: 0, subscriptions: {}, config: { scratchWorkspaceRoot: '/scratch', environment: { environmentId: id } },
+      shell: { sequence: 1, projects: [], threads: [] }, scopes: ['orchestration:read', 'orchestration:operate'], error: '', requested: true });
+  }
+  try {
+    await open('t3code://new?prompt=Read+this');
+    expect(promptLinkView(client).description).toBe('None of your machines can start a thread without a project right now.');
+    expect(native.calls.some(call => call.method === 'projects.ensureScratch')).toBe(false);
+    expectNotSent(native);
+  } finally { for (const key of keys) fleet.entries.delete(key); }
+});

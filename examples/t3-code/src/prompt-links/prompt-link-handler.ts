@@ -16,6 +16,7 @@ import { cloneDestination } from '../palette/palette-add';
 import { startTrackedClone } from '../shell/project-clones-live';
 import { pushToast } from '../shell/toast';
 import { findPromptLinkProject, findPromptLinkPullRequestThread, resolvePromptLinkModelSelection } from './prompt-link-model';
+import { primaryEnvironmentId } from '../connections/local-primary';
 import { placeLinkedPrompt, warnAboutHiddenCharacters } from './linked-prompt';
 import { parseNewThreadLink, parseThreadLinkPrompt, promptLinkAppPath, promptLinkPullRequestUrl, type NewThreadLink, type PromptLinkRepository } from './prompt-links';
 
@@ -45,7 +46,7 @@ function lastActiveEnvironment(client: T3Client): PrEnvironment | null {
   const list = environments(client);
   const latest = list.flatMap(environment => environment.threads.map(thread => ({ environment, at: str(thread.updatedAt) })))
     .sort((left, right) => right.at.localeCompare(left.at))[0]?.environment;
-  return latest ?? list.find(environment => environment.local) ?? list[0] ?? null;
+  return latest ?? list.find(environment => environment.id === primaryEnvironmentId()) ?? null;
 }
 async function openProject(client: T3Client, native: Native, storage: Files, project: Project): Promise<void> {
   client.homePending = false; client.homeMove = null;
@@ -70,7 +71,8 @@ function placeDraft(client: T3Client, link: NewThreadLink, extraPrompt = ''): vo
 async function openScratch(client: T3Client, native: Native, storage: Files, link: NewThreadLink): Promise<void> {
   const latest = lastActiveEnvironment(client), list = environments(client);
   const available = (environment: PrEnvironment | null) => environment && str(environment.config.scratchWorkspaceRoot) ? environment : null;
-  const environment = available(latest) ?? list.find(candidate => !!available(candidate));
+  const offering = list.filter(candidate => !!available(candidate));
+  const environment = available(latest) ?? (offering.length === 1 ? offering[0] : null);
   if (!environment) throw new ClientError('None of your machines can start a thread without a project right now.');
   let id: string;
   if (environment.id === client.environmentId) id = await openScratchProject(client, native);
