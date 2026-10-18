@@ -558,6 +558,21 @@ screen, 2026-10-16.)
   a CSS blur radius is twice the Gaussian's deviation, and Core Animation's
   `shadowRadius` is about the deviation. Mind a scale transform over the view (euxy's
   capsule was laid out at twice its size and scaled by ½), which scales its shadow too.
+- **A glow on a tiny LED is barely there.** Cause: a blur spreads a small source thin, so
+  `box-shadow="0 0 7px …"` on a 5-pt dot is at most an eighth of its colour beside the
+  dot, in Chrome and on every host alike; the original's halo was a larger disc blurred
+  under the dot. A radial gradient instead draws a halo that is too big. Fix: Skia's
+  `<Circle r={R} opacity={a}><BlurMask blur={σ} /></Circle>` under a dot of radius `r` is
+  `box-shadow="0 0 <2σ>px <R − r>px <colour at a>"` on the dot: the spread grows the dot
+  to the halo's disc. euxy's `R=4.5, σ=4, a=0.55` under a 5-pt LED is
+  `box-shadow="0 0 8px 2px eu.glow"`, which matched the original's halo to within a
+  few levels.
+- **A bar's shadow casts a band over the strip below it.** Cause: the original cast the
+  shadow from a dock that ran to the screen's bottom edge, under the tab bar, so its
+  downward spill fell off screen; a route's content ends above the tab bar, so the same
+  `box-shadow` spills onto the strip there. Fix: keep the shadow and clip its spill with
+  `clip-path` past the box's top only (`clip-path="path('M 0 -40 L 2000 -40 L 2000 77 L 0
+  77 Z')"` on a 77-pt bar).
 - **A sheet sits a few points low, or ends short of the screen with its bottom corners
   showing.** Cause: a computed `navigationDetent` (`(screen height − 100) × 0.45`)
   guesses UIKit's maximum; and the original's `sheetCornerRadius` set the sheet's corner

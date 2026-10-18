@@ -227,7 +227,7 @@ component App
 ```
 
 ## modal: a form over the screen, with Save and Cancel
-names: dialog, sheet, closedby, popup, grabber, sheet-grabber, prefersGrabberVisible
+names: dialog, sheet, closedby, popup, grabber, sheet-grabber, prefersGrabberVisible, sheetCornerRadius, preferredCornerRadius
 
 A form you lay out (fields, Save, Cancel) is a route presented as a sheet:
 `navigationPresentation="modal"` on its root, its Cancel the control whose `id` the root's
@@ -281,6 +281,11 @@ component App
   `navigationDetent="medium"` (or `"fit-content"`, or `"45%"` of the sheet's maximum).
 - A sheet's grabber is the platform's: iOS shows one on a sheet with several detents.
   `navigationGrabber="visible"` or `"hidden"` on the route says otherwise; draw none.
+- A sheet's corners are the platform's: on iOS 26 and later a large sheet is rounded like
+  the display and floats inset from the bottom edge, as UIKit's own does. A `border-radius`
+  on the route is its corner radius (UIKit's `preferredCornerRadius`, React Native's
+  `sheetCornerRadius: 40` is `border-radius=40`), which also runs a large sheet to the
+  bottom edge.
 
 More: docs/recipes/navigation-stack.md (a list, its detail, a create sheet, a delete alert)
 
