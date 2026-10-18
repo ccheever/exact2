@@ -751,9 +751,9 @@ export async function worldTells(s, r) {
   return { ...r, ...(lines.length ? { look: lines } : {}), ...(gaps.length ? { lookGaps: gaps } : {}), ...(failed.length ? { lookFailed: failed } : {}) };
 }
 
-/** Several replies' tells, gaps and failures together: a film's frames. */
+/** Several replies' tells, gaps and failures together: a film's live frames (a look frame's `look` is its own). */
 export function lookAcross(replies) {
-  const all = (key) => replies.flatMap((r) => r?.[key] ?? []);
+  const all = (key) => replies.flatMap((r) => (Array.isArray(r?.[key]) ? r[key] : []));
   return Object.fromEntries([['look', all('look')], ['lookGaps', all('lookGaps')], ['lookFailed', all('lookFailed')]].filter(([, v]) => v.length));
 }
 

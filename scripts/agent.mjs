@@ -1307,8 +1307,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
           if (i) await s.clock('+' + every);
           const file = resolve(dir, `${String(i).padStart(3, '0')}-${s.now}ms.png`);
           // The frame on disk stays at full size (D2); the sheet takes it at the drive's --scale.
-          last = await s.tagged(typeof window === 'function' ? await window(file) : await carrier.screenshot(file, window, true)); // a function: a world's look frame
-          if (typeof window !== 'function') told.push(last = await worldTells(s, last)); // each live frame's tells (LLP 1127.000 D1)
+          told.push(last = await s.tagged(typeof window === 'function' ? await window(file) : await worldTells(s, await carrier.screenshot(file, window, true)))); // a function: a world's look frame; a live frame's tells (LLP 1127.000 D1)
           const { image } = s.scaled(last);
           if (scale !== undefined) last = { ...last, scale };
           if (images.length && (image.width !== images[0].width || image.height !== images[0].height)) throw new Error(`frame ${i} is ${image.width}×${image.height}, frame 0 ${images[0].width}×${images[0].height}; film needs one size`);

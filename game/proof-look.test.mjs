@@ -58,6 +58,8 @@ test('only a whole frame from the game\'s camera is judged', () => {
   expect(settled.gaps).toEqual(['canvas 3: particles: not measured (y)', 'canvas 5: lost']);
   // A film's frames together.
   expect(lookAcross([{look:['a']}, {lookGaps:['g']}, {look:['b']}])).toEqual({look:['a', 'b'], lookGaps:['g']});
+  // A film of look frames keeps each frame's own `look`: nothing is merged.
+  expect(lookAcross([{look:{tells:[]}}])).toEqual({});
 });
 
 test('a tell line in a world\'s logs does not fail Save against Off', () => {
