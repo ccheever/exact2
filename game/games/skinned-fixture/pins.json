@@ -1,17 +1,19 @@
 {
   "ticks": {
-    "60": "0x0e6efd40d47f5dd7",
-    "120": "0xf8baf228b103fe37"
+    "60": "0xfaca59677d1c344f",
+    "120": "0x5cd6ed3af60b820a"
   },
   "saves": {
-    "continuation": "94d92ef6986d34858999cb5988e1142172dbe67c91462c8c6daadb3ee03d1ef4"
+    "continuation": "432f2afdd22376557f5cee68d07a977c35d6c56b7cb8d88d7cebef85fb4d2059"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "1bcda3637bea8d8b8da44aa19eda7536b2b4cc51cf07ee1bdef33f3128fd248a",
+  "inputs": "4b404911abdf67d6650c46476688281ee4896c37480ca3498f172a0728479f45",
+  "sourceInputs": "2e547e1dcc795a10e41747c7cc8278ec0d31ee956649f58197b9170286eaa6d3",
   "game": "skinned-fixture",
   "generated": "bun game/prove.mjs skinned-fixture --repin --hosts 'linux,web'",
-  "at": "bd6d0aee7e5d2d0c71fda875800b889543052e52"
+  "at": "5cbfa374cc9834e48ae79b28577e20ec53b6dd33",
+  "reason": "Refresh the stale fixture baseline against the current SDK after complete native/web mode and profile agreement"
 }
