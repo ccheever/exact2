@@ -122,8 +122,8 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
     const key = createHash('sha256').update(JSON.stringify([catalogs, icons, app.manifest.background_color ?? null, app.manifest.background_color_dark ?? null, launch, launchImage,
       app.manifest.host?.[sourcePlatform]?.minimumOS ?? null, platform, device, catalog, kept.stamp,
       // What the compile itself writes: a cache from before `--accent-color` named no accent,
-      // one from before `ExactLaunchImageSource` no launch image's source
-      'accent-color', 'launch-image-source'])).digest('hex').slice(0, 16);
+      // one from before `ExactLaunchImageSource` no launch image's source or digest
+      'accent-color', 'launch-image-source', 'launch-image-digest'])).digest('hex').slice(0, 16);
     const made = resolve(kept.dir, `assets-${platform}-${key}`);
     if (!existsSync(resolve(made, 'keys.json'))) {
       const making = `${made}.${process.pid}.tmp`;
@@ -155,7 +155,7 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
     if (launchImage) {
       const bytes = readFileSync(resolve(app.dir, launchImage.src));
       if (createHash('sha256').update(bytes).digest('hex') !== launchImage.sha256) throw new Error('the launch image changed while capturing it; rebuild before packaging');
-      picture = { path: resolve(work, 'launch.png'), width: launchImage.width };
+      picture = { path: resolve(work, 'launch.png'), width: launchImage.width, sha256: launchImage.sha256 };
       writeFileSync(picture.path, bytes);
     }
     const keys = platform === 'ios' ? { ...appIcon(app, dir, 'ios', { catalog: catalog ? assets : false }), ...launchScreen(app, assets, launch, picture) } : {};
@@ -224,9 +224,10 @@ function launchScreen(app, catalog, launch = 'system', picture = null) {
     writeFileSync(resolve(set, 'Contents.json'), JSON.stringify({ images, info: { author: 'exact', version: 1 } }));
     keys.UIImageName = 'ExactLaunchImage';
   }
-  // The plan's name for the picture, so an image of it decodes from the
-  // catalog (`RasterInput.catalog`) and loads no ImageIO reader.
-  const source = picture ? { ExactLaunchImageSource: app.manifest.host.ios.launchImage.src } : {};
+  // The plan's name for the picture and its bytes' SHA-256, so an image of
+  // those bytes decodes from the catalog (`RasterInput.catalog`) and loads no
+  // ImageIO reader; other bytes under the name (an update's) are decoded.
+  const source = picture ? { ExactLaunchImageSource: app.manifest.host.ios.launchImage.src, ExactLaunchImageSHA256: picture.sha256 } : {};
   if (!light) return picture ? { UILaunchScreen: keys, ...source } : {};
   const components = (hex, field) => {
     const m = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(hex ?? '');
