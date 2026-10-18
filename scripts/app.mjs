@@ -40,6 +40,7 @@ import { filesystem, installedModules, removePrivateTree } from './filesystem.mj
 import { startSweep } from './sweep.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameDefaults, lintGame, prepareGame } from '../game/app/shells.mjs';
+import { keptGameCrates } from '../game/app/crates.mjs';
 /** rustup puts cargo in `~/.cargo/bin` and a login profile puts that on PATH;
  * a non-interactive shell (an agent's, a launchd job's) often skips the
  * profile, and every cargo spawn below then fails as ENOENT. Every script that
@@ -1196,6 +1197,13 @@ export function buildBake(app, platform, target, options = {}) {
   // Production-profile game bakes (web, Apple, release Linux, deploy) hold the
   // logic to the determinism lints; the gpu-dev edit loop leaves them to --test.
   if(app.manifest.game&&(options.profile??'')!=='gpu-dev')lintGame(app.dir,app.manifest.game,{env});
+  const registry = app.manifest.game && kind === 'linux' && options.profile === 'gpu-dev'
+    && (!env.CARGO_BUILD_BUILD_DIR || resolve(env.CARGO_BUILD_BUILD_DIR) === app.target)
+    ? keptGameCrates({root:ROOT,env,profile:options.profile,triple:target,flags:{
+      rustflags:Bun.TOML.parse(readFileSync(resolve(ROOT,'game/.cargo/config.toml'),'utf8')).build.rustflags,
+      profiles:Bun.TOML.parse(readFileSync(resolve(app.workspace,'Cargo.toml'),'utf8')).profile,
+    }}) : null;
+  registry?.take(app.target,'native');
   const gpuPackage=(pkg)=>pkg.id===graph.surface?.id||graph.modules.some((m)=>m.id===pkg.id), moduleProducts={}, preparedProducts=new Map();
   delete env.EXACT_GPU_PRODUCT; delete env.EXACT_GPU_MODULES;
   if (options.part && !bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST) && graph.surface) {
@@ -1227,6 +1235,7 @@ export function buildBake(app, platform, target, options = {}) {
     const args=[archive?'rustc':options.check?'check':'build',...(archive?['--crate-type','staticlib']:[]),...cargoReproducibilityFlags(app),...injectedProfiles(app),...whole,...(sized||watch?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(['linux','windows'].includes(kind)&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
     if(archive&&options.link&&!env.EXACT_RUST_BUNDLE&&linkable(app,pkg))env.EXACT_BAKED=bakeOutside(app,platform,target,env);else delete env.EXACT_BAKED; // `link`: a TypeScript app's plan, which the link carries
     const result=buildCommand('cargo',args,app,env,'inherit');
+    registry?.keep(app.target,'native',resolve(app.workspace,'Cargo.lock'));
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});
     if (gpuPackage(pkg) && platform !== 'web') {
       const product = output.filter(m => m.reason === 'compiler-artifact' && m.package_id === pkg.id)
