@@ -7,7 +7,7 @@ import { collectLimitAccounts, collectLimitPools, displayLimitWindows, type Limi
 import { mobileUsageConfig } from './settings-usage-types';
 import { mobileUsage, mobileUsageCommand, mobileUsageSelection, mobileUsageSnapshot, mobileUsageWindow, usageGrant } from './settings-usage';
 import { mobileUsagePresentation, mobileUsageAccount } from './settings-usage-view';
-import { formatUsd } from './shared/pages-usage';
+import { formatDateTimeShort, formatHourShort, formatUsd } from './shared/pages-usage';
 import { mobileAutomationPrepare, mobileAutomationSnapshot, mobileAutomationCommand } from './settings-scheduled-flow';
 import { ClientError } from './shared/protocol';
 const window=(kind='session',usedPercent=50)=>({id:'primary',kind,label:'Allowance',usedPercent,resetsAt:'2026-10-08T00:00:00Z',windowDurationMins:300});
@@ -97,6 +97,37 @@ test('nonempty usage provider rows project only declared UI fields',()=>{
   }
 });
 
+for(const [zone,expected] of [
+  ['America/New_York',['1 AM EDT','1 AM EST']],['UTC',['5 AM','6 AM']],['Asia/Kathmandu',['11 AM','12 PM']],
+] as const)test(`hour labels follow the requested ${zone} zone across repeated calls`,()=>{
+  const instants=['2026-11-01T05:37:00.000Z','2026-11-01T06:37:00.000Z'];
+  expect(instants.map(instant=>formatHourShort(instant,zone))).toEqual([...expected]);
+  expect(instants.map(instant=>formatHourShort(instant,'UTC'))).toEqual(['5 AM','6 AM']);
+  expect(instants.map(instant=>formatHourShort(instant,zone))).toEqual([...expected]);
+});
+test('hour labels preserve invalid inputs and reject an unknown requested zone',()=>{
+  expect(formatHourShort('invalid','UTC')).toBe('invalid');
+  expect(()=>formatHourShort('2026-11-01T05:37:00.000Z','Etc/Unknown')).toThrow(RangeError);
+});
+test('date/time labels keep local month day and hour without repeated-hour zone suffixes',()=>{
+  const instants=['2026-11-01T05:37:00.000Z','2026-11-01T06:37:00.000Z','2026-08-11T17:37:00.000Z'];
+  const day=new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric'}),hour=new Intl.DateTimeFormat('en-US',{hour:'numeric'});
+  expect(instants.map(formatDateTimeShort)).toEqual(instants.map(instant=>`${day.format(new Date(instant))}, ${hour.format(new Date(instant))}`));
+  expect(formatDateTimeShort('invalid')).toBe('invalid');
+});
+for(const [zone,expected] of [
+  ['America/New_York',['1 AM EDT','1 AM EST']],['UTC',['5 AM','6 AM']],
+] as const)test(`hourly Usage chart labels retain the captured ${zone} window zone`,()=>{
+  const instants=['2026-11-01T05:37:00.000Z','2026-11-01T06:37:00.000Z'];
+  const summary:Obj={contractVersion:6,sources:[{status:'ok',fingerprint:{provider:'codex',hostId:'qa',resolvedHomePath:'/qa'},distinctSessions:1}],
+    buckets:instants.map(hourStart=>({provider:'codex',model:'qa',day:'2026-11-01',hourStart,costUsd:1,totals:{uncachedInputTokens:1}}))};
+  const input={tab:'usage',metric:'cost',now:Date.parse('2026-11-01T07:37:00.000Z'),presentations:new Map(),external:false,
+    sources:[{id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]};
+  const data=mobileUsagePresentation({...input,window:{sinceDay:'2026-11-01',untilDay:'2026-11-01',timeZone:zone,resolution:'hour',sinceTime:instants[0],untilTime:'2026-11-01T07:37:00.000Z'}},false);
+  expect(data.hasUsage).toBe(true);expect(data.chart.map(period=>[period.id,period.label])).toEqual(instants.map((instant,index)=>[instant,expected[index]]));
+  const daily=mobileUsagePresentation({...input,window:{sinceDay:'2026-11-01',untilDay:'2026-11-01',timeZone:zone,resolution:'day'}},false);
+  expect(daily.chart.map(period=>period.label)).toEqual(['Nov 1']);
+});
 test('mobile USD formatting keeps reference rounding, signed zero, grouping and nonfinite output',()=>{
   expect([0.825,1.275,-0.825,-0.004,-0,0,1_234_567.891,NaN,Infinity,-Infinity].map(formatUsd))
     .toEqual(['$0.83','$1.28','-$0.83','-$0.00','-$0.00','$0.00','$1,234,567.89','$NaN','$∞','-$∞']);
