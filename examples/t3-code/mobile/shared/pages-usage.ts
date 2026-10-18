@@ -1,5 +1,6 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/pages-usage.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Copied from examples/t3-code/pages-usage.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// USD formatter updated from that helper at 958299f7c26cb1f4110211ee10c893536ad298be.
 // The Usage page (lane "pages"): server.getUsageSummary merged and presented
 // as the reference UsagePage does. Sources: T3 Code (MIT, see LICENSE-T3)
 // apps/web/src/components/usage/{UsagePage,UsageProviderChart,usageProviders,
@@ -21,10 +22,10 @@ const HOUR = 3_600_000;
 // ── Formatting (usageFormat.ts) ─────────────────────────────────────────────
 
 const group = (digits: string) => digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+let currency: Intl.NumberFormat | undefined; // made at the first amount, not as the module loads
 export function formatUsd(value: number): string {
-  const fixed = Math.abs(value).toFixed(2);
-  const [whole = '0', cents = '00'] = fixed.split('.');
-  return `${value < 0 && Number(fixed) !== 0 ? '-' : ''}$${group(whole)}.${cents}`;
+  currency ??= new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return currency.format(value);
 }
 export function formatCount(value: number): string { return group(String(Math.round(value))); }
 const trim = (value: number) => {
