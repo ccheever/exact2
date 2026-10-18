@@ -1,4 +1,5 @@
 import { snapshotShortcut } from '../snapshot/snapshot-shortcut';
+import { commandOutputEvent } from '../timeline/command-output';
 import { snapshotIdentity, snapshotDefaultProject, snapshotDestinationExists, withoutSnapshot, snapshotNoProjectMessage, snapshotFailureMessage } from '../snapshot/snapshot-adopt';
 import { decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
 import { decodeCustomThemes, type CustomTheme } from '../appearance/settings-themes';
@@ -531,7 +532,7 @@ export class T3Client {
         if (key === GIT_ACTION_KEY) { gitActionEvent(this, entry); continue; } // git-actions.ts: the card's git.runStackedAction stream
         if (key === DEVICE_STATE_KEY) { deviceStateEvent(this, entry); continue; } // device-surface.ts: the device hub state
         if (isDiscoveredServersKey(key)) { discoveredServersEvent(this, entry); continue; } // browser-targets.ts: subscribeDiscoveredLocalServers
-        if (providerSetupEvent(this, entry) || keepAliveEvent(this, entry) || composerReplyEvent(this, entry) || codexHandoffEvent(entry)) continue; // keep-alive.ts: running threads' detail streams, the primary's lifecycle; composer-replies.ts: a /feedback upload's or a redeem's reply codex-handoff-events.ts: the ChatGPT handoff on the primary
+        if (commandOutputEvent(this, entry) || providerSetupEvent(this, entry) || keepAliveEvent(this, entry) || composerReplyEvent(this, entry) || codexHandoffEvent(entry)) continue; // keep-alive.ts: running threads' detail streams, the primary's lifecycle; composer-replies.ts: a /feedback upload's or a redeem's reply codex-handoff-events.ts: the ChatGPT handoff on the primary
         if (LIVE_KEYS.includes(key)) { liveEvent(this, entry); continue; } // live-streams.ts: scheduled tasks and project clones
         if (key === TERMINAL_METADATA_KEY) { terminalMetadataEvent(this, entry); continue; } // terminal-drawer-view.ts: terminal labels and sessions
         if (key === PREVIEW_AUTOMATION_KEY || key === PREVIEW_EVENTS_KEY) { previewStreamEvent(this, entry); continue; } // browser-automation.ts: agent requests, preview events
@@ -672,7 +673,7 @@ export class T3Client {
   async command(op: string, id: string, value: string, n: number, native: Native | null | undefined, storage: Files, providers?: ProvidersRoute): Promise<{ revision: number; message: string; relaunch: boolean; routeReorder: number }> {
     const routeReorder = op === 'environment-route-move' && value.includes('\n') ? n : 0;
     if (!native?.available) return { routeReorder, relaunch: false, revision: ++this.revision, message: 'Open this app on macOS to connect to T3 Code.' };
-    const local = ['draft', 'answer', 'choice', 'previous-question', 'search', 'sidebar', 'dismiss-error', 'close-diff', 'favorite-model', 'copy-message', 'grouping-mode', 'grouping-override', 'device-setting', 'setting-snapshot', 'remove-snapshot', 'snapshot-preview-sound', 'snapshot-shortcut-record', 'snapshot-shortcut-save', 'copy-diagnostic'].includes(op) || op.startsWith('restlocal:') || op.startsWith('chatlocal:') || op.startsWith('editorlocal:') || op.startsWith('shelllocal:') || op.startsWith('cclocal:') || op.startsWith('sidebarlocal:') || op.startsWith('themelocal:') || op.startsWith('pageslocal:') || op.startsWith('terminallocal:') || op.startsWith('terminalpanellocal:') || DIFF_LOCAL_OPS.includes(op);
+    const local = ['draft', 'answer', 'choice', 'previous-question', 'search', 'sidebar', 'dismiss-error', 'close-diff', 'favorite-model', 'copy-message', 'grouping-mode', 'grouping-override', 'device-setting', 'setting-snapshot', 'remove-snapshot', 'snapshot-preview-sound', 'snapshot-shortcut-record', 'snapshot-shortcut-save', 'copy-diagnostic'].includes(op) || op.startsWith('secretlocal:') || op.startsWith('restlocal:') || op.startsWith('chatlocal:') || op.startsWith('editorlocal:') || op.startsWith('shelllocal:') || op.startsWith('cclocal:') || op.startsWith('sidebarlocal:') || op.startsWith('themelocal:') || op.startsWith('pageslocal:') || op.startsWith('terminallocal:') || op.startsWith('terminalpanellocal:') || DIFF_LOCAL_OPS.includes(op);
     const epoch = local ? this.commandEpoch : ++this.commandEpoch;
     const out: OpOut = { message: '', id, value, providers }; // an area's ops hand back their message (client-ops.ts)
     if (!local) {

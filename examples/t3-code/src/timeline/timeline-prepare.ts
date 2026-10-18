@@ -4,16 +4,19 @@ import { syncToolActivityIcons, toolActivityIconsNeeded } from './timeline-tool-
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
 import { syncWorktreeSetup } from './timeline-worktree';
+import { syncCommandOutputs } from './command-output';
+import { refreshSecretAnswer, secretAnswersNeeded } from './secret-answers';
 
 export async function prepareTimeline(client: T3Client, native: Native | null | undefined): Promise<void> {
   await syncWorktreeSetup(client, native);
+  await syncCommandOutputs(client, native);
 }
 
 /** Snapshot exposes readiness; a distinct root mutation owns every pending native call. */
 export function timelineReadsNeeded(client: T3Client): boolean {
-  return turnItemDetailsNeeded(client) || toolActivityIconsNeeded(client);
+  return secretAnswersNeeded(client) || turnItemDetailsNeeded(client) || toolActivityIconsNeeded(client);
 }
 export async function refreshTimelineReads(client: T3Client, native: Native | null | undefined): Promise<void> {
   if (!native?.available) return;
-  if (!await refreshNextOpenTurnItemDetail(client, native)) await syncToolActivityIcons(client, native);
+  if (!await refreshSecretAnswer(client, native) && !await refreshNextOpenTurnItemDetail(client, native)) await syncToolActivityIcons(client, native);
 }

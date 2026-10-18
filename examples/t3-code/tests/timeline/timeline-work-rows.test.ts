@@ -128,8 +128,8 @@ describe('the work group icon', () => {
   const source = { key: 'browser-use', name: 'Browser', kind: 'browser', icon: { _tag: 'website', pageUrl: 'https://example.test/' } };
   test('the primary tool source’s icon first, then the last entry’s icon; the surface before the summary glyph', () => {
     expect(groupToolPresentation([{ toolIcon: website }, { toolIcon: themed }, {}])).toEqual({ toolIcon: themed });
-    expect(groupToolPresentation([{ toolIcon: themed }, { toolSource: source }, { toolSource: source, toolIcon: website }])).toEqual({ toolIcon: website });
-    expect(groupToolPresentation([{ toolSource: source, toolSurface: 'computer' }, { toolSurface: 'browser' }])).toEqual({ toolIcon: source.icon, toolSurface: 'computer' });
+    expect(groupToolPresentation([{ toolIcon: themed }, { toolSource: source }, { toolSource: source, toolIcon: website }])).toEqual({ toolIcon: website, toolSurface: 'browser' });
+    expect(groupToolPresentation([{ toolSource: source, toolSurface: 'computer' }, { toolSurface: 'browser' }])).toEqual({ toolSurface: 'computer' });
     expect(groupToolPresentation([{ toolIcon: { _tag: 'website', pageUrl: 'ftp://nope' } }, {}])).toEqual({});
   });
 

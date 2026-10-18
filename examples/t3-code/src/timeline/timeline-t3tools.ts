@@ -1,5 +1,5 @@
 // T3's own MCP tools in the work log, adapted from T3 Code (MIT, see LICENSE-T3):
-// packages/shared/src/t3McpToolPresentation.ts (the inventory and name
+// Sources at 9c161462c9: packages/shared/src/t3McpToolPresentation.ts (the inventory and name
 // resolution), packages/client-runtime/src/work-log/presentation.ts
 // (resolveT3McpToolPresentation: tense, failure and the PR target) and
 // packages/client-runtime/src/t3ToolSummary.ts (group summaries).
@@ -23,11 +23,11 @@ export type T3SummaryAction = 'capabilities' | 'delegate' | 'task-status' | 'tas
   | 'schedule-list' | 'schedule-update' | 'schedule-delete' | 'thread-create' | 'thread-list' | 'thread-read' | 'thread-send'
   | 'thread-wait' | 'thread-interrupt' | 'thread-configuration' | 'thread-configure' | 'thread-fork' | 'thread-merge'
   | 'thread-search' | 'thread-transfers' | 'thread-organize' | 'thread-update' | 'queue-list' | 'queue-read' | 'queue-edit'
-  | 'queue-cancel' | 'queue-reorder' | 'queue-steer' | 'question-list' | 'question-read' | 'question-respond'
+  | 'queue-cancel' | 'queue-reorder' | 'queue-steer' | 'question-list' | 'question-read' | 'question-respond' | 'secret-request'
   | 'worktree-handoff' | 'worktree-list' | 'worktree-status' | 'project-list' | 'project-read' | 'project-create'
   | 'project-update' | 'project-delete' | 'project-clone' | 'environment-read' | 'environment-update'
   | 'attachment-prepare' | 'attachment-discard' | 'attachment-send' | 'link-pr' | 'unlink-pr' | 'list-prs' | 'watch-pr'
-  | 'unwatch-pr' | 'browser' | 'device';
+  | 'unwatch-pr' | 'write-pr-guides' | 'read-pr-guide' | 'browser' | 'device';
 export type T3ToolIcon = 't3-code' | 'browser' | 'device' | 'pull-request';
 export type PrAction = 'link-pr' | 'unlink-pr' | 'list-prs' | 'watch-pr' | 'unwatch-pr';
 export interface T3ToolDefinition { displayName: string; labels: readonly [string, string, string, string]; icon: T3ToolIcon; summaryAction: T3SummaryAction }
@@ -44,7 +44,10 @@ const TOOLS: Readonly<Record<string, T3ToolDefinition>> = {
   list_thread_pull_requests: pr(['Check', 'Checking', 'Checked', 'linked pull requests'], 'list-prs'),
   watch_pull_request: pr(['Watch', 'Watching', 'Watching', 'a pull request'], 'watch-pr'),
   unwatch_pull_request: pr(['Stop watching', 'Stopping watching', 'Stopped watching', 'a pull request'], 'unwatch-pr'),
+  write_pull_request_guides: tool(['Write', 'Writing', 'Started', 'review guides'], 'write-pr-guides', 'pull-request'),
+  read_pull_request_guide: tool(['Read', 'Reading', 'Read', 'a review guide'], 'read-pr-guide', 'pull-request'),
   orchestrator_capabilities: tool(['Get', 'Getting', 'Got', 'orchestration capabilities'], 'capabilities'),
+  request_secret: tool(['Ask for', 'Asking for', 'Asked for', 'a secret'], 'secret-request'),
   delegate_task: tool(['Delegate', 'Delegating', 'Delegated', 'a child task'], 'delegate'),
   task_status: tool(['Get', 'Getting', 'Got', 'delegated task status'], 'task-status'),
   task_cancel: tool(['Cancel', 'Canceling', 'Requested cancellation of', 'delegated task'], 'task-cancel'),
@@ -185,7 +188,7 @@ export function summarizeT3ToolCalls(action: T3SummaryAction, calls: readonly T3
     return { input, output: result.data, outcome: result.failed ? 'failed' as const : call.outcome };
   });
   const completed = results.filter(call => call.outcome === 'completed');
-  const failedCount = results.filter(call => call.outcome === 'failed').length;
+  let failedCount = results.filter(call => call.outcome === 'failed').length;
   const selected = completed.length > 0 ? completed : results;
   const times = quantity(selected.length, 'time');
   const phrase = (past: string, infinitive: string, object: string) => `${completed.length > 0 ? past : `Tried to ${infinitive}`} ${object}`;
@@ -241,6 +244,7 @@ export function summarizeT3ToolCalls(action: T3SummaryAction, calls: readonly T3
       case 'question-list': return phrase('Listed', 'list', `pending questions ${times}`);
       case 'question-read': return phrase('Read', 'read', count('requestId', 'pending question request'));
       case 'question-respond': return phrase('Answered', 'answer', count('requestId', 'pending question request'));
+      case 'secret-request': return phrase('Asked for', 'ask for', quantity(selected.length, 'secret'));
       case 'worktree-handoff': return phrase('Handed off to', 'hand off to', count('worktreePath', 'worktree'));
       case 'worktree-list': return phrase('Listed', 'list', `workspace branches ${times}`);
       case 'worktree-status': return phrase('Checked', 'check', `worktree status ${times}`);
@@ -268,6 +272,14 @@ export function summarizeT3ToolCalls(action: T3SummaryAction, calls: readonly T3
       case 'watch-pr': return phrase('Watching', 'watch', quantity(selected.length, 'pull request'));
       case 'unwatch-pr': return phrase('Stopped watching', 'stop watching', quantity(selected.length, 'pull request'));
       case 'list-prs': return phrase('Checked', 'check', `linked pull requests${selected.length === 1 ? '' : ` ${times}`}`);
+      case 'write-pr-guides': {
+        const outcomes = selected.flatMap(call => Array.isArray(call.output?.guides) ? call.output.guides.map(guide => record(guide)?.outcome) : []);
+        const started = outcomes.filter(outcome => outcome !== 'failed').length, failed = outcomes.length - started;
+        failedCount += failed;
+        return outcomes.length > 0 && started === 0 ? `Could not start ${quantity(failed, 'review guide')}`
+          : phrase('Started', 'start', outcomes.length === 0 ? `review guides ${times}` : `${quantity(started, 'review guide')}${failed > 0 ? `, ${failed} failed` : ''}`);
+      }
+      case 'read-pr-guide': return phrase('Read', 'read', quantity(selected.length, 'review guide'));
       case 'browser': return phrase('Used', 'use', `browser ${times}`);
       case 'device': return phrase('Used', 'use', `device controls ${times}`);
       case 'capabilities': return phrase('Checked', 'check', `orchestration capabilities ${times}`);

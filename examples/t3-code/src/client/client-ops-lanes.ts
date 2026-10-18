@@ -6,6 +6,7 @@
 // A '…local:' op changes device state only; the others write to the server.
 import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
+import { enqueueSecretAnswer } from '../timeline/secret-answers';
 import { restCommand, restLocal } from '../settings/settings-rest-commands';
 import { chatCommand } from '../sidebar/chat-commands';
 import { shellCommand, shellLocal } from '../shell/shell-commands';
@@ -23,7 +24,8 @@ import { type Native, type Files } from './protocol';
 export async function laneOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
   let resultMessage = '';
   try {
-    if (op.startsWith('restlocal:')) { resultMessage = await restLocal(this, native, storage, op.slice(10), id, value);
+    if (op.startsWith('secretlocal:')) { const secret = value; value = ''; enqueueSecretAnswer(this, id, op.slice(12), secret);
+    } else if (op.startsWith('restlocal:')) { resultMessage = await restLocal(this, native, storage, op.slice(10), id, value);
     } else if (op.startsWith('chatlocal:')) { resultMessage = await chatLocal(this, native, op.slice(10), id, value, storage);
     } else if (op.startsWith('pageslocal:')) { resultMessage = await pagesLocal(this, native, storage, op.slice(11), id, value);
     } else if (op.startsWith('editorlocal:chip-')) { resultMessage = await chipPopoverLocal(this, native, op.slice(12), id, value); // a skill chip's details (composer-chip-popover.ts)
