@@ -223,9 +223,16 @@ static TOLD: std::sync::Mutex<Option<Palette>> = std::sync::Mutex::new(None);
 /// `onSecondaryContainer`). `None` where no palette was told.
 pub fn material(role: Material, dark: bool) -> Option<[u8; 4]> {
     let told = (*TOLD.lock().unwrap_or_else(|e| e.into_inner()))?;
-    let table = if dark { told.dark } else { told.light };
-    let [a, r, g, b] = table[role as usize].to_be_bytes();
-    Some([r, g, b, a])
+    Some(told.rgba(role, dark))
+}
+
+impl Palette {
+    /// `role` under a scheme, as RGBA.
+    fn rgba(&self, role: Material, dark: bool) -> [u8; 4] {
+        let table = if dark { self.dark } else { self.light };
+        let [a, r, g, b] = table[role as usize].to_be_bytes();
+        [r, g, b, a]
+    }
 }
 
 /// The accent a control paints in where its node sets no `accent-color`
@@ -284,15 +291,15 @@ mod tests {
         let mut words = vec![0xFF00_0000u32 as i32; MATERIAL_ROLES * 2];
         words[Material::Outline as usize] = 0xFF79_747Eu32 as i32;
         words[MATERIAL_ROLES + Material::Outline as usize] = 0xFF93_8F99u32 as i32;
+        // Not told: telling a palette changes every role in the process.
         let palette = Palette::from_words(&words).expect("every role, light and dark");
-        palette.tell();
         assert_eq!(
-            material(Material::Outline, false),
-            Some([0x79, 0x74, 0x7E, 0xFF])
+            palette.rgba(Material::Outline, false),
+            [0x79, 0x74, 0x7E, 0xFF]
         );
         assert_eq!(
-            material(Material::Outline, true),
-            Some([0x93, 0x8F, 0x99, 0xFF])
+            palette.rgba(Material::Outline, true),
+            [0x93, 0x8F, 0x99, 0xFF]
         );
     }
 }
