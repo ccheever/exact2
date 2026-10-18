@@ -58,7 +58,7 @@ component ComposerChipControls
               if anchor.chip.face.fileToken != ""
                 FileTypeIcon(token=anchor.chip.face.fileToken, size=(font * 0.85 * 16 / rem))
               else if anchor.chip.face.imageId != ""
-                box width=(font * 0.85) height=(font * 0.85) hatch="t3-snapshot-tile" data-snapshot-id=`contain:${anchor.chip.face.imageId}`
+                box width=(font * 0.85) height=(font * 0.85) hatch="t3-snapshot-tile" data-snapshot-id=`thumb:${anchor.chip.face.imageId}`
               else
                 TimelineIcon(name=anchor.chip.face.icon, size=(font * 0.85 * 16 / rem), color="light-dark(#71717a, #a1a1aa)")
             if anchor.chip.face.comment

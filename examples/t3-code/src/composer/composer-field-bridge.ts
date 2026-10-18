@@ -105,6 +105,23 @@ export async function composerFieldAcknowledged(host: ComposerFieldHost, args: r
     || value.generation !== host.generation || value.snapshotOwner !== host.snapshotOwner || value.owner !== owner) return fallback;
   // The independent ACK is a current selection read, never an input event.
   observe(host, owner, value, false);
+  // Applying the field effect and publishing its independent input can cross
+  // turns. Yield through finite host work without treating an echo as input.
+  if (args[2] && native?.available && entry.commands.awaitingInput(seq)) {
+    const sameOwner = () => active.generation === host.generation && active.snapshotOwner === host.snapshotOwner && entry.commands.read()?.owner === active.owner;
+    for (let wake = 0; wake < 16 && entry.commands.awaitingInput(seq); wake++) {
+      try { await native.later({ op: 'wake', topic: 't3.notify' }); }
+      catch { break; }
+      if (!sameOwner()) break;
+    }
+    if (!sameOwner()) { entry.commands.cancel(seq, 'field owner changed'); drainRefused(host, entry); return fallback; }
+    if (entry.commands.awaitingInput(seq)) {
+      entry.commands.cancel(seq, 'field input acknowledgement unavailable'); drainRefused(host, entry);
+      host.error = 'The editor did not acknowledge this edit. Please try again.';
+      return { ...fallback, reason: 'field input acknowledgement unavailable' };
+    }
+    if (entry.active?.seq !== seq) return fallback;
+  }
   const current = entry.commands.read();
   if (!current) return fallback;
   const inputSerial = entry.inputSerial, generatedInputSerial = entry.commands.generatedInputSerial(seq);
