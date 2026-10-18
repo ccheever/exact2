@@ -990,21 +990,32 @@ impl<D: DataSource> Presenter<D> {
                 _ => Ok(true),
             }
         } else if let Some((key, box_)) = contact.press {
+            let hit = self.host.kernel().node_by_key(contact.hit).map(|n| n.id);
+            let visible = |id| {
+                self.host.kernel().node(id).is_some_and(|n| {
+                    n.computed_row(exact_kernel::StyleId::Visibility, |s| s.visibility)
+                        == exact_kernel::Visibility::Visible
+                })
+            };
             if box_.contains(x, y) && self.input_live(key) {
                 if let Some(id) = self
                     .host
                     .kernel()
                     .node_by_key(key)
                     .filter(|n| {
+                        // A hidden ancestor still hears a visible descendant's click.
                         self.focus_refusal(n.id).is_none()
-                            && n.computed_row(exact_kernel::StyleId::Visibility, |s| s.visibility)
-                                == exact_kernel::Visibility::Visible
+                            && (visible(n.id)
+                                || hit.is_some_and(|hit| {
+                                    visible(hit)
+                                        && self.focus_refusal(hit).is_none()
+                                        && self.is_inside(hit, n.id)
+                                }))
                     })
                     .map(|n| n.id)
                 {
                     // Focus is decided from what the finger touched, as
                     // `press_at` decides it: a `retainFocus` child counts.
-                    let hit = self.host.kernel().node_by_key(contact.hit).map(|n| n.id);
                     let hit = hit.unwrap_or(id);
                     self.note_press_from(
                         hit,
