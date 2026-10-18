@@ -315,6 +315,7 @@ shape PickerUpdateNotice
   id: string
   message: string
 shape PickerCatalog
+  favoriteWritable: bool
   updateRequired: PickerUpdateNotice[]
   environmentId: string
   searching: bool

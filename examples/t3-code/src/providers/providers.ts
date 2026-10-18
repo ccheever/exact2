@@ -1,4 +1,4 @@
-import { providerWritable } from './provider-permissions';
+import { providerSettingsWritable, providerWritable } from './provider-permissions';
 // T3 Code 9c161462c9 (MIT, LICENSE-T3), ProviderSettingsPanel projected for Contract, and
 // the provider-instance writes it offers. Every write reads fresh server
 // settings first and changes only the selected instance (atomic mutation).
@@ -231,7 +231,7 @@ export function healthInterval(settings: Obj): { seconds: number; preset: number
  * a removed target shows no editor instead of another account.
  */
 export function providerPage(host: ProviderHost, selection: string, nowMs: number, projectIds: string[] = []) {
-  if (!host.ready) return { projectIds: '', available: false, writable: false, message: 'Connect an environment to set up its providers.', checked: '', selectedId: '', rows: [], editors: [], emptyEditor: '', healthSeconds: '300', healthDown: '270', healthUp: '330', healthCustom: false, cursorUsage: false, macos: false, hubs: [] };
+  if (!host.ready) return { projectIds: '', available: false, writable: false, settingsWritable: false, enableWritable: false, message: 'Connect an environment to set up its providers.', checked: '', selectedId: '', rows: [], editors: [], emptyEditor: '', healthSeconds: '300', healthDown: '270', healthUp: '330', healthCustom: false, cursorUsage: false, macos: false, hubs: [] };
   const target = selection.startsWith('target:') ? selection.slice(7) : '', selectedId = target || selection;
   const settings = settingsOf(host), live = liveProviders(host), rows = providerRows(settings, live, selectedId);
   const scoped = projectIds.length > 0 && obj(obj(host.config.environment).capabilities).projectProviderInstanceOverrides === true;
@@ -243,7 +243,7 @@ export function providerPage(host: ProviderHost, selection: string, nowMs: numbe
   const latest = live.reduce((value, provider) => str(provider.checkedAt) > value ? str(provider.checkedAt) : value, '');
   const health = healthInterval(settings);
   return {
-    projectIds: scoped ? JSON.stringify(projectIds) : '', available: true, writable: providerWritable(host), message: providerWritable(host) ? '' : "This session can view this environment's providers but can't change their settings.",
+    projectIds: scoped ? JSON.stringify(projectIds) : '', available: true, settingsWritable: providerSettingsWritable(host), enableWritable: scoped ? providerSettingsWritable(host) : providerWritable(host), writable: providerWritable(host), message: providerWritable(host) ? '' : "This session can view this environment's providers but can't change their settings.",
     checked: live.length ? checkedLabel(latest, nowMs) : 'Not checked yet', selectedId: selected?.id || '',
     rows: displayRows.map((row, index) => {
       const provider = live.find(candidate => candidate.instanceId === row.id), status = rowStatus(row, provider);

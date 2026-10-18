@@ -15,13 +15,15 @@ import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { pickerCatalog } from '../composer/model-catalog';
 import { scopedModelReason, settingsModelTarget } from '../settings/settings-core';
+import { providerSettingsWritable } from './provider-permissions';
+import { providersHost } from './providers-scope';
 import { liveEnvironments } from '../client/live-streams';
 
 type Badge = Parameters<typeof pickerCatalog>[3];
 type View = Parameters<typeof pickerCatalog>[0];
 
 const view = (client: T3Client, providers: Obj[], providerId: string, modelId: string, config: Obj = client.config): View =>
-  ({ config: { ...config, providers }, local: client.local, providerId, modelId });
+  ({ config: { ...config, providers }, local: client.local, providerId, modelId, settingsWritable: providerSettingsWritable(providersHost(client, str(obj(config.environment).environmentId))) });
 
 /** Scheduled Tasks' Model: the editing environment's instances and the draft's model, or the first instance. */
 export function taskModelView(client: T3Client, context: string): View {

@@ -7,6 +7,7 @@ import { arr, obj, str, type Obj } from '../client/domain';
 import { providerLock, matchesLock } from './composer-controls-commands';
 import { projectProviderEnabled } from '../providers/project-provider-overrides';
 import { formatProviderUpdateRequiredNotice } from '../providers/provider-update-required-models';
+import { providerSettingsWritable } from '../providers/provider-permissions';
 import { modelPreferenceSource } from '../providers/model-preferences';
 import { applyPickerPrefs } from '../providers/settings-b-models'; // hidden models and saved order
 import { fanoutSelections, fanoutSupported } from './composer-controls-fanout';
@@ -147,7 +148,7 @@ export function withJumpLabels<C extends { models: { kind: string; reason: strin
  * only while expanded (from the start when the active model is one of them:
  * `legacyDefault`); keyboard highlight is the view's.
  */
-export function pickerCatalog(client: { config: Obj; local: { favoriteModels: string[] }; providerId: string; modelId: string; threadId?: string; projection?: Obj; projectId?: string },
+export function pickerCatalog(client: { config: Obj; local: { favoriteModels: string[] }; providerId: string; modelId: string; threadId?: string; projection?: Obj; projectId?: string; ready?: boolean; scopes?: readonly string[]; settingsWritable?: boolean },
   requested: string, query: string, badge: Badge, target?: PickerTarget) {
   const providers = arr(client.config.providers).map(provider => target ? provider : { ...provider, enabled: projectProviderEnabled(obj(client.config.settings), client.projectId ?? '', str(provider.instanceId), provider.enabled === true) });
   // The composer's picker checks the instance and model the composer shows (activeInstanceId and model are
@@ -215,7 +216,7 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
   const legacyDefault = selected === current.providerId && legacy.some(item => item.id === current.modelId);
   const updateRequired = (searching ? providers.filter(provider => matchesLock(provider, lock)) : providers.filter(provider => provider.instanceId === selected))
     .flatMap(provider => { const message = formatProviderUpdateRequiredNotice(provider, query); return message ? [{ id: str(provider.instanceId), message }] : []; });
-  return { updateRequired, environmentId: str(obj(client.config.environment).environmentId), searching, provider: selected, favoritesSelected: selected === 'favorites', count: rows.length, legacyCount: legacy.length, legacyDefault,
+  return { favoriteWritable: client.settingsWritable ?? providerSettingsWritable(client), updateRequired, environmentId: str(obj(client.config.environment).environmentId), searching, provider: selected, favoritesSelected: selected === 'favorites', count: rows.length, legacyCount: legacy.length, legacyDefault,
     restCount: rest.length + (restLegacy ? 1 : 0), restLegacyCount: restLegacy,
     highlight: -1, highlightKind: '', highlightId: '', highlightProvider: '', models: rows, providers: rail,
     railIndex: selected === 'favorites' ? 0 : at < 0 ? -1 : at + 1,

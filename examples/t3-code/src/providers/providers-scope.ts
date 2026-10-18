@@ -1,4 +1,4 @@
-import { providerWritable } from './provider-permissions';
+import { providerSettingsWritable } from './provider-permissions';
 // Settings › Providers shows one environment at a time, the one the settings scope selector chose
 // (T3 Code 1e2ecbd975, MIT, see LICENSE-T3: apps/web/src/routes/settings.providers.tsx:7-30, "Providers
 // are machine state"; SettingsScopeContext.tsx's `environment`, the connected target with the primary
@@ -79,7 +79,7 @@ export async function scopedProviderPage(client: T3Client, native: Native | null
   const chosen = active ? providersEnvironment(client, String(args[4] ?? ''), String(args[5] ?? ''), String(args[6] ?? ''), String(args[7] ?? ''))
     : { environmentId: client.environmentId, message: '', projectIds: [] };
   const host = !active || chosen.environmentId ? providersHost(client, chosen.environmentId) : null;
-  if (active && host?.writable && native?.available) void migrateModelPreferences(host, routedNative(host, native)).catch(() => {});
+  if (active && host && providerSettingsWritable(host) && native?.available) void migrateModelPreferences(host, routedNative(host, native)).catch(() => {});
   if (native?.available) await watchOn('page', host, native, active && host ? providerSetupStreams(host, selection) : EMPTY);
   if (!host) return { ...withUpkeep(client, { ...providerPage(offline(client), '', now), message: chosen.message }), environment: NO_ENVIRONMENT };
   return { ...withUpkeep(host, providerPage(host, selection, now, chosen.projectIds), client), environment: active ? chosen.environmentId : '' };
@@ -102,12 +102,12 @@ export function scopedAcpRegistry(client: T3Client, native: Native | null | unde
   return acpRegistry(host, native?.available ? routedNative(host, native) : native, String(args[0] || ''), args[1] === true, configured);
 }
 
-/** A provider command's route to the page's environment (client.command), none for the focused one. */
+/** Route commands to the page's synchronized environment; its RPC boundary checks each operation's permission. */
 export function providersRoute(client: T3Client, environmentId: string): ProvidersRoute | undefined {
   const host = providersHost(client, environmentId);
   if (host === client) return undefined;
   return { host, native: native => routedNative(host, native),
-    requireWrite: () => { if (!providerWritable(host)) throw new ClientError(host.ready ? 'Wait for synchronization and check your connection permissions.' : 'Reconnect before making changes.'); } };
+    requireWrite: () => { if (!host.ready) throw new ClientError('Reconnect before making changes.'); } };
 }
 
 /** The page's `upkeep:` ops (args[4] names its environment); Update all and the launch prompt cover every environment. */

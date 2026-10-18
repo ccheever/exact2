@@ -182,3 +182,32 @@ test('provider mutation sources return the complete Change shape without request
     expect(typeof result.revision).toBe('number');
   }
 });
+
+
+test('settings-only fleet sessions save model preferences and project overrides without provider administration', async () => {
+  const { second, native, files } = servers();
+  await answer('snapshot', [], null, files, native);
+  obj(second.config.environment).capabilities = { projectProviderInstanceOverrides: true };
+  background(second);
+  const entry = fleet.entries.get(KEY)!;
+  entry.scopes = ['orchestration:read', 'settings:write'];
+  const view = await page(native, files, 'env2');
+  expect(view).toMatchObject({ writable: false, settingsWritable: true });
+  await answer('providerChange', ['favorite-model', 'codex', 'gpt-6-luna', '', 'env2'], null, files, native);
+  await answer('providerChange', ['provider-model-hide', 'codex', 'gpt-6-luna', 'true', 'env2'], null, files, native);
+  await answer('providerChange', ['provider-enabled', 'codex', '', 'false', 'env2', '["p2"]'], null, files, native);
+  expect(obj(second.config.settings)).toMatchObject({ favorites: [{ provider: 'codex', model: 'gpt-6-luna' }],
+    projectSettingsOverrides: { p2: { providerInstances: { codex: { enabled: false } } } } });
+  expect(native.remote('request').filter(call => call.method === 'server.updateSettings').map(call => obj(call.payload).patch)).toContainEqual({ setModelsHidden: [{ provider: 'codex', model: 'gpt-6-luna', hidden: true }] });
+  const count = native.remote('request').filter(call => call.method === 'server.updateSettings').length;
+  await answer('providerChange', ['provider-enabled', 'codex', '', 'false', 'env2'], null, files, native);
+  expect(native.remote('request').filter(call => call.method === 'server.updateSettings')).toHaveLength(count);
+  expect(obj(obj(obj(second.config.settings).providerInstances).codex).enabled).toBe(true);
+  const catalog = obj(await answer('modelCatalog', ['', '', 0, 'task-model:|env2|codex:gpt-6-luna'], null, files, native));
+  expect(catalog.favoriteWritable).toBe(true);
+  entry.scopes = ['orchestration:read', 'providers:manage'];
+  expect((await page(native, files, 'env2'))).toMatchObject({ writable: true, settingsWritable: false });
+  expect(obj(await answer('modelCatalog', ['', '', 0, 'task-model:|env2|codex:gpt-6-luna'], null, files, native)).favoriteWritable).toBe(false);
+  await answer('providerChange', ['provider-model-hide', 'codex', 'gpt-6-luna', 'false', 'env2'], null, files, native);
+  expect(native.remote('request').filter(call => call.method === 'server.updateSettings')).toHaveLength(count);
+});

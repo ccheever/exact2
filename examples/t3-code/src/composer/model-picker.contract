@@ -30,6 +30,7 @@ component ModelRow
     hoverTipAt: action
   props
     row: PickerRow
+    favoriteWritable: bool
     highlighted: bool
     busy: bool
     select: action
@@ -75,7 +76,7 @@ component ModelRow
         // ModelListRow's jumpLabel Kbd (h-5 min-w-5 px-1, bg-muted, text-xs medium) before the star.
         if row.jump != ""
           text row.jump height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color="light-dark(#f4f4f5, #ffffff0d)" font-size="0.75rem" line-height="1.25rem" font-weight=500 text-align="center" color="light-dark(#71717b, #818181)" flex-shrink=0 testId=`model-jump-${row.id}`
-        button press=favorite("favorite-model", row.providerId, row.id, 0) disabled=(row.reason != "") testId=`favorite-${row.id}` aria-label=(row.favorite ? "Remove from favorites" : "Add to favorites") hover=hoverStar class=Control width="1.5rem" height="1.5rem" min-height="1.5rem" padding=0 border-radius="0.5rem" flex-shrink=0 background-color=(starOver ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+        button press=favorite("favorite-model", row.providerId, row.id, 0) disabled=(row.reason != "" or not favoriteWritable) testId=`favorite-${row.id}` aria-label=(row.favorite ? "Remove from favorites" : "Add to favorites") hover=hoverStar class=Control width="1.5rem" height="1.5rem" min-height="1.5rem" padding=0 border-radius="0.5rem" flex-shrink=0 background-color=(starOver ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
           CmpIcon(name=(row.favorite ? "star-filled" : "star"), size=12, color=(row.favorite ? "#fe9a00" : starOver ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717a, #818181)"), weight=2)
 
 component ModelPicker
@@ -217,7 +218,7 @@ component ModelPicker
               column gap="0.125rem" width="100%" role="listbox"
                 for row in catalog.models key=row.key
                   if row.kind != "legacy-model" or legacyOpen
-                    ModelRow(row=row, highlighted=(row.index == highlight), busy=(busy or (not anchored and data.running)), select=select, favorite=favoriteModel, toggleLegacy=toggleLegacy, legacyOpen=legacyOpen)
+                    ModelRow(row=row, favoriteWritable=catalog.favoriteWritable, highlighted=(row.index == highlight), busy=(busy or (not anchored and data.running)), select=select, favorite=favoriteModel, toggleLegacy=toggleLegacy, legacyOpen=legacyOpen)
             // ComboboxEmpty, the list's sibling: inside the list's scroll, which has no height when nothing
             // matches, it was clipped away (#298 bug 8).
             if count == 0 and setupCount == 0
