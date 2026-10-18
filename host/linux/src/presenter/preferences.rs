@@ -95,6 +95,7 @@ impl<D: DataSource> Presenter<D> {
     /// a colour the full wide table refused is reported on the build
     /// channel (LLP 1122 D4), or to stderr with none.
     pub fn apply_live(&mut self, frame: &str) -> Option<String> {
+        let received = scrub_trace().then(unix_ms);
         let (error, full, roles) = self.host.apply_live(frame);
         // Nothing kept from a paint under the old overrides stands (LLP 1121 stage 5).
         if roles {
@@ -110,7 +111,11 @@ impl<D: DataSource> Presenter<D> {
         if error.is_some() {
             return error;
         }
-        self.after_commit()
+        let after = self.after_commit();
+        if let Some(received) = received {
+            trace_scrub(frame, received);
+        }
+        after
     }
 
     /// App modes (LLP 1121 D5): `setMode` from the agent's `prefer mode`.
@@ -218,5 +223,63 @@ impl<D: DataSource> Presenter<D> {
             Some(e) => Err(e),
             None => reply,
         })
+    }
+}
+
+/// EXACT_SCRUB_TRACE in the host's environment (`x_scrub_trace=1` on
+/// Android): a line on stderr (logcat on Android) per scrub frame applied,
+/// as the Apple host prints one (PlanURL.swift): its revision, the first
+/// token's value, and when (unix ms) the presenter took it, its commit was
+/// made, and the next frame after it was drawn (`turned`: the op stream the
+/// Android reader takes, [`scrub_frame_drawn`]; the commit's time where no
+/// frame is said), for a bench to join with the gestures it sent.
+fn scrub_trace() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("EXACT_SCRUB_TRACE").is_some())
+}
+
+/// Frames applied and not yet drawn: revision, taken, applied, value.
+static PENDING: std::sync::Mutex<Vec<(u64, f64, f64, String)>> = std::sync::Mutex::new(Vec::new());
+
+fn unix_ms() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
+}
+
+fn trace_scrub(frame: &str, received: f64) {
+    let Some(edit) = exact_runner::design::Edit::parse(frame) else {
+        return;
+    };
+    let Some(mark) = edit.scrub else {
+        return;
+    };
+    let applied = unix_ms();
+    let value = edit.tokens.first().map_or("", |t| t.value.as_str()).to_string();
+    let Ok(mut pending) = PENDING.lock() else {
+        return;
+    };
+    // A host that says no frame: each line with its commit's time, a few
+    // frames late at most.
+    if pending.len() >= 4 {
+        for (rev, taken, applied, value) in pending.drain(..) {
+            eprintln!("exact scrub: rev {rev} received {taken:.1} applied {applied:.1} turned {applied:.1} value {value}");
+        }
+    }
+    pending.push((mark.rev, received, applied, value));
+}
+
+/// The frame after the scrub frames applied since the last was drawn (the
+/// Android reader took its op stream): their trace lines, with its time.
+pub fn scrub_frame_drawn() {
+    if !scrub_trace() {
+        return;
+    }
+    let turned = unix_ms();
+    let Ok(mut pending) = PENDING.lock() else {
+        return;
+    };
+    for (rev, taken, applied, value) in pending.drain(..) {
+        eprintln!("exact scrub: rev {rev} received {taken:.1} applied {applied:.1} turned {turned:.1} value {value}");
     }
 }

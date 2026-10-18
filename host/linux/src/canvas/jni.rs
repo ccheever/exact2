@@ -416,6 +416,7 @@ macro_rules! canvas_jni {
                 };
                 let new = (**env).NewDirectByteBuffer.expect("jni");
                 if ops.first() == Some(&22) {
+                    $crate::presenter::scrub_frame_drawn();
                     DRAWN.with(|d| *d.borrow_mut() = None);
                     return MOVE.with(|m| {
                         let mut m = m.borrow_mut();
@@ -442,6 +443,8 @@ macro_rules! canvas_jni {
                         return std::ptr::null_mut();
                     }
                     *last = ops;
+                    // A scrub frame's trace (EXACT_SCRUB_TRACE): this is the frame it shows in.
+                    $crate::presenter::scrub_frame_drawn();
                     new(env, last.as_mut_ptr().cast(), (last.len() * 4) as i64)
                 })
             }
