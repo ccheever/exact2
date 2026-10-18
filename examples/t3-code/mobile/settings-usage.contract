@@ -27,18 +27,16 @@ shape UsageColumn
   present: bool
   remaining: number
   email: string
-shape UsageReset
-  key: string
-  text: string
 shape UsagePoolWindow
   id: string
   windowId: string
   kind: string
   label: string
+  description: string
   remaining: number
   pace: string
+  nextRefill: string
   columns: UsageColumn[]
-  resets: UsageReset[]
 shape UsagePool
   id: string
   label: string
@@ -189,24 +187,30 @@ component SettingsUsage
             if poolIndex == data.cursorPoolInsertAt
               UsageCursorLimits(items=data.cursor, colors=colors, roles=roles, dark=dark, command=command)
             column gap=10.5
-              SettingsSectionLabel(title=pool.label, colors=colors, roles=roles)
-              column background-color=colors.grouped border-radius=24 padding=14 gap=17.5
-                for window in pool.windows key=window.id
-                  column gap=7
-                    row align-items="baseline" gap=7
-                      text window.label flex=1 color=colors.foreground font-size=roles.body.size font-weight=500
-                      text `${window.remaining}% remaining` color=colors.foreground font-size=roles.footnote.size
-                    row gap=3.5
-                      for item in window.columns key=item.key
-                        button press=account(item.key, window.windowId, window.kind) disabled=(not item.present) flex=1 min-width=0 padding=0 aria-label=`${item.label}, ${item.remaining}% remaining`
-                          column gap=3.5
-                            view height=7 border-radius=4 background-color=colors.subtle overflow="hidden"
-                              view width=`${item.remaining}%` height=7 background-color=(dark ? pool.dark : pool.light)
-                            text item.label color=colors.muted font-size=roles.caption.size line-clamp=1
+              row align-items="center" gap=7 padding-left=3.5 padding-right=3.5
+                ProviderIcon(driver=pool.id, size=18, dark=dark, iconUrl="")
+                text pool.label color=colors.foreground font-size=roles.body.size line-height=`${roles.body.line}px` font-weight=500
+              for window in pool.windows key=window.id
+                column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" padding=14 gap=10.5
+                  row align-items="flex-start" justify-content="space-between" gap=10.5
+                    column gap=3.5
+                      text window.label color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+                      row align-items="baseline" gap=5.25
+                        text `${window.remaining}%` color=colors.foreground font-size=roles.display.size line-height=`${roles.display.line}px` font-weight=700 font-variant-numeric="tabular-nums"
+                        text "left" color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
                     if window.pace.length > 0
-                      text window.pace color=colors.muted font-size=roles.footnote.size
-                    for reset in window.resets key=reset.key
-                      text reset.text color=colors.muted font-size=roles.caption.size
+                      text window.pace color=colors.tertiary font-size=roles.label.size line-height=`${roles.label.line}px`
+                  if window.description.length > 0
+                    text window.description color=colors.muted font-size=roles.label.size line-height=`${roles.label.line}px`
+                  if window.nextRefill.length > 0
+                    text window.nextRefill color=colors.muted font-size=roles.label.size line-height=`${roles.label.line}px` font-variant-numeric="tabular-nums"
+                  row gap=3.5
+                    for item in window.columns key=item.key
+                      button press=account(item.key, window.windowId, window.kind) disabled=(not item.present) flex=1 min-width=0 padding=0 aria-label=`${item.label}, ${item.remaining}% remaining`
+                        column gap=3.5
+                          view height=7 border-radius=4 background-color=colors.subtle overflow="hidden"
+                            view width=`${item.remaining}%` height=7 background-color=(dark ? pool.dark : pool.light)
+                          text item.label color=colors.muted font-size=roles.caption.size line-clamp=1
           if data.cursorPoolInsertAt == data.pools.length
             UsageCursorLimits(items=data.cursor, colors=colors, roles=roles, dark=dark, command=command)
         else
