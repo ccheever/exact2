@@ -48,6 +48,10 @@ pub struct Store {
     /// each socket (LLP 1016.000 D7): taken by the runner after each such
     /// turn, which publishes them only if its commit stands.
     sockets: Vec<(usize, crate::SocketOp)>,
+    /// Socket operations a turn of an answer sent, by the same index (the
+    /// amendment of 2026-10-18): taken by the runner after the turn, and
+    /// sent once its commit stands, whatever becomes of the answer.
+    answer_sockets: Vec<(usize, crate::SocketOp)>,
     /// Each open socket's buffered bytes at the start of the turn, by its
     /// resource's index: what its handle's `bufferedAmount` starts from.
     socket_buffered: Vec<(usize, u64)>,
@@ -213,6 +217,7 @@ impl Store {
             entropy: std::cell::Cell::new(0),
             topics: Default::default(),
             sockets: Vec::new(),
+            answer_sockets: Vec::new(),
             socket_buffered: Vec::new(),
             undo: Vec::new(),
             copied: 0,
@@ -469,6 +474,17 @@ impl Store {
     /// being answered or the frame being parsed (LLP 1016.000 D7).
     pub fn stage_socket(&mut self, resource: usize, op: crate::SocketOp) {
         self.sockets.push((resource, op));
+    }
+
+    /// Stage `op` on the socket of resource `resource` for the turn of an
+    /// answer being run (LLP 1016.000 D7, the amendment of 2026-10-18).
+    pub fn stage_answer_socket(&mut self, resource: usize, op: crate::SocketOp) {
+        self.answer_sockets.push((resource, op));
+    }
+
+    /// The operations turns of answers sent since the last take.
+    pub fn take_answer_sockets(&mut self) -> Vec<(usize, crate::SocketOp)> {
+        std::mem::take(&mut self.answer_sockets)
     }
 
     /// Set the turn's socket snapshot (see `socket_buffered`).

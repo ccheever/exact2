@@ -135,7 +135,7 @@ a second screen, a sheet: A screen is a route, not an `if`; a sheet's root adds 
             text "New" role="heading"
             button press=save buttonStyle="bordered-prominent" aria-label="Save"
               image "symbol:checkmark"
-a confirmation: `aria-label` is the question; action buttons run their `press` and close (`command="close"`); Cancel has no `press`. Open it with `command="show-modal"` or `showModal(id)`.
+a confirmation: What can't be undone (Delete, Close Poll) asks first. `aria-label` is the question; actions run their `press` and close (`command="close"`); Cancel has no `press`. Open it with `command="show-modal"` or `showModal(id)`.
   state n = 1
   action remove
     n = 0
@@ -168,7 +168,7 @@ reading and writing data: `loadItems` and `addItem` are in app.ts and answer exa
   action add
     send added = addItem("Milk")
   text items.join(", ")
-a dated record: The write reads the clock, not a ticked `now`, and stores `at`, never `performanceNow()` alone (0 each launch). `"iso"` is the day, compared as text. Tests pin `epoch` and `time-zone`.
+a dated record: The write reads the clock, not a ticked `now`, and stores `at`, never `performanceNow()` alone (0 each launch). `"iso"` is the day, compared as text; its label `formatDay(at, now, …)`: Today, Yesterday. Tests pin `epoch` and `time-zone`.
   shape Time
     epochAtZero: number
     utcOffset: number
@@ -210,6 +210,5 @@ component App
 - A number field's `min`, `max`, `step` take numbers, negative bare (`min=-40`); with `inputmode="decimal"` a negative `min` gives the pad its ± key.
 - A symbol is `"symbol:<role>"` (roles below); `symbol:sf/<name>` is Apple-only.
 - Not in Contract (`contract vocab <name>` says what to write): abs pow sqrt sort reduce find some every contains padStart parseInt.
-- `a - b` subtracts with spaces; a unit is quoted (`width="50%"`); a view repeats with `for x in xs key=…`.
 idioms, whole with their code (`contract vocab <name>`): scroll loading plural choice screen notfound modal confirm date persist swipe task mutation resource match for if let fn shape props derive action stepper gradients menu search menubar ::placeholder glass haptics status-bar toast
 symbol roles: back close compose add microphone send search copy select-text more delete forward home person messages notifications settings repeat activity bookmark bookmark-fill document select select-fill reorder sort filter heart heart-fill reply share ellipsis home-fill notifications-fill person-fill photo play play-fill pause pause-fill skip-back-15 skip-forward-15 skip-back-30 skip-forward-30 speaker speaker-mute moon pin link checkmark forward-chevron at hashtag follow sign-out quote feeds calendar book layers lock people stop stop-fill circle alert minus-circle pencil waveform info camera star star-fill minus chart sparkles refresh menu adjust alert-fill info-fill chooser download install open-app download-pending package mail

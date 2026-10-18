@@ -372,7 +372,10 @@ impl<D: DataSource> Host<D> {
         }
         if style != m.style {
             batch.style(id, &style);
+            // Kept to compare with the next: without the slack its
+            // formatting grew into (a quarter of a long style).
             m.style = style;
+            m.style.shrink_to_fit();
         }
     }
 
@@ -482,6 +485,7 @@ impl<D: DataSource> Host<D> {
             if m.style != style {
                 batch.style(id, &style);
                 m.style = style;
+                m.style.shrink_to_fit();
             }
         }
         if !self.dirty_paragraphs.is_empty() {

@@ -354,6 +354,7 @@ component Shelf
                         input type="number"
                           value=draftPages
                           input=editPages
+                          submit=save
                           placeholder="Optional"
                           aria-label="Pages"
                           inputmode="numeric"

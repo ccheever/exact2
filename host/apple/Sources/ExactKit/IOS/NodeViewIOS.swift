@@ -342,8 +342,31 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         focusedBySurfaceTouch = false
         return false
     }
-    var press = PressFeedback() // LLP 1061 D2: the feedback `pressed` drives
-    var pressPaint = PressPaint() // LLP 1061 D7: the author's pressed paint
+    /// The press's feedback (LLP 1061 D2) and the author's pressed paint
+    /// (D7), made at a node's first press: most nodes are never pressed, and
+    /// inline the two were 200 of a node's 1,336 bytes, a 1,536-byte block
+    /// where without them it takes one of 1,280.
+    private final class Pressing {
+        var feedback = PressFeedback()
+        var paint = PressPaint()
+    }
+    private var pressing: Pressing?
+    private var pressingMade: Pressing {
+        if let pressing { return pressing }
+        let made = Pressing()
+        pressing = made
+        return made
+    }
+    var press: PressFeedback {
+        get { pressing?.feedback ?? PressFeedback() }
+        set { if pressing != nil || !newValue.atRest { pressingMade.feedback = newValue } }
+        _modify { let made = pressingMade; yield &made.feedback }
+    }
+    var pressPaint: PressPaint {
+        get { pressing?.paint ?? PressPaint() }
+        set { if pressing != nil || !newValue.atRest { pressingMade.paint = newValue } }
+        _modify { let made = pressingMade; yield &made.paint }
+    }
     package var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.
     package var inert: Bool { presenter?.modals.inertBehind(self) == true || authoredInert }
@@ -635,24 +658,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         self.kind = kind
         self.presenter = presenter
         super.init(frame: .zero)
-        registerForTraitChanges(SystemColor.traits) { (node: NodeView, _: UITraitCollection) in // platform colours follow contrast and level too (LLP 1095 D5)
-            // A control's accent, a tablist's tint and a grouped list's
-            // switches resolve per appearance in their projections.
-            if node.kind == "control" || node.kind == "list" || ["tablist", "radiogroup"].contains(node.props["accessibilityRole"] ?? "") {
-                node.presenter?.requestProjectionSync()
-            }
-            node.paragraphOwner.invalidateText()
-            node.paragraphOwner.setNeedsDisplay()
-            node.applyStyle(node.style)
-            node.presenter?.flats.appearanceChanged(node.id)
-            // Its paint motion resolves in its own appearance (LLP 1062 D4),
-            // a `color-scheme` above it included (LLP 1034 §8).
-            node.presenter?.session?.noteAppearance(node)
-            // An `svg`'s paints are resolved into its scene's layers.
-            node.presenter?.svg.reappear(node.id, dark: node.drawsDark, clock: node.presenter?.session?.clock, tint: node.viewTint)
-            node.presenter?.requestTextPublication()
-            if let presenter = node.presenter, node.superview === presenter.root { presenter.paintCanvas() }
-        }
         // The box's background is the layer's (`applyBoxLayer`), never
         // UIView's: UIKit would reapply its own on a trait change.
         isOpaque = false
@@ -671,6 +676,32 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         presenter.leaves.embed(self) // a video's player, an iframe's web view, a module's box (LLP 1068 §5.1)
     }
     required init?(coder: NSCoder) { nil }
+
+    /// Platform colours follow contrast and level too (LLP 1095 D5). UIKit
+    /// keeps a registry of about 700 bytes for each view that registers for
+    /// trait changes; this override hears the same changes for none.
+    @available(iOS, deprecated: 17.0)
+    @available(tvOS, deprecated: 17.0)
+    package override func traitCollectionDidChange(_ previous: UITraitCollection?) {
+        super.traitCollectionDidChange(previous)
+        guard let previous, SystemColor.resolvesDifferently(previous, traitCollection) else { return }
+        // A control's accent, a tablist's tint and a grouped list's
+        // switches resolve per appearance in their projections.
+        if kind == "control" || kind == "list" || ["tablist", "radiogroup"].contains(props["accessibilityRole"] ?? "") {
+            presenter?.requestProjectionSync()
+        }
+        paragraphOwner.invalidateText()
+        paragraphOwner.setNeedsDisplay()
+        applyStyle(style)
+        presenter?.flats.appearanceChanged(id)
+        // Its paint motion resolves in its own appearance (LLP 1062 D4),
+        // a `color-scheme` above it included (LLP 1034 §8).
+        presenter?.session?.noteAppearance(self)
+        // An `svg`'s paints are resolved into its scene's layers.
+        presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint)
+        presenter?.requestTextPublication()
+        if let presenter, superview === presenter.root { presenter.paintCanvas() }
+    }
 
     package override func didMoveToWindow() {
         super.didMoveToWindow()

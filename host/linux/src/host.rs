@@ -93,6 +93,9 @@ pub struct Host<D: DataSource> {
     pub(crate) flow_damage: crate::paint::damage::Changes,
     /// What changed for the painter's kept rows since its last frame.
     pub(crate) row_dirty: crate::paint::rows::Dirty,
+    /// The nodes whose `:hover` look holds, and the one whose `:focus-visible`
+    /// does (LLP 1121 D8; the presenter's, `presenter/feedback.rs`).
+    pub(crate) looks_shown: (Vec<ViewId>, Option<ViewId>),
     height_bindings: height_binding::Bindings,
     transform_bindings: transform_binding::Bindings,
     height_projection: Option<exact_kernel::PresentedHeight>,
@@ -269,6 +272,7 @@ impl<D: DataSource> Host<D> {
             height_owner: None,
             flow_damage: Default::default(),
             row_dirty: Default::default(),
+            looks_shown: Default::default(),
             height_bindings: Default::default(),
             transform_bindings: Default::default(),
             height_projection: None,
@@ -670,14 +674,13 @@ impl<D: DataSource> Host<D> {
         }
         .or_else(|| self.paint.view_dark(node.key));
         shown.lowered = self.lowered_mask(node.key);
-        let progress = self.press_progress(node.key);
-        shown.press = press::scale(node.style, progress);
-        // @ref LLP 1061 D7 — the opacity's share of the node's own; the
-        // painter shows the colours from the same progress.
-        shown.press_paint = progress;
-        if node.style.mask.has(exact_kernel::StyleId::PressOpacity) {
-            shown.opacity *= 1. + (node.style.press_opacity.clamp(0., 1.) - 1.) * progress;
-        }
+        // @ref LLP 1061 D7, LLP 1121 D8 — the press and the looks that hold;
+        // the painter shows their colours from the same progress.
+        let looks = [
+            self.looks_shown.0.contains(&id),
+            self.looks_shown.1 == Some(id),
+        ];
+        press::present(&node, self.press_progress(node.key), looks, &mut shown);
         shown
     }
 
@@ -1428,7 +1431,7 @@ impl<D: DataSource> Host<D> {
                 self.present_paint(p);
                 continue;
             }
-            let base = self.presented(view);
+            let base = self.unpresented(view);
             let entry = self.presented.entry(view).or_insert(base);
             match p.property {
                 Property::Translate => {

@@ -1,10 +1,11 @@
-//! A mutation's or a mapper call's socket operations (LLP 1016.000 D7).
-//! The prelude's handle checks and copies each `send` and `close` while the
-//! mutation's source or the socket's own mapper runs, then hands the batch
-//! through the door (op 14): a mutation's when its answer is given now, a
-//! mapper call's as it returns. Each is addressed by the prelude's ticket
+//! A mutation's, a mapper call's or an answer's socket operations (LLP
+//! 1016.000 D7). The prelude's handle checks and copies each `send` and
+//! `close` while the mutation's source, the socket's own mapper or a turn of
+//! an answer runs, and hands them through the door: a mutation's when its
+//! answer is given now and a mapper call's as it returns (op 14), an
+//! answer's as each is made (op 17). Each is addressed by the prelude's ticket
 //! for the stream's `fetch`; here it becomes the resource that owns the
-//! stream, staged on the runner's store for the commit to publish.
+//! stream, staged on the runner's store for the runner to address.
 use super::{Key, Module, Parked};
 use exact_runner::{SocketOp, Store, Target};
 use serde_json::Value as Json;
@@ -59,20 +60,46 @@ impl Module {
         store: &mut Store,
         ops: Vec<(u64, SocketOp)>,
     ) -> Result<(), String> {
-        let mut staged = Vec::with_capacity(ops.len());
+        for (resource, op) in self.owners(ops)? {
+            store.stage_socket(resource, op);
+        }
+        Ok(())
+    }
+
+    /// Each operation by the resource that owns its socket's stream, or
+    /// refused whole.
+    fn owners(&self, ops: Vec<(u64, SocketOp)>) -> Result<Vec<(usize, SocketOp)>, String> {
+        let mut owned = Vec::with_capacity(ops.len());
         for (ticket, op) in ops {
             let owner = self.streams.iter().find_map(|(key, parked)| match key.0 {
                 Some(Target::Resource(i)) if parked.ticket == ticket => Some(i),
                 _ => None,
             });
-            staged.push((
+            owned.push((
                 owner.ok_or("InvalidStateError: the socket is not open")?,
                 op,
             ));
         }
-        for (resource, op) in staged {
-            store.stage_socket(resource, op);
+        Ok(owned)
+    }
+
+    /// Stage what a turn of `source`'s answer sent, whatever it answered
+    /// (the amendment of 2026-10-18). The prelude refuses a handle whose
+    /// stream it saw end, so a ticket this module no longer streams on is a
+    /// turn that outlived its socket: the whole batch is refused, and said.
+    pub(crate) fn stage_answer(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        ops: Vec<(u64, SocketOp)>,
+    ) {
+        match self.owners(ops) {
+            Ok(owned) => owned
+                .into_iter()
+                .for_each(|(resource, op)| store.stage_answer_socket(resource, op)),
+            Err(why) => (self.logs).push(format!(
+                "answer `{source}` failed: {why}; socket frames were refused"
+            )),
         }
-        Ok(())
     }
 }

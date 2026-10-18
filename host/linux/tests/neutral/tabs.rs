@@ -130,7 +130,7 @@ pub(super) fn narrow_tab_bars_follow_the_neutral_paint_rules() {
             assert_eq!(pixel(&mut p, name, 0.0, 16.0), ground, "no ordinary edge");
         }
         assert_eq!(
-            pixel(&mut p, "gray", 4.0, 16.0),
+            pixel(&mut p, "gray", 32.0, 2.0),
             ground,
             "gray tabs have no fill"
         );

@@ -25,6 +25,7 @@ mod class;
 mod collection;
 mod color_profile;
 mod contain;
+mod control_roles;
 pub mod controls;
 pub mod dataset;
 mod disabled_look;
@@ -270,6 +271,9 @@ fn lower_with_sites(
     profile: Profile,
     text_styles: Option<&mut warnings::TextStyles>,
 ) -> Result<(Plan, Option<Sites>), Vec<LowerError>> {
+    // An earlier compile's targets and roles go first: lowering may stop
+    // before the design is read, and the warnings still run.
+    control_roles::unlowered();
     // Keep the exact expansion whose root and row slots inference checked.
     let Checked {
         file,

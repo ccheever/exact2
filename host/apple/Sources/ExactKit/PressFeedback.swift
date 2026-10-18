@@ -37,6 +37,15 @@ struct PressFeedback {
     static let unseen: CFTimeInterval = 1.0 / 60
 
     var idle: Bool { from == 1 && to == 1 }
+    /// As a node that was never pressed holds it.
+    var atRest: Bool { rests(at: 1) }
+    /// Held at `value` since time 0, with nothing pending.
+    func rests(at value: CGFloat) -> Bool {
+        #if os(iOS) || os(tvOS)
+        if easedAbout != nil || dimmedAt != nil { return false }
+        #endif
+        return from == value && to == value && start == 0 && !releaseHeld
+    }
     func factor(at t: CFTimeInterval) -> CGFloat {
         let p = min(1, max(0, (t - start) / Self.duration))
         return from + (to - from) * CGFloat(Self.ease(p))

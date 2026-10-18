@@ -209,6 +209,7 @@ impl Lowerer<'_> {
         asset_root: Option<&std::path::Path>,
     ) -> exact_kernel::style::theme::ThemeScope {
         crate::icons::clear(asset_root);
+        ROLES.with(|r| r.borrow_mut().clear());
         AXES.with(|axes| axes.borrow_mut().clear());
         CANDIDATES.with(|c| c.borrow_mut().clear());
         MEASURES.with(|m| m.borrow_mut().clear());
@@ -448,6 +449,11 @@ impl Lowerer<'_> {
                     span: self.token_span(&origin, at.line, at.col),
                 });
                 continue;
+            }
+            if let Some((_, row)) = &role {
+                let span = self.token_span(&origin, at.line, at.col);
+                let role = row.strip_prefix("-exact-").unwrap_or(row).to_string();
+                ROLES.with(|r| r.borrow_mut().push((role, span)));
             }
             entries.push(ThemeEntry {
                 name,
@@ -751,6 +757,10 @@ impl Lowerer<'_> {
 }
 
 thread_local! {
+    /// The roles the last design lowered on this thread overrides, each
+    /// by its schema name (`AccentColor`, `placeholder`) and its token's
+    /// span: what `tamber-unreachable` judges (LLP 1121 D9).
+    static ROLES: std::cell::RefCell<Vec<(String, Span)>> = const { std::cell::RefCell::new(Vec::new()) };
     /// The app's axes while its styles are lowered, each with its values:
     /// what a `-exact-mode` pin may name.
     static AXES: std::cell::RefCell<Vec<(String, Vec<String>)>> = const { std::cell::RefCell::new(Vec::new()) };
@@ -772,6 +782,16 @@ thread_local! {
     static PARAMS: std::cell::RefCell<Vec<crate::params::ParamToken>> = const { std::cell::RefCell::new(Vec::new()) };
     /// Every param, a bad kind's too: what a refusal names by full name.
     static SHOWN: std::cell::RefCell<Vec<crate::params::ParamToken>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Forget the last design's roles.
+pub(crate) fn forget_roles() {
+    ROLES.with(|r| r.borrow_mut().clear());
+}
+
+/// The roles the last design overrides, each with its token's span.
+pub(crate) fn overridden_roles() -> Vec<(String, Span)> {
+    ROLES.with(|r| r.borrow().clone())
 }
 
 /// `errors` with each param's token name written as its full name (D15):

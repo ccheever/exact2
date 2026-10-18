@@ -463,7 +463,10 @@ impl<D: DataSource> Presenter<D> {
     pub(crate) fn hover_at(&mut self, at: Option<(f32, f32)>, now_ms: f64) -> Option<String> {
         self.hover_point = at;
         let mut under = Vec::new();
-        let mut node = at.and_then(|(x, y)| self.hit(x, y));
+        let hit = at.and_then(|(x, y)| self.hit(x, y));
+        // Its `:hover` looks follow the same point, a resting one's too (LLP 1121 D8).
+        self.refresh_looks(Some(hit));
+        let mut node = hit;
         while let Some(id) = node {
             if self
                 .host
@@ -512,10 +515,13 @@ impl<D: DataSource> Presenter<D> {
     /// contact is down. Never inside `frame()`: its pixels and witness are
     /// the tree it painted.
     pub fn follow_pointer(&mut self) {
+        let Some(at) = self.hover_point else { return };
         if self.contact.is_some() || self.pointer_held.is_some() || self.pointer_buttons != 0 {
+            // No hover event while held, but a `:hover` look follows the point (LLP 1121 D8).
+            let hit = self.hit(at.0, at.1);
+            self.refresh_looks(Some(hit));
             return;
         }
-        let Some(at) = self.hover_point else { return };
         if let Some(error) = self.hover_at(Some(at), self.host.now()) {
             self.host.log(error);
         }

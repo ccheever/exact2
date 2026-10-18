@@ -37,14 +37,15 @@ mod width;
 
 pub(crate) use width::horizontal_flex;
 
-/// At most this many warnings from one compile, before the colours that
-/// stay one scheme: those name every site, each in a short line, since a
-/// repair of the first twenty would only show the next (rules/RULES.md,
-/// "Every check reports all failures in one run").
+/// At most this many warnings from one compile, before `tamber-unreachable`
+/// and the colours that stay one scheme: those name every site, briefly,
+/// since a repair of the first twenty would only show the next
+/// (rules/RULES.md, "Every check reports all failures in one run").
 pub const MAX_WARNINGS: usize = 20;
 
 /// Every warning the checked file earns, in source order of its checks.
 pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
+    crate::control_roles::unlowered();
     with_text_styles(checked, &TextStyles::new())
 }
 
@@ -190,6 +191,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
         }
     }
     out.truncate(MAX_WARNINGS);
+    crate::control_roles::unreachable(&root.view, &checked.file.styles, &mut out);
     one_scheme(
         root,
         &checked.file.styles,

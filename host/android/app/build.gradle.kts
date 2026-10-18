@@ -78,7 +78,7 @@ android {
 dependencies {
     implementation(project(":canvas"))
     if (compose) {
-        implementation(platform("androidx.compose:compose-bom:2026.09.00"))
-        implementation("androidx.compose.material3:material3")
+        implementation(platform(libs.compose.bom))
+        implementation(libs.compose.material3)
     }
 }

@@ -103,7 +103,7 @@ pub(crate) fn style_json_resolved(style: &StyleProps) -> (String, Vec<Skipped>) 
     style_json_rows(style, None, StyleMask::EMPTY)
 }
 
-fn style_json_rows(
+pub(crate) fn style_json_rows(
     style: &StyleProps,
     env: Option<&Env>,
     keep: StyleMask,
@@ -934,14 +934,10 @@ pub fn style_json_presented(
     // PlaceholderColor's initial payload is an unread sentinel; absence
     // selects the platform placeholder colour, including after a clear. So
     // for the pressed paint: a cleared row is no pressed look (LLP 1061 D7).
-    computed.mask = computed.mask.union(
-        computed.written.minus(
-            StyleMask::of(StyleId::PlaceholderColor)
-                .union(StyleMask::of(StyleId::PressOpacity))
-                .union(StyleMask::of(StyleId::PressBackgroundColor))
-                .union(StyleMask::of(StyleId::PressColor)),
-        ),
-    );
+    computed.mask =
+        computed.mask.union(computed.written.minus(
+            StyleMask::of(StyleId::PlaceholderColor).union(crate::looks::press_paint_rows()),
+        ));
     computed.mask.set(StyleId::TextColor);
     paint_over(&mut computed, shown);
     // The presenter must inset editors/images and paint the same border area
@@ -1036,6 +1032,7 @@ pub fn style_json_presented(
             head + "," + &json[1..]
         };
     }
+    json = crate::looks::with_looks(json, node, env, current);
     // @ref LLP 1053.000.000.000 D2 — an auto glass group's spacing rides the
     // string the host compares, so a gap, direction or display change sends it.
     if let Some(points) = glass_auto_spacing(node) {
