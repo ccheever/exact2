@@ -7,7 +7,7 @@ import type { Files, Native } from '../client/protocol';
 import { obj, str } from '../client/domain';
 import { panelState, surfaceStore, type PanelState, type Surface } from '../panel/panel-surfaces';
 import { closeSurface, registerSurfaceClose } from '../panel/right-panel-tabs';
-import { activeRef, ensureTerminalRef, launchFor, knownSessions, allocatableIds, openTerminal, closeTerminalSession, handleTerminalMessage, terminalKeybindings, terminalShortcut, terminalCommandAction, terminalOps, type TerminalDrawerView } from './terminal-drawer-view';
+import { activeRef, ensureTerminalRef, launchFor, knownSessions, allocatableIds, openTerminal, closeTerminalSession, handleTerminalMessage, terminalKeybindings, terminalShortcut, terminalCommandAction, terminalOps, revealTerminal, type TerminalDrawerView } from './terminal-drawer-view';
 import { nextTerminalId, resolveTerminalSessionLabel } from './terminal-labels';
 import { terminalCloseConfirmMessage } from './terminal-close';
 import { parseScopedThreadKey, scopedThreadKey, terminalUiStore, type ScopedThreadRef } from './terminal-ui-state';
@@ -73,6 +73,16 @@ export function activateTerminalPane(state: PanelState, surfaceId: string, termi
   state.active = surfaceId;
   const terminal = state.surfaces.find(entry => entry.id === surfaceId && entry.kind === 'terminal')?.terminal;
   if (terminal?.terminalIds.includes(terminalId)) terminal.activeTerminalId = terminalId;
+}
+/**
+ * revealThreadTerminal: an existing terminal shows in the panel surface that holds it (the panel opens on that
+ * surface and pane), else in the thread's drawer, without opening another shell.
+ */
+export function revealThreadTerminal(client: T3Client, ref: ScopedThreadRef, terminalId: string): void {
+  const state = surfaceStore(client).panels.get(scopedThreadKey(ref));
+  const surface = state?.surfaces.find(entry => entry.kind === 'terminal' && entry.terminal?.terminalIds.includes(terminalId));
+  if (state && surface) { activateTerminalPane(state, surface.id, terminalId); state.visible = true; focusPanelTerminal(client); return; }
+  revealTerminal(client, ref, terminalId);
 }
 export function removePanelTerminal(state: PanelState, surface: Surface, terminalId: string): void {
   const terminal = surface.terminal;
