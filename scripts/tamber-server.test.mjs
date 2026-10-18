@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -1304,6 +1304,67 @@ test("the app's .contract: a hand edit is announced, set-state is committed, and
     const refused = await call({ method: 'commit', client: 'person' });
     expect(refused.status).toBe(400);
     expect(refused.error.refused.find(r => r.file === 'app.contract').why).toContain('differed from HEAD');
+    reader.cancel();
+  } finally {
+    await wire.close();
+    listener.close();
+    rmSync(repo, { recursive: true, force: true });
+  }
+}, 600_000);
+// Stage 8 D, review round 2: a held set-state with no `file` is guarded by
+// the Contract sources it does not write; a source two directories down is
+// still watched after its directory is replaced empty and filled again.
+test("a held set-state is guarded by the other Contract sources, and a replaced directory's source stays watched", async () => {
+  const repo = mkdtempSync(join(tmpdir(), 'exact-tamber-contract2-'));
+  mkdirSync(join(repo, 'src/ui'), { recursive: true });
+  const POST = 'style Post\n  background-color="#0a7aff"\n\ncomponent PostButton\n  view\n    column class=Post\n      text "Post"\n';
+  writeFileSync(join(repo, 'src/ui/post.contract'), POST);
+  writeFileSync(join(repo, 'app.contract'), 'use PostButton from "./src/ui/post.contract"\ncomponent App\n  view\n    PostButton()\n');
+  writeFileSync(join(repo, 'app.tamber'), 'tamber t\n\ntheme\n  ink = #000000\n');
+  const listener = createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port;
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  const wire = tamberServer({ appDir: repo, log: () => {}, settle: 250 });
+  listener.on('request', async (req, res) => {
+    if (!(await wire.handle(req, res, new URL(req.url, 'http://x'), gate.check(req)))) { res.writeHead(404); res.end(); }
+  });
+  const at = `http://127.0.0.1:${port}`;
+  let token;
+  const call = async request => {
+    const res = await fetch(`${at}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(request) });
+    return { status: res.status, ...(await res.json()) };
+  };
+  const digest = f => createHash('sha256').update(readFileSync(join(repo, f))).digest('hex');
+  try {
+    await wire.ready;
+    ({ token } = await (await fetch(`${at}/__tamber/token`)).json());
+    const res = await fetch(`${at}/__tamber/subscribe`, { method: 'POST', headers: { 'x-exact-tamber-token': token } });
+    const reader = res.body.getReader(), decoder = new TextDecoder(), events = [];
+    let buf = '';
+    (async () => { for (;;) { const { value, done } = await reader.read().catch(() => ({ done: true })); if (done) return; buf += decoder.decode(value, { stream: true }); const parts = buf.split('\n\n'); buf = parts.pop(); for (const p of parts) if (p.startsWith('data: ')) events.push(JSON.parse(p.slice(6))); } })();
+    const until = async pass => { const end = Date.now() + 5000; while (!pass(events)) { if (Date.now() > end) throw new Error(JSON.stringify(events)); await Bun.sleep(20); } };
+    await until(e => e[0]?.event === 'subscribed');
+    const files = { 'app.contract': digest('app.contract'), 'src/ui/post.contract': digest('src/ui/post.contract') };
+    const held = await call({ method: 'propose', hold: true, client: 'agent', files, ops: [{ op: 'set-state', style: 'Post', state: 'active', row: 'opacity', value: 0.8 }] });
+    expect(held.status, JSON.stringify(held)).toBe(200);
+    expect(held.ok.texts).toBeUndefined();
+    // A hand edit of the source it does not write: the accept is refused.
+    writeFileSync(join(repo, 'app.contract'), `${readFileSync(join(repo, 'app.contract'), 'utf8')}// moved\n`);
+    await until(e => e.some(x => x.client === null && x.edited?.includes('app.contract')));
+    const taken = await call({ method: 'accept', client: 'person', proposal: held.ok.proposal });
+    expect(taken.status, JSON.stringify(taken)).toBe(409);
+    expect(readFileSync(join(repo, 'src/ui/post.contract'), 'utf8')).toBe(POST);
+    // `src` replaced empty (a read taken then), then filled again.
+    renameSync(join(repo, 'src'), join(repo, 'src.old'));
+    mkdirSync(join(repo, 'src'));
+    await until(e => e.some(x => x.event === 'changed' && x.files && !('src/ui/post.contract' in x.files)));
+    mkdirSync(join(repo, 'src/ui'));
+    writeFileSync(join(repo, 'src/ui/post.contract'), POST);
+    await until(e => e.at(-1)?.files?.['src/ui/post.contract'] === digest('src/ui/post.contract'));
+    await Bun.sleep(400);
+    writeFileSync(join(repo, 'src/ui/post.contract'), POST.replace('#0a7aff', '#0b7bff'));
+    await until(e => e.at(-1)?.files?.['src/ui/post.contract'] === digest('src/ui/post.contract'));
     reader.cancel();
   } finally {
     await wire.close();

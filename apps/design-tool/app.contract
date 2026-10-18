@@ -1113,10 +1113,10 @@ component DesignTool
                   text "" display="none"
             // Design files only: the server's files hold the app's Contract
             // sources too (LLP 1121 stage 8 D), whose state parts it writes.
-            if hello.files.filter(f => f.path.indexOf(".contract") < 0).length > 1
+            if hello.files.filter(f => !f.path.endsWith(".contract")).length > 1
               select value=file change=chooseFile aria-label="Design file" testId="file"
                 option "The app's design" value=""
-                for f in hello.files.filter(f => f.path.indexOf(".contract") < 0) key=f.path
+                for f in hello.files.filter(f => !f.path.endsWith(".contract")) key=f.path
                   option f.path value=f.path
             if pending(design) and design.answer == 0
               row gap=8 align-items="center" testId="design-loading"

@@ -146,3 +146,94 @@ fn set_state_holds_its_edges() {
     assert!(bad["error"].is_object(), "{bad}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Review round 2: a row in parentheses unset whole; a value over two lines
+/// refused (the server answers on); a package linked into `node_modules`
+/// and reached by a relative path is not the app's to write.
+#[test]
+fn set_state_refuses_what_it_cannot_splice_and_a_linked_package() {
+    let dir = app("state-splice", DESIGN);
+    let file = dir.join("app.contract");
+    let vendor = dir.join("vendor/pkg");
+    std::fs::create_dir_all(&vendor).unwrap();
+    std::fs::write(vendor.join("index.contract"), "style Pkg\n  opacity=1\n  :active\n    opacity=0.5\n\ncomponent Badge\n  view\n    text \"b\" class=Pkg\n").unwrap();
+    std::fs::create_dir_all(dir.join("node_modules")).unwrap();
+    std::os::unix::fs::symlink(&vendor, dir.join("node_modules/pkg")).unwrap();
+    let view = "use Badge from \"./node_modules/pkg/index.contract\"\nstyle Post\n  background-color=\"#ffffff\"\n  :active\n    opacity=(0.5)\n    background-color=(\n      \"#000000\"\n    )\n  :hover\n    opacity=-(0.2)\n  :focus-visible\n    opacity=-(\n      0.3)\n\ncomponent App\n  view\n    column class=Post\n      Badge()\n";
+    std::fs::write(&file, view).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let (hello, _) = s.ask(json!({"method": "hello", "client": "test"}));
+    let files = hello["ok"]["files"].as_object().expect("files");
+    assert!(files.contains_key("app.contract"), "{hello}");
+    assert!(
+        !files.keys().any(|f| f.contains("pkg")),
+        "a linked package is read-only: {hello}"
+    );
+    let write = |s: &mut Serve, op: serde_json::Value| {
+        s.ask(json!({"method": "transaction", "client": "one", "files": {"app.contract": digest(&file)}, "ops": [op]})).0
+    };
+    let pkg = write(
+        &mut s,
+        json!({"op": "set-state", "style": "Pkg", "state": "active", "row": "opacity", "value": 0.2}),
+    );
+    assert!(pkg["error"].is_object(), "{pkg}");
+    let two = write(
+        &mut s,
+        json!({"op": "unset-state", "style": "Post", "state": "active", "row": "background-color"}),
+    );
+    assert!(
+        two["error"]["diagnostics"][0]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("more than one line")),
+        "{two}"
+    );
+    let node = write(
+        &mut s,
+        json!({"op": "set-state", "node": "card", "state": "active", "row": "opacity", "value": 0.5}),
+    );
+    assert!(
+        node["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("set-row")),
+        "{node}"
+    );
+    let neg = write(
+        &mut s,
+        json!({"op": "unset-state", "style": "Post", "state": "hover", "row": "opacity"}),
+    );
+    assert!(neg["ok"]["inverse"].is_string(), "{neg}");
+    assert!(
+        neg["ok"]["diff"]
+            .as_str()
+            .is_some_and(|d| d.contains("@@ -") && d.contains("-    opacity=-(0.2)\n")),
+        "{neg}"
+    );
+    let neg2 = write(
+        &mut s,
+        json!({"op": "set-state", "style": "Post", "state": "focus-visible", "row": "opacity", "value": 0.4}),
+    );
+    assert!(
+        neg2["error"]["diagnostics"][0]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("more than one line")),
+        "{neg2}"
+    );
+    let paren = write(
+        &mut s,
+        json!({"op": "unset-state", "style": "Post", "state": "active", "row": "opacity"}),
+    );
+    assert!(paren["ok"]["inverse"].is_string(), "{paren}");
+    let written = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        !written.contains("opacity=(") && !written.contains(":hover"),
+        "{written}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(vendor.join("index.contract"))
+            .unwrap()
+            .matches("0.5")
+            .count(),
+        1
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

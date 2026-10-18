@@ -358,11 +358,13 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // names are holders too: a directory replaced (a checkout) is found by
     // its parent's event (a Contract source under `src/ui/`).
     const between = path => {
-      const out = [];
-      for (let dir = dirname(resolve(appDir, path)); dir.startsWith(appDir + sep); dir = dirname(dir)) { out.push(dir); holders.add(basename(dir)); }
-      return out;
+      for (let dir = dirname(resolve(appDir, path)); dir.startsWith(appDir + sep); dir = dirname(dir)) { holders.add(basename(dir)); holding.add(dir); }
     };
-    for (const dir of new Set([appDir, dirname(designPath(appDir) ?? resolve(appDir, design)), ...paths.flatMap(between)])) {
+    // Every directory that ever held one stays watched (by its inode, once
+    // it is there again): a read taken while a checkout has it empty or
+    // gone does not drop it.
+    paths.forEach(between);
+    for (const dir of new Set([appDir, dirname(designPath(appDir) ?? resolve(appDir, design)), ...holding])) {
       let ino = null;
       try { ino = statSync(dir).ino; } catch { /* not there now */ }
       const held = watchers.get(dir);
@@ -383,6 +385,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       } catch (e) { log(`tamber: cannot watch ${dir}: ${e.message}`); }
     }
   };
+  // The directories that held a design file or a Contract source.
+  const holding = new Set();
   // The directories between the app's and each design file's, by name.
   const holders = new Set(relative(appDir, dirname(designPath(appDir) ?? resolve(appDir, design))).split(sep).filter(Boolean));
   // While a write is in flight its own renames are not a hand edit.
@@ -714,9 +718,23 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const untouched = Object.fromEntries(Object.entries(files ?? {}).filter(([path]) => !touched.has(path)));
     const clash = Object.keys(required).find(path => path in untouched && untouched[path] !== required[path]);
     if (clash) return { status: 400, error: { message: `\`requires\` and \`files\` give \`${clash}\` two digests` } };
-    const guards = { ...untouched, ...required };
-    const planned = await ask({ method: 'propose', ops, ...(files === undefined ? {} : { files }), ...(Object.keys(guards).length ? { requires: guards } : {}) });
+    let guards = { ...untouched, ...required };
+    const propose = guards => ask({ method: 'propose', ops, ...(files === undefined ? {} : { files }), ...(Object.keys(guards).length ? { requires: guards } : {}), texts: true });
+    let planned = await propose(guards);
     if (!planned.ok) return planned;
+    // A state part's write without a `file` touches the Contract source it
+    // wrote, not every one: the others' digests guard it too, asked again.
+    if ((Array.isArray(ops) ? ops : []).some(o => typeof o?.file !== 'string' && /^(un)?set-state$/.test(o?.op))) {
+      const wrote = new Set(Object.keys(planned.ok.texts ?? {}));
+      for (const path of contracts) if (!wrote.has(path) && !(Array.isArray(ops) && ops.some(o => o?.file === path))) touched.delete(path);
+      const more = Object.fromEntries(Object.entries(files ?? {}).filter(([path]) => !touched.has(path) && !(path in guards)));
+      if (Object.keys(more).length) {
+        guards = { ...guards, ...more };
+        planned = await propose(guards);
+        if (!planned.ok) return planned;
+      }
+    }
+    delete planned.ok.texts;
     const id = `prop-${epoch}-${++proposalCount}`;
     const base = Object.fromEntries(Object.entries(planned.ok.files).filter(([path]) => touched.has(path)));
     const expires = Date.now() + HOLD_MS;

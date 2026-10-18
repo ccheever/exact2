@@ -9,7 +9,7 @@
 use crate::tamber_ops::{optional, required};
 use exact_tamber::Op;
 use serde_json::{json, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// A write to a `.contract` file.
 #[derive(Debug, Clone)]
@@ -42,10 +42,26 @@ impl ContractOp {
 /// server may write. A package's file is its package's.
 pub(crate) fn owned(dir: &Path) -> Vec<String> {
     let graph = contract::source_graph(&dir.join("app.contract"));
+    // A package's directory, however reached: one `use` named, or one a
+    // `node_modules` entry links to (a relative path through it reads the
+    // linked directory's files as the app's).
+    let mut packages: Vec<PathBuf> = graph.packages.iter().map(|p| p.root.clone()).collect();
+    let installed = |d: &Path| std::fs::read_dir(d).into_iter().flatten().flatten();
+    for entry in installed(&dir.join("node_modules")) {
+        let path = entry.path();
+        match entry.file_name().to_string_lossy().starts_with('@') {
+            true => packages.extend(installed(&path).filter_map(|e| e.path().canonicalize().ok())),
+            false => packages.extend(path.canonicalize().ok()),
+        }
+    }
+    // A link back to the app or above it (a workspace's own) is no package.
+    let app = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    packages.retain(|root| !app.starts_with(root));
     let mut out: Vec<String> = graph
         .sources
         .iter()
         .filter(|s| matches!(s.origin, contract::Origin::App))
+        .filter(|s| !packages.iter().any(|root| s.path.starts_with(root)))
         .filter(|s| s.path.extension().is_some_and(|e| e == "contract"))
         .filter_map(|s| s.path.strip_prefix(dir).ok()?.to_str().map(str::to_string))
         .filter(|p| !p.starts_with(".exact") && !p.split('/').any(|c| c == "node_modules"))
@@ -64,6 +80,12 @@ pub(crate) fn split(ops: &Value) -> Result<(Value, Vec<(Option<String>, Contract
     let mut rest = Vec::new();
     let mut out = Vec::new();
     for v in all {
+        let state_op = matches!(v["op"].as_str(), Some("set-state" | "unset-state"));
+        if state_op && v.get("node").is_some() {
+            return Err(
+                json!({"message": "a state part written under a node is `set-row`'s (LLP 1122 T5); `set-state` and `unset-state` edit a `style`'s"}),
+            );
+        }
         let op = match v["op"].as_str() {
             Some("set-state") => ContractOp::SetState {
                 style: required(v, "style")?,
@@ -156,6 +178,22 @@ pub(crate) fn restore(text: &str, op: &Op) -> Result<String, String> {
     Ok(joined(&all, *newline))
 }
 
+/// How many parentheses `text` leaves open, outside its strings.
+fn depth(text: &str) -> usize {
+    let (mut depth, mut quoted, mut escaped) = (0usize, false, false);
+    for c in text.chars() {
+        match (quoted, escaped, c) {
+            (true, true, _) => escaped = false,
+            (true, false, '\\') => escaped = true,
+            (_, false, '"') => quoted = !quoted,
+            (false, _, '(') => depth += 1,
+            (false, _, ')') => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    depth
+}
+
 /// The indent of `line`, in spaces.
 fn indent(line: &str) -> usize {
     line.len() - line.trim_start_matches(' ').len()
@@ -188,13 +226,47 @@ pub(crate) fn edit(text: &str, op: &ContractOp) -> Result<String, String> {
         .filter(|a| a.name.starts_with(&prefix))
         .collect();
     let at = |line: u32| line as usize - 1;
+    // A found row's value, on its row's line: its byte range there, and the
+    // range with the parentheses around it. A value over more lines is the
+    // author's to edit.
+    let value_at = |a: &contract_syntax::Attr| -> Result<(usize, usize, usize), String> {
+        let (v, l) = (a.value.span(), &all[at(a.span.line)]);
+        let (start, end) = (v.col as usize - 1, v.end_col as usize - 1);
+        let key = (a.span.col as usize - 1).min(l.len());
+        if v.line != a.span.line || start < key || end < start || end > l.len() {
+            return Err(format!(
+                "`{row}` in `:{state}` is written over more than one line: edit it by hand"
+            ));
+        }
+        // Parentheses opened before the value's end and not closed by it
+        // (`(0.5)`, `-(0.2)`) close after it; a line that leaves one open
+        // goes on to the next.
+        let open = depth(&l[key..end]);
+        if depth(&l[key..]) != 0 {
+            return Err(format!(
+                "`{row}` in `:{state}` is written over more than one line: edit it by hand"
+            ));
+        }
+        let mut close = end;
+        for _ in 0..open {
+            let rest = &l[close..];
+            match rest.trim_start_matches(' ').strip_prefix(')') {
+                Some(after) => close = l.len() - after.len(),
+                None => {
+                    return Err(format!(
+                    "`{row}` in `:{state}`: its parentheses close on another line: edit it by hand"
+                ))
+                }
+            }
+        }
+        Ok((start, end, close))
+    };
     match op {
         ContractOp::SetState { value, .. } => match found {
             // Its value replaced where it is written.
             Some(a) => {
-                let v = a.value.span();
-                let l = &mut all[at(v.line)];
-                l.replace_range(v.col as usize - 1..v.end_col as usize - 1, value);
+                let (start, end, _) = value_at(a)?;
+                all[at(a.span.line)].replace_range(start..end, value);
             }
             // A row added after its block's last.
             None if !block.is_empty() => {
@@ -232,10 +304,11 @@ pub(crate) fn edit(text: &str, op: &ContractOp) -> Result<String, String> {
         ContractOp::UnsetState { .. } => {
             let a = found
                 .ok_or_else(|| format!("`style {}` has no `{row}` in `:{state}`", op.style()))?;
-            let (line, v) = (a.span.line, a.value.span());
+            let line = a.span.line;
+            let (_, _, close) = value_at(a)?;
             // Alone on its line, a comment after it or none.
             let l = &all[at(line)];
-            let after = l.get(v.end_col as usize - 1..).unwrap_or("").trim();
+            let after = l[close..].trim();
             let alone = l.trim_start().len() == l.len() - (a.span.col as usize - 1)
                 && (after.is_empty() || after.starts_with("//"));
             match alone {
@@ -257,9 +330,9 @@ pub(crate) fn edit(text: &str, op: &ContractOp) -> Result<String, String> {
                 }
                 false => {
                     let l = &mut all[at(line)];
-                    let end = l[v.end_col as usize - 1..]
+                    let end = l[close..]
                         .find(|c: char| c != ' ')
-                        .map_or(l.len(), |n| v.end_col as usize - 1 + n);
+                        .map_or(l.len(), |n| close + n);
                     l.replace_range(a.span.col as usize - 1..end, "");
                 }
             }
@@ -376,28 +449,46 @@ pub(crate) fn plan(
             .expect("a file of the snapshot")
             .1;
         let back = inverse(before, &after);
-        if let Op::Restore {
-            line,
-            remove,
-            lines: put,
-            ..
-        } = &back
-        {
-            planned.diff.push_str(&format!("--- {path}\n+++ {path}\n"));
-            let (now, _) = lines(&after);
-            let start = *line as usize - 1;
-            for l in put {
-                planned.diff.push_str(&format!("-{l}\n"));
-            }
-            for l in &now[start..start + *remove as usize] {
-                planned.diff.push_str(&format!("+{l}\n"));
-            }
-        }
+        planned.diff.push_str(&file_diff(&path, before, &after));
         planned.files.push((path, after, vec![back]));
     }
     // A state part compiles into rows and looks: the ordinary rebuild (D13).
     planned.class = exact_tamber::Class::Rebuild;
     Ok(())
+}
+
+/// A file's unified diff, one hunk, as the design's (`exact_tamber`'s).
+fn file_diff(path: &str, a: &str, b: &str) -> String {
+    let (x, y): (Vec<&str>, Vec<&str>) = (
+        a.split_inclusive('\n').collect(),
+        b.split_inclusive('\n').collect(),
+    );
+    let start = x.iter().zip(&y).take_while(|(p, q)| p == q).count();
+    let end = x[start..]
+        .iter()
+        .rev()
+        .zip(y[start..].iter().rev())
+        .take_while(|(p, q)| p == q)
+        .count();
+    let (old, new) = (&x[start..x.len() - end], &y[start..y.len() - end]);
+    // An empty side starts at the line before it (unified diff's rule).
+    let at = |n: usize| if n == 0 { start } else { start + 1 };
+    let mut out = format!(
+        "--- {path}\n+++ {path}\n@@ -{},{} +{},{} @@\n",
+        at(old.len()),
+        old.len(),
+        at(new.len()),
+        new.len()
+    );
+    for (sign, lines) in [('-', old), ('+', new)] {
+        for l in lines {
+            match l.strip_suffix('\n') {
+                Some(l) => out.push_str(&format!("{sign}{l}\n")),
+                None => out.push_str(&format!("{sign}{l}\n\\ No newline at end of file\n")),
+            }
+        }
+    }
+    out
 }
 
 /// Each write's file over the server's read `snap`: the one it names, or

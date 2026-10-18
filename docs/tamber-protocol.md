@@ -304,7 +304,7 @@ The app's build failing is an error (`the app does not build: …`).
 ### Operations
 
 `ops` is a list of objects, each `{"op": "…", "file"?, …}`, where `file` defaults to the app's
-design.
+design (a `set-state` or `unset-state`: the Contract source that declares its `style`).
 
 | `op` | Fields | Edits |
 |---|---|---|
@@ -329,8 +329,12 @@ design.
   through `contract fmt`, and is refused, writing nothing, unless the whole app then builds (the
   build's diagnostics answer it). Its inverse restores the file's bytes as they were, an
   unformatted file's included.
-- **An edit splices only the lines it touches,** laid out as `tamber fmt` would, and leaves every
-  other byte alone. So a value edit is a one-line diff, even in a file that wasn't formatted.
+- **A design edit splices only the lines it touches,** laid out as `tamber fmt` would, and leaves
+  every other byte alone. So a value edit is a one-line diff, even in a file that wasn't formatted.
+  A `.contract` write is laid out whole by `contract fmt` (above).
+- **A state part written under a node** is `set-row`'s (LLP 1122 T5): a `set-state` naming a
+  `node` is refused, pointing there. A row written over more than one line is the author's to
+  edit, and refused.
 - **The limits are the checker's:**
   - a token's `kind` is one stage 6 built (`color`, `length`, `number`, `box-shadow`,
     `text-shadow`, `duration`, `easing`, `type`, `family`);
