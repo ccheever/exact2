@@ -391,6 +391,8 @@ component T3Window
   derive activeDocumentPermissions = (sshPrompt.open or confirmOp != "" or data.serverUpdate.confirmTitle != "" or data.updateEverything.confirm) ? documentPermissions.slice(0, 0) : documentPermissions.slice(0, 1)
   derive documentPermissionOwner = activeDocumentPermissions.map(document => `inline-permission-${document.key}-${document.permissionSerial}`).join("")
   state documentPermissionFocusOwner = ""
+  state documentPermissionReturnKey = ""
+  state documentPermissionReturnSource = ""
   derive documentPermissionFocusWidth = documentPermissionFocusOwner == documentPermissionOwner ? 1 : (documentPermissionFocusOwner == "" ? 2 : 3)
   action syncDocumentPermissionFocus(width: number, height: number)
     if documentPermissionFocusOwner != documentPermissionOwner
@@ -398,8 +400,23 @@ component T3Window
         dialogClosed(documentPermissionFocusOwner)
         documentPermissionFocusOwner = ""
       else if documentPermissionOwner != ""
-        dialogOpened(documentPermissionOwner)
+        documentPermissionOpened(documentPermissionOwner)
         documentPermissionFocusOwner = documentPermissionOwner
+  action documentPermissionOpened(owner: string)
+    if owner == documentPermissionOwner
+      let previous = dialogLineage(dialogFrames, dialogFocusOwner)
+      let known = frame(dialogFocusId)
+      let hasFocus = dialogFocusOwner != owner and dialogFocusId != "" and not known.unavailable and known.width > 0 and known.height > 0
+      let key = activeDocumentPermissions.map(document => document.key).join("")
+      let target = `inline-frame-${key}`
+      let guest = frame(target)
+      // WK's internal field focus is private. Use this document only when no app focus or lineage is known.
+      if previous.filter(item => item.target != "").length == 0 and (not hasFocus or dialogFocusId == target) and key != "" and not guest.unavailable and guest.width > 0 and guest.height > 0
+        dialogFrames = dialogFrames.filter(item => item.owner != owner and not frame(item.owner).unavailable and frame(item.owner).width > 0 and frame(item.owner).height > 0).concat([dialogFrame(owner, [dialogReturn("", target, "", "")])])
+        documentPermissionReturnKey = key
+        documentPermissionReturnSource = activeDocumentPermissions.map(document => document.src).join("")
+      else
+        dialogOpened(owner)
   state dialogFrames: DialogFocusFrame[] = []
   state dialogSeated: string[] = []
   action windowFocused(e: FocusEvent)
@@ -452,7 +469,12 @@ component T3Window
     // Keep a departing frame until an as-yet unfocused replacement can inherit it.
     if unknown.length == 0 or not owns
       dialogFrames = dialogFrames.filter(item => item.owner != owner and (not owns or (not frame(item.owner).unavailable and frame(item.owner).width > 0 and frame(item.owner).height > 0)))
-    if owns and unknown.length == 0 and top == parent and back != ""
+    let guestTarget = `inline-frame-${documentPermissionReturnKey}`
+    let currentGuest = back == guestTarget ? data.messages.map(message => message.inlineDocuments).flat().filter(document => document.key == documentPermissionReturnKey and document.src == documentPermissionReturnSource) : []
+    let guestBox = frame(guestTarget)
+    // Nested dialogs can inherit this return too; a reused id must never focus a replacement document.
+    let guestStillOwned = back != guestTarget or (currentGuest.length > 0 and not guestBox.unavailable and guestBox.width > 0 and guestBox.height > 0)
+    if owns and unknown.length == 0 and top == parent and back != "" and guestStillOwned
       let popup = returns.map(item => item.popup).join("")
       let invoker = returns.map(item => item.invoker).join("")
       let shown = querySelectorAll("[data-dialog-return~=\"menu\"]")
