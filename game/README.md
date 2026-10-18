@@ -279,36 +279,48 @@ device mid-hold neither presses again nor drops.
 |---|---|
 | A fire button, one shot per press | `.button("fire", &["KeyF", "MouseLeft", "GamepadR2"])` read with `input.pressed("fire")` |
 | Fire while held, and on a quick tap | `input.held("fire") \|\| input.pressed("fire")` (Rivals): `held` alone misses a tap whose press and release share a tick |
-| Move with keys, a stick or touch | `Stick::wasd().or_arrows().or_pad(Pad::Left).or_touch(Region::Left)`; `.dead_zone(0.15)` (radial, the default) and `.curve(Curve::Power(1.5))` shape the pad's reading |
+| Move with keys, a stick or touch | `Stick::wasd().or_arrows().or_pad(Pad::Left).or_touch(Region::Left)`; `.dead_zone(0.15)` (radial, the default) and `.curve(Curve::Power(1.5))` shape the pad's reading (Beacons) |
 | Throttle and brake | `Stick::pad(Pad::Triggers)`: forward is `GamepadR2`'s travel less `GamepadL2`'s |
-| Sprint after holding a key | `.hold("sprint", &["ShiftLeft", "GamepadL3"], 0.2)`: `pressed` when held 200 ms, `held` until release; a shorter press fires nothing |
+| Sprint after holding a key | `.hold("sprint", &["ShiftLeft", "GamepadL1"], 0.2)`: `pressed` when held 200 ms, `held` until release; a shorter press fires nothing (Beacons) |
 | A double tap | `.double("roll", &["Space"], 0.25)`: `pressed` on a second press within 250 ms |
 | A short press distinct from a hold | `.tap("dash", &["ShiftLeft"])`: `pressed` and `released` together when a press of at most 200 ms (`Actions::TAP`; `tap_within` for another) lifts, so it fires late by design |
 | A chord | `.chord("special", &["ShiftLeft", "KeyE"])`: `pressed` when the last key goes down while the others are held |
-| Controls for one mode | `.context("driving", \|a\| a.button("brake", &["KeyB"]))` and `w.input_context("driving", true)`: its actions read only while it is active |
+| Controls for one mode | `.context("driving", \|a\| a.button("brake", &["KeyB"]))` and `w.input_context("driving", true)`: its actions read only while it is active (Beacons' `light`, within reach of a beacon) |
 | Let the player rebind | `w.rebind("jump", &["GamepadNorth"])`, or `w.rebind_text("jump GamepadNorth")` from a settings screen's `postMessage` |
 | Keep the player's bindings for every game | `fn bindings(args: &Args) -> String` returning a `#[live]` argument the app binds from its storage: a new game copies it into `Bindings` |
 
 Every window is world time: a trigger fires on the tick that contains its instant,
 from the stamps of the events that moved its keys, so `clock +N` and a 60 Hz panel
-fire the same ticks. A context or a binding the tick changes applies from the next
+fire the same ticks. A pending hold, tap or double window is work: `clock settle`
+runs to its deadline and `state`'s `changing` names it (`input trigger sprint`). A context or a binding the tick changes applies from the next
 tick: leaving the context, or rebinding a held action, releases it then (a journal line
 names each), and a key already down as an action enters a context or gets it reads up
 until it lifts and goes down again.
 
 A host reports a pad's whole state when a button or an axis changed (in 1/256 steps),
-stamped like a key: the web host polls the Gamepad API while a pad is connected, Apple
-hosts read GameController's extended gamepad, Android reads its gamepad keys and
-joystick axes, and the Linux host reads evdev pads present at launch. Pads go to the
-canvas that has focus. A pad that disconnects, or a blur, releases everything it held;
-a pad that connects again at that index is a fresh device. A pad without the standard
-mapping is reported (`pad 1 connected unmapped` in the journal) and delivers nothing.
+stamped like a key; a press keeps its own stamp, and only a sticks-only change may fold
+into a later one in the same tick. Pads go to the canvas that has the focus (on Linux,
+Windows and Android, with nothing focused, to the first canvas that takes input; an
+editor's focus takes them from every canvas). When the focus moves to another canvas the
+one they leave hears each pad go and the new one each pad as it is. A pad that
+disconnects, or a blur, releases everything it held; a pad that connects again at that
+index is a fresh device. Of several pads, a stick reads the one pushed furthest; a
+button is down while any pad holds it. Per host:
 
-What is saved and what is hashed differ. A save holds the input queue, the keys, pads
-and contacts held, and every trigger's gesture in progress, so a restore mid-hold
-continues the hold. The world hash leaves the input out: it covers the world the input
-changed, plus the `InputContexts` and `Bindings` resources, which are world state and
-exist only once a game uses them. `InputEvent`'s `player` is 0 from every host and means
+| Host | Reads | Limits |
+|---|---|---|
+| Web | the Gamepad API, polled each frame while a pad is connected; a pad without the standard mapping is reported (`pad 1 connected unmapped` in the journal) and delivers nothing | as the browser exposes pads |
+| macOS, iOS, tvOS | GameController's extended gamepad, on each change, and every pad again when a canvas takes the focus or the app becomes active | a controller without the extended profile (the Siri Remote) is unmapped |
+| Android | gamepad keys and joystick axes; a pad with trigger axes reports their travel, one without its L2/R2 keys | every pad is reported standard; Android cannot read a pad's state, so after the background a pad reports itself with its next event, and a button held through it reads up until pressed again |
+| Linux | evdev, at each report, in the kernel's gamepad layout (Xbox drivers' letters read as their positions); a pad's state is read when it opens | pads present at launch only; every pad is reported standard |
+| Windows | XInput's four slots, every 8 ms while one is connected and every 250 ms otherwise, while the window has focus | `GamepadHome` is never down (XInput does not report the guide button) |
+
+What is saved and what is hashed differ. A save holds the input queue and the keys,
+pads and contacts held, which the world hash leaves out. The world hash covers the world
+the input changed, plus three resources that exist only once a game uses them:
+`InputContexts`, `Bindings`, and `InputGestures`, the triggers' gestures in progress and
+the latched actions, so two worlds whose holds started at different times differ, and a
+restore mid-hold continues the hold. `InputEvent`'s `player` is 0 from every host and means
 nothing yet.
 
 ### Movement and appearance
