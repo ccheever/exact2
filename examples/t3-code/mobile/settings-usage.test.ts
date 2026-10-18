@@ -6,8 +6,8 @@ import type { Native } from './shared/protocol';
 import { collectLimitAccounts, collectLimitPools, displayLimitWindows, type LimitPresentations } from './settings-usage-limits';
 import { mobileUsageConfig } from './settings-usage-types';
 import { mobileUsage, mobileUsageCommand, mobileUsageSelection, mobileUsageSnapshot, mobileUsageWindow, usageGrant } from './settings-usage';
-import { mobileUsagePresentation, mobileUsageAccount } from './settings-usage-view';
-import { formatDateTimeShort, formatHourShort, formatUsd } from './shared/pages-usage';
+import { mobileUsagePresentation, mobileUsageAccount, mobileUsageProviderRows } from './settings-usage-view';
+import { formatDateTimeShort, formatHourShort, formatUsd, mergeUsage } from './shared/pages-usage';
 import { mobileAutomationPrepare, mobileAutomationSnapshot, mobileAutomationCommand } from './settings-scheduled-flow';
 import { ClientError } from './shared/protocol';
 const window=(kind='session',usedPercent=50)=>({id:'primary',kind,label:'Allowance',usedPercent,resetsAt:'2026-10-08T00:00:00Z',windowDurationMins:300});
@@ -161,10 +161,29 @@ test('Usage footer legend follows merged cost order in both metrics and retains 
     const data=mobileUsagePresentation({...input,metric},false);
     expect(data.chartLegend).toEqual(legend);
     for(const item of data.chartLegend)expect(Object.keys(item).sort()).toEqual(keys);
-    expect(data.providers.map(item=>item.id)).toEqual(['codex','claude']);
+    expect(data.providers.map(item=>item.id)).toEqual(metric==='cost'?['claude','codex','grok','opencode','antigravity','cursor']:['codex','claude','grok','opencode','antigravity','cursor']);
     expect(data.chart[0]?.bands.map(band=>band.id)).toEqual(['antigravity','opencode','cursor','grok','claude','codex']);
     expect(data.chart[0]?.bands.find(band=>band.id==='codex')?.height).toBeCloseTo(metric==='cost'?30:18000/310);
     expect(data.total).toBe(metric==='cost'?'$6.00':'310');
+  }
+});
+test('Usage provider rows rank the selected metric with stable ties and preserve merged legend order',()=>{
+  const ids=['grok','claude','codex','opencode','antigravity','cursor'];
+  const summary:Obj={contractVersion:6,sources:ids.map(provider=>({status:'ok',fingerprint:{provider,hostId:'qa',resolvedHomePath:`/qa/${provider}`},distinctSessions:provider==='cursor'?0:1})),
+    buckets:[['grok',2,10],['claude',2,20],['codex',1,100],['opencode',3,10],['cursor',0,0]].map(([provider,costUsd,tokens])=>({provider,model:'qa',day:'2026-10-07',costUsd,totals:{uncachedInputTokens:tokens}}))};
+  const merged=mergeUsage([{id:'qa',label:'QA',summary}]),costOrder=['opencode','grok','claude','codex','antigravity','cursor'],tokenOrder=['codex','claude','opencode','grok','antigravity','cursor'];
+  expect(merged.providers.map(provider=>provider.provider)).toEqual(costOrder);
+  for(const provider of merged.providers)Object.freeze(provider);
+  Object.freeze(merged.providers);
+  const before=JSON.stringify(summary),input={tab:'usage',window:{sinceDay:'2026-10-07',untilDay:'2026-10-07',timeZone:'UTC',resolution:'day' as const},now,presentations:new Map(),external:false,
+    sources:[{id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]};
+  for(const metric of ['cost','tokens','cost','tokens']){
+    const rows=mobileUsageProviderRows(merged.providers,metric==='tokens'),data=mobileUsagePresentation({...input,metric},false);
+    expect(rows.map(provider=>provider.id)).toEqual(metric==='cost'?costOrder:tokenOrder);
+    expect(data.providers).toEqual(rows);expect(data.chartLegend.map(provider=>provider.id)).toEqual(costOrder);
+    expect(merged.providers.map(provider=>provider.provider)).toEqual(costOrder);expect(JSON.stringify(summary)).toBe(before);
+    expect(data.providers.find(provider=>provider.id==='antigravity')).toEqual({id:'antigravity',label:'Antigravity',light:'#8c7bd1',dark:'#8c7bd1',value:metric==='cost'?'$0.00':'0',share:'0.0%',detail:metric==='cost'?'0 tokens':'$0.00'});
+    expect(data.providers.find(provider=>provider.id==='cursor')).toEqual({id:'cursor',label:'Cursor',light:'#8b8b8b',dark:'#8b8b8b',value:metric==='cost'?'$0.00':'0',share:'0.0%',detail:metric==='cost'?'0 tokens':'$0.00'});
   }
 });
 test('Usage headline follows the metric while raw totals and chart window labels remain separate',()=>{

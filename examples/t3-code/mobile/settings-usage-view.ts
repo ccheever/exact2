@@ -9,6 +9,12 @@ export const MOBILE_USAGE_PROVIDERS=[
   {id:'codex',driver:'codex',label:'Codex',light:'#3c3c43',dark:'#e6e6e6'}, {id:'claude',driver:'claudeAgent',label:'Claude Code',light:'#d97757',dark:'#d97757'},
   {id:'grok',driver:'grok',label:'Grok Build',light:'#52525b',dark:'#a1a1aa'}, {id:'cursor',driver:'cursor',label:'Cursor',light:'#8b8b8b',dark:'#8b8b8b'},
   {id:'opencode',driver:'opencode',label:'OpenCode',light:'#5b9bbd',dark:'#5b9bbd'}, {id:'antigravity',driver:'antigravity',label:'Antigravity',light:'#8c7bd1',dark:'#8c7bd1'}];
+export function mobileUsageProviderRows(providers:Readonly<ReturnType<typeof mergeUsage>['providers']>,tokens:boolean){
+  return [...providers].sort((a,b)=>tokens?b.totalTokens-a.totalTokens:b.costUsd-a.costUsd).flatMap(total=>{
+    const item=MOBILE_USAGE_PROVIDERS.find(item=>item.id===total.provider);
+    return item?[{id:item.id,label:item.label,light:item.light,dark:item.dark,value:tokens?formatTokens(total.totalTokens):formatUsd(total.costUsd),share:formatPercent(tokens?total.tokenShare:total.costShare),detail:tokens?formatUsd(total.costUsd):`${formatTokens(total.totalTokens)} tokens`}]:[];
+  });
+}
 const provider=(id:string)=>MOBILE_USAGE_PROVIDERS.find(provider=>provider.id===id||provider.driver===id)??{id,driver:id,label:id,light:'#737373',dark:'#a3a3a3'};
 const reveals=new Set<string>();let detailPrepared:Prepared|null=null;
 export function mobileUsageReveal(key:string){if(reveals.has(key))reveals.delete(key);else reveals.add(key);}
@@ -41,7 +47,7 @@ export function mobileUsagePresentation(input:Prepared|null,publish=true){
     chartLegend:merged.providers.flatMap(total=>{const item=MOBILE_USAGE_PROVIDERS.find(item=>item.id===total.provider);return item?[{id:item.id,label:item.label,light:item.light,dark:item.dark}]:[];}),
     chart:periods.map(key=>{const period=byPeriod.get(key);return {id:key,label:input?.window.resolution==='hour'?formatHourShort(key,input.window.timeZone):formatDayShort(key),
       bands:[...MOBILE_USAGE_PROVIDERS].reverse().map(provider=>{const band=period?.byProvider.get(provider.id),value=band?(tokens?band.totalTokens:band.costUsd):0;return {id:provider.id,light:provider.light,dark:provider.dark,height:peak?value/peak*180:0,value:tokens?formatTokens(value):formatUsd(value)};})};}),
-    providers:MOBILE_USAGE_PROVIDERS.flatMap(item=>{const total=merged.providers.find(total=>total.provider===item.id);return total&& (total.costUsd>0||total.totalTokens>0)?[{id:item.id,label:item.label,light:item.light,dark:item.dark,value:tokens?formatTokens(total.totalTokens):formatUsd(total.costUsd),share:formatPercent(tokens?total.tokenShare:total.costShare),detail:tokens?formatUsd(total.costUsd):`${formatTokens(total.totalTokens)} tokens`}]:[];}),
+    providers:mobileUsageProviderRows(merged.providers,tokens),
     totals:[{id:'tokens',label:'Tokens',value:formatTokens(merged.totalTokens)},{id:'sessions',label:'Sessions',value:formatCount(merged.sessions)},{id:'input',label:'Input',value:formatTokens(merged.uncachedInputTokens)},{id:'cache-read',label:'Cache read',value:formatTokens(merged.cachedInputTokens)},{id:'cache-write',label:'Cache write',value:formatTokens(merged.cacheCreationTokens)},{id:'output',label:'Output',value:formatTokens(merged.outputTokens)}],
     costs:[{id:'cost',label:'Total cost',value:formatUsd(merged.costUsd)},{id:'savings',label:'Cache savings',value:formatUsd(merged.cacheSavingsUsd)},{id:'unpriced',label:'Unpriced records',value:formatPercent(merged.unpricedShare)},...Object.entries(merged.categoryCost).map(([id,value])=>({id:`category-${id}`,label:{input:'Input',cacheRead:'Cache read',cacheWrite:'Cache write',output:'Output',unsplit:'Unsplit'}[id]??id,value:formatUsd(value)})),...Object.entries(merged.speedCost).map(([id,value])=>({id:`speed-${id}`,label:id,value:formatUsd(value)}))],
     models:[...merged.models].sort((a,b)=>tokens?b.totalTokens-a.totalTokens:b.costUsd-a.costUsd).map(model=>({id:JSON.stringify([model.provider,model.model]),label:model.model,provider:provider(model.provider).label,value:tokens?formatTokens(model.totalTokens):isModelCostUnknown(model)?'—':formatUsd(model.costUsd),detail:`${formatPercent(tokens?model.tokenShare:model.costShare)} · ${formatTokens(model.totalTokens)} tokens`,unpriced:model.unpricedRecords>0?`${formatCount(model.unpricedRecords)} unpriced records`:''}))};
