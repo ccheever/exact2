@@ -56,6 +56,10 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["delete-confirmation", "Delete confirmation", "general", "", "ask before thread chat history", "", ""],
   ["quit-confirmation", "Quit shortcut", "general", "", "confirmation desktop app exit direct hold double click press twice", "", "desktop"],
   ["text-generation-model", "Text generation model", "general", "", "generated thread titles source control content default provider", "project-defaults", ""],
+  // The About rows (the Version row is `version` here).
+  ["app-version", "Version", "general", "version", "about check for updates download install upgrade release", "", ""],
+  ["update-track", "Update track", "general", "", "release channel stable latest nightly prerelease", "", ""],
+  ["mobile-app", "Mobile app", "general", "", "phone tablet iphone ipad android app store google play qr code", "", ""],
   ["diagnostics", "Diagnostics", "general", "", "logs traces processes resource history failures spans cpu memory", "", ""],
   ["open-source-licenses", "Open source licenses", "general", "", "", "", ""],
   ["legacy-plan-mode", "Plan mode (legacy)", "general", "", "build plan composer old", "", ""],

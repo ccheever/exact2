@@ -223,6 +223,10 @@ describe('source control and integrations (scoped rows)', () => {
     // The controls' accessible names and SettingResetButton labels of the reference.
     expect(rows.repositories.map(row => [row.control, row.resetLabel])).toEqual([['Default automatic pull', 'default automatic pull'], ['Default pull request merge method', 'default merge method']]);
     expect(rows.text.map(row => row.resetLabel)).toEqual(['branch naming', 'branch prefix', 'source control writing style', 'change request templates', '', '']);
+    const semantic = sourceControlRows({ ...settings, branchNamingMode: 'semantic' }, '', 'Mac', [], true).text;
+    expect(semantic[0]).toMatchObject({ title: 'Worktree branch naming', status: 'The model chooses a prefix that describes the work, such as feat/add-search, fix/login-timeout, or refactor/auth.' });
+    expect(semantic.some(row => row.kind === 'note')).toBe(false);
+
     expect(sourceControlRows({ ...settings, branchNamingMode: 'custom' }, '', 'Mac', [], true).text[1]).toMatchObject({ title: 'Branch naming instructions', resetLabel: 'branch naming instructions' });
     expect(fetchInterval({})).toMatchObject({ seconds: '30', canReset: false });
     expect(fetchIntervalPatch({}, '45')).toEqual({ backgroundActivity: { schemaVersion: 1, profile: 'custom', baseProfile: 'balanced', overrides: { automaticGitFetchInterval: 45000 } } });

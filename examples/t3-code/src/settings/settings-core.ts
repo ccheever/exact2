@@ -22,7 +22,7 @@ import { aboutRows, updateCommand, updateTrackCommand } from './settings-a-about
 import { removeThemes, useCollectionDefaults } from '../appearance/settings-a-collections';
 import type { DiffState } from '../diff/diff';
 import { notificationPermission, notificationPermissionMessage } from '../shell/shell-notify';
-import { MOBILE_BETA_ROW, mobileBetaCommand, type QrMark } from './settings-mobile-beta';
+import { type QrMark } from './settings-mobile-beta';
 import { CLIENT_VERSION } from '../connections/connections';
 import { ALL_ENVIRONMENTS_VALUE, environmentAxisValue, resolveSettingsScope, scopeSearch, settingsScopeEnvironmentLabel, type ResolvedSettingsScope } from './settings-scope';
 import { persistScopedSettingsPatch, planScopedSettingsClear, planScopedSettingsPatch, resolveScopedSettingsTargets, scopedPlanNotice, scopedSettingsSource,
@@ -688,7 +688,6 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
   }
   if (target.row === 'version' || target.row === 'update') return updateCommand(client, target.row, target.part);
   if (target.row === 'update-track') return updateTrackCommand(client, native, value);
-  if (target.row === MOBILE_BETA_ROW) return mobileBetaCommand(client, native, target.part, value);
   if (target.row !== 'restore-device-defaults' && !key) {
     // Device rows: saved in this app's preferences, never sent to a server.
     if (target.part === 'reset') {
