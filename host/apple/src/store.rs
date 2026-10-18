@@ -197,6 +197,10 @@ fn endow_in(host: Host, grants: &str) -> Result<Bindings, String> {
 pub trait KeptStore {
     /// Re-read endowed stores, retaining previous values for failed reads.
     fn snapshot(&self, previous: Vec<(String, Vec<u8>)>) -> StoreRead;
+    /// Retry only kept names omitted by the byte budget; a new counter needs a full snapshot.
+    fn retry_snapshot(&self, previous: Vec<(String, Vec<u8>)>, _names: &[String]) -> StoreRead {
+        self.snapshot(previous)
+    }
     /// Write one store change.
     fn write(&self, w: &StoreWrite) -> Result<(), String>;
     /// The kept answers the writer failed to write since the last call.
@@ -205,7 +209,37 @@ pub trait KeptStore {
 
 impl KeptStore for Platform {
     fn snapshot(&self, previous: Vec<(String, Vec<u8>)>) -> StoreRead {
-        snapshot_parts(&self.secrets, &self.kv, &self.prefs, previous)
+        let mut read = snapshot_parts(&self.secrets, &self.kv, &self.prefs, previous.clone());
+        let failed = self.failed.1.lock().expect("kept");
+        for (name, value) in previous {
+            if name
+                .strip_prefix(Store::KEPT)
+                .is_some_and(|key| failed.contains(key))
+            {
+                read.values.retain(|(key, _)| key != &name);
+                read.values.push((name, value));
+            }
+        }
+        read.values.sort_by(|a, b| a.0.cmp(&b.0));
+        read
+    }
+    fn retry_snapshot(&self, previous: Vec<(String, Vec<u8>)>, names: &[String]) -> StoreRead {
+        flush_kept();
+        let mut read = StoreRead {
+            values: previous,
+            complete: true,
+            omitted: Vec::new(),
+        };
+        let mut values = std::mem::take(&mut read.values).into_iter().collect();
+        read_kept_names(
+            &self.kv,
+            names,
+            &mut values,
+            &mut read.complete,
+            &mut read.omitted,
+        );
+        read.values = values.into_iter().collect();
+        read
     }
     fn write(&self, w: &StoreWrite) -> Result<(), String> {
         Platform::write(self, w).map_err(|e| e.to_string())
@@ -333,7 +367,10 @@ impl Platform {
 /// reference goes (its host replaced, its writes done) pass to the next
 /// platform that asks.
 #[derive(Default)]
-struct Failures(std::sync::Mutex<Vec<String>>);
+struct Failures(
+    std::sync::Mutex<Vec<String>>,
+    std::sync::Mutex<std::collections::BTreeSet<String>>,
+);
 
 static ORPHANED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
@@ -430,12 +467,16 @@ fn write_one(key: &str, write: Kept) {
         None => write.kv.delete(KEPT, key),
     }));
     let why = match done {
-        Ok(Ok(())) => return,
+        Ok(Ok(())) => {
+            write.failed.1.lock().expect("kept").remove(key);
+            return;
+        }
         Ok(Err(e)) => e.to_string(),
         Err(_) => "the store panicked".to_string(),
     };
     let line = format!("store {}{key} failed: {why}", Store::KEPT);
     write.failed.0.lock().expect("kept").push(line);
+    write.failed.1.lock().expect("kept").insert(key.to_owned());
 }
 
 /// Wait until nothing is waiting to be written and the writer is idle.
@@ -478,7 +519,9 @@ pub fn snapshot_in(bindings: Option<&Bindings>, prefs: &Prefs) -> Vec<(String, V
 pub struct StoreRead {
     /// Successfully read entries, with unreadable entries retained from memory.
     pub values: Vec<(String, Vec<u8>)>,
-    /// Every listing and read succeeded within the kept-answer budget.
+    /// Kept names the budget omitted, for a targeted retry.
+    pub omitted: Vec<String>,
+    /// Every listing and read succeeded.
     pub complete: bool,
 }
 
@@ -494,6 +537,7 @@ fn snapshot_parts(
     flush_kept();
     let mut values: std::collections::BTreeMap<_, _> = previous.into_iter().collect();
     let mut complete = true;
+    let mut omitted = Vec::new();
     for name in secrets.names() {
         match secrets.get(name) {
             Ok(Some(value)) => {
@@ -505,9 +549,23 @@ fn snapshot_parts(
             Err(_) => complete = false,
         }
     }
-    read_kv(kv, KEPT, Store::KEPT, &mut values, &mut complete);
+    read_kv(
+        kv,
+        KEPT,
+        Store::KEPT,
+        &mut values,
+        &mut complete,
+        &mut omitted,
+    );
     match prefs {
-        Prefs::Kv => read_kv(kv, STATE, Store::STATE, &mut values, &mut complete),
+        Prefs::Kv => read_kv(
+            kv,
+            STATE,
+            Store::STATE,
+            &mut values,
+            &mut complete,
+            &mut omitted,
+        ),
         Prefs::Defaults(_) => {
             values.retain(|name, _| !name.starts_with(Store::STATE));
             values.extend(prefs.read(kv));
@@ -516,6 +574,7 @@ fn snapshot_parts(
     StoreRead {
         values: values.into_iter().collect(),
         complete,
+        omitted,
     }
 }
 
@@ -525,6 +584,7 @@ fn read_kv(
     prefix: &str,
     values: &mut std::collections::BTreeMap<String, Vec<u8>>,
     complete: &mut bool,
+    omitted: &mut Vec<String>,
 ) {
     let Ok(keys) = kv.keys(scope) else {
         *complete = false;
@@ -534,18 +594,44 @@ fn read_kv(
         name.strip_prefix(prefix)
             .is_none_or(|key| keys.iter().any(|k| k == key))
     });
+    let names: Vec<_> = keys.iter().map(|key| format!("{prefix}{key}")).collect();
+    read_names(kv, scope, prefix, &names, values, complete, omitted);
+}
+
+fn read_kept_names(
+    kv: &Kv,
+    names: &[String],
+    values: &mut std::collections::BTreeMap<String, Vec<u8>>,
+    complete: &mut bool,
+    omitted: &mut Vec<String>,
+) {
+    read_names(kv, KEPT, Store::KEPT, names, values, complete, omitted);
+}
+
+fn read_names(
+    kv: &Kv,
+    scope: &str,
+    prefix: &str,
+    names: &[String],
+    values: &mut std::collections::BTreeMap<String, Vec<u8>>,
+    complete: &mut bool,
+    omitted: &mut Vec<String>,
+) {
     let mut bytes: usize = values
         .iter()
         .filter(|(name, _)| name.starts_with(prefix))
         .map(|(_, value)| value.len())
         .sum();
-    for key in keys {
-        let name = format!("{prefix}{key}");
-        match kv.get(scope, &key) {
+    for name in names {
+        let Some(key) = name.strip_prefix(prefix) else {
+            continue;
+        };
+        let name = name.clone();
+        match kv.get(scope, key) {
             Ok(Some(value)) => {
                 let next = bytes - values.get(&name).map_or(0, Vec::len) + value.len();
                 if scope == KEPT && next > Store::KEPT_TOTAL_BYTES {
-                    *complete = false;
+                    omitted.push(name);
                     continue;
                 }
                 bytes = next;
@@ -616,11 +702,11 @@ fn publish_widget_change(root: std::path::PathBuf, app: String) {
             .ok()
             .map(|_| value)
     });
-    let Some(published) = published else {
+    let Some(_) = published else {
         let _ = std::fs::remove_file(&temporary);
         return;
     };
-    crate::link::STORE_PUBLISHED.store(published, std::sync::atomic::Ordering::Release);
+    // WP11 must put both app and extension counter increments under its shared lock.
     // WP11's extension writer (Q1 B) posts this ping after releasing its
     // store transaction lock, and reloads its written kinds itself.
     #[cfg(target_vendor = "apple")]
@@ -748,6 +834,12 @@ mod tests {
             "{failed:?}"
         );
         assert!(platform.kept_failures().is_empty(), "told once");
+        let memory = vec![(kept.name.clone(), kept.value.clone().unwrap())];
+        assert_eq!(
+            platform.snapshot(memory.clone()).values,
+            memory,
+            "a failed kept write is unreadable even after its journal was drained"
+        );
     }
 
     /// A kv store whose writes wait for a gate, counting them.

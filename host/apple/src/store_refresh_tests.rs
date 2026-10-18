@@ -77,6 +77,15 @@ fn refresh_keeps_unreadable_values_and_cap_omissions_but_deletes_confirmed_absen
         .set(KEPT, "feed", &vec![0; Store::KEPT_TOTAL_BYTES + 1])
         .unwrap();
     let read = platform.snapshot(previous);
-    assert!(!read.complete);
+    assert!(read.complete);
+    assert_eq!(read.omitted, vec!["exact.kept.feed"]);
+    faults.kv.set(KEPT, "feed", b"small").unwrap();
+    faults.mode.store(5, Ordering::SeqCst); // unrelated secrets and listings still fail
+    let retry = platform.retry_snapshot(read.values.clone(), &read.omitted);
+    assert!(retry.complete && retry.omitted.is_empty());
+    assert_eq!(
+        retry.values,
+        vec![("exact.kept.feed".into(), b"small".to_vec())]
+    );
     assert_eq!(read.values, vec![("exact.kept.feed".into(), b"kept".to_vec())], "only the confirmed secret and state absences delete; the cap retains the previous kept answer");
 }

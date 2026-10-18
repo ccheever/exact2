@@ -344,14 +344,8 @@ macro_rules! host {
 
         /// Re-read the shared store and ask its resources again (LLP 1126.001 WP12).
         #[no_mangle]
-        pub extern "C" fn exact_store_changed(rt: u32) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.store_changed(), |n| n)
-        }
-
-        /// The counter this process most recently published, or zero.
-        #[no_mangle]
-        pub extern "C" fn exact_store_published() -> u64 {
-            $crate::link::STORE_PUBLISHED.load(::std::sync::atomic::Ordering::Acquire)
+        pub extern "C" fn exact_store_changed(rt: u32, retry_only: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.store_changed(retry_only != 0), |n| n)
         }
 
         /// Prepare an admitted module generation, optionally carrying a delivery token;

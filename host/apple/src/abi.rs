@@ -625,9 +625,9 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// A peer published a store revision; first-pixel activation remains separate.
-    pub fn store_changed(&mut self) -> u32 {
+    pub fn store_changed(&mut self, retry_only: bool) -> u32 {
         let out = match &mut self.host {
-            Some(host) => host.refresh_store(),
+            Some(host) => host.refresh_store_after(retry_only),
             None => not_booted(),
         };
         self.emit(out)

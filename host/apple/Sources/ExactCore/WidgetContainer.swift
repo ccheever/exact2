@@ -61,10 +61,10 @@ public enum WidgetContainer {
     /// Installed by the running app, never by the extension. An explicit
     /// configuration also lets an embedder supply its own container.
     package static func observeStore(root: URL? = nil, appID: String? = nil, kinds: [String]? = nil,
-                                     foreground: [Notification.Name], changed: @escaping (Bool, @escaping (Bool) -> Void) -> Void) -> WidgetStoreObserver? {
+                                     foreground: [Notification.Name], needsRefresh: @escaping () -> Bool = { false }, changed: @escaping (Bool, @escaping (Bool) -> Void) -> Void) -> WidgetStoreObserver? {
         guard let root = root ?? self.root, let appID = appID ?? self.appID,
               let kinds = kinds ?? Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") as? [String], !kinds.isEmpty else { return nil }
-        return WidgetStoreObserver(root: root, name: appID + ".widget-store", foreground: foreground, changed: changed)
+        return WidgetStoreObserver(root: root, name: appID + ".widget-store", foreground: foreground, needsRefresh: needsRefresh, changed: changed)
     }
     @MainActor package static func reloadAfterStoreChange(kinds: [String]?) {
         do { try reloadTimelines(kinds: kinds) } catch { report(error) }
@@ -164,15 +164,17 @@ package final class WidgetStoreObserver {
     private let counter: URL
     private let name: String
     private let changed: (Bool, @escaping (Bool) -> Void) -> Void
+    private let needsRefresh: () -> Bool
+    private var notified = false
     private var generation: UInt64?
     private var inFlight: UInt64?
     private var foregroundTokens: [NSObjectProtocol] = []
     private var token: UInt = 0
-    package init(root: URL, name: String, foreground: [Notification.Name], changed: @escaping (Bool, @escaping (Bool) -> Void) -> Void) {
+    package init(root: URL, name: String, foreground: [Notification.Name], needsRefresh: @escaping () -> Bool, changed: @escaping (Bool, @escaping (Bool) -> Void) -> Void) {
         counter = root.appendingPathComponent("widget-store-generation")
         self.name = name
         self.changed = changed
-        generation = readCounter()
+        self.needsRefresh = needsRefresh
         token = StoreObservers.insert(self)
         foregroundTokens = foreground.map { name in
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.check() }
@@ -181,6 +183,7 @@ package final class WidgetStoreObserver {
             guard let observer, let box = StoreObservers.find(UInt(bitPattern: observer)) else { return }
             DispatchQueue.main.async { box.observer?.check() }
         }, name as CFString, nil, .deliverImmediately)
+        generation = readCounter()
     }
     deinit {
         foregroundTokens.forEach(NotificationCenter.default.removeObserver)
@@ -190,17 +193,21 @@ package final class WidgetStoreObserver {
     private func readCounter() -> UInt64? {
         (try? String(contentsOf: counter, encoding: .utf8)).flatMap(UInt64.init)
     }
-    package func check() {
+    package func check(force: Bool = false) {
         precondition(Thread.isMainThread)
-        guard let next = readCounter(), next != generation, inFlight == nil else { return }
+        if inFlight != nil { notified = true; return }
+        guard let next = readCounter(), next != generation || force || needsRefresh() else { return }
         inFlight = next
-        changed(next == Runtime.publishedStoreGeneration) { [weak self] success in
+        changed(next == generation && !force) { [weak self] success in
             guard let self else { return }
             if success { generation = next }
             inFlight = nil
             // A write can arrive while sessions are busy. It gets its own turn;
             // a refusal of this same revision waits for the next foreground.
-            if readCounter() != next { DispatchQueue.main.async { [weak self] in self?.check() } }
+            let force = notified
+            let again = force || readCounter() != next
+            notified = false
+            if again { DispatchQueue.main.async { [weak self] in self?.check(force: force) } }
         }
     }
 }

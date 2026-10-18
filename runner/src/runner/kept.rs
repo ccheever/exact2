@@ -433,10 +433,19 @@ impl<D: DataSource> Runner<D> {
         });
         self.conclude(checkpoint, &result, was_poisoned);
         self.arm_next(result.is_ok());
-        if let Some(receipt) = result.as_ref().ok().and_then(Option::as_ref) {
-            self.log_outcome("store changed", &Ok(receipt.clone()), was_poisoned);
+        match result {
+            Ok(receipt) => {
+                if let Some(receipt) = &receipt {
+                    self.log_outcome("store changed", &Ok(receipt.clone()), was_poisoned);
+                }
+                Ok(receipt)
+            }
+            Err(error) => {
+                let refused = Err(error);
+                self.log_outcome("store changed", &refused, was_poisoned);
+                refused.map(Some)
+            }
         }
-        result
     }
 
     /// Adopt a pre-pixel change without asking; `data_ready_after_store`

@@ -1,18 +1,15 @@
 //! Deferred data activation after first pixel. A source still loading its
 //! executable image answers pending and wakes the session when it can answer.
 use super::*;
+use exact_kernel::CommitReceipt;
 
-const UNCHANGED: &str = "{\"ops\":[]}";
+const UNCHANGED: &str = "{\"ops\":[],\"unchanged\":true}";
 
 impl<D: DataSource> Host<D> {
     /// Load deferred app logic only after the presenter reports first pixel.
     pub fn activate_data(&mut self) -> String {
         if self.data_activated {
-            return if self.store_refresh_pending {
-                self.refresh_store()
-            } else {
-                UNCHANGED.into()
-            };
+            return self.refresh_store_after(true);
         }
         match self.runner.data_ref().preload() {
             Ok(false) => {
@@ -26,80 +23,113 @@ impl<D: DataSource> Host<D> {
             return self.commit(&[], Some(format!("activate data: {error:?}")));
         }
         self.data_activated = true;
-        let mut receipts = Vec::new();
-        let mut error = None;
+        self.store_activation_pending = true;
         let mut changed = false;
+        let mut error = None;
         if self.store_refresh_pending {
-            if let Some(store) = &self.secrets {
-                let read = store.snapshot(self.runner.store().snapshot());
-                match self.runner.adopt_store(read.values) {
+            if let Some(read) = self.read_shared_store(false) {
+                match self.runner.adopt_store(read.values.clone()) {
                     Ok(adopted) => {
                         changed = adopted;
-                        self.store_refresh_pending = !read.complete;
-                        if !read.complete {
-                            error = Some("store changed: incomplete read; will retry".into());
-                        }
+                        self.store_read_finished(read);
                     }
                     Err(refused) => error = Some(format!("store changed: {refused:?}")),
                 }
             }
         }
-        // A refused adoption must not swallow activation or its queued sends.
-        match self.runner.data_ready_after_store(changed) {
-            Ok(Some(receipt)) => receipts.push(Timed {
-                at_ms: self.now_ms,
-                receipt,
-            }),
-            Ok(None) => {}
-            Err(refused) => {
-                self.store_refresh_pending |= changed;
-                self.store_activation_pending |= changed;
-                let message = format!("data ready: {refused:?}");
-                error = Some(error.map_or_else(|| message.clone(), |e| format!("{e}; {message}")));
+        // Adoption never asks. Even a refused read must reach data_ready,
+        // including the mutations queued before first pixel.
+        let receipt = match self.runner.data_ready_after_store(changed) {
+            Ok(receipt) => {
+                self.store_activation_pending = !self.runner.data_ref().ready();
+                receipt
             }
-        }
-        self.commit(&receipts, error)
+            Err(refused) => {
+                error = Some(format!("data ready: {refused:?}"));
+                None
+            }
+        };
+        self.store_commit(receipt, error, false)
     }
 
-    /// Re-read the endowed store after a peer commits, without reloading logic.
+    /// A moved counter always reads every endowed name, including own writes.
     pub fn refresh_store(&mut self) -> String {
-        let Some(store) = &self.secrets else {
-            return UNCHANGED.into();
-        };
-        if !self.data_activated {
-            self.store_refresh_pending = true;
+        self.refresh_store_after(false)
+    }
+
+    /// An unchanged counter may retry just the kept names the cap omitted.
+    pub(crate) fn refresh_store_after(&mut self, retry_only: bool) -> String {
+        if self.secrets.is_none() {
             return UNCHANGED.into();
         }
-        let read = store.snapshot(self.runner.store().snapshot());
-        let retry = self.store_activation_pending;
-        match self.runner.store_changed(read.values).and_then(|receipt| {
-            if retry && receipt.is_none() {
-                self.runner.data_ready_after_store(true)
-            } else {
-                Ok(receipt)
-            }
-        }) {
+        if !self.data_activated {
+            self.store_refresh_pending = true;
+            self.store_activation_pending = true;
+            return self.store_commit(None, None, true);
+        }
+        let read = self.read_shared_store(retry_only).expect("endowed store");
+        let result = if self.store_activation_pending {
+            // A different store receipt cannot discharge the owed data_ready.
+            self.runner
+                .adopt_store(read.values.clone())
+                .and_then(|_| self.runner.data_ready_after_store(true))
+        } else {
+            self.runner.store_changed(read.values.clone())
+        };
+        match result {
             Ok(receipt) => {
-                self.store_refresh_pending = !read.complete;
-                self.store_activation_pending = false;
-                let error =
-                    (!read.complete).then(|| "store changed: incomplete read; will retry".into());
-                match receipt {
-                    Some(receipt) => self.commit(
-                        &[Timed {
-                            at_ms: self.now_ms,
-                            receipt,
-                        }],
-                        error,
-                    ),
-                    None if error.is_none() => UNCHANGED.into(),
-                    None => self.commit(&[], error),
-                }
+                self.store_read_finished(read);
+                self.store_activation_pending = !self.runner.data_ref().ready();
+                self.store_commit(receipt, None, true)
             }
             Err(error) => {
                 self.store_refresh_pending = true;
-                self.commit(&[], Some(format!("store changed: {error:?}")))
+                self.store_commit(None, Some(format!("store changed: {error:?}")), false)
             }
         }
+    }
+
+    fn read_shared_store(&self, retry_only: bool) -> Option<crate::store::StoreRead> {
+        let store = self.secrets.as_ref()?;
+        let previous = self.runner.store().snapshot();
+        Some(if retry_only && !self.store_retry_names.is_empty() {
+            store.retry_snapshot(previous, &self.store_retry_names)
+        } else {
+            store.snapshot(previous)
+        })
+    }
+
+    fn store_read_finished(&mut self, read: crate::store::StoreRead) {
+        self.store_refresh_pending = !read.complete || !read.omitted.is_empty();
+        self.store_retry_names = if read.complete {
+            read.omitted
+        } else {
+            Vec::new()
+        };
+        if self.store_refresh_pending {
+            self.runner
+                .log("store changed: incomplete read; will retry");
+        }
+    }
+
+    fn store_commit(
+        &mut self,
+        receipt: Option<CommitReceipt>,
+        error: Option<String>,
+        allow_unchanged: bool,
+    ) -> String {
+        if allow_unchanged && receipt.is_none() && error.is_none() {
+            return format!("{{\"ops\":[],\"unchanged\":true,\"storeReadPending\":{},\"storeActivationPending\":{}}}", self.store_refresh_pending, self.store_activation_pending);
+        }
+        let mut batch = Batch::new();
+        batch.store_status = Some((self.store_refresh_pending, self.store_activation_pending));
+        let receipts: Vec<_> = receipt
+            .into_iter()
+            .map(|receipt| Timed {
+                at_ms: self.now_ms,
+                receipt,
+            })
+            .collect();
+        self.commit_into(&receipts, error, batch)
     }
 }

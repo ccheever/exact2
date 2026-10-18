@@ -353,6 +353,7 @@ public final class ExactSession {
     }
     /// Bumped by every reboot; a callback from an older generation is dropped.
     public private(set) var generation = 0
+    let storeRefresh = SessionStoreRefresh()
     private var activatedGeneration: Int?
     /// The generation whose deferred data has activated (or failed to): the
     /// agent's `clock data` waits for it before a test's first step.
@@ -1238,10 +1239,12 @@ public final class ExactSession {
             appFileRoots = AppFiles.learn(runtime) // the roots storage configured
             apply(batch)
             dataGeneration = drawnGeneration
-            if batch.error == nil {
-                presenter.collections.dataReady()
-                app.firstPixel(token)
+            storeRefresh.activated = { [weak self] in
+                guard let self, state != .destroyed, generation == drawnGeneration else { return }
+                presenter.collections.dataReady(); app.firstPixel(token)
             }
+            storeRefresh.record(batch)
+            retryStoreActivation()
             canvases.loadIfNeeded()
             natives.activateAfterCommit { [weak self] in self.map { $0.state != .destroyed && $0.generation == drawnGeneration } ?? false } // @ref LLP 1024 D3
             drainSurfaceWork()

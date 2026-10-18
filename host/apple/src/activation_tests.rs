@@ -159,6 +159,9 @@ fn peer_store_refresh_reasks_readers_and_restores_persisted_slots_in_every_sessi
             Some(&Value::record(vec![Value::str("Before first pixel")]))
         );
     }
+    for host in &mut hosts {
+        host.runner.measure(false, false);
+    }
     let pure_asks = asks.lock().unwrap().iter().filter(|s| *s == "pure").count();
     platform
         .write(&StoreWrite {
@@ -175,6 +178,15 @@ fn peer_store_refresh_reasks_readers_and_restores_persisted_slots_in_every_sessi
     for host in &mut hosts {
         let batch = host.refresh_store();
         assert!(batch.contains("\"error\":null"), "{batch}");
+        assert!(
+            !batch.contains("\"seq\":"),
+            "production carries no perf trailer"
+        );
+        assert!(!batch.contains("\"unchanged\":true"));
+        assert!(
+            batch.contains("Palo Alto"),
+            "the unmeasured batch carries the changed reader: {batch}"
+        );
         assert_eq!(
             host.runner.resource("favourite"),
             Some(&Value::record(vec![Value::str("Palo Alto")]))
@@ -218,7 +230,7 @@ fn peer_store_refresh_reasks_readers_and_restores_persisted_slots_in_every_sessi
             "a peer deletion restores the initializer"
         );
         let asks_before = asks.lock().unwrap().len();
-        assert_eq!(host.refresh_store(), "{\"ops\":[]}");
+        assert!(host.refresh_store().contains("\"unchanged\":true"));
         assert_eq!(asks.lock().unwrap().len(), asks_before);
     }
     assert_eq!(
@@ -281,6 +293,11 @@ fn app_side_writes_publish_without_reasking_a_time_varying_reader() {
             String::from_utf8_lossy(&result.stdout),
             String::from_utf8_lossy(&result.stderr)
         );
+        assert!(
+            String::from_utf8_lossy(&result.stdout).contains("1 passed"),
+            "child ran no test: {:?}",
+            result.stdout
+        );
         return;
     }
     let root = std::path::PathBuf::from(std::env::var_os("EXACT_APP_GROUP_ROOT").unwrap());
@@ -307,11 +324,16 @@ fn app_side_writes_publish_without_reasking_a_time_varying_reader() {
     let receipt = host.runner.act("star", vec![]).unwrap();
     host.commit(&[Timed { at_ms: 0., receipt }], None);
     let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while !root.join("widget-store-generation").exists() && std::time::Instant::now() < until {
+    let counter = || {
+        std::fs::read_to_string(root.join("widget-store-generation"))
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0)
+    };
+    while counter() < 2 && std::time::Instant::now() < until {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    assert!(root.join("widget-store-generation").exists());
-    assert!(crate::link::STORE_PUBLISHED.load(Ordering::Acquire) > 0);
+    assert!(counter() >= 2, "boot and action publications reached disk");
     for _ in 0..3 {
         host.refresh_store();
     }
@@ -323,7 +345,7 @@ fn app_side_writes_publish_without_reasking_a_time_varying_reader() {
     host.secrets = None;
     assert_eq!(
         host.refresh_store(),
-        "{\"ops\":[]}",
+        "{\"ops\":[],\"unchanged\":true}",
         "an archive without I/O performs no commit"
     );
     // The publisher owns only queued paths; wait for both the boot and action counters before removal.
@@ -442,6 +464,10 @@ fn deferred_peer_refresh_asks_once_and_a_refusal_can_retry_after_activation() {
         assert_eq!(asks.load(Ordering::SeqCst), 0);
         let batch = host.activate_data();
         assert!(host.data_activated);
+        assert!(
+            batch.contains("\"error\":null"),
+            "an incomplete read does not fail activation: {batch}"
+        );
         assert_eq!(
             sends.load(Ordering::SeqCst),
             usize::from(later),
@@ -465,7 +491,8 @@ fn deferred_peer_refresh_asks_once_and_a_refusal_can_retry_after_activation() {
         );
         let retried = host.refresh_store();
         assert_eq!(
-            retried, "{\"ops\":[]}",
+            serde_json::from_str::<serde_json::Value>(&retried).unwrap()["unchanged"],
+            true,
             "the successful retry with identical values asks nothing"
         );
         assert!(!host.store_refresh_pending);
@@ -491,4 +518,69 @@ impl crate::store::KeptStore for RefusedRead {
     fn kept_failures(&self) -> Vec<String> {
         self.platform.kept_failures()
     }
+}
+
+#[test]
+fn refused_data_ready_survives_an_unrelated_change_and_store_refusals_are_journalled() {
+    use crate::store::Platform;
+    use exact_runner::StoreWrite;
+    let plan = contract::compile("shape Text\n  value: string\ncomponent App\n  state divisor = 1 persist\n  resource favourite = favourite() as shape Text\n  task watch key=1 / divisor\n    after(10000, tick)\n  action tick\n    divisor = divisor\n  view\n    text favourite.value\n").unwrap().encode();
+    crate::store::PLATFORM
+        .with(|p| *p.borrow_mut() = Some(Arc::new(ibex2::secrets::MemoryStore::new())));
+    let bindings = crate::store::endow("secret.keep favourite").unwrap();
+    crate::store::PLATFORM.with(|p| *p.borrow_mut() = None);
+    let platform = Platform::of(&bindings);
+    let (mut host, _) = Host::boot_stored(
+        &plan,
+        DeferredReader {
+            ready: false,
+            later: false,
+            asks: Arc::new(AtomicUsize::new(0)),
+            sends: Arc::new(AtomicUsize::new(0)),
+            refused: true,
+        },
+        Box::new(MonospaceMeasurer::default()),
+        300.,
+        200.,
+        None,
+        Vec::new(),
+        Some(platform.clone()),
+    )
+    .unwrap();
+    let put = |name: &str, value: &[u8]| {
+        platform
+            .write(&StoreWrite {
+                name: name.into(),
+                value: Some(value.to_vec()),
+            })
+            .unwrap()
+    };
+    put("exact.state.divisor", b"0");
+    let ack: serde_json::Value = serde_json::from_str(&host.refresh_store()).unwrap();
+    assert_eq!(
+        ack["storeActivationPending"], true,
+        "pre-pixel ack cannot consume the counter"
+    );
+    let batch: serde_json::Value = serde_json::from_str(&host.activate_data()).unwrap();
+    assert!(
+        batch["error"].is_string(),
+        "the independent gate really refused data_ready: {batch}"
+    );
+    assert!(host.store_activation_pending);
+    put("favourite", b"unrelated");
+    host.refresh_store();
+    assert!(
+        host.store_activation_pending,
+        "an unrelated change cannot discharge data_ready"
+    );
+    put("exact.state.divisor", b"1");
+    let retry: serde_json::Value = serde_json::from_str(&host.refresh_store()).unwrap();
+    assert!(retry["error"].is_null(), "{retry}");
+    assert!(!host.store_activation_pending && !host.store_refresh_pending);
+    put("exact.state.divisor", b"0");
+    host.refresh_store();
+    assert!(host
+        .runner
+        .journal()
+        .any(|line| line.contains("store changed refused")));
 }

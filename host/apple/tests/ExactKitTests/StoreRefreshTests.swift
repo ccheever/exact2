@@ -9,7 +9,7 @@ import AppKit
 
 @MainActor
 final class StoreRefreshTests: XCTestCase {
-    func testProductionObserverRefreshesPeersSkipsOwnWritesAndRecoversAtActivation() throws {
+    func testProductionObserverRefreshesEverySessionAndRecoversAtActivation() throws {
         #if os(macOS)
         _ = NSApplication.shared
         let foreground = NSApplication.didBecomeActiveNotification
@@ -84,15 +84,52 @@ final class StoreRefreshTests: XCTestCase {
         XCTAssertEqual(reloads, 2)
 
         setenv("EXACT_WIDGET_WRITER", appID, 1)
-        expected = expectation(description: "an app-side commit reloads without refreshing its peers")
+        expected = expectation(description: "an app-side commit refreshes sibling windows before reload")
         try tap(readers[0], "favourite")
         wait(for: [try XCTUnwrap(expected)], timeout: 5)
         expected = nil
         XCTAssertTrue(text(readers[0], "Favourite"))
-        XCTAssertTrue(text(readers[1], "Not a favourite"), "a self-published counter only reloads timelines")
+        XCTAssertTrue(text(readers[1], "Favourite"), "the sibling adopts the app-side write")
         XCTAssertEqual(reloads, 3)
         foregroundAndDrain()
         XCTAssertEqual(reloads, 3)
+
+        // Main stays in this turn until both publications exist, so the
+        // observer first sees the app's counter over the peer's new value.
+        setenv("EXACT_WIDGET_WRITER", "", 1)
+        try tap(writer, "favourite")
+        let peerCounter = UInt64(try String(contentsOf: counter, encoding: .utf8))! + 1
+        try Data(String(peerCounter).utf8).write(to: counter, options: .atomic)
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFNotificationName(ping as CFString), nil, nil, true)
+        setenv("EXACT_WIDGET_WRITER", appID, 1)
+        try tap(writer, "marker")
+        let deadline = Date().addingTimeInterval(5)
+        while (UInt64((try? String(contentsOf: counter, encoding: .utf8)) ?? "") ?? 0) <= peerCounter && Date() < deadline { usleep(50000) }
+        XCTAssertGreaterThan(UInt64(try String(contentsOf: counter, encoding: .utf8))!, peerCounter)
+        expected = expectation(description: "an app publication cannot hide a peer value")
+        wait(for: [try XCTUnwrap(expected)], timeout: 5)
+        expected = nil
+        XCTAssertTrue((readers + [writer]).allSatisfy { text($0, "Not a favourite") && text($0, "Marked") })
+
+        setenv("EXACT_WIDGET_WRITER", "", 1)
+        XCTAssertEqual(readers[0].timerDue, 10000)
+        try tap(writer, "wait")
+        try Data(String(peerCounter + 2).utf8).write(to: counter, options: .atomic)
+        var timerBatch: Batch?
+        readers[0].runtime.observeBatch = { _, batch in
+            if timerBatch == nil, (batch.timerDueMs ?? 0) >= 20000 { timerBatch = batch }
+        }
+        defer { readers[0].runtime.observeBatch = nil }
+        expected = expectation(description: "a timer-only store commit reaches apply")
+        NotificationCenter.default.post(name: foreground, object: nil)
+        wait(for: [try XCTUnwrap(expected)], timeout: 5)
+        expected = nil
+        let landed = try XCTUnwrap(timerBatch)
+        XCTAssertTrue(landed.ops.isEmpty, "this commit changes only the timer")
+        XCTAssertGreaterThan(try XCTUnwrap(landed.timerDueMs), 20000)
+        XCTAssertEqual(readers[0].timerDue, landed.timerDueMs)
+        XCTAssertGreaterThan(try XCTUnwrap(readers[1].timerDue), 20000)
+
     }
 
     func testBusyRefreshRetriesAndDestroyedFillDoesNotHoldCompletion() throws {
@@ -116,6 +153,14 @@ final class StoreRefreshTests: XCTestCase {
         }
         wait(for: [completed], timeout: 5)
         XCTAssertEqual(session.timerDue, due, "an unchanged store refresh leaves the existing clock armed")
+        let bounded = expectation(description: "a persistently busy owner ends the refresh attempt")
+        Owner.shared.sync {
+            Owner.shared.callMain {
+                session.refreshSharedStore { success in XCTAssertFalse(success); bounded.fulfill() }
+                // Keep the owner in this callback while main serves retries.
+                self.wait(for: [bounded], timeout: 5)
+            }
+        }
         let destroyed = app.makeSession(label: "store-destroyed")
         XCTAssertNil(destroyed.boot(plan: try fixturePlan("STORE_REFRESH"), size: CGSize(width: 300, height: 400)).error)
         // The real collection feedback starts an owner slice; its waiter is
@@ -128,6 +173,34 @@ final class StoreRefreshTests: XCTestCase {
         destroyed.destroy()
         wait(for: [released], timeout: 5)
     }
+    func testForegroundDuringAnInflightRefreshIsRemembered() throws {
+        let fixture = try isolatedStore()
+        defer { fixture.restore() }
+        let foreground = Notification.Name("wp12-test-foreground")
+        let counter = fixture.root.appendingPathComponent("widget-store-generation")
+        try Data("10".utf8).write(to: counter)
+        var finish: ((Bool) -> Void)?
+        var calls = 0
+        var retried = expectation(description: "the notification during the refused refresh was remembered")
+        let observer = try XCTUnwrap(WidgetContainer.observeStore(root: fixture.root, appID: fixture.appID, kinds: ["fixture"], foreground: [foreground]) { _, done in
+            calls += 1
+            if calls % 2 == 1 { finish = done } else { done(true); retried.fulfill() }
+        })
+        try Data("11".utf8).write(to: counter, options: .atomic)
+        observer.check()
+        NotificationCenter.default.post(name: foreground, object: nil)
+        try XCTUnwrap(finish)(false)
+        wait(for: [retried], timeout: 5)
+        XCTAssertEqual(calls, 2)
+        retried = expectation(description: "the notification during a successful refresh was remembered")
+        try Data("12".utf8).write(to: counter, options: .atomic)
+        observer.check()
+        NotificationCenter.default.post(name: foreground, object: nil)
+        try XCTUnwrap(finish)(true)
+        wait(for: [retried], timeout: 5)
+        XCTAssertEqual(calls, 4)
+    }
+
     private func isolatedStore() throws -> (app: ExactApp, appID: String, root: URL, restore: () -> Void) {
         let app = ExactApp.shared
         let receipt = try XCTUnwrap(try JSONSerialization.jsonObject(with: Runtime.bakedCompat()) as? [String: Any])

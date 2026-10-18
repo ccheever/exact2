@@ -227,6 +227,7 @@ pub struct Host<D: DataSource> {
     data_activated: bool,
     store_refresh_pending: bool,
     store_activation_pending: bool,
+    store_retry_names: Vec<String>,
     /// The session's wake (`listen`), which a pending activation leaves with the data source.
     preload_wake: exact_runner::PreloadWake,
     doc_watch: Option<crate::doc_watch::DocWatch>,
@@ -540,6 +541,7 @@ impl<D: DataSource> Host<D> {
             data_activated: false,
             store_refresh_pending: false,
             store_activation_pending: false,
+            store_retry_names: Vec::new(),
             preload_wake: Default::default(),
             doc_watch: None,
             secrets,
