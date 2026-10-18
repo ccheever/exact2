@@ -36,8 +36,10 @@ const present = new Set<string>();
 // both proposed and scrubbed; so is a motion token's, as the server says.
 const REBUILDS = new Set(['warmth', 'duration.fast', 'easing.standard']);
 // The design's axes in the other order, as a test reorders them
-// (`/__stub/reverse-axes`): describe says so from then on.
-let LIVE = false, refuseRelease = '', previewMs = 0, reversed = false;
+// (`/__stub/reverse-axes`): describe says so from then on. `describe`
+// refused after the next `pass` (an event's `refuseDescribe`), so a test
+// sees whether the tool reads the design again.
+let LIVE = false, refuseRelease = '', previewMs = 0, reversed = false, refuseDescribe = '', describePasses = 0;
 const changedOf = (ops: { name?: string }[]) => ops.map(o => ({ file: 'app.tamber', token: o.name }));
 // A run's sessions (a restart starts their ids again, as a new server's do).
 const sessions = () => scrubSessions({
@@ -136,6 +138,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       // server refuses a design that does not check.
       if (['describe', 'resolve', 'explain', 'propose'].includes(request.method) && (request.file ?? 'app.tamber') !== 'app.tamber') return send({ error: { message: `the stub has no design in ${request.file}` } }, 400);
       // Its digests are the stub's own, which hello and the events carry.
+      if (request.method === 'describe' && refuseDescribe && describePasses-- <= 0) return send({ error: { message: refuseDescribe } }, 400);
       if (request.method === 'describe') return send({ ok: { ...DIALS.describe, ...(reversed ? { ir: { ...DIALS.describe.ir, axes: [...DIALS.describe.ir.axes].reverse() } } : {}), files: FILES } });
       // Reordered axes put each tuple at its index in the new order.
       const at = (modes: Record<string, string>) => [...DIALS.describe.ir.axes].reverse().reduce((n: number, a: { name: string; values: string[] }) => n * a.values.length + a.values.indexOf(modes[a.name]), 0);
@@ -213,6 +216,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       holds = 0;
       BUILDS = [];
       reversed = false;
+      refuseDescribe = '';
       pins = 0;
       present.clear();
       scrubs.lost();
@@ -291,6 +295,10 @@ Bun.serve({ hostname, port: Number(port), routes: {
     POST: async (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
       const body = await req.json().catch(() => ({}));
+      // `refuseDescribe` (with `pass`, the describes still answered first): a
+      // driver's request reads the app's data again once, so the one the
+      // request itself brings passes, and only the tool's own reads are refused.
+      if (typeof body.refuseDescribe === 'string') { refuseDescribe = body.refuseDescribe; describePasses = Number(body.pass ?? 0); }
       // `{events: [...]}`: several, logged at once (one answer of the poll).
       for (const e of body.events ?? [body]) {
         // An event's `files` are the digests from then on.
