@@ -475,7 +475,8 @@ What a port writes from habit, what the compiler says, and what to write (the eu
 | `width=120` on a box of text | `lower-text-px-width` (warning) | `width="7.5rem"`, or let the content size it |
 | `numberOfLines`, `ellipsizeMode`, `resizeMode`, `textTransform`, `fontVariant` | `lower-unknown-attr` | `line-clamp`, `text-overflow`, `object-fit`, `text-transform`, `font-variant-numeric` |
 | `backgroundColor`, `flexDirection`, `onPress`, `activeOpacity` | `lower-unknown-attr` | `background-color`, `flex-direction`, `press`, `-exact-press-opacity` |
-| `paddingHorizontal`, `marginVertical` | `lower-unknown-attr` | `padding-left` and `padding-right`, or `padding="<vertical> <horizontal>"` |
+| `paddingHorizontal=16` | `lower-unknown-attr` | `padding-left=16 padding-right=16`, or `padding="0px 16px"` |
+| `marginVertical=8` | `lower-unknown-attr` | `margin-top=8 margin-bottom=8`, or `margin="8px 0px"` |
 | `shadowColor`, `shadowOpacity`, `shadowRadius`, `shadowOffset`, `elevation` | `lower-unknown-attr`, `lower-attr-tag` | one `box-shadow="<x>px <y>px <2 × radius>px <colour>"` (below) |
 | `font-weight="bold"`, `"600"` | `lower-attr-value` | `font-weight=700`, `font-weight=600` |
 | `transform="rotate(-2deg)"` | `lower-attr-tag` | `rotate="-2deg"`, `translate="0px 25px"`, `scale=0.8` |
