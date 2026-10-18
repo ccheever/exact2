@@ -167,14 +167,18 @@ test('the relaunch starts at the date the test reached, which moves the comparis
   assert.equal(pinnedLaunch(test({ reached }), defaults), false);
 });
 
-test('the compiler\'s warnings: a group before the tests, capped as findings are, counted as findings', () => {
+test('the compiler\'s warnings: a group before the tests, by rule as findings are, counted as findings', () => {
   const warning = (n) => `app.contract:${n}:23 warning [lower-colour-one-scheme] \`#336699\` on \`color\` stays the same in dark mode`;
   const one = report({ host: 'web', built: null, compiler: [warning(25)], tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots: [], ms: 4000 });
   assert.deepEqual(one.lines, ['compiler: 1 warning', `  ${warning(25)}`, 'tests: 2 passed, 0 failed', 'check first screen · 390x844, 1280x900 · light, dark: no findings', 'open it: bun exact.mjs web (serves what verify checked)', 'verify: 1 problem (1 finding; the tests passed) in 4.0 s']);
   assert.equal(one.exit, 0);
   const many = report({ host: 'ios', built: { ms: 1200, said: ['iOS: app.contract changed; running the new plan on the existing build (no native rebuild)'], warnings: [] },
     compiler: Array.from({ length: 8 }, (_, i) => warning(i + 1)), tested: { none: true }, checks: [], shots: [], ms: 9000 });
-  assert.deepEqual(many.lines.slice(1, 9), ['compiler: 8 warnings', ...Array.from({ length: 6 }, (_, i) => `  ${warning(i + 1)}`), '  … and 2 more (bun exact.mjs contract build app.contract prints them all)']);
+  assert.deepEqual(many.lines.slice(1, 5), ['compiler: 8 warnings', '  lower-colour-one-scheme ×8', `    ${warning(1)}`, '    also app.contract:2:23; app.contract:3:23; app.contract:4:23; app.contract:5:23 and 3 more']);
+  // Given one, the report names it, and `full` is every warning, one a line, for verify to write there.
+  const listed = report({ host: 'ios', built: null, compiler: Array.from({ length: 8 }, (_, i) => warning(i + 1)), tested: { none: true }, checks: [], shots: [], ms: 9000, listed: '.exact/verify/ios-findings.txt' });
+  assert.equal(listed.lines.at(-2), 'every finding, one a line: .exact/verify/ios-findings.txt');
+  assert.deepEqual(listed.full.slice(1), Array.from({ length: 8 }, (_, i) => `  ${warning(i + 1)}`));
   assert.equal(many.lines.at(-1), 'verify: 8 problems (8 findings; the tests passed) in 9.0 s');
   assert.equal(many.lines.at(-2), 'open it: bun exact.mjs ios --run (launches what verify checked)');
   assert.equal(many.exit, 0);
