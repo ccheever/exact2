@@ -425,6 +425,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         if H::ENABLED {
             let start = (!time.seekable).then(crate::perf::Stamp::now);
             timing::pass_stamp(&self.device, &mut pass, frame.timestamps, 18, false);
+            self.probe_note(Drew::Fixed("hook opaque"));
             hooks
                 .opaque(&mut pass, view)
                 .map_err(|e| hook_error("opaque", e))?;
@@ -455,6 +456,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         if H::ENABLED {
             let start = (!time.seekable).then(crate::perf::Stamp::now);
             timing::pass_stamp(&self.device, &mut pass, frame.timestamps, 19, false);
+            self.probe_note(Drew::Fixed("hook background"));
             hooks
                 .background(&mut pass, view)
                 .map_err(|e| hook_error("background", e))?;
@@ -598,6 +600,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.probe_stage(Stage::Translucent);
         self.scene_viewport(&mut pass, state.size, false);
         let start = (!time.seekable).then(crate::perf::Stamp::now);
+        self.probe_note(Drew::Fixed("hook surface"));
         hooks
             .surface(&mut pass, &targets.scene().unwrap(), view)
             .map_err(|e| hook_error("surface", e))?;
@@ -635,6 +638,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             if let Some(inputs) = targets.post(&self.targets.resolved) {
                 let start = (!time.seekable).then(crate::perf::Stamp::now);
                 timing::encoder_stamp(&self.device, encoder, frame.timestamps, 21, false);
+                self.probe_note(Drew::Fixed("hook post"));
                 hooks
                     .post(encoder, &inputs, view)
                     .map_err(|e| hook_error("post", e))?;

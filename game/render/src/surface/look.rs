@@ -459,10 +459,14 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         let w = sim.world();
         let stats = crate::tells::FrameStats::of(&read.rgba);
         let drawn = crate::look::drawn(&p.records, &p.facts, &read);
-        let judged = crate::tells::judge(&stats, &drawn);
-        // `logs` gets each tell of a whole frame once per change; a reduced
-        // frame (a contact sheet's) is a picture, and tells nothing.
-        for tell in judged.tells.iter().filter(|_| p.whole) {
+        // A reduced frame (a contact sheet's) is a picture: it is not judged.
+        let judged = if p.whole {
+            crate::tells::judge(&stats, &drawn)
+        } else {
+            crate::tells::Judgement::default()
+        };
+        // `logs` gets each tell once per change.
+        for tell in &judged.tells {
             if !self
                 .look
                 .logged
