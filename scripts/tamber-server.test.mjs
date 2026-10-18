@@ -899,6 +899,11 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   expect(stale.ok.proposal).not.toBe(second.ok.proposal);
   await stream.until(e => e.some(x => x.event === 'proposal-dropped' && x.proposal === second.ok.proposal && x.reason === 'replaced' && x.replacedBy === stale.ok.proposal));
   expect(stream.events.find(x => x.event === 'proposal' && x.proposal === stale.ok.proposal).replaces).toBe(second.ok.proposal);
+  // A recompute (dropped, held again as another) moves the revision too.
+  const recomputed = await poll({ after: moved.seq, epoch: at.epoch, wait: false, client: 'tool', held: moved.held });
+  expect(recomputed.held).not.toBe(moved.held);
+  expect(recomputed.proposals.map(p => p.proposal)).toEqual(expect.arrayContaining([stale.ok.proposal]));
+  expect(recomputed.proposals.map(p => p.proposal)).not.toContain(second.ok.proposal);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('#1c1c1c');
   expect((await post({ method: 'accept', client: 'person', proposal: stale.ok.proposal })).status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('edge = #1c1c1c');
@@ -926,7 +931,12 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   expect(part.ok.diff).toContain('#1f1f1f');
   expect(part.ok.diff).not.toContain('#1e1e1e');
   expect((await post({ method: 'drop', proposal: part.ok.proposal })).status).toBe(400);
+  const listed = await poll({ after: 0, wait: false, client: 'tool' });
   expect((await post({ method: 'drop', client: 'person', proposal: part.ok.proposal })).status).toBe(200);
+  // A drop moves the held revision: the list comes again, without it.
+  const dropped = await poll({ after: listed.seq, epoch: listed.epoch, wait: false, client: 'tool', held: listed.held });
+  expect(dropped.held).not.toBe(listed.held);
+  expect(dropped.proposals.map(p => p.proposal)).not.toContain(part.ok.proposal);
   await stream.until(e => e.some(x => x.event === 'proposal-dropped' && x.proposal === part.ok.proposal && x.client === 'person'));
   stream.close();
 }, 30_000);
