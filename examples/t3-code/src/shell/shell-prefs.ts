@@ -13,11 +13,11 @@
 // The client writes the file after every command.
 import { obj, type Obj } from '../client/domain';
 
-export type ShellPrefs = { nightlyNoticeDismissed: boolean; inlineClosed: string[]; providerUpdateDismissals: string[]; versionMismatchDismissals: string[]; lastEditor: string; chatgptSharingWelcome: string[]; permissionUpdateDismissals: string[] };
+export type ShellPrefs = { nightlyNoticeDismissed: boolean; inlineClosed: string[]; providerUpdateDismissals: string[]; versionMismatchDismissals: string[]; lastEditor: string; chatgptSharingWelcome: string[]; permissionUpdateDismissals: string[]; databaseStorageDismissals: string[] };
 type Holder = { local: object };
 
 const MAX_CLOSED = 500;
-const emptyPrefs = (): ShellPrefs => ({ nightlyNoticeDismissed: false, inlineClosed: [], providerUpdateDismissals: [], versionMismatchDismissals: [], lastEditor: '', chatgptSharingWelcome: [], permissionUpdateDismissals: [] });
+const emptyPrefs = (): ShellPrefs => ({ nightlyNoticeDismissed: false, inlineClosed: [], providerUpdateDismissals: [], versionMismatchDismissals: [], lastEditor: '', chatgptSharingWelcome: [], permissionUpdateDismissals: [], databaseStorageDismissals: [] });
 
 /** The live prefs object on the client's preference record (created on first use). */
 export function shellPrefs(owner: Holder): ShellPrefs {
@@ -26,6 +26,7 @@ export function shellPrefs(owner: Holder): ShellPrefs {
   if (!Array.isArray(local.shell.versionMismatchDismissals)) local.shell.versionMismatchDismissals = [];
   if (!Array.isArray(local.shell.chatgptSharingWelcome)) local.shell.chatgptSharingWelcome = [];
   if (!Array.isArray(local.shell.permissionUpdateDismissals)) local.shell.permissionUpdateDismissals = [];
+  if (!Array.isArray(local.shell.databaseStorageDismissals)) local.shell.databaseStorageDismissals = [];
   return local.shell;
 }
 
@@ -38,6 +39,7 @@ export function adoptShellPrefs(next: object, saved: Obj): void {
   if (Array.isArray(value.versionMismatchDismissals)) prefs.versionMismatchDismissals = value.versionMismatchDismissals.filter((key): key is string => typeof key === 'string' && key.length <= 512).slice(-200);
   if (Array.isArray(value.chatgptSharingWelcome)) prefs.chatgptSharingWelcome = value.chatgptSharingWelcome.filter((key): key is string => typeof key === 'string' && key.length <= 1024).slice(-200);
   if (Array.isArray(value.permissionUpdateDismissals)) prefs.permissionUpdateDismissals = value.permissionUpdateDismissals.filter((key): key is string => typeof key === 'string' && key.length <= 512).slice(-200);
+  if (Array.isArray(value.databaseStorageDismissals)) prefs.databaseStorageDismissals = value.databaseStorageDismissals.filter((key): key is string => typeof key === 'string' && key.length <= 512).slice(-200);
   if (typeof value.lastEditor === 'string' && /^[a-z0-9-]{1,64}$/.test(value.lastEditor)) prefs.lastEditor = value.lastEditor;
   (next as { shell?: ShellPrefs }).shell = prefs;
 }

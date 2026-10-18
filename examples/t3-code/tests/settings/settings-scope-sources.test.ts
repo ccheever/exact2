@@ -10,12 +10,14 @@ import { applyCoreSetting, decodeClientPrefs, generalSections, inheritanceGroups
 import { settingsCore } from '../../src/settings/settings-core-view';
 import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { scopeEnvironments, scopeProjectGroups } from '../../src/settings/settings-scope-sources';
-import { archivedSettings, lastRunSummary } from '../../src/settings/settings-data';
+import { restCommand } from '../../src/settings/settings-rest-commands';
+import { archivedSettings, lastRunSummary, storageSettings } from '../../src/settings/settings-data';
 import { groupDeviceHosts, scopedDeviceHostsView, deviceHostsCommand, hostChecks } from '../../src/device/settings-a-hosts';
 import { taskEnvironmentSummaries } from '../../src/settings/scheduled-view';
 import { toasts } from '../../src/shell/toast';
+import { runCleanup } from '../../src/settings/storage-maintenance';
 
-const capabilities = { projectSettingsOverrides: true, threadAutoSettlement: true, threadRestartContinuation: true };
+const capabilities = { storageCleanup: true, storageCleanupRun: true, projectWorktreeCleanup: true, settledWorktreeCleanup: true, worktreesDirectory: true, projectSettingsOverrides: true, threadAutoSettlement: true, threadRestartContinuation: true };
 function focused(settings: Obj = {}) {
   const client = {
     local: { deviceSettings: { composerCollapseOnScroll: true, planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' },
@@ -85,6 +87,55 @@ describe('settings scope across environments', () => {
     expect(calls.map(call => [call.fleet, call.method, call.payload, call.generation])).toEqual([[B, 'server.updateSettings', { patch: { enableProviderUpdateChecks: false } }, 3]]);
     expect((fleet.entries.get(B)!.config.settings as Obj).enableProviderUpdateChecks).toBe(false);
     expect(toasts(as(client))).toEqual([]);
+  });
+  test('Storage edits fan out while project custom rules retain each checkout inheritance', async () => {
+    const client = focused({ storageCleanup: { worktreeAfterDays: 2 }, projectSettingsOverrides: {} });
+    fleet.entries.set(B, entry(B, 'env-b', 'Server', { storageCleanup: { worktreeAfterDays: 9 } }));
+    const calls: Obj[] = [], native = nativeFor(new Set(), calls);
+    await restCommand(as(client), native, { read: async () => null, write: async () => {} }, 'storage', '', 'scope=%7C%7C&key=worktreeSettledAfterDays&value=0');
+    expect(client.writes.at(-1)).toEqual({ patch: { storageCleanup: { worktreeSettledAfterDays: 0 } } });
+    expect(calls.at(-1)?.payload).toEqual({ patch: { storageCleanup: { worktreeSettledAfterDays: 0 } } });
+    // The server merges partial nested storage patches; preserve its distinct rules in this transport fixture.
+    client.config.settings = { storageCleanup: { worktreeAfterDays: 2, worktreeSettledAfterDays: 0 }, projectSettingsOverrides: {} };
+    fleet.entries.get(B)!.config.settings = { storageCleanup: { worktreeAfterDays: 9, worktreeSettledAfterDays: 0 }, projectSettingsOverrides: {} };
+    await restCommand(as(client), native, { read: async () => null, write: async () => {} }, 'storage', '', `scope=${encodeURIComponent('|github.com/acme/app|')}&key=mode&value=custom`);
+    const local = client.writes.at(-1)!;
+    expect(((local.patch as Obj).projectSettingsOverrides as Obj).pa).toMatchObject({ worktreeCleanup: { mode: 'custom', rules: { worktreeAfterDays: 2 } } });
+    const remote = calls.at(-1)!.payload as Obj;
+    expect(((remote.patch as Obj).projectSettingsOverrides as Obj)['p-env-b']).toMatchObject({ worktreeCleanup: { mode: 'custom', rules: { worktreeAfterDays: 9 } } });
+    const count = client.writes.length + calls.length;
+    await expect(restCommand(as(client), native, { read: async () => null, write: async () => {} }, 'storage', '', `scope=${encodeURIComponent('gone||')}&key=worktreeSettledAfterDays&value=0`)).rejects.toThrow('no longer available');
+    expect(client.writes.length + calls.length).toBe(count);
+    const stale = await storageSettings(as(client), native, 'env-a', 'gone', true);
+    expect(stale.available).toBe(false);
+    expect(stale.error).toContain('checkout is no longer available');
+  });
+  test('Storage keeps maintenance available on a supported machine while an older machine hides configuration', async () => {
+    const client = focused();
+    Object.assign(client, { scopes: [], generation: 1, shell: initialShell() });
+    client.config.environment = { ...(client.config.environment as Obj), capabilities: { ...capabilities, storageCleanup: false, storageCleanupRun: false } };
+    const key = 'http://127.0.0.1:16103\nenv-storage-maintenance';
+    fleet.entries.set(key, entry(key, 'env-storage-maintenance', 'Server', { storageCleanup: { logsAfterDays: 7 } }));
+    const page = await storageSettings(as(client), nativeFor(), '', '', true, '', '', '');
+    expect(page.available).toBe(false);
+    expect(page.notice).toContain('Update');
+    expect(page.cleanupAvailable).toBe(true);
+    expect(page.cleanupDisabled).toBe(false);
+    expect(page.cleanupDescription).not.toContain('Turn on a cleanup rule');
+  });
+  test('cleanup enables and runs only targets with settings permission, independently of the focused grant', async () => {
+    const client = focused();
+    Object.assign(client, { scopes: ['environment:maintain'], generation: 1, shell: initialShell() });
+    const settingsOnly = entry(B, 'env-b', 'Settings only', { storageCleanup: { logsAfterDays: 7 } });
+    const maintainOnly = entry(C, 'env-c', 'Maintain only', { storageCleanup: { logsAfterDays: 7 } });
+    settingsOnly.scopes = ['settings:write']; maintainOnly.scopes = ['environment:maintain'];
+    fleet.entries.set(B, settingsOnly); fleet.entries.set(C, maintainOnly);
+    const calls: Obj[] = [], native = nativeFor(new Set(), calls);
+    expect((await storageSettings(as(client), native, '', '', true, 'env-b', '', '')).cleanupDisabled).toBe(false);
+    expect((await storageSettings(as(client), native, '', '', true, 'env-c', '', '')).cleanupDisabled).toBe(true);
+    await runCleanup(as(client), native, ['env-b', 'env-c']);
+    expect(calls.filter(call => call.method === 'server.runStorageCleanup').map(call => call.fleet)).toEqual([B]);
+    await expect(runCleanup(as(client), native, ['env-c'])).rejects.toThrow('permission');
   });
   test('a single environment writes only there', async () => {
     const client = focused();

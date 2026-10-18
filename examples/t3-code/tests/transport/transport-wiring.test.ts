@@ -24,7 +24,7 @@ describe('app.contract', () => {
 
   test('every answer that may wait on a server reply has the tick publish the table as it starts and ends; nothing polls', () => {
     // The platform's facts, the Rust Markdown renderer, the highlight pump and the transport's own sources ask no server.
-    const exempt = new Set(['promptLinkPage', 'promptLinksReady', 'wallTime', 'viewport', 'page', 'delivery', 'markdown', 'prMarkdown', 'filesMarkdown', 'highlightSliced', 'transportInbox', 'transportPumped', 'serverBrowserLive', 'serverBrowserMiniLive', 'serverBrowserChanged', 'serverBrowserMaintained', 'serverBrowserMiniMaintained']);
+    const exempt = new Set(['promptLinkPage', 'promptLinksReady', 'wallTime', 'viewport', 'page', 'delivery', 'markdown', 'questionMarkdown', 'prMarkdown', 'filesMarkdown', 'highlightSliced', 'transportInbox', 'transportPumped', 'serverBrowserLive', 'serverBrowserMiniLive', 'serverBrowserChanged', 'serverBrowserMaintained', 'serverBrowserMiniMaintained']);
     expect(contract).toMatch(/task transportAnswered key=transportAnswering\n    after\(1, transportPump\)/);
     expect(contract).toMatch(/task transportRepublish when transportInbox\.table > transportTable\.rev key=transportInbox\.table\n    after\(1, transportPump\)/);
     expect(contract).not.toMatch(/every\(16, transportPump\)/);
