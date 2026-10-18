@@ -676,3 +676,41 @@ fn popover_commands_check_their_id_and_source() {
         assert_eq!(e.id, "type-popover-command", "{command}: {e}");
     }
 }
+
+/// HTML honours `popovertarget` and `commandfor` on a button only; on any
+/// other node (a composite `row` the euxy port tried) they are refused,
+/// naming `button appearance="none"`.
+#[test]
+fn an_invoker_off_a_button_is_refused_naming_the_button() {
+    const MENU: &str = "\ncolumn id=\"m\" popover=\"auto\"\n  button press=go\n    text \"New\"";
+    const DIALOG: &str =
+        "\ndialog id=\"d\"\n  button commandfor=\"d\" command=\"close\"\n    text \"Close\"";
+    for (body, attr) in [
+        (
+            format!("row popovertarget=\"m\" role=\"button\"\n  text \"Name\"{MENU}"),
+            "popovertarget",
+        ),
+        (
+            format!("text \"Name\" popovertarget=\"m\"{MENU}"),
+            "popovertarget",
+        ),
+        (
+            format!("row commandfor=\"d\" command=\"show-modal\"\n  text \"Open\"{DIALOG}"),
+            "commandfor",
+        ),
+    ] {
+        let (id, message) = refused(&body);
+        assert_eq!(id, "lower-invoker-tag", "{body}: {message}");
+        assert!(
+            message.contains(&format!("`{attr}`"))
+                && message.contains("button appearance=\"none\""),
+            "{message}"
+        );
+    }
+    boot(&app(&format!(
+        "button appearance=\"none\" popovertarget=\"m\"\n  row\n    text \"Name\"{MENU}"
+    )));
+    boot(&app(&format!(
+        "button commandfor=\"d\" command=\"show-modal\"\n  text \"Open\"{DIALOG}"
+    )));
+}

@@ -38,6 +38,32 @@ pub(crate) fn check_menu_remove(attrs: &[Attr], root: bool) -> Result<(), LowerE
     Ok(())
 }
 
+/// HTML honours `popovertarget` and `commandfor` on a button only (HTML
+/// §6.12, "the popover target attributes"; "the commandfor attribute"): on
+/// any other node no host opens anything, so it is refused where it is
+/// written.
+pub(crate) fn check_invoker(tag: &str, attrs: &[Attr]) -> Result<(), LowerError> {
+    if tag == "button" {
+        return Ok(());
+    }
+    let Some(a) = attrs
+        .iter()
+        .find(|a| matches!(a.name.as_str(), "popovertarget" | "commandfor"))
+    else {
+        return Ok(());
+    };
+    err(
+        "lower-invoker-tag",
+        format!(
+            "`{}` opens nothing on a `{tag}`: HTML honours it on a button only. Make the invoker a \
+             `button` (`button appearance=\"none\"` keeps a composite's own look: its children \
+             and layout, with the button's press, focus and role)",
+            a.name
+        ),
+        a.span,
+    )
+}
+
 /// HTML's `hr`, as the platform draws a separator (LLP 1115 §3, wave 1; LLP
 /// 1115.000 D10.3): one hairline, a single solid top edge one device pixel
 /// thick (`-exact-hairline`) in the separator role (`-exact-separator`:
