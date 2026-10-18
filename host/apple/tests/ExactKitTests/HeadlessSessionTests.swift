@@ -114,7 +114,7 @@ final class HeadlessSessionTests: XCTestCase {
         accepted.core.text.refusedMarkdown = 999
         XCTAssertNoThrow(try accepted.resize(to: CGSize(width: 200, height: 450)), "each turn clears the previous refusal")
         XCTAssertThrowsError(try HeadlessSession(plan: plan, entry: "widget", size: CGSize(width: 200, height: 400))) { error in
-            XCTAssertTrue(String(describing: error).contains("exact_boot_entry"))
+            XCTAssertTrue(String(describing: error).contains("WrongEntry"), "a running plan cannot boot as a snapshot entry: \(error)")
         }
     }
 
