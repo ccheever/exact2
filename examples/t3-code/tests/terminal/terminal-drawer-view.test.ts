@@ -12,6 +12,7 @@ import { closeThreadTerminals, terminalRows, terminalKeybindings, terminalDrawer
 import { surfaceStore } from '../../src/panel/panel-surfaces';
 import { focusedTerminal, recordTerminalFocus } from '../../src/terminal/terminal-focus';
 import { adoptTerminalPrefs, terminalUiStore } from '../../src/terminal/terminal-ui-state';
+import { contractComponent } from '../support/contract-action-fixture';
 
 type Call = { method: string; payload: Obj };
 function fixture(options: { fail?: string[]; connected?: boolean } = {}) {
@@ -122,6 +123,31 @@ describe('terminal drawer commands', () => {
     adoptTerminalPrefs(next, saved);
     const reopened = terminalUiStore({ local: next }).getState().terminalUiStateByThreadKey['env-a:thread-1'];
     expect(reopened).toMatchObject({ terminalOpen: true, terminalHeight: 630, terminalIds: ['term-1'], activeTerminalId: 'term-1' });
+  });
+
+  test('a smaller window and a drag returning to its start preserve the preferred height', async () => {
+    const { client } = fixture();
+    await run(client, 'toggle');
+    await terminalDrawerView(client, null, 840, 0);
+    await run(client, 'height', 'env-a:thread-1', '600');
+    const drawer = contractComponent('terminal.contract', 'TerminalDrawer');
+    const state = drawer.state(), sent: unknown[][] = [];
+    const view = await terminalDrawerView(client, null, 620, 0);
+    expect(view.height).toBe(465);
+    const scope = { view, viewportHeight: 620, look: { panelMs: 0 }, reduced: false,
+      min: Math.min, max: Math.max, floor: Math.floor, command: (...args: unknown[]) => sent.push(args) };
+    const call = (name: string, dy: number) => drawer.call(name, state, { ...scope, ...drawer.derives(state, scope) }, [0, dy]);
+    call('resize', 20);
+    expect(drawer.derives(state, scope).height).toBe(445);
+    call('resize', -20);
+    call('release', 0);
+    expect(sent).toEqual([]);
+    expect(state.dragHeight).toBe(0);
+    expect((await terminalDrawerView(client, null, 840, 0)).height).toBe(600);
+
+    call('resize', 20);
+    call('release', 0);
+    expect(sent).toEqual([['terminallocal:height', 'env-a:thread-1', '445', 0]]);
   });
 
   test('New in the empty state allocates the lowest free id the server and the drawer both leave', async () => {
