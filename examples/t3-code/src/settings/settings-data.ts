@@ -77,6 +77,7 @@ export async function archivedSettings(client: T3Client, native: Native | null |
   try {
     if (!native?.available) throw new Error('Open on macOS to load archived threads.');
     const legacy = !projectKey && projectId ? groupOfMember(client, projectId) : undefined;
+    if (!projectKey && projectId && !legacy) throw new Error('This scope is unavailable. Choose an existing checkout.');
     const scope = resolveScope(client, machine || environmentId, legacy?.key ?? projectKey, checkout);
     if (!scope.connected || scope.kind === 'unavailable') throw new Error(scope.message || 'Choose a connected environment.');
     let cache = archives.get(client);
