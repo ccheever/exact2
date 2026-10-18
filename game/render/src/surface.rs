@@ -627,7 +627,8 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
             InputEvent::Key { down: true, .. }
                 | InputEvent::Pointer { phase: Q::Down, .. }
                 | InputEvent::Control { phase: Q::Down, .. }
-        ) {
+        ) || matches!(event, InputEvent::Pad { buttons, .. } if buttons.iter().any(|b| *b >= 0.5))
+        {
             self.presentation.unlock();
         }
         let e = match event {
@@ -637,6 +638,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
                 code: code.clone(),
                 down: *down,
                 at_ms: *at_ms,
+                player: 0,
             },
             InputEvent::Pointer {
                 id,
@@ -667,6 +669,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
                     *buttons
                 },
                 at_ms: *at_ms,
+                player: 0,
             },
             InputEvent::Control {
                 name,
@@ -687,16 +690,38 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
                 x: *x,
                 y: *y,
                 at_ms: *at_ms,
+                player: 0,
             },
             InputEvent::Wheel { dx, dy, at_ms, .. } => E::Wheel {
                 dx: *dx,
                 dy: *dy,
                 at_ms: *at_ms,
+                player: 0,
             },
-            InputEvent::Blur { at_ms } => E::Blur { at_ms: *at_ms },
+            InputEvent::Pad {
+                index,
+                connected,
+                standard,
+                buttons,
+                axes,
+                at_ms,
+            } => E::Pad {
+                index: *index,
+                connected: *connected,
+                standard: *standard,
+                buttons: *buttons,
+                axes: *axes,
+                at_ms: *at_ms,
+                player: 0,
+            },
+            InputEvent::Blur { at_ms } => E::Blur {
+                at_ms: *at_ms,
+                player: 0,
+            },
             InputEvent::Message { text, at_ms } => E::Message {
                 text: text.clone(),
                 at_ms: *at_ms,
+                player: 0,
             },
         };
         if let Err(error) = sim.validate_input(&e) {

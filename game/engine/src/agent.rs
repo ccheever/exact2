@@ -23,6 +23,11 @@ struct Request {
     from: u64,
     limit: Option<u64>,
     resources: bool,
+    key: Option<String>,
+    phase: Option<String>,
+    stick: Option<String>,
+    value: Option<[f32; 2]>,
+    pad: u32,
 }
 impl Request {
     fn parse(text: &str) -> Result<Self, DataError> {
@@ -76,6 +81,15 @@ impl Request {
                     q.limit = Some(n);
                 }
                 "resources" => q.resources.read(&mut r)?,
+                "key" => q.key = Some(r.string()?),
+                "phase" => q.phase = Some(r.string()?),
+                "stick" => q.stick = Some(r.string()?),
+                "value" => {
+                    let mut v = [0f32; 2];
+                    v.read(&mut r)?;
+                    q.value = Some(v);
+                }
+                "pad" => q.pad.read(&mut r)?,
                 _ => r.skip()?,
             }
         }
@@ -302,8 +316,8 @@ impl<G: Game> Sim<G> {
             }
             "state" => {
                 let host_input = self.host_input();
-                Ok(format!("{{\"tick\":{tick},\"world\":{{\"name\":{},\"tick\":{tick},\"hz\":{},\"seed\":{},\"hash\":\"0x{:016x}\",\"entities\":{},\"paused\":{},\"loading\":{},\"assets\":{},\"restarted\":{},\"restored\":{}{}{},\"args\":{},\"resources\":{},\"audio\":{},\"input\":{{\"actions\":{},\"held\":{},\"forwarded\":{},\"controls\":{},\"forwardedControls\":{},\"controlContacts\":{},\"refusedPosts\":{}}},\"published\":{}}}}}",
-                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&w.assets.states.iter().filter(|(_, s)| **s == crate::asset::AssetState::Pending).map(|(n, _)| n.clone()).collect::<Vec<_>>())?, w.assets.state_json(), self.restarted, self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), self.paranoid_samples().map_or_else(String::new, |(skipped, owed)| format!(",\"paranoid\":{{\"skipped\":{skipped},\"owed\":{owed}}}")), self.args_json, w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.input.actions().json(), encode(&self.input.keys)?, encode(&host_input.keys)?, encode(&self.input.held_controls())?, encode(&host_input.held_controls())?, encode(&host_input.control_contacts())?, self.refused_posts, w.published_json(true)))
+                Ok(format!("{{\"tick\":{tick},\"world\":{{\"name\":{},\"tick\":{tick},\"hz\":{},\"seed\":{},\"hash\":\"0x{:016x}\",\"entities\":{},\"paused\":{},\"loading\":{},\"assets\":{},\"restarted\":{},\"restored\":{}{}{},\"args\":{},\"resources\":{},\"audio\":{},\"input\":{},\"published\":{}}}}}",
+                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&w.assets.states.iter().filter(|(_, s)| **s == crate::asset::AssetState::Pending).map(|(n, _)| n.clone()).collect::<Vec<_>>())?, w.assets.state_json(), self.restarted, self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), self.paranoid_samples().map_or_else(String::new, |(skipped, owed)| format!(",\"paranoid\":{{\"skipped\":{skipped},\"owed\":{owed}}}")), self.args_json, w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.input.state_json(&host_input, self.refused_posts)?, w.published_json(true)))
             },
             "layout" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().ok_or("layout needs an entity")?)?;
@@ -325,7 +339,55 @@ impl<G: Game> Sim<G> {
                 Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"quiescent\":{quiescent},\"changing\":{changing}{deadline}}}", w.hash()))
             },
             "logs" => Ok(w.journal_json(q.since)),
+            "type" | "tap" => self.synthesize_pad(&q),
             _ => Err(format!("unknown op `{}`; use tree, screenshot, tap, type, state, layout, logs or clock",q.op)),
+        }
+    }
+    /// The agent's pad (LLP 1046.001 D3): `type <canvas> key Gamepad…` and
+    /// `tap <canvas> stick left|right x y`, each the pad's whole state queued
+    /// at the request's clock, as a host reports a real one.
+    fn synthesize_pad(&mut self, q: &Request) -> Result<String, String> {
+        let index = q.pad;
+        if index >= crate::MAX_PADS {
+            return Err(format!(
+                "pad {index} is past the {} a host may report",
+                crate::MAX_PADS
+            ));
+        }
+        let tick = self.world.tick();
+        let reply = |what: String| {
+            format!("{{\"tick\":{tick},{what},\"pad\":{index},\"delivery\":\"synthesized\"}}")
+        };
+        match (q.op.as_str(), &q.key, &q.stick) {
+            ("type", Some(key), None) => {
+                if crate::input::pad_index(key).is_none() {
+                    return Err(format!("world type takes a pad button, as `type world key GamepadSouth`; pad buttons: {}", crate::PAD_BUTTONS.join(", ")));
+                }
+                let phases: &[f32] = match q.phase.as_deref() {
+                    None => &[1., 0.],
+                    Some("down") => &[1.],
+                    Some("up") => &[0.],
+                    Some(other) => return Err(format!("key: not a phase: {other} (down, up)")),
+                };
+                for &value in phases {
+                    self.pad_button(index, key, value);
+                }
+                Ok(reply(format!("\"typed\":{}{}", quote(key), q.phase.as_deref().map_or_else(String::new, |p| format!(",\"phase\":{}", quote(p))))))
+            }
+            ("tap", None, Some(stick)) => {
+                let pad = match stick.as_str() {
+                    "left" => crate::Pad::Left,
+                    "right" => crate::Pad::Right,
+                    other => return Err(format!("stick: `{other}` is not left or right")),
+                };
+                let [x, y] = q.value.ok_or("tap stick needs its x and y, as `tap world stick left 0.7 -0.2`")?;
+                if !(-1.0..=1.0).contains(&x) || !(-1.0..=1.0).contains(&y) {
+                    return Err(format!("stick values must be in [-1, 1], got {x} {y}"));
+                }
+                self.pad_stick(index, pad, x, y);
+                Ok(reply(format!("\"stick\":{},\"value\":[{},{}]", quote(stick), encode(&x)?, encode(&y)?)))
+            }
+            _ => Err(format!("world {} takes a pad: `type world key GamepadSouth` or `tap world stick left 0.7 -0.2`", q.op)),
         }
     }
     fn layout_json(&self, e: Entity) -> Result<String, String> {

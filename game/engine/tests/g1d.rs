@@ -73,6 +73,7 @@ fn paused_queued_input_explains_why_it_is_not_quiescent() {
         code: "KeyW".into(),
         down: true,
         at_ms: 1000.0,
+        player: 0,
     });
     s.bind(&Options { paused: true }.values(), None).unwrap();
     let r = reply(&mut s);

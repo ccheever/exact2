@@ -121,6 +121,28 @@ fn device_event_json_preserves_every_variant_and_refuses_fields_by_name() {
         parse_input(r#"{"t":"blur","at":5}"#).unwrap(),
         InputEvent::Blur { at_ms: 5.0 }
     );
+    // A pad's whole state: the only lists an input event carries.
+    let mut buttons = [0.0; 17];
+    buttons[0] = 1.0;
+    buttons[7] = 0.5;
+    assert_eq!(
+        parse_input(r#"{"t":"pad","index":1,"connected":true,"standard":true,"buttons":[1,0,0,0,0,0,0,0.5,0,0,0,0,0,0,0,0,0],"axes":[0.25,-1,0,0],"at":6}"#).unwrap(),
+        InputEvent::Pad {
+            index: 1,
+            connected: true,
+            standard: true,
+            buttons,
+            axes: [0.25, -1.0, 0.0, 0.0],
+            at_ms: 6.0
+        }
+    );
+    for bad in [
+        r#"{"t":"pad","index":0,"connected":true,"standard":true,"buttons":[1],"axes":[0,0,0,0],"at":6}"#,
+        r#"{"t":"pad","index":0,"connected":true,"standard":true,"buttons":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],"axes":[0,0,0,0],"at":6}"#,
+        r#"{"t":"key","code":["KeyW"],"key":"w","down":true,"repeat":false,"at":6}"#,
+    ] {
+        assert!(parse_input(bad).is_err(), "{bad}");
+    }
     for (phase, expected) in [
         ("down", PointerPhase::Down),
         ("move", PointerPhase::Move),

@@ -542,6 +542,7 @@ fn headless_fixture_ticks_under_the_agent_clock_to_the_native_hash() {
         code: "KeyW".into(),
         down: true,
         at_ms: 0.,
+        player: 0,
     });
     reference.run(1500.);
     let moved = format!("0x{:016x}", reference.world().hash());

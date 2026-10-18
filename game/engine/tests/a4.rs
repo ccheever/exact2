@@ -86,6 +86,7 @@ fn key<G: Game>(s: &mut Sim<G>, down: bool, at_ms: f64) {
         code: "KeyE".into(),
         down,
         at_ms,
+        player: 0,
     });
 }
 fn pointer(s: &mut Sim<Probe>, phase: PointerPhase, x: f32, at_ms: f64) {
@@ -98,6 +99,7 @@ fn pointer(s: &mut Sim<Probe>, phase: PointerPhase, x: f32, at_ms: f64) {
         dy: 0.0,
         buttons: u32::from(phase != PointerPhase::Up),
         at_ms,
+        player: 0,
     });
 }
 #[allow(non_snake_case)]
@@ -190,6 +192,7 @@ fn a4_2_stamps_land_in_the_containing_step_and_pause_and_queue_do_not_lose_relea
             dx: 1.0,
             dy: 1.0,
             at_ms: 100.0 + n as f64,
+            player: 0,
         });
     }
     s.bind(&args(7.0, 0.0, false, 1.0), Some(6000.0)).unwrap();
@@ -215,6 +218,7 @@ fn a4_2_stamps_land_in_the_containing_step_and_pause_and_queue_do_not_lose_relea
             dx: 1.0,
             dy: 2.0,
             at_ms: 1.0,
+            player: 0,
         });
     }
     s.advance(16.667, Clock::Seekable);
@@ -415,7 +419,10 @@ fn a4_7_blur_removes_hover_paused_springs_settle_and_a_hitch_collapses_input() {
     pointer(&mut s, PointerPhase::Down, 2.0, 0.0);
     key(&mut s, true, 0.0);
     s.advance(17.0, Clock::Seekable);
-    s.input(InputEvent::Blur { at_ms: 18.0 });
+    s.input(InputEvent::Blur {
+        at_ms: 18.0,
+        player: 0,
+    });
     s.advance(34.0, Clock::Seekable);
     assert!(s.world().resource::<Observed>().pointer.is_none());
     assert_eq!(s.world().resource::<Observed>().released, 1);

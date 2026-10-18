@@ -306,7 +306,9 @@ impl World {
     // components (animation, sockets, audio) still register where they install.
     fn register_scene(&mut self) {
         use crate::scene::*;
-        self.register_resource::<crate::Shadows>();
+        self.register_resource::<crate::Shadows>()
+            .register_resource::<crate::InputContexts>()
+            .register_resource::<crate::Bindings>();
         self.register::<Transform>()
             .register::<Parent>()
             .register::<Mesh>()

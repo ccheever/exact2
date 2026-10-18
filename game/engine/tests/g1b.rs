@@ -102,11 +102,13 @@ fn current_and_future_input_prevent_rest_and_bound_the_next_jump() {
         code: "Space".into(),
         down: true,
         at_ms: now + 200.0,
+        player: 0,
     });
     s.input(InputEvent::Key {
         code: "Space".into(),
         down: false,
         at_ms: now + 201.0,
+        player: 0,
     });
     assert!(!s.quiescent());
     let r = clock(&mut s, true);
@@ -337,6 +339,7 @@ fn input_sugar_and_relative_sentences_match_absolute_host_input() {
             code: code.into(),
             down,
             at_ms,
+            player: 0,
         });
     }
     b.advance(300.0, Clock::Seekable);

@@ -68,11 +68,13 @@ fn save_mid_run_retains_clock_input_and_future_events() {
         code: "Space".into(),
         down: true,
         at_ms: 1011.0,
+        player: 0,
     });
     s.input(InputEvent::Key {
         code: "Space".into(),
         down: false,
         at_ms: 1012.0,
+        player: 0,
     });
     s.run(713.123);
     let saved = s.save().unwrap();

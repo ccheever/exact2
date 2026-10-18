@@ -35,6 +35,7 @@ fn mouse(sim: &mut Sim<Rivals>, at_ms: f64, phase: PointerPhase, dx: f32, dy: f3
         dy,
         buttons,
         at_ms,
+        player: 0,
     });
 }
 

@@ -78,6 +78,7 @@ fn live<const HZ: u32>(display_hz: f64, present: bool) -> Row {
             dy: 0.,
             buttons: 0,
             at_ms,
+            player: 0,
         });
     };
     mouse(&mut sim, 0., 0.);

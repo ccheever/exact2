@@ -1,6 +1,15 @@
 use crate::{Data, Vec2};
 use std::sync::Arc;
 
+mod contexts;
+mod pad;
+mod triggers;
+pub(crate) use contexts::seed;
+pub use contexts::{Binding, Bindings, InputContexts};
+pub(crate) use pad::pad_index;
+pub use pad::{Curve, Pad, PadState, MAX_PADS, PAD_BUTTONS};
+use triggers::{Trigger, TriggerState};
+
 /// Canvas regions used by discoverable touch controls (coordinates in points).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data)]
 pub enum Region {
@@ -31,11 +40,14 @@ impl Region {
             }
     }
 }
-/// A unit-clamped directional action; keyboard groups and touch can coexist.
+/// A unit-clamped directional action; keyboard groups, touch and pads can coexist.
 #[derive(Clone, Debug, Default, Data)]
 pub struct Stick {
     keys: Vec<[String; 4]>,
     touch: Vec<Region>,
+    pads: Vec<Pad>,
+    dead_zone: Option<f32>,
+    curve: Curve,
 }
 impl Stick {
     /// W/S/A/D directional controls.
@@ -47,12 +59,16 @@ impl Stick {
         self.or_keys("ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight")
     }
 
-    /// Bind up, down, left, right KeyboardEvent.code spellings.
+    /// Bind up, down, left, right KeyboardEvent.code spellings (pad buttons too:
+    /// `GamepadUp`, `GamepadDown`, `GamepadLeft`, `GamepadRight` are the d-pad).
     pub fn keys(up: &str, down: &str, left: &str, right: &str) -> Self {
         Self::default().or_keys(up, down, left, right)
     }
     /// Add an alternative set of directional keys.
     pub fn or_keys(mut self, up: &str, down: &str, left: &str, right: &str) -> Self {
+        for code in [up, down, left, right] {
+            pad::check_code(code);
+        }
         self.keys
             .push([up.into(), down.into(), left.into(), right.into()]);
         self
@@ -66,6 +82,39 @@ impl Stick {
         self.touch.push(region);
         self
     }
+    /// A pad's stick, or its triggers as one axis.
+    pub fn pad(pad: Pad) -> Self {
+        Self::default().or_pad(pad)
+    }
+    /// Add a pad's stick, or its triggers, alongside keys and touch. Every
+    /// connected pad contributes; the sum is unit-clamped like the rest.
+    pub fn or_pad(mut self, pad: Pad) -> Self {
+        self.pads.push(pad);
+        self
+    }
+    /// The radial dead zone for this stick's pad readings, as a fraction of
+    /// full deflection (0.15 unless set; 0 reads the raw axes). Past it the
+    /// reading is rescaled, so full deflection still reads 1. Keys and touch
+    /// keep their unit values.
+    pub fn dead_zone(mut self, radius: f32) -> Self {
+        assert!(
+            (0.0..1.0).contains(&radius),
+            "dead zone must be in [0, 1), got {radius}"
+        );
+        self.dead_zone = Some(radius);
+        self
+    }
+    /// Shape a pad reading's magnitude past the dead zone.
+    pub fn curve(mut self, curve: Curve) -> Self {
+        if let Curve::Power(p) = curve {
+            assert!(
+                p.is_finite() && p > 0.,
+                "curve power must be positive and finite"
+            );
+        }
+        self.curve = curve;
+        self
+    }
 }
 #[derive(Clone, Debug, Default, Data)]
 struct Action {
@@ -73,6 +122,8 @@ struct Action {
     keys: Vec<String>,
     touch: Vec<Region>,
     stick: Option<Stick>,
+    trigger: Trigger,
+    context: Option<String>,
 }
 /// The game's ordered, inspectable device bindings.
 #[derive(Clone, Debug, Default, Data)]
@@ -83,6 +134,8 @@ static NO_ACTIONS: Actions = Actions {
     entries: Vec::new(),
 };
 impl Actions {
+    /// A tap's default window: down and up within 200 ms of world time.
+    pub const TAP: f32 = 0.2;
     /// No controls.
     pub fn new() -> Self {
         Self::default()
@@ -93,16 +146,23 @@ impl Actions {
             "duplicate action `{}`",
             a.name
         );
+        for code in &a.keys {
+            pad::check_code(code);
+        }
         self.entries.push(a);
     }
-    /// Declare a button held by any of these physical keys.
-    pub fn button(mut self, name: &str, keys: &[&str]) -> Self {
+    fn keyed(mut self, name: &str, keys: &[&str], trigger: Trigger) -> Self {
         self.add(Action {
             name: name.into(),
             keys: keys.iter().map(|s| (*s).into()).collect(),
+            trigger,
             ..Action::default()
         });
         self
+    }
+    /// Declare a button held by any of these physical keys or pad buttons.
+    pub fn button(self, name: &str, keys: &[&str]) -> Self {
+        self.keyed(name, keys, Trigger::Button)
     }
     /// Declare a directional action.
     pub fn stick(mut self, name: &str, stick: Stick) -> Self {
@@ -126,6 +186,60 @@ impl Actions {
             });
         }
         self
+    }
+    /// A hold: `pressed` on the tick its keys have been down for `seconds` of
+    /// world time, `held` from then until they lift, `released` then. A
+    /// shorter press fires nothing.
+    pub fn hold(self, name: &str, keys: &[&str], seconds: f32) -> Self {
+        self.keyed(name, keys, Trigger::Hold(triggers::window(seconds)))
+    }
+    /// A double press: `pressed` on a second press within `seconds` of the
+    /// first, `held` while that second press lasts.
+    pub fn double(self, name: &str, keys: &[&str], seconds: f32) -> Self {
+        self.keyed(name, keys, Trigger::Double(triggers::window(seconds)))
+    }
+    /// A tap: `pressed` and `released` together on the tick a press of at most
+    /// [`Actions::TAP`] lifts; never `held`. It distinguishes a short press
+    /// from a hold on the same key, so it fires at the release; a fire button
+    /// that should fire at the press is a `button` read with `pressed`.
+    pub fn tap(self, name: &str, keys: &[&str]) -> Self {
+        self.tap_within(name, keys, Self::TAP)
+    }
+    /// A tap whose press lasts at most `seconds`.
+    pub fn tap_within(self, name: &str, keys: &[&str], seconds: f32) -> Self {
+        self.keyed(name, keys, Trigger::Tap(triggers::window(seconds)))
+    }
+    /// A chord: `pressed` when the last key goes down while the others are
+    /// held, `held` while all are, `released` when one lifts. The other order
+    /// (the last key first) fires nothing.
+    pub fn chord(self, name: &str, keys: &[&str]) -> Self {
+        assert!(keys.len() >= 2, "chord `{name}` needs at least two keys");
+        self.keyed(name, keys, Trigger::Chord)
+    }
+    /// Declare actions that read only while the named context is active
+    /// (`World::input_context`). A context is a set of actions, not a layer:
+    /// there is no priority between contexts.
+    pub fn context(mut self, context: &str, declare: impl FnOnce(Actions) -> Actions) -> Self {
+        for mut a in declare(Actions::new()).entries {
+            assert!(
+                a.context.is_none(),
+                "action `{}`: contexts do not nest",
+                a.name
+            );
+            a.context = Some(context.into());
+            self.add(a);
+        }
+        self
+    }
+    fn find(&self, name: &str) -> Option<&Action> {
+        self.entries.iter().find(|a| a.name == name)
+    }
+    pub(crate) fn names(&self) -> String {
+        self.entries
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
     }
     pub(crate) fn json(&self) -> String {
         use crate::Writer;
@@ -154,7 +268,9 @@ pub enum PointerPhase {
 }
 /// Most posted message accepted by `InputEvent::Message`, in bytes.
 pub(crate) const MAX_MESSAGE: usize = 64 * 1024;
-/// Raw device input stamped in the host clock's milliseconds.
+/// Raw device input stamped in the host clock's milliseconds. `player` is the
+/// local player the device belongs to: hosts write 0, and the engine reads no
+/// meaning into it.
 #[derive(Clone, Debug, Data)]
 pub enum InputEvent {
     /// KeyboardEvent.code, including KeyW, Space, and ArrowUp.
@@ -165,6 +281,8 @@ pub enum InputEvent {
         down: bool,
         /// Host clock milliseconds.
         at_ms: f64,
+        /// Local player.
+        player: u8,
     },
     /// Pointer coordinates in canvas points, top-left origin.
     Pointer {
@@ -186,6 +304,8 @@ pub enum InputEvent {
         buttons: u32,
         /// Host clock milliseconds.
         at_ms: f64,
+        /// Local player.
+        player: u8,
     },
     /// A pointer held by an app control bound to a declared action.
     /// Coordinates are control-local points; sticks anchor on Down with a
@@ -203,6 +323,8 @@ pub enum InputEvent {
         y: f32,
         /// Host clock milliseconds.
         at_ms: f64,
+        /// Local player.
+        player: u8,
     },
     /// Wheel movement since the preceding device event.
     Wheel {
@@ -212,11 +334,34 @@ pub enum InputEvent {
         dy: f32,
         /// Host clock milliseconds.
         at_ms: f64,
+        /// Local player.
+        player: u8,
+    },
+    /// A pad's whole standard-mapping state, sent when a button or an axis
+    /// changed. `connected: false` releases everything the pad held; a later
+    /// connect at the same index is a fresh device.
+    Pad {
+        /// The host's device index, below [`MAX_PADS`].
+        index: u32,
+        /// False when the pad went away (or the host lost focus).
+        connected: bool,
+        /// False for a pad without the standard mapping: reported, ignored.
+        standard: bool,
+        /// Button values in `[0, 1]`, by [`PAD_BUTTONS`] index.
+        buttons: [f32; 17],
+        /// Left x, left y, right x, right y in `[-1, 1]`; positive y is down.
+        axes: [f32; 4],
+        /// Host clock milliseconds.
+        at_ms: f64,
+        /// Local player.
+        player: u8,
     },
     /// Loss of focus releases all devices.
     Blur {
         /// Host clock milliseconds.
         at_ms: f64,
+        /// Local player.
+        player: u8,
     },
     /// Text the app posted into the world (Contract's `postMessage(text, surface)`).
     /// Each message reaches exactly one tick, in arrival order, never coalesced.
@@ -225,11 +370,16 @@ pub enum InputEvent {
         text: String,
         /// Host clock milliseconds.
         at_ms: f64,
+        /// Local player.
+        player: u8,
     },
 }
 impl Default for InputEvent {
     fn default() -> Self {
-        Self::Blur { at_ms: 0.0 }
+        Self::Blur {
+            at_ms: 0.0,
+            player: 0,
+        }
     }
 }
 impl InputEvent {
@@ -246,26 +396,53 @@ impl InputEvent {
         )
     }
     pub(crate) fn same_motion(&self, other: &Self) -> bool {
-        if !self.is_move() || !other.is_move() {
-            return false;
-        }
         match (self, other) {
             (
                 Self::Pointer {
-                    id: a, buttons: ab, ..
+                    id: a,
+                    buttons: ab,
+                    phase: PointerPhase::Move,
+                    ..
                 },
                 Self::Pointer {
-                    id: b, buttons: bb, ..
+                    id: b,
+                    buttons: bb,
+                    phase: PointerPhase::Move,
+                    ..
                 },
             ) => a == b && ab == bb,
             (
                 Self::Control {
-                    name: a, id: ai, ..
+                    name: a,
+                    id: ai,
+                    phase: PointerPhase::Move,
+                    ..
                 },
                 Self::Control {
-                    name: b, id: bi, ..
+                    name: b,
+                    id: bi,
+                    phase: PointerPhase::Move,
+                    ..
                 },
             ) => a == b && ai == bi,
+            // A pad whose buttons did not change only moved its sticks: the
+            // later state replaces the earlier within one tick.
+            (
+                Self::Pad {
+                    index: a,
+                    connected: ac,
+                    standard: astd,
+                    buttons: ab,
+                    ..
+                },
+                Self::Pad {
+                    index: b,
+                    connected: bc,
+                    standard: bstd,
+                    buttons: bb,
+                    ..
+                },
+            ) => a == b && ac == bc && astd == bstd && ab == bb,
             _ => false,
         }
     }
@@ -284,8 +461,9 @@ impl InputEvent {
             | Self::Pointer { at_ms, .. }
             | Self::Control { at_ms, .. }
             | Self::Wheel { at_ms, .. }
+            | Self::Pad { at_ms, .. }
             | Self::Message { at_ms, .. }
-            | Self::Blur { at_ms } => *at_ms = value,
+            | Self::Blur { at_ms, .. } => *at_ms = value,
         }
     }
     pub(crate) fn at_ms(&self) -> f64 {
@@ -294,8 +472,9 @@ impl InputEvent {
             | Self::Pointer { at_ms, .. }
             | Self::Control { at_ms, .. }
             | Self::Wheel { at_ms, .. }
+            | Self::Pad { at_ms, .. }
             | Self::Message { at_ms, .. }
-            | Self::Blur { at_ms } => *at_ms,
+            | Self::Blur { at_ms, .. } => *at_ms,
         }
     }
 }
@@ -335,6 +514,7 @@ pub(crate) struct ControlContact {
     code: Option<String>,
 }
 /// Tick-local action edges and accumulated device state. Only Sim mutates it.
+/// All of it saves: a restore mid-hold continues the hold.
 #[derive(Clone, Default, Data)]
 pub struct Input {
     #[data(skip)]
@@ -347,6 +527,15 @@ pub struct Input {
     wheel: Vec2,
     pub(crate) viewport: Vec2,
     messages: Vec<String>,
+    // Connected pads, by index.
+    pads: Vec<PadState>,
+    // Timers and states of trigger actions mid-gesture, by action name.
+    triggers: Vec<TriggerState>,
+    // The InputContexts and Bindings resources as of the tick's start.
+    contexts: Vec<String>,
+    bindings: Vec<Binding>,
+    // Actions that read up until their binding lifts: rebound or newly in context while held.
+    latched: Vec<String>,
 }
 impl Input {
     pub(crate) fn new(actions: Actions) -> Self {
@@ -362,31 +551,35 @@ impl Input {
         if !event.at_ms().is_finite() {
             return Err("input stamp must be finite".into());
         }
-        if let InputEvent::Message { text, .. } = event {
-            if text.len() > MAX_MESSAGE {
+        match event {
+            InputEvent::Message { text, .. } if text.len() > MAX_MESSAGE => {
                 return Err(format!(
                     "posted message of {} bytes exceeds {MAX_MESSAGE}; post a short command and keep its data in the world",
                     text.len()
                 ));
             }
-        }
-        if let InputEvent::Control { name, x, y, .. } = event {
-            if !self.actions().entries.iter().any(|a| &a.name == name) {
+            InputEvent::Key { code, .. } if code.starts_with("Gamepad") => {
                 return Err(format!(
-                    "unknown control `{name}`; declared actions: {}",
-                    self.actions()
-                        .entries
-                        .iter()
-                        .map(|a| a.name.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    "`{code}` is a pad button: a host reports pads as Pad events (Sim::pad_button in a test)"
                 ));
             }
-            if !x.is_finite() || !y.is_finite() {
-                return Err(format!("control `{name}` needs finite points"));
+            InputEvent::Pad {
+                index,
+                buttons,
+                axes,
+                ..
+            } => pad::valid(*index, buttons, axes)?,
+            InputEvent::Control { name, x, y, .. } => {
+                if self.actions().find(name).is_none() {
+                    return Err(format!(
+                        "unknown control `{name}`; declared actions: {}",
+                        self.actions().names()
+                    ));
+                }
+                if !x.is_finite() || !y.is_finite() {
+                    return Err(format!("control `{name}` needs finite points"));
+                }
             }
-        }
-        match event {
             InputEvent::Pointer { x, y, dx, dy, .. }
                 if !x.is_finite() || !y.is_finite() || !dx.is_finite() || !dy.is_finite() =>
             {
@@ -424,10 +617,21 @@ impl Input {
                     x: p.origin.x,
                     y: p.origin.y,
                     at_ms: 0.,
+                    player: 0,
                 })?;
             }
         }
-        Ok(())
+        if saved
+            .pads
+            .windows(2)
+            .any(|pair| pair[0].index >= pair[1].index)
+        {
+            return Err("saved pads must be sorted by unique index".into());
+        }
+        for pad in &saved.pads {
+            pad.valid()?;
+        }
+        self.validate_triggers(saved)
     }
     pub(crate) fn control_contacts(&self) -> Vec<ControlContact> {
         self.contacts
@@ -458,16 +662,11 @@ impl Input {
         names.into_iter().map(str::to_owned).collect()
     }
     fn action(&self, name: &str) -> &Action {
-        let a = self.actions().entries.iter().find(|a| a.name == name);
+        let a = self.actions().find(name);
         assert!(
             a.is_some(),
             "unknown action `{name}`; declared actions: {}",
-            self.actions()
-                .entries
-                .iter()
-                .map(|a| a.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
+            self.actions().names()
         );
         a.unwrap()
     }
@@ -477,9 +676,24 @@ impl Input {
                 p.action.is_empty() && regions.iter().any(|r| r.contains(p.origin, self.viewport))
             })
     }
+    /// Whether a key, mouse button or pad button (on any pad) is down.
+    pub(crate) fn down(&self, code: &str) -> bool {
+        self.keys.binary_search_by(|k| k.as_str().cmp(code)).is_ok()
+            || pad::pad_index(code).is_some_and(|b| self.pads.iter().any(|p| p.down(b)))
+    }
+    /// The action's keys after `World::rebind` (a stick's are never rebound).
+    fn keys_of<'a>(&'a self, a: &'a Action) -> &'a [String] {
+        self.bindings
+            .iter()
+            .find(|b| b.action == a.name && a.stick.is_none())
+            .map_or(&a.keys, |b| &b.keys)
+    }
+    fn in_context(&self, a: &Action) -> bool {
+        a.context.as_ref().is_none_or(|c| self.contexts.contains(c))
+    }
     fn direction(&self, name: &str, s: &Stick) -> Vec2 {
         let mut v = Vec2::ZERO;
-        let down = |i| s.keys.iter().any(|keys| self.keys.contains(&keys[i]));
+        let down = |i: usize| s.keys.iter().any(|keys| self.down(&keys[i]));
         v.x = i32::from(down(3)) as f32 - i32::from(down(2)) as f32;
         v.y = i32::from(down(0)) as f32 - i32::from(down(1)) as f32;
         for p in &self.contacts {
@@ -491,15 +705,40 @@ impl Input {
                 v += (p.position - p.origin) * Vec2::new(1.0, -1.0) / 60.0;
             }
         }
+        for pad in &self.pads {
+            for &control in &s.pads {
+                v += pad::shape(
+                    pad.stick(control),
+                    s.dead_zone.unwrap_or(pad::DEAD_ZONE),
+                    s.curve,
+                );
+            }
+        }
         v.clamp_length_max(1.0)
     }
-    fn active(&self, a: &Action) -> bool {
-        a.keys.iter().any(|k| self.keys.contains(k))
+    /// Whether the action's devices are down, before contexts and latches.
+    fn raw(&self, a: &Action) -> bool {
+        let keys = self.keys_of(a);
+        if a.trigger == Trigger::Chord {
+            return keys.iter().all(|k| self.down(k));
+        }
+        keys.iter().any(|k| self.down(k))
             || self.touching(&a.touch)
             || (a.stick.is_none() && self.contacts.iter().any(|p| p.action == a.name))
             || a.stick
                 .as_ref()
                 .is_some_and(|s| self.direction(&a.name, s) != Vec2::ZERO)
+    }
+    /// Whether the action's binding is down where the game can read it.
+    fn bound(&self, a: &Action) -> bool {
+        self.in_context(a) && !self.latched.contains(&a.name) && self.raw(a)
+    }
+    fn active(&self, a: &Action) -> bool {
+        match a.trigger {
+            Trigger::Button => self.bound(a),
+            Trigger::Tap(_) => false,
+            Trigger::Hold(_) | Trigger::Double(_) | Trigger::Chord => self.trigger_on(&a.name),
+        }
     }
     /// Whether the declared action is held now.
     pub fn held(&self, name: &str) -> bool {
@@ -522,10 +761,11 @@ impl Input {
     }
     /// Read a directional action in its two-dimensional input plane.
     pub fn stick(&self, name: &str) -> Vec2 {
-        self.action(name)
-            .stick
-            .as_ref()
-            .map_or(Vec2::ZERO, |s| self.direction(name, s))
+        let a = self.action(name);
+        match &a.stick {
+            Some(s) if self.in_context(a) => self.direction(name, s),
+            _ => Vec2::ZERO,
+        }
     }
     /// Primary contact or hover; its delta expires after this tick.
     pub fn pointer(&self) -> Option<PointerState> {
@@ -547,6 +787,44 @@ impl Input {
     pub fn viewport(&self) -> Vec2 {
         self.viewport
     }
+    /// A connected pad's state as the host last reported it.
+    pub fn pad(&self, index: u32) -> Option<PadState> {
+        self.pads.iter().find(|p| p.index == index).copied()
+    }
+    /// The agent's `state` input record: the declarations, the devices held
+    /// (`forwarded…` includes events still queued, from `host`), the pads as
+    /// reported, contexts, bindings, and the actions held and fired at the
+    /// last tick.
+    pub(crate) fn state_json(&self, host: &Self, refused_posts: u64) -> Result<String, String> {
+        fn json<T: Data>(v: &T) -> Result<String, String> {
+            let mut w = crate::json::Encoder::rounded();
+            v.write(&mut w);
+            w.finish().map_err(|e| e.to_string())
+        }
+        let held: Vec<String> = self
+            .actions()
+            .entries
+            .iter()
+            .filter(|a| self.active(a))
+            .map(|a| a.name.clone())
+            .collect();
+        Ok(format!(
+            "{{\"actions\":{},\"held\":{},\"forwarded\":{},\"controls\":{},\"forwardedControls\":{},\"controlContacts\":{},\"pads\":{},\"contexts\":{},\"bindings\":{},\"latched\":{},\"heldActions\":{},\"fired\":{{\"pressed\":{},\"released\":{}}},\"refusedPosts\":{refused_posts}}}",
+            self.actions().json(),
+            json(&self.keys)?,
+            json(&host.keys)?,
+            json(&self.held_controls())?,
+            json(&host.held_controls())?,
+            json(&host.control_contacts())?,
+            json(&host.pads)?,
+            json(&self.contexts)?,
+            json(&self.bindings)?,
+            json(&self.latched)?,
+            json(&held)?,
+            json(&self.pressed)?,
+            json(&self.released)?,
+        ))
+    }
     pub(crate) fn clear_edges(&mut self) {
         self.messages.clear();
         self.pressed.clear();
@@ -561,11 +839,17 @@ impl Input {
         self.keys = saved.keys;
         self.pointer = saved.pointer;
         self.contacts = saved.contacts;
+        self.pads = saved.pads;
+        self.triggers = saved.triggers;
+        self.contexts = saved.contexts;
+        self.bindings = saved.bindings;
+        self.latched = saved.latched;
         self.clear_edges();
     }
-    pub(crate) fn apply_paused(&mut self, event: InputEvent) {
+    /// Held state changes; trigger timers start at `at_us`; no edges remain.
+    pub(crate) fn apply_paused(&mut self, event: InputEvent, at_us: i64) {
         if !matches!(event, InputEvent::Wheel { .. }) {
-            self.apply_state(event);
+            self.apply(event, at_us);
         }
         self.clear_edges();
     }
@@ -575,7 +859,10 @@ impl Input {
             .filter(|(code, _)| self.keys.binary_search_by(|k| k.as_str().cmp(code)).is_ok())
             .fold(0, |mask, (_, bit)| mask | bit)
     }
-    pub(crate) fn apply(&mut self, event: InputEvent) {
+    /// Apply one event stamped at world microsecond `at_us`, recording the
+    /// edges it makes.
+    pub(crate) fn apply(&mut self, event: InputEvent, at_us: i64) {
+        self.mature(|due| due <= at_us);
         if matches!(event, InputEvent::Wheel { .. } | InputEvent::Message { .. })
             || (matches!(
                 event,
@@ -590,22 +877,42 @@ impl Input {
         {
             return self.apply_state(event);
         }
-        let before: Vec<_> = self
-            .actions()
+        let actions = self.actions.clone().unwrap_or_default();
+        let before: Vec<_> = actions
             .entries
             .iter()
-            .map(|a| self.active(a))
+            .map(|a| (self.bound(a), self.active(a), self.last_key_down(a)))
             .collect();
         self.apply_state(event);
-        let actions = self.actions.as_deref().unwrap_or(&NO_ACTIONS);
-        for (a, was) in actions.entries.iter().zip(before) {
+        // A latch lifts with its binding: the next press is a press.
+        let latched = std::mem::take(&mut self.latched);
+        self.latched = latched
+            .into_iter()
+            .filter(|name| actions.find(name).is_some_and(|a| self.raw(a)))
+            .collect();
+        for (a, (was_bound, was, last_was_down)) in actions.entries.iter().zip(before) {
+            if a.trigger != Trigger::Button {
+                self.step_trigger(a, was_bound, last_was_down, at_us);
+                continue;
+            }
             let now = self.active(a);
-            if now && !was && !self.pressed.contains(&a.name) {
-                self.pressed.push(a.name.clone());
+            if now && !was {
+                self.press(&a.name);
             }
-            if was && !now && !self.released.contains(&a.name) {
-                self.released.push(a.name.clone());
+            if was && !now {
+                self.release(&a.name);
             }
+        }
+        self.triggers.retain(TriggerState::live);
+    }
+    fn press(&mut self, name: &str) {
+        if !self.pressed.iter().any(|n| n == name) {
+            self.pressed.push(name.into());
+        }
+    }
+    fn release(&mut self, name: &str) {
+        if !self.released.iter().any(|n| n == name) {
+            self.released.push(name.into());
         }
     }
     fn apply_state(&mut self, event: InputEvent) {
@@ -658,8 +965,41 @@ impl Input {
             InputEvent::Blur { .. } => {
                 self.keys.clear();
                 self.contacts.clear();
+                self.pads.clear();
                 self.wheel = Vec2::ZERO;
                 self.pointer = None;
+            }
+            InputEvent::Pad {
+                index,
+                connected,
+                standard,
+                buttons,
+                axes,
+                ..
+            } => {
+                let at = self.pads.binary_search_by_key(&index, |p| p.index);
+                let state = PadState {
+                    index,
+                    standard,
+                    ..PadState::default()
+                };
+                let state = if standard {
+                    PadState {
+                        buttons,
+                        axes,
+                        ..state
+                    }
+                } else {
+                    state
+                };
+                match (at, connected) {
+                    (Ok(i), false) => {
+                        self.pads.remove(i);
+                    }
+                    (Err(_), false) => {}
+                    (Ok(i), true) => self.pads[i] = state,
+                    (Err(i), true) => self.pads.insert(i, state),
+                }
             }
             InputEvent::Pointer {
                 id,
@@ -755,626 +1095,4 @@ impl Input {
 }
 
 #[cfg(test)]
-mod control_tests {
-    use super::*;
-
-    fn pointer_event(id: u64, phase: PointerPhase, x: f32, buttons: u32) -> InputEvent {
-        InputEvent::Pointer {
-            id,
-            phase,
-            x,
-            y: 10.,
-            dx: 0.,
-            dy: 0.,
-            buttons,
-            at_ms: 0.,
-        }
-    }
-    #[test]
-    fn primary_origin_survives_both_button_chords_and_secondary_release() {
-        for right_first in [false, true] {
-            let mut input = Input::new(Actions::new().button("fire", &["MouseLeft"]));
-            input.apply(pointer_event(1, PointerPhase::Move, 90., 0));
-            assert!(input.pointer().unwrap().press_origin.is_none());
-            if right_first {
-                input.apply(pointer_event(1, PointerPhase::Down, 80., 2));
-            }
-            input.apply(pointer_event(
-                1,
-                PointerPhase::Down,
-                20.,
-                if right_first { 3 } else { 1 },
-            ));
-            input.clear_edges();
-            if !right_first {
-                input.apply(pointer_event(1, PointerPhase::Down, 50., 3));
-            }
-            assert_eq!(
-                input.pointer().unwrap().press_origin,
-                Some(Vec2::new(20., 10.))
-            );
-            assert_eq!(input.contacts[0].origin, Vec2::new(20., 10.));
-            input.apply(pointer_event(1, PointerPhase::Up, 60., 1));
-            assert!(input.pointer().unwrap().down && input.held("fire"));
-            assert!(!input.released("fire"));
-            assert_eq!(input.contacts.len(), 1);
-            assert_eq!(input.contacts[0].origin, Vec2::new(20., 10.));
-            input.apply(pointer_event(1, PointerPhase::Up, 70., 0));
-            assert!(!input.pointer().unwrap().down && input.released("fire"));
-            assert_eq!(
-                input.pointer().unwrap().press_origin,
-                Some(Vec2::new(20., 10.))
-            );
-            assert!(input.contacts.is_empty());
-            input.apply(pointer_event(1, PointerPhase::Down, 30., 1));
-            assert_eq!(
-                input.pointer().unwrap().press_origin,
-                Some(Vec2::new(30., 10.))
-            );
-            input.clear_edges();
-            input.apply(pointer_event(1, PointerPhase::Down, 50., 3));
-            input.apply(pointer_event(1, PointerPhase::Up, 60., 2));
-            assert!(input.pointer().unwrap().down && input.released("fire"));
-            assert!(!input.held("fire"));
-            assert_eq!(input.contacts.len(), 1);
-            assert_eq!(
-                input.pointer().unwrap().press_origin,
-                Some(Vec2::new(30., 10.))
-            );
-            input.apply(pointer_event(1, PointerPhase::Up, 70., 0));
-            assert!(!input.pointer().unwrap().down && input.contacts.is_empty());
-        }
-    }
-    #[test]
-    fn touch_origin_survives_up_but_cancel_blur_and_replacement_clear_it() {
-        let mut input = Input::default();
-        input.apply(pointer_event(7, PointerPhase::Down, 20., 0));
-        input.apply(pointer_event(7, PointerPhase::Move, 60., 0));
-        input.apply(pointer_event(7, PointerPhase::Up, 70., 0));
-        assert_eq!(
-            input.pointer().unwrap().press_origin,
-            Some(Vec2::new(20., 10.))
-        );
-        input.clear_edges();
-        assert_eq!(
-            input.pointer().unwrap().press_origin,
-            Some(Vec2::new(20., 10.))
-        );
-        input.apply(pointer_event(9, PointerPhase::Down, 80., 2));
-        assert_eq!(input.pointer().unwrap().id, 9);
-        assert!(input.pointer().unwrap().press_origin.is_none());
-        input.apply(pointer_event(9, PointerPhase::Cancel, 80., 0));
-        input.apply(pointer_event(12, PointerPhase::Down, 30., 0));
-        input.apply(pointer_event(12, PointerPhase::Cancel, 80., 0));
-        assert!(input.pointer().unwrap().press_origin.is_none());
-        input.apply(pointer_event(12, PointerPhase::Down, 40., 0));
-        input.apply(InputEvent::Blur { at_ms: 0. });
-        assert!(input.pointer().is_none());
-    }
-    #[test]
-    fn malformed_saved_press_origins_are_refused_before_live_state_changes() {
-        use crate::{Game, Sim, World};
-        struct Empty;
-        impl Game for Empty {
-            const ID: &'static str = "origin-preflight";
-            type Args = ();
-            fn setup(_: &mut World, _: &()) {}
-            fn tick(_: &mut World, _: &Input, _: &()) {}
-        }
-        let mut live = Sim::<Empty>::new(()).unwrap();
-        let before = live.save().unwrap();
-        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-            let mut source = Sim::<Empty>::new(()).unwrap();
-            source
-                .input
-                .apply(pointer_event(1, PointerPhase::Down, 20., 1));
-            source.input.pointer.as_mut().unwrap().press_origin = Some(Vec2::new(value, 10.));
-            let malformed = source.save().unwrap();
-            assert!(live
-                .restore(&malformed)
-                .unwrap_err()
-                .to_string()
-                .contains("finite"));
-            assert_eq!(live.save().unwrap(), before);
-        }
-    }
-
-    #[test]
-    fn restore_rejects_unknown_saved_control_atomically() {
-        use crate::{Clock, Game, Sim, World};
-        struct Old;
-        struct New;
-        impl Game for Old {
-            const ID: &'static str = "renamed";
-            type Args = ();
-            fn actions() -> Actions {
-                Actions::new().button("old", &[])
-            }
-            fn setup(_: &mut World, _: &()) {}
-            fn tick(_: &mut World, _: &Input, _: &()) {}
-        }
-        impl Game for New {
-            const ID: &'static str = "renamed";
-            type Args = ();
-            fn actions() -> Actions {
-                Actions::new().button("new", &[])
-            }
-            fn setup(_: &mut World, _: &()) {}
-            fn tick(_: &mut World, _: &Input, _: &()) {}
-        }
-        for queued in [true, false] {
-            let mut old = Sim::<Old>::new(()).unwrap();
-            old.advance(0., Clock::Seekable);
-            old.input(control("old", 7, PointerPhase::Down, 10., 20.));
-            if !queued {
-                old.advance(100., Clock::Seekable);
-            }
-            let mut new = Sim::<New>::new(()).unwrap();
-            let before = new.save().unwrap();
-            let error = new.restore(&old.save().unwrap()).unwrap_err().to_string();
-            assert!(
-                error.contains("old") && error.contains("control"),
-                "{error}"
-            );
-            assert_eq!(new.save().unwrap(), before);
-        }
-    }
-    #[test]
-    fn saved_keys_require_sorted_unique_order_before_restore_commits() {
-        use crate::{Clock, Game, Sim, World};
-        struct Keys;
-        impl Game for Keys {
-            const ID: &'static str = "saved-key-order";
-            type Args = ();
-            fn actions() -> Actions {
-                Actions::new().button("z", &["KeyZ"])
-            }
-            fn setup(_: &mut World, _: &()) {}
-            fn tick(w: &mut World, input: &Input, _: &()) {
-                w.publish("held", input.held("z"));
-            }
-        }
-        let mut source = Sim::<Keys>::new(()).unwrap();
-        let mut live = Sim::<Keys>::new(()).unwrap();
-        live.advance(0., Clock::Seekable);
-        live.key_down("KeyB");
-        live.advance(17., Clock::Seekable);
-        live.key_down("KeyZ"); // Preserve a pending press across refusal too.
-        let before = live.save().unwrap();
-        let state = live.agent(r#"{"op":"state"}"#);
-        let hash = live.world().hash();
-        for keys in [
-            vec!["KeyZ", "KeyA"],
-            vec!["KeyA", "KeyA"],
-            vec!["KeyZ", "KeyA", "KeyZ"],
-        ] {
-            source.input.keys = keys.iter().map(|s| (*s).into()).collect();
-            let malformed = source.save().unwrap();
-            for bound in [false, true] {
-                let error = if bound {
-                    live.restore_bound(&malformed)
-                } else {
-                    live.restore(&malformed)
-                }
-                .unwrap_err()
-                .to_string();
-                assert!(
-                    error.contains("saved keys must be sorted and unique"),
-                    "{error}"
-                );
-                assert_eq!(live.save().unwrap(), before);
-                assert_eq!(live.agent(r#"{"op":"state"}"#), state);
-                assert_eq!(live.world().hash(), hash);
-            }
-        }
-        for keys in [vec![], vec!["KeyZ"], vec!["KeyA", "KeyZ"]] {
-            source.input.keys = keys.iter().map(|s| (*s).into()).collect();
-            let saved = source.save().unwrap();
-            let mut restored = Sim::<Keys>::new(()).unwrap();
-            restored.restore(&saved).unwrap();
-            assert_eq!(restored.save().unwrap(), saved);
-            restored.advance(1000., Clock::Seekable);
-            restored.key_up("KeyZ");
-            restored.advance(1017., Clock::Seekable);
-            assert!(!restored.input.keys.iter().any(|key| key == "KeyZ"));
-            assert_eq!(
-                restored.take_published().as_deref(),
-                Some(r#"{"held":false}"#)
-            );
-        }
-    }
-
-    #[test]
-    fn saved_contacts_validate_origins_positions_and_keyboard_identity() {
-        let mut original = input();
-        original.apply(control("jump", 4294967294, PointerPhase::Down, 10., 20.));
-        let record = crate::json::to_string(&original.control_contacts()).unwrap();
-        assert!(
-            record.contains("\"code\":[\"Space\"]") && record.contains("\"id\":4294967294"),
-            "{record}"
-        );
-        for origin in [true, false] {
-            let mut bad = original.clone();
-            if origin {
-                bad.contacts[0].origin.x = f32::NAN;
-            } else {
-                bad.contacts[0].position.y = f32::INFINITY;
-            }
-            assert!(input().validate_saved(&bad).unwrap_err().contains("finite"));
-        }
-        for event in [
-            control("jump", 1, PointerPhase::Move, f32::NAN, 0.),
-            InputEvent::Pointer {
-                id: 1,
-                phase: PointerPhase::Down,
-                x: f32::INFINITY,
-                y: 0.,
-                dx: 0.,
-                dy: 0.,
-                buttons: 1,
-                at_ms: 0.,
-            },
-            InputEvent::Pointer {
-                id: 1,
-                phase: PointerPhase::Move,
-                x: 0.,
-                y: 0.,
-                dx: f32::NAN,
-                dy: 0.,
-                buttons: 0,
-                at_ms: 0.,
-            },
-        ] {
-            assert!(input().validate(&event).unwrap_err().contains("finite"));
-        }
-    }
-    #[test]
-    fn invalid_control_application_never_panics() {
-        let mut input = input();
-        input.apply(control("missing", 1, PointerPhase::Down, 0., 0.));
-        assert!(input.held_controls().is_empty());
-    }
-    #[test]
-    fn wheel_preserves_action_edges_and_expires_after_the_tick() {
-        let mut input = input();
-        input.apply(control("jump", 1, PointerPhase::Down, 0., 0.));
-        input.apply(control("jump", 1, PointerPhase::Up, 0., 0.));
-        input.apply(control("move", 2, PointerPhase::Down, 0., 0.));
-        input.apply(control("move", 2, PointerPhase::Move, 60., 0.));
-        for (dx, dy) in [(2.5, -3.), (-1.5, 7.), (f32::NAN, 1.)] {
-            input.apply(InputEvent::Wheel { dx, dy, at_ms: 0. });
-        }
-        assert_eq!(input.wheel(), Vec2::new(1., 4.));
-        assert!(input.pressed("jump") && input.released("jump") && !input.held("jump"));
-        assert!(input.pressed("move") && input.held("move") && !input.released("move"));
-        assert_eq!(input.stick_xz("move"), crate::Vec3::X);
-        input.clear_edges();
-        assert_eq!(input.wheel(), Vec2::ZERO);
-        assert!(!input.pressed("jump") && !input.released("jump"));
-        assert!(input.held("move") && !input.pressed("move"));
-        input.apply_paused(InputEvent::Wheel {
-            dx: 2.,
-            dy: 3.,
-            at_ms: 0.,
-        });
-        assert_eq!(input.wheel(), Vec2::ZERO);
-        assert!(input.held("move"));
-    }
-    #[test]
-    fn hover_keeps_pointer_motion_and_key_edges_without_suppressing_drag_edges() {
-        let mut input = Input::new(
-            Actions::new()
-                .stick("move", Stick::wasd().or_touch(Region::Left))
-                .button("jump", &["Space"]),
-        );
-        input.viewport = Vec2::new(640., 480.);
-        for (code, down) in [("Space", true), ("Space", false), ("KeyD", true)] {
-            input.apply(InputEvent::Key {
-                code: code.into(),
-                down,
-                at_ms: 0.,
-            });
-        }
-        let last = std::cell::Cell::new(Vec2::new(20., 40.));
-        let pointer = |phase, x, y| {
-            let to = Vec2::new(x, y);
-            let by = to - last.get();
-            if to.is_finite() {
-                last.set(to);
-            }
-            InputEvent::Pointer {
-                id: 1,
-                phase,
-                x,
-                y,
-                dx: by.x,
-                dy: by.y,
-                buttons: u32::from(phase == PointerPhase::Down),
-                at_ms: 0.,
-            }
-        };
-        for (x, y) in [(20., 40.), (50., 70.), (f32::NAN, 70.), (80., 90.)] {
-            input.apply(pointer(PointerPhase::Move, x, y));
-        }
-        let p = input.pointer().unwrap();
-        assert_eq!(p.position, Vec2::new(80., 90.));
-        assert_eq!(p.delta, Vec2::new(60., 50.));
-        assert!(!p.down);
-        assert!(input.pressed("jump") && input.released("jump") && !input.held("jump"));
-        assert!(input.pressed("move") && input.held("move") && !input.released("move"));
-        input.clear_edges();
-        assert_eq!(input.pointer().unwrap().delta, Vec2::ZERO);
-        assert!(!input.pressed("jump") && !input.released("jump"));
-        input.apply(pointer(PointerPhase::Down, 80., 90.));
-        input.apply(pointer(PointerPhase::Move, 20., 90.));
-        assert!(input.pointer().unwrap().down);
-        assert!(input.released("move") && !input.held("move"));
-        assert_eq!(input.stick_xz("move"), crate::Vec3::ZERO);
-        input.apply(pointer(PointerPhase::Move, 80., 90.));
-        assert!(input.pressed("move") && input.released("move") && input.held("move"));
-        assert_eq!(input.stick_xz("move"), crate::Vec3::X);
-        input.apply(pointer(PointerPhase::Up, 80., 90.));
-        input.apply(pointer(PointerPhase::Move, 90., 100.));
-        assert!(!input.pointer().unwrap().down);
-        assert_eq!(input.pointer().unwrap().delta, Vec2::new(10., 10.));
-        assert!(input.pressed("move") && input.released("move") && input.held("move"));
-    }
-    #[test]
-    fn mouse_buttons_bind_as_keys_and_motion_is_the_devices() {
-        let mut input = Input::new(
-            Actions::new()
-                .button("fire", &["MouseLeft"])
-                .button("aim", &["MouseRight"])
-                .button("ping", &["MouseMiddle"]),
-        );
-        let mouse = |phase, dx, buttons| InputEvent::Pointer {
-            id: 1,
-            phase,
-            x: 10.,
-            y: 10.,
-            dx,
-            dy: -1.,
-            buttons,
-            at_ms: 0.,
-        };
-        // A locked pointer: the position stays, the motion is unbounded.
-        for _ in 0..3 {
-            input.apply(mouse(PointerPhase::Move, 500., 0));
-        }
-        let p = input.pointer().unwrap();
-        assert_eq!(
-            (p.position, p.delta),
-            (Vec2::new(10., 10.), Vec2::new(1500., -3.))
-        );
-        input.clear_edges();
-        // The secondary button alone begins the contact, as the web's pointerdown.
-        input.apply(mouse(PointerPhase::Down, 0., 2));
-        assert!(input.pressed("aim") && input.held("aim") && !input.held("fire"));
-        input.clear_edges();
-        // Chorded buttons change on moves.
-        input.apply(mouse(PointerPhase::Move, 2., 3));
-        input.apply(mouse(PointerPhase::Move, 2., 7));
-        assert!(input.pressed("fire") && input.pressed("ping") && !input.pressed("aim"));
-        assert!(input.held("aim") && input.held("fire") && input.held("ping"));
-        input.clear_edges();
-        input.apply(mouse(PointerPhase::Move, 2., 6));
-        assert!(input.released("fire") && input.held("aim"));
-        input.apply(mouse(PointerPhase::Up, 0., 0));
-        assert!(input.released("aim") && input.released("ping"));
-        assert!(!input.held("aim") && !input.held("fire") && !input.held("ping"));
-        input.clear_edges();
-        // A hover move with a button held (pressed off the canvas) holds it;
-        // blur releases every device.
-        input.apply(mouse(PointerPhase::Move, 1., 2));
-        assert!(input.pressed("aim") && input.held("aim"));
-        input.apply(InputEvent::Blur { at_ms: 0. });
-        assert!(!input.held("aim"));
-    }
-    #[test]
-    fn repeated_keys_preserve_edges_and_independent_control_ownership() {
-        let mut input = Input::new(Actions::new().button("jump", &["Space", "KeyJ"]));
-        let key = |code: &str, down, at_ms| InputEvent::Key {
-            code: code.into(),
-            down,
-            at_ms,
-        };
-        input.apply(key("Space", true, 0.));
-        assert!(input.held("jump") && input.pressed("jump") && !input.released("jump"));
-        let saved = crate::bin::to_vec(&input);
-        for at_ms in [1., f64::NAN] {
-            input.apply(key("Space", true, at_ms));
-            assert_eq!(crate::bin::to_vec(&input), saved);
-        }
-        input.clear_edges();
-        input.apply(key("Space", true, 2.));
-        assert!(input.held("jump") && !input.pressed("jump") && !input.released("jump"));
-        input.apply(key("KeyJ", true, 3.));
-        input.apply(key("Space", false, 4.));
-        assert!(input.held("jump") && !input.pressed("jump") && !input.released("jump"));
-        let saved = crate::bin::to_vec(&input);
-        for code in ["Space", "KeyZ"] {
-            input.apply(key(code, false, 5.));
-            assert_eq!(crate::bin::to_vec(&input), saved);
-        }
-        input.apply(control("jump", 1, PointerPhase::Down, 0., 0.));
-        input.apply(key("KeyJ", false, 6.));
-        input.apply(key("KeyJ", false, 7.));
-        assert!(input.held("jump") && !input.pressed("jump") && !input.released("jump"));
-        input.apply(control("jump", 1, PointerPhase::Up, 0., 0.));
-        assert!(!input.held("jump") && !input.pressed("jump") && input.released("jump"));
-        let saved = crate::bin::to_vec(&input);
-        input.apply(key("KeyJ", false, 8.));
-        assert_eq!(crate::bin::to_vec(&input), saved);
-        input.clear_edges();
-        input.apply(key("Space", true, 9.));
-        assert!(input.held("jump") && input.pressed("jump") && !input.released("jump"));
-    }
-    fn control(name: &str, id: u64, phase: PointerPhase, x: f32, y: f32) -> InputEvent {
-        InputEvent::Control {
-            name: name.into(),
-            id,
-            phase,
-            x,
-            y,
-            at_ms: 0.0,
-        }
-    }
-    fn input() -> Input {
-        Input::new(
-            Actions::new()
-                .stick("move", Stick::wasd())
-                .button("jump", &["Space"])
-                .button("light", &["KeyE"]),
-        )
-    }
-    #[test]
-    fn cloned_inputs_keep_keys_contacts_and_edges_independent() {
-        fn send_sync<T: Send + Sync>() {}
-        send_sync::<Input>();
-        let mut original = input();
-        original.apply(InputEvent::Key {
-            code: "Space".into(),
-            down: true,
-            at_ms: 0.,
-        });
-        original.apply(control("move", 1, PointerPhase::Down, 10., 10.));
-        original.apply(control("move", 1, PointerPhase::Move, 70., 10.));
-        let saved = crate::bin::to_vec(&original);
-        let mut copy = original.clone();
-        copy.apply(InputEvent::Blur { at_ms: 0. });
-        assert!(!copy.held("jump"));
-        assert!(copy.released("jump"));
-        assert_eq!(copy.stick_xz("move"), crate::Vec3::ZERO);
-        assert!(original.held("jump") && original.pressed("jump"));
-        assert_eq!(original.stick_xz("move"), crate::Vec3::X);
-        assert_eq!(crate::bin::to_vec(&original), saved);
-        original.clear_edges();
-        assert!(!original.pressed("jump"));
-        assert!(copy.released("jump"));
-        copy.restore_dynamic(crate::bin::from_slice(&saved).unwrap());
-        assert!(copy.held("jump") && !copy.pressed("jump"));
-        assert_eq!(copy.stick_xz("move"), crate::Vec3::X);
-    }
-    #[test]
-    fn app_controls_share_actions_with_keys_and_release_independently() {
-        let mut input = input();
-        input.apply(control("jump", 1, PointerPhase::Down, 0., 0.));
-        assert!(input.pressed("jump") && input.held("jump"));
-        input.clear_edges();
-        input.apply(InputEvent::Key {
-            code: "Space".into(),
-            down: true,
-            at_ms: 0.,
-        });
-        assert!(!input.pressed("jump"));
-        input.apply(control("jump", 1, PointerPhase::Cancel, 0., 0.));
-        assert!(input.held("jump") && !input.released("jump"));
-        input.apply(InputEvent::Key {
-            code: "Space".into(),
-            down: false,
-            at_ms: 0.,
-        });
-        assert!(input.released("jump") && !input.held("jump"));
-        input.apply(control("light", 2, PointerPhase::Down, 0., 0.));
-        input.apply(control("light", 2, PointerPhase::Up, 0., 0.));
-        assert!(input.pressed("light") && input.released("light"));
-        input.apply(control("light", 3, PointerPhase::Down, 0., 0.));
-        input.apply(control("jump", 4, PointerPhase::Down, 0., 0.));
-        input.apply(control("jump", 5, PointerPhase::Down, 0., 0.));
-        assert_eq!(input.held_controls(), ["jump", "light"]);
-        input.apply(control("jump", 4, PointerPhase::Up, 0., 0.));
-        assert_eq!(input.held_controls(), ["jump", "light"]);
-        input.apply(control("jump", 5, PointerPhase::Cancel, 0., 0.));
-        assert_eq!(input.held_controls(), ["light"]);
-        input.apply(control("light", 3, PointerPhase::Up, 0., 0.));
-        assert!(input.held_controls().is_empty());
-    }
-    #[test]
-    fn app_stick_is_local_unit_clamped_saved_and_cancelled_on_blur() {
-        let mut input = input();
-        input.apply(control("move", 1, PointerPhase::Down, 40., 40.));
-        input.apply(control("move", 1, PointerPhase::Move, 100., 40.));
-        input.apply(control("jump", 2, PointerPhase::Down, 0., 0.));
-        assert_eq!(input.stick_xz("move"), crate::Vec3::X);
-        assert!(input.held("jump"));
-        let saved = crate::bin::to_vec(&input);
-        let mut restored = self::input();
-        restored.restore_dynamic(crate::bin::from_slice(&saved).unwrap());
-        assert_eq!(restored.stick_xz("move"), crate::Vec3::X);
-        assert!(restored.held("jump") && !restored.pressed("jump"));
-        restored.apply(control("move", 1, PointerPhase::Move, 100., -20.));
-        let direction = restored.stick_xz("move");
-        assert!((direction.length() - 1.).abs() < 1e-6 && direction.z < 0.);
-        restored.apply(InputEvent::Blur { at_ms: 0. });
-        assert_eq!(restored.stick_xz("move"), crate::Vec3::ZERO);
-        assert!(!restored.held("jump"));
-    }
-
-    #[test]
-    fn queued_ui_contact_continues_identically_in_a_fresh_simulation() {
-        use crate::{Clock, Game, Sim, Transform, World};
-        struct Controlled;
-        impl Game for Controlled {
-            const ID: &'static str = "ui-control-test";
-            const HZ: u32 = 60;
-            type Args = ();
-            fn actions() -> Actions {
-                input().actions().clone()
-            }
-            fn setup(w: &mut World, _: &()) {
-                w.spawn_named("player", (Transform::default(),));
-            }
-            fn tick(w: &mut World, input: &Input, _: &()) {
-                let mut t = w.get_mut::<Transform>("player").unwrap();
-                t.position += input.stick_xz("move");
-                if input.pressed("jump") {
-                    t.position.y += 1.;
-                }
-            }
-        }
-        for mode in [
-            crate::Paranoid::Off,
-            crate::Paranoid::Save,
-            crate::Paranoid::FreshGame,
-        ] {
-            let mut sim = Sim::<Controlled>::new(()).unwrap().paranoid(mode);
-            sim.advance(1000., Clock::Seekable);
-            let mut down = control("move", 1, PointerPhase::Down, 0., 0.);
-            down.set_at_ms(800.); // Past stamps, like keys, become due now.
-            sim.input(down);
-            let mut motion = control("move", 1, PointerPhase::Move, 60., 0.);
-            motion.set_at_ms(900.);
-            sim.input(motion);
-            sim.advance(1100., Clock::Seekable);
-            assert_eq!(sim.get::<Transform>("player").unwrap().position.x, 6.);
-            assert_eq!(sim.held_controls(), ["move"]);
-            let saved = sim.save().unwrap(); // Contact is held inside Input, not just queued.
-            let mut restored = Sim::<Controlled>::new(()).unwrap().paranoid(mode);
-            restored.restore(&saved).unwrap();
-            restored.advance(1100., Clock::Seekable);
-            for game in [&mut sim, &mut restored] {
-                let mut jump = control("jump", 2, PointerPhase::Down, 0., 0.);
-                jump.set_at_ms(1200.);
-                game.input(jump);
-                game.advance(1200., Clock::Seekable);
-                assert_eq!(game.get::<Transform>("player").unwrap().position.y, 0.);
-                game.advance(1217., Clock::Seekable);
-                assert_eq!(game.get::<Transform>("player").unwrap().position.y, 1.);
-                assert!(game
-                    .agent(r#"{"op":"state"}"#)
-                    .contains(r#""controls":["jump","move"]"#));
-                let bad = control("typo", 3, PointerPhase::Down, 0., 0.);
-                assert!(game.validate_input(&bad).unwrap_err().contains("typo"));
-                game.input(bad); // Never panics even for direct callers.
-                let mut invalid = control("jump", 4, PointerPhase::Down, 0., 0.);
-                invalid.set_at_ms(f64::NAN);
-                assert!(game.validate_input(&invalid).is_err());
-                game.input(invalid);
-                game.input(InputEvent::Blur { at_ms: 1217. });
-                game.advance(1300., Clock::Seekable);
-                assert!(game.held_controls().is_empty());
-            }
-            assert_eq!(sim.save().unwrap(), restored.save().unwrap());
-        }
-    }
-}
+mod tests;
