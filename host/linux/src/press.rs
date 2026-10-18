@@ -42,6 +42,20 @@ pub(crate) fn paints(style: &exact_kernel::StyleProps) -> bool {
     .any(|row| style.mask.has(row))
 }
 
+/// Whether the host may paint `property` over `node`'s own: a press's
+/// paint, or a `:hover` or `:focus-visible` look naming it.
+pub(crate) fn paints_over(node: &exact_kernel::NodeRef<'_>, property: Property) -> bool {
+    use exact_kernel::StyleId::*;
+    let (rows, row): (&[exact_kernel::StyleId], _) = match property {
+        Property::Opacity => (&[PressOpacity, PressOpacityTo], Opacity),
+        Property::BackgroundColor => (&[PressBackgroundColor], BackgroundColor),
+        Property::Color => (&[PressColor], TextColor),
+        _ => return false,
+    };
+    rows.iter().any(|r| node.style.mask.has(*r))
+        || node.looks().iter().any(|(_, l)| l.mask.has(row))
+}
+
 /// Whether a press on `node` shows anything of its own: a scale or the
 /// pressed paint.
 pub(crate) fn shows(node: &exact_kernel::NodeRef<'_>) -> bool {
@@ -65,12 +79,15 @@ pub(crate) fn present(
         (LOOK_HOVER, shown.looks[0]),
         (LOOK_FOCUS_VISIBLE, shown.looks[1]),
     ] {
-        let look = node
-            .looks()
-            .iter()
-            .find(|(s, l)| *s == state && l.mask.has(StyleId::Opacity));
+        let names = |l: &exact_kernel::StyleProps| l.mask.union(l.written).has(StyleId::Opacity);
+        let look = node.looks().iter().find(|(s, l)| *s == state && names(l));
         if let Some((_, l)) = look.filter(|_| on) {
-            shown.opacity = l.opacity;
+            // A cleared opacity (`unset`) is CSS's initial one.
+            shown.opacity = if l.mask.has(StyleId::Opacity) {
+                l.opacity
+            } else {
+                1.0
+            };
         }
     }
     shown.press = scale(node.style.press_scale, progress);
@@ -92,6 +109,14 @@ pub(crate) fn scale(to: f32, progress: f32) -> f32 {
 }
 
 impl<D: DataSource> Host<D> {
+    /// A node's committed presentation, before a press or a look shows on
+    /// it: what the engine's cache starts from (`Host::presented` adds them
+    /// at every read, so neither is ever kept).
+    pub(crate) fn unpresented(&self, view: ViewId) -> Presented {
+        let node = self.runner.kernel().node(view);
+        node.map_or(Presented::IDENTITY, |n| Presented::from_style(n.style))
+    }
+
     pub(crate) fn press_feedback(&mut self, key: NodeKey, down: bool, now: f64) {
         let to = if down { 1. } else { 0. };
         let old = self.presses.get(&key);

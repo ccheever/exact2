@@ -1431,7 +1431,7 @@ impl<D: DataSource> Host<D> {
                 self.present_paint(p);
                 continue;
             }
-            let base = self.presented(view);
+            let base = self.unpresented(view);
             let entry = self.presented.entry(view).or_insert(base);
             match p.property {
                 Property::Translate => {

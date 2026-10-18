@@ -240,13 +240,15 @@ impl BoxPaint {
                 .find(|(s, _)| *s == state)
                 .map(|(_, l)| l)
         };
+        // `currentcolor` in a look is the node's colour, as in its rows.
+        let current = node.computed_row(exact_kernel::StyleId::TextColor, |s| s.text_color);
         let mut paint = self;
         for (state, on) in [
             (exact_kernel::LOOK_HOVER, shown.looks[0]),
             (exact_kernel::LOOK_FOCUS_VISIBLE, shown.looks[1]),
         ] {
             if let Some(l) = look(state).filter(|_| on) {
-                paint = paint.looked(l, dark);
+                paint = paint.looked(l, current, dark);
             }
         }
         paint.pressed(node.style, shown.press_paint, dark)
@@ -254,25 +256,27 @@ impl BoxPaint {
 
     /// The box with a look's rows in place of its own: its background, its
     /// border sides' colours and its shadow.
-    fn looked(mut self, look: &StyleProps, dark: bool) -> BoxPaint {
+    fn looked(
+        mut self,
+        look: &StyleProps,
+        current: exact_kernel::ColorValue,
+        dark: bool,
+    ) -> BoxPaint {
         use exact_kernel::StyleId::*;
-        let rgba = |c: &exact_kernel::ColorValue| super::rgba(c.resolve(dark));
-        if let Some(c) = look
-            .background_color
-            .as_ref()
-            .filter(|_| look.mask.has(BackgroundColor))
-        {
-            self.background = rgba(c);
+        let rgba =
+            |c: Option<exact_kernel::ColorValue>| super::rgba(c.unwrap_or(current).resolve(dark));
+        if look.mask.has(BackgroundColor) {
+            self.background = rgba(look.background_color);
         }
         let sides = [
-            (BorderColorTop, &look.border_color_top),
-            (BorderColorRight, &look.border_color_right),
-            (BorderColorBottom, &look.border_color_bottom),
-            (BorderColorLeft, &look.border_color_left),
+            (BorderColorTop, look.border_color_top),
+            (BorderColorRight, look.border_color_right),
+            (BorderColorBottom, look.border_color_bottom),
+            (BorderColorLeft, look.border_color_left),
         ];
         for (color, (id, side)) in self.colors.iter_mut().zip(sides) {
-            if let Some(c) = side.as_ref().filter(|_| look.mask.has(id)) {
-                *color = rgba(c);
+            if look.mask.has(id) {
+                *color = rgba(side);
             }
         }
         if look.mask.has(BoxShadow) {

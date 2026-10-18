@@ -74,7 +74,7 @@ impl<D: DataSource> Presenter<D> {
     /// pointer hovers now, after it moved (`None`: a paint keeps the hover it
     /// has, its nodes that live).
     pub(super) fn refresh_looks(&mut self, hit: Option<Option<ViewId>>) {
-        let mut at = hit.flatten();
+        let mut at = hit.flatten().filter(|_| !self.direct());
         let kernel = self.host.kernel();
         let mut hovered = Vec::new();
         if hit.is_none() {
@@ -94,7 +94,13 @@ impl<D: DataSource> Presenter<D> {
             at = node.parent;
         }
         let focus = self.focus.filter(|f| self.brush.ringless != Some(*f));
-        let focus = focus.filter(|f| kernel.node(*f).is_some_and(|n| !n.looks().is_empty()));
+        let focus = focus.filter(|f| {
+            kernel.node(*f).is_some_and(|n| {
+                n.looks()
+                    .iter()
+                    .any(|(s, _)| *s == exact_kernel::LOOK_FOCUS_VISIBLE)
+            })
+        });
         let (old, old_focus) = std::mem::replace(&mut self.host.looks_shown, (hovered, focus));
         let (new, new_focus) = &self.host.looks_shown;
         let moved: Vec<ViewId> = (old.iter().filter(|id| !new.contains(id)))

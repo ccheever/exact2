@@ -11,7 +11,7 @@ const APP: &str = r##"component App
     presses = presses + 1
   view
     column width=400 height=400 background-color="#ffffff"
-      box press=go background-color="#00ff00" border="8px solid #000000" width=300 height=120 testId="card"
+      box press=go background-color="#00ff00" border="8px solid #000000" width=300 height=120 testId="card" scale=(presses > 1 ? 1.01 : 1) transition="scale 200ms"
         :active
           background-color = "#0000ff"
           opacity = 0.5
@@ -127,5 +127,36 @@ fn a_disabled_node_takes_no_look_and_a_finger_hovers_none() {
         pixel(&mut p, b.0 + b.2 - 20., b.1 + 30.),
         [0, 255, 0],
         "no hover left behind"
+    );
+}
+
+/// A look's opacity is the host's, read at every frame, never kept: a
+/// transition that starts while a look holds leaves the node's own opacity
+/// when the look goes. The agent's hover shows the look too.
+#[test]
+fn a_looks_opacity_is_never_kept() {
+    let mut p = boot();
+    let b = rect(&mut p, "card");
+    let ground = (b.0 + b.2 - 20., b.1 + 30.);
+    let k = p.host().kernel();
+    let card = k.node_by_key(k.find_by_test_id("card")[0]).unwrap().id;
+    p.hover(card).unwrap();
+    assert!(
+        near(pixel(&mut p, ground.0, ground.1), [255, 255, 51]),
+        "{:?}",
+        pixel(&mut p, ground.0, ground.1)
+    );
+    // Two taps start a scale transition under the hover (the engine's cache takes the node then).
+    for t in [0., 200.] {
+        p.pointer_down(ground.0, ground.1, t).unwrap();
+        p.pointer_up(ground.0, ground.1, t + 10.).unwrap();
+        p.clock(t + 150.);
+    }
+    p.pointer_move(390., 390., 400.).unwrap();
+    p.clock(700.);
+    assert_eq!(
+        pixel(&mut p, ground.0, ground.1),
+        [0, 255, 0],
+        "its own opacity, 1, again"
     );
 }
