@@ -206,6 +206,43 @@ test('Usage provider presentation retains unrounded fractional shares and metric
     expect(merged.providers.map(provider=>provider.provider)).toEqual(['claude','codex','grok']);expect(JSON.stringify(summary)).toBe(before);
   }
 });
+test('Usage model presentation keeps provider identity, ranking and actual known-rate detail across metrics',()=>{
+  const summary:Obj={contractVersion:6,sources:['claude','codex','grok','opencode'].map(provider=>({status:'ok',fingerprint:{provider,hostId:'qa',resolvedHomePath:`/qa/${provider}`},distinctSessions:1})),
+    buckets:[['claude','shared',2,10,1,0],['codex','shared',1,100,1,0],['codex','cost-tie',1,30,1,0],['grok','mystery',0,20,1,1],
+      ['opencode','free-a',0,5,1,0],['opencode','free-b',0,5,1,0],['claude','partial',0.5,5,2,1]].map(([provider,model,costUsd,tokens,records,unpricedRecords])=>
+      ({provider,model,costUsd,records,unpricedRecords,day:'2026-10-07',sourcePath:`/qa/${provider}`,totals:{uncachedInputTokens:tokens}}))};
+  const before=JSON.stringify(summary);
+  const input={tab:'usage',window:{sinceDay:'2026-10-07',untilDay:'2026-10-07',timeZone:'UTC',resolution:'day' as const},now,presentations:new Map(),external:false,
+    sources:[{id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]};
+  const empty=mobileUsagePresentation({...input,sources:[{...input.sources[0]!,summary:{...summary,buckets:[]}}]},false);
+  expect(empty.hasUsage).toBe(true);expect(empty.models).toEqual([]);
+  expect(empty.providers.map(provider=>provider.id)).toEqual(['claude','codex','grok','opencode']);
+  expect(mobileUsagePresentation(null,false).models).toEqual([]);
+  for(const metric of ['cost','tokens','cost']){
+    const data=mobileUsagePresentation({...input,metric},false);
+    for(const model of data.models)expect(Object.keys(model).sort()).toEqual(['dark','detail','id','label','light','value']);
+    expect(data.models.map(model=>[model.id,model.label,model.light,model.dark,model.value,model.detail])).toEqual(metric==='cost'?[
+      ['["claude","shared"]','shared','#d97757','#d97757','$2.00','44.4% of cost · 10 tokens'],
+      ['["codex","shared"]','shared','#3c3c43','#e6e6e6','$1.00','22.2% of cost · 100 tokens'],
+      ['["codex","cost-tie"]','cost-tie','#3c3c43','#e6e6e6','$1.00','22.2% of cost · 30 tokens'],
+      ['["claude","partial"]','partial','#d97757','#d97757','$0.50','11.1% of cost · 5 tokens'],
+      ['["grok","mystery"]','mystery','#52525b','#a1a1aa','Unpriced','no known rates · 20 tokens'],
+      ['["opencode","free-a"]','free-a','#5b9bbd','#5b9bbd','$0.00','0.0% of cost · 5 tokens'],
+      ['["opencode","free-b"]','free-b','#5b9bbd','#5b9bbd','$0.00','0.0% of cost · 5 tokens'],
+    ]:[
+      ['["codex","shared"]','shared','#3c3c43','#e6e6e6','100','57.1% of tokens · $1.00'],
+      ['["codex","cost-tie"]','cost-tie','#3c3c43','#e6e6e6','30','17.1% of tokens · $1.00'],
+      ['["grok","mystery"]','mystery','#52525b','#a1a1aa','20','11.4% of tokens · no known rates'],
+      ['["claude","shared"]','shared','#d97757','#d97757','10','5.7% of tokens · $2.00'],
+      ['["claude","partial"]','partial','#d97757','#d97757','5','2.9% of tokens · $0.50'],
+      ['["opencode","free-a"]','free-a','#5b9bbd','#5b9bbd','5','2.9% of tokens · $0.00'],
+      ['["opencode","free-b"]','free-b','#5b9bbd','#5b9bbd','5','2.9% of tokens · $0.00'],
+    ]);
+    expect(data.providers.map(provider=>provider.id)).toEqual(metric==='cost'?['claude','codex','grok','opencode']:['codex','grok','claude','opencode']);
+    expect(data.chartLegend.map(provider=>provider.id)).toEqual(['claude','codex','grok','opencode']);
+    expect(JSON.stringify(summary)).toBe(before);
+  }
+});
 test('Usage headline follows the metric while raw totals and chart window labels remain separate',()=>{
   const summary:Obj={contractVersion:6,sources:[{status:'ok',fingerprint:{provider:'claude',hostId:'qa',resolvedHomePath:'/qa'},distinctSessions:1234}],
     buckets:[{provider:'claude',model:'qa',day:'2026-10-07',hourStart:'2026-10-07T00:00:00.000Z',costUsd:0.825,totals:{uncachedInputTokens:1234567}}]};
