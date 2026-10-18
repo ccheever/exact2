@@ -420,6 +420,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // the six actions by `setActionHandler`'s names, and the seconds a
         // seek moves when the platform gives none.
         "metadata" => AttrTarget::MediaMetadata,
+        "decorations" => AttrTarget::Prop(PropId::Decorations),
         "seekbackward" => AttrTarget::Handler("seekbackward"),
         "seekforward" => AttrTarget::Handler("seekforward"),
         "seekto" => AttrTarget::Handler("seekto"),
