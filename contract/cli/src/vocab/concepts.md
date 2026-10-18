@@ -756,9 +756,9 @@ component App
 ## stepper: a count with plus and minus (a number field)
 names: UIStepper, NSStepper, quantity, spin-button, increment, counter
 
-`input type="number"` with `min`, `max` and `step` is a numeric field with the platform's stepping control
-(UIStepper on iOS, NSStepper on the Mac, the browser's spin buttons on the web); the field stays
-editable; `appearance="textfield"` drops the control. A count 1-99:
+`input type="number"` with `min`, `max` and `step` is a field with the platform's stepper
+(UIStepper, NSStepper, the browser's spin buttons); the field stays editable;
+`appearance="textfield"` drops the stepper. A count 1-99:
 
 ```contract
 component App
@@ -770,7 +770,9 @@ component App
 ```
 
 - The value is text, as any field's: a step is an `input` and a `change` with the new text, which a
-  derive parses with `parseNumber` (docs/recipes/number-field.md). `step` defaults to 1.
+  derive parses with `parseNumber` (`number-field`).
+- A press adds `step` (1 unsaid), the value's unit: `step=50` for millilitres. A freely typed
+  amount has no stepper: a plain `input` with `inputmode`.
 - On iOS the stepper needs the field about 130 pt wide (`flex=1` in a row), else the field shows alone.
 - A test types the value (`type "qty" "5"`); `agent … layout qty` gives `native.stepper`'s
   `increment` point, and `tap qty at <x> <y>` presses it.
