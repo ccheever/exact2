@@ -372,8 +372,9 @@ bun game/prove.mjs ./my-game --repin --reason "describe the intended state chang
 ```
 
 Repinning runs Off, Save and FreshGame, requires matching execution inputs and host
-observations, and includes a Linux release check. It refuses failures or a missing
-requested browser, leaving the pins unchanged. Existing pins may be updated with
+observations, and compares the fast profile with native release and, when requested,
+shipping web. A profile disagreement, failed proof or missing requested browser
+leaves the pins unchanged. Existing pins may be updated with
 `--hosts linux` explicitly; the first baseline always requires Linux and web.
 Summaries and every pin update record two digests: `inputs` identifies the exact
 execution-input tree, including baked assets and `.baked-assets.json`;
@@ -614,7 +615,7 @@ debug assertions and overflow checks as release does. These profiles come from `
 audio executor, which plays synthesized and sampled sounds. Sampled sounds need only
 `game.audio: true`. Optional capabilities are separate artifacts/executors, never
 Cargo features on a core crate. The engine's own workspace is outside Exact2's
-five core checks.
+six core checks.
 
 ### Assets, animation and placed UI
 
