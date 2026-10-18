@@ -63,10 +63,12 @@ test "an item is added for everyone, and another person's arrives on the next po
   back
   clock settle
   expect state persona == "ada"
+  expect text "persona" == "Ada Lovelace"
   tap "persona"
   fail fetch "http://127.0.0.1:8787"
   tap "persona-grace"
   expect state persona == "grace"
+  expect text "persona" == "Grace Hopper"
   expect text "persona-grace" == "Grace Hopper"
   expect tree missing "item-2"
   expect tree has "retry"

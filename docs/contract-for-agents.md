@@ -48,8 +48,8 @@ This guide is documentation, not an additional policy layer. Documents in
 | Work | Normal home |
 | --- | --- |
 | View structure, UI state, event binding | `.contract` |
-| Derived labels, record copies, bounded list transforms | Contract expressions / `fn` |
-| Network, authentication, storage, sorting, domain algorithms | App TypeScript/Rust data module |
+| Derived labels, record copies, bounded list transforms, a presentation order by one key (`sortBy`) | Contract expressions / `fn` |
+| Network, authentication, storage, a stored or locale order, domain algorithms | App TypeScript/Rust data module |
 | Device facts | Reserved source with an admitted shape |
 | A system control (button, list, switch, picker, menu, tabs, bars) | Contract's native form ([below](#views-layout-and-interaction)); an app native module only where none exists |
 | What only the platform's own object can do (a gesture recognizer, a bar's look, drawing into a view) | An access hatch: `hatch="word"` on the node, native code handed its view ([reference](reference.md#access-hatches)); `bun exact.mjs hatch <word>` writes the stubs |
@@ -111,8 +111,8 @@ again (`lower-title-twice`), a tab bar of one tab (`lower-single-tab`), a
 `button` with no words and no `aria-label` (`lower-button-unlabelled`), a dialog's
 role on a box (`lower-dialog-role`), an `aria-level` with no `role="heading"`
 (`lower-level-without-heading`), a content-box `width="100%"` with padding, wider than
-its parent by the padding (`lower-width-padding`), an absolute width containing text that
-grows at accessibility sizes (`lower-text-px-width`; use `rem` for the width), a bare
+its parent by the padding (`lower-width-padding`), a box whose fixed width ceiling cannot grow
+with its text at accessibility sizes (`lower-text-px-width`; use `rem` for the width and its bounds), a bare
 `line-height=28`, which is 28 times the font size, not 28 points (`lower-line-height-multiplier`),
 screens swapped by an `if` in an app with no `routes` (`lower-screen-by-state`), a count before a plural noun, `${n} cards`
 (`lower-count-plural`), a row of the app's records that searches another table of them,
@@ -159,12 +159,14 @@ nothing): the window asks its `beforeunload` first, and the reply says
 `closed: true`, or `closed: false` for a window a handler kept (the web's
 "Leave site?" is answered "Stay"). macOS and the web; iOS and Linux refuse it.
 `--storage <name>` gives a drive a named scratch store, kept between drives on
-macOS, iOS, Linux and web Chrome (a kept browser profile served on one port per
+macOS, iOS and Linux until one passes `--reset-storage`, and on web Chrome when the
+next drive passes `--keep-storage` (a browser profile served on one port per
 name; a Firefox or WebKit drive starts fresh each time, so a name there lasts
 for the drive, including its `reload`). Without it a drive has no
-app storage: an `app:/` file or SQLite request is refused (`storage is unavailable
-in agent mode unless the drive names a scratch store (--storage <name>)`), so an
-app that keeps its data there does nothing on a write; a chosen document (`doc:/`)
+app storage: an `app:/` file read finds an empty store (code `ENOENT`, as a
+fresh install's first launch does), and a write or SQLite request is refused (`storage
+is unavailable in agent mode unless the drive names a scratch store (--storage
+<name>)`), so an app that keeps its data there does nothing on a write; a chosen document (`doc:/`)
 still opens under its grant. That store, and an authored test's own store, includes
 a data module's `secret.keep`: files in the named scratch tree on Apple and Linux,
 and the page's `localStorage` on the web. Apple native modules use that store's
@@ -295,7 +297,7 @@ what to write. Nothing runs because a value changed (no `useEffect` or watch).
 | `toFixed` and the format functions print `""` for a non-finite number | one rule for every format |
 | Names hold hyphens, so subtraction takes spaces (`a - b`) | CSS's names |
 | A binding's list work is bounded (65,536 steps); a row's own binding has its own bound, so a row that searches another table costs rows × items (`lower-row-lookup`) | determinism on every host |
-| Sorting, grouping, joining and aggregates are the data module's; the view names an order it relies on where it reads it (`loadTasksByDueDate()`) | a view computes what it shows |
+| No comparator sort: `sortBy(xs, x => key)` orders by one number or string key, stably (`"desc"` third; a second key is an earlier `sortBy`). Grouping, joining, aggregates and a stored or locale order are the data module's; the view names an order it relies on where it reads it (`loadTasksByDueDate()`) | a view computes what it shows, the same on every host |
 
 - Types are `number`, `string`, `bool`, declared shapes, `option<T>`, `T[]`,
   and `action` for behavior interfaces. Do not emit authored `any` or object types.
@@ -311,8 +313,8 @@ what to write. Nothing runs because a value changed (no `useEffect` or watch).
   (recipient chips). A list the
   screen keeps for the session — a selection, open or collapsed ids, per-row
   offsets — is `state` built this way; a list the app keeps across launches, or
-  a server owns, belongs to the data module, and so do sorting, grouping and
-  aggregates:
+  a server owns, belongs to the data module, and so do grouping, aggregates
+  and a stored order (a view orders what it holds with `sortBy`):
 
   ```contract
   state collapsed = []
@@ -528,7 +530,8 @@ component App
   `type-persist-child`; a derive, `syntax-persist-derive`.
 - Each authored test starts from an empty store, and its `reload` reads back what
   it kept. A drive with `--storage <name>` keeps persisted state in that store
-  between drives; a drive without one starts from the declared values and keeps
+  between drives (on the web, the next one passes `--keep-storage`; on a native host
+  `--reset-storage` empties it); a drive without one starts from the declared values and keeps
   nothing past the drive. The recipe:
   [a remembered setting](recipes/persisted-setting.md).
 
@@ -1373,7 +1376,7 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | `dialog role="alertdialog" aria-label="Remove book?"` of a `text`, its action(s) and one Cancel | `UIAlertController(.alert)`: the label its title, the text its message (LLP 1115 D6; recipe [below](#a-confirmation)) |
 | any other `dialog` (a field, Save, Cancel), opened by `showModal(id)` or a button's `command="show-modal"` | a sheet as tall as its content, up to the large detent, its content laid out as written and centred across it (`width="100%" box-sizing="border-box"` fills it); `close(id)`, its `command="close"` button or a swipe down closes it. `closedby="none"` refuses the swipe, `"any"` also takes a tap on the page behind, and a dismissal the person made fires `cancel` (LLP 1115.000 D11.5). A form with a title bar is still a sheet route |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
-| `role="radiogroup"` of `button role="radio" aria-checked=…`, each one text or image (a value chosen from a few) | `UISegmentedControl`, as a tablist's; never a tab bar (LLP 1116.004 D5.2) |
+| `role="radiogroup"` of `button role="radio" aria-checked=…`, each one text or image (a value chosen from a few) | `UISegmentedControl`, as a tablist's; never a tab bar (LLP 1116.004 D5.2). Keys of your own design: `appearance="none"` on the `radiogroup` keeps its buttons as you paint them; on iOS and the Mac the group keeps one Tab stop (the checked radio) and arrow keys that press the next or previous radio (Left and Right swapped right to left); on tvOS the focus engine moves between them |
 | a route whose first child is a `header` holding one heading (`text role="heading"`; an `aria-level` alone is not one), a text after it and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title, the text after it the subtitle |
 | a pushed route with no such `header` | a bar holding the system Back button alone (LLP 1115.000 D5.2) |
 | a route with `navigationBar="none"` | no navigation bar: a full-bleed screen that draws its own way back; the edge swipe still goes back |
@@ -1408,7 +1411,8 @@ there is the control's text, said.
 Inside a route's `header`, wrap related bar buttons in a `row role="group"`.
 iOS 26 keeps each explicit group's buttons on one shared glass background and
 separates adjacent groups with UIKit's fixed-space item. Ungrouped buttons keep
-the existing platform default. The wrappers remain ordinary layout on the web;
+the existing platform default. `buttonStyle="glass"` on a bar button gives it a
+glass capsule of its own (`sharesBackground = false`), one for each button so styled. The wrappers remain ordinary layout on the web;
 this adds no spacing value or custom button face.
 
 The bar shows a header's heading, the first text after it (its subtitle), one search
@@ -2310,8 +2314,20 @@ SVG uses SVG names. Native SVG geometry has incomplete support for `calc()`,
 `min()`, `max()` and `clamp()`, including nested SVG viewports and `<use>`
 placement and sizing. Use numeric lengths or percentages there; CSS layout math
 on the outer SVG element does not imply support inside its scene.
-`foreignObject` compiles and renders on the web; native hosts refuse it at run
-time, so position a box over the `svg` there. Canvas 2D calls
+SVG attribute-only lengths accept user units (unitless), `px`, `in`, `cm`, `mm`,
+`pt`, `pc` and `%`: line/linearGradient `x1`/`y1`/`x2`/`y2`, radialGradient
+`fx`/`fy`/`fr`, marker `markerWidth`/`markerHeight`/`refX`/`refY`, and each item
+of SVG text/tspan `x`/`y`/`dx`/`dy`. Relative units and function text such as
+`calc()`, `env()` and `var()` are refused in literals and literal template parts
+(LLP 1055.000 D4). Literal concatenations are checked together; an incomplete
+fragment that could finish an accepted unit is left to runtime. Literal choices in
+conditionals, matches and inlined derives are checked too. Bound values must use
+the same units. Marker `refX` also accepts `left`/`center`/`right`, and `refY`
+accepts `top`/`center`/`bottom`; native hosts currently place these keywords at 0.
+`foreignObject` renders directly on the web, but draws nothing through SVG `use`.
+The compiler warns at a `use` whose unambiguous, unconditional literal target contains
+one (`lower-svg-use-foreign-object`). Native hosts refuse `foreignObject` at run
+time; for content on every host, position an ordinary box over the `svg`. Canvas 2D calls
 live in a data module, and GPU/game surfaces in their optional module. A
 hyphenated native tag must be listed in `app.json`'s `modules` (the bake refuses
 others) and implemented by the module; its unknown attributes pass through
@@ -2345,6 +2361,22 @@ its schemes in `app.json`: `"host": { "ios": { "queriesSchemes":
 ["comgooglemaps", "waze"] } }`. The build writes `LSApplicationQueriesSchemes`.
 List at most 50 schemes, without `:` or `://`; changing the list requires a
 native rebuild.
+
+A pressed look is the host's, as UIKit's highlight is (LLP 1061 D7):
+`-exact-press-opacity` (0 to 1, a share of the node's own opacity),
+`-exact-press-background-color` and `-exact-press-color` (any colour row's
+values: a token, a role, `light-dark()`), beside `-exact-press-scale`, with
+which they compose. The host shows them while a finger or the mouse holds the
+node (the innermost pressable, inside its box; sliding off, a cancel or a pan
+lets go), eased in over 120 ms, at once under the agent's clock, so `"tap row
+down" "screenshot x.png" "tap up"` shows it. Nothing waits on the runner and no
+state changes. `-exact-press-color` reaches the node's text as `color` does
+(a text with its own colour keeps it). Any of them, 1 included, replaces the
+platform's unsaid press: iOS's dim, the Mac's darkening, a list row's cell
+highlight. Contract has no `:active` and no pressed block, so these are paint
+only; a press that changes layout is app state. Do not draw a press from
+`pointerdown`/`pointerup` state: each touch then waits on the runner. Say
+nothing to get the platform's own.
 
 Haptics are already there (LLP 1077 D14). `-exact-press-haptic` (`selection`,
 `impact-light|medium|heavy|soft|rigid`) plays at touch-down without a round
@@ -2785,9 +2817,10 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | A helper that reads a slot its caller just assigned | Pass the value: `follow(next)` (`analyze-call-stale-read`) |
 | `button press=add` with no child, or only an `image "symbol:…"` (`lower-button-unlabelled`) | Its words in it (`text "Add"`), or `aria-label="Add"` on a symbol-only button |
 | A heading at the top of a route's content that says its `header` heading again, which shows twice under the iOS bar (`lower-title-twice`) | Drop it; the bar's title names the screen. A heading below names a section: `text "Results" role="heading" aria-level=2` |
+| An SVG `use` whose literal `href="#id"` targets a `foreignObject` or a subtree containing one (`lower-svg-use-foreign-object`). Only unconditional literal SVG ids from one source definition resolve. Repeated copies must all contain a `foreignObject`; a conditional copy, a copy without one, ids from different source definitions, dynamic hrefs and dynamic ids stay quiet. References inside the target are not followed | A `foreignObject` draws nothing through `use`. Place it directly in the SVG for the web; native hosts refuse it. For content on every host, position an ordinary box over the SVG |
 | A list and its detail (or a form) swapped by `if showingDetail` / `else`, each with its heading, in an app with no `routes` (`lower-screen-by-state`) | Each screen a route: `routes`, a row that `push`es its detail, `back` to return; the web gets Back, reload and links, a wide window the split (`contract vocab screen`) |
 | `column padding=24 width="100%"`, as wide as its parent's content plus the padding: it runs past the screen's right side (`lower-width-padding`) | Drop the width (a block or a stretched flex item fills its parent), or `box-sizing="border-box"` |
-| An absolute `width` (a number, px, pt or absolute `calc()`) containing scalable text stays fixed at accessibility sizes (`lower-text-px-width`). The lint is deliberately conservative: unresolved classes, uncertain visibility or sizing, flex sizing that can supersede width, and `min-width`/`max-width` bounds that may change it stay silent. Text in absolute or fixed positioning, popovers and dialogs is checked inside that subtree, without counting against enclosing boxes. Text inherits the platform root font. Native Apple controls use the Apple control font, which can scale with Dynamic Type; web controls inherit, and Linux control defaults are fixed. An absolute font size stops scaling within that boundary; `inherit` and `unset` use the parent font even on controls. The warning reads lowering’s grouped-list typography and checks layout boxes containing text runs or text fields, including HTML inside SVG `foreignObject`; an inline run’s own width does not constrain its paragraph | Use `width="3rem"` for a width that follows the root font, or let the content determine the width |
+| An absolute width ceiling containing scalable text stays bounded at accessibility sizes (`lower-text-px-width`). The lint follows `width` and `max-width` through their bounds: a fixed maximum alone caps growth; a minimum alone does not. A fixed minimum can override a smaller cap, but a growing or unknown minimum makes the lint stay silent. Absolute lengths include numbers, px, pt and absolute `calc()`; `em` is fixed against an authored absolute font. Flex can supersede width on a row’s main axis; zero grow with an auto basis keeps its ceiling, and flex does not size a column child’s width. Effective classes, declaration order and parent direction count. Unresolved classes and uncertain sizing stay silent. A computed display leaves the node uncertain but its children are still checked; known-hidden subtrees are skipped. Text in absolute positioning, popovers and dialogs is checked inside that subtree, without counting against enclosing boxes. Text inherits the platform root font. Native Apple controls use the Apple control font, which can scale with Dynamic Type; web controls inherit, and Linux control defaults are fixed. An absolute font size stops scaling within that boundary; `inherit` and `unset` use the parent font even on controls. The warning reads lowering’s grouped-list typography and checks layout boxes containing text runs or text fields, including HTML inside SVG `foreignObject`; an inline run’s own width does not constrain its paragraph | Express the width and its bounds in `rem`, such as `width="3rem"` or `max-width="3rem"`, so they follow the root font, or let the content determine the width |
 | `text "Results" aria-level=2`, a level with no role, which is no heading to a screen reader on any platform, gets no heading style and is not the iOS bar's title (`lower-level-without-heading`) | `text "Results" role="heading" aria-level=2`; `role="heading"` alone is level 2 |
 | `column role="dialog" aria-modal=true` for a modal you lay out (`lower-dialog-role`) | A sheet, a route with `navigationPresentation="modal"` ([navigation-stack](recipes/navigation-stack.md)); a confirmation is `dialog role="alertdialog"`, opened with `showModal(id)` |
 | `` `${n} cards` ``, which reads "1 cards" (`lower-count-plural`) | The noun chosen by the number: `` `${n} ${n == 1 ? "card" : "cards"}` `` (`contract vocab plural`) |
@@ -3145,7 +3178,8 @@ source (`style`, `heading`, `inherited`, `authored`). `font` takes nothing else.
 Bold Text (iOS's setting, Android's font weight adjustment) weights the system
 font one step heavier, a written weight included, as a hand-built app's text
 is, and leaves a family the app names alone: write the weight you mean, not one
-you expect the setting to add (LLP 1115.000 D12.3).
+you expect the setting to add (LLP 1115.000 D12.3). A drive turns it on, on
+Apple, with `prefer bold-text true`.
 
 A colour is any CSS colour the browser paints: hex, `rgb()`, `hsl()`, `hwb()`,
 a named colour, `transparent`, `lab()`/`oklch()`/`color()` (clipped to sRGB
@@ -3171,7 +3205,8 @@ on a node holds its subtree in one (pins are `axis=value`, by spaces or commas;
 `axis:value` is refused), and inherited text inside takes the pin's value. The
 agent's `prefer mode dark-style=dim` sets it from a drive (the app's own
 `setMode` still wins after it: an app that restores a kept mode at launch
-overrides an earlier `prefer`, so prefer after `clock data`), `layout <id>` shows
+overrides an earlier `prefer`, so prefer after `clock data`; a dev reload keeps
+the window's mode unless the edit removed it), `layout <id>` shows
 the token beside each row's value, and `bun exact.mjs tamber check | eval --mode
 … | ir | fmt` checks the design, prints its tokens in a mode, writes its IR, or
 puts it in its one layout (`fmt --check` changes nothing). The
@@ -3182,14 +3217,67 @@ scheme=fixed`), and `lower-colour-one-scheme` leaves it alone; an unmarked one
 is reported once, at its line in the design. `pair=surface.page` after a
 foreground's value names what it is drawn on (a token or a role);
 `contract tamber check` warns when the two fall below 4.5:1 (`tamber-contrast`).
+A type token is CSS `font` syntax (`type.body = -exact-body/1.35 "InterVariable"`):
+`font="type.body"` writes only the longhands it names, so the text style's own
+weight applies where it names none, and a size in px is warned of
+(`tamber-type-fixed`: it does not follow the person's text size). A family token
+is a stack (`family.text = "InterVariable", system-ui`), named by `font-family`.
+One that varies by a mode goes on the text, not its container
+(`tamber-inherited-axis`); on the JS target each row it writes is a property
+per mode (`--x-type-body-size`).
+A component declares what a designer may tweak in a `params` section (LLP 1121
+D15), one param a line: `radius: length = "radius.md"  range="0..40"  step=1
+control="slider"  group="Shape"  priority=1  label="Corner radius"`. A param is a
+token the component owns: its default is any token value (a literal, a token, or
+an expression over tokens and the component's other params), and its rows and
+defaults name it `param.radius`. Every instance shares it. Its full name is the
+component's declaring file and name, `post.contract#PostButton.radius` (an import
+alias never changes it; moving the file makes it a new param), and
+`PostButton.radius` where no other component has that name (a package's file
+is its package's however a `use` reaches it). A param is a row's value in its
+component's own rows (a style, shorthand or motion row, an image's `symbol:`
+source): a string or a template, through `?:` branches, `match` arms and `+`,
+as a motion token is; and its defaults. Passed in a component's argument, it is
+the child's row's value. One in a `style`, a `keyframes` or a state's value,
+or in what a row computes (a function's argument, a condition, a comparison,
+a callback), or that a child reads otherwise than as a row's value, is refused
+(`tamber-param-scope`). A param no
+row of its component reads, directly or through another param, is refused
+(`tamber-param-unused`); a ranged length is px (`tamber-range-unit`) and its
+default must be inside the range in every mode; `control` follows the kind
+(`color`, `slider`, `stepper`, `token`, `select` with `options="a|b"`, `none`),
+and `priority` is 1 to 3. A design token may not be named `param.…`.
+`contract tamber ir` and the design server's `describe` list them under
+`components`; `contract tamber check` builds an app with params to admit its
+design (a dial only a param reads is read), counts them apart, and charges a
+refusal or warning on one to its default. A view that isn't Contract (a native module's, a Rust canvas
+component) declares its params in the design instead: `component MapCard`, then
+an indented `params` block of lines like a dial's, any kind (`inset: length =
+8px  in 0..24  control=slider  priority=2`). Its identity is the design file
+and the name (`app.tamber#MapCard`); its declaration keeps every param, and
+what its default reads, as the code reads them by name; a `when` is not the
+component's (the app's design sets a param per mode).
+The app sets a param's value in its
+design's `params` block (`PostButton.radius = 8px`, `when` lines too), which
+every instance shares; the design server's `set-param` writes it,
+`unset-param` takes it back to the component's default, and a line naming no
+param of the app is warned of.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
-returns a `ColorToken` (`contract types` declares the design's, so an unknown
-one fails `tsc`), and `bun exact.mjs tamber gen ts|rust .` writes bindings into
+returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
+`contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into
 `.exact/tamber/` (never committed): `tamber.ts` and `tamber.css` (each token's
-CSS per mode), `tamber.rs` (`pub const SURFACE_CARD: Token<Color>`, which
+CSS per mode), `tamber.rs` (`pub const SURFACE_CARD: Token<Color>`, and
+`Token<Length>`, `Token<Number>`, `Token<Type>` for those kinds, which
 `session.tamber().get(SURFACE_CARD, place)` resolves in a running session), or
 `tamber.swift` (`ExactTamberToken.surfaceCard`, for a native view's
-`ExactTamber(view).color(.surfaceCard)`; Android's names a token by its name).
+`ExactTamber(view).color(.surfaceCard)`, `.length(_:)`, `.number(_:)` and
+`.font(_:fallback:)`, a font at the person's text size with Bold Text's step),
+or `TamberTokens.kt` (`TamberColor.SURFACE_CARD`, `TamberLength`,
+`TamberNumber`, for `ExactTamber(view).color(…)` in the app's hatches). A
+component's param is named by `<Component>.<param>` there (`mapCardInset`,
+`MAP_CARD_INSET`); two names that map alike are refused, naming both. The Apple
+build writes `tamber.swift` and the Android reader's `TamberTokens.kt` before
+an app's modules compile.
 Recipe:
 [a brand](recipes/tamber.md).
 `color-scheme="dark"` (or `"light"`) on a node makes that subtree resolve
@@ -3256,9 +3344,9 @@ accessibility tree still shows one bullet a character, as Chrome exposes it).
 What the app stores (`state.slots`, its data module) is the app's own; an
 `app.test.contract` `type … append` into a filled password field is refused.
 
-key on the web and iOS. `aria-busy=(not ready)` marks a region as still loading:
-assistive technology hears it, and time to interactive (`modules/observe`) waits
-until no element is busy.
+`aria-busy=(not ready)` marks a region as still loading: assistive technology
+hears it, and time to interactive (`modules/observe`) waits until no element is
+busy.
 
 `border`, `border-top/right/bottom/left` take CSS width/style/color in any order,
 resetting omitted components to medium/none/currentcolor. Widths are px/pt,

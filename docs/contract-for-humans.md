@@ -374,7 +374,8 @@ derive caption = names.join(", ")
 ```
 
 Callbacks can build records. They cannot return view nodes. Use `for` to build
-repeated UI, not `map`. General closures, reducers, sorting, and arbitrary list
+repeated UI, not `map`. `sortBy(people, person => person.name)` orders a list by one
+key, stably. General closures, reducers, comparator sorts, and arbitrary list
 mutation belong in the data module when the supplied operations do not suffice.
 
 ## Views and repeated content
@@ -947,10 +948,11 @@ bun exact.mjs test web                    # each test starts with an empty store
 bun exact.mjs agent web --storage demo "type title Dune" "tap add" "clock settle" tree
 ```
 
-A scratch store is kept between drives on every host, so a second drive with the
-same `--storage demo` opens the list the first one saved: on the web, Chrome's
-profile for that name, served at one origin (Firefox and WebKit drives start
-fresh). A test's `reload` restarts the app on its store within one drive,
+A native scratch store is kept between drives (`--reset-storage` empties it), so a
+second `agent ios --storage demo` opens the list the first one saved. On the web the
+store is Chrome's profile for that name, served at one origin, and starts empty
+each drive: the second drive passes `--keep-storage` to open the saved list
+(Firefox and WebKit drives always start fresh). A test's `reload` restarts the app on its store within one drive,
 including a data module's `secret.keep`.
 
 **Rust instead.** A data module can be a Rust crate rather than `app.ts`:
@@ -1471,8 +1473,9 @@ layout already happened. Geometry reads are not reactive view expressions.
 
 SVG uses SVG's tags and presentation names: `svg`, `g`, `path`, `rect`, gradients,
 masks, filters, text, and the rest of the admitted vocabulary. SVG `text` is
-context-sensitive. `foreignObject` works on the web but is refused on native
-hosts until a native box-in-scene implementation exists.
+context-sensitive. `foreignObject` works on the web, but draws nothing through SVG
+`use`, and is refused on native hosts until a native box-in-scene implementation
+exists.
 
 Canvas has two distinct providers: an app data module can record Canvas 2D calls,
 and an optional GPU module can provide a surface. Contract declares the canvas
