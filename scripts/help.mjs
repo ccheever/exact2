@@ -182,9 +182,10 @@ relaunch, then "verify: clean" or "verify: N problems". A clean verify is done. 
 screenshot of each screen goes to .exact/verify/ (the first screen's per width and scheme,
 each test's named by the test, the relaunch's): look at them when the features work.
 Large    each of those screens again at the largest text size (ios: the simulator's, put back
-         after; web: a 53 px root, iOS's body there, at 390x844): what spills (past the edge,
-         squeezed, overlapping), each with a remedy that gives the text room; a smaller or
-         fixed font is the tell. Counted ("3 at the largest text size"), never failing.
+         after; web: a 53 px root, iOS's body there, at 390x844, and the tests run again there
+         to read up to 12 screens they pass through): what spills (past the edge, squeezed,
+         overlapping) in the app's own layout, each with a remedy that gives the text room; a
+         smaller or fixed font is the tell. Counted ("3 at the largest text size"), never failing.
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
          findings (check's, the relaunch's, the largest text size's) and the compiler's
          warnings are counted, never fail it. A screen no test ends on is not checked: end a test there.

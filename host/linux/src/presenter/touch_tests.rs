@@ -324,7 +324,12 @@ fn pointerdown_defaults_decide_focus_for_mouse_taps_and_held_contacts() {
             if held {
                 let before = p.focus;
                 p.pointer_down(x, y, 0.).unwrap();
-                assert_eq!(p.focus, before, "{name}: down leaves focus alone");
+                let after_down = if name == "field" {
+                    Some(id(&p, name))
+                } else {
+                    before
+                };
+                assert_eq!(p.focus, after_down, "{name}: down focuses only fields");
                 p.pointer_up(x, y, 0.).unwrap();
             } else {
                 p.press_at(x, y, 0.);

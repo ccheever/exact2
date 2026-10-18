@@ -68,6 +68,275 @@ fn key(p: &mut Presenter<()>, id: ViewId, name: &str) {
     p.type_key(id, name, name, false, false).unwrap();
 }
 
+fn contact_field(tag: &str, feedback: &str, down: &str) -> (Presenter<()>, ViewId) {
+    boot_source(&format!(
+        r#"component Fields
+  state seen = ""
+  state shown = true
+  state disabled = false
+  state fieldDisplay = "block"
+  state parentDisplay = "flex"
+  state fieldVisibility = "visible"
+  state parentVisibility = "visible"
+  action record(phase: string)
+    seen = `${{seen}}${{phase}}`
+  action down
+    seen = `${{seen}}down `
+    {down}
+  action pan(dx: number, dy: number)
+    seen = `${{seen}}pan `
+  view
+    column width=400 height=600
+      column display=parentDisplay visibility=parentVisibility
+        if shown
+          {tag} id="field" testId="field" value="abcd" appearance="none" width=180 height=120 padding=12 font-size=16 line-height="24px" display=fieldDisplay disabled=disabled pointerdown=down focus=record("focus ") press=record("press ") {feedback}
+      box testId="pan" pan=pan press=record("pan-press ") touch-action="none" width=180 height=40
+      input id="other" testId="other" value="other" width=180 height=40
+      text seen testId="log"
+"#
+    ))
+}
+
+fn contact_log(p: &Presenter<()>) -> &str {
+    let k = p.host.kernel();
+    k.node_by_key(k.find_by_test_id("log")[0])
+        .unwrap()
+        .props
+        .str(PropId::Text)
+        .unwrap()
+}
+
+fn second_character(p: &mut Presenter<()>, id: ViewId, multiline: bool) -> (f32, f32) {
+    let (ox, oy) = origin(p, id, multiline, 0.);
+    let glyph = p
+        .paragraph(id)
+        .unwrap()
+        .layout_runs()
+        .next()
+        .unwrap()
+        .glyphs[1]
+        .clone();
+    (ox + glyph.x + glyph.w * 0.1, oy + 12.)
+}
+
+#[test]
+fn mouse_field_down_focuses_and_places_caret_without_repeating_on_release() {
+    for tag in ["input", "textarea"] {
+        for feedback in ["", "-exact-press-scale=0.9"] {
+            let (mut p, id) = contact_field(tag, feedback, "shown = shown");
+            let (x, y) = second_character(&mut p, id, tag == "textarea");
+            p.pointer_down(x, y, 1.).unwrap();
+            assert_eq!(p.focus, Some(id), "{tag} {feedback}: down focuses");
+            assert_eq!(p.field_selection(id), FieldSelection::caret(1));
+            assert_eq!(contact_log(&p), "down focus ");
+
+            key(&mut p, id, "End");
+            assert_eq!(p.field_selection(id), FieldSelection::caret(4));
+            p.pointer_up(x, y, 2.).unwrap();
+            assert_eq!(p.field_selection(id), FieldSelection::caret(4));
+            assert_eq!(contact_log(&p), "down focus press ");
+
+            p.pointer_down(x, y, 3.).unwrap();
+            let k = p.host.kernel();
+            let other = k.node_by_key(k.find_by_test_id("other")[0]).unwrap().id;
+            p.set_focus(Some(other), 3.);
+            p.pointer_up(x, y, 4.).unwrap();
+            assert_eq!(p.focus, Some(other), "release does not take focus back");
+        }
+    }
+}
+
+#[test]
+fn cancelled_mouse_field_contact_keeps_focus_and_never_presses() {
+    for end in ["cancel", "lost", "pan"] {
+        for feedback in ["", "-exact-press-scale=0.9"] {
+            let (mut p, id) = contact_field(
+                "input",
+                &format!("{feedback} pan=pan touch-action=\"none\""),
+                "shown = shown",
+            );
+            let (x, y) = second_character(&mut p, id, false);
+            p.pointer_down(x, y, 1.).unwrap();
+            assert_eq!(p.focus, Some(id));
+            let release_x = match end {
+                "pan" => {
+                    p.pointer_move(x + 40., y, 2.).unwrap();
+                    x + 40.
+                }
+                "lost" => {
+                    p.pointer_lost(2.).unwrap();
+                    x
+                }
+                _ => {
+                    p.pointer_cancel(2.).unwrap();
+                    x
+                }
+            };
+            p.pointer_up(release_x, y, 3.).unwrap();
+            assert_eq!(p.focus, Some(id));
+            assert_eq!(p.field_selection(id), FieldSelection::caret(1));
+            assert_eq!(
+                contact_log(&p),
+                if end == "pan" {
+                    "down focus pan "
+                } else {
+                    "down focus "
+                }
+            );
+        }
+    }
+}
+
+#[test]
+fn field_down_revalidates_after_authored_pointerdown() {
+    for (down, visibility, feedback_focus, feedback_log) in [
+        ("shown = false", "", Some("other"), "down "),
+        ("disabled = true", "", Some("other"), "down "),
+        (
+            "fieldDisplay = \"none\"",
+            "",
+            Some("field"),
+            "down focus press ",
+        ),
+        (
+            "parentDisplay = \"none\"",
+            "",
+            Some("field"),
+            "down focus press ",
+        ),
+        (
+            "fieldVisibility = \"hidden\"",
+            "visibility=fieldVisibility",
+            None,
+            "down press ",
+        ),
+        ("parentVisibility = \"hidden\"", "", None, "down press "),
+    ] {
+        for feedback in ["", "-exact-press-scale=0.9"] {
+            let (mut p, id) = contact_field("input", &format!("{feedback} {visibility}"), down);
+            let k = p.host.kernel();
+            let other = k.node_by_key(k.find_by_test_id("other")[0]).unwrap().id;
+            p.set_focus(Some(other), 0.);
+            let (x, y) = second_character(&mut p, id, false);
+            p.pointer_down(x, y, 1.).unwrap();
+            assert_eq!(p.focus, Some(other), "{down} {feedback}: down");
+            assert_eq!(contact_log(&p), "down ", "{down} {feedback}: down");
+            p.pointer_up(x, y, 2.).unwrap();
+            // Press feedback retains its release target even when hit-testing hides it.
+            let (focus, log) = if feedback.is_empty() {
+                (Some(other), "down ")
+            } else {
+                let k = p.host.kernel();
+                let focus = feedback_focus
+                    .map(|name| k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id);
+                (focus, feedback_log)
+            };
+            assert_eq!(p.focus, focus, "{down} {feedback}: up");
+            assert_eq!(contact_log(&p), log, "{down} {feedback}: up");
+        }
+    }
+}
+
+#[test]
+fn context_preview_field_prevents_mouse_focus_and_caret() {
+    for feedback in ["", "-exact-press-scale=0.9"] {
+        let (mut p, id) = boot_source(&format!(
+            r#"component Fields
+  state seen = ""
+  action record(phase: string)
+    seen = `${{seen}}${{phase}}`
+  view
+    column width=400 height=600
+      input id="editor" testId="editor" value="other" width=180 height=40
+      box position="absolute" top=100 width=300 height=220
+        box contextTarget="editor" width=300 height=40
+        button press=record("press ") {feedback}
+          input id="field" testId="field" value="abcd" appearance="none" width=180 height=120 padding=12 font-size=16 line-height="24px" focus=record("focus ")
+      text seen testId="log"
+"#
+        ));
+        let k = p.host.kernel();
+        let editor = k.node_by_key(k.find_by_test_id("editor")[0]).unwrap().id;
+        p.set_focus(Some(editor), 0.);
+        p.mark_field(editor, "other", FieldSelection::caret(2), false);
+        p.mark_field(id, "abcd", FieldSelection::caret(3), false);
+        let (x, y) = second_character(&mut p, id, false);
+        assert_eq!(p.hit(x, y), Some(id));
+        assert!(p.pointerdown_prevents_focus(id));
+        p.pointer_down(x, y, 1.).unwrap();
+        assert_eq!(p.focus, Some(editor));
+        assert_eq!(p.field_selection(editor), FieldSelection::caret(2));
+        assert_eq!(p.field_selection(id), FieldSelection::caret(3));
+        assert_eq!(contact_log(&p), "");
+        p.pointer_up(x, y, 2.).unwrap();
+        assert_eq!(p.focus, Some(editor));
+        assert_eq!(p.field_selection(editor), FieldSelection::caret(2));
+        assert_eq!(p.field_selection(id), FieldSelection::caret(3));
+        assert_eq!(contact_log(&p), "press ");
+    }
+}
+
+#[test]
+fn prevented_mouse_focus_keeps_the_field_caret() {
+    let (mut p, id) = contact_field("input", "", "shown = shown");
+    p.set_focus(Some(id), 0.);
+    p.mark_field(id, "abcd", FieldSelection::caret(2), false);
+    let k = p.host.kernel();
+    let pan = k.node_by_key(k.find_by_test_id("pan")[0]).unwrap().id;
+    let (x, y, _, _) = p.rect_of(pan).unwrap();
+    assert!(p.pointerdown_prevents_focus(pan));
+    p.pointer_down(x + 10., y + 10., 1.).unwrap();
+    assert_eq!(p.focus, Some(id));
+    assert_eq!(p.field_selection(id), FieldSelection::caret(2));
+    p.pointer_up(x + 10., y + 10., 2.).unwrap();
+    assert_eq!(p.focus, Some(id));
+    assert_eq!(p.field_selection(id), FieldSelection::caret(2));
+    assert_eq!(contact_log(&p), "focus pan-press ");
+}
+
+#[test]
+fn direct_field_contacts_focus_only_on_tap_and_never_on_pan() {
+    for simulated in [false, true] {
+        for feedback in ["", "-exact-press-scale=0.9"] {
+            let (mut p, id) = contact_field("input", feedback, "shown = shown");
+            if simulated {
+                p.agent_finger(true);
+            } else {
+                p.set_pointer_kind(PointerKind::Touch);
+            }
+            let (x, y) = second_character(&mut p, id, false);
+            let before = p.field_selection(id);
+            p.pointer_down(x, y, 1.).unwrap();
+            assert_eq!(p.focus, None);
+            assert_eq!(p.field_selection(id), before);
+            assert_eq!(contact_log(&p), "down ");
+            p.pointer_up(x, y, 2.).unwrap();
+            assert_eq!(p.focus, Some(id));
+            assert_eq!(p.field_selection(id), FieldSelection::caret(1));
+            assert_eq!(contact_log(&p), "down focus press ");
+
+            let (mut p, id) = contact_field(
+                "input",
+                &format!("{feedback} pan=pan touch-action=\"none\""),
+                "shown = shown",
+            );
+            if simulated {
+                p.agent_finger(true);
+            } else {
+                p.set_pointer_kind(PointerKind::Touch);
+            }
+            let (x, y) = second_character(&mut p, id, false);
+            let before = p.field_selection(id);
+            p.pointer_down(x, y, 1.).unwrap();
+            p.pointer_move(x + 40., y, 2.).unwrap();
+            p.pointer_up(x + 40., y, 3.).unwrap();
+            assert_eq!(p.focus, None);
+            assert_eq!(p.field_selection(id), before);
+            assert_eq!(contact_log(&p), "down pan ");
+        }
+    }
+}
+
 #[test]
 fn field_click_uses_alignment_padding_password_and_empty_value() {
     let mut actual = Vec::new();
