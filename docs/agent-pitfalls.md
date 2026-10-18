@@ -457,11 +457,6 @@ What the original's style objects say is not always what its iOS screen shows. P
 what the screenshot shows. (euxy port against its Expo original, judged screen by
 screen, 2026-10-16.)
 
-- **Skia and Reanimated drawings port to Contract, not Swift.** Step strips, LED glows, rings
-  and animated capsules are boxes, SVG, `box-shadow`, keyframes and transitions, which run on
-  every platform and the agent can drive and compare. A native view is per-platform code to
-  write and debug, and one added at launch slows it: keep it for platform APIs (video, maps).
-
 - **Compare each screen with its reference, not by eye:** `"screenshot .exact/x.png compare
   ref/x.png"` names each differing region's node and source line, a box's size measured in
   both pictures, and a wrong colour ([iOS driving](recipes/ios-driving.md)).
@@ -493,14 +488,6 @@ screen, 2026-10-16.)
   placing them elsewhere. `-exact-hairline` is a device pixel natively; on the web below
   1.5 dppx (a 1.25 display) it is 1 CSS px (`host/web/index.html`), so this is advice for
   the native targets.
-- **A pressed style from `pointerdown`/`pointerup` state lags the finger.** React
-  Native's `style={({ pressed }) => [styles.row, pressed && styles.dim]}` (or
-  `TouchableOpacity`'s `activeOpacity`) ported as a `pressed` state the two handlers
-  set waits on the runner at each touch, and replaces the platform's own press with
-  nothing until it answers. Fix: `pressed && styles.dim` ports to
-  `-exact-press-opacity=0.5` (its opacity), a pressed `backgroundColor` to
-  `-exact-press-background-color`, a pressed text colour to `-exact-press-color`; the
-  host shows them while held (LLP 1061 D7). Drop the state and both handlers.
 - **A floating button's shadow is heavier than the original's.** Cause: on iOS React
   Native drops the shadow of a view with `overflow: "hidden"` (its layer masks to its
   bounds), so the shadow its style declares was never drawn; CSS draws a `box-shadow`
@@ -516,10 +503,6 @@ screen, 2026-10-16.)
   left to the platform floats inset with the display's corners. Fix:
   `sheetAllowedDetents: [0.45]` is `navigationDetent="45%"`, `[1.0]` is `"large"`; and
   `sheetCornerRadius: 40` is `border-radius=40` on the route.
-- **A sheet's content measures 0.96 of its authored size.** Not a bug: on iOS 26 a sheet
-  resting below `large` floats, and UIKit draws its whole content scaled (402 pt laid out,
-  386 drawn), the original's too. `layout` and `compare` say so (`route 3 is a sheet the
-  platform draws at 0.96 …`); leave it, and never `scale` to undo it.
 - **Slider rows are shorter than the original's.** Cause: React Native's `height: 28` on
   an `@expo/ui` slider did not bound the SwiftUI slider it hosts, which took about 32
   points; `height=28` on a ported `input type="range"` is 28. Fix: write the height the
@@ -549,31 +532,19 @@ screen, 2026-10-16.)
   `accent-color` is the window's tint, which alerts take), and `color` on a header's
   buttons. (`hintTextColor` on `Stack.SearchBar` is Android's only; react-native-screens'
   iOS search bar ignores it.)
-- **A glyph sits at the left of its round button.** euxy's clear and dice glyphs and its
-  BPM − and + sat 10 points left of centre in buttons with `align-items="center"
-  justify-content="center"`. Cause: every React Native `View` is a flex container; a
-  `button` is `inline-block` and a `view` is `block`, as on the web, so those two do
-  nothing there (a button centres its content vertically on its own, as browsers do).
-  Fix: `display="flex"` on the button or view.
-- **A control sits at the top of its row.** euxy's Metronome segments, in a 52-point row
-  with `align-items="center"`. Cause: the original's `Segmented` carried `alignSelf:
-  'flex-start'`, and it centred only because the original wrapped it in a plain `View`,
-  which the port dropped as noise. Fix: keep the wrapper (`view`), or drop the
-  `align-self`.
 - **A sheet's form stops 34 points short of the original's at its end.** Cause: React
   Native's `ScrollView` defaults `contentInsetAdjustmentBehavior` to `never`, so its last
   row scrolls under the home indicator. Exact sets a route's last scroller, and a dialog
   sheet's outer one, to UIKit's `always`, so it rests above the indicator as a hand-built
-  table view in a sheet does (LLP 1116 D2). That is the platform's: keep it. (euxy's UIKit
-  port matched the original only by setting `.never` on that scroll view by hand.)
+  table view in a sheet does (LLP 1116 D2). That is the platform's: keep it.
 
 ## Actions
 
 - **A name refused as reserved.** `none`, `some`, `true`, `false` and the expression
   words (`if`, `for`, `match`, `and`, …) cannot name a state, a parameter or a `let`
-  (`syntax-expected-name`); nor can `length` name a function or action in a file
-  that reads `.length` (`syntax-method-shadowed`; a shape's field may be
-  `length`). Fix: another
+  (`syntax-expected-name`); a shape field cannot be `length` (`.length` is the
+  built-in), nor a function or action in a file that reads `.length`
+  (`syntax-method-shadowed`). Fix: another
   word (`count`, `steps`, `empty`). (euxy port, 2026-10-15.)
 
 - **`nav` read after it is assigned in the same action is the old value.** State
@@ -608,6 +579,13 @@ screen, 2026-10-16.)
   `Aborted` (it would send twice); declare the mutation `queue` when every
   send's reply matters (LLP 1092). Until 2026-10-05 the continuation vanished
   natively, which held the Signal clone's sends forever (build 35).
+
+- **Resetting a mutation beside its send can discard the new reply.** For a
+  mutation without `queue`, `saved = none` in the action that sends `saved`
+  forgets its in-flight reply even when the reset is written first: assignments
+  commit after sends. Fix: keep the slot and hide a previous error while
+  `pending(saved)`. `none` means no reply, not a failed write; inspect
+  `failure(saved)` or the shaped reply. See [after a write](recipes/after-a-write.md).
 
 - **`Date.now()` in a data module passes its Bun tests and fails on the
   device.** Since 2026-10-05 the build refuses a direct use by file and line
@@ -842,11 +820,6 @@ screen, 2026-10-16.)
   (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
 
 ## Driving and testing
-
-- **A compiler fixture silently tests its helper instead of `App`.** The first
-  component is the root; the name `App` has no special meaning. Put the root
-  before its helpers. (SVG `use` warning's component-expansion test, 2026-10-17;
-  `contract/syntax/src/inline.rs`, `expand_with_sites`.)
 
 - **An alert's action has not run by the next step on iOS.** `tap "remove-confirm"`
   then `clock data` finds nothing removed, though a drive shows the press. Cause:
@@ -1120,13 +1093,11 @@ screen, 2026-10-16.)
   session. (Wave 9, lanes 015/060, 2026-10-12.)
 
 - **An agent drive shows the app's defaults (a mock, an empty store) though
-  the app's files are there.** Cause: without `--storage <name>` the data
-  module reads an empty store (`readFile`, `readdir`, `stat` and `realpath` reject
-  with code `ENOENT`, as for a missing file) and every write throws "storage is
-  unavailable in agent mode…", so a module that catches a missing file falls back
-  silently, as it would on a fresh install (the drive says so once, after the first op that
-  met a refusal, a screenshot too: `note: this drive names no --storage, so the
-  app's storage was refused …`).
+  the app's files are there.** Cause: without `--storage <name>` every
+  `storage.fs` call in the data module throws "storage is unavailable in agent
+  mode…", and a module that catches a missing config file falls back silently,
+  as it would on a fresh install (the drive notes a refused write, `note: a data
+  source's write was refused`, once: in the input's reply, else at its end).
   The installed app's own files are not the drive's: a named scratch store lives
   apart (on iOS under `Library/Caches/exact/<app id>/agent/<name>/data`). Fix:
   `--storage <name>`, and copy the files the drive needs (a config, a saved
@@ -1451,11 +1422,8 @@ screen, 2026-10-16.)
 The first valid target keeps ownership until it has no valid binding (LLP 1071).
 Several handles may name that target, but another target cannot take over while
 it remains valid. In a gallery, mount the handle for the current page; do not
-leave a binding on every page or list row. The JS target resolves `transformDragFor`,
-`heightDragFor` and `reorderFor` after each commit against current ancestor IDs.
-Each binding must name exactly one strict ancestor; self, siblings and duplicate
-matching ancestors do not qualify. Changing the binding or ancestor ID cancels a
-drag whose target is no longer valid. The runtime journal names
+leave a binding on every page or list row. Keep `transformDragFor` literal on the
+JS target: computed target strings are not resolved. The runtime journal names
 each passed-over target view and the owner once, then reports it again only after
 its valid bindings disappear and return. Read it with
 `bun scripts/agent.mjs web logs` (or the native host).
