@@ -87,3 +87,93 @@ fn midi_steps_parse_and_reach_the_driver() {
         assert!(e.message.contains(why), "{bad}: {}", e.message);
     }
 }
+
+/// An app that reads MIDI without `device.midi` is told at the call site,
+/// with the grant and the strings entry (the euxy port: it compiled and read
+/// `denied`); a grant without its purpose is told the entry; Metronome's
+/// Rust grant and strings pass; a file outside an app is checked for none.
+#[test]
+fn reaching_midi_without_its_grant_warns_at_the_call() {
+    let dir = std::env::temp_dir().join(format!("exact2-midi-grant-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = "shape M\n  state: string\n\ncomponent A\n  resource midi = exactMIDI() as shape M\n  view\n    text midi.state\n";
+    std::fs::write(dir.join("app.contract"), src).unwrap();
+    let grant = |grants: &str| {
+        std::fs::write(
+            dir.join("app.ts"),
+            format!("export const grants = '{grants}';\n"),
+        )
+        .unwrap();
+        let (plan, warnings) = contract::compile_path_all_warned(&dir.join("app.contract"), false);
+        plan.unwrap_or_else(|e| panic!("{e:?}"));
+        warnings
+            .into_iter()
+            .filter(|w| w.id == "grant-device-missing")
+            .map(|w| (w.span.line, w.message))
+            .collect::<Vec<_>>()
+    };
+    // Outside an app: a corpus or conformance file has its grants elsewhere.
+    assert!(grant("").is_empty());
+    std::fs::write(
+        dir.join("app.json"),
+        r#"{"app": {"id": "dev.test.midi", "name": "M"}}"#,
+    )
+    .unwrap();
+    let said = grant("");
+    let [(5, message)] = &said[..] else {
+        panic!("{said:?}")
+    };
+    for part in [
+        "`exactMIDI()` reads `denied`",
+        "`export const grants = 'device.midi purpose.midi';`",
+        "strings/en.json (`\"purpose.midi\": ",
+    ] {
+        assert!(message.contains(part), "{part}: {message}");
+    }
+    let said = grant("net.fetch https://x.test/\\ndevice.midi purpose.midi");
+    let [(5, message)] = &said[..] else {
+        panic!("{said:?}")
+    };
+    assert!(
+        message.contains("strings/en.json has no \"purpose.midi\""),
+        "{message}"
+    );
+    std::fs::create_dir_all(dir.join("strings")).unwrap();
+    std::fs::write(dir.join("strings/en.json"), r#"{"purpose.midi": "Plays."}"#).unwrap();
+    assert!(grant("device.midi purpose.midi").is_empty());
+    // A comment in a file read first does not stand for the grant (round 1:
+    // it read as the key `grants`), nor does it hide the grant.
+    std::fs::write(
+        dir.join("a.ts"),
+        "// device.midi grants instrument access\nexport {};\n",
+    )
+    .unwrap();
+    assert!(grant("device.midi purpose.midi").is_empty());
+    let said = grant("");
+    assert!(
+        matches!(&said[..], [(5, m)] if m.contains("no file of the app's data module names it")),
+        "{said:?}"
+    );
+    // A grant built at run time cannot be read, so nothing is said.
+    for built in [
+        "export const grants = `device.midi ${PURPOSE}`;\n",
+        "export const grants = ['device.midi', 'purpose.midi'].join(' ');\n",
+    ] {
+        std::fs::write(dir.join("app.ts"), built).unwrap();
+        let (_, warnings) = contract::compile_path_all_warned(&dir.join("app.contract"), false);
+        assert!(
+            !warnings.iter().any(|w| w.id == "grant-device-missing"),
+            "{built}: {warnings:?}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/metronome/app.contract");
+    let (plan, warnings) = contract::compile_path_all_warned(&root, false);
+    plan.unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(
+        !warnings.iter().any(|w| w.id == "grant-device-missing"),
+        "{warnings:?}"
+    );
+}

@@ -129,6 +129,12 @@ the same crate built for Android: `bun exact.mjs android`
 (`scripts/agent-android.mjs build`). `--update` adds `linux/` to an app made
 before, unless the app has its own.
 
+> **Amended (2026-10-17, the euxy port: removing Linux by hand took app.json, the
+> workspace and Cargo.lock, about 20 minutes).** `bun exact.mjs update --without linux`
+> removes the crate, its workspace member and app.json's `linux` keys, and re-resolves
+> Cargo.lock. `--update` adds `linux/` only to an app whose app.json names
+> `deploy.store.linux`, which the scaffold writes, so a removal stays removed.
+
 An app, and a game outside the checkout, also gets `.vscode/tasks.json`
 (2026-10-07, Doug Lowder: VS Code support, "declarative first"; this is the
 approval RULES asks for the config file). Its tasks run the app's own

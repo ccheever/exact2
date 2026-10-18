@@ -42,7 +42,7 @@ async function fixture(body) {
     return resolve(root, dir);
   };
   try {
-    for (const path of ['scripts/app.mjs','scripts/bun.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','host/web/look.mjs','host/apple/assets.mjs','host/apple/buildinfo.mjs','game/app/shells.mjs','game/.cargo/config.toml']) {
+    for (const path of ['scripts/app.mjs','scripts/bun.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/origin.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','host/web/look.mjs','host/apple/assets.mjs','host/apple/buildinfo.mjs','game/app/shells.mjs','game/.cargo/config.toml']) {
       write(path, readFileSync(resolve(import.meta.dir,'..',path)));
     }
     const { resolveApp: localResolveApp, cargoReproducibilityFlags: flags } = await import(resolve(root,'scripts/app.mjs'));
@@ -474,7 +474,7 @@ test('ordinary resolution refuses missing and stale locks without writing them',
   assert.equal(app('plain').cargoPackage('web').name,'plain-web');
   const path='game/ordinary/plain/Cargo.toml';
   write(path,readFileSync(resolve(root,path),'utf8').replace('version="0.1.0"','version="0.2.0"'));
-  assert.throws(()=>app('plain').cargoPackage('web'),/update the lock explicitly.*cargo metadata --offline/s);
+  assert.throws(()=>app('plain').cargoPackage('web'),/Cargo\.lock does not match its Cargo\.toml files.*`cargo metadata --offline --format-version 1`.*\nerror: .*--locked/s);
   assert.equal(readFileSync(resolve(root,'game/Cargo.lock'),'utf8'),before);
 }), 60_000);
 

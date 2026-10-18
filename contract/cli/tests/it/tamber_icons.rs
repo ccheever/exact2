@@ -252,6 +252,46 @@ fn a_template_of_literals_is_its_literal() {
         plan.strings
     );
 }
+/// An app `exact new` made ships Linux by its `linux/` crate and
+/// `deploy.store.linux`: the warning names both, the role by the same name,
+/// the SVG the Linux host draws, and the one step that stops shipping Linux
+/// (the euxy port spent 20 minutes finding them).
+#[test]
+fn the_platform_warning_names_what_ships_and_how_to_stop() {
+    let view = "component App\n  view\n    column\n      image \"symbol:sf/pencil\"\n      image \"symbol:sf/flag.checkered\"\n";
+    let path = app(
+        "ships",
+        "\"ios\": {}, \"web\": {}}, \"deploy\": {\"store\": {\"ios\": \"0\", \"linux\": \"0\"}",
+        "",
+        view,
+    );
+    let root = path.parent().unwrap();
+    std::fs::create_dir_all(root.join("linux")).unwrap();
+    std::fs::write(root.join("linux/Cargo.toml"), "").unwrap();
+    let (plan, warnings) = contract::compile_path_all_warned(&path, false);
+    plan.unwrap_or_else(|e| panic!("{e:?}"));
+    let said: Vec<&str> = warnings
+        .iter()
+        .filter(|w| w.id == "lower-symbol-platform")
+        .map(|w| w.message.as_str())
+        .collect();
+    let [pencil, flag] = said[..] else {
+        panic!("{said:?}")
+    };
+    for part in [
+        "linux (the `linux/` crate, app.json `deploy.store.linux`)",
+        "web (app.json `host.web`)",
+        "The role `pencil` draws on every host (Apple's `pencil.line`): write `symbol:pencil`",
+        "filled `<path>`s in one opaque colour",
+        "`bun exact.mjs update --without linux`",
+    ] {
+        assert!(pencil.contains(part), "{part}: {pencil}");
+    }
+    assert!(
+        !flag.contains("The role") && flag.contains("Declare an icon token"),
+        "{flag}"
+    );
+}
 
 /// Review round 1: a nested template of literals folds too, and a template
 /// of literals is linted as its literal.

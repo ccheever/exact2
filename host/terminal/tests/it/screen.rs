@@ -610,7 +610,12 @@ fn native_button_wrap_and_bound_title_remeasure_the_painted_face() {
 
 #[test]
 fn live_time_ticks_in_the_terminal_without_an_app_task() {
-    let plan = contract::compile("component App\n  view\n    text\n      text \"Updated \"\n      time datetime=-120000 format=\"relative\" testId=\"live-time\"\n      text \" here\"\n").unwrap();
+    let now = 1_767_225_600_000.;
+    let source = format!(
+        "component App\n  view\n    time datetime={} format=\"relative\" testId=\"live-time\"\n",
+        now - 120_000.
+    );
+    let plan = contract::compile(&source).unwrap();
     let mut host = Host::boot(plan, (), Mode::Fullscreen, 40, 4).unwrap();
     let mut vt = Vt::new(&mut host);
     vt.render(&mut host);

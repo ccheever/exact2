@@ -28,7 +28,8 @@ internal object Shaders {
         val tile = when (b.get(i + 3)) { 1 -> Shader.TileMode.REPEAT; 2 -> Shader.TileMode.MIRROR; else -> Shader.TileMode.CLAMP }
         val shader = when (b.get(i + 2)) {
             0 -> LinearGradient(f(4), f(5), f(6), f(7), inks, stops, tile)
-            1 -> RadialGradient(f(4), f(5), f(6), f(7), f(8), f(9), inks.toLongs(), stops, tile)
+            1 -> if (android.os.Build.VERSION.SDK_INT >= 31) RadialGradient(f(4), f(5), f(6), f(7), f(8), f(9), inks.toLongs(), stops, tile)
+                else Legacy.radial(f(4), f(5), f(6), f(7), f(8), f(9), inks, stops, tile)
             2 -> SweepGradient(f(4), f(5), inks, stops)
             else -> return null
         }

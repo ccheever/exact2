@@ -114,7 +114,9 @@ role on a box (`lower-dialog-role`), an `aria-level` with no `role="heading"`
 its parent by the padding (`lower-width-padding`), a box whose fixed width ceiling cannot grow
 with its text at accessibility sizes (`lower-text-px-width`; use `rem` for the width and its bounds), a bare
 `line-height=28`, which is 28 times the font size, not 28 points (`lower-line-height-multiplier`),
-screens swapped by an `if` in an app with no `routes` (`lower-screen-by-state`), a count before a plural noun, `${n} cards`
+screens swapped by an `if` in an app with no `routes` (`lower-screen-by-state`), a
+`replace` to another route, pressed on the screen a launch at `/` opens before
+anything else changes the router, which the router refuses (`lower-replace-root`), a count before a plural noun, `${n} cards`
 (`lower-count-plural`), a row of the app's records that searches another table of them,
 `users.filter(u => u.id == p.userId)` in `for p in posts` (`lower-row-lookup`), a
 symbol by an alias, not its role (`lower-symbol-alias`), a
@@ -124,7 +126,9 @@ keeps its kept answer from ever showing at launch: pass it after `with`
 (`lower-resource-launch-identity`), a
 state read after its own action assigned it (`analyze-read-after-assign`), a
 literal colour that stays the same in dark mode (`lower-colour-one-scheme`, every
-site past the cap), and a name or key a host would refuse or ignore at run time: a
+site past the cap), a `list` holding a `section` with no `appearance`, which is neither
+a grouped list nor a list of cells (`lower-list-section`), and a
+name or key a host would refuse or ignore at run time: a
 swipe row's `swipeTrailing` naming a button outside its `scroll` (`lower-swipe-wiring`),
 a navigation root's `navigationKey` that never meets its routes' (`lower-navigation-key`),
 a `navigationSplit` off the root route (`lower-navigation-split`), an `image` source
@@ -537,6 +541,11 @@ component App
 
 ### Editing a value: the field's contract
 
+An `input` handler should update raw draft state on every edit so live search,
+validation and button enablement follow typing. A text field fires `change` on
+Enter or blur; its handler should normalize the draft. Use `submit` for explicit
+submission.
+
 A text field is re-set only when what its `value` binding reads changes, never
 after each keystroke (React writes the bound value back; Exact does not, so a
 half-typed `-` or `1.` survives). That makes the contract:
@@ -884,11 +893,52 @@ the seam, and use `refresh`/`refreshes` for counters whose only purpose is anoth
 ask. The default web JS target keeps no persisted resource answers
 ([LLP 1027.005](../llp/1027.005-resource-identity-and-request-context.rfc.md)).
 
+Resource inputs are not asynchronous prerequisites, and HTTP request lanes do
+not make resources depend on one another. A resource that reads another resource
+uses its current displayed value; it does not wait for the upstream request to
+succeed. While that request is pending, the value may be a retained answer, and
+`not pending(upstream)` does not prove the latest request succeeded.
+
+An authenticated source must await the app's shared current-session helper
+before issuing its protected request. It must verify that the session authorizes
+the principal named by the resource call. The helper and auth generation are app
+code, not Exact APIs. The app must advance its auth generation and clear its
+authorized principal whenever the principal changes or signs out. A request
+that must belong to that auth attempt should take the generation as a resource
+argument and return the principal and generation as fields in its answer. The
+view should show private data only when both fields match the currently
+authorized principal and generation. Checking only the owner cannot distinguish
+signing into A, then B, then A again. A pending session resource, or one that is
+merely not pending, does not prove authorization.
+
+Before committing a refreshed session or shared owner-sensitive cache write,
+recheck the generation at the commit point, including inside queued work. When
+possible, partition persistent caches by owner so one owner's valid result can
+still populate its cache after the view changes. If writes share a slot, guard
+the commit by owner and auth generation. Do not suppress a valid per-owner cache
+write only because another request became current. See the
+[fetch/loading/error recipe](recipes/fetch-loading-error.md) for retained-answer
+and owner-gating patterns. The [REST starter](patterns/rest/app.contract) uses
+public development identities and does not implement an authenticated session
+lifecycle.
+
 The current request owns its answer; older replies cannot overwrite a newer
-request. A newer send or an assignment forgets a mutation's in-flight reply, not
-its work: the source's storage steps for it still run to their end on every host,
-as a browser runs a promise nobody awaits. Because the reply is forgotten, an
-action that sends one mutation twice on one path is refused (`analyze-send-twice`), counting
+request. A newer send or an assignment drops a mutation's in-flight reply. It
+does not undo storage operations the source has already started; those
+operations and any serialized storage chain behind them run to completion.
+Other source work, such as a fetch, may be aborted when an answer is replaced
+(see the [runtime reference](reference.md#what-a-data-module-can-use)).
+
+The action sending a mutation without `queue` must not also assign its slot to
+`none`. Assignments commit after sends, so the reset can discard the new reply
+even when it appears first. Keep the mutation for its reply and hide an old error
+while `pending(added)`, as the [after-a-write recipe](recipes/after-a-write.md)
+does. `none` means the slot contains no reply, not that the write failed: use
+`failure(added)` for a request failure, and match a shaped reply's `ok` or error
+for a domain refusal.
+
+An action that sends one mutation twice on one path is refused
+(`analyze-send-twice`) because the second send would forget the first reply, counting
 the sends of the actions it calls. Every `if` is read as one that can run: two
 sends are separate paths only as arms of one `if … else if … else` or `match`,
 or in `if`s testing one unchanged name against different literals. Send one
@@ -1316,8 +1366,8 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | Write | iOS draws |
 | --- | --- |
 | `button` (`buttonStyle`, native by default) | `UIButton` |
-| `list appearance="auto" listStyle="inset-grouped"` of `section`s (`header`, rows, `footer`) | `UICollectionView` list, as Settings ([human guide](contract-for-humans.md#choosing-a-native-button)) |
-| `list` with no `appearance`, its rows down the page (each child is a row) | a plain list's cells: UIKit's separators, the cell's grey ground while a row is pressed, the row selected under the screen it pushed. Draw none of it; a border you write on a row is yours and replaces the separator there (`border-bottom="none"`: none), and `appearance="none"` keeps rows of your own (a transcript, a feed of cards). The Mac shows a table, the web and the Linux desktop one line between rows, Android none (LLP 1115.000 D16) |
+| `list appearance="auto" listStyle="inset-grouped"` of `section`s (`header`, rows, `footer`) | `UICollectionView` list, as Settings ([human guide](contract-for-humans.md#choosing-a-native-button)); a row of your own parts starts and ends at the cell's margin, as UIKit's own rows do, so write no padding at its ends |
+| `list` with no `appearance`, its rows down the page (each child is a row) | a plain list's cells: UIKit's separators, the cell's grey ground while a row is pressed, the row selected under the screen it pushed. Draw none of it, but pad each row's content (16 at each end): the row is your box; a border you write on a row is yours and replaces the separator there (`border-bottom="none"`: none), and `appearance="none"` keeps rows of your own (a transcript, a feed of cards). The Mac shows a table, the web and the Linux desktop one line between rows, Android none (LLP 1115.000 D16) |
 | `delete=remove(id)` on either list's row (`disabled` beside it: no delete) | the cell's swipe action Delete, which a full swipe performs (`contract vocab swipe`) |
 | `input type="checkbox" switch` | `UISwitch` |
 | `input type="radio"` (the radios of one `name` are a group) | the SF Symbols circle, filled at its centre when checked, at body size; in a grouped list's row no circle but the row's checkmark, which a tap on the row moves (LLP 1115.000 D13.2) |
@@ -1435,9 +1485,10 @@ from two to five (a preset, units, a period, a filter) is a `row role="radiogrou
 `button role="radio" aria-checked=…`, each pressing its value (the web gives it the
 arrow keys and one Tab stop); switching panels, a `row role="tablist"` of text tabs
 outside the header. A list row's `delete=action` is its swipe to delete, UIKit's on
-iOS (`contract vocab swipe`). Other swipe actions are a hand-written swipe row, whose
-content iOS needs exactly the scroll's size
-([pitfalls](agent-pitfalls.md), "There is no `swipeleft`"). Its swipe actions
+iOS (`contract vocab swipe`). Other swipe actions are a hand-written swipe row, a
+`scroll` laid out as a row (`display="flex"`) whose content iOS needs exactly the
+scroll's size ([pitfalls](agent-pitfalls.md), "A hand-written swipe row shows its
+buttons under the row"). Its swipe actions
 are UIKit's, drawn by UIKit (rounded on iOS 26 and later) whatever the buttons
 paint; when every control the row names says `appearance="none"`, the paint is
 kept instead, in a grouped list too: the row swipes by its own scroll, as on
@@ -1955,6 +2006,11 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   `flex-shrink: 0`. The route does
   not pad `env(safe-area-inset-bottom)`: UIKit adds that band below the detent.
   iOS alone sizes a sheet (LLP 1075.003 §9.11).
+- A sheet opens at its first height, the shortest, as UIKit opens one, unless the
+  route says `navigationInitialDetent`, one of its `navigationDetent` words:
+  `navigationDetent="medium large" navigationInitialDetent="large"` opens tall with a
+  half-height stop (React Navigation's `sheetInitialDetentIndex`). It is read when
+  the detents are set, so changing it alone does not move an open sheet.
 - A sheet's grabber is the platform's unless the route says `navigationGrabber`:
   iOS draws one on a sheet with several detents, which it resizes, and none on a
   sheet of one height; `"visible"` or `"hidden"` says otherwise (UIKit's
@@ -2646,6 +2702,11 @@ test "the list shows an error, then retries and loads"
   expect tree has "recipes"
 ```
 
+`fail fetch` tests a rejected request; it cannot supply an HTTP status or body.
+To test malformed successful responses or a specific HTTP error, make the app's
+test server return that fixture and drive the real source against it. Do not
+invent a response-body override in Contract test syntax.
+
 To write through the app's own server as another person, `request POST "/items"
 {"title": "Bread"} as grace` is the driver calling it (`Authorization: Bearer grace`,
 under app.ts's local URL; a status outside 2xx fails the step with the status and
@@ -2820,7 +2881,8 @@ syntax and vocabulary, use the [grammar reference](contract-grammar.md). For a
 new feature, start from the corresponding compiler fixture rather than memory
 of JavaScript, React Native, or the predecessor's Contract language.
 
-CSS overflow accepts `visible`, `hidden`, `scroll`, and `auto`. `auto` clips and
+CSS overflow accepts `visible`, `hidden`, `clip`, `scroll`, and `auto`.
+`clip` clips without a scroll container or the zero automatic minimum size of `hidden`. `auto` clips and
 permits scrolling, with indicators shown only when content overflows. A visible
 axis beside hidden/scroll/auto computes to auto, as on the web.
 
@@ -3292,6 +3354,10 @@ not empty, whatever its length (an `expect text` on the field reads `•••`)
 accessibility tree still shows one bullet a character, as Chrome exposes it).
 What the app stores (`state.slots`, its data module) is the app's own; an
 `app.test.contract` `type … append` into a filled password field is refused.
+
+`aria-busy=(not ready)` marks a region as still loading: assistive technology
+hears it, and time to interactive (`modules/observe`) waits until no element is
+busy.
 
 `border`, `border-top/right/bottom/left` take CSS width/style/color in any order,
 resetting omitted components to medium/none/currentcolor. Widths are px/pt,

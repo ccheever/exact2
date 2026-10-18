@@ -3,6 +3,7 @@ package dev.exact.canvas
 import android.app.Activity
 import android.content.Context
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
@@ -75,7 +76,7 @@ open class ExactActivity : Activity() {
         hatchReader?.activity = this
         // The starting window goes the moment the first frame is drawn, not after its exit fade (splashfade=1: the
         // platform's fade, to compare): the first frame is what shows.
-        if (intent.getStringExtra("splashfade") != "1") splashScreen.setOnExitAnimationListener { it.remove() }
+        if (Build.VERSION.SDK_INT >= 31 && intent.getStringExtra("splashfade") != "1") Splash.quick(this)
         if (!again) environment()
         edgeToEdge()
         // exact2's thread, made before the assets are checked: it loads exact2's library meanwhile.
@@ -158,13 +159,37 @@ open class ExactActivity : Activity() {
      * only while the host says Back has somewhere to go in the app ([Requests.back]): at the first screen there is
      * none, so Back is the system's own, which leaves the app with its own animation. A Back that arrives and the
      * app does not take (it had somewhere to go a moment ago) finishes the activity, as it always did. */
-    private val backCallback = android.window.OnBackInvokedCallback { if (Exact.back()) view.invalidate() else finish() }
+    private val backCallback by lazy { Back(this) }
     private var takesBack = false
     private fun takeBack(on: Boolean) {
         if (on == takesBack) return
         takesBack = on
-        if (on) onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, backCallback)
-        else onBackInvokedDispatcher.unregisterOnBackInvokedCallback(backCallback)
+        if (Build.VERSION.SDK_INT >= 33) backCallback.take(on)
+    }
+    private fun back() { if (Exact.back()) view.invalidate() else finish() }
+
+    /** Before Android 13 Back arrives here, and the app's routes take it while they have somewhere to go. */
+    @Deprecated("Android 13's OnBackInvokedDispatcher takes Back from then on ([Back]).")
+    override fun onBackPressed() {
+        if (Build.VERSION.SDK_INT < 33 && takesBack) back() else @Suppress("DEPRECATION") super.onBackPressed()
+    }
+
+    /** [takeBack]'s callback from Android 13, in a class of its own: an older release never resolves its types. */
+    @android.annotation.TargetApi(33)
+    private class Back(activity: ExactActivity) {
+        private val dispatcher = activity.onBackInvokedDispatcher
+        private val callback = android.window.OnBackInvokedCallback { activity.back() }
+        fun take(on: Boolean) {
+            if (on) dispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback)
+            else dispatcher.unregisterOnBackInvokedCallback(callback)
+        }
+    }
+
+    /** The starting window goes the moment the first frame is drawn (Android 12's SplashScreen), in an object of its
+     * own: an older release never resolves its types. */
+    @android.annotation.TargetApi(31)
+    private object Splash {
+        fun quick(activity: Activity) = activity.splashScreen.setOnExitAnimationListener { it.remove() }
     }
 
     /** Where exact2 keeps the app's files, and the APK's assets are copied: the app's own files directory, which
@@ -206,10 +231,10 @@ open class ExactActivity : Activity() {
         val colors = Palette.read(this).also { toldColors = it }
         // The window as it is now, with the system's raw insets (D3.3): told before the host boots too, so the page is
         // laid out where it will be shown. The view's own size is never told: the presenter places the page.
-        val metrics = windowManager.currentWindowMetrics
-        val size = metrics.bounds.width() to metrics.bounds.height()
+        val size = windowSize()
         val density = resources.displayMetrics.density
-        val edges = edges(root.rootWindowInsets ?: metrics.windowInsets)
+        val insets = root.rootWindowInsets ?: if (Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.windowInsets else null
+        val edges = insets?.let { edges(it) } ?: IntArray(16)
         toldWindow = Triple(size, density, edges.toList())
         // asyncboot=0: boot when the view is laid out, on the main thread, to compare. Otherwise now, on a thread that
         // also loads the library: exact2 loads, boots and paints its first frame while Android sets the activity up,
@@ -293,17 +318,19 @@ open class ExactActivity : Activity() {
 
     /** The app is edge to edge (LLP 1115.001 D3.4): the window reaches under transparent system bars and into the
      * display's cutout, and the software keyboard is an inset the host is told, not a pan of the window. Android 15
-     * does most of this to every app that targets it; the calls make it so from Android 12 on. */
+     * does most of this to every app that targets it; the calls make it so from Android 11 on, [Legacy] before. */
     @Suppress("DEPRECATION")
     private fun edgeToEdge() {
-        window.setDecorFitsSystemWindows(false)
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(false)
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        } else Legacy.edgeToEdge(window)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
         window.isStatusBarContrastEnforced = false
         window.isNavigationBarContrastEnforced = false
-        window.attributes = window.attributes.apply {
-            layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-        }
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
     }
 
@@ -311,6 +338,7 @@ open class ExactActivity : Activity() {
      * bars, the display cutout, the software keyboard and the system's gestures, in pixels. */
     private fun edges(insets: android.view.WindowInsets): IntArray {
         val out = IntArray(16)
+        if (Build.VERSION.SDK_INT < 30) { Legacy.edges(root.rootWindowInsets ?: insets, out); return out }
         val kinds = intArrayOf(
             android.view.WindowInsets.Type.systemBars(), android.view.WindowInsets.Type.displayCutout(),
             android.view.WindowInsets.Type.ime(), android.view.WindowInsets.Type.systemGestures(),
@@ -322,6 +350,11 @@ open class ExactActivity : Activity() {
         return out
     }
 
+    /** The window's size, in pixels. */
+    private fun windowSize(): Pair<Int, Int> =
+        if (Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.bounds.let { it.width() to it.height() }
+        else Legacy.windowSize(this)
+
     /** The window's size, density and insets as the host was last told them. */
     private var toldWindow: Triple<Pair<Int, Int>, Float, List<Int>>? = null
 
@@ -329,8 +362,7 @@ open class ExactActivity : Activity() {
      * told (LLP 1115.001 D3.3). The host answers with where the page is ([chrome]). */
     private fun window(insets: android.view.WindowInsets) {
         if (!reads()) return
-        val size = if (root.width > 0 && root.height > 0) root.width to root.height
-            else windowManager.currentWindowMetrics.bounds.let { it.width() to it.height() }
+        val size = if (root.width > 0 && root.height > 0) root.width to root.height else windowSize()
         val density = resources.displayMetrics.density
         val edges = edges(insets)
         val now = Triple(size, density, edges.toList())
@@ -353,6 +385,7 @@ open class ExactActivity : Activity() {
             }
         }
         window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(c[4]))
+        if (Build.VERSION.SDK_INT < 30) { Legacy.lightBars(window, c[5] == 0); return }
         val light = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
             android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
         window.insetsController?.setSystemBarsAppearance(if (c[5] != 0) 0 else light, light)

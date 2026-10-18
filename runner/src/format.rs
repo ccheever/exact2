@@ -13,6 +13,7 @@
 //! `en-US`; the oracle table is `runner/tests/it/format.rs`.
 
 use crate::stdlib::{format_time, push_number, wall_ms};
+use exact_num::date::{civil, MONTHS, WEEKDAYS};
 use exact_plan::{Stdlib, Value};
 
 /// A `format` entry's value; `None` when `f` is not one, or its arguments
@@ -51,8 +52,6 @@ pub fn formatting(f: Stdlib, args: &[Value]) -> Option<Value> {
         _ => return None,
     })
 }
-
-use exact_kernel::time::{civil, MONTHS, WEEKDAYS};
 
 /// A `formatDate` style.
 #[derive(Clone, Copy, PartialEq)]

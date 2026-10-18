@@ -709,8 +709,7 @@ pub fn push_num(out: &mut String, n: f32) {
 
 /// A node's effective overflow per axis — the kernel's own rule
 /// (`StyleProps::to_taffy`): a `ScrollView`/`List` scrolls on y unless its
-/// row says otherwise, and an unset x follows a non-visible y (CSS Overflow
-/// §3). The presenter scrolls and clips from these, never from the node
+/// row says otherwise; both axes compute through CSS Overflow §3. The presenter scrolls and clips from these, never from the node
 /// type.
 pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     let s = node.style;
@@ -721,20 +720,12 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     } else {
         Overflow::Visible
     };
-    let mut x = if s.mask.has(StyleId::OverflowX) {
+    let x = if s.mask.has(StyleId::OverflowX) {
         s.overflow_x
     } else {
         Overflow::Visible
     };
-    let mut y = y;
-    // Symmetric, as the kernel computes: a `visible` axis beside a
-    // non-visible one computes to `auto` (CSS Overflow §3).
-    if x == Overflow::Visible && y != Overflow::Visible {
-        x = Overflow::Auto;
-    } else if y == Overflow::Visible && x != Overflow::Visible {
-        y = Overflow::Auto;
-    }
-    (x, y)
+    (x.computed(y), y.computed(x))
 }
 
 /// The style dictionary with CSS inheritance resolved and effective
@@ -1029,6 +1020,7 @@ pub fn style_json_presented(
     let name = |o: Overflow| match o {
         Overflow::Visible => "visible",
         Overflow::Hidden => "hidden",
+        Overflow::Clip => "clip",
         Overflow::Scroll => "scroll",
         Overflow::Auto => "auto",
     };

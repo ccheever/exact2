@@ -547,6 +547,11 @@ pub trait TextMeasurer {
     /// Size a paragraph under an offer.
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics;
 
+    /// Size presentation-only width candidates without retaining a paragraph artifact.
+    fn measure_reservation(&mut self, request: &TextMeasureRequest<'_>) -> Option<TextMetrics> {
+        Some(self.measure(request))
+    }
+
     /// Size a kernel-identified paragraph. Existing measurers use the ordinary
     /// synchronous path; callers constructing requests still need no stamp.
     /// The stamp identifies exactly this owner's canonical runs, not a subset

@@ -120,16 +120,24 @@ export function judge(obs, png, { host = 'web' } = {}) {
             : it.label ? 'name a `color` for the label, or a fill it reads on in this scheme' : role(it.fgRole) ? `-exact-${role(it.fgRole)} is too light for text on this: use -exact-label or -exact-secondary-label, or keep the colour for a fill or a symbol` : 'use a role (`-exact-label`, `-exact-secondary-label`) or a colour that changes with the scheme');
       }
     }
-    // A card whose fill is what lies behind it, with no border or shadow: invisible.
+    // A card (a filled box holding a text or a control; the hosts report no other fill) whose fill is what lies behind
+    // it, with no border or shadow: invisible. Each side is read across the card's edge, a pixel inside against one
+    // outside. Where the two differ, the edge shows and nothing is found. Where they are alike, the edge does not show
+    // only if the inside one is the card's fill over the outside one, and two such sides are needed: where a view is
+    // drawn over the edge (a panel, a nearer shape, a scrim) or the box is not the shape (a rotated view's box bounds
+    // it), both pixels are something else's (mapapp's park under its panel, photos' hills). A card the host says is
+    // `faded` is not judged: an ancestor's opacity mixes it with what lies behind that ancestor, so no colour can be
+    // expected at its edge.
     // Only where it is presented: under the keyboard the capture shows the keyboard, not the card's edge (unit-converter, round 9).
-    if (it.fill && !it.edge && png && !covers(it, obs.keyboard)) {
+    if (it.fill && !it.edge && !it.faded && png && !covers(it, obs.keyboard)) {
       const v = shown(it, obs.keyboard), on = (x, y) => x >= v.x - 2.5 && x <= v.x + v.w + 2.5 && y >= v.y - 2.5 && y <= v.y + v.h + 2.5;
       const sides = [[it.x + 2, it.y + it.h / 2, it.x - 2, it.y + it.h / 2], [it.x + it.w - 2, it.y + it.h / 2, it.x + it.w + 2, it.y + it.h / 2],
         [it.x + it.w / 2, it.y + 2, it.x + it.w / 2, it.y - 2], [it.x + it.w / 2, it.y + it.h - 2, it.x + it.w / 2, it.y + it.h + 2]]
         .filter(([ix, iy, ox, oy]) => on(ix, iy) && on(ox, oy))
         .map(([ix, iy, ox, oy]) => [pixel(png, scale, ix, iy), pixel(png, scale, ox, oy)]).filter(([a, b]) => a && b);
-      if (sides.length >= 2 && sides.every(([a, b]) => near(a, b, 4))) {
-        const fill = role(it.fillRole), behind = sides[0][1], scheme = obs.scheme ?? 'light';
+      const filled = sides.filter(([a, b]) => near(a, over(it.fill, b), 4));
+      if (filled.length >= 2 && sides.every(([a, b]) => near(a, b, 4))) {
+        const fill = role(it.fillRole), behind = filled[0][1], scheme = obs.scheme ?? 'light';
         const plain = [...ROLES.values()].some((r) => r.name === 'background' && near(behind, parseHex(r[column][scheme]), 3));
         add('card', it, { fill: fill ? `-exact-${fill}` : hex(it.fill), behind: hex(behind) },
           fill === 'secondary-grouped-background' && plain ? 'on a plain page a card is -exact-secondary-background (-exact-secondary-grouped-background is for a -exact-grouped-background page)'

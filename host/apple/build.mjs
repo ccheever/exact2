@@ -54,7 +54,7 @@ import { quiet, quietFor } from './quiet.mjs';
 import { keptCrates } from './crates.mjs';
 import { appleComposition, assertCapabilityFrameworks, assertLinkedSdk, linksByPlan } from './link.mjs';
 export { appIcon, iosAssets };
-import { IPAD_ORIENTATIONS, orientationKeys, allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
+import { IPAD_ORIENTATIONS, orientationKeys, allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, installedBuild, macIdentity, phone, replacedNote, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => {
   const r = spawnSync(cmd, args, { cwd: root, ...opts,
@@ -253,13 +253,13 @@ export function copyAppleStaticTrees(source, target, trees = [['assets', 'assets
   }
 }
 
-/** Install the assembled bundle on the simulator. */
-export function install(dev, bundle, app, host = false) {
+/** Install the assembled bundle on the simulator, saying a development build put over another kind (`replacedNote`) unless the caller kept that one (`said`). */
+export function install(dev, bundle, app, host = false, said = false) {
   if (!bundle || !existsSync(bundle)) throw new Error('build the selected app with --ios first');
   assertAppleIdentity(app, resolve(bundle, host ? 'ExactHostIOS' : executableName(app)));
-  const r = read('xcrun', ['simctl', 'install', dev.udid, bundle]);
+  const replaced = !host && !said && bundle.includes('/development/') ? installedBuild(dev.udid, app.id) : null, r = read('xcrun', ['simctl', 'install', dev.udid, bundle]);
   if (r.status !== 0) throw new Error('simctl install: ' + r.stderr);
-}
+  if (replaced && replaced.trust !== 'development') console.error(replacedNote(dev.udid, app, replaced, appleArtifacts(app, { destination: 'ios-simulator', trust: 'production' }).bundle)); }
 
 /** What a development client admits through its opening link (LLP 1030.000
  * §7): the dev server it was built against (`--url`) and a random token made

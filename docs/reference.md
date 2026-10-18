@@ -366,6 +366,27 @@ text paragraph, so the widget can reserve its width; calendar formats may be
 inline. Links must be their own elements, not runs among other paragraph text.
 Snapshot handlers are refused; use a link to open the app.
 
+Snapshot accessibility admits labels, roles, hints, heading levels and hidden
+content. Live announcements and control-state accessibility rows are refused.
+
+Snapshot paint uses document order and the system colour scheme. Use a condition
+or `display: none` to hide content; `visibility` and `z-index` are refused.
+Borders have one width, colour and solid, dashed, dotted or `none` style on all sides.
+Radii are px or percentages; percentages on non-square boxes produce ellipses.
+Radius calculations are refused. Overflow is the same on both axes: visible,
+hidden or clip. Raster images author both width and height, and `object-fit` is
+fill, contain, cover or scale-down. An entry declaring
+any small or accessory family has at most one link; entries declaring only
+medium, large and extra large families may have several.
+
+Text aligns start, center or end; use `line-clamp` for truncation. Give an inline
+highlight its own box. Colours are sRGB, system roles or named assets; wide-gamut
+and profiled colours are refused. Gradients are nonrepeating linear or radial,
+interpolated in sRGB or srgb-linear, with strictly increasing stops. Stop order
+must hold at every box size; use a single unit when mixed units could cross.
+Restricted paint values are literals or choices of literals, so their admission
+is checked at bake.
+
 App icons come from `app.json`'s Web App Manifest `icons` array: Apple uses
 the first square raster of at least 512 px. To select an
 [Icon Composer project](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer),
@@ -1832,7 +1853,7 @@ visibility deviation; other native hosts remain unqualified.
 `time` is HTML's instant, in epoch milliseconds. `format` names the platform
 presentation: `relative`, `timer`, `countdown`, `date-short`, `date-medium`
 (the default), `date-long`, `date-full`, or `time-short` and `time-medium` (with seconds). Date and time styles use the viewer's locale and
-time zone. Children are fallback text if the host cannot format the instant.
+time zone (Linux desktop currently uses English). Children are fallback text if the host cannot format the instant.
 
 ```contract
 component Clock
@@ -1848,8 +1869,9 @@ Relative time changes at minute boundaries, timers and countdowns each second.
 A timer counts elapsed or remaining time on either side of its instant; a
 countdown stops at zero. The runner drives them without an app task, including
 under the agent's `clock +60000`. A standalone live `time` reserves its box
-for the widest presentation at its font, including two units for relative
-time. A live `time` inside a `text` with other runs reflows as on the web;
+at its font: two localized units for relative time, one extra hour digit
+for a timer, and the first displayed shape for a countdown. Apple timers use
+SwiftUI’s first field (`0:05`, `1:00:00`). A live `time` inside a `text` with other runs reflows as on the web;
 make it its own text node when its width must stay fixed. Changing numeric
 text uses tabular digits by default.
 

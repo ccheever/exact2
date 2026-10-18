@@ -1,6 +1,5 @@
 package dev.exact.canvas
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.Resources
 import android.graphics.Rect
@@ -180,7 +179,7 @@ internal class Access(private val host: View) {
             else if (what and (TEXT_CHANGED or STATE) != 0) {
                 var types = 0
                 if (what and TEXT_CHANGED != 0) types = types or AccessibilityEvent.CONTENT_CHANGE_TYPE_TEXT or AccessibilityEvent.CONTENT_CHANGE_TYPE_CONTENT_DESCRIPTION
-                if (what and STATE != 0) types = types or AccessibilityEvent.CONTENT_CHANGE_TYPE_STATE_DESCRIPTION
+                if (what and STATE != 0 && Build.VERSION.SDK_INT >= 30) types = types or AccessibilityEvent.CONTENT_CHANGE_TYPE_STATE_DESCRIPTION
                 changed(source, types)
             }
             if (what and STATE != 0 && n != null && was != null && n.has(SELECTED) && !was.has(SELECTED)) send(id, AccessibilityEvent.TYPE_VIEW_SELECTED)
@@ -251,7 +250,7 @@ internal class Access(private val host: View) {
 
     /** The view's own node: itself, with exact2's top nodes under it and then the real views that follow them. */
     private fun whole(): AccessibilityNodeInfo {
-        val info = AccessibilityNodeInfo(host)
+        val info = if (Build.VERSION.SDK_INT >= 30) AccessibilityNodeInfo(host) else Legacy.node(host)
         host.onInitializeAccessibilityNodeInfo(info)
         under(info, top)
         for (v in others()) info.addChild(v)
@@ -266,9 +265,16 @@ internal class Access(private val host: View) {
         }
     }
 
-    @SuppressLint("NewApi")
+    /** A one-cell item at [row], [column] of its collection, and a collection [rows] by [columns]. */
+    private fun item(row: Int, column: Int, selected: Boolean) =
+        if (Build.VERSION.SDK_INT >= 30) AccessibilityNodeInfo.CollectionItemInfo(row, 1, column, 1, false, selected)
+        else Legacy.item(row, column, selected)
+    private fun collection(rows: Int, columns: Int, selection: Int) =
+        if (Build.VERSION.SDK_INT >= 30) AccessibilityNodeInfo.CollectionInfo(rows, columns, false, selection)
+        else Legacy.collection(rows, columns, selection)
+
     private fun node(n: Node): AccessibilityNodeInfo {
-        val info = AccessibilityNodeInfo(host, n.id)
+        val info = if (Build.VERSION.SDK_INT >= 30) AccessibilityNodeInfo(host, n.id) else Legacy.node(host, n.id)
         info.packageName = host.context.packageName
         info.className = kind(n)
         if (n.parent == 0 || n.parent !in nodes) info.setParent(host) else info.setParent(host, n.parent)
@@ -292,7 +298,7 @@ internal class Access(private val host: View) {
             EDIT -> { info.text = n.value; info.hintText = n.name; info.isEditable = true }
             else -> info.text = n.name
         }
-        if (n.role != EDIT && n.value.isNotEmpty()) info.stateDescription = n.value
+        if (n.role != EDIT && n.value.isNotEmpty()) { if (Build.VERSION.SDK_INT >= 30) info.stateDescription = n.value else Legacy.state(info, n.value) }
         if (n.hint.isNotEmpty()) info.tooltipText = n.hint
         when (n.role) {
             HEADING -> info.isHeading = true
@@ -300,20 +306,20 @@ internal class Access(private val host: View) {
             TAB -> {
                 // As Material's own tabs and navigation bar items say it: a tab, its place, and whether it is selected.
                 info.extras.putCharSequence(ROLE, "Tab")
-                if (n.of > 0) info.collectionItemInfo = AccessibilityNodeInfo.CollectionItemInfo(0, 1, n.at - 1, 1, false, n.has(SELECTED))
+                if (n.of > 0) info.collectionItemInfo = item(0, n.at - 1, n.has(SELECTED))
             }
-            TABLIST -> if (n.of > 0) info.collectionInfo = AccessibilityNodeInfo.CollectionInfo(1, n.of, false, AccessibilityNodeInfo.CollectionInfo.SELECTION_MODE_SINGLE)
-            SLIDER, PROGRESS -> if (n.has(RANGE)) info.rangeInfo = AccessibilityNodeInfo.RangeInfo(AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_FLOAT, n.min, n.max, n.now)
+            TABLIST -> if (n.of > 0) info.collectionInfo = collection(1, n.of, AccessibilityNodeInfo.CollectionInfo.SELECTION_MODE_SINGLE)
+            SLIDER, PROGRESS -> if (n.has(RANGE)) info.rangeInfo = if (Build.VERSION.SDK_INT >= 30) AccessibilityNodeInfo.RangeInfo(AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_FLOAT, n.min, n.max, n.now) else Legacy.range(n.min, n.max, n.now)
             SCROLLER -> {
                 info.isScrollable = n.has(FORWARD) || n.has(BACKWARD)
                 // A list's rows say their place and how many they are: the scroller is that list.
                 val rows = n.children.maxOfOrNull { nodes[it]?.of ?: 0 } ?: 0
-                if (rows > 0) info.collectionInfo = AccessibilityNodeInfo.CollectionInfo(if (n.has(SIDEWAYS)) 1 else rows, if (n.has(SIDEWAYS)) rows else 1, false)
+                if (rows > 0) info.collectionInfo = collection(if (n.has(SIDEWAYS)) 1 else rows, if (n.has(SIDEWAYS)) rows else 1, AccessibilityNodeInfo.CollectionInfo.SELECTION_MODE_NONE)
             }
         }
         if (n.role != TAB && n.of > 0 && n.at > 0) {
             val sideways = nodes[n.parent]?.has(SIDEWAYS) == true
-            info.collectionItemInfo = AccessibilityNodeInfo.CollectionItemInfo(if (sideways) 0 else n.at - 1, 1, if (sideways) n.at - 1 else 0, 1, false)
+            info.collectionItemInfo = item(if (sideways) 0 else n.at - 1, if (sideways) n.at - 1 else 0, false)
         }
         if (n.has(CHECKABLE)) {
             info.isCheckable = true
@@ -387,7 +393,7 @@ internal class Access(private val host: View) {
         }
         // An edit box is named by its hint, and its text is its value; anything else by its description, else its text.
         val name = (if (field) info.hintText else info.contentDescription ?: info.text)?.toString().orEmpty()
-        val value = (if (field) info.text?.takeUnless { info.isShowingHintText } else info.stateDescription)?.toString()
+        val value = (if (field) info.text?.takeUnless { info.isShowingHintText } else if (Build.VERSION.SDK_INT >= 30) info.stateDescription else null)?.toString()
         val states = org.json.JSONObject()
         if (info.isCheckable) states.put("checked", info.isChecked)
         if (info.isSelected || said == "Tab") states.put("selected", info.isSelected)
@@ -483,7 +489,7 @@ internal class Access(private val host: View) {
     private fun send(id: Int, type: Int, fill: ((AccessibilityEvent) -> Unit)? = null) {
         if (!manager.isEnabled) return
         val parent = host.parent ?: return
-        val e = AccessibilityEvent(type)
+        val e = if (Build.VERSION.SDK_INT >= 30) AccessibilityEvent(type) else Legacy.event(type)
         if (id == HOST) host.onInitializeAccessibilityEvent(e) else {
             val n = nodes[id] ?: return
             e.setSource(host, id)

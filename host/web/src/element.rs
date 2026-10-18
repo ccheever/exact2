@@ -1472,7 +1472,7 @@ fn datetime_text(n: f64) -> Option<String> {
         return None;
     }
     let n = n.trunc();
-    let (year, month, day) = exact_kernel::time::civil((n / 86_400_000.0).floor() as i64);
+    let (year, month, day) = exact_num::date::civil((n / 86_400_000.0).floor() as i64);
     let ms = n.rem_euclid(86_400_000.0) as u64;
     Some(format!(
         "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",

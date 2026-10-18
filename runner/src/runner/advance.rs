@@ -566,13 +566,6 @@ impl<D: DataSource> Runner<D> {
         } else {
             landed
         };
-        if !receipts.is_empty() {
-            let line = super::lines::advanced(
-                receipts.len(),
-                receipts.last().map_or(0, |t| t.receipt.epoch),
-            );
-            self.log(line);
-        }
         if self.live_times.due().is_some_and(|due| due <= self.now_ms) {
             match self.tick_live_times() {
                 Ok(None) => {}
@@ -588,6 +581,13 @@ impl<D: DataSource> Runner<D> {
                     }
                 }
             }
+        }
+        if !receipts.is_empty() {
+            let line = super::lines::advanced(
+                receipts.len(),
+                receipts.last().map_or(0, |t| t.receipt.epoch),
+            );
+            self.log(line);
         }
         Advanced {
             receipts,

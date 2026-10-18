@@ -283,17 +283,31 @@ pub fn arm<D: DataSource>(
 /// "agent":true,"web":true}`, `web` for the browser's reach. The reply is
 /// `{"refused":"…"}`, `{"ticket":N}` or `{"present":true,"files":[…]}`,
 /// each file `{"path":"app:/…"}` or `{"id":"card","view":N}`.
+///
+/// `"agent":true,"present":true` is a drive that shows the platform's own
+/// presentations (iOS under `--touch platform`): the share is held as
+/// under the agent, so `state` lists it and `tap @t` answers it, and is
+/// presented too, `{"ticket":N,"present":true,"files":[…]}`. The host
+/// answers the hold with the sheet's outcome, which journals it as the
+/// agent's answer does.
 pub fn request<D: DataSource>(runner: &mut Runner<D>, json: &str) -> String {
     let source = field_num(json, "source")
         .filter(|n| *n >= 0.0 && *n <= u32::MAX as f64 && *n == n.trunc())
         .map(|n| n as ViewId);
     let agent = crate::agent::field_bool(json, "agent");
+    let shown = agent && crate::agent::field_bool(json, "present");
     let reach = if crate::agent::field_bool(json, "web") {
         Reach::WEB
     } else {
         Reach::APPLE
     };
-    match arm(runner, Share::from_json(json), source, agent, reach) {
+    match arm(
+        runner,
+        Share::from_json(json),
+        source,
+        agent && !shown,
+        reach,
+    ) {
         Arm::Refused(reason) => {
             let mut s = String::from("{\"refused\":");
             quote(&reason, &mut s);
@@ -301,8 +315,13 @@ pub fn request<D: DataSource>(runner: &mut Runner<D>, json: &str) -> String {
             s
         }
         Arm::Held(ticket) => format!("{{\"ticket\":{ticket}}}"),
-        Arm::Present(_, files) => {
-            let mut s = String::from("{\"present\":true,\"files\":[");
+        Arm::Present(share, files) => {
+            let mut s = String::from("{");
+            if shown {
+                let ticket = runner.hold("share", None, &share.summary(source), &["shared"], false);
+                s.push_str(&format!("\"ticket\":{ticket},"));
+            }
+            s.push_str("\"present\":true,\"files\":[");
             for (i, file) in files.iter().enumerate() {
                 if i > 0 {
                     s.push(',');

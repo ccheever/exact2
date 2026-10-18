@@ -327,6 +327,9 @@ extension Agent {
         let rest = inRange(sv.contentOffset)
         let by = rest != sv.contentOffset ? rest : to
         if rest != sv.contentOffset { sv.setContentOffset(rest, animated: false) }
+        // A finger's drag shows the indicators, which fade once it lifts; an
+        // offset written directly shows none.
+        if by != o { sv.flashScrollIndicators() }
         presenter.settlePump()
         return ["tapped": Int(v.id), "at": [Agent.r2(start.x), Agent.r2(start.y)], "scrolledBy": [Agent.r2(by.x - o.x), Agent.r2(by.y - o.y)],
                 "delivery": "recognized", "native": "scroll"]

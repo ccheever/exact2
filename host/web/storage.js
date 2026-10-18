@@ -88,26 +88,29 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
     const reservedCell = claim();
     const drop = () => { if (reservedCell) untrack(reservedCell); };
     if (disposed) { drop(); return win.Promise.reject(unavailable()); }
-    if (keyed && key == null) {
-      drop();
-      tellAgent();
-      return win.Promise.reject(error({message:agentStorageRefusal, code:'agent'}));
-    }
     const cell = reservedCell || track(scope());
     const active = () => { if (disposed || retired.has(cell.owner)) throw unavailable(); };
     return new win.Promise((resolve, reject) => {
       const ready = completion(cell);
       const fail = () => reject(unavailable());
-      Promise.resolve().then(() => { active(); return invoke(active); }).then(
+      Promise.resolve().then(() => {
+        active();
+        if (keyed && key == null) { tellAgent(); throw error({message:agentStorageRefusal, code:'agent'}); }
+        return invoke(active);
+      }).then(
         value => ready(() => { try { resolve(convert(value)); } catch(e) { discard(value); reject(error(e)); } }, () => discard(value), fail),
         e => ready(() => reject(error(e)), () => {}, fail),
       );
     });
   }
+  // Cloning stays synchronous, but its failure belongs to the reserved
+  // cell's checkpoint, even when another answer's turn issued the call.
+  const failed = e => enqueue(() => { throw e; }, undefined, undefined, false);
   // The first refused read or write is said once, as on every host (trivia F7): the page's console reaches the driver's logs.
   function tellAgent() { if (!toldAgent) { toldAgent = true; console.warn(`storage refused (agent): ${agentStorageRefusal}`); } }
   function method(raw, name, args, convert, discard) {
-    const captured = structuredClone(args);
+    let captured;
+    try { captured = structuredClone(args); } catch (e) { return failed(e); }
     return enqueue(() => raw[name](...captured), convert, discard, true, name);
   }
   const closeDiscarded = raw => { void raw.close().catch(() => {}); };
@@ -135,7 +138,8 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
   for (const method of ['readFile','writeFile','atomicWriteFile','appendFile','readdir','mkdir','rm','stat','rename','copyFile','realpath']) {
     files[method] = (...args) => {
       // Snapshot input bytes before the caller can mutate its buffers.
-      const captured = structuredClone(args);
+      let captured;
+      try { captured = structuredClone(args); } catch (e) { return failed(e); }
       if (captured.slice(0, 2).some(p => typeof p === 'string' && p.startsWith('doc:/')))
         return enqueue(async active => { const backend = await documentFiles(); active(); return backend[method](...captured); }, clone, () => {}, false);
       // A refused read answers as an empty store would, in its answer's turn (storage-environment.js `emptyRead`).

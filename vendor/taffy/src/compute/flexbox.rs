@@ -259,11 +259,18 @@ pub fn compute_flexbox_layout(
         Size::NONE
     };
 
-    // If both min and max in a given axis are set and max <= min then this determines the size in that axis
-    let min_max_definite_size = min_size.zip_map(max_size, |min, max| match (min, max) {
+    // EXACT PATCH 43: height bounds must not size an unresolved intrinsic width.
+    // Width bounds still size height, including in a flex column's content probe.
+    // A block parent's intrinsic width probe uses InherentSize for its child.
+    let mut min_max_definite_size = min_size.zip_map(max_size, |min, max| match (min, max) {
         (Some(min), Some(max)) if max <= min => Some(min),
         _ => None,
     });
+    if known_dimensions.or(clamped_style_size).or(min_max_definite_size).width.is_none()
+        && (inputs.sizing_mode == SizingMode::ContentSize || !inputs.available_space.width.is_definite())
+    {
+        min_max_definite_size.height = None;
+    }
 
     // The size of the container should be floored by the padding and border
     let styled_based_known_dimensions =
@@ -1677,7 +1684,16 @@ fn determine_container_main_size(
                                 // Known dimensions for child sizing
                                 let child_known_dimensions = {
                                     let mut ckd = item.size.with_main(dir, None);
-                                    if item.align_self == AlignSelf::STRETCH && ckd.cross(dir).is_none() {
+                                    // EXACT PATCH 41: intrinsic contributions can transfer a stretch
+                                    // only from a definite single-line cross size, without auto margins.
+                                    if item.align_self == AlignSelf::STRETCH
+                                        && !constants.is_wrap
+                                        && constants.has_definite_cross_size
+                                        && cross_axis_parent_size.is_some()
+                                        && !item.margin_is_auto.cross_start(dir)
+                                        && !item.margin_is_auto.cross_end(dir)
+                                        && ckd.cross(dir).is_none()
+                                    {
                                         ckd.set_cross(
                                             dir,
                                             cross_axis_available_space
@@ -3543,5 +3559,75 @@ mod balance {
                 );
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "taffy_tree", feature = "grid"))]
+mod intrinsic_tests {
+    use crate::geometry::{Line, Size};
+    use crate::prelude::*;
+    use crate::tree::{LayoutPartialTreeExt, SizingMode};
+
+    // Chrome 151.0.7922.34, 2026-10-18: a max-content grid item with a
+    // bounded width sizes its percentage-width square before its height.
+    #[test]
+    fn bounded_column_width_sizes_content_and_max_content_grid_height() {
+        let mut failures = Vec::new();
+        for (direction, maximum) in [
+            (FlexDirection::Column, 200.0),
+            (FlexDirection::Column, 100.0),
+            (FlexDirection::ColumnReverse, 200.0),
+        ] {
+            let mut tree = TaffyTree::<()>::new();
+            let square = tree.new_leaf(Style {
+                size: Size { width: percent(1.0), height: auto() },
+                aspect_ratio: Some(1.0),
+                ..Default::default()
+            }).unwrap();
+            let column = tree.new_with_children(Style {
+                display: Display::Flex,
+                flex_direction: direction,
+                size: Size { width: Dimension::max_content(), height: Dimension::max_content() },
+                min_size: Size { width: length(200.0), height: auto() },
+                max_size: Size { width: length(maximum), height: auto() },
+                justify_self: Some(AlignSelf::START),
+                align_self: Some(AlignSelf::START),
+                ..Default::default()
+            }, &[square]).unwrap();
+            for mode in [SizingMode::ContentSize, SizingMode::InherentSize] {
+                tree.mark_dirty(column).unwrap();
+                let measured = tree.as_layout_tree().measure_child_size_both(
+                    column,
+                    Size::NONE,
+                    Size { width: Some(800.0), height: Some(600.0) },
+                    Size::MAX_CONTENT,
+                    mode,
+                    Line::FALSE,
+                );
+                if measured != (Size { width: 200.0, height: 200.0 }) {
+                    failures.push(format!("{direction:?}; max-width:{maximum}; {mode:?}: {measured:?}"));
+                }
+            }
+            tree.mark_dirty(column).unwrap();
+            let grid = tree.new_with_children(Style {
+                display: Display::Grid,
+                size: Size { width: length(800.0), height: auto() },
+                grid_template_columns: vec![length(800.0)],
+                grid_template_rows: vec![max_content()],
+                ..Default::default()
+            }, &[column]).unwrap();
+            tree.compute_layout(grid, Size {
+                width: AvailableSpace::Definite(800.0), height: AvailableSpace::Definite(600.0),
+            }).unwrap();
+            let frames: Vec<_> = [grid, column, square].into_iter().map(|node| {
+                let layout = tree.layout(node).unwrap();
+                [layout.location.x, layout.location.y, layout.size.width, layout.size.height]
+            }).collect();
+            let chrome = [[0.0, 0.0, 800.0, 200.0], [0.0, 0.0, 200.0, 200.0], [0.0, 0.0, 200.0, 200.0]];
+            if frames != chrome {
+                failures.push(format!("{direction:?}; max-width:{maximum}; grid: {frames:?}, Chrome {chrome:?}"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 }

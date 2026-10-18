@@ -253,6 +253,41 @@ fn files_are_granted_paths_and_pictures_of_elements() {
             r#"{{"present":true,"files":[{{"id":"card","view":{card}}},{{"path":"app:/data/notes.txt"}}]}}"#
         )
     );
+    // Shown under the agent (`--touch platform`): held and presented both;
+    // the host's answer with the sheet's outcome is the journal's line.
+    let shown = exact_runner::share::request(
+        &mut r,
+        r##"{"command":"share","text":"A card","files":["#card"],"agent":true,"present":true}"##,
+    );
+    let ticket = r.device_holds().last().unwrap().ticket;
+    assert_eq!(
+        shown,
+        format!(r#"{{"ticket":{ticket},"present":true,"files":[{{"id":"card","view":{card}}}]}}"#)
+    );
+    exact_runner::agent::answer(
+        &mut r,
+        &format!(r#"{{"op":"tap","ticket":{ticket},"choice":"cancel"}}"#),
+    )
+    .unwrap();
+    assert!(r.device_holds().iter().all(|h| h.ticket != ticket));
+    assert!(exact_runner::agent::logs(&r, 0).contains("share: dismissed"));
+    // The document pickers' door takes the same flag (LLP 1069.010): held
+    // and presented, the person's choice answers the hold as `type @t` does.
+    let picker = exact_runner::file_pickers::request(
+        &mut r,
+        r#"{"command":"showDirectoryPicker","id":"card","agent":true,"present":true}"#,
+    );
+    let ticket = r.device_holds().last().unwrap().ticket;
+    assert_eq!(
+        picker,
+        format!(r#"{{"ticket":{ticket},"present":true,"view":{card},"id":"card"}}"#)
+    );
+    exact_runner::agent::answer(
+        &mut r,
+        &format!(r#"{{"op":"type","ticket":{ticket},"text":"/tmp/chosen"}}"#),
+    )
+    .unwrap();
+    assert!(r.device_holds().iter().all(|h| h.ticket != ticket));
     let missing = exact_runner::share::request(&mut r, r##"{"files":["#gone"],"web":false}"##);
     assert_eq!(missing, r#"{"refused":"no element with id \"gone\""}"#);
     let web = exact_runner::share::request(&mut r, r##"{"files":["#card"],"web":true}"##);

@@ -72,7 +72,12 @@ final class Picker: NSObject {
     /// Chosen documents under `startAccessingSecurityScopedResource`, until
     /// the session ends (LLP 1069.010 D1).
     var scoped: [URL] = []
+    /// The holds of document pickers a drive shows for real (`--touch
+    /// platform`), by element: what the person's choice answers.
+    var documentTickets: [UInt32: UInt64] = [:]
     #if canImport(UIKit)
+    /// Those pickers, by element: what `back` or the agent's answer closes.
+    var documentShown: [UInt32: UIViewController] = [:]
     private var requests: [ObjectIdentifier: Request] = [:]
     /// Exporting document pickers showing (LLP 1069.010 D3): the element
     /// the outcome goes to, and the scratch directory to remove.

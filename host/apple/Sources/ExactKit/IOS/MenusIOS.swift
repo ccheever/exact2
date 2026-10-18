@@ -189,6 +189,9 @@ final class MenuHost {
 
     /// After a batch: hide every popover, and lay a transparent button
     /// whose primary action is the system menu over every invoker of one.
+    /// It is in the paint foreground, above the invoker's children however
+    /// they are ranked (a positioned chip), and yields only to one that is
+    /// interactive itself (`InvokerButton`).
     func sync() {
         // Ordinary menus retain LLP 1021 D4's existing agent presentation.
         // Confirmations use the same UIKit owner under either input carrier.
@@ -237,7 +240,8 @@ final class MenuHost {
             if v.isNativeButton { continue } // Its own primary action invokes after activation (D13).
             live.insert(v.id)
             if isConfirmation(pop) {
-                let button = overlays[v.id] ?? UIButton(type: .custom)
+                let button = overlays[v.id] ?? InvokerButton(type: .custom)
+                (button as? InvokerButton)?.invoker = v
                 button.menu = nil
                 button.showsMenuAsPrimaryAction = false
                 button.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -252,7 +256,8 @@ final class MenuHost {
                     guard let self, let v, let pop else { return }
                     _ = self.openConfirmation(from: v, popover: pop, modal: self.showsModal(v))
                 }, for: .touchUpInside)
-                v.addSubview(button); button.frame = v.bounds; overlays[v.id] = button
+                if button.superview !== v { v.addSubview(button); button.setPaintForeground() }
+                button.frame = v.bounds; overlays[v.id] = button
                 continue
             }
             let button = overlays[v.id] ?? {
@@ -260,7 +265,7 @@ final class MenuHost {
                 let b = MenuButton(type: .custom)
                 b.focus = focus
                 #else
-                let b = UIButton(type: .custom)
+                let b = InvokerButton(type: .custom)
                 #endif
                 b.showsMenuAsPrimaryAction = true
                 b.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -277,7 +282,8 @@ final class MenuHost {
                 if !open, let pop, self?.presentedMenu[pop.id] != nil { self?.presentedMenu = [:] }
             }
             #endif
-            if button.superview !== v { v.addSubview(button) }
+            if button.superview !== v { v.addSubview(button); button.setPaintForeground() }
+            (button as? InvokerButton)?.invoker = v
             button.frame = v.bounds
             button.accessibilityLabel = v.props["accessibilityLabel"] ?? title(of: v)
             button.accessibilityIdentifier = v.props["testId"] ?? v.props["id"]
@@ -404,6 +410,10 @@ final class MenuHost {
         presenter?.views.values.first { $0.props["id"] == name && ($0.props["popover"] != nil || isDialog($0)) }
     }
 
+    /// Whether the button over `node` is highlighted: it holds the press look.
+    func overlayHoldsPress(_ node: NodeView) -> Bool {
+        (overlays[node.id] as? InvokerButton).map { $0.isHighlighted && $0.pressing === node } ?? false
+    }
     func live(_ node: NodeView) -> Bool { presenter?.views[node.id] === node }
     /// `inBar`: the node is a bar item's button, which the page hides while
     /// the bar shows it: that hiding, and only that, does not count.
@@ -430,7 +440,7 @@ final class MenuHost {
                 return v
             }
             guard let self, let presenter = self.presenter, let invoker = current() else { return completion([]) }
-            if invoker.handlers.contains("press") { self.presenting(invoker) { presenter.press(invoker.id) } }
+            self.pressAsTouched(invoker)
             guard let invoker = current(), let invocation = presenter.invocation(of: invoker), invocation.opens else { return completion([]) }
             if self.isConfirmation(invocation.target) {
                 completion([])
@@ -1131,10 +1141,10 @@ final class MenuHost {
         // Both invoker actions fire, as on the web: the source's press first
         // (Session.press applies its batch synchronously), then what the
         // surviving source invokes now, which its press may have retargeted.
-        if dispatchPress, let source, source.handlers.contains("press") {
+        if dispatchPress, let source, pressTarget(of: source) != nil {
             guard confirmation == nil || confirmation?.finishing == true, !sheets.owns(pop), eligible(source), live(pop) else { return false }
             let token = source.incarnation
-            presenting(source) { presenter?.press(source.id) }
+            pressAsTouched(source)
             guard source.incarnation == token, presenter?.views[source.id] === source,
                   let now = presenter?.invocation(of: source), now.opens else { return false }
             if now.target !== pop {

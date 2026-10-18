@@ -940,3 +940,52 @@ under `listen`: `its content sits 4 pt left in the reference`), and the swipe
 action's text (`under Text "Delete": here #ddd on #f42, in the reference
 #000 on #f42`). A row a third of a point short (the judge's "rows slightly
 shorter") is under the grid's resolution.
+
+## Amended (2026-10-17: what a port's screenshots met)
+
+The euxy porter, capturing screens for a visual-fidelity judge, lost a screen
+to each of these.
+
+- **System sheets under `--touch platform`.** The share sheet and the
+  document pickers (`showOpenFilePicker`, `showDirectoryPicker`,
+  `showSaveFilePicker`) are held for the agent as before, so `state`'s
+  `pending` lists what was asked and `tap @t` / `type @t` answer it, and on
+  an iOS simulator under `--touch platform` they are also presented for real
+  (`"present": true` beside `"agent": true` in the runner's request). A
+  screenshot then waits for the sheet to arrive and is the window's
+  (`presented: "share sheet"` or `"sheet"`), drawn from the display. What the
+  person does in the sheet answers the hold, journalled as the agent's answer
+  is; the agent's answer, or `back`, closes the sheet. The photo and file
+  input picker, the export sheet and the sign-in sheet stay held only. A
+  screenshot taken while any held sheet is undrawn says so on stderr, naming
+  `--touch platform` where it would draw it.
+- **A painted menu's note** names `--touch platform` as the way to picture
+  UIKit's menu, and is not given under it, where what is painted is what a
+  person sees painted (a content popover). Under the flag a screenshot with a
+  UIKit menu or sheet up was already the window's (LLP 1116.012 D3): that
+  default stays, since a plain screenshot that leaves out what is on screen is
+  the surprise.
+- **The development build replacing a Release one.** The build a drive runs
+  first installs nothing (`--no-install`); the drive installs. Before its
+  first install over a build whose receipt is not a development one, it
+  copies that build aside (an APFS clone under
+  `~/.cache/exact/simulator-releases/<udid>-<id>/`, replacing an older copy
+  for that pair; a copy that fails stops the drive before the install), and
+  stderr says it was replaced, with the one command that puts it back:
+  `xcrun simctl install <udid> '<copy>'`. Nothing is reinstalled for the
+  drive: an automatic restore raced other drives and builds, and cost two
+  installs a session. The drive's later sessions find the development build
+  and copy nothing. `build.mjs --ios` says when its development build
+  replaced such a build, with the command that puts it back. Bundle ids are
+  unchanged.
+- **`compare` starts from an empty store.** A drive with a `screenshot …
+  compare` and `--storage` empties the store on every host unless
+  `--keep-storage` keeps it: what an earlier drive stored (a die rolled) is no
+  part of the screen. A region's ink leaves out an edge's anti-aliasing: a
+  cell on a run of up to three across or down between two colours present in
+  the region, every cell of the run a mix of theirs (one fraction of the way
+  in every channel). A side whose differing cells are only that reads `#fff, its
+  edge's anti-aliasing #bbb beside it`, and both sides' clauses are said. A
+  1 pt border off the line between its two sides keeps its colour; one on it
+  (grey between white and black) reads as a blend, which the pixels cannot
+  tell apart.

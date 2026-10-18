@@ -220,10 +220,10 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                     } else {
                         let coerced = svg::coerce_lengths(tag, false, attrs);
                         let attrs = coerced.as_deref().unwrap_or(attrs);
-                        for a in attrs
-                            .iter()
-                            .filter(|a| a.name != "class" && !native::leftover(tag, a))
-                        {
+                        // `delete=` is lowering's, a list row's swipe (`swipe_rows.rs`).
+                        for a in attrs.iter().filter(|a| {
+                            a.name != "class" && a.name != "delete" && !native::leftover(tag, a)
+                        }) {
                             if let Some(e) = native::refused(tag, a) {
                                 errors.push(e);
                                 continue;

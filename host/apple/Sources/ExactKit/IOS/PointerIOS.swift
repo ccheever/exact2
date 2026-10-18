@@ -311,7 +311,7 @@ extension NodeView {
         guard let contact = pressContact, !contact.cancelled, contact.incarnation == incarnation else { return }
         contact.cancelled = true
         contact.cancelledByReparenting = reparenting
-        pressed = false; inlinePressed = nil; linkPressed = nil; svgPressed = nil
+        pressed = overlayHoldsPress; inlinePressed = nil; linkPressed = nil; svgPressed = nil
         if let touch = contact.touch { _ = canvasTouches([touch], phase: "cancel", event: nil) }
         if contact.responderUsesCanvas, let touch = contact.touch {
             contact.destination?.touchesCancelled([touch], with: nil)
@@ -442,7 +442,7 @@ extension NodeView {
         // the cell stays selected under a screen the press pushed (LLP 1115.000 D16).
         let cells = presenter?.rowCells, screen = cells?.screen(of: self)
         let row = lands ? cells?.select(self) : nil
-        pressed = false
+        pressed = overlayHoldsPress
         if lands {
             presenter?.menus.activating(from: touched, pressing: self) {
                 presenter?.press(id, held: KeyCodes.held(event?.modifierFlags ?? []), bubbled: contact.bubbled)
@@ -452,11 +452,11 @@ extension NodeView {
     }
     package override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         if canvasTouches(touches, phase: "cancel", event: event) { return }
-        if touches.isEmpty { cancelPressContact(); pressed = false; return }
+        if touches.isEmpty { cancelPressContact(); pressed = overlayHoldsPress; return }
         guard let contact = currentPressContact(touches) else { return }
         contact.cancelled = true
         inlinePressed = nil; linkPressed = nil; svgPressed = nil
-        if pressed { pressed = false } else { contact.destination?.touchesCancelled(touches, with: event) }
+        if pressed { pressed = overlayHoldsPress } else { contact.destination?.touchesCancelled(touches, with: event) }
     }
 
     /// A press delivered by the rule a touch gets: to this node when it has
@@ -508,6 +508,8 @@ extension NodeView {
     /// invokes a command or a popover. A touch stops at the first such node
     /// from the one it hit up; a surface control alone takes no bubbled press.
     var takesPress: Bool { takesPress(bubbled: false) }
+    /// The button over this invoker still holds its press look when a press contact ends.
+    var overlayHoldsPress: Bool { presenter?.menus.overlayHoldsPress(self) ?? false }
     func takesPress(bubbled: Bool) -> Bool {
         handlers.contains("press") || defaultLink != nil || presenter?.menus.closesPresentedContent(self) == true || (!bubbled && isSurfaceControl)
             || isNativeButton && presenter?.invocation(of: self) != nil

@@ -7,8 +7,9 @@ import UIKit
 /// `check` on UIKit (LLP 1116.003 D8): the observations the driver judges —
 /// a paragraph's ink and whether it fits its box, a control covered by
 /// another node, a target the author sized small, a view past the viewport's
-/// side, a card's fill without an edge, two controls overlapping — read from
-/// the presented view tree.
+/// side, a card's fill without an edge (and what is no card), a disabled
+/// control's label, two controls overlapping — read from the presented view
+/// tree.
 final class AgentCheckIOSTests: XCTestCase {
     private var window: UIWindow?
     private var session: ExactSession?
@@ -164,7 +165,27 @@ final class AgentCheckIOSTests: XCTestCase {
             ["op": "create", "id": 8, "kind": "view", "props": ["testId": "card"], "style": ["background_color": white, "border_radius_top_left": 12, "border_radius_top_right": 12, "border_radius_bottom_right": 12, "border_radius_bottom_left": 12]],
             ["op": "create", "id": 9, "kind": "view", "handlers": ["press"], "props": ["testId": "a"]],
             ["op": "create", "id": 10, "kind": "view", "handlers": ["press"], "props": ["testId": "b"]],
-            ["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6, 7, 8, 9, 10]],
+            ["op": "create", "id": 11, "kind": "text", "props": ["text": "In a card"], "style": ["font_size": 17]],
+            ["op": "create", "id": 12, "kind": "view", "props": ["testId": "shape"], "style": ["background_color": white, "border_radius_top_left": 40, "border_radius_top_right": 40, "border_radius_bottom_right": 40, "border_radius_bottom_left": 40]],
+            ["op": "create", "id": 13, "kind": "view", "handlers": ["press"], "props": ["testId": "previous", "disabled": "true"]],
+            ["op": "create", "id": 14, "kind": "text", "props": ["text": "Previous"], "style": ["text_color": [187, 187, 187, 255], "font_size": 17]],
+            ["op": "create", "id": 15, "kind": "view", "handlers": ["press"], "props": ["testId": "next"]],
+            ["op": "create", "id": 16, "kind": "text", "props": ["text": "Next"], "style": ["font_size": 17]],
+            ["op": "create", "id": 17, "kind": "list", "props": ["testId": "list"], "style": ["background_color": white, "border_radius_top_left": 12, "border_radius_top_right": 12, "border_radius_bottom_right": 12, "border_radius_bottom_left": 12]],
+            ["op": "create", "id": 18, "kind": "text", "props": ["text": "In a list"], "style": ["font_size": 17]],
+            ["op": "create", "id": 19, "kind": "view", "props": ["testId": "hiding"], "style": ["background_color": white, "border_radius_top_left": 12, "border_radius_top_right": 12, "border_radius_bottom_right": 12, "border_radius_bottom_left": 12]],
+            ["op": "create", "id": 20, "kind": "text", "props": ["text": "Hidden"], "style": ["font_size": 17, "visibility": "hidden"]],
+            ["op": "create", "id": 21, "kind": "view", "props": ["testId": "veil"], "style": ["background_color": white]],
+            ["op": "create", "id": 22, "kind": "view", "props": ["testId": "veiled"], "style": ["background_color": white, "border_radius_top_left": 12, "border_radius_top_right": 12, "border_radius_bottom_right": 12, "border_radius_bottom_left": 12]],
+            ["op": "create", "id": 23, "kind": "text", "props": ["text": "Veiled"], "style": ["font_size": 17]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 15, 17, 19, 21]],
+            ["op": "children", "id": 19, "ids": [20]],
+            ["op": "children", "id": 21, "ids": [22]],
+            ["op": "children", "id": 22, "ids": [23]],
+            ["op": "children", "id": 8, "ids": [11]],
+            ["op": "children", "id": 17, "ids": [18]],
+            ["op": "children", "id": 13, "ids": [14]],
+            ["op": "children", "id": 15, "ids": [16]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
             ["op": "frame", "id": 2, "x": 16.0, "y": 20.0, "w": 60.0, "h": 22.0],
@@ -176,7 +197,28 @@ final class AgentCheckIOSTests: XCTestCase {
             ["op": "frame", "id": 8, "x": 16.0, "y": 260.0, "w": 368.0, "h": 80.0],
             ["op": "frame", "id": 9, "x": 16.0, "y": 360.0, "w": 100.0, "h": 44.0],
             ["op": "frame", "id": 10, "x": 96.0, "y": 360.0, "w": 100.0, "h": 44.0],
+            ["op": "frame", "id": 11, "x": 12.0, "y": 8.0, "w": 200.0, "h": 22.0],
+            ["op": "frame", "id": 12, "x": 16.0, "y": 420.0, "w": 80.0, "h": 80.0],
+            ["op": "frame", "id": 13, "x": 120.0, "y": 420.0, "w": 120.0, "h": 44.0],
+            ["op": "frame", "id": 14, "x": 8.0, "y": 11.0, "w": 100.0, "h": 22.0],
+            ["op": "frame", "id": 15, "x": 260.0, "y": 420.0, "w": 120.0, "h": 44.0],
+            ["op": "frame", "id": 16, "x": 8.0, "y": 11.0, "w": 100.0, "h": 22.0],
+            ["op": "frame", "id": 17, "x": 16.0, "y": 520.0, "w": 368.0, "h": 80.0],
+            ["op": "frame", "id": 18, "x": 12.0, "y": 8.0, "w": 200.0, "h": 22.0],
+            ["op": "frame", "id": 19, "x": 16.0, "y": 680.0, "w": 80.0, "h": 60.0],
+            ["op": "frame", "id": 20, "x": 8.0, "y": 8.0, "w": 60.0, "h": 22.0],
+            ["op": "frame", "id": 21, "x": 120.0, "y": 680.0, "w": 260.0, "h": 80.0],
+            ["op": "frame", "id": 22, "x": 8.0, "y": 8.0, "w": 200.0, "h": 60.0],
+            ["op": "frame", "id": 23, "x": 8.0, "y": 8.0, "w": 150.0, "h": 22.0],
         ])
+        try XCTUnwrap(session).presenter.views[21]?.alpha = 0.5
+        // UIKit's own disabled button, whose title is UIKit's label.
+        let done = UIButton(type: .system)
+        done.setTitle("Done", for: .normal)
+        done.isEnabled = false
+        done.frame = CGRect(x: 16, y: 620, width: 120, height: 44)
+        try XCTUnwrap(session).presenter.views[1]?.addSubview(done)
+        done.layoutIfNeeded()
         let reply = agent.check([:])
         XCTAssertNil(reply["error"], "\(reply)")
         XCTAssertEqual(reply["target"] as? Int, 44)
@@ -205,6 +247,15 @@ final class AgentCheckIOSTests: XCTestCase {
         XCTAssertEqual(card["fill"] as? [Double], [255, 255, 255, 1])
         XCTAssertEqual(card["radius"] as? Double, 12)
         XCTAssertNil(card["edge"], "no border, no shadow")
+        XCTAssertNil(items.first { $0["id"] as? Int == 12 }, "a shape that holds no text or control is no card: \(items)")
+        XCTAssertNil(items.first { $0["id"] as? Int == 17 }?["fill"], "a list's ground is the page under its rows, no card: \(items)")
+        XCTAssertNil(items.first { $0["id"] as? Int == 19 }, "nor is a shape whose only text is hidden: \(items)")
+        XCTAssertEqual(try item(22)["faded"] as? Bool, true, "a card in a half-opaque view mixes with what lies behind that view")
+        XCTAssertNil(card["faded"])
+        XCTAssertEqual(try item(14)["of"] as? Int, 13)
+        XCTAssertEqual(try item(14)["inactive"] as? Bool, true, "a disabled control's label is an inactive component's text")
+        XCTAssertNil(try item(16)["inactive"], "an enabled one's is judged")
+        XCTAssertEqual(items.first { $0["text"] as? String == "Done" }?["inactive"] as? Bool, true, "UIKit's disabled button's title too: \(items)")
         XCTAssertEqual(try item(9)["control"] as? String, "press")
         XCTAssertEqual(try item(10)["x"] as? Double, 96, "b starts inside a: the driver finds them overlapping")
     }
@@ -372,14 +423,20 @@ final class AgentCheckIOSTests: XCTestCase {
             ["op": "create", "id": 2, "kind": "view", "style": ["overflow_y": "scroll"]],
             ["op": "create", "id": 3, "kind": "view", "props": ["testId": "inside"], "style": card],
             ["op": "create", "id": 4, "kind": "view", "props": ["testId": "past"], "style": card],
+            ["op": "create", "id": 5, "kind": "text", "props": ["text": "Inside"], "style": ["font_size": 17]],
+            ["op": "create", "id": 6, "kind": "text", "props": ["text": "Past"], "style": ["font_size": 17]],
             ["op": "children", "id": 1, "ids": [2]],
             ["op": "children", "id": 2, "ids": [3, 4]],
+            ["op": "children", "id": 3, "ids": [5]],
+            ["op": "children", "id": 4, "ids": [6]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 400.0, "w": 400.0, "h": 100.0],
             ["op": "content", "id": 2, "w": 400.0, "h": 200.0],
             ["op": "frame", "id": 3, "x": 16.0, "y": 20.0, "w": 100.0, "h": 40.0],
             ["op": "frame", "id": 4, "x": 16.0, "y": 140.0, "w": 100.0, "h": 40.0],
+            ["op": "frame", "id": 5, "x": 12.0, "y": 9.0, "w": 76.0, "h": 22.0],
+            ["op": "frame", "id": 6, "x": 12.0, "y": 9.0, "w": 76.0, "h": 22.0],
         ])
         let reply = agent.check([:])
         let items = try XCTUnwrap(reply["items"] as? [[String: Any]], "\(reply)")
@@ -389,6 +446,32 @@ final class AgentCheckIOSTests: XCTestCase {
         XCTAssertNotNil(past["fill"], "it is a card: \(past)")
         let vis = try XCTUnwrap(past["vis"] as? [String: Any], "the scroller cuts it away: \(past)")
         XCTAssertEqual(vis["h"] as? Double, 0, "none of it is presented: \(past)")
+    }
+
+    /// In landscape the safe area takes 62 points from each side of the screen, and a route's content spans what is left: a
+    /// box with square corners that reaches the safe area's sides is the page (a band across it, a route's list), not a card,
+    /// as it is upright; one inset from them is a card.
+    func testABoxAcrossTheSafeAreaIsThePageNotACard() throws {
+        let fill: [String: Any] = ["background_color": [255, 255, 255, 255]]
+        let agent = mounted([
+            ["op": "create", "id": 1, "kind": "view", "style": fill],
+            ["op": "create", "id": 2, "kind": "view", "props": ["testId": "band"], "style": fill],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Across"], "style": ["font_size": 17]],
+            ["op": "create", "id": 4, "kind": "view", "props": ["testId": "card"], "style": fill],
+            ["op": "create", "id": 5, "kind": "text", "props": ["text": "Inset"], "style": ["font_size": 17]],
+            ["op": "children", "id": 1, "ids": [2, 4]], ["op": "children", "id": 2, "ids": [3]], ["op": "children", "id": 4, "ids": [5]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "frame", "id": 2, "x": 62.0, "y": 100.0, "w": 276.0, "h": 60.0],
+            ["op": "frame", "id": 3, "x": 16.0, "y": 19.0, "w": 200.0, "h": 22.0],
+            ["op": "frame", "id": 4, "x": 78.0, "y": 200.0, "w": 244.0, "h": 60.0],
+            ["op": "frame", "id": 5, "x": 16.0, "y": 19.0, "w": 200.0, "h": 22.0],
+        ])
+        window?.rootViewController?.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 62, bottom: 0, right: 62)
+        window?.layoutIfNeeded()
+        let items = try XCTUnwrap(agent.check([:])["items"] as? [[String: Any]])
+        XCTAssertNil(items.first { $0["id"] as? Int == 2 }?["fill"], "the band reaches the safe area's sides: \(items)")
+        XCTAssertNotNil(items.first { $0["id"] as? Int == 4 }?["fill"], "16 points in from them, a card: \(items)")
     }
 
     /// A cover and the scroller that clears it (LLP 1116.003): Shelf's
@@ -482,6 +565,42 @@ final class AgentCheckIOSTests: XCTestCase {
         XCTAssertNil(vis(4), "below the bar it is whole: \(items)")
     }
 
+    /// A text scrolled above a top bar's inner edge, where a touch meets UIKit's edge effect, is covered by the bar, which
+    /// scrolling back clears. UIKit sizes the edge effect far past the bar (chat's transcript in landscape with the keyboard
+    /// up: 118 of its 128 points, from the screen's top over a bar 24 points down); judged on its box, the text was "under
+    /// transcript-dad at rest, and nothing scrolls it clear". Any other view of the scroller's own over it still covers it.
+    func testATextUnderABarIsCoveredByTheBarWhereATouchMeetsTheScrollersEdgeEffect() throws {
+        for (view, cleared) in [(ScrollEdgeEffectView(), true), (UIView(), false)] {
+            let agent = mounted([
+                ["op": "create", "id": 1, "kind": "view"],
+                ["op": "create", "id": 2, "kind": "view", "style": ["overflow_y": "scroll"]],
+                ["op": "create", "id": 3, "kind": "text", "props": ["text": "Scrolled under the bar"], "style": ["font_size": 17]],
+                ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [3]], ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+                ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+                ["op": "content", "id": 2, "w": 400.0, "h": 1600.0],
+                ["op": "frame", "id": 3, "x": 16.0, "y": 220.0, "w": 300.0, "h": 22.0],
+            ])
+            let p = try XCTUnwrap(session).presenter
+            let scroll = try XCTUnwrap(p.views[2]?.scroll)
+            scroll.setContentOffset(CGPoint(x: 0, y: 200), animated: false) // the text at y 20 to 42 in the window
+            p.settlePump()
+            p.viewport.layoutIfNeeded()
+            let bar = UINavigationBar(frame: CGRect(x: 0, y: 40, width: 400, height: 44))
+            window?.rootViewController?.view.addSubview(bar)
+            // The scroller's own view over its content: it stays where the scroller is.
+            view.frame = CGRect(x: 0, y: scroll.contentOffset.y, width: 400, height: 700)
+            scroll.addSubview(view)
+            let text = try XCTUnwrap(p.views[3]).convert(try XCTUnwrap(p.views[3]).bounds, to: nil)
+            XCTAssertLessThan(text.midY, bar.frame.minY, "its middle is above the bar, under nothing of it: \(text)")
+            XCTAssertTrue(window?.hitTest(CGPoint(x: text.midX, y: text.midY), with: nil) === view, "a touch there meets \(view)")
+            let items = try XCTUnwrap(agent.check([:])["items"] as? [[String: Any]])
+            let item = try XCTUnwrap(items.first { $0["id"] as? Int == 3 }, "\(items)")
+            XCTAssertEqual(item["cover"] == nil, cleared, cleared ? "scrolling back clears it from under the bar: \(item)" : "nothing clears it from under \(view): \(item)")
+            session?.destroy(); session = nil; window?.isHidden = true; window = nil
+        }
+    }
+
     /// LLP 1116.009 D5 (round 11: book-club, expense-tracker, the grouped-form recipe's Quantity row, the dashboard
     /// pattern's add sheet): a native field's box is its kernel box and no taller, and a text under it in the same
     /// grouped row is not covered. A touch the row leaves to no control goes to the row's one field (the cell is the
@@ -546,4 +665,7 @@ final class AgentCheckIOSTests: XCTestCase {
         XCTAssertTrue(window.hitTest(middle, with: nil) === editor, "the touch still falls to the field after the check")
     }
 }
+
+/// A stand-in with the name of iOS 26's edge-effect view, which `check` knows UIKit's by.
+private final class ScrollEdgeEffectView: UIView {}
 #endif

@@ -1014,12 +1014,12 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if presenter?.views[id] === self { firstDraw() }
     }
 
-    /// Whether the style clips the children (`overflow: hidden`; a paragraph's
+    /// Whether the style clips the children (`overflow: hidden` or `clip`; a paragraph's
     /// any overflow but `visible`; line-clamp, LLP 1054 P3). Without a clip box
     /// it is `clipsToBounds` (`applyStyle`; a landing flight, `FlightsMac`).
     var overflowClips: Bool {
         let over = [style["overflow_x"]?.string ?? "visible", style["overflow_y"]?.string ?? "visible"]
-        return kind == "text" ? over.contains { $0 != "visible" } || number("line_clamp") > 0 : over.contains("hidden")
+        return kind == "text" ? over.contains { $0 != "visible" } || number("line_clamp") > 0 : over.contains { $0 == "hidden" || $0 == "clip" }
     }
 
     func applyStyle(_ s: NodeStyle) {

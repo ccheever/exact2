@@ -149,6 +149,8 @@ package final class Runtime {
         // Its paragraphs' line boxes too, for multi-column flows (LLP 1093 D6).
         on { () -> Void in
             exact_set_measure(rt, measure, UnsafeMutableRawPointer(bitPattern: ctx))
+            // The platform's time formats (LLP 1126 D6), for the kernel's reservations.
+            exact_set_time_format(rt, TimeFormatting.format)
             exact_set_lines(rt, measure == nil ? nil : TextEngine.linesText)
             // A system symbol's box, measured before layout as a paragraph's is
             exact_set_symbol_measure(rt, measure == nil ? nil : hooks.symbolMeasure)

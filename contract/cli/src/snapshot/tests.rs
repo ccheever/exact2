@@ -259,6 +259,7 @@ fn schema_admission_names_real_props_and_styles() {
         assert!(PropId::from_name(&name).is_some(), "{name}");
     }
     assert!(admits_prop(PropId::AccessibilityElementsHidden));
+    assert!(!admits_prop(PropId::AccessibilityLive));
     assert!(!admits_prop(PropId::NativeViewModuleName));
 }
 
@@ -266,7 +267,7 @@ fn schema_admission_names_real_props_and_styles() {
 fn constants_accessibility_and_conditional_classes_are_admitted() {
     let src = source(
         "    column
-      text nowMs.toString() class=(nowMs > 0 ? Emph : Plain) aria-description=\"Clock label\" aria-level=2 lang=\"en\" title=\"Label\" aria-live=\"polite\"
+      text nowMs.toString() class=(nowMs > 0 ? Emph : Plain) aria-description=\"Clock label\" aria-level=2 lang=\"en\" title=\"Label\"
       image \"symbol:sf/train\" aria-hidden=true",
         "style Emph
   color=\"red\"
@@ -298,7 +299,11 @@ fn images_are_local_and_clock_reads_are_refused_even_on_live_leaves() {
         "\"symbol:sf/train\"",
         "`app:/widgets/${title}.png`",
     ] {
-        compile(&source(&format!("    image {image}"), "", ""), &widget()).unwrap();
+        compile(
+            &source(&format!("    image {image} width=40 height=30"), "", ""),
+            &widget(),
+        )
+        .unwrap();
     }
     for image in [
         "\"https://example.com/a.png\"",
@@ -306,8 +311,11 @@ fn images_are_local_and_clock_reads_are_refused_even_on_live_leaves() {
         "\"//example.com/a.png\"",
         "title",
     ] {
-        let errors =
-            compile(&source(&format!("    image {image}"), "", ""), &widget()).unwrap_err();
+        let errors = compile(
+            &source(&format!("    image {image} width=40 height=30"), "", ""),
+            &widget(),
+        )
+        .unwrap_err();
         assert!(
             errors
                 .iter()
@@ -590,6 +598,17 @@ fn refresh_checks_distinguish_pending_sources_and_result_mismatches() {
         ),
     )
     .unwrap();
+    for failure in [
+        DataError::BadArguments("argument 0 is not a number".into()),
+        DataError::Failed(
+            exact_runner::failure::FailureCode::Offline,
+            "no session".into(),
+            String::new(),
+        ),
+    ] {
+        let error = check_refreshes(&entries, &mut Data(Err(failure), false)).unwrap_err();
+        assert!(error.contains("failed at bake"), "{error}");
+    }
     for (value, message) in [
         (Value::str("oops"), "result expected List, got string"),
         (
@@ -609,6 +628,339 @@ fn refresh_checks_distinguish_pending_sources_and_result_mismatches() {
         assert!(
             error.contains(message) && !error.contains("field order"),
             "{error}"
+        );
+    }
+}
+
+#[test]
+fn snapshot_v1_refusals_have_the_driver_edit() {
+    for (view, id, edit) in [
+        (
+            r#"text title aria-live="polite""#,
+            "snapshot-prop",
+            "remove it from the entry",
+        ),
+        (
+            r#"text title visibility="hidden""#,
+            "snapshot-row",
+            "use display: none or a condition",
+        ),
+        (r#"text title z-index=2"#, "snapshot-row", "document order"),
+        (
+            r#"text title color-scheme="dark""#,
+            "snapshot-row",
+            "follows the system",
+        ),
+        (
+            r#"text title text-align="justify""#,
+            "snapshot-text-align",
+            "start, center or end",
+        ),
+        (
+            r#"text title text-overflow="ellipsis""#,
+            "snapshot-text-overflow",
+            "use line-clamp",
+        ),
+        (
+            r#"view border-left="2px solid red""#,
+            "snapshot-border",
+            "one border for all four sides",
+        ),
+        (
+            r#"view border-width="1px 2px""#,
+            "snapshot-border",
+            "one width",
+        ),
+        (
+            r#"view border-color="red blue""#,
+            "snapshot-border",
+            "one colour",
+        ),
+        (
+            r#"view border="2px inset red""#,
+            "snapshot-border",
+            "solid, dashed, dotted or none",
+        ),
+        (
+            r#"view border-style="double""#,
+            "snapshot-border",
+            "solid, dashed, dotted or none",
+        ),
+        (
+            r#"view border-radius="calc(20% + 2px)""#,
+            "snapshot-radius",
+            "without calc() or env()",
+        ),
+        (
+            r#"view border-radius="env(safe-area-inset-top)""#,
+            "snapshot-radius",
+            "without calc() or env()",
+        ),
+        (
+            r#"view overflow="hidden visible""#,
+            "snapshot-overflow",
+            "same overflow on both axes",
+        ),
+        (
+            r#"view overflow-x="clip""#,
+            "snapshot-overflow",
+            "same overflow on both axes",
+        ),
+        (
+            r#"view background-image="repeating-linear-gradient(red, blue)""#,
+            "snapshot-gradient",
+            "nonrepeating linear-gradient or radial-gradient",
+        ),
+        (
+            r#"view background-image="repeating-radial-gradient(red, blue)""#,
+            "snapshot-gradient",
+            "nonrepeating",
+        ),
+        (
+            r#"view background-image="conic-gradient(red, blue)""#,
+            "snapshot-gradient",
+            "linear-gradient or radial-gradient",
+        ),
+        (
+            r#"view background-image="linear-gradient(red 50%, blue 50%)""#,
+            "snapshot-gradient",
+            "strictly increasing stops",
+        ),
+        (
+            r#"view background-image="linear-gradient(red 60%, blue 40%)""#,
+            "snapshot-gradient",
+            "strictly increasing stops",
+        ),
+        (
+            r#"view background-image="linear-gradient(red 10px, blue 10px)""#,
+            "snapshot-gradient",
+            "strictly increasing stops",
+        ),
+        (
+            r#"view background-image="linear-gradient(in oklab, red, blue)""#,
+            "snapshot-gradient",
+            "srgb or srgb-linear",
+        ),
+        (
+            r#"view color="color(display-p3 1 0 0)""#,
+            "snapshot-color",
+            "sRGB colour",
+        ),
+        (
+            r#"view background-color="light-dark(red, oklch(70% 0.3 60))""#,
+            "snapshot-color",
+            "sRGB colour",
+        ),
+        (
+            r#"view border="1px solid color(display-p3 1 0 0)""#,
+            "snapshot-color",
+            "sRGB colour",
+        ),
+        (
+            r#"view background-image="linear-gradient(in srgb, color(display-p3 1 0 0), blue)""#,
+            "snapshot-gradient",
+            "srgb",
+        ),
+        (
+            r#"image "assets/train.png" width=40"#,
+            "snapshot-image-size",
+            "author both width and height",
+        ),
+        (
+            r#"image "app:/train.png" height=40"#,
+            "snapshot-image-size",
+            "author both width and height",
+        ),
+        (
+            r#"image "assets/train.png" width=40 height="auto""#,
+            "snapshot-image-size",
+            "bounded thumbnail",
+        ),
+        (
+            r#"image "https://example.com/a.png" width=40 height=40"#,
+            "snapshot-request",
+            "refresh must download",
+        ),
+        (
+            "text title\n      text \"highlight\" background-color=\"red\"",
+            "snapshot-inline-background",
+            "give the highlight its own box",
+        ),
+        (
+            "text title\n      link href=\"/\"\n        text \"Open\"",
+            "snapshot-inline-link",
+            "make the link its own element",
+        ),
+    ] {
+        let errors = compile(&source(&format!("    {view}"), "", ""), &widget()).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.id == id && e.message.contains(edit)),
+            "{view}: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn snapshot_v1_admitted_paint_and_layout_bake() {
+    let mut failures = Vec::new();
+    for view in [
+        r#"view display="block" position="relative" padding=8 margin=2 width=120 height=60 aspect-ratio=2"#,
+        r#"row gap=4 align-items="center" flex-wrap="wrap""#,
+        r#"view display="grid" grid-template-columns="1fr 2fr" gap="2px 4px""#,
+        r#"view position="absolute" top=2 left=3 width=20 height=30"#,
+        r#"view display="none""#,
+        r#"view border="2px solid red" background-color="light-dark(white, black)" opacity=0.5"#,
+        r#"view border="1px dashed -exact-separator""#,
+        r#"view border-width=2 border-style="dotted" border-color="blue""#,
+        r#"view border-width="2px 2px" border-style="solid solid" border-color="red red""#,
+        r#"view width=100 height=50 border-radius="50%" overflow="hidden""#,
+        r#"view border-radius="2px 4px 8px 10%" overflow="clip clip""#,
+        r#"view overflow-x="hidden" overflow-y="hidden" clip-path="path('M 0 0 L 40 0 L 40 40 Z')""#,
+        r#"view color="color(srgb 1 0 0)""#,
+        r#"view background-color="-exact-platform-color(ios named:Brand, #c8102e)""#,
+        r#"view background-image="linear-gradient(to bottom right, red, blue)""#,
+        r#"view background-image="linear-gradient(in srgb-linear, red 0px, blue 30px)""#,
+        r#"view background-image="linear-gradient(in srgb, color(srgb 1 0 0), blue)""#,
+        r#"view background-image="linear-gradient(red 0px, green, blue 100%)""#,
+        r#"text title font-size=16 font-weight=600 font-family="ui-serif" font-style="italic" color="-exact-label" text-decoration="underline" letter-spacing=1 font-variant-numeric="tabular-nums" text-align="center" line-clamp=2 text-transform="uppercase""#,
+        r#"text title text-align="start" text-overflow="clip""#,
+        r#"text title text-align="end" background-color="yellow""#,
+        r#"image "symbol:sf/train" aria-hidden=true"#,
+        r#"image "assets/train.png" width=40 height=30 border-radius="50%""#,
+        r#"image "app:/train.png" width=40 height=30"#,
+        r#"progress value=0.5 max=1"#,
+        r#"progress start=1700000000000 end=1700003600000"#,
+        r#"time datetime=1792254600000 format="date-full""#,
+        r#"time datetime=1792254600123 format="time-short""#,
+        "link href=\"/\"\n      text title",
+        r#"text title aria-label="Station" aria-description="Next train" aria-level=2"#,
+    ] {
+        if let Err(errors) = compile(&source(&format!("    {view}"), "", ""), &widget()) {
+            failures.push(format!("{view}: {errors:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    for shape in ["circle", "ellipse"] {
+        for extent in [
+            "closest-side",
+            "closest-corner",
+            "farthest-side",
+            "farthest-corner",
+        ] {
+            let view=format!("    view background-image=\"radial-gradient({shape} {extent} at 25% 60%, red, blue)\"");
+            compile(&source(&view, "", ""), &widget()).unwrap();
+        }
+    }
+    for fit in ["fill", "contain", "cover", "scale-down"] {
+        let view =
+            format!("    image \"assets/train.png\" width=40 height=30 object-fit=\"{fit}\"");
+        compile(&source(&view, "", ""), &widget()).unwrap();
+    }
+}
+
+#[test]
+fn snapshot_v1_classes_components_and_families_cannot_bypass_limits() {
+    let members = "  state on = true\n";
+    for (view, decl, id) in [
+        ("    view class=(on ? A : B)", "style A\n  background-image=\"linear-gradient(red, blue)\"\nstyle B\n  background-image=\"linear-gradient(red 50%, blue 50%)\"", "snapshot-gradient"),
+        ("    view class=A overflow-y=\"visible\"", "style A\n  overflow=\"hidden\"", "snapshot-overflow"),
+        ("    image \"assets/a.png\" class=(on ? A : B)", "style A\n  width=20\n  height=20\nstyle B\n  width=20", "snapshot-image-size"),
+        ("    text title\n      Highlight()", "style A\n  background-color=\"red\"\ncomponent Highlight\n  view\n    text \"Highlight\" class=A", "snapshot-inline-background"),
+    ] {
+        let errors=compile(&source(view,decl,members), &widget()).unwrap_err();
+        assert!(errors.iter().any(|e| e.id == id), "{errors:?}");
+    }
+    let view = "    column\n      Open()\n      if on\n        Open()";
+    let decl = "component Open\n  view\n    link href=\"/\"\n      text \"Open\"";
+    for family in [
+        "systemSmall",
+        "accessoryCircular",
+        "accessoryRectangular",
+        "accessoryInline",
+    ] {
+        let mut w = widget();
+        w.families = vec!["systemMedium".into(), family.into()];
+        let errors = compile(&source(view, decl, members), &w).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.id == "snapshot-links" && e.message.contains("at most one link")),
+            "{errors:?}"
+        );
+    }
+    let mut w = widget();
+    w.families = vec![
+        "systemMedium".into(),
+        "systemLarge".into(),
+        "systemExtraLarge".into(),
+    ];
+    compile(&source(view, decl, members), &w).unwrap();
+    compile(
+        &source(
+            "    column\n      if on\n        Open()\n      else\n        Open()",
+            decl,
+            members,
+        ),
+        &widget(),
+    )
+    .unwrap();
+    let repeated = "    column\n      for label in [\"a\", \"b\"] key=label\n        Open()";
+    assert!(compile(&source(repeated, decl, ""), &widget())
+        .unwrap_err()
+        .iter()
+        .any(|e| e.id == "snapshot-links"));
+    compile(
+        &source(
+            "    image \"assets/a.png\" class=(on ? A : B)",
+            "style A\n  width=20\n  height=30\nstyle B\n  width=30\n  height=40",
+            members,
+        ),
+        &widget(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn round3_border_none_literals_slash_radii_and_template_images() {
+    for view in [
+        r#"view border="none""#,
+        r#"view border-width=2 border-style="none" border-color="red""#,
+        "image `symbol:${title}` width=20 height=20",
+        "image `app:/cache/${title}.png` width=20 height=20",
+    ] {
+        compile(&source(&format!("    {view}"), "", ""), &widget())
+            .unwrap_or_else(|e| panic!("{view}: {e:?}"));
+    }
+    for (view, id, edit) in [
+        (
+            "text title color=title",
+            "snapshot-literal",
+            "write a literal",
+        ),
+        (
+            r#"image "assets/train.png" width=40 height=30 object-fit="none""#,
+            "snapshot-object-fit",
+            "bounded thumbnail",
+        ),
+        (
+            r#"view border-radius="10px / 20px""#,
+            "snapshot-radius",
+            "not `h / v`",
+        ),
+        (
+            "image `app:/../${title}.png` width=20 height=20",
+            "snapshot-request",
+            "refresh must download",
+        ),
+    ] {
+        let errors = compile(&source(&format!("    {view}"), "", ""), &widget()).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.id == id && e.message.contains(edit)),
+            "{view}: {errors:?}"
         );
     }
 }

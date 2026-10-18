@@ -837,3 +837,30 @@ fn a_progress_bar_is_a_row_of_blocks() {
     );
     assert!(text.contains("███████████████░░░░░"), "{text}");
 }
+
+#[test]
+fn headless_time_uses_agent_facts_and_survives_an_invalid_place() {
+    let path = entry("live-time-facts");
+    std::fs::write(&path, "component App\n  view\n    column\n      time datetime=1767234600000 format=\"relative\"\n      time datetime=1767225600000 format=\"time-short\"\n").unwrap();
+    for (locale, clock) in [("en-US", "7:00 PM"), ("invalid@locale", "12:00 AM")] {
+        let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
+            .arg(&path)
+            .args(["--size", "80x6", "print"])
+            .env("EXACT_AGENT_EPOCH", "1767225600000")
+            .env("EXACT_AGENT_TIME_ZONE", "America/Toronto")
+            .env("EXACT_AGENT_LOCALE", locale)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let screen = String::from_utf8(out.stdout).unwrap();
+        assert!(
+            screen.contains("in 3 hr.") && screen.contains(clock),
+            "{screen}"
+        );
+    }
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+}
