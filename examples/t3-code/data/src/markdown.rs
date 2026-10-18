@@ -55,6 +55,8 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "providerWizard",
             "settingsCore",
             "sourceControlPage",
+            "promptLinkView",
+            "promptLinksReady",
             "pagesHome",
             "usagePage",
             "usageKeys",
