@@ -77,7 +77,7 @@ class Pads(context: Context) : InputManager.InputDeviceListener {
     }
 
     /** The device's slot and reading, taking it the lowest free slot if it has none; null when every slot is taken.
-     * The device's motion ranges say whether its triggers are analog ([PadReading]). */
+     * The device's motion ranges say which of its triggers are analog ([PadReading.of]). */
     private fun reading(id: Int): Pair<Int, PadReading>? {
         var slot = slots.indexOf(id)
         if (slot < 0) {
@@ -85,8 +85,7 @@ class Pads(context: Context) : InputManager.InputDeviceListener {
             if (slot < 0) return null
             slots[slot] = id
             val device = InputDevice.getDevice(id)
-            val analog = listOf(MotionEvent.AXIS_LTRIGGER, MotionEvent.AXIS_BRAKE).any { device?.getMotionRange(it) != null }
-            readings[slot] = PadReading(analog)
+            readings[slot] = PadReading.of { axis -> device?.getMotionRange(axis) != null }
         }
         return slot to readings[slot]!!
     }
@@ -111,17 +110,17 @@ class Pads(context: Context) : InputManager.InputDeviceListener {
 }
 
 /**
- * One pad's standard-mapping reading: [values] holds 17 buttons, then 4 axes, in 1/256 steps. The triggers have
- * one owner: a pad with trigger axes ([analogTriggers]) reports their travel and ignores its L2/R2 keys; one
- * without keeps the keys' state through every motion event. The d-pad is its keys until the pad reports a hat.
+ * One pad's standard-mapping reading: [values] holds 17 buttons, then 4 axes, in 1/256 steps. Each trigger has one
+ * owner: one with an axis ([analogLeft], [analogRight]) reports its travel and ignores its key; one without keeps its
+ * key's state through every motion event. The d-pad is its keys until the pad reports a hat.
  */
-internal class PadReading(private val analogTriggers: Boolean) {
+internal class PadReading(private val analogLeft: Boolean, private val analogRight: Boolean) {
     val values = FloatArray(21)
     private var hat = false
 
     /** A button's edge; whether the reading changed. */
     fun key(button: Int, down: Boolean): Boolean {
-        if ((button == 6 || button == 7) && analogTriggers) return false
+        if ((button == 6 && analogLeft) || (button == 7 && analogRight)) return false
         return set(button, if (down) 1f else 0f)
     }
 
@@ -129,10 +128,8 @@ internal class PadReading(private val analogTriggers: Boolean) {
     fun motion(lx: Float, ly: Float, rx: Float, ry: Float, lt: Float, rt: Float, hatX: Float, hatY: Float): Boolean {
         var changed = false
         for ((i, v) in listOf(lx, ly, rx, ry).withIndex()) changed = set(17 + i, quantize(v, -1f)) || changed
-        if (analogTriggers) {
-            changed = set(6, quantize(lt, 0f)) || changed
-            changed = set(7, quantize(rt, 0f)) || changed
-        }
+        if (analogLeft) changed = set(6, quantize(lt, 0f)) || changed
+        if (analogRight) changed = set(7, quantize(rt, 0f)) || changed
         if (hatX != 0f || hatY != 0f) hat = true
         if (hat) {
             changed = set(12, if (hatY < -0.5f) 1f else 0f) || changed
@@ -149,7 +146,16 @@ internal class PadReading(private val analogTriggers: Boolean) {
         return true
     }
 
-    private companion object {
-        fun quantize(v: Float, low: Float) = (Math.round(v * 256f) / 256f).coerceIn(low, 1f) + 0f
+    companion object {
+        const val LTRIGGER = MotionEvent.AXIS_LTRIGGER
+        const val RTRIGGER = MotionEvent.AXIS_RTRIGGER
+        const val GAS = MotionEvent.AXIS_GAS
+        const val BRAKE = MotionEvent.AXIS_BRAKE
+
+        /** A reading for a device with these axes: the left trigger is analog with LTRIGGER or BRAKE, the right with
+         * RTRIGGER or GAS, each on its own. */
+        fun of(hasAxis: (Int) -> Boolean) = PadReading(hasAxis(LTRIGGER) || hasAxis(BRAKE), hasAxis(RTRIGGER) || hasAxis(GAS))
+
+        private fun quantize(v: Float, low: Float) = (Math.round(v * 256f) / 256f).coerceIn(low, 1f) + 0f
     }
 }
