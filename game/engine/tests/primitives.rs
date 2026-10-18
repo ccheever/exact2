@@ -91,14 +91,26 @@ fn cone_picks_side_cap_inside_and_transformed_rays() {
     for transform in [
         Transform::default(),
         Transform {
+            scale: Vec3::new(1., -1., 1.),
+            ..Default::default()
+        },
+        Transform {
             position: Vec3::new(2., -1., 3.),
             rotation: Quat::from_rotation_z(0.7),
             scale: Vec3::new(2., 1.5, 0.5),
         },
     ] {
         *sim.world().require_mut::<Transform>("cone") = transform;
+        let cone = sim.world().named("cone").unwrap();
+        if transform.scale.y < 0. {
+            // An unresolved socket still draws the ordinary primitive fallback.
+            sim.world_mut()
+                .insert(cone, SocketFollow::new("missing", "tip"));
+        } else {
+            sim.world_mut().remove::<SocketFollow>(cone);
+        }
         let affine = Affine3A::from_scale_rotation_translation(
-            transform.scale,
+            transform.scale.abs(),
             transform.rotation,
             transform.position,
         );
@@ -107,6 +119,11 @@ fn cone_picks_side_cap_inside_and_transformed_rays() {
                 Vec3::new(2., 0., 0.),
                 -Vec3::X,
                 Some(Vec3::new(0.5, 0., 0.)),
+            ),
+            (
+                Vec3::new(2., 0.5, 0.),
+                -Vec3::X,
+                Some(Vec3::new(0.25, 0.5, 0.)),
             ),
             (
                 Vec3::new(0.25, -3., 0.),

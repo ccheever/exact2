@@ -296,9 +296,39 @@ pub(crate) fn pick(w: &World, view: &View, point: Vec2) -> Option<(Entity, f32, 
         if !w.is_visible(e) {
             continue;
         }
-        let Some(pose) = w.global(e) else {
+        let Some(mut pose) = w.global(e) else {
             continue;
         };
+        let mut attached = false;
+        if let Some(attachments) = w.attachments {
+            let mut at = e;
+            for remaining in (1..=w.len()).rev() {
+                if (attachments.pose)(w, at, remaining).is_some() {
+                    attached = true;
+                    break;
+                }
+                let Some(parent) = w.get::<crate::Parent>(at) else {
+                    break;
+                };
+                at = parent.0;
+            }
+        }
+        // Resolved sockets retain their full affine map; ordinary primitives
+        // interpolate absolute scales, preserving a root's authored rotation.
+        if !matches!(mesh, Mesh::Asset(_)) && !attached {
+            let (scale, rotation, position) = if !w.has::<crate::Parent>(e) {
+                let t = w.get::<crate::Transform>(e)?;
+                (t.scale, t.rotation, t.position)
+            } else {
+                pose.to_scale_rotation_translation()
+            };
+            let rotation = glam::Quat::from_vec4(
+                glam::Vec4::from_array(rotation.to_array())
+                    .try_normalize()
+                    .unwrap_or(glam::Vec4::W),
+            );
+            pose = Affine3A::from_scale_rotation_translation(scale.abs(), rotation, position);
+        }
         if pose.matrix3.determinant().abs() < 1e-12 {
             continue;
         }
