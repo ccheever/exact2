@@ -83,6 +83,15 @@ enum SharePictureCase {
         XCTAssertEqual(ShareSheet.pictureName("share-card", title: "Four on the Floor"), "Four on the Floor.png")
         XCTAssertEqual(ShareSheet.pictureName("share-card", title: " A/B: 2 "), "A-B- 2.png")
         XCTAssertEqual(ShareSheet.pictureName("share-card", title: "  "), "share-card.png")
+        // A long title is cut at a character to fit APFS's 255 bytes, `.png` included.
+        for title in [String(repeating: "鼓", count: 100), String(repeating: "🥁", count: 100), String(repeating: "👩🏽‍🎤", count: 40)] {
+            let name = ShareSheet.pictureName("share-card", title: title)
+            XCTAssertLessThanOrEqual(name.utf8.count, 255, name)
+            XCTAssertTrue(name.hasSuffix(".png"))
+            XCTAssertTrue(title.hasPrefix(name.dropLast(4)), "whole characters: \(name)")
+            let url = try ShareSheet.scratchFile(dir, 9, name)
+            XCTAssertNoThrow(try Data("x".utf8).write(to: url), name)
+        }
         // A view with no area has no picture.
         p.apply(wireBatch([["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 0.0, "h": 50.0]]))
         XCTAssertNil(ShareSheet.picture(of: card))

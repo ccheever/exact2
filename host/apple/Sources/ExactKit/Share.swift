@@ -179,14 +179,23 @@ enum ShareSheet {
     }
     /// A picture's file name, which the share sheet's header and whoever
     /// receives it show: the share's title, as a person names a file they
-    /// save (its first 100 characters; `/` and `:`, which a file name cannot
-    /// hold, and control characters as `-`); with no title, the id's
+    /// save (`/` and `:`, which a file name cannot hold, and control
+    /// characters as `-`), cut at a character to at most 251 bytes of UTF-8
+    /// so that it and `.png` fit APFS's 255; with no title, the id's
     /// letters, digits, `-` and `_`, others as `-`.
     static func pictureName(_ id: String, title: String? = nil) -> String {
-        let named = String((title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))
-        if !named.isEmpty {
-            return String(named.unicodeScalars.map { $0 == "/" || $0 == ":" || CharacterSet.controlCharacters.contains($0) ? "-" : Character($0) }) + ".png"
+        var scalars = String.UnicodeScalarView()
+        for s in (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars {
+            // Control characters only: `CharacterSet.controlCharacters` also
+            // holds the format characters, the joiner of an emoji sequence.
+            scalars.append(s == "/" || s == ":" || s.properties.generalCategory == .control ? "-" : s)
         }
+        var named = ""
+        for c in String(scalars) {
+            guard named.utf8.count + c.utf8.count <= 251 else { break }
+            named.append(c)
+        }
+        if !named.isEmpty { return named + ".png" }
         return String(id.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_" ? Character($0) : "-" }) + ".png"
     }
     /// A PNG of `view` and its subviews as they are drawn now, at the
