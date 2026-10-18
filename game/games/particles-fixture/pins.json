@@ -9,10 +9,10 @@
     "linux",
     "web"
   ],
-  "inputs": "aa6c979e1f3927a97b90480922118704c7ad32441067622caa2da125212637a2",
-  "sourceInputs": "53b68ba9dd475d246113191d4e00fc35a52c9482b9337687179753558ecbd5c4",
+  "inputs": "8b3babc5a6b60d53d0f8d08d927f8ccdce652b230a6d7246116984b053672d35",
+  "sourceInputs": "174220d704988bc28c7419f336d2f89d28111d3bb547762ade42d63848e75454",
   "game": "particles-fixture",
   "generated": "bun game/prove.mjs particles-fixture --repin --hosts 'linux,web'",
-  "at": "3f8bf2b11628148b64a14fda584af758d95c6cef",
-  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream"
+  "at": "e6610608d12ee9313cc015d6baf57e227d8a6e28",
+  "reason": "07170a2db: saved Environment.tone_mapping (Aces) extends the world hash stream and simulation save; fog is None"
 }
