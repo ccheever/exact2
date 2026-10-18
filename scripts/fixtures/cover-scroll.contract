@@ -1,0 +1,18 @@
+// LLP 1123 D3: a large-title route's scroller under a `viewport-fit="cover"`
+// root, which spans the window, side insets included (the iPhone Duo's
+// status column, a phone's notch in landscape). UIKit insets it at its top
+// and bottom only, so its content, as wide as it, never scrolls sideways
+// (NavigationCollapseIOSTests). A trimmed `large-title.contract` with a cover root.
+routes nav
+  home "/"
+
+component CoverScroll
+  view
+    main navigationKey=`${top(nav).id}` testId="app" viewport-fit="cover" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` testId="route-home" position="absolute" inset=0 display="flex" flex-direction="column"
+          header testId="header-home" display="flex" align-items="center" padding="8px 16px"
+            text "Home" role="heading" aria-level=1
+          scroll testId="home-scroll" flex=1 min-height=0
+            text "home top" testId="home-top"
+            column height=1600
