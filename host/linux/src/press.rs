@@ -29,6 +29,77 @@ impl Feedback {
     }
 }
 
+/// A state held as the real one (LLP 1122 D8, LLP 1121 stage 8 E3): the
+/// build channel's `hold` or the agent's `holdState`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HoldState {
+    Active,
+    Hover,
+    FocusVisible,
+}
+impl HoldState {
+    pub(crate) fn parse(name: &str) -> Option<Self> {
+        match name {
+            "active" => Some(Self::Active),
+            "hover" => Some(Self::Hover),
+            "focus-visible" => Some(Self::FocusVisible),
+            _ => None,
+        }
+    }
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Hover => "hover",
+            Self::FocusVisible => "focus-visible",
+        }
+    }
+}
+
+/// The one state held: on `view` (`key`), for the hold frame `revision`
+/// (none: the agent's), and whether the pointer and the focus were in it
+/// when last read, so that their coming or going is real input.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Held {
+    pub view: ViewId,
+    /// The node it was named on (a node inside the press, for `active`).
+    pub asked: ViewId,
+    pub key: NodeKey,
+    pub state: HoldState,
+    pub revision: Option<u64>,
+    pub over: bool,
+    pub focused: bool,
+    /// The build channel's stream it was held on (`Link::stream`).
+    pub stream: u64,
+}
+
+/// The looks that hold: the pointer's (`:hover`), the focus's
+/// (`:focus-visible`), and the state held beside them.
+#[derive(Default)]
+pub(crate) struct Shown {
+    pub hover: Vec<ViewId>,
+    pub focus: Option<ViewId>,
+    pub held: Option<Held>,
+}
+impl Shown {
+    /// Whether `id`'s `:hover` and `:focus-visible` looks hold, real or held.
+    pub(crate) fn on(&self, id: ViewId) -> [bool; 2] {
+        let held = self.held.filter(|h| h.view == id).map(|h| h.state);
+        [
+            self.hover.contains(&id) || held == Some(HoldState::Hover),
+            self.focus == Some(id) || held == Some(HoldState::FocusVisible),
+        ]
+    }
+
+    /// Every node with a look on, and which.
+    pub(crate) fn marks(&self) -> Vec<(ViewId, [bool; 2])> {
+        let mut ids: Vec<ViewId> = self.hover.iter().copied().chain(self.focus).collect();
+        ids.extend(self.held.map(|h| h.view));
+        ids.sort_unstable();
+        ids.dedup();
+        ids.into_iter().map(|id| (id, self.on(id))).collect()
+    }
+}
+
 /// Whether a node writes any of the pressed paint (LLP 1061 D7).
 pub(crate) fn paints(style: &exact_kernel::StyleProps) -> bool {
     use exact_kernel::StyleId::{PressBackgroundColor, PressColor, PressOpacity, PressOpacityTo};
@@ -140,6 +211,12 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(crate) fn press_feedback(&mut self, key: NodeKey, down: bool, now: f64) {
+        // A held press is the hold's: a real press's release, or its moving
+        // off, leaves it (stage 8 E3).
+        let held = self.looks_shown.held;
+        if !down && held.is_some_and(|h| h.key == key && h.state == HoldState::Active) {
+            return;
+        }
         let to = if down { 1. } else { 0. };
         let old = self.presses.get(&key);
         if old.map_or(0., |p| p.to) == to {
@@ -164,6 +241,11 @@ impl<D: DataSource> Host<D> {
         for p in self.presses.values_mut() {
             (p.from, p.start) = (p.to, now - DURATION);
         }
+    }
+
+    /// Whether `key` is pressed (down, or easing there).
+    pub(crate) fn pressed(&self, key: NodeKey) -> bool {
+        self.presses.get(&key).is_some_and(|p| p.to == 1.)
     }
 
     /// The press's progress on `key` now; 0 when none.

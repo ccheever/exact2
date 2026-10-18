@@ -218,7 +218,10 @@ impl super::Painter {
         // `ContainerColor`, not the token's `onSurface` at 4 %), and the
         // indicator `onSurface` at 38 %.
         self.backend.fill(&shape, look::role("Field", dark), ts);
-        let layer = match (off, self.feedback) {
+        let layer = match (
+            off,
+            (self.feedback.0, self.presses(node.id).then_some(node.id)),
+        ) {
             (true, _) => 0.0,
             (_, (_, Some(id))) if opens && id == node.id => opacity(metric::STATE_PRESSED_OPACITY),
             (_, (Some(id), _)) if id == node.id => opacity(metric::STATE_HOVER_OPACITY),

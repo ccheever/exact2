@@ -965,9 +965,10 @@ The tool drives no input into an app; a command changes only what `prefer` would
     `unsupported` with `what: "hold"` and that `revision` (iOS for `hover`). A build that can says
     `hold` among its `capabilities`. `plan` is the plan digest the site addresses, when the server
     knows it: a build running another plan (one installed since) takes the frame as nothing, unsaid,
-    and the server's replay after the status that names the new plan corresponds it. A host's new
-    generation takes the hold again itself under the same plan, unsaid; a frame that comes while it
-    swaps waits for it, and a clear always applies. A revision a host ended itself is not taken again
+    and the server's replay after the status that names the new plan corresponds it (Linux says
+    `planDigest` in its registration and `status` for it). A host's new generation takes the hold
+    again itself under the same plan, unsaid; a frame that comes while it swaps waits for it, and a
+    clear always applies. A revision a host ended itself is not taken again
     when its frame is resent; a lower revision is a new server's.
 - **Holds at the server** (*1.11*). `{method: "hold", client, build, site, instance, state}`
   (`state` null to let it go) needs write scope and a present client, and names a registered
