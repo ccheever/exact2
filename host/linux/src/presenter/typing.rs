@@ -159,11 +159,10 @@ impl<D: DataSource> Presenter<D> {
                 if let Some(e) = self.apply_field_edit(target, next, caret, bound, now, edit) {
                     return Err(e);
                 }
-            } else {
+            } else if caret != self.field_selection(target) {
                 self.mark_field(target, &value, caret, false);
             }
         }
-
         let value = self.field_text(target);
         let mut s = format!("{{\"typed\":{target},\"value\":");
         // A password's value is never agent output (#134).

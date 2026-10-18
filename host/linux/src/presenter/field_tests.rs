@@ -872,6 +872,45 @@ fn the_agents_fitted_insertion_matches_chromes_value_events_and_caret() {
 }
 
 #[test]
+fn a_rejected_insertion_preserves_an_unchanged_selection_commands_mark() {
+    let source = r#"component App
+  state picks = 0
+  action selected(e: InputEvent)
+    picks = picks + 1
+  action collapse
+    setSelectionRange("editor", 0, 0)
+  view
+    column
+      input id="editor" testId="editor" maxlength=0 select=selected
+      button "Collapse" testId="collapse" press=collapse
+      text `${picks}` testId="picks"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (400., 600.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.run_commands(<()>::default);
+    let editor = id(&p, "editor");
+    let reply = crate::agent::handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{editor},"text":"x"}}"#),
+    );
+    assert!(!reply.contains("\"error\""), "{reply}");
+    assert_eq!(p.field_text(editor), "");
+    assert_eq!(p.field_selection(editor), FieldSelection::caret(0));
+    assert_eq!(text(&p, "picks"), "0");
+    p.tap(id(&p, "collapse")).unwrap();
+    p.run_commands(<()>::default);
+    assert_eq!(text(&p, "picks"), "0");
+}
+
+#[test]
 fn an_insertion_fits_the_room_the_replaced_selection_leaves() {
     let range = |start, end| FieldSelection {
         start,
