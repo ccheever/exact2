@@ -3,6 +3,7 @@
 //! plan boots, and every other test of this host holds the look of a process
 //! that said none, which is Android's reader's. One test, so nothing here
 //! reads a colour or a metric while the switch is moving.
+mod fields;
 mod tabs;
 
 use exact_kernel::ViewId;
@@ -195,6 +196,7 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     );
     std::env::set_var("EXACT_FONT", "DejaVu Sans");
     exact_linux::app::show_neutral_look();
+    fields::select_and_date_focus();
     invalid_non_fields_keep_their_accent_ring();
     disabled_glass_and_invalid_fields_follow_the_neutral_look();
     let plan = contract::compile(APP).unwrap();
