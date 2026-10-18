@@ -1891,8 +1891,8 @@ progress control takes no children; `aria-label` names it.
 
 ### Widget development gallery
 
-A development Apple build with `widgets` has **Widgets…** in its dev menu
-(Develop on macOS). It shows every declared family in full colour, accented and
+A development Apple build with `widgets`, made with `--widget-gallery` or
+`EXACT_WIDGET_GALLERY=1`, has **Widgets…** in its dev menu (Develop on macOS). It shows every declared family in full colour, accented and
 vibrant modes, light and dark, at large and XXXL text sizes. It uses the entry's
 headless plan and the extension's snapshot driver. In-process containers and
 mode presentation are stand-ins; archive fidelity needs the real extension.
@@ -1901,7 +1901,11 @@ mode presentation are stand-ins; archive fidelity needs the real extension.
 |---|---|
 | `bun scripts/agent.mjs ios widget next-trains --family systemMedium --mode accented --scheme dark --size xxxl tree "screenshot target/widget.png" state` | Snapshot tree, the entry alone, and its props |
 | `bun scripts/agent.mjs macos widget next-trains tree state` | First declared family, full colour, light, large text |
+| `bun scripts/agent.mjs ios widget next-trains --epoch 2026-08-28T09:05:00Z "clock +600000" tree state` | Refresh and render at the app’s advanced clock |
 
 An immediate refresh answer supplies its first timeline entry. Pending, empty
-or unavailable data keeps the preview; `state` reports which. No gallery code
-or metadata is included in a production build.
+or unavailable data keeps the preview; `state` reports which. `--props <json>`
+replaces the preview props for this read and takes precedence over refresh. Widget
+reads accept only `tree`, `screenshot <png>`, `state` and the app’s `clock`; film,
+window, compare and `--scale` options are refused. Ordinary builds name the
+`--widget-gallery` rebuild. Production builds include no gallery code.

@@ -2,7 +2,7 @@
 import { resolve } from 'node:path';
 import { mkdirSync, readdirSync, existsSync, writeFileSync, readFileSync, copyFileSync, cpSync, rmSync, renameSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { plistFile } from './assets.mjs';
+import { plistFile, wrapFramework } from './assets.mjs';
 import { assertCapabilityFrameworks } from './link.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname), pkg = resolve(root, 'host/apple');
 export const widgetEntries = app => app.manifest.widgets ?? [];
@@ -72,6 +72,11 @@ export function packageWidgets({ app, bundle, shared, directory, sdk, triple, de
   const runtimeInfo = resolve(bundle, 'Frameworks/ExactCore.framework/Info.plist');
   const runtime = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', runtimeInfo]).stdout);
   writeFileSync(runtimeInfo, plistFile({ ...runtime, ...versions }));
+  const frameworks = resolve(bundle, 'Frameworks'), reload = 'libexact_widget_reload.dylib';
+  runApple('xcrun', ['--sdk', device ? 'iphoneos' : 'iphonesimulator', 'swiftc', '-parse-as-library', '-emit-library', '-O',
+    '-D', 'EXACT_WIDGET_RELOAD', '-module-name', 'ExactWidgetReload', '-target', triple, '-sdk', sdk,
+    '-module-cache-path', resolve(directory, 'cache'), resolve(pkg, 'Sources/ExactCore/WidgetContainer.swift'), '-o', resolve(frameworks, reload)]);
+  wrapFramework(frameworks, reload, 'ExactWidgetReload', app, device ? 'iPhoneOS' : 'iPhoneSimulator');
   const entries = widgetEntries(app), names = entries.map((_, i) => `Entry${i}`);
   const human = kind => kind.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   const generated = entries.map((entry, i) => `struct ${names[i]}: Widget {

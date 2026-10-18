@@ -52,7 +52,7 @@ let core: [Target] = [
         name: "ExactCore",
         dependencies: ["CExact"],
         path: "Sources/ExactCore",
-        swiftSettings: [.unsafeFlags(["-application-extension"])] + (widgetCore ? [.define("EXACT_WIDGETS")] : []),
+        swiftSettings: [.unsafeFlags(["-application-extension"])],
         linkerSettings: (widgetCore ? [.unsafeFlags(["-Xlinker", "-force_load", "-Xlinker", libDir + "/lib" + libName + ".a"])] : [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName)]) + [.linkedLibrary("c++"), .linkedFramework("ImageIO")]
     ),
     // The snapshot driver (LLP 1126 D4, D5): SwiftUI over a headless

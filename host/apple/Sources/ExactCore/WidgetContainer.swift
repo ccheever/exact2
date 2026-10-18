@@ -1,9 +1,11 @@
 // @ref LLP 1126 D8 — the app publishes, an extension pins and only reads.
 import Foundation
-import CommonCrypto
-#if EXACT_WIDGETS
+#if EXACT_WIDGET_RELOAD
 import WidgetKit
-#endif
+@_cdecl("exact_widget_reload")
+public func exactWidgetReload() { WidgetCenter.shared.reloadAllTimelines() }
+#else
+import CommonCrypto
 
 public enum WidgetContainer {
     public static var appID: String? { Bundle.main.object(forInfoDictionaryKey: "ExactAppIdentifier") as? String }
@@ -44,11 +46,20 @@ public enum WidgetContainer {
         publisher.async {
             do {
                 let changed = try publish(assets)
-                #if EXACT_WIDGETS
-                if changed { WidgetCenter.shared.reloadAllTimelines() }
-                #endif
+                if changed { try reloadTimelines() }
             } catch { FileHandle.standardError.write(Data("widget generation: \(error)\n".utf8)) }
         }
+    }
+    // Publishing is the first use of WidgetKit. Its reload API stays in a
+    // demand-loaded artifact so the shared runtime brings no SwiftUI to launch.
+    private static let reloader: (@convention(c) () -> Void)? = {
+        guard let path = Bundle.main.privateFrameworksURL?.appendingPathComponent("ExactWidgetReload.framework/ExactWidgetReload").path,
+              let library = dlopen(path, RTLD_NOW | RTLD_LOCAL), let symbol = dlsym(library, "exact_widget_reload") else { return nil }
+        return unsafeBitCast(symbol, to: (@convention(c) () -> Void).self)
+    }()
+    private static func reloadTimelines() throws {
+        guard let reloader else { throw HeadlessSession.Failure(description: "widget reload artifact is unavailable") }
+        reloader()
     }
     package static func publish(_ assets: AssetResolver) throws -> Bool {
         guard let root, let kinds = Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") as? [String], !kinds.isEmpty else { return false }
@@ -86,3 +97,5 @@ public enum WidgetContainer {
         return true
     }
 }
+
+#endif
