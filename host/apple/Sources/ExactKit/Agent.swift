@@ -312,9 +312,7 @@ public final class Agent {
             nativeSections["contentRegion"] = session.regions.diagnostics
             nativeSections["readerParagraphs"] = session.text.readerParagraphs.values.map(\.diagnostics)
             #endif
-            let world = session.canvases.worlds(["op": "state"])
-            nativeSections = session.canvases.restoreReply(nativeSections)
-            if !world.isEmpty { nativeSections["world"] = world }
+            nativeSections = session.canvases.decorate(req, nativeSections)
             // A session that plays fills in its output (LLP 1096 D10); under the agent none plays.
             if !ExactEnv.agentMode, let output = try? JSONSerialization.data(withJSONObject: session.sound.state) { reply = reply.replacingOccurrences(of: "\"output\":\"agent\"", with: "\"output\":" + String(decoding: output, as: UTF8.self)) }
             if reply.hasSuffix("}"), !reply.hasPrefix("{\"error\""),

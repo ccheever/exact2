@@ -285,7 +285,7 @@ function recoverDevice() {
     if (outcome.status !== "recovered") throw Object.assign(new Error(outcome.error ?? JSON.stringify(outcome)), {code:outcome.code});
     pendingCutover = {module, staged, outcome};
     for (const [old, entry] of staged) {
-      if (live(old.view) !== old) { module.gpu_destroy(entry.id); continue; }
+      if (live(old.view) !== old) { retainEdits(entry, module); module.gpu_destroy(entry.id); continue; }
       entry.values = old.values;
       detached.add(old);
       installCanvas(old, entry);
@@ -460,7 +460,7 @@ function ensure(entry) {
     if (!entry.restoreError && !entry.pendingRestore) delete entry.carry;
     restorePending(entry);
   } catch (error) {
-    if (entry.id) gpu.gpu_destroy(entry.id);
+    if (entry.id) { retainEdits(entry); gpu.gpu_destroy(entry.id); }
     entry.id = 0;
     throw error;
   }
@@ -1031,7 +1031,7 @@ async function swap(version) {
     }
     if (!next.gpu_flush()) throw new Error(`surfaces: flush: ${next.gpu_error()}`);
   } catch (error) {
-    for (const [,entry] of staged) if (entry.id) next.gpu_destroy(entry.id);
+    for (const [,entry] of staged) if (entry.id) { retainEdits(entry, next); next.gpu_destroy(entry.id); }
     next.gpu_unload(); exact.devError?.(String(error)); throw error;
   }
   if (raf !== null) { cancelAnimationFrame(raf); raf = null; }

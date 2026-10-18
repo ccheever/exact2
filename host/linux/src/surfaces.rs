@@ -1357,7 +1357,9 @@ impl<D: DataSource> Presenter<D> {
             .collect()
     }
     pub(crate) fn merge_surfaces(&mut self, line: &str, reply: String) -> String {
-        if self.surfaces.canvases.is_empty() && !self.surfaces.edits_admitted { return reply; }
+        if self.surfaces.canvases.is_empty() && !self.surfaces.edits_admitted {
+            return reply;
+        }
         let q: Value = serde_json::from_str(line).unwrap_or(Value::Null);
         if !matches!(
             q["op"].as_str(),

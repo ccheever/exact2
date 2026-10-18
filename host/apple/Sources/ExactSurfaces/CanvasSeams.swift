@@ -471,7 +471,6 @@ extension CanvasesHost {
             }
             world.append(contentsOf: restoreJournal); restoreJournal.removeAll()
             if !world.isEmpty { reply["world"] = world }
-            reply["sessionDevelopmentEdits"] = editsAdmitted
         default: break
         }
         return restoreReply(reply)

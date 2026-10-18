@@ -261,9 +261,9 @@ extension ExactSession {
         let host = "macos", device = Host.current().localizedName ?? "Mac"
         #endif
         let bundle = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
-        let worlds = (raw(agent("{\"op\":\"state\",\"trace_export\":true}")) as? [String: Any])?["world"] as? [[String: Any]] ?? []
+        let worlds = canvases.worlds(["op": "state", "trace_export": true])
         let events = worlds.flatMap { world -> [[String: Any]] in
-            let canvas = world["canvas"] as? Int ?? 0
+            let canvas = (world["canvas"] as? NSNumber)?.intValue ?? 0
             return (world["traceEvents"] as? [[String: Any]] ?? []).map { row in
                 var row = row; row["pid"] = canvas * 2 + (row["pid"] as? Int ?? 0); return row
             }
