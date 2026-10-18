@@ -159,7 +159,13 @@ package final class TextArea: UITextView {
     weak var owner: NodeView?
     /// The Markdown styler when `markup="markdown"` (LLP 1045 D5).
     package var markup: MarkdownEditing?
-    package var decorations: FieldDecorating?
+    private var decorationTap: DecorationTap?
+    package var decorations: FieldDecorating? {
+        didSet {
+            if decorations == nil { decorationTap?.detach(); decorationTap = nil }
+            else if decorationTap == nil { decorationTap = DecorationTap(self) }
+        }
+    }
 
     package override var selectedRange: NSRange {
         get { super.selectedRange }
@@ -169,11 +175,6 @@ package final class TextArea: UITextView {
     package override var accessibilityValue: String? {
         get { decorations?.projection?.value ?? super.accessibilityValue }
         set { super.accessibilityValue = newValue }
-    }
-
-    package override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if markedTextRange == nil, let touch = touches.first, decorations?.click(touch.location(in: self)) == true { return }
-        super.touchesEnded(touches, with: event)
     }
 
     package override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {

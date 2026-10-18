@@ -302,6 +302,59 @@ final class FieldSelectionIOSTests: XCTestCase {
         XCTAssertTrue(manager.canUndo)
     }
 
+    private final class DecorationTouch: UITouch {
+        let field: UITextView
+        let point: CGPoint
+        init(_ field: UITextView, _ point: CGPoint) { self.field = field; self.point = point; super.init() }
+        override var view: UIView? { field }
+        override var window: UIWindow? { field.window }
+        override func location(in view: UIView?) -> CGPoint { field.convert(point, to: view) }
+    }
+
+    func testDecorationTapAdmissionIsSideEffectFreeAndDetachesWithMetadata() throws {
+        ExactMarkdown.install()
+        let session = ExactApp.shared.makeSession(label:"decoration-tap-ios")
+        defer { window.isHidden = true; session.destroy() }
+        let p = presenter(session:session), source = "hello @alice"
+        let node = try XCTUnwrap(p.views[2]), field = try XCTUnwrap(node.textArea)
+        let metadata = "{\"value\":\"hello @alice\",\"spans\":[],\"blocks\":[],\"hidden\":[],\"atoms\":[{\"name\":\"pill\",\"start\":6,\"end\":12,\"label\":\"Alice\"}]}"
+        let ordinary = field.gestureRecognizers?.count ?? 0
+        func attach() {
+            p.apply(wireBatch([["op":"props","id":2,"set":["value":source,"decorations":metadata,"decorationStyles":"{\"pill\":[]}"]]]))
+        }
+        attach(); attach()
+        let tap = try XCTUnwrap(field.gestureRecognizers?.first { $0.delegate is DecorationTap })
+        XCTAssertEqual(field.gestureRecognizers?.count,ordinary + 1,"a metadata echo does not add another carrier")
+        let delegate = try XCTUnwrap(tap.delegate)
+        let frame = field.convert(try XCTUnwrap(p.rangeFrame(2,start:6,end:12)),from:p.viewport)
+        let point = CGPoint(x:frame.midX,y:frame.midY)
+        field.selectedRange = NSRange(location:0,length:0)
+        let selection = field.selectedRange
+        func admitted(_ point: CGPoint) -> Bool {
+            delegate.gestureRecognizer?(tap,shouldReceive:DecorationTouch(field,point)) ?? false
+        }
+        XCTAssertTrue(admitted(point))
+        XCTAssertEqual(field.selectedRange,selection,"admission must not select the atom")
+        XCTAssertEqual(field.text,source)
+        XCTAssertFalse(admitted(CGPoint(x:field.bounds.maxX - 2,y:field.bounds.maxY - 2)))
+        XCTAssertTrue(delegate.gestureRecognizer?(tap,shouldRecognizeSimultaneouslyWith:field.panGestureRecognizer) ?? false)
+        for key in ["disabled","inert","editable"] {
+            node.props[key] = key == "editable" ? "false" : "true"
+            XCTAssertFalse(admitted(point),key)
+            node.props.removeValue(forKey:key)
+        }
+        field.text = source + "!"
+        XCTAssertFalse(admitted(point),"a changed source cannot use stale hit geometry")
+        field.text = source
+        node.fieldDecorations?.restyle(node)
+        field.setMarkedText("に",selectedRange:NSRange(location:1,length:0))
+        XCTAssertFalse(admitted(point),"composition belongs to the native editor")
+        field.unmarkText()
+        p.apply(wireBatch([["op":"props","id":2,"set":[:],"clear":["decorations"]]]))
+        XCTAssertFalse(field.gestureRecognizers?.contains { $0 === tap } ?? false)
+        XCTAssertNil(node.fieldDecorations)
+    }
+
     func testRangeTextPreservesSelectionWithoutFocusOrUndo() throws {
         let p = presenter()
         let node = try XCTUnwrap(p.views[2])
