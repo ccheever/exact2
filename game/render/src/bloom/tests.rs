@@ -117,7 +117,8 @@ fn bright_matches_its_reference_at_edges_odd_sizes_and_nonfinite_inputs() {
         (257, 129),
     ]);
     let values = [
-        0x0000_u16, 0x3800, 0x3bff, 0x3c00, 0x3c01, 0x4000, 0x4c00, 0x7bfe, 0x7c00, 0xfc00, 0x7e00,
+        0x0000_u16, 0x3800, 0x3bff, 0x3c00, 0x3c01, 0x4000, 0x4c00, 0x7bfe, 0xc000, 0x7bff, 0x7c00,
+        0xfc00, 0x7e00,
     ];
     // Alternate bounded HDR and pathological HDR so bright neighbors cannot
     // hide threshold/soft-knee differences in every test image.
@@ -161,12 +162,16 @@ fn bright_matches_its_reference_at_edges_odd_sizes_and_nonfinite_inputs() {
         let actual_view = actual.create_view(&Default::default());
         let expected_view = expected.create_view(&Default::default());
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        for (view, pipeline) in [
-            (&actual_view, &pipelines.bright),
-            (&expected_view, &reference),
-        ] {
+        targets.bright(
+            &mut encoder,
+            &pipelines,
+            None,
+            (width, height),
+            &actual_view,
+        );
+        {
             let attachments = [Some(wgpu::RenderPassColorAttachment {
-                view,
+                view: &expected_view,
                 resolve_target: None,
                 depth_slice: None,
                 ops: wgpu::Operations {
@@ -178,7 +183,7 @@ fn bright_matches_its_reference_at_edges_odd_sizes_and_nonfinite_inputs() {
                 color_attachments: &attachments,
                 ..Default::default()
             });
-            pass.set_pipeline(pipeline);
+            pass.set_pipeline(&reference);
             pass.set_bind_group(0, &targets.source, &[0]);
             pass.draw(0..3, 0..1);
         }

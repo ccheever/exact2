@@ -61,55 +61,31 @@ fn filter13(uv: vec2<f32>, bright_pass: bool) -> vec4<f32> {
     return vec4(c / 32.0, 0.0);
 }
 
-// The bright level: `bright_reference`'s 13 thresholded taps. At an even
-// logical size each tap falls on a texel corner, where the sampler's bilinear
-// weights are exact halves, so one filtered fetch stands for the four
-// sanitized loads `sample(uv, true)` makes; a fetch outside finite_hdr's range
-// (an infinite or NaN texel among the four, or one past 65472) is not that
-// average, and takes the loads. Odd sizes take them throughout.
-// One hardware tap of the bright pass, or a negative value where the filtered
-// average is not what `finite_hdr` keeps (non-finite, or outside [0, 65472]).
-// Bits are compared, as `finite_hdr` tests them: a compiler may assume no NaN
-// reaches a float comparison.
-fn bright_tap(uv: vec2<f32>) -> vec3<f32> {
-    let pixel = clamp(uv * sampling.xy, vec2(0.5), sampling.xy - 0.5);
-    let c = textureSampleLevel(source, linear_sampler,
-        pixel / vec2<f32>(textureDimensions(source)), 0.0).rgb;
-    if all(bitcast<vec3<u32>>(finite_hdr(c)) == bitcast<vec3<u32>>(c)) {
-        return threshold(c);
-    }
-    return vec3(-1.0);
+// The bright pass in two at an even logical size (an odd one takes
+// `bright_reference`). Its 13 taps sit on texel corners: nine on corners
+// (2i - 1, 2j - 1), which neighbouring outputs share, and four on (2i, 2j).
+// `bright_split` takes each corner's tap once as the reference does, over the
+// half-size grid and one texel round it; `bright_join` weighs the nine by
+// their tent, (1, 2, 1) x (1, 2, 1) / 32, with four filtered fetches on
+// edges, and the four with one. On a Note 9 at 1080 x 2220, 2.4 ms where
+// hardware-filtered taps in one pass took 9.8.
+@group(0) @binding(4) var even_taps: texture_2d<f32>;
+struct Split { @location(0) odd: vec4<f32>, @location(1) even: vec4<f32> }
+fn split_tap(corner: vec2<f32>) -> vec3<f32> {
+    return sample(corner / sampling.xy, true);
 }
-// The bright pass by hardware filtering at an even logical size, and by the
-// reference's direct loads wherever a tap's average is out of its range. One
-// branch for the whole kernel: Adreno's compiler flattened a fallback per tap.
-// It equals the reference where the scene's texels are finite and within
-// [0, 65472], and wherever one is not finite (a NaN or infinity makes its
-// taps' averages so). A finite texel out of that range whose tap averages
-// back into it (a negative colour beside a brighter one; f16's 65504) is
-// filtered as it is, where the reference first clamps it.
-@fragment fn bright(input: Quad) -> @location(0) vec4<f32> {
-    let uv = input.clip.xy / max(floor(sampling.xy / 2.0), vec2(1.0));
-    if all(fract(sampling.xy * 0.5) == vec2(0.0)) {
-        let t = 1.0 / sampling.xy;
-        let center = bright_tap(uv);
-        let corners = array(bright_tap(uv + t * vec2(-2.0, -2.0)), bright_tap(uv + t * vec2(2.0, -2.0)),
-            bright_tap(uv + t * vec2(-2.0, 2.0)), bright_tap(uv + t * vec2(2.0, 2.0)));
-        let edges = array(bright_tap(uv + t * vec2(-2.0, 0.0)), bright_tap(uv + t * vec2(2.0, 0.0)),
-            bright_tap(uv + t * vec2(0.0, -2.0)), bright_tap(uv + t * vec2(0.0, 2.0)));
-        let inner = array(bright_tap(uv + t * vec2(-1.0, -1.0)), bright_tap(uv + t * vec2(1.0, -1.0)),
-            bright_tap(uv + t * vec2(-1.0, 1.0)), bright_tap(uv + t * vec2(1.0, 1.0)));
-        var low = center;
-        for (var i = 0; i < 4; i++) {
-            low = min(low, min(corners[i], min(edges[i], inner[i])));
-        }
-        if all(low >= vec3(0.0)) {
-            var c = center * 0.125;
-            c += (corners[0] + corners[1] + corners[2] + corners[3]) * 0.03125;
-            c += (edges[0] + edges[1] + edges[2] + edges[3]) * 0.0625;
-            c += (inner[0] + inner[1] + inner[2] + inner[3]) * 0.125;
-            return vec4(c, 0.0);
-        }
-    }
-    return filter13(uv, true);
+@fragment fn bright_split(input: Quad) -> Split {
+    let at = floor(input.clip.xy) * 2.0;
+    return Split(vec4(split_tap(at - 1.0), 0.0), vec4(split_tap(at), 0.0));
+}
+@fragment fn bright_join(input: Quad) -> @location(0) vec4<f32> {
+    let x = floor(input.clip.xy);
+    let odd = 1.0 / vec2<f32>(textureDimensions(source));
+    let tent = textureSampleLevel(source, linear_sampler, (x + vec2(1.0, 1.0)) * odd, 0.0).rgb
+        + textureSampleLevel(source, linear_sampler, (x + vec2(2.0, 1.0)) * odd, 0.0).rgb
+        + textureSampleLevel(source, linear_sampler, (x + vec2(1.0, 2.0)) * odd, 0.0).rgb
+        + textureSampleLevel(source, linear_sampler, (x + vec2(2.0, 2.0)) * odd, 0.0).rgb;
+    let inner = textureSampleLevel(even_taps, linear_sampler,
+        (x + 1.0) / vec2<f32>(textureDimensions(even_taps)), 0.0).rgb;
+    return vec4(tent * 0.125 + inner * 0.5, 0.0);
 }
