@@ -342,8 +342,31 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         focusedBySurfaceTouch = false
         return false
     }
-    var press = PressFeedback() // LLP 1061 D2: the feedback `pressed` drives
-    var pressPaint = PressPaint() // LLP 1061 D7: the author's pressed paint
+    /// The press's feedback (LLP 1061 D2) and the author's pressed paint
+    /// (D7), made at a node's first press: most nodes are never pressed, and
+    /// inline the two were 200 of a node's 1,336 bytes, a 1,536-byte block
+    /// where without them it takes one of 1,280.
+    private final class Pressing {
+        var feedback = PressFeedback()
+        var paint = PressPaint()
+    }
+    private var pressing: Pressing?
+    private var pressingMade: Pressing {
+        if let pressing { return pressing }
+        let made = Pressing()
+        pressing = made
+        return made
+    }
+    var press: PressFeedback {
+        get { pressing?.feedback ?? PressFeedback() }
+        set { if pressing != nil || !newValue.atRest { pressingMade.feedback = newValue } }
+        _modify { let made = pressingMade; yield &made.feedback }
+    }
+    var pressPaint: PressPaint {
+        get { pressing?.paint ?? PressPaint() }
+        set { if pressing != nil || !newValue.atRest { pressingMade.paint = newValue } }
+        _modify { let made = pressingMade; yield &made.paint }
+    }
     package var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.
     package var inert: Bool { presenter?.modals.inertBehind(self) == true || authoredInert }

@@ -40,6 +40,11 @@ struct PressPaint {
     var overlay: NodeStyle = [:]
     /// The pressed node whose colour this view shows, while it shows one.
     var inkedBy = WeakNodeView()
+    /// As a node that was never pressed holds it.
+    var atRest: Bool {
+        !down && at == 0 && !releaseHeld && ease.rests(at: 0) && depth == 0 && inked.isEmpty && rest.isEmpty
+            && overlay.isEmpty && inkedBy.view == nil
+    }
 }
 
 /// A view a press recoloured, held weakly: it may be destroyed or taken
