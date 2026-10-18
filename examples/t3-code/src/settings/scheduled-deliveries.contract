@@ -13,14 +13,12 @@ component WebhookDeliveriesDialog
   state refresh = 0
   action pick(id: string)
     select(`delivery=${encodeURIComponent(id)}&refresh=${refresh}`)
-  action reload
-    select(`delivery=&refresh=${refresh + 1}`)
-    refresh = refresh + 1
   action back
     if data.selected != ""
       pick("")
     else
-      reload()
+      select(`delivery=&refresh=${refresh + 1}`)
+      refresh = refresh + 1
   derive targets = (data.selected == "" ? data.items.map((item) => `webhook-delivery-${item.id}`) : []).concat(["webhook-deliveries-back", "webhook-deliveries-done"])
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)"

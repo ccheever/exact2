@@ -10,7 +10,7 @@ import { settingsCore } from '../../src/settings/settings-core-view';
 import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { scopeEnvironments, scopeProjectGroups } from '../../src/settings/settings-scope-sources';
 import { restCommand } from '../../src/settings/settings-rest-commands';
-import { archivedSettings, lastRunSummary } from '../../src/settings/settings-data';
+import { archivedSettings, lastRunSummary, storageSettings } from '../../src/settings/settings-data';
 import { groupDeviceHosts, scopedDeviceHostsView, deviceHostsCommand, hostChecks } from '../../src/device/settings-a-hosts';
 import { taskEnvironmentSummaries } from '../../src/settings/scheduled-view';
 import { toasts } from '../../src/shell/toast';
@@ -104,6 +104,22 @@ describe('settings scope across environments', () => {
     const count = client.writes.length + calls.length;
     await expect(restCommand(as(client), native, { read: async () => null, write: async () => {} }, 'storage', '', `scope=${encodeURIComponent('gone||')}&key=worktreeSettledAfterDays&value=0`)).rejects.toThrow('no longer available');
     expect(client.writes.length + calls.length).toBe(count);
+    const stale = await storageSettings(as(client), native, 'env-a', 'gone', true);
+    expect(stale.available).toBe(false);
+    expect(stale.error).toContain('checkout is no longer available');
+  });
+  test('Storage keeps maintenance available on a supported machine while an older machine hides configuration', async () => {
+    const client = focused();
+    Object.assign(client, { scopes: [], generation: 1, shell: initialShell() });
+    client.config.environment = { ...(client.config.environment as Obj), capabilities: { ...capabilities, storageCleanup: false, storageCleanupRun: false } };
+    const key = 'http://127.0.0.1:16103\nenv-storage-maintenance';
+    fleet.entries.set(key, entry(key, 'env-storage-maintenance', 'Server', { storageCleanup: { logsAfterDays: 7 } }));
+    const page = await storageSettings(as(client), nativeFor(), '', '', true, '', '', '');
+    expect(page.available).toBe(false);
+    expect(page.notice).toContain('Update');
+    expect(page.cleanupAvailable).toBe(true);
+    expect(page.cleanupDisabled).toBe(true);
+    expect(page.cleanupDescription).not.toContain('Turn on a cleanup rule');
   });
   test('a single environment writes only there', async () => {
     const client = focused();
