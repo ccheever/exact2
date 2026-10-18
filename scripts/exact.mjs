@@ -1022,55 +1022,84 @@ const SECTION_LINES = 120;
 /** Whether a line opens or closes a code fence (CommonMark: an opening fence's info string has no backtick). */
 const fenced = (line, open) => open ? /^\s*```+\s*$/.test(line) : /^\s*```+[^`]*$/.test(line);
 
-/** Every heading of a Markdown file outside its fences: its level, text, first line and the line its section ends on. */
+/** A Markdown file's lines, each line's kind (`head`, `code` in a fence, `text`), and its headings with the line each
+ *  one's section ends on (`to`, the next heading of its level or above) and its own text ends on (`own`, the next heading). */
 function sections(text) {
-  const lines = text.split('\n'), heads = [];
+  const lines = text.split('\n'), kinds = [], heads = [];
   let fence = false;
   lines.forEach((line, i) => {
-    if (fenced(line, fence)) fence = !fence;
-    const m = !fence && /^(#{1,6})\s+(.*)/.exec(line);
+    const toggles = fenced(line, fence);
+    const m = !fence && !toggles && /^(#{1,6})\s+(.*)/.exec(line);
     if (m) heads.push({ level: m[1].length, title: m[2].trim(), from: i });
+    kinds.push(m ? 'head' : fence || toggles ? 'code' : 'text');
+    if (toggles) fence = !fence;
   });
-  for (const [i, h] of heads.entries()) h.to = heads.slice(i + 1).find(n => n.level <= h.level)?.from ?? lines.length;
-  return { lines, heads };
+  for (const [i, h] of heads.entries()) {
+    h.to = heads.slice(i + 1).find(n => n.level <= h.level)?.from ?? lines.length;
+    h.own = heads[i + 1]?.from ?? lines.length;
+  }
+  return { lines, kinds, heads };
 }
 
-/** `exact.mjs docs <words>`: the one section of the guides and recipes whose heading holds every word
- * (the shortest such heading), whole up to SECTION_LINES, with its path and line, so a lookup is one call;
- * the other matches by path and line. No heading holding them all: the paragraph that holds them. */
-export function docs(args, say = console.log) {
-  const words = args.map(w => w.toLowerCase());
+const STOP = new Set(['a', 'an', 'and', 'by', 'for', 'in', 'it', 'its', 'of', 'on', 'or', 'the', 'to', 'you']);
+
+/** Words as whole words, one after another by spaces or hyphens, a plural `s` allowed: `logs` is not in "catalogs";
+ *  `-exact-exit-animation` holds `exit`, and `exit animation` together. */
+const wholeWords = (...words) => new RegExp(`(?<![a-z0-9_])${words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s-]+')}s?(?![a-z0-9_])`, 'gi');
+
+/** A line's weighted mentions of a word: code (in a fence or backticks) defines it, prose, or a part of a hyphenated
+ *  name (`syntax-call-cycle` for `call`), mentions it. */
+function mentions(line, kind, re) {
+  let n = 0;
+  for (const m of line.matchAll(re)) {
+    const code = kind === 'code' || line.slice(0, m.index).split('`').length % 2 === 0;
+    const part = line[m.index - 1] === '-' || line[m.index + m[0].length] === '-';
+    n += code && !part ? 3 : 1;
+  }
+  return n;
+}
+
+/** `exact.mjs docs <words>`: the section of the guides and recipes that holds every word, as a whole word, most densely
+ * (mentions in headings and code weigh more; a recipe, a section on its topic, more again), with its path and line, so a
+ * lookup is one call. A section whose heading holds the words prints from its heading, its subsections too; any other
+ * from its first paragraph that mentions one. Up to SECTION_LINES lines; the next matches by path and line. */
+export function docs(words, say = console.log) {
   if (!words.length) return say(`docs: name words of a heading, as in: bun exact.mjs docs tabular numbers\nIt reads ${GUIDES.map(g => g.slice(5)).join(', ')} and recipes/.`);
+  // Each word, and several written together, which count again.
+  const res = words.map(w => wholeWords(w)), together = words.length > 1 ? wholeWords(...words) : null;
   const recipes = readdirSync(resolve(ROOT, 'docs/recipes')).filter(f => f.endsWith('.md')).sort().map(f => `docs/recipes/${f}`);
-  const files = [...GUIDES, ...recipes].map(path => ({ path, shown: relative(process.cwd(), resolve(ROOT, path)), ...sections(readFileSync(resolve(ROOT, path), 'utf8')) }));
-  const holds = text => words.every(w => text.toLowerCase().includes(w));
+  const units = [];
+  for (const path of [...GUIDES, ...recipes]) {
+    const f = { path, shown: relative(process.cwd(), resolve(ROOT, path)), ...sections(readFileSync(resolve(ROOT, path), 'utf8')) };
+    for (const h of f.heads) {
+      const counts = res.map(re => { let n = 0; for (let i = h.from; i < h.own; i++) n += mentions(f.lines[i], f.kinds[i], re); return n; });
+      if (counts.some(n => n === 0)) continue;
+      // A heading is on the words when they are half its own words or more ("Tabular numbers", "Recipe: motion"), not
+      // when it only says one ("Before you call it done").
+      const own = h.title.replace(/^Recipe:/, '').toLowerCase().match(/[a-z0-9_-]+/g)?.filter(w => !STOP.has(w)) ?? [];
+      const titled = res.every(re => h.title.match(re)) && words.length * 2 >= own.length;
+      let joined = 0;
+      if (together) for (let i = h.from; i < h.own; i++) joined += mentions(f.lines[i], f.kinds[i], together);
+      const density = (counts.reduce((a, b) => a + b, 0) + 2 * joined) / (h.own - h.from + 8);
+      units.push({ f, h, titled, score: density * (path.includes('/recipes/') ? 1.5 : 1) * (titled ? 3 : 1) });
+    }
+  }
+  if (!units.length) return say(`docs: no section of the guides holds ${words.map(w => `"${w}"`).join(' and ')} as words; try fewer, or bun exact.mjs contract vocab <name>`);
+  units.sort((a, b) => b.score - a.score);
   const at = (f, line) => `${f.shown}:${line + 1}`;
-  const heads = files.flatMap(f => f.heads.filter(h => holds(h.title)).map(h => ({ f, h })));
-  heads.sort((a, b) => (a.h.title.toLowerCase() !== words.join(' ')) - (b.h.title.toLowerCase() !== words.join(' ')) || a.h.title.length - b.h.title.length);
-  const others = list => list.length ? `\nAlso: ${list.slice(0, 8).join(' · ')}${list.length > 8 ? ` · ${list.length - 8} more` : ''}` : '';
-  if (heads.length) {
-    const [{ f, h }] = heads, end = Math.min(h.to, h.from + SECTION_LINES);
-    const cut = h.to > end ? `\n… ${h.to - end} more lines to ${at(f, h.to - 1)}; below: ${f.heads.filter(s => s.from >= end && s.from < h.to && s.level === h.level + 1).map(s => `${s.title} (${s.from + 1})`).join(' · ') || 'no subheading'}` : '';
-    return say(`${at(f, h.from)}\n${f.lines.slice(h.from, end).join('\n').trimEnd()}${cut}${others(heads.slice(1).map(({ f, h }) => `${at(f, h.from)} ${h.title}`))}`);
+  const [{ f, h, titled }] = units;
+  let from = h.from, end = Math.min(h.to, h.from + SECTION_LINES), where = '';
+  if (!titled) {
+    // The paragraph or list item (outside a fence: from the blank line before it) where a word is first mentioned.
+    from = f.lines.findIndex((line, i) => i > h.from && i < h.own && res.some(re => mentions(line, f.kinds[i], re)));
+    const starts = i => f.kinds[i] === 'text' && /^\s*([-*]|\d+\.)\s/.test(f.lines[i]);
+    while (from - 1 > h.from && !starts(from) && !(f.lines[from - 1].trim() === '' && f.kinds[from - 1] === 'text')) from--;
+    end = Math.min(h.own, from + SECTION_LINES);
+    where = `, under "${h.title}"`;
   }
-  // Paragraphs (blank-line separated, a fence kept whole) holding every word, most mentions first.
-  const hits = [];
-  for (const f of files) {
-    let start = 0, fence = false;
-    f.lines.forEach((line, i) => {
-      if (fenced(line, fence)) fence = !fence;
-      const last = i === f.lines.length - 1;
-      if ((!fence && line.trim() === '') || last) {
-        const text = f.lines.slice(start, i + 1).join('\n');
-        if (holds(text)) hits.push({ f, from: start, to: i, count: words.reduce((n, w) => n + text.toLowerCase().split(w).length - 1, 0), head: f.heads.filter(h => h.from <= start).at(-1)?.title ?? '' });
-        start = i + 1;
-      }
-    });
-  }
-  if (!hits.length) return say(`docs: no heading or paragraph of the guides holds ${words.map(w => `"${w}"`).join(' and ')}; try fewer words, or bun exact.mjs contract vocab <name>`);
-  hits.sort((a, b) => b.count - a.count);
-  const [best] = hits;
-  return say(`${at(best.f, best.from)}, under "${best.head}" (no heading holds ${words.join(' ')})\n${best.f.lines.slice(best.from, best.to + 1).join('\n').trim()}${others(hits.slice(1).map(x => `${at(x.f, x.from)} (${x.head})`))}`);
+  const cut = end < (titled ? h.to : h.own) ? `\n… to ${at(f, (titled ? h.to : h.own) - 1)}` : '';
+  const also = units.slice(1, 9).map(u => `${at(u.f, u.h.from)} ${u.h.title}`);
+  say(`${at(f, from)}${where}\n${f.lines.slice(from, end).join('\n').trimEnd()}${cut}${also.length ? `\nAlso: ${also.join(' · ')}` : ''}`);
 }
 
 async function main(argv) {
@@ -1093,7 +1122,8 @@ async function main(argv) {
   if (verb === 'tamber') return process.exit(contract(['tamber', ...argv.slice(1)]));
   if (verb === 'hatch') return hatch(guardFlags('hatch', argv.slice(1)));
   if (verb === 'pattern') return pattern(guardFlags('pattern', argv.slice(1)));
-  if (verb === 'docs') return docs(guardFlags('docs', argv.slice(1)));
+  // Words, never flags: a CSS name (`-exact-exit-animation`) is one, and --help was answered above.
+  if (verb === 'docs') return docs(argv.slice(1));
   if (verb === 'new') {
     // Flags may come before the path: `exact new --game ./my-game`.
     const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), port = args.indexOf('--port'), without = args.indexOf('--without');

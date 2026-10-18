@@ -45,21 +45,21 @@ component App
 - **What animates:** translate, scale, rotate, opacity, colours, `box-shadow`, SVG geometry and
   a numeric `height`. A layout property (`width`, `margin`, `gap`, `top`) is refused, naming
   `-exact-layout-transition`. A native `button` animates only opacity, translate, scale, rotate.
-- **`-exact-spring(stiffness, damping, mass)`** is a transition's timing, with no duration
-  (none: 100, 10, 1); an `animation` refuses it.
-- **Keyframes** take literals or the app's own `fn` on constants. `animation` is CSS's
-  shorthand, or its longhands.
+- **`-exact-spring(stiffness, damping, mass)`** is a transition's timing, with no duration;
+  an `animation` refuses it.
+- **Keyframes** take literals or the app's own `fn` on constants.
 - **Exit:** `-exact-exit-animation` names keyframes and must end (`infinite` is refused). It
   plays when an `if` arm turns false or a `for` row leaves: the node leaves layout at once,
   inert, and the rest move by their layout transition. Not inside a screen being popped,
   nor on Linux.
 - **Layout transition** is a transition without a property. It moves the box and resizes its
   surface (background, border, shadow); children jump to their place, unscaled. With
-  `sharedElement=` a node flies from the old one's place (`apps/shared-elements`).
+  `sharedElement=` a node flies from the old one's place on iOS, macOS and the web, not Linux.
 - **One after another:** delays (`"a 200ms both, b 300ms 200ms both"`, the stagger above by
   `i`). A state change when it ends is a gated task's `after(ms, action)`. A `sequence`
-  plays sounds and haptics on a beat; it is not motion.
-- **Reduced motion is the app's choice**, read from `exactViewport()` as above; drive it with
-  `prefer prefers-reduced-motion reduce`.
+  is sound and haptics, not motion.
+- **Reduced motion:** transitions and keyframes run unless the app gates them on
+  `exactViewport()`, as above (a shared-element flight on iOS and macOS lands at once); drive it
+  with `prefer prefers-reduced-motion reduce`.
 - **Check it:** `clock settle` ends the motion; `screenshot .exact/m.png over 600 every 50`
-  films it as a contact sheet (`.apng` to play).
+  films it (`.apng` to play).

@@ -63,8 +63,8 @@ export const answer: Answer = (source, args, store, storage, native) =>
   under the agent.
 - **Launch arguments:** Exact passes none. Launched by hand, `xcrun simctl launch <udid>
   <bundle id> -AutoPlay 1` puts each `-Name value` in `UserDefaults`, as read above.
-- **Printing:** `print` and `NSLog` appear in `agent ios logs` (under `host`) and in `xcrun
-  simctl launch --console`.
+- **Printing:** `print` (stdout) appears in `agent ios logs` (under `host`) and in `xcrun
+  simctl launch --console`; `NSLog` does not.
 - **Exiting:** iOS has no quit. `exit(0)` ends the process without waiting for the app's
   writes: keep it to a measurement hook, after `fflush(stdout)`.
 - **A Swift edit rebuilds** (`bun exact.mjs ios`); views from the same module are

@@ -759,3 +759,32 @@ test('contract build regenerates app.contract.d.ts when a signature changed, and
   assert.deepEqual({ ...error, message: undefined }, { id: 'typescript-TS2322', severity: 'error', message: undefined, file: 'app.ts', line: 1, col: 14, end_col: 14, related: [] });
   assert.match(error.message, /not assignable to type 'number'/);
 }), 600_000); // The first call may compile the compiler.
+
+// `exact.mjs docs <words>`: the section that holds the words as whole words, most densely, first; printed from its
+// heading when the heading is on the words, else from the paragraph that mentions them. A word may start with `-`.
+test('docs prints the section on its words first, matching whole words', () => {
+  const root = resolve(import.meta.dir, '..');
+  const first = (...words) => {
+    const r = spawnSync(process.execPath, [resolve(root, 'scripts/exact.mjs'), 'docs', ...words], { cwd: root, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    const [where, ...text] = r.stdout.split('\n');
+    return { where, text: text.slice(0, 12).join('\n') };
+  };
+  for (const [words, file, shows] of [
+    [['exit', 'animation'], 'docs/recipes/motion.md', /-exact-exit-animation/],
+    [['-exact-exit-animation'], 'docs/recipes/motion.md', /-exact-exit-animation/],
+    [['call'], 'docs/recipes/native-module.md', /func call/],
+    [['later'], 'docs/recipes/native-module.md', /func later/],
+    [['screenshot'], 'docs/recipes/ios-driving.md', /screenshot\s+\.exact\/x\.png compare/],
+    [['scheme', 'fixed'], 'docs/recipes/theme.md', /scheme=fixed/],
+    [['tabular', 'numbers'], 'docs/contract-for-agents.md', /^### Tabular numbers/],
+  ]) {
+    const { where, text } = first(...words);
+    assert.ok(where.startsWith(`${file}:`), `docs ${words.join(' ')}: ${where}`);
+    assert.match(text, shows, `docs ${words.join(' ')} prints from the lines that hold them:\n${text}`);
+  }
+  // A whole word: `logs` is the driver's op, not "catalogs".
+  const logs = first('logs');
+  assert.match(logs.text, /`logs`/);
+  assert.doesNotMatch(logs.text, /catalogs/);
+});
