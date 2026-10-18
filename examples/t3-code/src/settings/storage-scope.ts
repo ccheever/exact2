@@ -3,7 +3,7 @@
 import type { T3Client } from '../client/client';
 import { obj, str, type Obj, type Json } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
-import { resolveScope, serverContext, settingPlan } from './settings-core';
+import { resolveScope, settingPlan } from './settings-core';
 import { fleet } from '../connections/settings-b-fleet';
 import { persistScopedSettingsPatch, scopedPlanNotice } from './scoped-settings-plan';
 import { postScopedNotice, scopedWriter } from './settings-scope-sources';
@@ -28,7 +28,6 @@ export async function scopedStorageCommand(client: T3Client, native: Native, op:
   const key = str(input.key), raw = str(input.value);
   if ((key === 'worktreeSettledAfterDays' && !capability('settledWorktreeCleanup')) || (key === 'worktreesDirectory' && !capability('worktreesDirectory'))) throw new ClientError('Update the selected environments to change this storage setting.');
   const settings = selected.some(environment => environment.environmentId === client.environmentId && !environment.fleetKey) ? await client.settingsCoreRequest(native, 'server.getSettings', {}) : undefined;
-  const context = serverContext(client, scope, new Map(), settings);
   let name = 'storageCleanup', value: Json, clear = false;
   if (project) {
     name = 'worktreeCleanup';
@@ -36,7 +35,6 @@ export async function scopedStorageCommand(client: T3Client, native: Native, op:
       if (!['inherit', 'off', 'custom'].includes(raw)) throw new ClientError('Unsupported worktree cleanup mode.');
       clear = raw === 'inherit'; value = raw === 'off' ? { mode: 'off' } : { mode: 'custom', rules: {} };
     } else {
-      if (context.targets.some(target => obj(obj(obj(target.settings.projectSettingsOverrides)[target.projectId ?? ""]).worktreeCleanup).mode !== 'custom')) throw new ClientError('Choose Custom before changing project cleanup rules.');
       const checked = validate({}, '', key, raw);
       if (key === 'worktreesDirectory' || !key.startsWith('worktree')) throw new ClientError('This storage setting belongs to the environment.');
       value = { mode: 'custom', rules: obj(checked.storageCleanup) };
